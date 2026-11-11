@@ -71,7 +71,7 @@ class ResearchLineTests(unittest.TestCase):
                 self.assertEqual(self.open_code(line), "LINE_UNKNOWN")
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM research_line"), [(3,)])
 
-    def test_listing_all_lines_is_pinned_read_only_and_includes_closed_lines(self):
+    def test_listing_lines_is_pinned_read_only_and_reads_closed_lines_only_when_asked(self):
         from cli import main
         empty = lines.list_lines(self.profile)
         self.assertEqual(empty["lines"], [])
@@ -80,7 +80,9 @@ class ResearchLineTests(unittest.TestCase):
         second = self.select(market=market(commit="p" * 32), slug="ema-wider")
         lines.close_line(self.profile, first["line"], b"historical findings retained", MARKET_DAYS)
         head = db.head_commit(self.conn)
-        found = lines.list_lines(self.profile)
+        self.assertEqual([item["name"] for item in lines.list_lines(self.profile)["lines"]], [second["line"]],
+                         "L11: the open lines by default")
+        found = lines.list_lines(self.profile, every=True)
         self.assertIn(("line", "list"), main.READS)
         self.assertEqual(found["ledger_commit"], head)
         self.assertEqual([(item["name"], item["closed"]) for item in found["lines"]],
@@ -98,13 +100,14 @@ class ResearchLineTests(unittest.TestCase):
                                                         "l JOIN dolt_diff_line_target t USING (to_commit) WHERE "
                                                         "l.to_line_id = %s", (third["line_id"],)), [(1,)],
                          "a line and its targets land in one commit")
-        listed = {item["name"]: item["targets"] for item in lines.list_lines(self.profile)["lines"]}
+        listed = {item["name"]: item["targets"] for item in lines.list_lines(self.profile, every=True)["lines"]}
         self.assertEqual((listed["ema-targets"]["max_drawdown"], listed["ema-targets"]["annual_return"],
                           listed["ema-targets"]["source"]), (0.15, 0.2, "line"))
         self.assertIsNone(listed[second["line"]])
         lines.close_line(self.profile, third["line"], b"targets read", MARKET_DAYS)
         lines.close_line(self.profile, second["line"], b"all lines are now historical", MARKET_DAYS)
-        self.assertEqual([item["closed"] for item in lines.list_lines(self.profile)["lines"]], [True, True, True])
+        self.assertEqual([item["closed"] for item in lines.list_lines(self.profile, every=True)["lines"]], [True, True, True])
+        self.assertEqual(lines.list_lines(self.profile)["lines"], [])
 
     def test_the_development_period_is_the_last_four_complete_quarters_the_market_covers(self):
         for today, latest, period in ((date(2026, 11, 10), date(2026, 11, 9), (date(2025, 10, 1), date(2026, 10, 1))),

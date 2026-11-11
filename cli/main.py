@@ -1393,7 +1393,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "line's own; large with --full",
         "LINE_UNKNOWN (--line is no research line); UNKNOWN_REF (--at)"),
     ("line", "list"): (
-        "all research lines, their closings and targets at --at (reader); no market",
+        "the open research lines (with --all the closed ones too), their closings and targets at --at (reader); "
+        "no market",
         "nothing; never publishes",
         "ledger_commit, lines [{line_id, name, start, dev_start, dev_end, market_commit, created_at, closed, targets, "
         "versions}] oldest first; versions are the candidates its research graph draws, oldest first",
@@ -1420,8 +1421,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "targets {max_drawdown, annual_return, source} or null}], runs [{candidate, trial_id, group, lines (those "
         "the run belongs to), measures {annual_return, mark_max_drawdown, sharpe_365, sharpe_lo, "
         "plan_win_rate, cycles, daily_turnover} (values as `replay report` derives them), null_reasons (only "
-        "when a measure is null)}]. Every passed research run with economic evidence: ledger-wide, or with --line that "
-        "line's comparison table (`research status`). Ordered by trial ID, or by the one --by measure (drawdown "
+        "when a measure is null)}]. Every passed research run with economic evidence: of the open lines, or with --line "
+        "that line's comparison table (`research status`). Ordered by trial ID, or by the one --by measure (drawdown "
         "ascending, the others descending, nulls last). A listing by one measure, not the comparison table, a "
         "recommendation or a score: runs of different groups differ in window, instruments, configuration or image, "
         "so their order is no comparison; the first value is the best of runs_listed runs, which no ledger-wide "
@@ -1921,8 +1922,9 @@ def _parser() -> Parser:
     _op_id(command)
 
     line = verbs("line", "research lines: list, select, targets, history, close")
-    command = verb(line, "list", "list all historical and open research lines")
+    command = verb(line, "list", "list the open research lines")
     _ledger_option(command)
+    command.add_argument("--all", action="store_true", help="list the closed lines too")
     _at(command)
     command = verb(line, "select", "record the user's research line")
     command.epilog = ("One record per choice: a later change of start or market commit is a new line record, never "
@@ -2008,7 +2010,7 @@ def _parser() -> Parser:
     _at(command)
     command = verb(research, "runs", "every research run with its measures, by one measure")
     _ledger_option(command)
-    command.add_argument("--line", help="only that line's comparison table (default: the whole ledger)")
+    command.add_argument("--line", help="only that line's comparison table (default: the open lines' runs)")
     command.add_argument("--by", choices=RUN_MEASURES, help="order by this measure (default: by trial ID)")
     command.add_argument("--limit", type=_count, help="keep the first N runs (default: all)")
     _at(command)
@@ -2563,7 +2565,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                             args.op_id), 0
     if key == ("line", "list"):
         from report import graph
-        return graph.line_list(profile, args.at), 0
+        return graph.line_list(profile, args.at, args.all), 0
     if key == ("line", "select"):
         market = profiles.market(args.market)
         with db.connect(profile, "writer") as conn:

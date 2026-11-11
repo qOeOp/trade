@@ -414,17 +414,21 @@ def _headline(facts: Mapping, names) -> dict:
 
 
 def _passed_research_runs(conn: db.LedgerConnection, checker: Mapping, records: list,
-                          window: tuple[datetime, datetime] | None = None,
-                          universe_rule: object = None) -> tuple[list[dict], list[dict]]:
+                          window: tuple[datetime, datetime] | None = None, universe_rule: object = None,
+                          line_ids: Sequence[int] | None = None) -> tuple[list[dict], list[dict]]:
     """(with, without) economic evidence: every passed research run in trial order, as {candidate, trial_id,
     trade_start, trade_end, universe_rule} (`without` adds the reasons). With `window`, only runs of that trading
-    window and `universe_rule`: a line's comparison table. The one population the comparison table and
-    `research runs` read."""
+    window and `universe_rule`: a line's comparison table. With `line_ids`, only the runs of those lines. The one
+    population the comparison table and `research runs` read."""
     found, excluded, rows = [], [], []
+    on = "" if line_ids is None else f" AND t.line_id IN ({', '.join(['%s'] * len(line_ids))})"
+    if line_ids is not None and not line_ids:
+        return [], []
     for row in conn.dicts("SELECT r.trial_id, t.trade_start, t.trade_end, t.universe_rule, c.strategy_id, c.revision "
                           "FROM run r "
                           "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = "
-                          "t.source_sha256 WHERE t.purpose = 'research' AND r.status = 'passed' ORDER BY r.trial_id"):
+                          f"t.source_sha256 WHERE t.purpose = 'research' AND r.status = 'passed'{on} ORDER BY r.trial_id",
+                          tuple(line_ids or ())):
         if window is None or ((row["trade_start"], row["trade_end"]) == window and row["universe_rule"] == universe_rule):
             rows.append(row)
     loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows], series=False, listing=True)
@@ -525,8 +529,8 @@ def _identity_groups(found: list[dict], identities: Mapping[int, dict | None]) -
 
 def research_runs(ledger, at: str | None = None, line: str | None = None, by: str | None = None,
                   limit: int | None = None) -> dict:
-    """Every passed research run with economic evidence, ledger-wide or, with `line`, that line's comparison
-    table (the same population, _passed_research_runs), each with RUN_MEASURES as its single-run report derives
+    """Every passed research run with economic evidence of the open lines (L11) or, with `line`, that line's
+    comparison table (the same population, _passed_research_runs), each with RUN_MEASURES as its single-run report derives
     them, the lines it belongs to (ledger.line_trials) and an execution-identity group. Ordered by trial ID, or by
     the one measure `by` (one of RUN_MEASURES) names: drawdown ascending, the others descending, nulls last,
     ties by trial ID. A listing by one measure, not the comparison table, a recommendation or a score: runs of
@@ -541,16 +545,16 @@ def research_runs(ledger, at: str | None = None, line: str | None = None, by: st
         if line is not None:
             record = lines.read_line(conn, line)  # LINE_UNKNOWN for a bad name
             found, without = _passed_research_runs(conn, checker, records, _window(record), record["universe_rule"])
-        else:
-            found, without = _passed_research_runs(conn, checker, records)
+        else:  # L11: the open lines' runs
+            opened = [item["line_id"] for item in lines.lines(conn, open_only=True)]
+            found, without = _passed_research_runs(conn, checker, records, line_ids=opened)
         identities = _identities(conn, {row["trial_id"] for row in found})
         groups = _identity_groups(found, identities)
-        owners: dict[int, list[str]] = {}
-        line_ids: dict[str, int] = {}
-        for item in lines.lines(conn):
-            line_ids[item["name"]] = item["line_id"]
-            for trial_id in lines.line_trials(conn, item["line_id"])["trials"]:
-                owners.setdefault(trial_id, []).append(item["name"])
+        line_ids = {item["name"]: item["line_id"] for item in lines.lines(conn)}
+        owners: dict[int, list[str]] = {}  # the line a research run was bound on (ledger.line_trials)
+        for trial_id, name in conn.rows("SELECT t.trial_id, l.name FROM trial t JOIN research_line l ON l.line_id = "
+                                        "t.line_id WHERE t.purpose = 'research'"):
+            owners.setdefault(trial_id, []).append(name)
         listed = []
         facts = measures.runs_facts(conn, [row["trial_id"] for row in found])
         for row in found:

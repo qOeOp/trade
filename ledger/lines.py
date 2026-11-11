@@ -84,12 +84,14 @@ def open_line(conn: db.LedgerConnection, line: str | int | None = None) -> dict:
 LISTED = ("line_id", "name", "start", "dev_start", "dev_end", "market_commit", "created_at", "closed")
 
 
-def list_lines(profile: db.LedgerProfile, at: str | None = None) -> dict:
-    """All line declarations and their open/closed state at one pinned ledger commit; no market read."""
+def list_lines(profile: db.LedgerProfile, at: str | None = None, *, every: bool = False) -> dict:
+    """The open line declarations (L11), or with `every` the closed ones too, and their open/closed state at one
+    pinned ledger commit; no market read."""
     with db.read_as_of(profile, at) as conn:
         return {"ledger_commit": db.head_commit(conn),
                 "lines": [{**{key: line[key] for key in LISTED},
-                           "targets": line_targets.targets_for(conn, line["line_id"])} for line in lines(conn)]}
+                           "targets": line_targets.targets_for(conn, line["line_id"])}
+                          for line in lines(conn, open_only=not every)]}
 
 
 QUARTER_STARTS = (1, 4, 7, 10)

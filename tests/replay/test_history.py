@@ -14,7 +14,7 @@ from unittest.mock import patch
 from cli import main
 from ledger import admin, lines
 from replay import entry, history
-from report import history as report_history
+from report import history as report_history, status
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
 from tests.registration.world import RUNNER_ARGV
@@ -95,6 +95,12 @@ class HistoryRunTests(unittest.TestCase):
         with self.assertRaises(Refusal) as ended:
             history.run_history(world.profile, world.market, MARKET_COMMIT, line)
         self.assertEqual(ended.exception.code, "LINE_ENDED")
+        # L11: a closed line is read when named, never by default
+        self.assertEqual((lines.list_lines(world.profile)["lines"], status.research_runs(world.profile)["runs"],
+                          status.research_status(world.profile)["lines"]), ([], [], []))
+        self.assertEqual([item["trial_id"] for item in status.research_runs(world.profile, line=line)["runs"]],
+                         [passed["trial_id"]])
+        self.assertEqual(status.research_status(world.profile, line=line)["research_attempts"], 1)
 
     def test_a_grid_point_registered_before_the_closing_runs_no_more(self):
         """The first history trial fixed the candidates, so a grid point still unrun takes no research run."""

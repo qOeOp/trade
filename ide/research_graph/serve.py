@@ -162,7 +162,7 @@ class Product:
         return self.run("ledger", "service", "status", f"--ledger={self.ledger}")
 
     def lines(self, commit: str) -> dict:
-        return self.run("line", "list", f"--ledger={self.ledger}", f"--at={commit}")
+        return self.run("line", "list", "--all", f"--ledger={self.ledger}", f"--at={commit}")
 
     def graph(self, commit: str, line: str | None, since: str | None) -> dict:
         options = [f"--line={line}"] if line else []

@@ -82,10 +82,10 @@ def _candidate_rows(conn: db.LedgerConnection) -> list[dict]:
     return conn.dicts(f"SELECT {report_candidates.CANDIDATE_COLUMNS} FROM {report_candidates.CANDIDATES}")
 
 
-def line_list(profile, at: str | None = None) -> dict:
-    """`line list`: every line declaration (ledger.lines.list_lines), each with the versions its graph draws
-    (`versions`, oldest first), read at the same commit."""
-    listed = lines.list_lines(db.profile(profile), at)
+def line_list(profile, at: str | None = None, every: bool = False) -> dict:
+    """`line list`: the open line declarations, or with `every` all of them (ledger.lines.list_lines), each with the
+    versions its graph draws (`versions`, oldest first), read at the same commit."""
+    listed = lines.list_lines(db.profile(profile), at, every=every)
     with db.read_as_of(db.profile(profile), listed["ledger_commit"]) as conn, db.reusing_pinned_reads():
         rows, researched = _candidate_rows(conn), research_trials(conn)
         for item in listed["lines"]:
