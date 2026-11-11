@@ -13,7 +13,7 @@ Capital use is the context for drawdown and for the holding structure: read it f
   positions or derive capital use from the account report alone. When the run has no exposure
   readings, it cannot answer capital questions: say so and put it in the limitations.
 - Participation answers capacity questions, when size could be large against minute volume. Read
-  the run report's `capital.participation@1`, sealed from the engine's per-fill minute volumes
+  the run report's `capital.participation`, sealed from the engine's per-fill minute volumes
   and never recomputed. It gives each fill's quantity, whatever its order type, over its minute's
   LAST volume, weighted by count: the median, p95, p99 and maximum. It also gives `minute_max`, the
   most one contract filled in one minute over that minute's volume. Fills with no bar, on zero
