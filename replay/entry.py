@@ -26,7 +26,7 @@ import sys
 import tempfile
 import time
 
-from ledger import db, execution, metrics, problems, strategies, trials
+from ledger import db, execution, lines, metrics, problems, strategies, trials
 from ledger.coverage import FORMAT as COVERAGE_FORMAT
 from shared import paths
 from shared.errors import Refusal
@@ -370,14 +370,24 @@ def replay_unrecorded(market, at: str | None, source: bytes, entry_class: str, r
 
 # Explorations and prechecks
 
+def _check_window(ledger: db.LedgerProfile, market, at: str | None, line: str | None, runner_argv: list[str]) -> None:
+    """ledger.lines.check_replay_window for an explore or precheck replay, before anything is exported or written."""
+    window = registration_seams.runner_inputs(list(runner_argv))["window"]
+    source = registration_seams.current.market(market)
+    latest = source.latest_complete_day(source.resolve_commit(at))
+    with db.connect(ledger, "reader") as conn:
+        lines.check_replay_window(conn, line, window["trade_start"], window["end"], latest)
+
+
 def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Path, strategy_class: str, output: Path,
-            runtime: str | None, runner_argv: list[str]) -> dict:
-    """Replay an unpublished strategy file into a new temporary directory; the ledger keeps the trial,
-    its start receipt and its execution capture."""
+            runtime: str | None, runner_argv: list[str], line: str) -> dict:
+    """Replay an unpublished strategy file into a new temporary directory, trading inside the open `line`'s
+    development period; the ledger keeps the trial, its start receipt and its execution capture."""
     output = paths.temporary_path(output)
     if not isinstance(strategy_class, str) or not strategy_class.isidentifier():
         raise refuse("ENTRY_CLASS_INVALID", f"{strategy_class!r} is not one Python class name")
     _reserved(runner_argv)
+    _check_window(ledger, market, at, line, runner_argv)
     source = Path(strategy_file).read_bytes()
     source_sha256 = hashlib.sha256(source).hexdigest()
     identity = _resolve(runtime)
@@ -403,12 +413,15 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
 
 
 def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime: str | None, runner_argv: list[str],
-             output: Path) -> dict:
-    """A declared native precheck of a published candidate; nothing starts before its trial commits."""
+             output: Path, line: str | None = None) -> dict:
+    """A declared native precheck of a published candidate, trading inside `line`'s development period, or
+    without a line (a start candidate's) inside the one a line opened today would get; nothing starts before its
+    trial commits."""
     with db.connect(ledger, "reader") as conn:
         revision = strategies.read_candidate(conn, candidate)
     output = paths.temporary_path(output)
     _reserved(runner_argv)
+    _check_window(ledger, market, at, line, runner_argv)
     identity = _resolve(runtime)
     if not identity.get("build_revision"):
         raise refuse("RUNTIME_NOT_CI_BUILT", f"{identity['image_ref']} carries no build source revision label",

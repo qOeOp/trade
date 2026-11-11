@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, time
 import unittest
 
 from ledger import db, lines, strategies, trials
@@ -115,6 +115,35 @@ class ResearchLineTests(unittest.TestCase):
         line = self.select()
         self.assertEqual((line["line"], lines.read_line(self.conn, line["line_id"])["dev_start"]),
                          ("ema-trend", "2025-04-01"))
+
+    def test_explore_and_precheck_trade_only_inside_a_development_period(self):
+        """B5 (line-close-history-test 3.2, user 2026-11-11): a replay with a line trades inside that line's period;
+        one without (a start candidate's precheck) inside today's period and before any open line's forward segment."""
+        def ns(day: date) -> int:
+            return int(datetime.combine(day, time(), UTC).timestamp()) * 10**9
+
+        def check(line, first, end, today=date(2026, 11, 11)):
+            lines.check_replay_window(self.conn, line, ns(first), ns(end), date(2026, 11, 10), today=today)
+
+        def refused(*args, **kwargs) -> str:
+            with self.assertRaises(Refusal) as caught:
+                check(*args, **kwargs)
+            return caught.exception.code
+
+        august = self.select(today=date(2026, 8, 15), market=market(latest_complete_day=date(2026, 8, 14)))
+        self.assertEqual(lines.read_line(self.conn, august["line_id"])["dev_end"], "2026-07-01")
+        check("ema-trend", date(2025, 7, 1), date(2026, 7, 1))
+        self.assertEqual(refused("ema-trend", date(2026, 6, 1), date(2026, 7, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        # without a line: today's period is 2025-10-01 to 2026-10-01, but the open August line's forward segment
+        # starts at 2026-07-01 and inside it is refused
+        check(None, date(2026, 5, 1), date(2026, 7, 1))
+        self.assertEqual(refused(None, date(2026, 8, 1), date(2026, 9, 1)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        self.assertEqual(refused(None, date(2025, 9, 1), date(2025, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        lines.close_line(self.profile, "ema-trend", b"forward segment replayed at close")
+        check(None, date(2026, 8, 1), date(2026, 9, 1))  # a closed line's forward segment was replayed at its close
+        self.assertEqual(refused(None, date(2026, 9, 1), date(2026, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        self.assertEqual(refused("ema-trend", date(2025, 8, 1), date(2025, 9, 1)), "LINE_ENDED")
+        self.assertEqual(refused("none", date(2025, 8, 1), date(2025, 9, 1)), "LINE_UNKNOWN")
 
     def test_selection_refusals(self):
         self.assertEqual(self.code(start="start@9"), "START_NOT_FOUND")

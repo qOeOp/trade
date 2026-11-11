@@ -697,19 +697,19 @@ def validation_report(profile: db.LedgerProfile, registration_id: int, at: str |
 
 # replay
 
-def replay_explore(profile, market, at, strategy_file, strategy_class, output, runtime, runner_argv) -> dict:
+def replay_explore(profile, market, at, strategy_file, strategy_class, output, runtime, runner_argv, line) -> dict:
     from replay import entry
     found = entry.explore(profile, market, at, Path(strategy_file), strategy_class, Path(output), runtime,
-                          list(runner_argv))
+                          list(runner_argv), line)
     found["metrics_note"] = "source unverified: for orientation only, never evidence"
     found["next_actions"] = ["This source is now exposed by an exploration; derive and publish a new candidate to "
                              "register."]
     return found
 
 
-def replay_precheck(profile, market, at, candidate, runtime, runner_argv, output) -> dict:
+def replay_precheck(profile, market, at, candidate, runtime, runner_argv, output, line=None) -> dict:
     from replay import entry
-    return entry.precheck(profile, market, at, candidate, runtime, list(runner_argv), Path(output))
+    return entry.precheck(profile, market, at, candidate, runtime, list(runner_argv), Path(output), line)
 
 
 def replay_run(profile, market, at, candidate, runtime, runner_argv, registration, validation, output=None) -> dict:
@@ -1439,7 +1439,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "purpose, status (passed or invalid), problems, path, trial_id, image_ref, market, metrics (unverified), "
         "metrics_note, next_actions; exit 0 even when invalid",
         "ENTRY_CLASS_INVALID; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); RUNTIME_UNAVAILABLE; UNIVERSE_EMPTY; "
-        "OUT_OF_SAMPLE_RESERVED (the window overlaps an unbound validation registration of this source); "
+        "WINDOW_OUTSIDE_DEVELOPMENT (the trading window leaves --line's development period); LINE_UNKNOWN, "
+        "LINE_ENDED; OUT_OF_SAMPLE_RESERVED (the window overlaps an unbound validation registration of this source); "
         "RUNNER_OPTION_RESERVED"),
     ("replay", "precheck"): (
         "the candidate (reader); the market at --at, exported fresh; the runtime image",
@@ -1449,6 +1450,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "within_window_limit, note}; exit 1 unless passed",
         "BAD_REF, UNKNOWN_CANDIDATE; RUNTIME_NOT_CI_BUILT (no revision label); RUNTIME_CONTRACT_MISMATCH (the "
         "candidate's contract is not the image's); NOT_TEMPORARY_PATH, PATH_EXISTS; UNIVERSE_EMPTY; "
+        "WINDOW_OUTSIDE_DEVELOPMENT (outside --line's development period, or without --line outside the period a "
+        "line opened today would get or inside an open line's forward segment); LINE_UNKNOWN, LINE_ENDED; "
         "OUT_OF_SAMPLE_RESERVED"),
     ("replay", "run"): (
         "the candidate and the registration (writer, head); the market at --at, exported fresh; the runtime image; "
@@ -2021,6 +2024,8 @@ def _parser() -> Parser:
     _market_at(command)
     command.add_argument("--strategy-file", required=True, help="the draft strategy source file")
     command.add_argument("--strategy-class", required=True, help="its entry class name")
+    command.add_argument("--line", required=True, help="the open research line whose development period the "
+                                                       "trading window lies in")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command = runner(replay, "precheck", "the declared native precheck of a published candidate")
@@ -2037,6 +2042,9 @@ def _parser() -> Parser:
     command.add_argument("--at", required=True, help="market commit, or head for the newest day")
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
+    command.add_argument("--line", help="the open research line whose development period the trading window lies "
+                                        "in; without it (a start candidate's precheck), the period a line opened "
+                                        "today would get, before any open line's forward segment")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command = runner(replay, "run", "a sealed research or validation replay (runner arguments as registered)")
     command.epilog = textwrap.fill(
@@ -2511,11 +2519,11 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return validation_report(profile, args.registration_id, args.at), 0
     if key == ("replay", "explore"):
         found = replay_explore(profile, profiles.market(args.market), args.at, args.strategy_file, args.strategy_class,
-                               args.output, args.runtime, runner_argv)
+                               args.output, args.runtime, runner_argv, args.line)
         return found, 0
     if key == ("replay", "precheck"):
         found = replay_precheck(profile, profiles.market(args.market), args.at, args.candidate, args.runtime,
-                                runner_argv, args.output)
+                                runner_argv, args.output, args.line)
         return found, 0 if found["status"] == "passed" else 1
     if key == ("replay", "run"):
         found = replay_run(profile, profiles.market(args.market), args.at, args.candidate, args.runtime, runner_argv,

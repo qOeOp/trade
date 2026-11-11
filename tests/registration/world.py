@@ -66,6 +66,9 @@ class FakeMarket:
     def universe_rule(self, commit):
         return "pool-v1"
 
+    def latest_complete_day(self, commit):
+        return date(2026, 3, 31)
+
     def universe_month(self, commit):
         return list(self.commits[commit])
 

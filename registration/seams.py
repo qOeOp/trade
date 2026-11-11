@@ -155,6 +155,16 @@ class Market:
             raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {at!r} did not resolve ({exc.code})",
                          missing=(str(at),)) from exc
 
+    def latest_complete_day(self, commit: str):
+        """market.freshness's latest complete UTC day at `commit`."""
+        from market import store
+        from market.sources import MarketError
+        try:
+            return store.freshness(self.profile, ledger_db.check_ref(commit))["latest_complete_day"]
+        except MarketError as exc:
+            raise refuse("MARKET_COMMIT_UNRESOLVED", f"market commit {commit} has no complete day ({exc.code})",
+                         missing=(str(commit),)) from exc
+
     def universe_rule(self, commit: str) -> str:
         from market import universe
         return universe.rule_of(self._open(), ledger_db.check_ref(commit))

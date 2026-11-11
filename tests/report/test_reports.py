@@ -265,7 +265,8 @@ class ReportTests(unittest.TestCase):
         explored = entry.explore(self.profile, self.world.market, MARKET_COMMIT,
                                  self.world.strategy_file(b"from nautilus_trader.trading import Strategy\n\n\nclass "
                                                           b"Fixture(Strategy):\n    pass\n# forge\n", "forge.py"),
-                                 "Fixture", self.world.output("forge"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"])
+                                 "Fixture", self.world.output("forge"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"],
+                                 self.world.line["line"])
         directory = Path(explored["path"])
         fills = directory / "reports" / "fills.csv"
         fills.write_text(fills.read_text().replace(",100,", ",999999,"))
@@ -280,7 +281,8 @@ class ReportTests(unittest.TestCase):
         explored = entry.explore(self.profile, self.world.market, MARKET_COMMIT,
                                  self.world.strategy_file(b"from nautilus_trader.trading import Strategy\n\n\nclass "
                                                           b"Fixture(Strategy):\n    pass\n# draft\n", "draft.py"),
-                                 "Fixture", self.world.output("draft"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"])
+                                 "Fixture", self.world.output("draft"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"],
+                                 self.world.line["line"])
         found = explored["metrics"]
         self.assertTrue(found["exploration"])
         self.assertEqual(found["availability"]["unverified"], runs.UNVERIFIED)
@@ -296,7 +298,7 @@ class ReportTests(unittest.TestCase):
                                                               b"Fixture(Strategy):\n    pass\n# failed audit\n",
                                                               "failed.py"),
                                      "Fixture", self.world.output("failed-audit"), None,
-                                     RUNNER_ARGV + ["--symbols", "AAAUSDT"])
+                                     RUNNER_ARGV + ["--symbols", "AAAUSDT"], self.world.line["line"])
         finally:
             self.world.scenario = {}
         found = runs.directory_report(Path(explored["path"]), account=True)

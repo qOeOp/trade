@@ -124,7 +124,8 @@ class ExploreAndPrecheckTests(unittest.TestCase):
     def explore(self, name: str, **overrides):
         arguments = {"ledger": self.world.profile, "market": self.world.market, "at": MARKET_COMMIT,
                      "strategy_file": self.world.strategy_file(source(name), f"{name}.py"), "strategy_class": "Fixture",
-                     "output": self.world.output(name), "runtime": None, "runner_argv": ONE, **overrides}
+                     "output": self.world.output(name), "runtime": None, "runner_argv": ONE,
+                     "line": self.world.line["line"], **overrides}
         return entry.explore(**arguments)
 
     def test_an_exploration_keeps_its_reports_and_the_ledger_its_trial_and_capture(self):

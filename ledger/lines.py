@@ -15,7 +15,7 @@ Closing a line records the Agent's summary: the line's end and an index for late
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 import re
 
 from ledger import db, review_activity, strategies
@@ -100,6 +100,36 @@ def development_period(today: date, latest_complete_day: date) -> tuple[date, da
     after = last + timedelta(days=1)
     end = after if after.day == 1 and after.month in QUARTER_STARTS else date(last.year, 3 * ((last.month - 1) // 3) + 1, 1)
     return date(end.year - 1, end.month, 1), end
+
+
+def _ns(day: date) -> int:
+    return int(datetime.combine(day, time(), UTC).timestamp()) * 10**9
+
+
+def check_replay_window(conn: db.LedgerConnection, line: str | None, trade_start_ns: int, end_ns: int,
+                        latest_complete_day: date, today: date | None = None) -> None:
+    """Where an explore or precheck replay may trade (line-close-history-test-20261110.zh.md 3.2, B5): with `line`,
+    inside that open line's development period; without one (only a start candidate's precheck), inside the period
+    a line opened today would get and before the forward segment of every open line, which begins at its period's
+    end. History outside development periods is replayed only when a line closes. WINDOW_OUTSIDE_DEVELOPMENT
+    otherwise; LINE_UNKNOWN or LINE_ENDED for a named line that is no open line."""
+    if line is not None:
+        record = open_line(conn, line)
+        first, end = date.fromisoformat(record["dev_start"]), date.fromisoformat(record["dev_end"])
+        allowed = f"line {record['name']}'s development period"
+    else:
+        if today is None:
+            (today,), = conn.rows("SELECT DATE(UTC_TIMESTAMP())")
+        first, end = development_period(today, latest_complete_day)
+        allowed = "the development period a line opened today would get"
+        forward = [item for item in lines(conn, open_only=True) if date.fromisoformat(item["dev_end"]) < end]
+        if forward:
+            earliest = min(forward, key=lambda item: item["dev_end"])
+            end = date.fromisoformat(earliest["dev_end"])
+            allowed += f", before the forward segment of the open line {earliest['name']}"
+    if not _ns(first) <= trade_start_ns < end_ns <= _ns(end):
+        raise refuse("WINDOW_OUTSIDE_DEVELOPMENT", f"the trading window must lie inside {allowed}: from {first} to "
+                                                   f"{end} (exclusive)", expected=f"{first} <= trade window <= {end}")
 
 
 def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: str, market: Callable[[str], dict],

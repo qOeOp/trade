@@ -256,19 +256,25 @@ class CommandTests(unittest.TestCase):
         self.refused("MONTH_INVALID", "market", "import", "--month", "2026-13")
         self.refused("MONTH_EXISTS", "market", "import", "--month", "2025-12")  # a backfill into rows already held
 
-        # An exploration
-        explored = self.ok("replay", "explore", *ledger, "--strategy-file", self.write("draft.py", SOURCE + "# draft\n"),
-                           "--strategy-class", "Fixture", "--output", str(self.tmp / "explore"), "--", *PRECHECK)
+        # The root: precheck, review and the line
+        root_review = self.prechecked("fixture@1", "root")
+        line = self.ok(*selection)
+        self.assertEqual(line["line"], "fixture-trend")
+        self.assertEqual((line["created"], line["market_commit"]), (True, commit))
+
+        # An exploration trades inside its line's development period
+        draft = self.write("draft.py", SOURCE + "# draft\n")
+        explore = ("replay", "explore", *ledger, "--strategy-file", draft, "--strategy-class", "Fixture")
+        self.refused("WINDOW_OUTSIDE_DEVELOPMENT", *explore, "--line", "fixture-trend", "--output",
+                     str(self.tmp / "explore-outside"), "--", "--start", "2025-12-30T00:00:00Z", "--trade-start",
+                     "2025-12-31T00:00:00Z", "--end", "2026-01-02T00:00:00Z")
+        explored = self.ok(*explore, "--line", "fixture-trend", "--output", str(self.tmp / "explore"), "--", *PRECHECK)
         self.assertEqual((explored["purpose"], explored["status"]), ("explore", "passed"))
         directory = self.ok("replay", "report", *ledger, "--directory", str(self.tmp / "explore"))
         self.assertEqual((directory["source"], directory["availability"]["unverified"]),
                          ("directory", "unsealed, source unverified, not evidence"))
 
-        # The root: precheck, review, registration and the sealed replay
-        root_review = self.prechecked("fixture@1", "root")
-        line = self.ok(*selection)
-        self.assertEqual(line["line"], "fixture-trend")
-        self.assertEqual((line["created"], line["market_commit"]), (True, commit))
+        # Registration and the sealed replay
         self.refused("PRECHECK_NOT_FOUND", "source", "review", *ledger, "--candidate", "fixture@1", "--runtime",
                      "stand-in:main", "--precheck-trial", str(explored["trial_id"]), "--verdict", "passed",
                      "--items", self.review_items("items-x.json"), "--reviewer", "reviewer-b")

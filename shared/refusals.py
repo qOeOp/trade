@@ -160,6 +160,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        "start or not on a whole UTC minute.",
                        ("Pass a window whose start precedes its end (and, for a replay, a whole-minute warm-up "
                         "start no later than the trading start).",)),
+    "WINDOW_OUTSIDE_DEVELOPMENT": ("An explore or precheck replay trades outside the development period it may use: "
+                                   "its line's, or without a line (a start candidate's precheck) the period a line "
+                                   "opened today would get, ending where an open line's forward segment begins.",
+                                   ("Trade inside that period; history outside development periods is replayed only "
+                                    "when a line closes.",)),
     "LINE_CONFLICT": ("A research line of that date and slug already exists with another choice.",
                       ("Name the direction more precisely with another `--slug`, then select again.",)),
     "LINE_SLUG_INVALID": ("The line slug is not lowercase ASCII words joined by hyphens of at most 48 characters.",
