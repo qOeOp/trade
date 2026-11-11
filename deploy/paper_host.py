@@ -160,7 +160,7 @@ class PaperHost(DockerHost):
     def create(self, name: str, service: str, runtime: str) -> None:
         revision(name, PAPER)
         if self.exists(name):
-            raise RuntimeError("Paper release identity is retained; use a corrected main commit")
+            raise RuntimeError("Paper release identity is retained; ship a corrected version")
         market = self.state / "paper-market.json"
         durable_json(market, {"name": "market", "holds": "market", "kind": None, "root": str(self.config.data / "market")}, mode=0o644)
         self.docker(
@@ -180,6 +180,7 @@ class PaperHost(DockerHost):
             f"TMPDIR={self.config.data / 'paper-tmp'}",
             "--env",
             f"HOME={self.config.data / 'paper-tmp'}",
+            *(("--env", f"TRADE_PAPER_MEMORY={self.config.paper_memory}") if self.config.paper_memory else ()),
             "--mount",
             f"type=bind,src={market},dst=/run/trade/paper-market.json,readonly",
             "--mount",

@@ -1,12 +1,12 @@
 ---
-description: Rule check — with the skill, when capital.participation is null (its limitations give the reason), the reading is computed from the kept directory's fills over the one-minute LAST bar at the run's market commit, floored to the minute, with the weighting stated.
+description: Rule check — with the skill, when capital.participation is null (its limitations give the reason), the reading is computed from the kept directory's fills over the one-minute LAST bar at the run's market day, floored to the minute, with the weighting stated.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线候选 `flow-a@3`，运行 run 2288（已封存、通过、有经济证据资格，账本提交 `a9b8c7d`，保留目录 `/tmp/run-2288`，市场提交 `2026-09-30`）。这是封存运行的报告分析，按本仓库的报告分析规则办。
+研究路线候选 `flow-a@3`，运行 run 2288（已封存、通过、有经济证据资格，账本提交 `a9b8c7d`，保留目录 `/tmp/run-2288`，市场日 `2026-09-30`）。这是封存运行的报告分析，按本仓库的报告分析规则办。
 
 这个运行的报告里，`capital` 段的 `participation` 是 null，`limitations` 里有一条 `NATIVE_VALUE_UNREADABLE: a fill or its minute's volume is unreadable`。我想知道本金放大 5 倍之后，成交规模相对每分钟成交量怎么样。
 
