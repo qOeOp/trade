@@ -27,7 +27,7 @@ Five services on one Docker engine:
   range is `TRADE_MARKET_ARGS` in `.env` (below) and the directory does not record it; unset, the service refuses and
   keeps restarting, and the rest of the deployment runs. Same image. It is the only
   writer of the market directory `$TRADE_DATA/market`, mounted read-write. Its market profile is the
-  compose config `market-import`. It reaches `data.binance.vision` and `fapi.binance.com` for bars. Its archive cache
+  compose config `market`, mounted at `/run/trade/market-import.json`. It reaches `data.binance.vision` and `fapi.binance.com` for bars. Its archive cache
   (kept, about 3 GB of aggTrades a month) and status file stay in the `trade-market-import` volume.
   `docker compose ps market-import` shows unhealthy while anything is stopped or lagging, and
   `docker compose logs market-import` gives each round; restarting it retries what stopped.
@@ -100,8 +100,8 @@ aggTrades, quotes or open interest. Measured on one deployment of 30 bar contrac
 | quotes | 23 GB, the same 3 contracts | |
 | ledger volume | 2.09 GB after 2,358 trials | about 0.9 MB a trial |
 
-In memory the services used: ledger 1.4 to 1.8 GiB, ide 0.85 GiB, market-import 0.45 GiB; each paper run is capped at
-4 GiB. No minimum machine has been tested. That whole range from empty is estimated at 81 GB stored plus 100 to 231 GB of archive cache (the
+In memory the services used: ledger 1.4 to 1.8 GiB, ide 0.85 GiB, market-import 0.45 GiB. Paper runs share a 3.5 GiB
+budget, each runner limited to 256 MiB plus 16 MiB a contract (`paper/runs.py`). No minimum machine has been tested. That whole range from empty is estimated at 81 GB stored plus 100 to 231 GB of archive cache (the
 two estimates disagree) and days of importing; it has never been run whole. A pool replay needs far more memory than one over
 a few contracts (214 contracts over a year exhausted 48 GB).
 
@@ -125,7 +125,7 @@ VM's kernel.
 ```
 
 On a new machine the ledger starts first: its bootstrap refuses a profile directory that already holds a
-profile, so `market.json` is written after ledger is healthy.
+profile, so write `market.json` by hand after ledger is healthy.
 
 The market directory is plain files with no copy. If it is lost, start market-import: it recomputes bars, funding,
 members, metrics, aggTrades and quotes from the Binance archives over its configured range (costs below; never run

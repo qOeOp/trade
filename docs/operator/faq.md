@@ -24,7 +24,7 @@ risk per trade, and runs the replays. Win rate is reported but is not a target.
 
 **How much disk and memory does it need?**
 It depends on the market range. Three contracts' bars since 2024 are small; aggTrades and quotes of three contracts
-since 2020 took about 80 GB. The services used about 3 GiB together, plus up to 4 GiB per Paper run. See [What the
+since 2020 took about 80 GB. The services used about 3 GiB together, plus up to 3.5 GiB for all Paper runs. See [What the
 market range costs](../../deploy/README.md#what-the-market-range-costs).
 
 **Why does the market import fail from my server?**
