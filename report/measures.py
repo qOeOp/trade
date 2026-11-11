@@ -10,7 +10,7 @@ is None with a named reason; nothing is guessed.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import functools
@@ -110,16 +110,20 @@ def run_facts(conn: db.LedgerConnection, trial_id: int) -> dict:
     return facts_of(metrics.load_run(conn, trial_id))
 
 
-def runs_facts(conn: db.LedgerConnection, trial_ids) -> dict[int, dict]:
-    """run_facts of each trial, by trial ID, from one listing read of them all (metrics.load_runs); a run
+FACTS_CHUNK = 100  # runs whose series a listing holds at once
+
+
+def runs_facts(conn: db.LedgerConnection, trial_ids) -> Iterator[tuple[int, dict]]:
+    """(trial ID, run_facts) of each trial, in trial ID order, from listing reads of FACTS_CHUNK runs at a time
+    (metrics.load_runs), so a caller that keeps what it derives holds one chunk's series at a time; a run
     load_run refuses raises its refusal, as run_facts does."""
     from shared.errors import Refusal
-    found = {}
-    for trial_id, loaded in metrics.load_runs(conn, trial_ids, listing=True).items():
-        if isinstance(loaded, Refusal):
-            raise loaded
-        found[trial_id] = facts_of(loaded)
-    return found
+    ids = sorted(set(trial_ids))
+    for at in range(0, len(ids), FACTS_CHUNK):
+        for trial_id, loaded in metrics.load_runs(conn, ids[at:at + FACTS_CHUNK], listing=True).items():
+            if isinstance(loaded, Refusal):
+                raise loaded
+            yield trial_id, facts_of(loaded)
 
 
 def facts_of(loaded: Mapping) -> dict:

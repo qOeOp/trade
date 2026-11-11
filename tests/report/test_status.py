@@ -653,6 +653,12 @@ class ExecutionIdentityTests(unittest.TestCase):
         first, second, third = (self.trials[ref] for ref in [*self.refs, self.third])
         self.assertEqual((listed["runs_listed"], [item["trial_id"] for item in listed["runs"]]),
                          (3, sorted(rows)), "every run, by trial ID without --by")
+        with mock.patch.object(measures, "FACTS_CHUNK", 1), \
+                mock.patch.object(metrics, "load_runs", wraps=metrics.load_runs) as read:
+            chunked = status.research_runs(self.world.profile)
+        self.assertEqual(chunked, listed, "reading one run's series at a time lists the same runs")
+        self.assertEqual(sorted(len(call.args[1]) for call in read.call_args_list if call.kwargs.get("series", True)),
+                         [1, 1, 1], "E4: a listing holds one chunk's series at a time")
         self.assertEqual(rows[first]["group"], rows[second]["group"])
         self.assertNotEqual(rows[first]["group"], rows[third]["group"])
         self.assertEqual({group["image_digest"] for group in listed["groups"]}, {IDENTITY["image_digest"], OTHER_DIGEST})
