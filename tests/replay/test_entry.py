@@ -181,6 +181,22 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         self.assertEqual((self.world.stopped[-1], self.world.commands[-1]["name"]), (name, name),
                          "the interrupted container is stopped by its name")
 
+    def test_a_stage_killed_at_its_memory_limit_is_sealed_and_refused_by_its_code(self):
+        run = seams.current.run
+
+        def audit_out_of_memory(command, stdout, stderr, timeout):
+            if json.loads(command[3])["module"] == "audit":  # the stand-in command carries its spec
+                raise seams.MemoryLimit(137)
+            return run(command, stdout, stderr, timeout)
+        with seams.use(run=audit_out_of_memory), self.assertRaises(Refusal) as caught:
+            self.explore("out-of-memory")
+        self.assertEqual(caught.exception.code, "STAGE_MEMORY_LIMIT")
+        (trial_id,), = self.world.service.sql(self.world.profile, "SELECT MAX(trial_id) FROM trial")[0:1]
+        capture = execution.read_capture(self.world.conn, trial_id)
+        self.assertEqual((capture["outcome"]["kind"], capture["stages"]["audit"], capture["stages"]["fingerprint"]),
+                         ("host_failure", {"state": "exited", "exit_code": 137}, None))
+        self.assertTrue(capture["outcome"]["detail"].startswith("STAGE_MEMORY_LIMIT: the audit stage exceeded"))
+
     def test_a_precheck_needs_a_ci_build_of_the_candidate_contract(self):
         def precheck_call(**overrides):
             arguments = {"ledger": self.world.profile, "market": self.world.market, "at": MARKET_COMMIT,
