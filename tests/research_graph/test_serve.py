@@ -26,6 +26,15 @@ from research_graph import serve  # noqa: E402
 from tests.research_graph.test_research_graph import GRAPH  # noqa: E402
 
 POLL = 0.01  # shutdown() waits one poll of serve_forever, 0.5 s by default
+PAGE = b"<html><head></head>page</html>"
+
+
+def setUpModule():
+    """A stand-in page, so no test here installs and builds ide/web; test_research_graph.WebRenderTests
+    tests the build."""
+    page = mock.patch.object(serve, "_page", return_value=PAGE)
+    page.start()
+    unittest.addModuleCleanup(page.stop)
 
 
 class FakeProduct:
@@ -455,8 +464,7 @@ class HttpTests(unittest.TestCase):
     def setUp(self):
         self.hub = serve.Hub(FakeProduct(), "build", poll=0.05, version="1.2.3")
         threading.Thread(target=self.hub.work, daemon=True).start()
-        with mock.patch.object(serve, "_page", return_value=b"<html>page</html>"):
-            self.server = serve.Server(("127.0.0.1", 0), serve.handler(self.hub, frozenset({"here:1"})))
+        self.server = serve.Server(("127.0.0.1", 0), serve.handler(self.hub, frozenset({"here:1"})))
         threading.Thread(target=self.server.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
@@ -488,11 +496,11 @@ class HttpTests(unittest.TestCase):
     def test_a_browser_keeps_the_page_and_asks_for_it_again_at_each_open(self):
         first = self.get("/", **{"Accept-Encoding": "gzip, br"})
         self.assertEqual((first.headers["Content-Encoding"], first.headers["Cache-Control"]), ("gzip", "private, no-cache"))
-        self.assertEqual(gzip.decompress(first.read()), b"<html>page</html>")
+        self.assertEqual(gzip.decompress(first.read()), PAGE)
         again = self.get("/", **{"Accept-Encoding": "gzip, br", "If-None-Match": f'W/{first.headers["ETag"]}'})
         self.assertEqual((again.status, again.read()), (304, b""))
         plain = self.get("/", **{"If-None-Match": first.headers["ETag"]})
-        self.assertEqual((plain.status, plain.read()), (200, b"<html>page</html>"), "another encoding is another page")
+        self.assertEqual((plain.status, plain.read()), (200, PAGE), "another encoding is another page")
         self.assertEqual(self.get("/", Host="elsewhere:1", **{"If-None-Match": first.headers["ETag"]}).status, 403)
 
     def test_a_large_answer_is_gzipped_only_for_a_browser_that_takes_it(self):
@@ -511,7 +519,7 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(json.loads(small.read())["code"], "NOT_FOUND")
 
     def test_only_the_page_itself_reads_graphs(self):
-        self.assertEqual(self.get("/").read(), b"<html>page</html>")
+        self.assertEqual(self.get("/").read(), PAGE)
         self.assertEqual(self.get("/api/view", Host="elsewhere:1").status, 403)
         self.assertEqual(self.get("/api/view", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
         response = self.get("/api/view")
@@ -525,7 +533,7 @@ class HttpTests(unittest.TestCase):
         for path in ("/", "/?line=published"):
             response = self.get(path, **headers)
             self.assertEqual(response.status, 200)
-            self.assertEqual(response.read(), b"<html>page</html>")
+            self.assertEqual(response.read(), PAGE)
             self.assertNotIn("Access-Control-Allow-Origin", response.headers)
 
     def test_document_navigation_exception_cannot_fetch_data_or_send_actions(self):
@@ -653,9 +661,8 @@ class MarketImportTests(unittest.TestCase):
         self.status = Path(tempfile.mkdtemp()) / "status.json"
         self.servers = {}
         for name, path in (("with", self.status), ("without", None)):
-            with mock.patch.object(serve, "_page", return_value=b"<html>page</html>"):
-                server = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"),
-                                                                      frozenset({"here:1"}), status=path))
+            server = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"),
+                                                                  frozenset({"here:1"}), status=path))
             threading.Thread(target=server.serve_forever, args=(POLL,), daemon=True).start()
             self.addCleanup(server.server_close)
             self.addCleanup(server.shutdown)
@@ -726,8 +733,7 @@ class AgentForwardTests(unittest.TestCase):
         self.addCleanup(self.agent.shutdown)
         hub = serve.Hub(FakeProduct(), "build")
         url = "http://%s:%d" % self.agent.server_address
-        with mock.patch.object(serve, "_page", return_value=b"<html>page</html>"):
-            self.server = serve.Server(("127.0.0.1", 0), serve.handler(hub, frozenset({"here:1"}), url))
+        self.server = serve.Server(("127.0.0.1", 0), serve.handler(hub, frozenset({"here:1"}), url))
         threading.Thread(target=self.server.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
@@ -788,9 +794,8 @@ class PaperForwardTests(unittest.TestCase):
         self.addCleanup(self.paper.server_close)
         self.addCleanup(self.paper.shutdown)
         url = "http://%s:%d" % self.paper.server_address
-        with mock.patch.object(serve, "_page", return_value=b"<html><head></head>page</html>"):
-            self.server = serve.Server(("127.0.0.1", 0), serve.handler(
-                serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), None, url))
+        self.server = serve.Server(("127.0.0.1", 0), serve.handler(
+            serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), None, url))
         threading.Thread(target=self.server.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
@@ -865,10 +870,9 @@ class SetupForwardTests(unittest.TestCase):
         self.addCleanup(self.setup.server_close)
         self.addCleanup(self.setup.shutdown)
         self.upstream = "127.0.0.1:%d" % self.setup.server_address[1]
-        with mock.patch.object(serve, "_page", return_value=b"<html><head></head>page</html>"):
-            self.server = serve.Server(("127.0.0.1", 0), serve.handler(
-                serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), setup=f"http://{self.upstream}"))
-            self.without = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"), frozenset({"here:1"})))
+        self.server = serve.Server(("127.0.0.1", 0), serve.handler(
+            serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), setup=f"http://{self.upstream}"))
+        self.without = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"), frozenset({"here:1"})))
         for server in (self.server, self.without):
             threading.Thread(target=server.serve_forever, args=(POLL,), daemon=True).start()
             self.addCleanup(server.server_close)
