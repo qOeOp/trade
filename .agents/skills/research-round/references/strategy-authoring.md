@@ -90,7 +90,7 @@ header template, the entry class, the two hooks and a sizing helper.
 ## Trades and metrics
 
 Trade-level inputs (trade imbalance, trade VWAP) need the runner argument `--trade-ticks`, only with
-`--execution quotes`, decided and passed like `--execution`; the pinned commit must hold trades for
+`--execution quotes`, decided and passed like `--execution`; the pinned market day must hold trades for
 every month of the trading window (`market coverage`, `trades`). The source subscribes with
 `subscribe_data(DataType("TradeTick", metadata={"instrument_id": str(instrument_id)}))` and reads the
 tick as `data.data` in `on_data`. Trades are signal input only: they match no order and move no book.
@@ -98,7 +98,7 @@ A trade subscription the run does not serve (no flag, native `subscribe_trades`,
 `TRADES_NOT_SERVED`; report the number of trades received in `replay_diagnostics`.
 
 Open interest and long/short ratios need the runner argument `--metrics`, in either execution
-environment, decided and passed like `--execution`; the pinned commit must hold them for every
+environment, decided and passed like `--execution`; the pinned market day must hold them for every
 month of the trading window (`market coverage`, `metrics`). The source subscribes with
 `subscribe_data(DataType("Metrics", metadata={"instrument_id": str(instrument_id)}))` and reads
 `data.data` in `on_data`: `sum_open_interest` (base asset) and the three ratios as `Decimal`, a ratio

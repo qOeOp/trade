@@ -5,7 +5,7 @@ is replayed over each segment of ledger.lines.history_segments: the veto segment
 development period), the period again as the control, the two-year holdout after it as one segment, and the
 forward segment after the holdout. Each segment replays the
 candidate's latest passed research run by its identity (source, image, configuration, instrument rule),
-only over another window, on one market commit, from zero position and the same starting balance; it is a
+only over another window, on one market day, from zero position and the same starting balance; it is a
 history trial, sealed as a run like any other. Candidates go by their development-period Sharpe, highest
 first; a segment that already has a history run is skipped, so an interrupted test resumes.
 """
@@ -38,8 +38,8 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
     """Run the segments of `line`'s closing history test that have no history run, at most `limit` of them;
     returns what ran and what is left."""
     source = registration_seams.current.market(market)
-    commit = source.resolve_commit(at)
-    first_day, latest = source.days(commit)
+    market_day = source.resolve_day(at)
+    first_day, latest = source.days(market_day)
     after_last = latest + timedelta(days=1)
     with db.connect(ledger, "reader") as conn:
         record = lines.read_line(conn, line)
@@ -66,7 +66,7 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
         exported = None
         try:
             exported = registration_inputs.market_inputs(
-                market, commit, span, dict(recorded["selection"]), recorded.get("lifecycle_bundle"), True, ledger,
+                market, market_day, span, dict(recorded["selection"]), recorded.get("lifecycle_bundle"), True, ledger,
                 include_quotes=quotes, include_trades=trades, include_metrics=metric_rows)
             inspection = registration_seams.current.inspect_runtime(identity, runner_argv, exported)
             effective = (stored["capture"].get("input_coverage") or {}).get("effective_config")
@@ -81,7 +81,7 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
             entry._cleanup(exported)
         ran.append({"source_sha256": item["source_sha256"], "segment": item["label"], "run": item["trial_id"],
                     "history_trial_id": sealed["trial_id"], "status": sealed["status"]})
-    return {"line": record["name"], "market_day": commit, "ran": ran,
+    return {"line": record["name"], "market_day": market_day, "ran": ran,
             "left": max(len(todo) - len(ran), 0),
             "participants": len({item["source_sha256"] for item in plan}),
             "segments_without_trading": sum(item["window"] is None for item in plan)}

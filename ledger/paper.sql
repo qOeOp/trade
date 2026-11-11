@@ -35,7 +35,7 @@ CREATE TABLE paper_source (
 );
 
 -- A paper run's declaration, written before its container starts: the source, the runtime image, the
--- contracts, the market commit its membership was read at and the effective configuration (its
+-- contracts, the market day its membership was read at and the effective configuration (its
 -- `candidate` names the research candidate). The run starts at created_at.
 CREATE TABLE paper_run (
   paper_id BIGINT AUTO_INCREMENT PRIMARY KEY,

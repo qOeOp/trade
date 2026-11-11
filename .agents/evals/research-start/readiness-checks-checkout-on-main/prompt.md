@@ -8,7 +8,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 （中断后恢复）research-start
 
-本会话目标里的路线 `research-line-20261025-ema-rollingref-btc-daily`（起点 `ema-rollingref@1`，开发窗口 2025-10-01 至 2026-10-01，市场提交 `m-7f3a`）。本会话还没有回放过。账本里登记 `registration-ema-rollingref-v5-20261025` 已通过、尚未回放，下一步是它的正式研究回放。
+本会话目标里的路线 `research-line-20261025-ema-rollingref-btc-daily`（起点 `ema-rollingref@1`，开发窗口 2025-10-01 至 2026-10-01，市场日 `2026-10-02`）。本会话还没有回放过。账本里登记 5 已通过、尚未回放，下一步是它的正式研究回放。
 
 本会话已读到的事实：
 

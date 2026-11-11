@@ -5,7 +5,7 @@ The page is the web renderer's built page: it reads `/api/view` and follows
 sql` for a head, `research graph` for a graph without its comparisons, `research comparison` for the one a page
 opens (`/api/comparison`, at a full ledger commit), `replay report --tables` for a trial's report (the Runs
 page's backtest, `/api/trial`, at a full ledger commit) and `market bars --timeframe 1d` for a contract's
-daily bars (its backtest candles, `/api/bars`, whole UTC days at a full market commit, on the market
+daily bars (its backtest candles, `/api/bars`, whole UTC days at a market day, YYYY-MM-DD, on the market
 profile given or the active one), so this module imports no product package. While
 a page without `at` is open the head is read every `poll` seconds (a research mirror's from its controller, the
 only place a Sync moves it, so no product process runs per read); when it moves, each open page's
@@ -125,6 +125,18 @@ def mirror_head(url: str) -> Callable[[], str]:
     return read
 
 
+def _market_day(at: str) -> bool:
+    """Whether `at` is a market day, a valid YYYY-MM-DD (market.resolve_day's exact form). main and head are not:
+    a day's bars never change, so they are kept by it, while main and head move."""
+    if not DAY.fullmatch(at):
+        return False
+    try:
+        date.fromisoformat(at)
+    except ValueError:
+        return False
+    return True
+
+
 def _days(start: str, end: str) -> bool:
     """Whether `start` and `end` are UTC days, `start` the earlier."""
     try:
@@ -198,11 +210,11 @@ class Product:
         """A sealed trial's report with its drill-down tables, as the product gives or refuses it."""
         return self.run("replay", "report", f"--ledger={self.ledger}", f"--trial-id={trial_id}", f"--at={commit}", "--tables")
 
-    def bars(self, symbol: str, start: str, end: str, commit: str) -> dict:
-        """A contract's daily LAST bars from UTC day `start` to `end` (left out) at a market commit, all inline."""
+    def bars(self, symbol: str, start: str, end: str, market_day: str) -> dict:
+        """A contract's daily LAST bars from UTC day `start` to `end` (left out) at a market day, all inline."""
         days = (date.fromisoformat(end) - date.fromisoformat(start)).days
         market = [f"--market={self.market}"] if self.market else []
-        return self.run("market", "bars", *market, f"--at={commit}", f"--symbol={symbol}", "--timeframe=1d", "--price-type=LAST",
+        return self.run("market", "bars", *market, f"--at={market_day}", f"--symbol={symbol}", "--timeframe=1d", "--price-type=LAST",
                         f"--start={start}T00:00:00Z", f"--end={end}T00:00:00Z", f"--limit={days}")
 
 
@@ -806,10 +818,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.json(400, exc.body)
 
         def bars(self, query: dict[str, str]) -> None:
-            """A contract's daily bars over whole UTC days at a full market commit (kept), or the product's refusal."""
+            """A contract's daily bars over whole UTC days at a market day (kept), or the product's refusal."""
             symbol, start, end, at = (query.get(name, "") for name in ("symbol", "start", "end", "at"))
-            if query.get("timeframe") != "1d" or not SYMBOL.fullmatch(symbol) or not COMMIT.fullmatch(at) or not _days(start, end):
-                self.json(400, _failure("BAD_REQUEST", "give symbol, timeframe=1d, start and end (UTC days, start first) and at, a full market commit"))
+            if query.get("timeframe") != "1d" or not SYMBOL.fullmatch(symbol) or not _market_day(at) or not _days(start, end):
+                self.json(400, _failure("BAD_REQUEST", "give symbol, timeframe=1d, start and end (UTC days, start first) and at, a market day (YYYY-MM-DD)"))
                 return
             try:
                 self.json(200, hub.bars.get((symbol, start, end, at)))

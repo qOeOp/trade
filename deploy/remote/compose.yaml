@@ -1,4 +1,4 @@
-# Overlay on ../compose.yaml; use --env-file remote/.env and both -f files (README.md).
+# Overlay on ../compose.yaml; use --env-file /etc/trade/remote.env and both -f files (README.md).
 # Never expose the unauthenticated IDE, ledger or Paper API on a public interface.
 services:
   # The release plane runs the Web, its Agent and the Paper controller (install-release.sh); a whole-project

@@ -2,14 +2,14 @@
 `ledger.line_trials`, `ledger.close_line`).
 
 A research line is the user's choice of start candidate (a revision whose source review passed) and
-pinned market commit, one research_line row named by a slug for the line's direction. Its development
+pinned market day, one research_line row named by a slug for the line's direction. Its development
 period is the product's rule, not a choice (`development_period`, line-close-history-test-20261110.zh.md 3.1):
 the calendar quarters before the last two years the market covers, followed by those two years as the
 holdout and the forward segment, so lines opened in one quarter on the same coverage share it.
 A new choice is a new line, never an edit.
 
 A line is open from its selection until its line_close row, and several lines may be open at once, on the
-same market commit and window too: every research trial names its line, so the trials of each stay apart.
+same market day and window too: every research trial names its line, so the trials of each stay apart.
 Closing a line records the Agent's summary: the line's end and an index for later research.
 """
 
@@ -199,8 +199,8 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
     `targets` (maximum drawdown, minimum annual return) are the user's for this line, written in the same commit;
     without them the line reads the ledger default.
 
-    `market(market_at)` returns {commit, universe_rule, latest_complete_day, first_day, first_months} (the
-    market's resolve_commit and freshness, its first day and each symbol's first universe month); the development
+    `market(market_at)` returns {market_day, universe_rule, latest_complete_day, first_day, first_months} (the
+    market's resolve_day and freshness, its first day and each symbol's first universe month); the development
     period follows from that day, `today` (default the ledger server's UTC date) and the coverage of the
     instruments of the start's latest passed precheck (covered_from; LINE_HISTORY_SHORT when too short). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
     source review of its source hash and none failed, read at the head this connection sees; a review that failed
@@ -221,14 +221,14 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
     try:
         facts = market(market_at or "main")
     except Refusal as exc:
-        raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {market_at!r} did not resolve ({exc.code})",
+        raise refuse("MARKET_DAY_UNRESOLVED", f"market reference {market_at!r} did not resolve ({exc.code})",
                      missing=(str(market_at),)) from exc
-    if not facts.get("commit") or not facts.get("universe_rule"):
-        raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {market_at!r} has no commit with a universe rule",
+    if not facts.get("market_day") or not facts.get("universe_rule"):
+        raise refuse("MARKET_DAY_UNRESOLVED", f"market reference {market_at!r} has no market day with a universe rule",
                      missing=(str(market_at),))
     latest_day = facts.get("latest_complete_day")
     if latest_day is None:
-        raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {market_at!r} has no complete day",
+        raise refuse("MARKET_DAY_UNRESOLVED", f"market reference {market_at!r} has no complete day",
                      missing=(str(market_at),))
     if today is None:
         (today,), = conn.rows("SELECT DATE(UTC_TIMESTAMP())")
@@ -242,7 +242,7 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
     covered = covered_from(selection(argv[0][0]) if argv else None, facts.get("first_day"),
                            facts.get("first_months") or {})
     window_start, window_end = development_period(today, latest_day, covered)
-    choice = {"name": slug, "start_source_sha256": candidate["source_sha256"], "market_day": facts["commit"],
+    choice = {"name": slug, "start_source_sha256": candidate["source_sha256"], "market_day": facts["market_day"],
               "universe_rule": facts["universe_rule"], "dev_start": window_start.isoformat(),
               "dev_end": window_end.isoformat()}
 

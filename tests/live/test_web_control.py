@@ -160,7 +160,7 @@ class LiveWebControlTests(unittest.TestCase):
         stack.enter_context(patch.object(runs.image, "resolve", return_value=identity))
         stack.enter_context(patch.object(runs.image, "inspect_runtime", return_value={}))
         stack.enter_context(patch.object(runs.image, "require_main_build"))
-        return stack.enter_context(patch.object(runs, "_market_terms", return_value={"commit": "c", "terms": {}}))
+        return stack.enter_context(patch.object(runs, "_market_terms", return_value={"market_day": "c", "terms": {}}))
 
     def test_prepare_preflight_start_reuse_original_inputs_through_operator_control(self):
         """Use real custody/protocol functions; only research, image and venue/host IO are fake."""

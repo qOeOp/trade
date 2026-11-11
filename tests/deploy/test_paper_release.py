@@ -248,3 +248,14 @@ class PaperReleaseTests(unittest.TestCase):
         host.docker.return_value = "root"
         with self.assertRaisesRegex(RuntimeError, "numeric unprivileged"):
             host.common()
+
+    def test_controllers_get_the_deployments_paper_memory_budget_only_when_set(self):
+        for memory, expected in (("4g", ["TRADE_PAPER_MEMORY=4g"]), ("", [])):
+            with self.subTest(memory=memory), tempfile.TemporaryDirectory() as root:
+                host = PaperHost(Config(state=Path(root), paper_memory=memory))
+                host.docker = Mock(return_value="1000:1000")
+                host.exists = Mock(return_value=False)
+                host.create(PAPER + B, TARGET["service"], TARGET["runtime"])
+                create = next(call.args for call in host.docker.call_args_list if call.args[0] == "create")
+                env = [create[i + 1] for i, arg in enumerate(create) if arg == "--env"]
+                self.assertEqual([value for value in env if value.startswith("TRADE_PAPER_MEMORY=")], expected)

@@ -256,7 +256,7 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0
         counts.update(lifecycle.write_lifecycle_events(store, episode, START * 10**6, END * 10**6))
     piece = {"index": index, "instrument_id": str(iid), "catalog_dir": "episode-1" if index else "", "counts": counts,
              "last_bar_ns": int((bars["ts_open"][-1] + MIN - 1) * 10**6) if len(minutes) else None, "episode": episode}
-    receipt = {"format": "market-coverage-v1", "symbol": symbol, "commit": "c" * 32, "timeframe": "1m",
+    receipt = {"format": "market-coverage-v1", "symbol": symbol, "market_day": "c" * 32, "timeframe": "1m",
                "start_ns": START * 10**6, "end_ns": END * 10**6,
                "historical_terms": "CURRENT_SNAPSHOT_APPROXIMATION", "terms_observed_at": observed_at,
                "assumed": dict(instrument.ASSUMED), "pieces": [piece]}
@@ -555,7 +555,7 @@ class StreamTests(unittest.TestCase):
                 (root / "input-coverage.json").write_text(json.dumps({
                     "format": "execution-input-coverage-v1", "input_identity": {"market_day": "c" * 32},
                     "effective_config": {"start": window.start, "trade_start": window.trade_start, "end": window.end},
-                    "membership": {"commit": "c" * 32, "membership": {"AAAUSDT": [[window.start_ns, window.end_ns]]}},
+                    "membership": {"market_day": "c" * 32, "membership": {"AAAUSDT": [[window.start_ns, window.end_ns]]}},
                     "export_receipts": {"AAAUSDT": rows[0]["receipt"]}}))
                 # The source's own start reaches nothing: the runner calls its on_start at the trusted start.
                 self.assertTrue(all(int(row["ts_event_ns"]) >= window.trade_start_ns for row in volumes))
@@ -862,7 +862,7 @@ class StreamTests(unittest.TestCase):
             (work / "input-coverage.json").write_text(json.dumps({
                 "format": "execution-input-coverage-v1", "export_receipts": {key: receipts[key] for key in ("AAAUSDT", "CCCUSDT")},
                 "input_identity": {"lifecycle_bundle": "lifecycle-test", "market_day": "c" * 32},
-                "membership": {"commit": "c" * 32, "membership": {
+                "membership": {"market_day": "c" * 32, "membership": {
                     symbol: [[START * 10**6, END * 10**6]] for symbol in ("AAAUSDT", "CCCUSDT")}},
                 "effective_config": {"start": utc_text(START * 10**6), "trade_start": utc_text(START * 10**6),
                                      "end": utc_text(END * 10**6)}}))

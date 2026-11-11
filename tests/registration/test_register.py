@@ -11,7 +11,7 @@ from unittest.mock import patch
 from ledger import db, judgments, lines, strategies, trials
 from shared.errors import Refusal
 from registration import precheck, register
-from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_COMMIT, RUNTIME, SKIP, coverage, market, product_bundle, reviewed,
+from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_DAY, RUNTIME, SKIP, coverage, market, product_bundle, reviewed,
                                pinned, sha, source)
 from tests.registration.world import ACCOUNT, DAY, JAN, LINE_WINDOW, RUNNER_ARGV, World, capture, config
 
@@ -71,7 +71,7 @@ class RegisterTests(unittest.TestCase):
         self.assertEqual(execution, registered["execution"])
         self.assertEqual((execution["image_digest"], execution["market_day"], execution["universe_rule"],
                           execution["lifecycle_bundle"], execution["comparable_config_sha256"]),
-                         (RUNTIME["image_digest"], MARKET_COMMIT, "pool-v1", None,
+                         (RUNTIME["image_digest"], MARKET_DAY, "pool-v1", None,
                           trials.comparable_config_sha256(config())))
         self.assertEqual((plan["line_id"], registered["line"]), (self.world.line["line_id"], self.world.line["line"]))
         self.assertEqual(plan["grid"], [{"candidate": "rsi@1", "source_sha256": sha(source("root")),
@@ -266,9 +266,9 @@ class RegisterTests(unittest.TestCase):
 
 
 def second_line(world: World, slug: str, end: date = date(2026, 2, 1)) -> str:
-    """Another open line from rsi@1 on the world's market commit, from 2026-01-01 to `end`."""
+    """Another open line from rsi@1 on the world's market day, from 2026-01-01 to `end`."""
     with pinned(date(2026, 1, 1), end):
-        return lines.select_line(world.conn, MARKET_COMMIT, "rsi@1", slug=slug, market=market(),
+        return lines.select_line(world.conn, MARKET_DAY, "rsi@1", slug=slug, market=market(),
                                  reviews=reviewed(source("root")))["line"]
 
 
@@ -302,7 +302,7 @@ class OpenLinesTests(unittest.TestCase):
 
 @unittest.skipUnless(BINARY, SKIP)
 class SameKeyLinesTests(unittest.TestCase):
-    """Two open lines on one market commit and window (finding 20261105-01): a registration names its line,
+    """Two open lines on one market day and window (finding 20261105-01): a registration names its line,
     and its trials count and bind there alone."""
 
     def setUp(self):

@@ -152,6 +152,8 @@ services:
       TRADE_LEDGER_HOME: /run/trade/paper-profiles
       TMPDIR: ${TRADE_DATA}/paper-tmp
       HOME: ${TRADE_DATA}/paper-tmp
+      # Paper runs' memory budget; unset or empty keeps paper/runs.py's 3584m default.
+      TRADE_PAPER_MEMORY: ${TRADE_PAPER_MEMORY:-}
     volumes:
       # What ledger writes for Paper at every start (cli/service.py write_controllers), read-only: its profiles,
       # and at the service directory its service.json (Paper's accounts and the research reader; never the

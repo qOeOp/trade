@@ -143,9 +143,9 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | N
                     raise MarketError(f"{symbol}: {exc.message}; written meanwhile: {placed}", code=exc.code,
                                       missing=exc.missing) from exc
                 raise
-        commit = files.latest_commit(market)
+        market_day = files.latest_market_day(market)
     return {"month": f"{month:%Y-%m}", "imports": imports, "metrics_rows": sum(item["metrics_rows"] for item in imports),
-            "market_day": commit, "seconds": round(time.monotonic() - started, 1)}
+            "market_day": market_day, "seconds": round(time.monotonic() - started, 1)}
 
 
 def _import(market: files.Market, month: date, start: int, end: int, cache: Path, symbol: str, log) -> dict:
@@ -166,7 +166,7 @@ def _import(market: files.Market, month: date, start: int, end: int, cache: Path
     if not found:
         raise _refuse(f"{symbol}: no metrics archive of {days[0]}..{days[-1]} is published", "ARCHIVE_NOT_PUBLISHED",
                       missing=(symbol,))
-    # A day missing within SETTLE_DAYS may still be published: the days after it wait, so a commit through them cannot
+    # A day missing within SETTLE_DAYS may still be published: the days after it wait, so a market day through them cannot
     # read a hole that fills in later. Older than that it is a hole the archive left.
     settled = datetime.now(UTC).date() - timedelta(days=SETTLE_DAYS)
     waiting = [day for day in days if day not in found and day < max(found) and day >= settled]

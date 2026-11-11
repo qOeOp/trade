@@ -6,9 +6,9 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-pb-4h`：开发窗口 2020-01-01 至 2025-06-30，4 小时线，25 个 USDT 永续。登记 `registration-h06` 是新根 `pb-root@1`：日线上升趋势中回调到前高或均线支撑后做多；对照运行 `run-0f3`（本路线的基准候选 `base-root@2`）。
+研究路线 `line-pb-4h`：开发窗口 2020-01-01 至 2025-06-30，4 小时线，25 个 USDT 永续。登记 6 是新根 `pb-root@1`：日线上升趋势中回调到前高或均线支撑后做多；对照运行 403（本路线的基准候选 `base-root@2`）。
 
-`replay report --trial-id run-0f9`（`pb-root@1`）和 `hypothesis compare --bundle registration-h06 --trial-id run-0f9` 的结果（读的时候账本提交是 `7e3b9c4`）：
+`replay report --trial-id 409`（`pb-root@1`）和 `hypothesis compare --registration 6 --trial-id 409` 的结果（读的时候账本提交是 `7e3b9c4`）：
 
 | 项 | 数值 |
 |---|---|
@@ -16,7 +16,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 | 已平仓价格盈亏（扣费前） | −6,850 USDT |
 | 手续费 / 资金费 | 4,120 / −910 USDT |
 | 按年份价格盈亏 | 2020 −1,020；2021 +5,380；2022 −6,940；2023 −2,150；2024 +1,330；2025 −3,450 |
-| 年化效应（对 `run-0f3`） | −5.6%，区间 [−9.8%, −1.5%]，p = 0.99（登记的单边检验） |
+| 年化效应（对运行 403） | −5.6%，区间 [−9.8%, −1.5%]，p = 0.99（登记的单边检验） |
 | 登记的预测「入场后 24 小时内创新高的计划超过一半」 | 实际 38%，不成立 |
 
 另外有两个还没登记的动作：在 `base-root@2` 上加资金费过滤（预检约 20 分钟，网格 3 点）；在 `base-root@2` 上改成按波动率目标定仓（预检约 40 分钟，网格 4 点）。

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -663,8 +664,14 @@ class SelectionTests(unittest.TestCase):
         env = Path("/etc/trade/remote.env")
         run = compose("HOME=/root\nTRADE_DOMAIN=www.trade.test\nTRADE_DATA=/data/trade\nX=a=b\n")
         config = Config.installed(env, run)
-        self.assertEqual((config.domain, config.data), ("www.trade.test", Path("/data/trade")))
+        self.assertEqual((config.domain, config.data, config.paper_memory), ("www.trade.test", Path("/data/trade"), ""))
         self.assertEqual(run.call_args.args[0][:4], ["docker", "compose", "--env-file", str(env)])
+        base = "TRADE_DOMAIN=x.test\nTRADE_DATA=/data\n"
+        for memory in ("", "3584m", "4g"):
+            self.assertEqual(Config.installed(env, compose(f"{base}TRADE_PAPER_MEMORY={memory}\n")).paper_memory, memory)
+        for memory in ("4G", "0m", "4gb", "4 g"):
+            with self.assertRaisesRegex(RuntimeError, "TRADE_PAPER_MEMORY"):
+                Config.installed(env, compose(f"{base}TRADE_PAPER_MEMORY={memory}\n"))
         for stdout in ("TRADE_DATA=/data/trade\n", "TRADE_DOMAIN=x.test\nTRADE_DATA=relative\n",
                        "TRADE_DOMAIN=a.test/evil\nTRADE_DATA=/data\n"):
             with self.assertRaisesRegex(RuntimeError, "must set TRADE_DOMAIN"):
@@ -682,6 +689,23 @@ class SelectionTests(unittest.TestCase):
                 values.pop("TRADE_DOMAIN", None), values.pop("TRADE_DATA", None)
                 config = Config.installed(env)
         self.assertEqual((config.domain, config.data), ("www.trade.test", Path("/data/trade")))
+
+    @unittest.skipUnless(shutil.which("docker"), "needs Docker Compose")
+    def test_the_workstation_paper_service_gets_the_paper_memory_budget_from_the_env_file(self):
+        compose = Path(__file__).resolve().parents[2] / "deploy/compose.yaml"
+        with tempfile.TemporaryDirectory() as root:
+            for memory in ("4g", ""):
+                env = Path(root) / "trade.env"
+                env.write_text("TRADE_SERVICE_IMAGE=s\nTRADE_IDE_IMAGE=i\nTRADE_RUNTIME_IMAGE=r\nTRADE_UID=1\n"
+                               f"TRADE_GID=1\nTRADE_DATA=/data\nTRADE_PAPER_MEMORY={memory}\n")
+                with patch.dict(os.environ, {}, clear=False) as values:
+                    values.pop("TRADE_PAPER_MEMORY", None)
+                    result = subprocess.run(["docker", "compose", "--env-file", str(env), "-f", str(compose),
+                                             "config", "--format", "json", "paper"],
+                                            capture_output=True, text=True, timeout=60, check=True)
+                # Empty reaches paper/runs.py budget() as "", which keeps its default.
+                self.assertEqual(json.loads(result.stdout)["services"]["paper"]["environment"]["TRADE_PAPER_MEMORY"],
+                                 memory)
 
     def test_router_state_and_docker_lifecycle_reject_non_web_or_non_agent_names(self):
         self.assertEqual(route_name(route_config(WEB + A, None)), WEB + A)

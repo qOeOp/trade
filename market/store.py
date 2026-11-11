@@ -1,4 +1,4 @@
-"""Imports into the market directory (`market.import_month`, `market.import_quotes`) and what a market commit
+"""Imports into the market directory (`market.import_month`, `market.import_quotes`) and what a market day
 holds (`market.freshness`).
 
 One bar import is one UTC month: every eligible contract's stitched one-minute LAST and MARK bars and funding, terms
@@ -31,11 +31,11 @@ from market import files, instrument, quotes, series, sources, universe
 from market.sources import DAY, MINUTE, MarketError, _refuse
 
 
-def check_commit(commit) -> str:
-    if not isinstance(commit, str) or files.commit_day(commit) is None:
-        raise _refuse(f"{commit!r} is not a resolved market commit", "MARKET_COMMIT_INVALID",
-                      missing=(str(commit),))
-    return commit
+def check_day(market_day) -> str:
+    if not isinstance(market_day, str) or files.parse_day(market_day) is None:
+        raise _refuse(f"{market_day!r} is not a resolved market day", "MARKET_DAY_INVALID",
+                      missing=(str(market_day),))
+    return market_day
 
 
 def default_cache() -> Path:
@@ -499,7 +499,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
               "derived_findings": dict(sorted(totals["derived_findings"].items())),
               "per_symbol": dict(sorted(totals["per_symbol"].items())),
               "universe_filled": {f"{key:%Y-%m}": value for key, value in filled.items()}}
-    return {**result, "market_day": files.latest_commit(market), "seconds": round(time.monotonic() - started)}
+    return {**result, "market_day": files.latest_market_day(market), "seconds": round(time.monotonic() - started)}
 
 
 def _month_bars(market: files.Market, start_ms: int, end_ms: int, prepared: dict[str, str], kept: list[str]):
@@ -725,17 +725,17 @@ def _fill_universe(market: files.Market, month: date, earliest: date, latest: da
 # market.freshness
 
 def freshness(profile: dict, ref: str | None = None) -> dict:
-    """market.freshness: what a market commit holds (universe months and contracts, the newest minute, the latest
+    """market.freshness: what a market day holds (universe months and contracts, the newest minute, the latest
     complete day and month)."""
     market = files.open_market(profile, "reader")
-    commit = files.resolve_commit(market, ref)
-    members = universe.months_of(market, commit)
+    market_day = files.resolve_day(market, ref)
+    members = universe.months_of(market, market_day)
     months = sorted({month for month, _ in members})
     if not months:
-        raise _refuse(f"market commit {commit} has no universe month", "MARKET_EMPTY", missing=(commit,))
+        raise _refuse(f"market day {market_day} has no universe month", "MARKET_EMPTY", missing=(market_day,))
     newest = None
     # A table's files are disjoint in time: the newest minute is in the latest file holding a LAST bar.
-    high = files._visible("bar", commit, None)
+    high = files._visible("bar", market_day, None)
     for entry in reversed(files.entries(market, "bar", None, None, high)):
         for batch in files.file_batches(files.file_bytes(market, entry), files.BAR, None, None, high):
             opens = batch.filter(pc.equal(batch.column("price_type"), "LAST")).column("ts_open")
@@ -749,7 +749,7 @@ def freshness(profile: dict, ref: str | None = None) -> dict:
     month_start = day.replace(day=1) if day is not None else None
     at_month_start = month_start is not None and covered == series._day_ms(month_start)
     complete_month = (month_start - timedelta(days=1)).strftime("%Y-%m") if month_start is not None else None
-    return {"commit": commit, "universe_rule": universe.rule_of(market, commit),
+    return {"market_day": market_day, "universe_rule": universe.rule_of(market, market_day),
             "universe_months": [value.strftime("%Y-%m") for value in months],
             "symbols": len({symbol for _, symbol in members}), "covered_through": covered,
             "latest_complete_day": complete_day, "latest_complete_month": complete_month,
@@ -846,7 +846,7 @@ def _import_quotes(market: files.Market, month: date, start_ms: int, end_ms: int
     per_symbol = {item["symbols"][0]: item["per_symbol"] for item in found}
     return {"month": label, "through": series._ms_day(end_ms).isoformat(), "quote_rule": quotes.RULE,
             "symbols": scope, "quote_rows": sum(item["quotes"] for item in per_symbol.values()),
-            "per_symbol": per_symbol, "market_day": files.latest_commit(market),
+            "per_symbol": per_symbol, "market_day": files.latest_market_day(market),
             "seconds": round(time.monotonic() - started)}
 
 

@@ -19,10 +19,10 @@ const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 t
 export function ReconcileTools({ r, paperId }: { r: Reconciliation | null; paperId: number }) {
   const zone = useTimeZone();
   if (r?.state !== "done" || !r.result) return null;
-  const { window: w, market_day: commit } = r.result;
+  const { window: w, market_day: day } = r.result;
   return (
     <>
-      <Tip content={<>Replayed with market {marketThrough(commit)}</>}>
+      <Tip content={<>Replayed with market {marketThrough(day)}</>}>
         <span className="whitespace-nowrap tabular-nums">{dateTime(utcInstant(w.start), zone, "minute")} → {dateTime(utcInstant(w.end), zone, "minute")}</span>
       </Tip>
       <TextButton onClick={() => void reconcile(paperId)}>Replay again</TextButton>

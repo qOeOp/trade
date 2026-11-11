@@ -1,6 +1,6 @@
 """Replay one complete strategy over exported market data in one native Nautilus BacktestEngine account.
 
-The runner takes four things: the strategy reference, the inputs (one market commit exported per
+The runner takes four things: the strategy reference, the inputs (one market day exported per
 contract, the contracts, their universe membership and lifecycle episodes), the window and the
 account. Execution is on one-minute bars. The account and
 market facts (balance, leverage, fees, funding, matching) are fixed in ``engine.config``; everything

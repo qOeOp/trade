@@ -17,7 +17,7 @@ from shared.refusals import refuse
 from registration import precheck
 from replay import entry
 from report import graph, seams, status
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market, pinned
+from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, market as line_market, pinned
 from tests.registration.world import RUNNER_ARGV, capture, config, source
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT, OUTCOMES, market_returns
@@ -34,7 +34,7 @@ class UnchangedTests(unittest.TestCase):
         cls.addClassCleanup(cls.market.__exit__, None, None, None)
         world.fingerprint = FINGERPRINT
         root, (cls.control_ref,) = registered_grid(world, ["control"])
-        cls.control = entry.run(world.profile, world.market, MARKET_COMMIT, cls.control_ref, None, RUNNER_ARGV, registration=root)
+        cls.control = entry.run(world.profile, world.market, MARKET_DAY, cls.control_ref, None, RUNNER_ARGV, registration=root)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.control["trial_id"]}])
         child = world.publish("child", parent=cls.control_ref, difference="widen the stop")
         cls.child_ref, cls.child_source = child["candidate"], child["source"]
@@ -43,13 +43,13 @@ class UnchangedTests(unittest.TestCase):
             [cls.child_ref], {cls.child_ref: world.prechecked(child["source"])},
             control_trial_id=cls.control["trial_id"], duties=["F3"], prediction={"mechanism": mechanism, "outcomes": dict(OUTCOMES)}))
         world.scenario = {"returns": CANDIDATE_RETURNS}
-        cls.child = entry.run(world.profile, world.market, MARKET_COMMIT, cls.child_ref, None, RUNNER_ARGV,
+        cls.child = entry.run(world.profile, world.market, MARKET_DAY, cls.child_ref, None, RUNNER_ARGV,
                               registration=registration["registration_id"])
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.child["trial_id"]}])
         world.scenario = {}
         cls.line, cls.line_id = world.line["line"], world.line["line_id"]
         with pinned(date(2026, 2, 1), date(2026, 3, 1)):
-            other = lines.select_line(world.conn, MARKET_COMMIT, cls.control_ref, slug="other-window",
+            other = lines.select_line(world.conn, MARKET_DAY, cls.control_ref, slug="other-window",
                                       market=line_market(latest_complete_day=date(2026, 3, 31)),
                                       reviews=precheck.review_records)
         cls.other_line, cls.other_line_id = other["line"], other["line_id"]
@@ -201,7 +201,7 @@ class UnchangedTests(unittest.TestCase):
         self.answers(since, False, same=True)
         since = self.head()
         with pinned(date(2026, 2, 2), date(2026, 3, 1)):
-            lines.select_line(self.world.conn, MARKET_COMMIT, self.control_ref, slug="third",
+            lines.select_line(self.world.conn, MARKET_DAY, self.control_ref, slug="third",
                               market=line_market(latest_complete_day=date(2026, 3, 31)), reviews=precheck.review_records)
         self.answers(since, False, same=True)
 
@@ -217,11 +217,11 @@ class UnchangedTests(unittest.TestCase):
         self.assertNotIn("market_unread", graph.research_graph(self.world.profile, self.line, workers=1)["scope"])
 
         def unread(*window):
-            raise refuse("UNKNOWN_REF", "no such market commit")
+            raise refuse("UNKNOWN_REF", "no such market day")
 
         with seams.use(market_returns=unread):
             scope = graph.research_graph(self.world.profile, self.line, workers=1)["scope"]
-        self.assertEqual(scope["market_unread"], "UNKNOWN_REF: no such market commit")
+        self.assertEqual(scope["market_unread"], "UNKNOWN_REF: no such market day")
 
     def test_zz_a_changed_or_deleted_row_or_table_answers_changed_and_a_refusal_stays_one(self):
         since = self.head()

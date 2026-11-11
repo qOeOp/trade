@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `fund-short-1h`：BTCUSDT 和 ETHUSDT 永续，1 小时线，开发窗口 2023-01-01 到 2025-06-30。我要登记 `registration-f04`，父版本 `fund-root@2`，改动是"资金费率年化高于 50% 时只开空单"。
+研究路线 `fund-short-1h`：BTCUSDT 和 ETHUSDT 永续，1 小时线，开发窗口 2023-01-01 到 2025-06-30。我要登记 4，父版本 `fund-root@2`，改动是"资金费率年化高于 50% 时只开空单"。
 
 主会话写的 rationale 草稿：
 

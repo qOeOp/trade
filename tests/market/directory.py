@@ -43,7 +43,7 @@ def merged(market: files.Market, table: str, month: date | None, symbol: str | N
 def seed(profile: dict, *, month: str, through: str, terms: list[tuple[str, dict]], bars: dict,
          funding: dict | None = None, members: list[tuple] = (), observed_at: int = 1) -> str:
     """One bar import's files: terms [(symbol, {increments})], bars {(symbol, price_type): integer columns}, funding
-    {symbol: [(time, Decimal rate)]}, universe members [(month date, symbol)]. The commit of the day before `through`."""
+    {symbol: [(time, Decimal rate)]}, universe members [(month date, symbol)]. The market day of the day before `through`."""
     classification = {"contract_type": "PERPETUAL", "quote_asset": "USDT", "underlying_type": "COIN",
                       "underlying_sub_types": []}
     market = files.open_market(profile, "import")
@@ -83,9 +83,9 @@ def forged(profile: dict, table: str, month: date | None = None, symbol: str | N
 
 
 def read(profile: dict, table: str, symbols: list[str] | None = None, start_ms: int | None = None,
-         end_ms: int | None = None, commit: str | None = None) -> pa.Table:
-    """The table's rows at `commit` (every row by default) in key order."""
+         end_ms: int | None = None, market_day: str | None = None) -> pa.Table:
+    """The table's rows at `market_day` (every row by default) in key order."""
     market = files.open_market(profile, "reader")
     definition = files.TABLES[table]
-    return pa.Table.from_batches(list(files.read_table(market, commit, table, symbols, start_ms, end_ms)),
+    return pa.Table.from_batches(list(files.read_table(market, market_day, table, symbols, start_ms, end_ms)),
                                  definition.schema)

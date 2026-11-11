@@ -1,4 +1,5 @@
-"""Pull successful public main builds into the isolated Web release plane.
+"""Pull admitted versions into the isolated Web release plane: the public `deploy-ready` channel, which CI moves
+only for the commit of the newest version tag (`main-ready`, every checked main build, is staging and never read here).
 
 The host service installs a reviewed copy of this module; it never executes deployment code from
 the fetched checkout. Git and Docker use no existing credential configuration.
@@ -664,7 +665,7 @@ class Release:
         return PaperRelease(PaperHost(self.host.config), self.github)
 
     def install(self) -> None:
-        """A new host's first release: the admitted main build's Paper controller, Web and Agent, with both
+        """A new host's first release: the admitted version's Paper controller, Web and Agent, with both
         routes written for the routers the installer starts next. Nothing ran before, so nothing rolls back;
         after a failure, remove the containers it created and install again."""
         paper = self.paper().host
@@ -675,7 +676,7 @@ class Release:
         target = self.github.approved()
         sha = target["revision"]
         if target["image"] is None:
-            raise RuntimeError("the newest main build is not admitted; install after a successful one")
+            raise RuntimeError("the newest deploy-ready version is not admitted; install after a version is admitted")
         image = self.host.pull(sha, target["image"])
         paper.pull(target["service"], SERVICE_REF, sha)
         self.github.require_runtime(paper.pull(target["runtime"], RUNTIME_REF), sha)

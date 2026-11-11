@@ -12,7 +12,8 @@ research conclusions and experiment selection belong to `research-round`.
 ## Boundaries
 
 - Read only: transcripts, the checkout, CI logs, `ledger sql`, `ledger review`, `research status`,
-  `research state`, `research graph` and `--help`. Never write the ledger or the market (`replay
+  `research state`, `research graph` and `--help`, plus a temporary ledger and an IDE of the audit's
+  own for page states ([lenses.md](references/lenses.md#product-contracts-and-delivery)). Never write the ledger or the market (`replay
   reproduce` records an explore trial). Never read `dolt/service.json` under the data directory
   (passwords) or fetch a running IDE's home page (paper token): `ledger review` gives the backup head.
 - AGENTS.md owns common authority and implementation boundaries; reference it rather than copying
@@ -43,7 +44,8 @@ writes no record, index row or finding.
 ## Steps
 
 1. **Pin scope and evidence.** Identify session paths, hosts and times, checkout and ledger
-   commits; read open items and misses in `docs/plans/doctor/index.zh.md`. Judge current product
+   commits; read open items and misses in `docs/plans/doctor/index.zh.md` (a full audit reruns their
+   proofs, [record.md](references/record.md)). Judge current product
    behavior on a checkout at the current `origin/main` (after `git fetch origin main`), use its current names in findings, and compare
    it with the session's checkout before calling anything a defect: a fix the session lacked is
    not a new finding. Build a shared /tmp

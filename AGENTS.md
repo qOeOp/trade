@@ -64,7 +64,7 @@ result matches is no new exposure.
   reviews, research lines, out-of-sample registrations); observations that cannot recur (failure
   logs, source originals (of a third-party video, only hashes and excerpts), timestamp tokens, market data); the minimal identity to reproduce the
   rest (complete strategy source, one UTF-8 file per independent strategy; runtime image digest;
-  market commit; configuration and input identity); and readings computed at sealing (audit
+  market day; configuration and input identity); and readings computed at sealing (audit
   and eligibility verdicts, metrics, report measures, cycles, daily returns) with fingerprints of the
   native reports, which only the product's seal command replaces, from a replay matching those
   fingerprints. Store each fact once and never what stored data derives. Native reports and

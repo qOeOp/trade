@@ -17,7 +17,7 @@ export function chartHistory(stage: Stage, stretches: readonly Stretch[], backte
 const startedNs = (r: PaperRun) => r.seal?.started_ns ?? r.live?.started_ns ?? createdNs(r);
 
 /** A trial the backtest stage can draw: a research replay with economic evidence (others ran on no
- *  window or market commit of this line's that the view holds). */
+ *  window or market day of this line's that the view holds). */
 export const drawable = (t: Trial) => t.purpose === "research" && t.eligible === true;
 
 /** The research replay the backtest stage draws: the one picked (`chosen`) while it can be, else the

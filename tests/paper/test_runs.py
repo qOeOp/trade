@@ -160,7 +160,7 @@ class MonthFileTests(unittest.TestCase):
         rows = [(date(2026, 1, 1), "AAAUSDT"), (date(2026, 1, 1), "BBBUSDT"), (date(2026, 2, 1), "AAAUSDT"),
                 (date(2026, 2, 1), "CCCUSDT")]
         with tempfile.TemporaryDirectory() as name, mock.patch.object(files, "open_market"), \
-                mock.patch.object(files, "resolve_commit", return_value="c" * 32), \
+                mock.patch.object(files, "resolve_day", return_value="c" * 32), \
                 mock.patch.object(universe, "months_of", return_value=rows):
             directory = Path(name)
             (directory / "inputs").mkdir()

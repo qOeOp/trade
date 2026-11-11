@@ -13,7 +13,7 @@ A page onto the research, opened locally or through the [remote host](/en/docs/p
 
 | Stage | Input → output | Owns |
 |---|---|---|
-| Extract | ledger → graph.json | everything the ledger holds about one line: its versions, its own research runs (its window and market commit), reviews and judgments (the product command `research graph`) |
+| Extract | ledger → graph.json | everything the ledger holds about one line: its versions, its own research runs (its window and market day), reviews and judgments (the product command `research graph`) |
 | Contract | graph.json (research-graph@3) → problems | the shape of a graph (schema/graph.schema.json) |
 | Layout | graph.json → view.json (research-graph-view@1) | what to draw and where, in rows and the line's own trials (its n-th trial at n, labelled with its trial number), no pixels; split into widgets (summary@1, lineage@2, progress@1, scatter@1, table@1, notes@1, candidate-detail@1, sources@1), each with its own type, version and slot |
 | Render | view.json → page | pixels, colours, labels and interaction; the web renderer is one self-contained HTML page, rebuilt whenever its sources change |

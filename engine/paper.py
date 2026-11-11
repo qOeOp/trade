@@ -421,7 +421,7 @@ def request_stop(reason: str) -> None:
 class RecorderConfig:
     instrument_ids: list
     uses_stop_loss: bool
-    terms: dict  # instrument ID -> the market's terms at the run's commit (paper start's inputs/terms.json)
+    terms: dict  # instrument ID -> the market's terms at the run's market day (paper start's inputs/terms.json)
 
 
 RECORDERS: list = []  # the node constructs the recorder from its importable configuration
@@ -638,7 +638,7 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--taker-fee", type=Decimal, required=True, help="the market's assumed taker rate")
     parser.add_argument("--leverage", type=leverage_of, required=True, help="the account's Binance leverage")
     parser.add_argument("--terms", type=Path, required=True,
-                        help="the market's terms of each symbol at the run's commit (TERMS_CHANGED)")
+                        help="the market's terms of each symbol at the run's market day (TERMS_CHANGED)")
     parser.add_argument("--proxy-url", help="the egress proxy that admits only Binance's public hosts")
     parser.add_argument("--duration-seconds", type=int, help="stop after this long (engineering trials)")
     return parser.parse_args(argv)

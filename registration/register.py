@@ -5,7 +5,7 @@
 A registration locks one hypothesis before any replay of it: the pre-registered text (prediction, changed
 duties, rationale, sources, conditions), the control run and comparison design, the registration it retries,
 the grid of candidates with the source review of each one's precheck, and the execution identity the product
-probed (runtime image, market commit, universe rule, lifecycle bundle, export content, comparable
+probed (runtime image, market day, universe rule, lifecycle bundle, export content, comparable
 configuration): one research_registration row on its open line, its grid points and its design. Its parent
 and change are its grid candidates' (they share one parent and one published difference); its window is its
 line's development window. A research replay binds to one grid point in the transaction that writes its

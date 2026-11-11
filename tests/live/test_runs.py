@@ -21,7 +21,7 @@ from tests.live.authority_fixture import install
 
 
 MARKET_TERMS = runs._market_terms  # LiveFixture replaces it; test_market_terms_* reads it
-MARKET = {"commit": "2026-11-09", "terms": {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}}
+MARKET = {"market_day": "2026-11-09", "terms": {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}}
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
             "platform": "linux/amd64", "runtime_contract": "replay-contract@v8"}
 
@@ -136,16 +136,16 @@ class LiveCustodyTests(LiveFixture):
                 network.assert_not_called()
         self.assertFalse((self.root / "account.jsonl").exists())
 
-    def test_market_terms_are_read_at_the_latest_commit_and_an_unreadable_market_is_refused(self):
+    def test_market_terms_are_read_at_the_latest_market_day_and_an_unreadable_market_is_refused(self):
         with self.assertRaises(LiveRefusal) as caught:
             MARKET_TERMS(self.root / "no-market", ["BTCUSDT"])
         self.assertEqual(caught.exception.code, "LIVE_MARKET_TERMS")
         commit = "2026-11-09"
-        with patch("market.files.resolve_commit", return_value=commit) as resolved, \
+        with patch("market.files.resolve_day", return_value=commit) as resolved, \
                 patch("market.instrument.terms", side_effect=lambda market, at, symbol: {"at": at, "symbol": symbol}):
             found = MARKET_TERMS(self.root, ["BTCUSDT"])
         self.assertIsNone(resolved.call_args.args[1])
-        self.assertEqual(found, {"commit": commit, "terms": {"BTCUSDT": {"at": commit, "symbol": "BTCUSDT"}}})
+        self.assertEqual(found, {"market_day": commit, "terms": {"BTCUSDT": {"at": commit, "symbol": "BTCUSDT"}}})
 
     def test_the_control_and_prepare_take_binances_leverage_range_from_engine_config(self):
         for leverage in ("0", "126", "03", "2.5", 3, None):

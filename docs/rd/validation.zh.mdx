@@ -28,7 +28,7 @@
 
 <Step>
 
-等窗口过完、新数据进入新的市场提交，由你发起一次样本外回放。
+等窗口过完、新数据进入新的市场日，由你发起一次样本外回放。
 
 </Step>
 
@@ -114,7 +114,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validation_register` `ledger.stamped_at` `cli.validation_registration`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">第 1 代账本的隔离测试（`tests/registration/test_validation.py`、`tests/ledger/test_witness.py`，2026-11-11 在 Dolt 2.7.2 上 29 项全过、无跳过）用本地时间戳机构覆盖无凭证拒绝、失败重试沿用最初凭证；真实公共凭证另有离线验签样本。这些证据不等于完整真实样本外回放或公共服务可用性验证。</p>
+<p className="rd-note">第 1 代账本的隔离测试覆盖登记晚于窗口起点的拒绝、无凭证不能绑定、重试沿用最初凭证（`tests/registration/test_validation.py`、`tests/ledger/test_witness.py`，2026-11-11 在 Dolt 2.7.2 上通过）；绑定时凭证不早于窗口起点的拒绝（`registration/validation.py:297`）没有单独测试，晚到的凭证只由复核项 `WITNESS_LATE` 测到；缺真实公共时间戳服务下的完整样本外回放。</p>
 
 ### 一次性与一致性 [#X-1-3]
 
@@ -142,19 +142,19 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 只要有一项悄悄变了，结果就分不清是策略本身的表现，还是换了环境、范围或账户带来的差别。核对不过就整笔撤回，回放根本不启动，避免白白用掉一次登记。
 
-未执行的登记遇到正常补齐或修正行情，只要仍满足原登记的范围、覆盖和其他准入条件，就按原登记执行一次，不为数据修正另开一次验证；保留新旧市场提交与修正证据。已绑定后仅按 <Ref id="X.1.3.1" /> 的失败条件重试；已有经济证据的成功结果，不因数据修正获得再次正式验证的机会，原结果与修正影响都照实披露。
+未执行的登记遇到正常补齐或修正行情，只要仍满足原登记的范围、覆盖和其他准入条件，就按原登记执行一次，不为数据修正另开一次验证；保留新旧市场日与修正证据。已绑定后仅按 <Ref id="X.1.3.1" /> 的失败条件重试；已有经济证据的成功结果，不因数据修正获得再次正式验证的机会，原结果与修正影响都照实披露。
 
-主分支更新不自动作废登记，也不强制改用新镜像。确需换镜像时，Agent 先按 <Ref id="J.5.3.2" /> 做原生配对，结论只覆盖实际对照；撮合、保证金等实质条款改变，或无法证明兼容，就停止旧验证，由用户另定新的未来窗口。停止原因通过现有证据与判断追加记录，注明登记编号、账本提交、相关市场提交及镜像身份；不改删登记，不新增作废状态，也不自动释放其预留窗口。成员、账户和正式构建检查由代码执行；镜像兼容判断、修正说明及停止后的交接由 skill 负责，不宣称已有自动兼容裁决。
+主分支更新不自动作废登记，也不强制改用新镜像。确需换镜像时，Agent 先按 <Ref id="J.5.3.2" /> 做原生配对，结论只覆盖实际对照；撮合、保证金等实质条款改变，或无法证明兼容，就停止旧验证，由用户另定新的未来窗口。停止原因通过现有证据与判断追加记录，注明登记编号、账本提交、相关市场日及镜像身份；不改删登记，不新增作废状态，也不自动释放其预留窗口。成员、账户和正式构建检查由代码执行；镜像兼容判断、修正说明及停止后的交接由 skill 负责，不宣称已有自动兼容裁决。
 
 <div className="rd-example">
 
-比如币池里有下架的合约，也有重新上市分成两段的。新的市场提交要是修正了某个合约 9 月的成员记录，登记前那几个月的名单就对不上，代码会拒绝启动（MEMBERSHIP_CHANGED）。又比如一个只交易 BTCUSDT 的候选，样本外回放也只给 BTCUSDT；拿全池去跑就成了另一个实验，会被拒绝。账户初始资金从 10 万改成了 5 万，也会被拒绝。
+比如币池里有下架的合约，也有重新上市分成两段的。新的市场日要是修正了某个合约 9 月的成员记录，登记前那几个月的名单就对不上，代码会拒绝启动（MEMBERSHIP_CHANGED）。又比如一个只交易 BTCUSDT 的候选，样本外回放也只给 BTCUSDT；拿全池去跑就成了另一个实验，会被拒绝。账户初始资金从 10 万改成了 5 万，也会被拒绝。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validation_bind` `replay.seal` `registration.membership_unchanged`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">第 1 代账本的隔离测试（`tests/registration/test_validation.py`、`tests/ledger/test_witness.py`，2026-11-11 在 Dolt 2.7.2 上 29 项全过、无跳过）覆盖固定账户基准、重试成员与设计边界；市场和镜像检查使用测试替身，仍缺真实跨市场提交与完整样本外回放。</p>
+<p className="rd-note">第 1 代账本的隔离测试（`tests/registration/test_validation.py`、`tests/ledger/test_witness.py`，2026-11-11 在 Dolt 2.7.2 上 29 项全过、无跳过）覆盖固定账户基准、重试成员与设计边界；市场和镜像检查使用测试替身，仍缺真实跨市场日与完整样本外回放。</p>
 
 ## 12.2　报告结果 [#X-2]
 
@@ -212,7 +212,7 @@ Agent 立即把报告交给你，认不认可、上不上线由你决定。
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.validation_report` `cli.validation_report` `registration.mask`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。</p>
+<p className="rd-note">缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。报告列出登记族、凭证且不下裁决有测试（`tests/report/test_review.py`、`tests/report/test_integrity.py`）；有资格的绑定运行读出与开发报告相同的指标、无资格时指标整体留空，这两点没有测试。</p>
 
 #### 用窗口内每天的账户收益，给出均值和夏普的区间与 p [#X-2-1-2]
 

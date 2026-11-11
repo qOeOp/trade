@@ -5,7 +5,7 @@ one), the window and the universe rule. Register it with `validation registratio
 `replay run --validation ID` and read it with `validation report`, as their `--help` describes.
 
 - Keep the original registration when unused window data is completed or corrected and still
-  meets its admission checks; cite the old/new market commits and correction evidence. Binding,
+  meets its admission checks; cite the old/new market days and correction evidence. Binding,
   retries included, keeps the original registration's membership boundary and account baseline:
   the account of the candidate's latest passed research run at that registration's commit, which
   later research runs never replace. A retry also keeps its candidate, window, universe rule and
@@ -19,7 +19,7 @@ one), the window and the universe rule. Register it with `validation registratio
   with changed matching, margin or other substantive terms, or on an image whose compatibility
   you cannot show, stop the old validation; otherwise it binds on its original terms. Record the
   reason through existing evidence/judgments citing the registration, ledger commit, affected
-  market commits and both image identities; retain the registration and window reservation, and
+  market days and both image identities; retain the registration and window reservation, and
   ask the user about a new future window. There is no cancellation or automatic release.
   Code refuses a binding whose build, source, design, membership, window, coverage or account
   differs from the original registration. No code judges image compatibility or the effect of a

@@ -16,7 +16,7 @@ from shared.refusals import refuse
 from registration import comparability, register, seams as registration_seams
 from replay import entry, reproduce
 from report import runs, status
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, RUNTIME, SKIP, context, sha
+from tests.ledger.dolt import BINARY, MARKET_DAY, RUNTIME, SKIP, context, sha
 from tests.registration.world import LINE_WINDOW, RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.replay.test_precheck_cache import ARGV
@@ -39,7 +39,7 @@ class ReproduceTests(unittest.TestCase):
         moved_registration, (moved, refused) = registered_grid(world, ["m1", "m2"])
 
         def run(ref: str, registration: int) -> int:
-            return entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+            return entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                              registration=registration)["trial_id"]
         world.fingerprint = ALL_TABLES
         cls.moved = run(moved, moved_registration)
@@ -127,7 +127,7 @@ class ResealTests(unittest.TestCase):
         self.addCleanup(self.world.close)
         registration, (ref,) = registered_grid(self.world, ["s1"])
         self.world.fingerprint = FINGERPRINT
-        self.trial_id = entry.run(self.world.profile, self.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+        self.trial_id = entry.run(self.world.profile, self.world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                                   registration=registration)["trial_id"]
 
     def reseal(self, name: str) -> dict:
@@ -172,7 +172,7 @@ class AnotherImageTests(unittest.TestCase):
         registration_id, refs = registered_grid(world, ["a1", "a2", "a3", "a4", "a5"])
         world.fingerprint = ALL_TABLES
         cls.moved, cls.other, cls.unbuilt, cls.third, cls.explored = (
-            entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+            entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                       registration=registration_id)["trial_id"] for ref in refs)
 
     def setUp(self):
@@ -239,7 +239,7 @@ class AnotherImageTests(unittest.TestCase):
 
     def test_a_precheck_reproduces_only_on_its_own_image(self):
         """U8 ("全按建议", 2026-11-11): the image, the configuration and the result each have their own code."""
-        checked = entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, "rsi@1", RUNTIME["image_ref"],
+        checked = entry.precheck(self.world.profile, self.world.market, MARKET_DAY, "rsi@1", RUNTIME["image_ref"],
                                  list(ARGV), self.world.output("precheck-own-image"))["trial_id"]
         before = self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0]
         with self.assertRaises(Refusal) as caught:
@@ -286,7 +286,7 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
     @staticmethod
     def inspect(identity, runner_argv, inputs):
         config = engine_config.parse_configuration([
-            "--describe", "--market-root", str(inputs["root"]), "--market-day", MARKET_COMMIT,
+            "--describe", "--market-root", str(inputs["root"]), "--market-day", MARKET_DAY,
             "--symbols", *inputs["symbols"], *(a for a in runner_argv if a not in registration_seams.ENTRY_FLAGS)])
         effective = engine_config.effective_configuration(config)
         return {"runtime_contract": identity["runtime_contract"], "effective_config": effective.values,
@@ -298,7 +298,7 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
             argv += ["--starting-balance", balance]
         if initial is not None:
             argv += ["--execution", "quotes", "--initial-margin", initial, "--maintenance-margin", maintenance]
-        return entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, "rsi@1", RUNTIME["image_ref"],
+        return entry.precheck(self.world.profile, self.world.market, MARKET_DAY, "rsi@1", RUNTIME["image_ref"],
                               argv, self.world.output(name))["trial_id"]
 
     def reproduce(self, trial_id, name):

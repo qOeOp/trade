@@ -65,7 +65,7 @@ class LiveTests(unittest.TestCase):
                         "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v8"},
             "config": {"budget_usdt": "100", "max_loss_usdt": "10", "duration_seconds": 30,
                        "leverage": "50"},
-            "market": {"commit": "2026-11-09", "terms": {"BTCUSDT": {
+            "market": {"market_day": "2026-11-09", "terms": {"BTCUSDT": {
                 "price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}},
             "strategy_file": str(self.strategy), "universe_file": str(self.universe),
             "universe_sha256": hashlib.sha256(self.universe.read_bytes()).hexdigest(),

@@ -23,7 +23,7 @@ from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
 from report import measures, runs, seams, status
 from runtime import image
-from tests.ledger.dolt import MARKET_DAYS, BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, market, pinned, reviewed, source
+from tests.ledger.dolt import MARKET_DAYS, BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, market, pinned, reviewed, source
 from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture, config
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
@@ -44,7 +44,7 @@ class OpenLinesStateTests(unittest.TestCase):
             state = status.research_state(conn)
         self.assertEqual((state["line"]["name"], [item["name"] for item in state["open_lines"]]), (mine, [mine]))
         with pinned(date(2026, 1, 1), date(2026, 3, 1)):
-            other = lines.select_line(world.conn, MARKET_COMMIT, "rsi@1", slug="rsi-wider", market=market(),
+            other = lines.select_line(world.conn, MARKET_DAY, "rsi@1", slug="rsi-wider", market=market(),
                                       reviews=reviewed(source("root")))["line"]
         with db.connect(world.profile, "reader") as conn:
             state, named = status.research_state(conn), status.research_state(conn, other)
@@ -53,7 +53,7 @@ class OpenLinesStateTests(unittest.TestCase):
                          [("LINE_AMBIGUOUS", [mine, other])])
         self.assertIsNone(state["facts"], "candidate list and research status are their own commands")
         self.assertEqual(state["open_lines"][1], {"name": other, "start": "rsi@1", "dev_start": "2026-01-01",
-                                                  "dev_end": "2026-03-01", "market_day": MARKET_COMMIT})
+                                                  "dev_end": "2026-03-01", "market_day": MARKET_DAY})
         self.assertEqual(named["line"]["name"], other)
         self.assertIsNone(status.research_status(world.profile)["comparison"])
         lines.close_line(world.profile, mine, b"rsi root summary", MARKET_DAYS)
@@ -122,18 +122,18 @@ class StoppedBeforeStrategyTests(unittest.TestCase):
 
 
 class UnresolvedMarketTests(unittest.TestCase):
-    """The gate for a line whose pinned market commit the active market no longer holds."""
+    """The gate for a line whose pinned market day the active market no longer holds."""
 
     LINE = {"market_day": "a" * 32}
 
-    def test_only_a_commit_the_active_market_does_not_hold_is_gated(self):
-        cases = [(None, []), ({"database": "market", "commit": "a" * 32}, [])]
+    def test_only_a_market_day_the_active_market_does_not_hold_is_gated(self):
+        cases = [(None, []), ({"database": "market", "market_day": "a" * 32}, [])]
         for found, expected in cases:
             with self.subTest(found=found), seams.use(market_day=lambda ref: found):
                 self.assertEqual(status._unresolved_market(self.LINE), expected)
-        with seams.use(market_day=lambda ref: {"database": "market", "commit": None}):
+        with seams.use(market_day=lambda ref: {"database": "market", "market_day": None}):
             gate, = status._unresolved_market(self.LINE)
-        self.assertEqual((gate["code"], gate["missing"]), ("MARKET_COMMIT_UNRESOLVED", ["a" * 32]))
+        self.assertEqual((gate["code"], gate["missing"]), ("MARKET_DAY_UNRESOLVED", ["a" * 32]))
 
     def test_a_run_reads_the_market_profile_its_market_database_names_else_the_active_one(self):
         local = {"name": "market", "holds": "market", "kind": "active", "root": "/srv/market"}
@@ -150,7 +150,7 @@ class UnresolvedMarketTests(unittest.TestCase):
                     seams._market_profile(name)
                 self.assertEqual(caught.exception.code, "MARKET_RETURNS_UNAVAILABLE")
 
-    def test_the_default_seam_tells_an_unknown_commit_from_an_unreadable_market(self):
+    def test_the_default_seam_tells_an_unknown_market_day_from_an_unreadable_market(self):
         from datetime import date
         from tests.market.directory import directory, forged
         profile = {**directory(self.addCleanup), "name": "market", "holds": "market", "kind": "active"}
@@ -159,9 +159,9 @@ class UnresolvedMarketTests(unittest.TestCase):
             (["BTCUSDT"], ["LAST"], [1735689600000], [1], [1], [1], [1], [1]), strict=True)))
         commit = date(2025, 1, 1).isoformat()
         with mock.patch.object(seams, "_market_profile", return_value=profile):
-            self.assertEqual(seams._market_day("a" * 32), {"database": "market", "commit": None})
-            self.assertEqual(seams._market_day(commit), {"database": "market", "commit": commit})
-            self.assertEqual(seams._market_day(date(2025, 1, 2).isoformat()), {"database": "market", "commit": None})
+            self.assertEqual(seams._market_day("a" * 32), {"database": "market", "market_day": None})
+            self.assertEqual(seams._market_day(commit), {"database": "market", "market_day": commit})
+            self.assertEqual(seams._market_day(date(2025, 1, 2).isoformat()), {"database": "market", "market_day": None})
         with mock.patch.object(seams, "_market_profile", return_value={**profile, "root": profile["root"] + "-absent"}):
             self.assertIsNone(seams._market_day("a" * 32))
         with mock.patch.object(seams, "_market_profile",
@@ -177,7 +177,7 @@ class TrialCountTests(unittest.TestCase):
         world.fingerprint = {"fills": {"rows": 2, "sha256": "1" * 64}}
 
     def replay(self, ref: str, registration: int) -> dict:
-        return entry.run(self.world.profile, self.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+        return entry.run(self.world.profile, self.world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                          registration=registration)
 
     def test_history_keeps_replaced_text_subjects_and_pinned_pages_without_changing_gates(self):
@@ -328,7 +328,7 @@ class ComparisonTableTests(unittest.TestCase):
         cls.runs = {}
         for ref, returns in zip(cls.refs, (None, CANDIDATE_RETURNS), strict=True):
             world.scenario = {"returns": returns} if returns else {}
-            cls.runs[ref] = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+            cls.runs[ref] = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                                       registration=registration)
             world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.runs[ref]["trial_id"]}])
         world.scenario = {}
@@ -476,7 +476,7 @@ class ComparisonTableTests(unittest.TestCase):
 
 @unittest.skipUnless(BINARY, SKIP)
 class SameKeyLineCandidatesTests(unittest.TestCase):
-    """Lines on one market commit and window, with runs of one execution identity (finding 20261105-01):
+    """Lines on one market day and window, with runs of one execution identity (finding 20261105-01):
     a recommendation names the line's own candidates and its start; other lines' runs stay in the table."""
 
     @classmethod
@@ -496,13 +496,13 @@ class SameKeyLineCandidatesTests(unittest.TestCase):
         ref = published["candidate"]
         registration = cls.world.register(cls.world.body([ref], {ref: cls.world.prechecked(published["source"])}),
                                           **kwargs)["registration_id"]
-        entry.run(cls.world.profile, cls.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, registration=registration)
+        entry.run(cls.world.profile, cls.world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
         return ref, published["source"]
 
     @classmethod
     def line(cls, slug: str, data: bytes, start: str) -> str:
         with pinned():
-            return lines.select_line(cls.world.conn, MARKET_COMMIT, start, slug=slug, market=market(),
+            return lines.select_line(cls.world.conn, MARKET_DAY, start, slug=slug, market=market(),
                                      reviews=reviewed(data))["line"]
 
     def table(self, line: str) -> dict:
@@ -580,7 +580,7 @@ class ExecutionIdentityTests(unittest.TestCase):
         cls.trials = {}
         for ref, returns in zip(cls.refs, (None, CANDIDATE_RETURNS), strict=True):
             world.scenario = {"returns": returns} if returns else {}
-            cls.trials[ref] = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+            cls.trials[ref] = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                                         registration=registration)["trial_id"]
             world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.trials[ref]}])
         cls.before = db.head_commit(world.conn)
@@ -592,7 +592,7 @@ class ExecutionIdentityTests(unittest.TestCase):
         with registration_seams.use(resolve_runtime=lambda ref: dict(OTHER_IDENTITY)):
             registration = world.register(world.body([cls.third], {cls.third: review}))["registration_id"]
             world.scenario = {"returns": BETTER_RETURNS}
-            cls.trials[cls.third] = entry.run(world.profile, world.market, MARKET_COMMIT, cls.third, None,
+            cls.trials[cls.third] = entry.run(world.profile, world.market, MARKET_DAY, cls.third, None,
                                               RUNNER_ARGV, registration=registration)["trial_id"]
         world.scenario = {}
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.trials[cls.third]}])

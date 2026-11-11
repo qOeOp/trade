@@ -1,10 +1,10 @@
 """Input identity (`registration.market_inputs`, `registration.export_fingerprint`,
 `registration.load_lifecycle`, `registration.record_lifecycle`).
 
-A replay's market inputs are exported AS OF one pinned market commit into an immutable directory,
+A replay's market inputs are exported AS OF one pinned market day into an immutable directory,
 with a membership file holding only the exported instruments. Their identity is content, not
 location: the export content hash covers what a replay reads and nothing else, so neither where and
-when it was exported nor the market commit it was exported at changes it while the window's data stays
+when it was exported nor the market day it was exported at changes it while the window's data stays
 the same, and the exporter hash the market adapter reports names the code that exported it, wherever it
 ran (provenance only). Registration and replay each export once and compare the same identity. Nothing
 here writes the ledger, drops an instrument, shortens a window or fills data.
@@ -85,12 +85,12 @@ def export_fingerprint(inputs: Mapping, semantic: bool) -> dict:
 
 
 def record_lifecycle(profile, market, at: str | None, manifest: Path, notices: list[Path], op_id: str | None = None) -> dict:
-    """Write the lifecycle evidence bundle lifecycle-<commit> of one market commit: the manifest
+    """Write the lifecycle evidence bundle lifecycle-<market_day> of one market day: the manifest
     (lifecycle.json, native-lifecycle-v1) with the exchange notices it cites as sources, validated
-    by market.validate_lifecycle against the commit before anything is written. The bundle is
-    immutable; a correction is a new market commit's bundle."""
+    by market.validate_lifecycle against the market day before anything is written. The bundle is
+    immutable; a correction is a new market day's bundle."""
     adapter = seams.current.market(market)
-    commit = adapter.resolve_commit(at)
+    market_day = adapter.resolve_day(at)
     data = _regular_bytes(Path(manifest), LIFECYCLE)
     files = {LIFECYCLE: data}
     for path in notices or ():
@@ -102,13 +102,13 @@ def record_lifecycle(profile, market, at: str | None, manifest: Path, notices: l
         body = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise refuse("LIFECYCLE_INPUT", f"{manifest} is not JSON", missing=(LIFECYCLE,)) from exc
-    episodes = adapter.validate_lifecycle(body, commit, files)
-    bundle = f"lifecycle-{commit}"
+    episodes = adapter.validate_lifecycle(body, market_day, files)
+    bundle = f"lifecycle-{market_day}"
     digests = evidence.digests(files)
     with db.connect(profile, "writer") as conn:
         written = db.write(conn, "record_lifecycle", {"bundle": bundle, "files": digests}, "evidence_bundle",
                            lambda c, op: evidence.write_files(c, bundle, files, kind="lifecycle", op_id=op), op_id=op_id)
-    return {"bundle": bundle, "market_day": commit, "files": digests,
+    return {"bundle": bundle, "market_day": market_day, "files": digests,
             "episodes": {symbol: len(found) for symbol, found in episodes.items()},
             "write_status": written["write_status"], "ledger_commit": written["commit"]}
 
@@ -129,16 +129,16 @@ def cleanup(inputs: Mapping | None) -> None:
         shutil.rmtree(inputs["root"], ignore_errors=True)
 
 
-def load_lifecycle(profile: db.LedgerProfile, bundle: str, commit: str, *, market) -> tuple[dict, dict[str, bytes]]:
-    """(episodes, files) of the lifecycle evidence bundle lifecycle-<commit>, validated against the
-    pinned market commit.
+def load_lifecycle(profile: db.LedgerProfile, bundle: str, market_day: str, *, market) -> tuple[dict, dict[str, bytes]]:
+    """(episodes, files) of the lifecycle evidence bundle lifecycle-<market_day>, validated against the
+    pinned market day.
 
     `profile` is the research ledger profile; `market` the market adapter whose validate_lifecycle
     checks the manifest.
     """
-    if bundle != f"lifecycle-{commit}":  # the market command writes lifecycle-<market_day> for each commit
-        raise refuse("LIFECYCLE_INPUT", f"{bundle!r} is not the lifecycle bundle lifecycle-{commit} of the pinned "
-                                        "market commit", missing=(str(bundle),), expected=f"lifecycle-{commit}")
+    if bundle != f"lifecycle-{market_day}":  # the market command writes lifecycle-<market_day> for each market day
+        raise refuse("LIFECYCLE_INPUT", f"{bundle!r} is not the lifecycle bundle lifecycle-{market_day} of the pinned "
+                                        "market day", missing=(str(bundle),), expected=f"lifecycle-{market_day}")
     try:
         with db.connect(profile, "reader") as conn:
             loaded = evidence.load_bundle(conn, bundle)
@@ -155,7 +155,7 @@ def load_lifecycle(profile: db.LedgerProfile, bundle: str, commit: str, *, marke
     except (UnicodeDecodeError, ValueError) as exc:
         raise refuse("LIFECYCLE_INPUT", f"{bundle}/{LIFECYCLE} is not JSON", missing=(f"{bundle}/{LIFECYCLE}",)) from exc
     try:
-        episodes = market.validate_lifecycle(body, commit, files)
+        episodes = market.validate_lifecycle(body, market_day, files)
     except Refusal as exc:
         if exc.code == "LIFECYCLE_INPUT":
             raise
@@ -175,7 +175,7 @@ def _clipped(intervals, start: int, end: int) -> list[list[int]]:
 def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, lifecycle_bundle: str | None,
                   fresh: bool, research=None, *, include_quotes: bool = True, include_trades: bool = False,
                   include_metrics: bool = False) -> dict:
-    """Export the inputs of one replay AS OF the pinned market commit and assemble their identity.
+    """Export the inputs of one replay AS OF the pinned market day and assemble their identity.
 
     `market` is the market profile (the seam turns it into an adapter); `window` holds start,
     trade_start and end in UTC nanoseconds; `selection` is {"universe": True} or {"symbols": [...]}.
@@ -191,21 +191,21 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
         raise refuse("SYMBOL_SELECTION_INVALID", "give exactly one of universe or symbols, without repeats",
                      expected='{"universe": true} or {"symbols": [unique names]}')
     adapter = seams.current.market(market)
-    commit = adapter.resolve_commit(at)
-    rule = adapter.universe_rule(commit)
-    if not adapter.universe_month(commit):
-        raise refuse("UNIVERSE_EMPTY", f"market commit {commit} has no universe members", missing=(commit,))
-    path = adapter.membership_path(commit, window["end"])["membership"]
+    market_day = adapter.resolve_day(at)
+    rule = adapter.universe_rule(market_day)
+    if not adapter.universe_month(market_day):
+        raise refuse("UNIVERSE_EMPTY", f"market day {market_day} has no universe members", missing=(market_day,))
+    path = adapter.membership_path(market_day, window["end"])["membership"]
     if universe:
         symbols = sorted(symbol for symbol, intervals in path.items()
                          if _intersects(intervals, window["trade_start"], window["end"]))
         if not symbols:
-            raise refuse("UNIVERSE_EMPTY", f"no member of {commit} intersects the trading window", missing=(commit,))
+            raise refuse("UNIVERSE_EMPTY", f"no member of {market_day} intersects the trading window", missing=(market_day,))
     episodes, lifecycle_files = None, None
     if lifecycle_bundle is not None:
-        episodes, lifecycle_files = load_lifecycle(research, lifecycle_bundle, commit, market=adapter)
+        episodes, lifecycle_files = load_lifecycle(research, lifecycle_bundle, market_day, market=adapter)
     assert symbols is not None  # the selection check above refused a selection without universe or symbols
-    exported = adapter.export_catalogs(commit, list(symbols), window["start"], window["end"], episodes,
+    exported = adapter.export_catalogs(market_day, list(symbols), window["start"], window["end"], episodes,
                                        lifecycle_files, fresh, include_quotes=include_quotes,
                                        include_trades=include_trades, include_metrics=include_metrics)
     inputs = {"root": Path(exported["root"]), "fresh": fresh}
@@ -218,8 +218,8 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
         membership = {symbol: [list(interval) for interval in path.get(symbol, [])] for symbol in symbols}
         membership_file = Path(tempfile.mkdtemp(prefix="registration-inputs-")) / MEMBERSHIP
         inputs["membership_file"] = membership_file
-        # The file a strategy reads holds the input window only: what lies outside it changes with the commit.
-        membership_file.write_bytes(_encoded({"commit": commit, "universe_rule": rule, "membership": {
+        # The file a strategy reads holds the input window only: what lies outside it changes with the market day.
+        membership_file.write_bytes(_encoded({"market_day": market_day, "universe_rule": rule, "membership": {
             symbol: _clipped(intervals, window["start"], window["end"]) for symbol, intervals in membership.items()}}))
         fingerprint = export_fingerprint(inputs, semantic=True)
     except BaseException:
@@ -227,7 +227,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
         raise
     inputs = {"root": inputs["root"], "membership_file": inputs["membership_file"]}
     chosen: dict[str, bool | list[str]] = {"universe": True} if universe else {"symbols": list(symbols)}
-    identity = {"market_database": adapter.database, "market_day": commit, "universe_rule": rule,
+    identity = {"market_database": adapter.database, "market_day": market_day, "universe_rule": rule,
                 "selection": chosen, "symbols": list(symbols), **fingerprint}
     if lifecycle_bundle is not None:
         identity["lifecycle_bundle"] = lifecycle_bundle

@@ -246,7 +246,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-example">
 
-比如一次回放的某个阶段超过内存上限（每阶段 24 GiB）被杀，这次回放被拒为 `STAGE_MEMORY_LIMIT`，封存照样写下，结局记为宿主失败并写明哪个阶段；进程被外部杀掉、来不及封存时，账本里只有启动时写下的记录，读出来就是「缺失」，不会是一份看似正常的空日志。
+比如一次回放的某个阶段超过内存上限（每阶段 16 GiB）被杀，这次回放被拒为 `STAGE_MEMORY_LIMIT`，封存照样写下，结局记为宿主失败并写明哪个阶段；进程被外部杀掉、来不及封存时，账本里只有启动时写下的记录，读出来就是「缺失」，不会是一份看似正常的空日志。
 
 </div>
 
@@ -286,7 +286,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 #### 样本外只认 main 自动构建的环境和含 main 最新提交的代码 [#J-2-4-4]
 
-样本外验证绑定时，代码核对两件事：运行环境是由产品源码 main 自动构建的；执行命令的产品代码包含 main 的最新提交（本地工作树里的改动不核对）。研究、预检和探索不做这两项核对，只要求环境由自动构建产出、按摘要钉死，任何构建来源的镜像都能用。
+样本外验证绑定时，代码核对两件事：运行环境是由产品源码 main 自动构建的；执行命令的产品代码包含 main 的最新提交（本地工作树里的改动不核对）。研究、预检和探索不做这两项核对，任何分支构建的镜像都能用，都按摘要钉死。预检另要求镜像带构建源码版本标签，没有就拒绝（RUNTIME_NOT_CI_BUILT）；这项只看标签在不在，不核对它指向哪次构建。研究回放引用的预检必须和它用同一个镜像摘要，所以研究也只能用带这个标签的镜像。探索不看这个标签：带运行合同标签、在镜像仓库有唯一摘要、身份探针通过的镜像都能跑，包括自己构建再推到任意仓库的镜像。
 
 样本外结果要经得起追问，环境和代码都必须能追到主干。两项核对都只读、不写账本；通过时，构建源码版本记在样本外运行上。
 
@@ -303,7 +303,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-foot"><span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺：第 1 代账本上尚未重新实测；切换前的旧账本上做过一次[核心准入边界隔离实测](https://github.com/qOeOp/trade/blob/main/docs/plans/validation-main-boundary-verification.zh.md)，真实行情回放、样本外封存与完整报告交付当时也未验证。</p>
+<p className="rd-note">第 1 代账本的隔离测试覆盖绑定时的两项核对：镜像是 main 的自动构建（`RUNTIME_NOT_MAIN`），执行代码含 main 最新提交（`STALE_CHECKOUT`）（`tests/registration/test_validation.py`、`tests/runtime/test_image.py`，2026-11-11 通过）。预检缺构建标签时拒绝有测试（`tests/replay/test_entry.py`）。真实行情回放、样本外封存、完整报告、公共时间戳服务与真实远端竞态仍缺。</p>
 
 ### 读取入口 [#J-2-9]
 
@@ -805,7 +805,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 #### 容器不联网、只读、去特权，只挂声明的目录 [#J-5-2-2]
 
-容器命令只由一处代码生成，相同输入得到相同命令。容器没有网络，根文件系统只读，去掉特权并限制进程数。每个回放阶段有内存上限（24 GiB，不给交换区）：超过就被杀，这次回放被拒为 `STAGE_MEMORY_LIMIT`，执行记录照样封存，不会把 Docker 虚拟机拖垮。输入一律只读挂载，唯一可写的是报告目录。
+容器命令只由一处代码生成，相同输入得到相同命令。容器没有网络，根文件系统只读，去掉特权并限制进程数。每个回放阶段有内存上限（16 GiB，不给交换区）：超过就被杀，这次回放被拒为 `STAGE_MEMORY_LIMIT`，执行记录照样封存，不会把 Docker 虚拟机拖垮。输入一律只读挂载，唯一可写的是报告目录。
 
 这样回放碰不到网络、交易凭据和宿主上的其他文件，策略代码怎么写都只能读给它的数据。
 
@@ -1046,7 +1046,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺：research-start 的 references/readiness.md 仍让用户选市场提交和开发窗口，和代码按规则固定开发期不符，待 skill 改。</p>
+<p className="rd-note">research-start 已随 [#2707](https://github.com/qOeOp/trade/pull/2707) 改为开发期按规则算出、不是选项（`.agents/skills/research-start/SKILL.md:10`），规则有测试（`tests/ledger/test_lines.py`）；评测 `line-select-period-not-chosen` 本次未运行；缺新月份到达后旧线不扩展、在新季度另开线的执行记录。</p>
 
 ## 待定事项 [#J-pending]
 

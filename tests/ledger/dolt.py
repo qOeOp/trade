@@ -40,7 +40,7 @@ IMAGE_DIGEST = "sha256:" + "b" * 64
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@" + IMAGE_DIGEST, "image_digest": IMAGE_DIGEST,
             "platform": "linux/arm64", "runtime_contract": "replay-contract@v8"}
 RUNTIME = {**IDENTITY, "inspection": {"runtime_contract": "replay-contract@v8", "engine_version": "fixture"}}
-MARKET_COMMIT = "2026-03-01"  # a market day: the ledger stores it as a DATE
+MARKET_DAY = "2026-03-01"  # a market day: the ledger stores it as a DATE
 DAY = 86_400 * 10**9
 JAN = 1_767_225_600 * 10**9  # 2026-01-01T00:00:00Z in nanoseconds
 
@@ -57,7 +57,7 @@ SYMBOLS = ["AAAUSDT-PERP.BINANCE", "BBBUSDT-PERP.BINANCE"]
 ACCOUNT = {"starting_balance_usdt": "100000", "execution": "bars", "oms_type": "NETTING", "fees": "assumed-v1"}
 
 
-def coverage(market_day: str = MARKET_COMMIT, *, effective_config: dict | None = None, receipts: dict | None = None,
+def coverage(market_day: str = MARKET_DAY, *, effective_config: dict | None = None, receipts: dict | None = None,
              membership: dict | None = None, **identity) -> bytes:
     """input-coverage.json as replay.input_coverage writes it: the effective configuration, the export receipts by
     symbol, the input identity (`identity` overrides its keys: symbols, universe_rule, export_content_sha256,
@@ -122,12 +122,12 @@ class Service:
             shutil.rmtree(self.root, ignore_errors=True)
 
 
-def market(commit: str = MARKET_COMMIT, latest_complete_day=None, universe_rule: str | None = "pool-v1",
+def market(market_day: str = MARKET_DAY, latest_complete_day=None, universe_rule: str | None = "pool-v1",
            first_day=date(2019, 9, 1)):
-    """A stand-in for the market's resolve_commit and freshness, covered from `first_day`."""
+    """A stand-in for the market's resolve_day and freshness, covered from `first_day`."""
 
     def facts(market_at: str) -> dict:
-        return {"commit": commit, "universe_rule": universe_rule,
+        return {"market_day": market_day, "universe_rule": universe_rule,
                 "latest_complete_day": latest_complete_day or date(2026, 3, 31),
                 "first_day": first_day, "first_months": {"BTCUSDT": first_day}}
     return facts
@@ -162,10 +162,10 @@ def january():
 
 
 def select_line(conn, start: str = "rsi@1", slug: str = "rsi-root", start_source: bytes | None = None) -> dict:
-    """A research line from `start` over January 2026 on MARKET_COMMIT (ledger.lines.select_line)."""
+    """A research line from `start` over January 2026 on MARKET_DAY (ledger.lines.select_line)."""
     from ledger import lines
     with january():
-        return lines.select_line(conn, MARKET_COMMIT, start, slug=slug, market=market(),
+        return lines.select_line(conn, MARKET_DAY, start, slug=slug, market=market(),
                                  reviews=reviewed(start_source or source("root")))
 
 
