@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Host, HttpError } from "./fetching.ts";
+import { every, Host, HttpError } from "./fetching.ts";
 
 test("a 429 or 418 pauses every request to that host for its Retry-After, at least a minute", async () => {
   let now = 0, calls = 0;
@@ -36,4 +36,16 @@ test("a query is posted as JSON; without one the request is a plain GET", async 
   await host.json("/tickers");
   assert.deepEqual([sent[0]!.method, sent[0]!.body], ["POST", "{\"type\":\"metaAndAssetCtxs\"}"]);
   assert.equal(sent[1]!.method, undefined);
+});
+
+test("a schedule waits out only its own host's pause: a paused Binance does not hold another source's task", async () => {
+  const paused = new Host("https://fapi.example", async () => new Response("", { status: 429 }), () => 0);
+  await assert.rejects(paused.json("/x"));
+  const waited = async (host?: Host) => {
+    let slept = -1;
+    await every(1000, async () => {}, host, async (ms) => { slept = ms; throw new Error("stop"); }).catch(() => {});
+    return slept;
+  };
+  assert.ok(await waited() <= 1000);
+  assert.ok(await waited(paused) >= 60_000);
 });

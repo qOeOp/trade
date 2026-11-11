@@ -25,7 +25,7 @@ import { parseArgs } from "node:util";
 import { app } from "./app.ts";
 import { fundingIntervals, fundingRates, interest, longShort, moves, quotes } from "./binance.ts";
 import { caps, coinIds, members, PAGE, pages } from "./coingecko.ts";
-import { Host, sleep } from "./fetching.ts";
+import { every, Host, sleep } from "./fetching.ts";
 import { altseason, cap, coinbasePremium, dvol, fearGreed, koreaPremium, options, SEASON_DAYS, seasonChange, stablecoins } from "./global.ts";
 import { fromBinance, fromBybit, fromOkx, gateDay, okxContractValues } from "./liquidations.ts";
 import { Minutes } from "./minutes.ts";
@@ -48,18 +48,14 @@ const bybitHost = new Host("https://api.bybit.com"), okxHost = new Host("https:/
 
 type Rows = Record<string, unknown>[];
 type Klines = unknown[][];
-async function every(ms: number, task: () => Promise<void>): Promise<never> {
-  for (;;) { const started = Date.now(); await task(); await sleep(Math.max(ms - (Date.now() - started), 0) + binance.wait()); }
-}
-
 void every(HOUR, async () => {
   await store.refresh("contracts", async () => { store.contracts = contracts(await binance.json("/fapi/v1/exchangeInfo")); });
   await store.refresh("funding", async () => { store.intervals = fundingIntervals(await binance.json<Rows>("/fapi/v1/fundingInfo")); });
-});
+}, binance);
 void every(MINUTE, async () => {
   await store.refresh("quotes", async () => { store.quotes = quotes(await binance.json<Rows>("/fapi/v1/ticker/24hr")); });
   await store.refresh("funding", async () => { store.funding = fundingRates(await binance.json<Rows>("/fapi/v1/premiumIndex")); });
-});
+}, binance);
 
 // Each quoted contract in turn, spread over the sweep: two klines (weight 1 and 2) and one or two requests
 // under /futures/data (1000 per 5 minutes an address), which for about 520 contracts comes to 104 weight
@@ -308,4 +304,4 @@ void every(HOUR, async () => {
     store.global.altseason = got(altseason(btc, changes));
     seasonAt = Date.now();
   });
-});
+}, binance);
