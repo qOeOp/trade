@@ -73,7 +73,7 @@ def read_manifest(path: Path) -> dict:
         if not is_leverage(config["leverage"]):
             raise ValueError
         market = value["market"]
-        if not isinstance(market["commit"], str) or not isinstance(market["terms"][symbols[0]], dict):
+        if not isinstance(market["market_day"], str) or not isinstance(market["terms"][symbols[0]], dict):
             raise ValueError
         if not isinstance(value["strategy_file"], str) or not isinstance(value["universe_file"], str):
             raise ValueError

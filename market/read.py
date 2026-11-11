@@ -6,7 +6,7 @@ return that day (a member that stops trading drops out after its last return). M
 contracts the market directory holds that meet the universe rule; a deployment that narrows the
 directory (`--bar-symbols`) narrows the basket to that list. Stored bars are the
 exporter's own reads (`market.read_bars`, `market.daily_bars`, `market.read_funding`) at a pinned
-commit, each bar with the time the Catalog stamps it. Only the market directory is read; nothing here
+market day, each bar with the time the Catalog stamps it. Only the market directory is read; nothing here
 knows the ledger or the strategy.
 """
 
@@ -49,10 +49,10 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
     return {"days": list(days), "btc": btc, "basket": basket}
 
 
-def daily_returns(profile: dict, commit: str, universe_rule: str | None, start: datetime,
+def daily_returns(profile: dict, market_day: str, universe_rule: str | None, start: datetime,
                   end: datetime) -> dict:
     """market.daily_returns: the BTC perpetual's and the held members' equal-weight UTC daily returns over
-    [start, end) at a market commit."""
+    [start, end) at a market day."""
     first, last = _utc_day(start), _utc_day(end)
     days = []
     while first < last:
@@ -61,27 +61,27 @@ def daily_returns(profile: dict, commit: str, universe_rule: str | None, start: 
     if not days:
         raise _refuse("the window holds no whole UTC day", "MARKET_RETURNS_WINDOW", missing=("window",))
     market = files.open_market(profile, "reader")
-    commit = store.check_commit(files.resolve_commit(market, store.check_commit(commit)))
-    rule = universe.rule_of(market, commit)
+    market_day = store.check_day(files.resolve_day(market, store.check_day(market_day)))
+    rule = universe.rule_of(market, market_day)
     if rule != universe_rule:
-        raise _refuse(f"market commit {commit} produces {rule}, not {universe_rule}", "RULE_VERSION_MISMATCH",
+        raise _refuse(f"market day {market_day} produces {rule}, not {universe_rule}", "RULE_VERSION_MISMATCH",
                       missing=("universe_rule",))
     months = {day[:7] for day in days}
     members: dict[str, set[str]] = {}
-    for month, symbol in universe.months_of(market, commit):
+    for month, symbol in universe.months_of(market, market_day):
         if month.strftime("%Y-%m") in months:
             members.setdefault(month.strftime("%Y-%m"), set()).add(symbol)
     symbols = sorted({BTC, *(symbol for found in members.values() for symbol in found)})
     first_close = int((datetime.fromisoformat(days[0]).replace(tzinfo=timezone.utc) - DAY).timestamp()) * 1000 \
         + CLOSE_OFFSET_MS
     closes: dict[str, dict[str, int]] = {}
-    for batch in files.scan(market, commit, "bar", symbols, first_close, first_close + len(days) * DAY_MS + MINUTE):
+    for batch in files.scan(market, market_day, "bar", symbols, first_close, first_close + len(days) * DAY_MS + MINUTE):
         marks = batch.filter(pc.equal(batch.column("price_type"), "MARK"))
         found = marks.filter(pa.array(marks.column("ts_open").to_numpy() % DAY_MS == CLOSE_OFFSET_MS))
         for symbol, ts_open, close in zip(*(found.column(name).to_pylist() for name in ("symbol", "ts_open", "close")),
                                           strict=True):
             closes.setdefault(symbol, {})[datetime.fromtimestamp(ts_open // 1000, timezone.utc).date().isoformat()] = close
-    return {**returns_from(closes, members, days), "commit": commit, "universe_rule": universe_rule}
+    return {**returns_from(closes, members, days), "market_day": market_day, "universe_rule": universe_rule}
 
 
 # market.stored_bars
@@ -101,7 +101,7 @@ def _scaled(value: int, scale: int) -> str:
 
 def stored_bars(profile: dict, at: str | None, symbol: str, price_type: str, timeframe: str, start: str, end: str,
                 limit: int | None, *, funding: bool = True) -> dict:
-    """market.stored_bars: one contract's stored bars in [start, end) at the commit `at` names, as the
+    """market.stored_bars: one contract's stored bars in [start, end) at the market day `at` names, as the
     exporter reads them: one-minute LAST or MARK bars, or the complete UTC daily LAST bars derived from
     the stored minutes (the export's daily warm-up), with the funding settlements of the same interval
     (without `funding`, the bars alone). With `limit`, at most that many bar periods from `start`;
@@ -115,21 +115,21 @@ def stored_bars(profile: dict, at: str | None, symbol: str, price_type: str, tim
         raise _refuse(f"daily bars are LAST bars, not {price_type}", "INTERVAL_INVALID", missing=("price_type",))
     stop = end_ms if limit is None else min(end_ms, start_ms + limit * step)
     market = files.open_market(profile, "reader")
-    commit = files.resolve_commit(market, at)
-    instrument.terms(market, commit, symbol)
+    market_day = files.resolve_day(market, at)
+    instrument.terms(market, market_day, symbol)
     price_scale, volume_scale = series.PRICE_SCALE, series.VOLUME_SCALE
     if timeframe == "1d":
-        bars = export.daily_bars(market, commit, symbol, start_ms, None, stop)
+        bars = export.daily_bars(market, market_day, symbol, start_ms, None, stop)
     else:
-        bars = coverage.read_bars(market, commit, symbol, price_type, start_ms, stop)
+        bars = coverage.read_bars(market, market_day, symbol, price_type, start_ms, stop)
     rows = [[opened, opened + step - 1, *(_scaled(value, price_scale) for value in prices), _scaled(volume, volume_scale)]
             for opened, *prices, volume in zip(*(bars[name].tolist() for name in coverage.COLUMNS), strict=True)]
-    found = {"commit": commit, "symbol": symbol, "price_type": price_type, "timeframe": timeframe,
+    found = {"market_day": market_day, "symbol": symbol, "price_type": price_type, "timeframe": timeframe,
              "interval": {"start": _iso(start_ms), "end": _iso(stop), "ms": [start_ms, stop]},
              "next_start": _iso(stop) if stop < end_ms else None,
              "bars": {"columns": list(BAR_COLUMNS), "count": len(rows), "rows": rows}}
     if funding:
-        settlements = coverage.read_funding(market, commit, symbol, start_ms, stop)
+        settlements = coverage.read_funding(market, market_day, symbol, start_ms, stop)
         found["funding"] = {"columns": list(FUNDING_COLUMNS), "count": len(settlements),
                             "rows": [[at, format(rate.normalize(), "f")] for at, rate in settlements]}
     return found

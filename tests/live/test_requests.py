@@ -416,7 +416,7 @@ class PartialPrepareTests(LiveFixture):
                         patch.object(runs.image, "resolve", return_value=IDENTITY),
                         patch.object(runs.image, "inspect_runtime", return_value={}),
                         patch.object(runs.image, "require_main_build"),
-                        patch.object(runs, "_market_terms", return_value={"commit": "c", "terms": {}})):
+                        patch.object(runs, "_market_terms", return_value={"market_day": "c", "terms": {}})):
             patcher.start()
             self.addCleanup(patcher.stop)
 

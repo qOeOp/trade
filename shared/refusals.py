@@ -150,13 +150,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                               ("Run `replay precheck` on the start revision and record its `source review`, then "
                                "select the line again; after a failed review, fix the source, publish it and start "
                                "from the new revision.",)),
-    "MARKET_COMMIT_UNRESOLVED": ("The market reference resolves to no unique commit with a universe rule.",
-                                 ("Pass a market commit of the active market; `market coverage` without --at prints "
-                                  "its latest as commit.",
-                                  "A market that is still empty (MARKET_EMPTY in the message) has no commit: import "
-                                  "two months with `market import` first (the first has no members).",
-                                  "A commit this market cannot read (a later day than it holds) does not resolve: "
-                                  "nothing pinned to it registers or replays against this market.")),
+    "MARKET_DAY_UNRESOLVED": ("The market reference resolves to no market day with a universe rule.",
+                              ("Pass a market day of the active market; `market coverage` without --at prints "
+                               "its latest as market_day.",
+                               "A market that is still empty (MARKET_EMPTY in the message) has no market day: import "
+                               "two months with `market import` first (the first has no members).",
+                               "A day later than this market holds does not resolve: nothing pinned to it registers "
+                               "or replays against this market.")),
     "WINDOW_INVALID": ("A window does not start before it ends, or a trial's warm-up start is after its trading "
                        "start or not on a whole UTC minute.",
                        ("Pass a window whose start precedes its end (and, for a replay, a whole-minute warm-up "
@@ -208,7 +208,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "RUNTIME_NOT_PINNED": ("The runtime image is not pinned by digest, disagrees with its digest, or lacks its "
                            "probe inspection.",
                            ("Resolve the runtime image by digest and inspect it, then replay.",)),
-    "TRIAL_INPUT_INCOMPLETE": ("The input identity lacks the market commit, universe rule, instruments, export "
+    "TRIAL_INPUT_INCOMPLETE": ("The input identity lacks the market day, universe rule, instruments, export "
                                "content hash or coverage receipt, or the window lacks a bound.",
                                ("Export the market inputs for the window again, then replay.",)),
     "OUT_OF_SAMPLE_RESERVED": ("The trial trades inside the window of a validation registration of the same "
@@ -234,7 +234,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "another difference than the first grid candidate.",
                          ("Register only candidates published from the parent with one and the same "
                           "--difference.",)),
-    "EXECUTION_MISMATCH": ("What the trial records (runtime image, market commit, universe rule, lifecycle bundle, "
+    "EXECUTION_MISMATCH": ("What the trial records (runtime image, market day, universe rule, lifecycle bundle, "
                            "export content, comparable configuration) differs from the registration.",
                            ("Replay with the registered execution identity, or register again.",)),
     "SOURCE_PRECHECK_REQUIRED": ("The grid source lacks a matching native precheck or independent review, or the "
@@ -274,17 +274,17 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      ("Store the replay as invalid with its reasons; diagnose it from the capture.",)),
     "INPUT_IDENTITY_MISMATCH": ("The sealed coverage receipt names other inputs than the stored input identity.",
                                 ("Replay through `replay run`, which writes both from one export.",)),
-    "COVERAGE_RECEIPT_INVALID": ("The coverage receipt is not execution-input-coverage-v1, lacks the market commit "
+    "COVERAGE_RECEIPT_INVALID": ("The coverage receipt is not execution-input-coverage-v1, lacks the market day "
                                  "or instruments, or an instrument has no export receipt.",
                                  ("Export the market inputs again and replay through the product entry.",)),
-    "COVERAGE_MISMATCH": ("The coverage receipt and the native summary differ in instruments, market commit or input "
+    "COVERAGE_MISMATCH": ("The coverage receipt and the native summary differ in instruments, market day or input "
                           "interval, or the sealed receipt is not the start receipt's.",
                           ("Replay with the inputs the receipt names; report the runner if it read others.",)),
     "LIFECYCLE_NATIVE_COUNT_INVALID": ("A native lifecycle count is not a nonnegative integer, or an instance repeats.",
                                        ("Report the runner defect; the run cannot be stored.",)),
     "LIFECYCLE_BUNDLE_MISSING": ("The native summary has lifecycle events but the inputs name no lifecycle bundle.",
-                                 ("Replay with the lifecycle bundle of the market commit (`--lifecycle-bundle`).",)),
-    "LIFECYCLE_COVERAGE_MISMATCH": ("The coverage receipt's format, input window or market commit differs from the "
+                                 ("Replay with the lifecycle bundle of the market day (`--lifecycle-bundle`).",)),
+    "LIFECYCLE_COVERAGE_MISMATCH": ("The coverage receipt's format, input window or market day differs from the "
                                     "native summary's.",
                                     ("Replay with the inputs the receipt names; report the runner if it read others.",)),
     "LIFECYCLE_COUNT_MISMATCH": ("The export receipts' lifecycle counts, their episodes and the native counts disagree.",
@@ -292,9 +292,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                   "engine delivered other events.",)),
     "LIFECYCLE_EVENT_INVALID": ("A lifecycle event of an exported episode is not a native event, has inconsistent "
                                 "clocks or an invalid close.",
-                                ("Write a corrected lifecycle bundle for the market commit; never edit an export.",)),
+                                ("Write a corrected lifecycle bundle for the market day; never edit an export.",)),
     "LIFECYCLE_DUPLICATE_EVENT": ("A termination of one type, instance and time appears twice in the episodes.",
-                                  ("Write a corrected lifecycle bundle for the market commit.",)),
+                                  ("Write a corrected lifecycle bundle for the market day.",)),
     # Runs (ledger/trials.py, ledger/metrics.py)
     "TRIAL_PURPOSE_INVALID": ("Only research and validation trials become runs; explorations and prechecks stay "
                               "working copies.",
@@ -431,17 +431,17 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "SYMBOL_SELECTION_INVALID": ("The selection does not give exactly one of universe or symbols, or repeats a "
                                  "symbol.",
                                  ("Pass {\"universe\": true} or {\"symbols\": [...]} without repeats.",)),
-    "UNIVERSE_EMPTY": ("The market commit has no universe members, or none intersects the trading window.",
-                       ("Pin a market commit whose universe covers the window, or choose another window.",)),
+    "UNIVERSE_EMPTY": ("The market day has no universe members, or none intersects the trading window.",
+                       ("Pin a market day whose universe covers the window, or choose another window.",)),
     "EXPORT_TIMEFRAME": ("An export receipt is not of 1-minute bars.",
                          ("Export the market inputs again with the product entry point.",)),
     "EXPORT_CONTENT_INVALID": ("The export root or membership file holds a symbolic link, the membership file is "
                                "missing, or a receipt or the membership file holds no replay facts.",
                                ("Export the market inputs again into a new directory.",)),
-    "LIFECYCLE_INPUT": ("The lifecycle evidence bundle is not lifecycle-<market_day> of the pinned commit, is "
+    "LIFECYCLE_INPUT": ("The lifecycle evidence bundle is not lifecycle-<market_day> of the pinned market day, is "
                         "missing, lacks lifecycle.json, fails its hash check or does not validate against the "
-                        "pinned market commit.",
-                        ("Write the lifecycle bundle for this market commit again with the market command.",)),
+                        "pinned market day.",
+                        ("Write the lifecycle bundle for this market day again with the market command.",)),
     # Prechecks and source reviews (registration/precheck.py)
     "REVIEW_INVALID": ("The source review body lacks or adds a field, uses a status or verdict outside the "
                        "enumeration, has an empty note, or its verdict is not passed exactly when no item is "
@@ -478,11 +478,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "from that revision, or the trial ran another image.",
                          ("Merge first, then rerun with the main runtime image.",)),
     "MEMBERSHIP_CHANGED": ("The universe rule differs, a month up to the registration month changed between the "
-                           "two market commits, a window month is missing, the replay's symbols differ from the "
+                           "two market days, a window month is missing, the replay's symbols differ from the "
                            "baseline research run's, a member was removed from the strategy's path, or the trial's "
                            "instruments differ from its recorded membership.",
                            ("Replay with the registered universe rule and the baseline research run's selection "
-                            "(its symbols, or the whole universe) on a market commit that keeps the registered "
+                            "(its symbols, or the whole universe) on a market day that keeps the registered "
                             "months and covers the window.",)),
     "COVERAGE_INCOMPLETE": ("A member's input interval has no coverage receipt.",
                             ("Export the market inputs for the whole warm-up and trading interval again.",)),
@@ -529,9 +529,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         "(`docker compose restart ledger` under compose; otherwise `ledger service stop`, then "
                         "`ledger service start`) first.")),
     # Reports (report/)
-    "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
+    "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market day and window could not be "
                                    "read; only the market measures are empty.",
-                                   ("When the message names UNKNOWN_REF, the run's market commit is not in the active "
+                                   ("When the message names UNKNOWN_REF, the run's market day is not in the active "
                                     "market: its market measures cannot be read here and stay "
                                     "empty.",
                                     "Otherwise make the market profile available (read only), then read the "
@@ -644,12 +644,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      ("Open the market with role import to import or reader to read.",)),
     "MARKET_UNREACHABLE": ("The market profile names no market directory or the directory does not exist.",
                            ("Pass the market profile with --market; create a market directory with `market init`.",)),
-    "MARKET_COMMIT_INVALID": ("The value is not a resolved market commit (a day, YYYY-MM-DD).",
-                              ("Resolve the reference first (`market coverage --at <ref>` prints the commit) and "
-                               "pass it.",)),
-    "MARKET_COMMIT": ("The export's market reference does not resolve to a day of the market.",
-                      ("Pass main, head or a market commit (a day, YYYY-MM-DD) of the market named by "
-                       "--market.",)),
+    "MARKET_DAY_INVALID": ("The value is not a resolved market day (YYYY-MM-DD).",
+                           ("Resolve the reference first (`market coverage --at <ref>` prints the market day) and "
+                            "pass it.",)),
+    "MARKET_DAY_UNKNOWN": ("The export's market reference does not resolve to a day of the market.",
+                           ("Pass main, head or a market day (YYYY-MM-DD) of the market named by "
+                            "--market.",)),
     "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month or has no closed day yet, or is "
                       "neither the latest stored month, the month after it nor the month just before the earliest; "
                       "aggTrades and quotes take only a month that has ended.",
@@ -659,9 +659,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      "month's stored part differ from the stored rows, or a month to backfill already holds bar rows or "
                      "funding rows other than those it computes (the same ones are what a crashed backfill left).",
                      ("Import the next month or the month before the earliest; a stored month is never rewritten.",)),
-    "RULE_VERSION_MISMATCH": ("The market commit's universe rows are of another universe rule version than the one asked "
+    "RULE_VERSION_MISMATCH": ("The market day's universe rows are of another universe rule version than the one asked "
                               "for.",
-                              ("Read the report at a commit of that rule; a new rule needs a new market directory.",)),
+                              ("Read the report at a market day of that rule; a new rule needs a new market directory.",)),
     "TRADES_NOT_HELD": ("The market holds no aggTrades file of the month, which the quotes are inferred from; nothing "
                         "was stored.",
                         ("Import the month's aggTrades first (`market import-trades --month YYYY-MM`).",)),
@@ -690,7 +690,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      "or interval; nothing was written.",
                      ("Report the table, contract and row named; the source or the import code is wrong, the rule "
                       "stays.",)),
-    "MARKET_EMPTY": ("The market holds no bar file yet, or the commit holds no universe month.",
+    "MARKET_EMPTY": ("The market holds no bar file yet, or the market day holds no universe month.",
                      ("Import a month with `market import`.",)),
     "ARCHIVE_NOT_PUBLISHED": ("The exchange has not published that archive or its checksum.",
                               ("Nothing to repair: a bar or quote import takes the daily archives or public REST "
@@ -723,9 +723,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "QUOTES_UNSORTED": ("The stored quotes of a contract do not come out of the market in time order.",
                         ("Report the contract named; the exporter never reorders quotes.",)),
     "GRID_MISALIGNED": ("Bar times are not strictly increasing on the timeframe's grid.",
-                        ("Pass bars read from the market at one commit.",)),
+                        ("Pass bars read from the market at one market day.",)),
     "INPUT_UNSORTED": ("The minute bars to derive from are not strictly increasing whole minutes.",
-                       ("Pass bars read from the market at one commit.",)),
+                       ("Pass bars read from the market at one market day.",)),
     "VOLUME_OVERFLOW": ("A derived bar's volume would exceed int64.",
                         ("Report the contract and timeframe named; derivation never truncates.",)),
     "EXCHANGE_INFO_MALFORMED": ("An exchangeInfo contract lacks its contract type, underlying type or base asset, or "
@@ -733,12 +733,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                 ("Rerun the import; report the contract if exchangeInfo keeps the shape.",)),
     "MONTH_NOT_FIRST_DAY": ("A universe month is not a UTC month start.",
                             ("Pass a month start.",)),
-    "UNIVERSE_EMPTY_AT_COMMIT": ("The market commit holds no universe month.",
-                                 ("Import the next month with `market import`, then pin the new commit.",)),
-    "UNIVERSE_NOT_COVERING_WINDOW": ("The market commit's last universe month ends before the replay window.",
+    "UNIVERSE_EMPTY_AT_DAY": ("The market day holds no universe month.",
+                              ("Import the next month with `market import`, then pin the new market day.",)),
+    "UNIVERSE_NOT_COVERING_WINDOW": ("The market day's last universe month ends before the replay window.",
                                      ("Import the window's months, or end the window within the produced months.",)),
-    "NO_TERMS": ("The market commit holds neither bars nor exchange terms for the contract.",
-                 ("Export only contracts listed by that commit.",)),
+    "NO_TERMS": ("The market day holds neither bars nor exchange terms for the contract.",
+                 ("Export only contracts listed by that market day.",)),
     "TERMS_INVALID": ("A contract's stored increments are not positive decimals, or a lower bound exceeds its upper one.",
                       ("Report the contract named; terms are stored as the exchange published them.",)),
     "PRECISION_NARROWED": ("The export asked for a price precision narrower than the exchange's increment.",
@@ -777,8 +777,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          ("Pass --start and --end as UTC times on whole minutes, start before end.",)),
     "EMPTY_SYMBOLS": ("The contract list is empty or repeats a contract.",
                       ("Pass each contract once, or none to take the universe of the interval's months.",)),
-    "UNKNOWN_SYMBOL": ("The contract is not an instrument of that market commit.",
-                       ("List the commit's contracts with `market coverage` over the universe.",)),
+    "UNKNOWN_SYMBOL": ("The contract is not an instrument of that market day.",
+                       ("List the market day's contracts with `market coverage` over the universe.",)),
     "MARKET_RETURNS_WINDOW": ("The window for the market's daily returns holds no whole UTC day.",
                               ("Report market measures only for runs with a whole trading day.",)),
     # Paper runs (ledger/paper.py, paper/runs.py)
@@ -801,20 +801,19 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PAPER_RECONCILE_EMPTY": ("The sealed run's capture names no input start or stop, or it stopped before its first "
                               "bar closed: there is no interval to replay.",
                               ("Reconcile a run that received at least one bar.",)),
-    "PAPER_RECONCILE_UNCOVERED": ("The market commit does not hold every minute of the run's interval yet.",
+    "PAPER_RECONCILE_UNCOVERED": ("The market day does not hold every minute of the run's interval yet.",
                                   ("Import the run's month with `market import --month YYYY-MM` over the market's "
-                                   "contract scope once its days are archived, then reconcile at the new commit.",)),
+                                   "contract scope once its days are archived, then reconcile at the new market day.",)),
 }
 
 
 # The market package's codes that share a name with a ledger code but refuse a market reference: their
 # meaning and repair when a market refusal is printed (`cli.main._market_refusal`).
 MARKET_CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
-    "UNKNOWN_REF": ("The reference is not main, head or a market commit (a valid day, YYYY-MM-DD, or "
-                    "one of the eight the ledger cites from before commits were days), or it is a day after the newest "
-                    "the market holds.",
-                    ("Pass main, head or a market commit of the active market; `market coverage` without --at prints "
-                     "the newest as commit.",
+    "UNKNOWN_REF": ("The reference is not main, head or a market day (a valid day, YYYY-MM-DD), or it is a day "
+                    "after the newest the market holds.",
+                    ("Pass main, head or a market day of the active market; `market coverage` without --at prints "
+                     "the newest as market_day.",
                      "A line pinned to a later day cannot be read here until the market reaches it.")),
 }
 

@@ -280,7 +280,7 @@ def _market_days(market: dict) -> tuple[date, date]:
     """(the market's first day, the day after its latest complete day) at the newest day."""
     from registration import seams
     source = seams.current.market(market)
-    first_day, latest = source.days(source.resolve_commit(None))
+    first_day, latest = source.days(source.resolve_day(None))
     return first_day, latest + timedelta(days=1)
 
 
@@ -300,7 +300,7 @@ def line_close(profile: db.LedgerProfile, line: str, summary: bytes, market: dic
 
 def line_select(conn: db.LedgerConnection, market: dict, start: str, market_at: str | None, slug: str,
                 line_targets: tuple | None = None) -> dict:
-    """line select: the user's research line (start candidate, pinned market commit; the development period is
+    """line select: the user's research line (start candidate, pinned market day; the development period is
     the product's rule) and, when given, the user's targets for it."""
     from registration import precheck
     selected = lines.select_line(conn, market_at or "main", start, slug=slug, market=_market_facts(market),
@@ -479,7 +479,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
         "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"),
     ("line", "select"): (
-        "the market at --market-at (reader): commit, universe rule, latest complete day; the start "
+        "the market at --market-at (reader): market day, universe rule, latest complete day; the start "
         "candidate, its source reviews, the open lines and targets (writer, head)",
         "one research_line row named <slug> and, when given, the line's targets in the same commit; the same "
         "choice under that name again writes no line (created false); publishes",
@@ -489,7 +489,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "universe_rule, created, targets",
         "START_REVIEW_REQUIRED (the start has no passed source review, or a failed one); START_NOT_FOUND; "
         "LINE_HISTORY_SHORT (those instruments have fewer than 12 quarters of coverage before it); "
-        "MARKET_COMMIT_UNRESOLVED (no commit, universe rule or complete day); LINE_CONFLICT (the name holds another choice); LINE_SLUG_INVALID; "
+        "MARKET_DAY_UNRESOLVED (no market day, universe rule or complete day); LINE_CONFLICT (the name holds another choice); LINE_SLUG_INVALID; "
         "TARGETS_INVALID"),
     ("line", "targets"): (
         "the targets in force for the line or the default (writer, head)",
@@ -507,7 +507,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "a segment with a history run is skipped, so a rerun resumes; publishes",
         "line, market_day, ran [{source_sha256, segment, run, history_trial_id, status}], left, participants, "
         "segments_without_trading",
-        "LINE_UNKNOWN, LINE_ENDED; MARKET_COMMIT_UNRESOLVED; REPRODUCTION_CONFIG_DIFFERS (the image gives a run "
+        "LINE_UNKNOWN, LINE_ENDED; MARKET_DAY_UNRESOLVED; REPRODUCTION_CONFIG_DIFFERS (the image gives a run "
         "another effective configuration); the replay refusals of a sealed run"),
     ("line", "close"): (
         "--summary (a regular UTF-8 file, at most 32 KB); the line, its history trials and its closing at the head "
@@ -531,7 +531,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "UNKNOWN_REF (--at)"),
     ("registration", "add"): (
         "--body and --source files; the open line (--line), its trials, judgments and source reviews (writer, head); "
-        "the market at the line's pinned commit (reader); the runtime image, resolved to its digest and probed",
+        "the market at the line's pinned market day (reader); the runtime image, resolved to its digest and probed",
         "one research_registration row with its grid points and comparison design, and one source-<sha256> "
         "bundle per --source, in one commit; the same line, body and execution again is a replay; publishes",
         "registration_id, line, grid_points, execution {image_ref, market_day, universe_rule, lifecycle_bundle, "
@@ -562,7 +562,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "ledger_commit; trials (counted trials of every purpose, ledger-wide); multiple_testing (what a deflated "
         "Sharpe of the line's runs reads: line, dev_start, dev_end, instruments (those of the line's research "
         "trials), research_trials and all_purpose_trials (counted trials on one of those instruments whose trading "
-        "window overlaps the line's, across market commits and lines; all_purpose_trials adds precheck, explore "
+        "window overlaps the line's, across market days and lines; all_purpose_trials adds precheck, explore "
         "and validation), runs_with_returns (the overlapping research runs with economic evidence and varying "
         "daily returns), mean_correlation (their mean pairwise daily-return correlation over common days), "
         "effective_trials (rho + (1 - rho) * research_trials, rho the mean correlation floored at 0), "
@@ -583,7 +583,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "UNKNOWN_REF (--at)"),
     ("research", "state"): (
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
-        "market holds the line's market commit (reader)",
+        "market holds the line's market day (reader)",
         "nothing in the ledger, never publishes; pulls the main runtime image each time, which moves the local "
         "`main` tag, to learn the current image",
         "ledger_commit, line, execution_identity (the line's), current_image (the main image's digest reference; null "
@@ -596,7 +596,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the Agent discounts runs before the user's last choice of line or approach and scale-only runs, which the ledger does not "
         "tell), interpretations, search_exposures, unreviewed_trials (of the line's execution identity), "
         "trials_on_line (a count: the line's trials of every identity), gates [{code, message, missing}] "
-        "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, MARKET_COMMIT_UNRESOLVED, "
+        "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, MARKET_DAY_UNRESOLVED, "
         "RESEARCH_LINE_REQUIRED (no open line), LINE_AMBIGUOUS (several open lines, no --line): reported, not "
         "raised), judgment_history, earlier, facts (candidate list and research status, with --full), next_actions (only without a line: `line select`, or --line); line.ledger_commit is the commit "
         "read, not the "
@@ -682,7 +682,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "registration_id, candidate, window, registered_at, ledger_commit, witness {status, stamped_at, error}, "
         "replayed, next_actions",
         "DESIGN_INVALID; WINDOW_INVALID; REGISTRATION_TOO_LATE (--window-start not after now; retries exempt); "
-        "CANDIDATE_UNKNOWN; MARKET_COMMIT_UNRESOLVED; RETRY_NOT_ALLOWED; OP_ID_CONFLICT; the universe rule is "
+        "CANDIDATE_UNKNOWN; MARKET_DAY_UNRESOLVED; RETRY_NOT_ALLOWED; OP_ID_CONFLICT; the universe rule is "
         "checked only when a replay binds the registration"),
     ("validation", "report"): (
         "the registration, its witness, binding and run at --at (reader), and the registrations of the same "
@@ -775,7 +775,7 @@ def register(verbs, verb, runner) -> None:
                          help="add each line's recommendation as its research graph's summary reads it, without the graph")
     _at(command)
     command = verb(line, "select", "record the user's research line")
-    command.epilog = ("One record per choice: a later change of start or market commit is a new line record, never "
+    command.epilog = ("One record per choice: a later change of start or market day is a new line record, never "
                       "an edit. --slug names the line. The development period is not a choice: Q is the last "
                       "calendar quarter end before today that the market covers, the holdout the 8 quarters ending "
                       "at Q and the development period the 12 quarters before the holdout (4 when the instruments of "
@@ -786,7 +786,7 @@ def register(verbs, verb, runner) -> None:
     _market_option(command)
     command.add_argument("--start", required=True,
                          help="start candidate as ID@N; a revision whose source review passed")
-    command.add_argument("--market-at", help="market commit to pin (default: the newest day)")
+    command.add_argument("--market-at", help="market day to pin, YYYY-MM-DD (default: the newest day)")
     _targets_options(command, "the line reads the ledger default when both are omitted")
     command.add_argument("--slug", required=True,
                          help="the line's direction as lowercase words joined by hyphens")
@@ -809,7 +809,7 @@ def register(verbs, verb, runner) -> None:
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--line", required=True, help="an open research line")
-    command.add_argument("--market-at", help="market commit (default: the newest day)")
+    command.add_argument("--market-at", help="market day, YYYY-MM-DD (default: the newest day)")
     command.add_argument("--limit", type=int, help="run at most this many segments")
     command = verb(line, "close", "end a line with its summary")
     _ledger_option(command)
@@ -932,8 +932,8 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--window-start", required=True, help="UTC time, YYYY-MM-DDTHH:MM:SSZ")
     command.add_argument("--window-end", required=True, help="UTC time, YYYY-MM-DDTHH:MM:SSZ")
-    command.add_argument("--universe-rule", required=True, help="the market commit's universe rule")
-    command.add_argument("--market-at", help="market commit (default: the newest day)")
+    command.add_argument("--universe-rule", required=True, help="the market day's universe rule")
+    command.add_argument("--market-at", help="market day, YYYY-MM-DD (default: the newest day)")
     command.add_argument("--design", required=True, help="JSON file of the validation design")
     command.add_argument("--retry-of", type=int,
                          help="a bound interrupted, invalid or economically unavailable registration; keep its "

@@ -170,7 +170,7 @@ REFUSALS: dict[str, str] = {
     "SOURCE_FILE_MISSING": "A runtime source file that is hashed into the identity is missing.",
     "EXECUTION_BINDING_MISMATCH": "The execution binding is not JSON, names another contract or another effective "
                                   "configuration than the runner resolves.",
-    "MARKET_RECEIPT_MISMATCH": "An export receipt names another market commit, window or bar timeframe.",
+    "MARKET_RECEIPT_MISMATCH": "An export receipt names another market day, window or bar timeframe.",
     "TERMS_APPROXIMATION_MISSING": "An export receipt lacks the historical-terms approximation mark.",
     "EPISODE_MAPPING_MISMATCH": "An export receipt lists no piece, or a piece's number or Catalog directory is not "
                                 "its episode's.",
@@ -197,7 +197,7 @@ REFUSALS: dict[str, str] = {
     "OBSERVER_COUNT_MISMATCH": "The capital observer did not start exactly once.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",
     "LIFECYCLE_BUNDLE_MISSING": "The summary counts lifecycle events but the inputs name no lifecycle bundle.",
-    "LIFECYCLE_COVERAGE_MISMATCH": "The coverage receipt's format, window or market commit differs from the summary.",
+    "LIFECYCLE_COVERAGE_MISMATCH": "The coverage receipt's format, window or market day differs from the summary.",
     "LIFECYCLE_COUNT_MISMATCH": "Receipt, episode and native lifecycle counts disagree.",
     "LIFECYCLE_EVENT_INVALID": "A lifecycle event is not a native event, has inconsistent clocks or an invalid close.",
     "LIFECYCLE_DUPLICATE_EVENT": "A lifecycle event of one type, instance and time appears twice.",
@@ -280,11 +280,11 @@ INTEGRITY_CODES: dict[str, str] = {
     "SUBSCRIPTION_OUTSIDE_CONTRACT": "A paper strategy subscribed to data no run serves; the run stopped.",
     "ORDER_RULE": "A paper strategy's order command broke the order rules; it was not sent and the run stopped.",
     "TERMS_CHANGED": "A paper contract's tick size, step size or minimum notional differs from the market's at the "
-                     "run's commit, or its loaded margin rates are not the ones its leverage is set from; the run "
+                     "run's market day, or its loaded margin rates are not the ones its leverage is set from; the run "
                      "stopped.",
 }
 
-# The contract terms Paper and Live compare with the market's at the run's commit (TERMS_CHANGED).
+# The contract terms Paper and Live compare with the market's at the run's market day (TERMS_CHANGED).
 TERMS_COMPARED = ("price_increment", "size_increment", "min_notional")
 
 
@@ -384,7 +384,7 @@ def build_parser() -> argparse.ArgumentParser:
     strategy.add_argument("--strategy-class")
     strategy.add_argument("--strategy-sha256")
     strategy.add_argument("--execution-binding", type=Path)
-    inputs = parser.add_argument_group("inputs: one market commit exported per contract (market.export)")
+    inputs = parser.add_argument_group("inputs: one market day exported per contract (market.export)")
     inputs.add_argument("--market-root", type=Path, required=True, help="directory of per-contract Catalogs")
     inputs.add_argument("--market-day", required=True, help="the market day (YYYY-MM-DD) they were exported from")
     inputs.add_argument("--universe", type=Path, help="universe membership JSON handed to every strategy")

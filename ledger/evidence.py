@@ -4,7 +4,7 @@ A bundle is a named set of files, each naming its content by SHA-256. Every dist
 stored once (`evidence_content`) and the ledger derives its hash, so a writer cannot pair altered
 bytes with an old hash, and every read recomputes it.
 A bundle's kind says what it holds: a trial's start, capture or recovery files (named
-trial-<trial_id>-<kind>, the trial in its own column), a market commit's lifecycle facts, the source
+trial-<trial_id>-<kind>, the trial in its own column), a market day's lifecycle facts, the source
 originals a registration cites, or an Agent's own evidence. Agents name their own bundles through
 `add_bundle`; the product's kinds are written only by product code through `write_files`. A bundle name is
 its identity: it is never replaced.

@@ -2,7 +2,7 @@
 `replay.replay_unrecorded`, `replay.input_coverage`, `replay.audit_problems`).
 
 Every replay goes the same way: resolve the pinned runtime image, export the market inputs of one
-market commit and compute their identity, probe the image for its effective configuration, write the
+market day and compute their identity, probe the image for its effective configuration, write the
 coverage receipt, then write the trial, its binding and its start receipt in one transaction; only
 after that commit does the runner start, followed by the independent auditor and the semantic
 fingerprint in the same image (each its own named container), and the execution capture is sealed
@@ -389,12 +389,12 @@ def _check_window(ledger: db.LedgerProfile, market, at: str | None, line: str | 
     """ledger.lines.check_replay_window for an explore or precheck replay, before anything is exported or written."""
     inputs = registration_seams.runner_inputs(list(runner_argv))
     source = registration_seams.current.market(market)
-    commit = source.resolve_commit(at)
-    first_day, latest = source.days(commit)
+    market_day = source.resolve_day(at)
+    first_day, latest = source.days(market_day)
     covered = None
     if line is None:
         first_months: dict = {}
-        for month, symbol in source.universe_month(commit):
+        for month, symbol in source.universe_month(market_day):
             first_months.setdefault(symbol, date.fromisoformat(f"{month}-01"))
         covered = lines.covered_from(inputs["selection"].get("symbols"), first_day, first_months)
     with db.connect(ledger, "reader") as conn:

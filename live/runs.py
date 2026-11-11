@@ -399,14 +399,15 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
 
 
 def _market_terms(market_root: Path, symbols: list[str]) -> dict:
-    """The market's latest commit and each contract's terms there, which the runner compares with exchangeInfo
+    """The market's latest market day and each contract's terms there, which the runner compares with exchangeInfo
     before each entry (TERMS_CHANGED)."""
     from market import files, instrument
     from market.sources import MarketError
     try:
         opened = files.open_market({"root": str(market_root)}, "reader")
-        commit = files.resolve_commit(opened, None)
-        return {"commit": commit, "terms": {symbol: instrument.terms(opened, commit, symbol) for symbol in symbols}}
+        market_day = files.resolve_day(opened, None)
+        return {"market_day": market_day,
+                "terms": {symbol: instrument.terms(opened, market_day, symbol) for symbol in symbols}}
     except MarketError as exc:
         raise state.fail("LIVE_MARKET_TERMS", str(exc)) from None
 

@@ -153,7 +153,7 @@ def audited_replay(output: Path, count: int = 12) -> dict:
         (output.parent / "input-coverage.json").write_text(json.dumps({
             "format": "execution-input-coverage-v1", "input_identity": {"market_day": "c" * 32},
             "effective_config": {"start": window.start, "trade_start": window.trade_start, "end": window.end},
-            "membership": {"commit": "c" * 32, "membership": {"AAAUSDT": [[START, end]]}},
+            "membership": {"market_day": "c" * 32, "membership": {"AAAUSDT": [[START, end]]}},
             "export_receipts": {"AAAUSDT": {"assumed": ASSUMED, "pieces": [
                 {"index": None, "instrument_id": str(INSTRUMENT_ID), "last_bar_ns": end - 1_000_000}]}}}))
     finally:

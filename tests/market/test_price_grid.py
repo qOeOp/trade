@@ -1,5 +1,5 @@
-"""The exported instrument's price grid is the contract's at the market commit, never the window's: two windows of
-one commit, one of them holding a minute off the terms' tick, trade on one grid."""
+"""The exported instrument's price grid is the contract's at the market day, never the window's: two windows of
+one market day, one of them holding a minute off the terms' tick, trade on one grid."""
 
 from datetime import date
 from decimal import Decimal
@@ -19,7 +19,7 @@ START = day_ms(JAN)
 
 
 class PriceGridTests(unittest.TestCase):
-    def test_two_windows_of_one_commit_get_one_grid(self):
+    def test_two_windows_of_one_market_day_get_one_grid(self):
         from nautilus_trader.persistence import ParquetDataCatalog
         profile = directory(self.addCleanup)
         times = START + np.arange(2 * 1440, dtype=np.int64) * MINUTE
@@ -28,7 +28,7 @@ class PriceGridTests(unittest.TestCase):
         off[1440 + 60] = 10_013_000_000  # 100.13 on the second day, as BTCUSDT's older history on the 0.01 grid
         columns = {"ts_open": times, "open": price, "high": off, "low": price, "close": price,
                    "volume": np.full(len(times), 10_000, dtype=np.int64)}
-        commit = seed(profile, month="2025-01", through="2025-02-01",
+        market_day = seed(profile, month="2025-01", through="2025-02-01",
                       terms=[("BTCUSDT", {"price_increment": "0.10", "size_increment": "0.001"})],
                       bars={("BTCUSDT", "LAST"): columns,
                             ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(len(times), np.int64)}},
@@ -38,7 +38,7 @@ class PriceGridTests(unittest.TestCase):
             found = {}
             for name, days in (("first-day", 1), ("both-days", 2)):
                 path = Path(temp) / name
-                receipt = export.export_episode({"profile": profile, "commit": commit, "symbol": "BTCUSDT",
+                receipt = export.export_episode({"profile": profile, "market_day": market_day, "symbol": "BTCUSDT",
                                                  "start_ns": START * 10**6, "end_ns": (START + days * DAY) * 10**6,
                                                  "path": str(path), "include_quotes": False})
                 piece, = receipt["pieces"]

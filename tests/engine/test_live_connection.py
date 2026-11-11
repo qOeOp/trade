@@ -95,7 +95,7 @@ class NativeConnectionTests(unittest.TestCase):
                     source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
                     config=dict(duration_seconds=60,
                                 budget_usdt="100", max_loss_usdt="10", leverage="50"),
-                    market=dict(commit="2026-11-09", terms={"AAAUSDT": dict(
+                    market=dict(market_day="2026-11-09", terms={"AAAUSDT": dict(
                         price_increment="0.01", size_increment="0.001", min_notional="0.1")}))
                 # Startup is covered separately. The new entry still performs the real
                 # require_entry -> asynchronous observation -> require_admission -> dispatch.
@@ -222,7 +222,7 @@ class NativeConnectionTests(unittest.TestCase):
                     source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
                     config=dict(duration_seconds=3600,
                                 budget_usdt="100", max_loss_usdt="10", leverage="50"),
-                    market=dict(commit="2026-11-09", terms={"AAAUSDT": dict(
+                    market=dict(market_day="2026-11-09", terms={"AAAUSDT": dict(
                         price_increment="0.01", size_increment="0.001", min_notional="0.1")}))
                 session = live.Session(manifest, root, "run", account_verified=True,
                                        account_reader=FixtureReader(credentials.binding))

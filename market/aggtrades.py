@@ -134,9 +134,9 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str], lo
                          "held": bool(files.entries(market, "agg_trade", [symbol], start, end)),
                          "earlier": store.earlier_file(market, "agg_trade", symbol, start)})
         imports = store.contract_files(market, jobs, trade_month, len(jobs), log)
-        commit = files.latest_commit(market)
+        market_day = files.latest_market_day(market)
     return {"month": f"{month:%Y-%m}", "imports": imports, "trade_rows": sum(item["trade_rows"] for item in imports),
-            "market_day": commit, "seconds": round(time.monotonic() - started, 1)}
+            "market_day": market_day, "seconds": round(time.monotonic() - started, 1)}
 
 
 def trade_month(job: dict) -> dict:

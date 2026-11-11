@@ -98,9 +98,9 @@ class ResumePolicyTests(unittest.TestCase):
         self.started[-2].return_value = SimpleNamespace(returncode=0, stdout=b'{"Image":"another-image"}')
         self.refused()
 
-    def test_terms_that_no_longer_match_the_market_commit_refuse(self):
+    def test_terms_that_no_longer_match_the_market_day_refuse(self):
         """CF-18 (user 2026-11-11, "授权"): the runner reads inputs/terms.json on every start, so a resume first
-        re-exports the terms at the run's market commit."""
+        re-exports the terms at the run's market day."""
         original = (self.root / "inputs/terms.json").read_bytes()
         (self.root / "inputs/terms.json").write_text(json.dumps({"BTCUSDT": {"price_increment": "0.01",
                                                                              "size_increment": "0.001"}}))

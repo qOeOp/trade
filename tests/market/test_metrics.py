@@ -141,7 +141,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(imported["unpublished"], {"BTCUSDT": []})
         first = tuple(read(profile, "metrics").slice(0, 1).to_pylist()[0].values())
         self.assertEqual(first, ("BTCUSDT", START, Decimal("1000.5"), Decimal("1.25"), Decimal("2.5"), Decimal("0.75")))
-        self.assertEqual(read(profile, "metrics", commit=JAN.isoformat()).num_rows, 287)  # the first day alone
+        self.assertEqual(read(profile, "metrics", market_day=JAN.isoformat()).num_rows, 287)  # the first day alone
         market = files.open_market(profile, "reader")
         facts = coverage.metrics_facts(market, date(2025, 1, 31).isoformat(), "BTCUSDT", START,
                                        day_ms(date(2025, 2, 1)) + store.DAY)

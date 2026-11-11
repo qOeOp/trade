@@ -3,7 +3,7 @@
 Before a replay starts, its coverage receipt (input-coverage.json: export receipts, input
 identity, effective configuration) is fixed and sealed with the execution. At ingest only the
 receipt and native summary of the trial's original capture count: they must agree in format,
-input interval, market commit and instrument set, and the lifecycle events rebuilt from them are
+input interval, market day and instrument set, and the lifecycle events rebuilt from them are
 checked against the native counts. Coverage facts (gaps, zero-volume minutes) pass through and
 never make a run invalid. Nothing here writes.
 """
@@ -65,7 +65,7 @@ def verify_coverage(coverage, summary) -> tuple[dict, ...]:
             or any(not isinstance(receipts.get(symbol), Mapping) or receipts[symbol].get("status") == "missing"
                    or not _instruments(receipts[symbol]) for symbol in symbols)):
         raise refuse("COVERAGE_RECEIPT_INVALID", "the coverage receipt is not an execution-input-coverage-v1 "
-                                                 "receipt with a market commit, instruments and a receipt for each",
+                                                 "receipt with a market day, instruments and a receipt for each",
                      expected=FORMAT)
     if not isinstance(summary, Mapping):
         raise refuse("COVERAGE_MISMATCH", "there is no native summary to check the coverage receipt against",

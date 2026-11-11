@@ -9,7 +9,7 @@ from shared.errors import Refusal
 from registration import availability, precheck, register, seams
 from replay import entry
 from report import runs
-from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, sha
+from tests.ledger.dolt import BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, sha
 from tests.registration.world import RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld
 
@@ -47,7 +47,7 @@ class ReviewActivityTests(unittest.TestCase):
         original = precheck.read_review(world.conn, old)
         passed = self.reviewed(data, 2, 1, verdict="passed")
         registration = world.register(world.body([ref], {ref: passed}))["registration_id"]
-        run = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, registration=registration)
+        run = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
         self.assertEqual(run["status"], "passed")
         sealed_commit = db.head_commit(world.conn)
         report = runs.run_report(world.profile, run["trial_id"])

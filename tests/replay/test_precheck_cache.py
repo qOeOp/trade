@@ -13,7 +13,7 @@ from shared.errors import Refusal
 from registration import precheck
 from replay import entry, reproduce
 from report import status
-from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, SKIP
+from tests.ledger.dolt import BINARY, IDENTITY, MARKET_DAY, SKIP
 from tests.replay.world import ReplayWorld
 
 
@@ -30,7 +30,7 @@ class PrecheckCacheTests(unittest.TestCase):
     def checked(self, name="original"):
         world = self.world
         with contextlib.redirect_stderr(io.StringIO()):
-            return entry.precheck(world.profile, world.market, MARKET_COMMIT, "rsi@1", IDENTITY["image_ref"],
+            return entry.precheck(world.profile, world.market, MARKET_DAY, "rsi@1", IDENTITY["image_ref"],
                                   ARGV, world.output(name))
 
     def report(self, trial_id, directory=None, regenerated=None, reproduction_trial=None):
@@ -109,7 +109,7 @@ class PrecheckCacheTests(unittest.TestCase):
         # Admission and source review still work without the regenerated directory.
         shutil.rmtree(world.output("rebuilt"))
         self.assertIsNone(self.report(trial_id)["reports"])
-        identity = {"image_ref": original["image_ref"], "market_day": MARKET_COMMIT, "lifecycle_bundle": None,
+        identity = {"image_ref": original["image_ref"], "market_day": MARKET_DAY, "lifecycle_bundle": None,
                     "comparable_config_sha256": original["comparable_config_sha256"]}
         self.assertEqual(precheck.require_precheck(world.conn, review["review_id"], original["source_sha256"], identity),
                          trial_id)

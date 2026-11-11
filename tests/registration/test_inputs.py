@@ -14,7 +14,7 @@ from unittest.mock import patch
 from ledger import evidence
 from shared.errors import Refusal
 from registration import inputs, seams
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, product_bundle
+from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, product_bundle
 from tests.registration.world import LINE_WINDOW, FakeMarket, World, months_rows
 
 
@@ -31,7 +31,7 @@ class FingerprintTests(unittest.TestCase):
             "symbol": "AAAUSDT", "seconds": seconds, "assumed": {"taker_fee": "0.0005"},
             "pieces": [{"episode": None, "counts": {"last": 1}}], **receipt}, indent=1))
         membership = self.root / name / "membership.json"
-        membership.write_text('{"commit": "c", "universe_rule": "r", "membership": {}}')
+        membership.write_text('{"market_day": "c", "universe_rule": "r", "membership": {}}')
         return {"root": root, "membership_file": membership}
 
     def test_the_semantic_identity_is_what_a_replay_reads(self):
@@ -39,7 +39,7 @@ class FingerprintTests(unittest.TestCase):
         kept = inputs.export_fingerprint(base, semantic=True)
         unread = self.export("unread", 1.0, commit="c2", terms_observed_at=2, coverage={"interpretation": "another"},
                              pieces=[{"episode": None, "counts": {"last": 2}}])
-        unread["membership_file"].write_text('{"commit": "c2", "universe_rule": "r2", "membership": {}}')
+        unread["membership_file"].write_text('{"market_day": "c2", "universe_rule": "r2", "membership": {}}')
         (unread["root"] / "lifecycle-evidence").mkdir()
         (unread["root"] / "lifecycle-evidence" / "lifecycle.json").write_text('{"market_day": "c2"}')
         self.assertEqual(inputs.export_fingerprint(unread, semantic=True), kept)
@@ -86,10 +86,10 @@ class MarketInputTests(unittest.TestCase):
         patcher = patch.object(tempfile, "tempdir", str(self.root))
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.market = FakeMarket({MARKET_COMMIT: months_rows(), "e" * 32: [],
+        self.market = FakeMarket({MARKET_DAY: months_rows(), "e" * 32: [],
                                   "o" * 32: months_rows(months=["2025-06"], symbols=["OLDUSDT"])})
 
-    def call(self, market=None, at=MARKET_COMMIT, selection=None, lifecycle_bundle=None, window=LINE_WINDOW):
+    def call(self, market=None, at=MARKET_DAY, selection=None, lifecycle_bundle=None, window=LINE_WINDOW):
         with seams.use(market=lambda profile: profile):
             return inputs.market_inputs(market or self.market, at, window,
                                         {"universe": True} if selection is None else selection,
@@ -104,10 +104,10 @@ class MarketInputTests(unittest.TestCase):
         exported = self.call()
         identity = exported["identity"]
         self.assertEqual((identity["market_day"], identity["universe_rule"], identity["symbols"]),
-                         (MARKET_COMMIT, "pool-v1", ["AAAUSDT", "BBBUSDT"]))
+                         (MARKET_DAY, "pool-v1", ["AAAUSDT", "BBBUSDT"]))
         self.assertNotIn("membership", identity, "the membership file holds it")
         window = (LINE_WINDOW["start"], LINE_WINDOW["end"])
-        path = self.market.membership_path(MARKET_COMMIT, window[1])["membership"]
+        path = self.market.membership_path(MARKET_DAY, window[1])["membership"]
         self.assertEqual(json.loads(exported["membership_file"].read_text())["membership"],
                          {symbol: [[max(lo, window[0]), min(hi, window[1])] for lo, hi in path[symbol] if lo < window[1]
                                    and window[0] < hi] for symbol in ("AAAUSDT", "BBBUSDT")},
@@ -118,15 +118,15 @@ class MarketInputTests(unittest.TestCase):
         self.assertEqual(chosen["symbols"], ["BBBUSDT"])
         self.assertNotEqual(chosen["export_content_sha256"], identity["export_content_sha256"])
 
-    def test_selection_universe_timeframe_and_commit_refusals(self):
+    def test_selection_universe_timeframe_and_market_day_refusals(self):
         for selection in ({"universe": True, "symbols": ["AAAUSDT"]}, {}, {"symbols": ["AAAUSDT", "AAAUSDT"]},
                           {"symbols": []}, {"universe": False}):
             with self.subTest(selection=selection):
                 self.assertEqual(self.code(selection=selection), "SYMBOL_SELECTION_INVALID")
         self.assertEqual(self.code(at="e" * 32), "UNIVERSE_EMPTY")
         self.assertEqual(self.code(at="o" * 32), "UNIVERSE_EMPTY")
-        self.assertEqual(self.code(at="x" * 32), "MARKET_COMMIT_UNRESOLVED")
-        self.assertEqual(self.code(market=FakeMarket({MARKET_COMMIT: months_rows()}, timeframe="5m")),
+        self.assertEqual(self.code(at="x" * 32), "MARKET_DAY_UNRESOLVED")
+        self.assertEqual(self.code(market=FakeMarket({MARKET_DAY: months_rows()}, timeframe="5m")),
                          "EXPORT_TIMEFRAME")
 
 
@@ -136,31 +136,31 @@ class LifecycleTests(unittest.TestCase):
     def setUpClass(cls):
         cls.world = World("lifecycle")
         cls.addClassCleanup(cls.world.close)
-        manifest = {"market_day": MARKET_COMMIT, "episodes": {"AAAUSDT": [{"symbol": "AAAUSDT"}]}}
-        product_bundle(cls.world.conn, "lifecycle-" + MARKET_COMMIT, {"lifecycle.json": json.dumps(manifest).encode(),
+        manifest = {"market_day": MARKET_DAY, "episodes": {"AAAUSDT": [{"symbol": "AAAUSDT"}]}}
+        product_bundle(cls.world.conn, "lifecycle-" + MARKET_DAY, {"lifecycle.json": json.dumps(manifest).encode(),
                                                                       "sources/delisting.html": b"<p>delisted</p>"},
                        kind="lifecycle")
         product_bundle(cls.world.conn, "lifecycle-" + "n" * 32, {"notes.txt": b"no manifest"}, kind="lifecycle")
         product_bundle(cls.world.conn, "lifecycle-" + "q" * 32,  # names another commit
                        {"lifecycle.json": json.dumps(manifest).encode()}, kind="lifecycle")
 
-    def test_a_lifecycle_bundle_is_validated_against_the_pinned_commit_and_exported(self):
+    def test_a_lifecycle_bundle_is_validated_against_the_pinned_market_day_and_exported(self):
         world = self.world
-        episodes, files = inputs.load_lifecycle(world.profile, "lifecycle-" + MARKET_COMMIT, MARKET_COMMIT,
+        episodes, files = inputs.load_lifecycle(world.profile, "lifecycle-" + MARKET_DAY, MARKET_DAY,
                                                 market=world.market)
         self.assertEqual(episodes, {"AAAUSDT": [{"symbol": "AAAUSDT"}]})
         self.assertEqual(files["sources/delisting.html"], b"<p>delisted</p>")
-        exported = inputs.market_inputs(world.market, MARKET_COMMIT, LINE_WINDOW, {"universe": True},
-                                        "lifecycle-" + MARKET_COMMIT, True, world.profile)
-        self.assertEqual(exported["identity"]["lifecycle_bundle"], "lifecycle-" + MARKET_COMMIT)
+        exported = inputs.market_inputs(world.market, MARKET_DAY, LINE_WINDOW, {"universe": True},
+                                        "lifecycle-" + MARKET_DAY, True, world.profile)
+        self.assertEqual(exported["identity"]["lifecycle_bundle"], "lifecycle-" + MARKET_DAY)
         self.assertTrue((Path(exported["root"]) / "lifecycle-evidence" / "sources" / "delisting.html").is_file())
-        plain = inputs.market_inputs(world.market, MARKET_COMMIT, LINE_WINDOW, {"universe": True}, None, True, None)
+        plain = inputs.market_inputs(world.market, MARKET_DAY, LINE_WINDOW, {"universe": True}, None, True, None)
         self.assertNotEqual(plain["identity"]["export_content_sha256"], exported["identity"]["export_content_sha256"])
 
     def test_missing_unbound_or_damaged_lifecycle_evidence_is_refused(self):
         world = self.world
-        cases = [("lifecycle-" + "z" * 32, MARKET_COMMIT), ("lifecycle-" + "n" * 32, MARKET_COMMIT),
-                 ("lifecycle-" + MARKET_COMMIT, "n" * 32), ("lifecycle-" + "q" * 32, MARKET_COMMIT)]
+        cases = [("lifecycle-" + "z" * 32, MARKET_DAY), ("lifecycle-" + "n" * 32, MARKET_DAY),
+                 ("lifecycle-" + MARKET_DAY, "n" * 32), ("lifecycle-" + "q" * 32, MARKET_DAY)]
         for bundle, commit in cases:
             with self.subTest(bundle=bundle, commit=commit), self.assertRaises(Refusal) as caught:
                 inputs.load_lifecycle(world.profile, bundle, commit, market=world.market)
@@ -172,10 +172,10 @@ class LifecycleTests(unittest.TestCase):
             return head, [(path, content + b" ", stored) for path, content, stored in rows]
 
         with patch.object(evidence, "_fetch", altered), self.assertRaises(Refusal) as caught:
-            inputs.load_lifecycle(world.profile, "lifecycle-" + MARKET_COMMIT, MARKET_COMMIT, market=world.market)
+            inputs.load_lifecycle(world.profile, "lifecycle-" + MARKET_DAY, MARKET_DAY, market=world.market)
         self.assertEqual(caught.exception.code, "LIFECYCLE_INPUT")
         with self.assertRaises(Refusal) as caught:
-            inputs.market_inputs(world.market, MARKET_COMMIT, LINE_WINDOW, {"universe": True},
+            inputs.market_inputs(world.market, MARKET_DAY, LINE_WINDOW, {"universe": True},
                                  "lifecycle-" + "n" * 32, True, world.profile)
         self.assertEqual(caught.exception.code, "LIFECYCLE_INPUT")
 

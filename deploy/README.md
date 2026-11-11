@@ -131,7 +131,7 @@ The market directory is plain files with no copy. If it is lost, start market-im
 members, metrics, aggTrades and quotes from the Binance archives over its configured range (costs below; never run
 whole), and observes terms anew. Sealed runs stay readable,
 reproducible and comparable: the observation time is not part of the input identity, and a contract with bars at an
-older commit trades there on its earliest stored terms.
+older market day trades there on its earliest stored terms.
 
 The import does not bring back one lost file while its month's `bar/` file stands, because it goes by the bars' months.
 Above all a lost `funding/` file: `market follow` does not notice it and `MONTH_EXISTS` refuses the month, and a replay

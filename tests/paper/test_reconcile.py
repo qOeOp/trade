@@ -207,7 +207,7 @@ class InputTests(unittest.TestCase):
         from unittest import mock
         from market import read
         rows = archived(3)
-        with mock.patch.object(read, "stored_bars", return_value={"commit": "c" * 32, "bars": {"rows": rows}}) as stored:
+        with mock.patch.object(read, "stored_bars", return_value={"market_day": "c" * 32, "bars": {"rows": rows}}) as stored:
             commit, found = reconcile._archive({}, None, ["BTCUSDT"], START, START + 3 * MINUTE)
         self.assertEqual((commit, found), ("c" * 32, {"BTCUSDT": rows}))
         self.assertIs(stored.call_args.kwargs.get("funding"), False)

@@ -431,7 +431,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
                               "LEFT JOIN run r ON r.trial_id = t.trial_id ORDER BY t.trial_id"):
             key = owner.get(row["source_sha256"])
             if key is None or (row["purpose"] == "research" and row["trial_id"] not in on_line):
-                continue  # a research run on another window or market commit belongs to another line
+                continue  # a research run on another window or market day belongs to another line
             drawn.append((key, row))
         loaded = metrics.load_runs(conn, [row["trial_id"] for _, row in drawn  # availability and the measures
                                           if row["purpose"] == "research" and row["status"] is not None], listing=True)
@@ -556,7 +556,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
             "recommendation names it (the recommendation stays an event); recommended is that recommendation's "
             "recommended subject otherwise; superseded is any other version with economic evidence; precheck_failed "
             "and unrun come from reviews.",
-            "Research runs are the line's own (its window and market commit); other trials of a version are kept "
+            "Research runs are the line's own (its window and market day); other trials of a version are kept "
             "by source. A version whose research runs are all another line's is left out, with what only it links.",
             "Interpretation is the latest current interpretation judgment naming the version's registration or trials.",
             "Out-of-sample validation registrations and verdicts are not drawn.",

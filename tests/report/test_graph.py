@@ -20,7 +20,7 @@ from shared.refusals import refuse
 from registration import precheck, register
 from replay import entry
 from report import comparison, graph, status
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market, pinned
+from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, market as line_market, pinned
 from tests.registration.world import RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
@@ -61,7 +61,7 @@ class ResearchGraphTests(unittest.TestCase):
         cls.runs = {}
         for ref, returns in zip(cls.refs, (None, CANDIDATE_RETURNS), strict=True):
             world.scenario = {"returns": returns} if returns else {}
-            cls.runs[ref] = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+            cls.runs[ref] = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                                       registration=cls.registration)
             world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.runs[ref]["trial_id"]}])
         world.scenario = {}
@@ -165,7 +165,7 @@ class ResearchGraphTests(unittest.TestCase):
             quiet, "failed", activity={"status": "unresolved", "note": "no fills to inspect"}), "reviewer-g")["review_id"]
         passed = world.prechecked(data, fingerprint=rows(2))
         registration = world.register(world.body([ref], {ref: passed}))["registration_id"]
-        trial_id = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+        trial_id = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                              registration=registration)["trial_id"]
         found = self.graph()
         self.assertEqual(contract.check_graph(found), [])
@@ -191,7 +191,7 @@ class ResearchGraphTests(unittest.TestCase):
                 world.judge("interpretation", subjects=[{"role": "about", "trial_id": int(missing.split()[1])}])
         registration = world.register(world.body([ref], {ref: world.prechecked(data)}))["registration_id"]
         world.scenario = {"returns": CANDIDATE_RETURNS}
-        trial_id = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+        trial_id = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                              registration=registration)["trial_id"]
         world.scenario = {}
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": trial_id}])
@@ -227,7 +227,7 @@ class ResearchGraphTests(unittest.TestCase):
     def test_3_a_new_line_on_another_window_shows_no_run_of_the_old_one(self):
         first, second = self.refs
         with pinned(date(2026, 2, 1), date(2026, 3, 1)):
-            bundle = lines.select_line(self.world.conn, MARKET_COMMIT, first, slug="other-window",
+            bundle = lines.select_line(self.world.conn, MARKET_DAY, first, slug="other-window",
                                        market=line_market(latest_complete_day=date(2026, 3, 31)),
                                        reviews=precheck.review_records)["line"]
         found = graph.research_graph(self.world.profile, bundle)
@@ -280,10 +280,10 @@ class RetriedRegistrationTests(unittest.TestCase):
         body = world.body([ref], {ref: world.prechecked(published["source"])})
         first = world.register(body)["registration_id"]
         world.scenario = {"audit_passed": False}
-        failed = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, registration=first)
+        failed = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=first)
         world.scenario = {"returns": CANDIDATE_RETURNS}
         retry = world.register({**body, "retry_of": first})["registration_id"]
-        passed = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, registration=retry)
+        passed = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=retry)
         world.scenario = {}
         jobs = []
 

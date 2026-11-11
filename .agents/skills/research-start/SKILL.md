@@ -6,7 +6,7 @@ description: Starts or resumes strategy research in this repository and has the 
 # Research start
 
 Commands are the product CLI (`uv run --frozen python -m cli.main <noun> <verb>`, see `research-round`).
-A research line is a starting candidate and a pinned market commit the user selected (`line
+A research line is a starting candidate and a pinned market day the user selected (`line
 select`); its development period follows from the date and the start's contracts, never a choice
 (`line select --help`). Everything inside it follows `research-round`.
 
@@ -42,8 +42,8 @@ select`); its development period follows from the date and the start's contracts
   there yet, the user finishes its first start on the IDE page. Offer no line until a read succeeds.
 - Only a gate no research step can lift stops a line; any other is research-round's next step. Tell
   the user plainly what a stop blocks and what lifts it. `RUNTIME_UNSUPPORTED`: follow the gate's
-  message (research-round's [changes.md](../research-round/references/changes.md)). `MARKET_COMMIT_UNRESOLVED`: the
-  market does not reach the line's pinned commit, so the line runs again only once it does;
+  message (research-round's [changes.md](../research-round/references/changes.md)). `MARKET_DAY_UNRESOLVED`: the
+  market does not reach the line's pinned market day, so the line runs again only once it does;
   importing it is the user's market write, never a research step or a choice you propose. Never
   continue a stopped line, after an interruption included, or establish a Goal for it, and never
   offer keeping it open or leaving it as it is until the stop lifts.
@@ -64,9 +64,9 @@ Present the latest recommendation and the line options ([recommendation.md](refe
 
 - **Every option is a line that can start now:** no gate stops it; its start can be registered on
   the development period `line select` would give it (only a source that has never run, or a
-  candidate whose research runs are already on that period and commit: the exposure check refuses a
+  candidate whose research runs are already on that period and market day: the exposure check refuses a
   source that has already run, whichever line ran it, so a line beside an open one starts from
-  another source); and `market coverage` at the commit to pin (`line select`'s default, the market
+  another source); and `market coverage` at the market day to pin (`line select`'s default, the market
   head, unless the user names one) has every month the period needs (bars, quotes for a line that executes on them,
   metrics for a source that reads them). Say in one line what an option that fails lacks.
   Supplying it is a separate write the user decides,
@@ -76,7 +76,7 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   validation), never on earlier months.
 - When no existing candidate can start a line, design two or three complete new starts yourself:
   each a source that has never run (a revision with a substantive change, or a root), marked not yet replayed, with its contract scope and why,
-  market commit, execution environment (research-round), readiness result and
+  market day, execution environment (research-round), readiness result and
   Goal objective, so that one choice approves both the line and its Goal, and the answer can overrule
   any of it. List template roots
   (research-round's [template.md](../research-round/references/template.md)) when the ledger has no

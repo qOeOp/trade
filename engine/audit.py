@@ -80,7 +80,7 @@ FINDINGS: dict[str, str] = {
     "UNPROTECTED_POSITION": "A position exceeded its working reduce-only stops for longer than one execution bar.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",
     "LIFECYCLE_BUNDLE_MISSING": "Native lifecycle events exist but the inputs name no lifecycle bundle.",
-    "LIFECYCLE_COVERAGE_MISMATCH": "The coverage receipt's format, window or market commit differs from the summary.",
+    "LIFECYCLE_COVERAGE_MISMATCH": "The coverage receipt's format, window or market day differs from the summary.",
     "LIFECYCLE_COUNT_MISMATCH": "Receipt, episode and native lifecycle counts disagree.",
     "LIFECYCLE_EVENT_INVALID": "A lifecycle event is not native, has inconsistent clocks or an invalid close.",
     "LIFECYCLE_DUPLICATE_EVENT": "A termination of one type, instance and time appears twice.",

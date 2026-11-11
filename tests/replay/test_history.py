@@ -18,7 +18,7 @@ from ledger import admin, lines
 from replay import entry, history
 from report import history as report_history, measures, status
 from shared.errors import Refusal
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
+from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP
 from tests.registration.world import RUNNER_ARGV
 from tests.replay.world import ReplayWorld, registered_grid
 
@@ -119,7 +119,7 @@ class HistoryRunTests(unittest.TestCase):
         world = self.world
         line = world.line["line"]
         registration, (ref,) = registered_grid(world, ["kept"])  # an open line takes a registration
-        passed = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+        passed = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                            registration=registration)
         self.assertEqual(passed["status"], "passed")
         days = (date(2025, 11, 1), date(2026, 4, 1))  # the fake market: 2025-11 to its latest day 2026-03-31
@@ -128,7 +128,7 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(refused.exception.code, "HISTORY_INCOMPLETE")
         self.assertEqual(len(refused.exception.missing), 3, "2025 (from November), the control and the holdout")
 
-        first = history.run_history(world.profile, world.market, MARKET_COMMIT, line, limit=1)
+        first = history.run_history(world.profile, world.market, MARKET_DAY, line, limit=1)
         self.assertEqual((len(first["ran"]), first["left"], first["participants"]), (1, 2, 1))
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": passed["trial_id"]}])
         late = world.publish("late", parent=None)
@@ -136,9 +136,9 @@ class HistoryRunTests(unittest.TestCase):
         with self.assertRaises(Refusal) as closing:
             world.register(world.body([late["candidate"]], reviews))
         self.assertEqual(closing.exception.code, "LINE_ENDED", "the first history trial began the line's closing")
-        rest = history.run_history(world.profile, world.market, MARKET_COMMIT, line)
+        rest = history.run_history(world.profile, world.market, MARKET_DAY, line)
         self.assertEqual((len(rest["ran"]), rest["left"]), (2, 0))
-        self.assertEqual(history.run_history(world.profile, world.market, MARKET_COMMIT, line)["ran"], [],
+        self.assertEqual(history.run_history(world.profile, world.market, MARKET_DAY, line)["ran"], [],
                          "a rerun resumes: nothing is left")
 
         read = report_history.research_history(world.profile, line=line)["lines"][0]
@@ -168,7 +168,7 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(closed["backup"]["ledger_commit"], closed["ledger_commit"], "U2: closing syncs the backup")
         self.assertEqual(admin.backup_head(admin.backup_path(profile)), closed["ledger_commit"])
         with self.assertRaises(Refusal) as ended:
-            history.run_history(world.profile, world.market, MARKET_COMMIT, line)
+            history.run_history(world.profile, world.market, MARKET_DAY, line)
         self.assertEqual(ended.exception.code, "LINE_ENDED")
         # L11: a closed line is read when named, never by default
         self.assertEqual((lines.list_lines(world.profile)["lines"], status.research_runs(world.profile)["runs"],
@@ -183,11 +183,11 @@ class HistoryRunTests(unittest.TestCase):
         line = world.line["line"]
         registration, (ref,) = registered_grid(world, ["kept"])
         pending, (later,) = registered_grid(world, ["unrun"])  # its own grid: no exposure to the history trial
-        entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, registration=registration)
-        history.run_history(world.profile, world.market, MARKET_COMMIT, line, limit=1)
+        entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
+        history.run_history(world.profile, world.market, MARKET_DAY, line, limit=1)
         trials = world.conn.rows("SELECT COUNT(*) FROM trial")
         with self.assertRaises(Refusal) as refused:
-            entry.run(world.profile, world.market, MARKET_COMMIT, later, None, RUNNER_ARGV, registration=pending)
+            entry.run(world.profile, world.market, MARKET_DAY, later, None, RUNNER_ARGV, registration=pending)
         self.assertEqual(refused.exception.code, "LINE_ENDED")
         self.assertIn("a research run now would be a result the test leaves out", refused.exception.message)
         self.assertEqual(world.conn.rows("SELECT COUNT(*) FROM trial"), trials, "no trial was written")
@@ -196,9 +196,9 @@ class HistoryRunTests(unittest.TestCase):
         world = self.world
         line = world.line["line"]
         registration, (ref,) = registered_grid(world, ["drifting"])
-        entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, registration=registration)
+        entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
         world.fingerprint = {"fills": {"rows": 3, "sha256": "1" * 64, "by_utc_day": {}}}
-        history.run_history(world.profile, world.market, MARKET_COMMIT, line)
+        history.run_history(world.profile, world.market, MARKET_DAY, line)
         (row,) = report_history.research_history(world.profile, line=line)["lines"][0]["rows"]
         self.assertIs(row["control_reproduces"], False)
         self.assertIsNone(row["summary"])

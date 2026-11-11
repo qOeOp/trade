@@ -13,7 +13,7 @@ from unittest.mock import patch
 from ledger import coverage, db, evidence, execution, strategies, trials
 from shared.errors import Refusal
 from tests.ledger import dolt
-from tests.ledger.dolt import ACCOUNT, BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, SYMBOLS, Service, sha, source
+from tests.ledger.dolt import ACCOUNT, BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, SYMBOLS, Service, sha, source
 
 
 EXITED = {"native": {"state": "exited", "exit_code": 0}, "audit": None}
@@ -37,7 +37,7 @@ INPUT_IDENTITY = coverage_receipt()["input_identity"]
 
 def native_summary(**changes) -> dict:
     summary = {"input_start_utc": "2026-01-01T00:00:00Z", "period_end_utc": "2026-02-01T00:00:00Z",
-               "market_day": MARKET_COMMIT,
+               "market_day": MARKET_DAY,
                "per_coin": [{"instrument": symbol, "counts": {"last": 1}} for symbol in SYMBOLS]}
     summary.update(changes)
     return summary

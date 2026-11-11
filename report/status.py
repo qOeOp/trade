@@ -276,7 +276,7 @@ def _window(line: Mapping) -> tuple[datetime, datetime]:
 
 def overlapping_trials(trials: Iterable[Mapping], instruments: set[str], start: datetime, end: datetime) -> list:
     """The trials that traded one of `instruments` in a trading window overlapping [start, end): of
-    every purpose, market commit and line, since each looked at the same contract and period."""
+    every purpose, market day and line, since each looked at the same contract and period."""
     return [trial for trial in trials if trial["trade_start"] < end and start < trial["trade_end"]
             and _contracts(trial["instruments"]) & instruments]
 
@@ -361,7 +361,7 @@ def multiple_testing(conn: db.LedgerConnection, line: str | int, counted: Iterab
                      available: Callable[[list[int]], set[int]]) -> dict | None:
     """The trials behind a line's runs: the counted trials (counted_trials) that traded one of the
     instruments of the line's research trials in a trading window overlapping the line's development
-    window, across market commits and lines (`research_trials`; `all_purpose_trials` adds precheck,
+    window, across market days and lines (`research_trials`; `all_purpose_trials` adds precheck,
     explore and validation trials). From the trade-window daily returns of the overlapping research
     runs with economic evidence (`available`) whose returns vary (`runs_with_returns`): the mean
     pairwise correlation over common days (`mean_correlation`), the independent trials it leaves of
@@ -749,14 +749,14 @@ def _behind(conn: db.LedgerConnection, trials: list[int], current_image: str | N
 
 
 def _unresolved_market(record: Mapping) -> list[dict]:
-    """A gate when the active market holds no version of the line's pinned market commit: the line's next
-    registration is refused MARKET_COMMIT_UNRESOLVED and its runs cannot be replayed until that version is
-    back in it. Nothing when the market cannot be read."""
+    """A gate when the active market does not hold the line's pinned market day: the line's next
+    registration is refused MARKET_DAY_UNRESOLVED and its runs cannot be replayed until the market reaches
+    it. Nothing when the market cannot be read."""
     found = seams.current.market_day(record["market_day"])
-    if found is None or found["commit"] is not None:
+    if found is None or found["market_day"] is not None:
         return []
-    return [{"code": "MARKET_COMMIT_UNRESOLVED",
-             "message": f"the line's market commit {record['market_day']} is no day the active market "
+    return [{"code": "MARKET_DAY_UNRESOLVED",
+             "message": f"the line's market day {record['market_day']} is no day the active market "
                         f"{found['database']} holds, so the line cannot register or replay until the market reaches it",
              "missing": [record["market_day"]]}]
 
@@ -797,13 +797,13 @@ def research_state(conn: db.LedgerConnection, line: str | None = None, at: str |
                    history: bool = False, history_before: int | None = None, full: bool = False,
                    current_image: str | None = None) -> dict:
     """The research line's whole record (`line`: ledger.read_line's line_id, name, start, development window,
-    market commit, universe rule and closing), its execution identity (`execution_identity`, line_identity), the user's targets in force for it (`targets`: the line's own, else the ledger default, else
-    null), the open lines (`open_lines`: name, start, development window and market commit of each), its current judgments with read-time facts, the fixed review cadence (`review_every`),
+    market day, universe rule and closing), its execution identity (`execution_identity`, line_identity), the user's targets in force for it (`targets`: the line's own, else the ledger default, else
+    null), the open lines (`open_lines`: name, start, development window and market day of each), its current judgments with read-time facts, the fixed review cadence (`review_every`),
     the line's latest runs read for a due change of approach (`undistinguished_runs`, _undistinguished_runs),
     the trials of the line's execution identity since the last recommendation (`unreviewed_trials`), the trial count of
     the line (every identity: the search on the same data) and the gates the next registration would meet
     (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs, and
-    MARKET_COMMIT_UNRESOLVED when the active market holds no version of the line's market commit). The
+    MARKET_DAY_UNRESOLVED when the active market does not hold the line's market day). The
     line is the one named `line`, else the only open line; with no open line `line` is null with
     `line select` as the next step (gate RESEARCH_LINE_REQUIRED), with several the gate is LINE_AMBIGUOUS
     and the next step names one with --line.

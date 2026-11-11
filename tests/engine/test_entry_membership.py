@@ -152,7 +152,7 @@ def native_case(root, case, mode="preclose"):
         receipt = {"format": "execution-input-coverage-v1", "input_identity": {"market_day": "c" * 32,
                     **({"lifecycle_bundle": "lifecycle-probe"} if lifecycle else {})},
                    "effective_config": {"start": window.start, "trade_start": window.trade_start, "end": window.end},
-                   "membership": {"commit": "c" * 32, "membership": {"AAAUSDT": intervals}},
+                   "membership": {"market_day": "c" * 32, "membership": {"AAAUSDT": intervals}},
                    "export_receipts": {"AAAUSDT": {"assumed": ASSUMED, "pieces": [{"index": None, "instrument_id": str(INSTRUMENT_ID),
                        "last_bar_ns": START + 7 * BAR_NS - 1_000_000, "counts": counts, "episode": episode}]}}}
         (root / "input-coverage.json").write_text(json.dumps(receipt))
@@ -219,7 +219,7 @@ class EntryMembershipTests(unittest.TestCase):
     def test_missing_invalid_and_cross_instrument_scope_cannot_pass(self):
         _, events, receipt, summary = native_case(self.root, "held")
         for change in (lambda x: x.pop("membership"), lambda x: x.update(format="unknown"),
-                       lambda x: x["membership"].update(commit="other"),
+                       lambda x: x["membership"].update(market_day="other"),
                        lambda x: x["membership"]["membership"].update(AAAUSDT=[[True, END]]),
                        lambda x: x["export_receipts"]["AAAUSDT"]["pieces"][0].update(instrument_id="OTHER.BINANCE")):
             changed = copy.deepcopy(receipt)

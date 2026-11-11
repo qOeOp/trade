@@ -212,10 +212,10 @@ class ImportQuotesTests(unittest.TestCase):
         from engine.load import read_market
         from market import export
         start_ns, end_ns = day_ms(JAN) * 10**6, (day_ms(JAN) + 2 * DAY) * 10**6
-        commit = files.latest_commit(files.open_market(self.profile, "reader"))
+        market_day = files.latest_market_day(files.open_market(self.profile, "reader"))
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            job = {"profile": self.profile, "commit": commit, "symbol": "BTCUSDT", "start_ns": start_ns,
+            job = {"profile": self.profile, "market_day": market_day, "symbol": "BTCUSDT", "start_ns": start_ns,
                    "end_ns": end_ns, "path": str(root / "bars" / "BTCUSDT"),
                    "include_quotes": False}
             with patch.object(export, "quote_rows", side_effect=AssertionError("bars must not read quote rows")):
@@ -227,7 +227,7 @@ class ImportQuotesTests(unittest.TestCase):
             self.assertFalse((root / "bars" / "BTCUSDT" / "data" / "quotes").exists())
             streams = []
             for name in ("bars", "quotes"):
-                rows = read_market(root / name, ["BTCUSDT"], commit, start_ns, end_ns)
+                rows = read_market(root / name, ["BTCUSDT"], market_day, start_ns, end_ns)
                 streams.append([(type(e).__name__, e.ts_event, e.ts_init, str(e))
                                 for e in market_events(rows, start_ns, end_ns)])
             self.assertEqual(streams[0], streams[1])

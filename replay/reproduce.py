@@ -1,7 +1,7 @@
 """Reproducing a sealed run (`replay.reproduce`).
 
 A sealed run's native reports are a cache: the ledger keeps the run's identity (source, pinned
-image, market commit, instruments, window) and the semantic fingerprint its image computed. To read
+image, market day, instruments, window) and the semantic fingerprint its image computed. To read
 native detail, the run is replayed by that identity into a new temporary directory and the
 directory is handed over only when the fingerprint its own fingerprint stage sealed equals the
 recorded one. A product update moves a run to a new image: replayed there, on a main build, it must

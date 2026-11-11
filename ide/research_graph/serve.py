@@ -198,11 +198,11 @@ class Product:
         """A sealed trial's report with its drill-down tables, as the product gives or refuses it."""
         return self.run("replay", "report", f"--ledger={self.ledger}", f"--trial-id={trial_id}", f"--at={commit}", "--tables")
 
-    def bars(self, symbol: str, start: str, end: str, commit: str) -> dict:
-        """A contract's daily LAST bars from UTC day `start` to `end` (left out) at a market commit, all inline."""
+    def bars(self, symbol: str, start: str, end: str, market_day: str) -> dict:
+        """A contract's daily LAST bars from UTC day `start` to `end` (left out) at a market day, all inline."""
         days = (date.fromisoformat(end) - date.fromisoformat(start)).days
         market = [f"--market={self.market}"] if self.market else []
-        return self.run("market", "bars", *market, f"--at={commit}", f"--symbol={symbol}", "--timeframe=1d", "--price-type=LAST",
+        return self.run("market", "bars", *market, f"--at={market_day}", f"--symbol={symbol}", "--timeframe=1d", "--price-type=LAST",
                         f"--start={start}T00:00:00Z", f"--end={end}T00:00:00Z", f"--limit={days}")
 
 

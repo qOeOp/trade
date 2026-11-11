@@ -92,7 +92,7 @@ is refused with `LEDGER_KIND`: replace those two with `"holds": "market"` and `"
 
 The research ledger is generation 1 of `ledger/schema.sql` (`ledger.db.SCHEMA_VERSION`). Each execution
 has one `trial_id`; its sealed run uses that same primary key. Commands and registration bodies use
-`--trial-id` and `control_trial_id`. A trial records the market commit it read as `market_day`: a day of the
+`--trial-id` and `control_trial_id`. A trial records the market day it read as `market_day`: a day of the
 market directory (`market/README.md`), independent of the ledger's versions. Paper's runs are not research:
 they live in a separate `paper` database (`ledger/paper.sql`) that is never published.
 
@@ -149,7 +149,7 @@ binary in `RESEARCH_DOLT_BINARY` or on PATH, and skip without it.
 
 Market data (Binance public USD-M perpetual data, imported month by month, and the monthly
 pool) lives in a market directory of plain Parquet files ([`market`](market/README.md)); a replay
-cites one market commit, the last day it includes. `market coverage` reports which months a commit holds (the first
+cites one market day, the last day it includes. `market coverage` reports which months a market day holds (the first
 imported month has no pool members: membership counts the trading days before a month). An empty one is made with (the active one needs
 the user's authority; the deployment's is `$TRADE_DATA/market`, `deploy/README.md`):
 
@@ -211,7 +211,7 @@ project is not affiliated with, sponsored or endorsed by Binance.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
 - [`paper/`](paper/): the paper-run controller and the daemon behind the IDE's Paper panel.
 - [`live/`](live/): the operator-only `live` command.
-- [`market/`](market/): the Binance market directory (plain Parquet files), its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
+- [`market/`](market/): the Binance market directory (plain Parquet files), its monthly universe, lifecycle manifests, coverage facts and the per-day Catalog export.
 - [`deploy/`](deploy/): the base deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its three images; [`deploy/remote/`](deploy/remote/README.md) adds what a server needs, automatic release of version tags included ([`CHANGELOG.md`](CHANGELOG.md)).
 - [`ide/`](ide/): the trade IDE, a page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, the web renderer and the ledger-versus-session comparison.
 - [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain site: rules, architecture and decisions. Functions and skills are read from the code and `.agents/skills/`. A chapter's English page with no `.mdx` file of its own is built from its `.zh.mdx`.

@@ -1,5 +1,5 @@
-// A contract's daily bars over the shown backtest's window (model/backtest.ts) at the line's market commit,
-// read once per contract, days and commit for the session: the backtest's candles on the contract chart.
+// A contract's daily bars over the shown backtest's window (model/backtest.ts) at the line's market day,
+// read once per contract, days and market day for the session: the backtest's candles on the contract chart.
 // Where they are not to be had, what the chart says instead.
 import { useEffect } from "react";
 import type { Candle } from "../lib/bars";
@@ -18,7 +18,7 @@ const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 export const daysOf = (window: readonly [number, number]): [string, string] =>
   [day(Math.floor(window[0] / DAY_MS) * DAY_MS), day(Math.ceil(window[1] / DAY_MS) * DAY_MS)];
 
-/** `symbol`'s daily bars over `b`'s window at `market`; null when there is no backtest, contract or commit. */
+/** `symbol`'s daily bars over `b`'s window at `market`; null when there is no backtest, contract or market day. */
 export function useBacktestBars(symbol: string, b: Backtest | null, market: string | null): LoadedBars | null {
   const all = useAtom(loaded), [start, end] = b ? daysOf(b.window) : ["", ""];
   const key = symbol && b && market ? `${symbol}:${start}:${end}@${market}` : null;
@@ -28,7 +28,7 @@ export function useBacktestBars(symbol: string, b: Backtest | null, market: stri
     void fetchBars(symbol, start, end, market!).then((r) => put(key, r.kind === "bars" ? { kind: "ready", candles: r.candles } : r));
   }, [key]);
   if (!b || !symbol) return null;
-  return key ? all.get(key) ?? { kind: "reading" } : { kind: "absent", message: "the line names no market commit" };
+  return key ? all.get(key) ?? { kind: "reading" } : { kind: "absent", message: "the line names no market day" };
 }
 
 /** What the contract chart says of the backtest's bars it does not draw: being read, refused, not served. */

@@ -1,5 +1,5 @@
 // A contract's daily LAST bars (`market bars --timeframe 1d`) from the page's own server under /api/bars,
-// whole UTC days at a full market commit (ide/research_graph/serve.py), as candles; the product's refusal
+// whole UTC days at a market day (ide/research_graph/serve.py), as candles; the product's refusal
 // comes back as its { code, message }.
 import type { Candle } from "./bars";
 import type { Fetched } from "./trialApi";
@@ -11,7 +11,7 @@ type FetchedBars = { kind: "bars"; candles: Candle[] } | Exclude<Fetched, { kind
 // The page's server's own failures, as against the product's refusals.
 const SERVED = new Set(["PRODUCT_UNAVAILABLE", "PRODUCT_FAILED", "BAD_REQUEST", "NOT_FOUND"]);
 
-/** `symbol`'s daily bars from UTC day `start` to `end` (left out) at market commit `at`. */
+/** `symbol`'s daily bars from UTC day `start` to `end` (left out) at market day `at`. */
 export async function fetchBars(symbol: string, start: string, end: string, at: string): Promise<FetchedBars> {
   try {
     const query = new URLSearchParams({ symbol, timeframe: "1d", start, end, at });

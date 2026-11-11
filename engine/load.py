@@ -296,7 +296,7 @@ def diagnostics(strategy: Strategy) -> dict:
     return value
 
 
-# Inputs: a market commit exported as one Catalog per contract (market/export.py)
+# Inputs: a market day exported as one Catalog per contract (market/export.py)
 
 def coin(symbol: str, episode: int | None = None) -> str:
     """The contract's short name: BTCUSDT -> BTC, 1000PEPEUSDT -> PEPE (a leading 1000 before letters);
@@ -365,8 +365,8 @@ def entry_windows(coverage: dict, summary: dict) -> dict[str, tuple[tuple[int, i
     stated = parse_window(summary["input_start_utc"], summary["period_start_utc"], summary["period_end_utc"])
     membership = coverage["membership"]
     if (window != stated or coverage["input_identity"]["market_day"] != summary["market_day"]
-            or membership["commit"] != summary["market_day"]):
-        raise ValueError("entry scope window or market commit differs from the summary")
+            or membership["market_day"] != summary["market_day"]):
+        raise ValueError("entry scope window or market day differs from the summary")
     members = membership["membership"]
     if not isinstance(members, dict) or not isinstance(coverage["export_receipts"], dict):
         raise ValueError("input receipt has no membership or export mapping")
@@ -409,14 +409,14 @@ def entry_windows(coverage: dict, summary: dict) -> dict[str, tuple[tuple[int, i
 
 
 def read_market(market_root: Path, symbols: list[str], market_day: str, start_ns: int, end_ns: int) -> list[dict]:
-    """engine.read_market: each contract's export receipt checked against the commit, the window and the
+    """engine.read_market: each contract's export receipt checked against the market day, the window and the
     one-minute timeframe, and one row per exported piece (the contract, or each lifecycle episode of a
     reused ticker) with its Catalog's one instrument."""
     rows = []
     for symbol in symbols:
         path = market_root / symbol
         receipt = json.loads((path / "export.json").read_text(encoding="utf-8"))
-        if ((receipt.get("commit"), receipt.get("start_ns"), receipt.get("end_ns"), receipt.get("timeframe"))
+        if ((receipt.get("market_day"), receipt.get("start_ns"), receipt.get("end_ns"), receipt.get("timeframe"))
                 != (market_day, start_ns, end_ns, TIMEFRAME)):
             raise Refusal("MARKET_RECEIPT_MISMATCH", f"{symbol}: the export is not market day {market_day} over the "
                                                      f"replay window in {TIMEFRAME} bars")
@@ -514,7 +514,7 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
     """engine.lifecycle_events: the window's terminations (InstrumentClose, InstrumentStatus CLOSE) by clock.
 
     Without a lifecycle bundle every native count must be zero. With one, the receipt's window and
-    market commit equal the summary's, each counted instance has exactly one exported episode whose
+    market day equal the summary's, each counted instance has exactly one exported episode whose
     counts equal the native counts, and every event in the window is a native event.
     """
     native = _native_counts(summary)
@@ -532,7 +532,7 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
         raise Refusal("LIFECYCLE_COVERAGE_MISMATCH", f"the receipt or summary window does not parse: {exc}") from exc
     if (coverage.get("format") != COVERAGE_FORMAT or (window.start_ns, window.end_ns) != (stated.start_ns, stated.end_ns)
             or identity.get("market_day") != summary.get("market_day")):
-        raise Refusal("LIFECYCLE_COVERAGE_MISMATCH", "the coverage receipt's format, window or market commit differs "
+        raise Refusal("LIFECYCLE_COVERAGE_MISMATCH", "the coverage receipt's format, window or market day differs "
                                                      "from the native summary")
     receipts = coverage["export_receipts"] if isinstance(coverage.get("export_receipts"), dict) else {}
     represented: dict[str, dict] = {}

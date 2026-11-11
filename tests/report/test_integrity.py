@@ -14,7 +14,7 @@ from ledger import db, execution, strategies
 from registration import availability, precheck, register, seams as registration_seams
 from replay import entry
 from report import candidates, comparison, measures, seams, status
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, SOURCE
+from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, SOURCE
 from tests.registration.world import OUTCOMES, RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld
 from tests.report.test_reports import FINGERPRINT, market_returns
@@ -91,7 +91,7 @@ class IntegrityTests(unittest.TestCase):
         world = cls.world
         world.scenario = {"returns": RETURNS[name]} if name in RETURNS else {}
         try:
-            cls.runs[name] = entry.run(world.profile, world.market, MARKET_COMMIT, cls.refs[name], None, RUNNER_ARGV,
+            cls.runs[name] = entry.run(world.profile, world.market, MARKET_DAY, cls.refs[name], None, RUNNER_ARGV,
                                        registration=cls.registrations[name])
         finally:
             world.scenario = {}

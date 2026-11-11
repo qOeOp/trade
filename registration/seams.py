@@ -132,7 +132,7 @@ def runner_inputs(runner_argv: list[str]) -> dict:
             "execution": known.execution, "trade_ticks": known.trade_ticks, "metrics": known.metrics}
 
 
-# Market (market.resolve_commit, market.membership_path, market.export_catalogs, market.validate_lifecycle)
+# Market (market.resolve_day, market.membership_path, market.export_catalogs, market.validate_lifecycle)
 
 class Market:
     """The market directory behind the registration interface, named by its profile's name: each method one
@@ -146,76 +146,76 @@ class Market:
         from market import files
         return files.open_market(self.profile, "reader")
 
-    def resolve_commit(self, at: str | None) -> str:
+    def resolve_day(self, at: str | None) -> str:
         from market import files
         from market.sources import MarketError
         try:
-            return files.resolve_commit(self._open(), at)
+            return files.resolve_day(self._open(), at)
         except MarketError as exc:
-            raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {at!r} did not resolve ({exc.code})",
+            raise refuse("MARKET_DAY_UNRESOLVED", f"market reference {at!r} did not resolve ({exc.code})",
                          missing=(str(at),)) from exc
 
-    def _freshness(self, commit: str) -> dict:
+    def _freshness(self, market_day: str) -> dict:
         from market import store
         from market.sources import MarketError
         try:
-            return store.freshness(self.profile, ledger_db.check_ref(commit))
+            return store.freshness(self.profile, ledger_db.check_ref(market_day))
         except MarketError as exc:
-            raise refuse("MARKET_COMMIT_UNRESOLVED", f"market commit {commit} has no complete day ({exc.code})",
-                         missing=(str(commit),)) from exc
+            raise refuse("MARKET_DAY_UNRESOLVED", f"market day {market_day} has no complete day ({exc.code})",
+                         missing=(str(market_day),)) from exc
 
-    def latest_complete_day(self, commit: str):
-        """market.freshness's latest complete UTC day at `commit`."""
-        return self._freshness(commit)["latest_complete_day"]
+    def latest_complete_day(self, market_day: str):
+        """market.freshness's latest complete UTC day at `market_day`."""
+        return self._freshness(market_day)["latest_complete_day"]
 
-    def days(self, commit: str):
-        """(first day of the market's first universe month, latest complete UTC day) at `commit`."""
-        found = self._freshness(commit)
+    def days(self, market_day: str):
+        """(first day of the market's first universe month, latest complete UTC day) at `market_day`."""
+        found = self._freshness(market_day)
         return date.fromisoformat(found["universe_months"][0] + "-01"), found["latest_complete_day"]
 
-    def universe_rule(self, commit: str) -> str:
+    def universe_rule(self, market_day: str) -> str:
         from market import universe
-        return universe.rule_of(self._open(), ledger_db.check_ref(commit))
+        return universe.rule_of(self._open(), ledger_db.check_ref(market_day))
 
-    def universe_month(self, commit: str) -> list[tuple[str, str]]:
+    def universe_month(self, market_day: str) -> list[tuple[str, str]]:
         from market import universe
-        found = universe.months_of(self._open(), ledger_db.check_ref(commit))
+        found = universe.months_of(self._open(), ledger_db.check_ref(market_day))
         return [(month.isoformat()[:7], symbol) for month, symbol in found]
 
-    def membership_path(self, commit: str, window_end: int) -> dict:
+    def membership_path(self, market_day: str, window_end: int) -> dict:
         from market import universe
         from market.sources import MarketError
         try:
-            return universe.membership_path(self._open(), commit, window_end)
+            return universe.membership_path(self._open(), market_day, window_end)
         except MarketError as exc:
-            code = "UNIVERSE_EMPTY" if exc.code == "UNIVERSE_EMPTY_AT_COMMIT" else (
-                "MARKET_COMMIT_UNRESOLVED" if exc.code == "MARKET_COMMIT_UNRESOLVED" else None)
+            code = "UNIVERSE_EMPTY" if exc.code == "UNIVERSE_EMPTY_AT_DAY" else (
+                "MARKET_DAY_UNRESOLVED" if exc.code == "MARKET_DAY_UNRESOLVED" else None)
             if code is None:
                 raise
             raise refuse(code, exc.message, missing=exc.missing) from exc
 
-    def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
+    def export_catalogs(self, market_day: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
                         fresh: bool, *, include_quotes: bool = True, include_trades: bool = False,
                         include_metrics: bool = False) -> dict:
-        """{commit, root, exported, reused, receipts}."""
+        """{market_day, root, exported, reused, receipts}."""
         from market import export
         from market.sources import MarketError
         try:
-            done = export.export_catalogs(self.profile, commit, symbols, start_ns, end_ns, episodes, lifecycle_files,
+            done = export.export_catalogs(self.profile, market_day, symbols, start_ns, end_ns, episodes, lifecycle_files,
                                           fresh, include_quotes=include_quotes, include_trades=include_trades,
                                           include_metrics=include_metrics)
         except MarketError as exc:
             if exc.code == "LIFECYCLE_INPUT":
                 raise refuse("LIFECYCLE_INPUT", exc.message) from exc
             raise
-        return {"commit": done["commit"], "root": Path(done["root"]), "exported": done["exported"],
+        return {"market_day": done["market_day"], "root": Path(done["root"]), "exported": done["exported"],
                 "reused": done["cached"], "receipts": done["receipts"]}
 
-    def validate_lifecycle(self, body: dict, commit: str, files: Mapping[str, bytes]) -> dict:
+    def validate_lifecycle(self, body: dict, market_day: str, files: Mapping[str, bytes]) -> dict:
         """market.validate_lifecycle, its refusal as LIFECYCLE_INPUT."""
         from market import lifecycle
         try:
-            return lifecycle.validate_lifecycle(body, commit, files)
+            return lifecycle.validate_lifecycle(body, market_day, files)
         except lifecycle.LifecycleInput as exc:
             raise refuse("LIFECYCLE_INPUT", exc.message) from exc
 
