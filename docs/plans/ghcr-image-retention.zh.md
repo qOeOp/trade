@@ -89,3 +89,10 @@
   - `compose.yaml` 历史上钉过的 trade-docker-api 构建；
   - 各主机 env 文件和运行中容器用的构建。
 - trade-runtime 仍全部保留。不加定时工作流。删除版本属于修改公开内容，每次都要用户同意。
+
+## 2026-11-11 更新：执行镜像
+
+- 拆镜像后（`replay-image-20261111.zh.md`），trade-runtime 包里有两种镜像，都是多架构索引加两个子版本：
+  - 回放镜像：`main`、`pr-N`、`sha-<提交>`。研究记录（`trial.image_ref`、复现）引用它。
+  - 执行镜像：`exec-main`、`exec-pr-N`、`exec-sha-<提交>`。`deploy-ready` 的 `runtime`、各主机的 `TRADE_RUNTIME_IMAGE`、Paper 运行的 `image_ref` 和 Live 声明引用它。
+- 没有新增包，trade-runtime 仍全部保留，两种镜像都不删。以后若要清理执行镜像，保留集合按上一节 trade-ide 的规则算（索引和子版本一体，`deploy-ready` 全部历史、主机 env 与运行中容器所用构建、Paper 运行引用的摘要），并且每次都要用户同意。
