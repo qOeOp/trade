@@ -20,7 +20,7 @@ from shared.refusals import refuse
 from registration import precheck
 from replay import entry
 from report import comparison, graph, status
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market
+from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market, pinned
 from tests.registration.world import RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
@@ -161,9 +161,10 @@ class ResearchGraphTests(unittest.TestCase):
 
     def test_3_a_new_line_on_another_window_shows_no_run_of_the_old_one(self):
         first, second = self.refs
-        bundle = lines.select_line(self.world.conn, MARKET_COMMIT, date(2026, 2, 1), date(2026, 3, 1), first,
-                                   slug="other-window", market=line_market(latest_complete_day=date(2026, 3, 31)),
-                                   reviews=precheck.review_records)["line"]
+        with pinned(date(2026, 2, 1), date(2026, 3, 1)):
+            bundle = lines.select_line(self.world.conn, MARKET_COMMIT, first, slug="other-window",
+                                       market=line_market(latest_complete_day=date(2026, 3, 31)),
+                                       reviews=precheck.review_records)["line"]
         found = graph.research_graph(self.world.profile, bundle)
         self.assertEqual(contract.check_graph(found), [])
         self.assertEqual([t for c in found["candidates"] for t in c["trials"] if t["purpose"] == "research"], [],

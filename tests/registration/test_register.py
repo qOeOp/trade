@@ -12,7 +12,7 @@ from ledger import db, judgments, lines, strategies, trials
 from shared.errors import Refusal
 from registration import precheck, register
 from tests.ledger.dolt import (BINARY, MARKET_COMMIT, RUNTIME, SKIP, coverage, market, product_bundle, reviewed,
-                               sha, source)
+                               pinned, sha, source)
 from tests.registration.world import ACCOUNT, DAY, JAN, LINE_WINDOW, RUNNER_ARGV, World, capture, config
 
 OTHER_DIGEST = "sha256:" + "c" * 64
@@ -252,8 +252,9 @@ class RegisterTests(unittest.TestCase):
 
 def second_line(world: World, slug: str, end: date = date(2026, 2, 1)) -> str:
     """Another open line from rsi@1 on the world's market commit, from 2026-01-01 to `end`."""
-    return lines.select_line(world.conn, MARKET_COMMIT, date(2026, 1, 1), end, "rsi@1", slug=slug, market=market(),
-                             reviews=reviewed(source("root")))["line"]
+    with pinned(date(2026, 1, 1), end):
+        return lines.select_line(world.conn, MARKET_COMMIT, "rsi@1", slug=slug, market=market(),
+                                 reviews=reviewed(source("root")))["line"]
 
 
 @unittest.skipUnless(BINARY, SKIP)

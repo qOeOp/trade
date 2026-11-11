@@ -1,9 +1,11 @@
 """Research lines (`ledger.select_line`, `ledger.open_lines`, `ledger.open_line`, `ledger.read_line`,
 `ledger.line_trials`, `ledger.close_line`).
 
-A research line is the user's choice of start candidate (a revision whose source review passed),
-development window and pinned market commit, one research_line row named by a slug for the line's
-direction. A new choice is a new line, never an edit.
+A research line is the user's choice of start candidate (a revision whose source review passed) and
+pinned market commit, one research_line row named by a slug for the line's direction. Its development
+period is the product's rule, not a choice (`development_period`): the last four complete calendar
+quarters before the day the line opens that the market covers, so lines opened in one quarter share it.
+A new choice is a new line, never an edit.
 
 A line is open from its selection until its line_close row, and several lines may be open at once, on the
 same market commit and window too: every research trial names its line, so the trials of each stay apart.
@@ -88,17 +90,28 @@ def list_lines(profile: db.LedgerProfile, at: str | None = None) -> dict:
                            "targets": line_targets.targets_for(conn, line["line_id"])} for line in lines(conn)]}
 
 
-def select_line(conn: db.LedgerConnection, market_at: str, window_start: date, window_end: date, start: str, *,
-                slug: str, market: Callable[[str], dict],
+QUARTER_STARTS = (1, 4, 7, 10)
+
+
+def development_period(today: date, latest_complete_day: date) -> tuple[date, date]:
+    """[first day, day after the last) of the last four complete calendar quarters that end before `today` and
+    within `latest_complete_day` (line-close-history-test-20261110.zh.md 3.1)."""
+    last = min(today - timedelta(days=1), latest_complete_day)
+    after = last + timedelta(days=1)
+    end = after if after.day == 1 and after.month in QUARTER_STARTS else date(last.year, 3 * ((last.month - 1) // 3) + 1, 1)
+    return date(end.year - 1, end.month, 1), end
+
+
+def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: str, market: Callable[[str], dict],
                 reviews: Callable[[db.LedgerConnection, str], list[dict]],
-                targets: tuple[float, float] | None = None) -> dict:
+                targets: tuple[float, float] | None = None, today: date | None = None) -> dict:
     """Append the user's chosen line named `slug`; the same choice as an open line under that name is a replay.
     Another choice under a name already taken is LINE_CONFLICT: the Agent names the direction more precisely.
     `targets` (maximum drawdown, minimum annual return) are the user's for this line, written in the same commit;
     without them the line reads the ledger default.
 
     `market(market_at)` returns {commit, universe_rule, latest_complete_day} (the market's resolve_commit and
-    freshness). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
+    freshness); the development period follows from that day and `today` (default the ledger server's UTC date). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
     source review of its source hash and none failed, read at the head this connection sees; a review that failed
     only on the activity of a precheck that did not trade is not counted once a later precheck traded and passed
     (`review_activity.resolved`).
@@ -122,13 +135,13 @@ def select_line(conn: db.LedgerConnection, market_at: str, window_start: date, w
     if not facts.get("commit") or not facts.get("universe_rule"):
         raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {market_at!r} has no commit with a universe rule",
                      missing=(str(market_at),))
-    if not isinstance(window_start, date) or not isinstance(window_end, date) or window_start >= window_end:
-        raise refuse("WINDOW_INVALID", "the development window must start before it ends",
-                     expected="window_start < window_end")
     latest_day = facts.get("latest_complete_day")
-    if latest_day is None or window_end > latest_day + timedelta(days=1):
-        raise refuse("WINDOW_OUT_OF_COVERAGE", f"the window ends after {latest_day} plus one day",
-                     expected=f"window_end <= {latest_day + timedelta(days=1) if latest_day else 'covered data'}")
+    if latest_day is None:
+        raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {market_at!r} has no complete day",
+                     missing=(str(market_at),))
+    if today is None:
+        (today,), = conn.rows("SELECT DATE(UTC_TIMESTAMP())")
+    window_start, window_end = development_period(today, latest_day)
     reviewed = reviews(conn, candidate["source_sha256"])
     verdicts = {record["verdict"] for record in reviewed if not review_activity.resolved(conn, record, reviewed)}
     if "failed" in verdicts or "passed" not in verdicts:

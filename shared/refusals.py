@@ -160,9 +160,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        "start or not on a whole UTC minute.",
                        ("Pass a window whose start precedes its end (and, for a replay, a whole-minute warm-up "
                         "start no later than the trading start).",)),
-    "WINDOW_OUT_OF_COVERAGE": ("The development window ends after the market commit's latest complete day.",
-                               ("End the window at most one day after the latest complete day, or pin a newer "
-                                "market commit.",)),
     "LINE_CONFLICT": ("A research line of that date and slug already exists with another choice.",
                       ("Name the direction more precisely with another `--slug`, then select again.",)),
     "LINE_SLUG_INVALID": ("The line slug is not lowercase ASCII words joined by hyphens of at most 48 characters.",

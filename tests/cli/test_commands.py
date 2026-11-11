@@ -215,10 +215,9 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(out["files"][0]["name"], "note.md")
 
         # The line
-        self.refused("WINDOW_INVALID", "line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-1-1",
-                     "--window-end", "2026-02-01", "--slug", "fixture-trend")
-        selection = ("line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-01-01",
-                     "--window-end", "2026-02-01", "--slug", "fixture-trend")
+        self.refused("USAGE_ERROR", "line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-01-01",
+                     "--slug", "fixture-trend")  # the development period is the product's rule, not a choice
+        selection = ("line", "select", *ledger, "--start", "fixture@1", "--slug", "fixture-trend")
 
         # Market facts and the lifecycle bundle
         coverage = self.ok("market", "coverage", "--start", "2025-12-31T00:00:00Z", "--end", "2026-01-02T00:00:00Z")

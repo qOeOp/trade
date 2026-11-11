@@ -9,7 +9,7 @@ import unittest
 
 from ledger import db, lines, strategies, targets
 from shared.errors import Refusal
-from tests.ledger.dolt import BINARY, SKIP, Service, market, reviewed, source
+from tests.ledger.dolt import BINARY, SKIP, Service, market, pinned, reviewed, source
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -23,8 +23,9 @@ class TargetTests(unittest.TestCase):
         self.addCleanup(self.conn.close)
 
     def select(self, slug: str, window_end: date, line_targets=None) -> int:
-        return lines.select_line(self.conn, "main", date(2026, 1, 2), window_end, "start@1", slug=slug,
-                                 market=market(), reviews=reviewed(source("start")), targets=line_targets)["line_id"]
+        with pinned(date(2026, 1, 2), window_end):
+            return lines.select_line(self.conn, "main", "start@1", slug=slug, market=market(),
+                                     reviews=reviewed(source("start")), targets=line_targets)["line_id"]
 
     def commits(self) -> int:
         return self.service.sql(self.profile, "SELECT COUNT(*) FROM dolt_log")[0][0]

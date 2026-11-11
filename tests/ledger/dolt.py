@@ -140,12 +140,25 @@ def reviewed(*sources: bytes):
     return records
 
 
-def select_line(conn, start: str = "rsi@1", slug: str = "rsi-root", start_source: bytes | None = None) -> dict:
-    """A research line from `start` over January 2026 on MARKET_COMMIT (ledger.lines.select_line)."""
+def pinned(start=None, end=None):
+    """Pin the development period (ledger.lines.development_period, whose rule test_lines tests) to [start, end),
+    default January 2026: the fixtures' market and windows are a month or two, the rule's period a year."""
     from datetime import date
     from ledger import lines
-    return lines.select_line(conn, MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), start, slug=slug,
-                             market=market(), reviews=reviewed(start_source or source("root")))
+    period = (start or date(2026, 1, 1), end or date(2026, 2, 1))
+    return patch.object(lines, "development_period", lambda today, latest: period)
+
+
+def january():
+    return pinned()
+
+
+def select_line(conn, start: str = "rsi@1", slug: str = "rsi-root", start_source: bytes | None = None) -> dict:
+    """A research line from `start` over January 2026 on MARKET_COMMIT (ledger.lines.select_line)."""
+    from ledger import lines
+    with january():
+        return lines.select_line(conn, MARKET_COMMIT, start, slug=slug, market=market(),
+                                 reviews=reviewed(start_source or source("root")))
 
 
 def grid_point(conn, line_id: int, data: bytes, receipt: bytes | None = None, runtime: dict | None = None) -> int:

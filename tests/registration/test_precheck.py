@@ -3,7 +3,6 @@ exemption and the reviewed start of a research line, on a throwaway ledger."""
 
 from __future__ import annotations
 
-from datetime import date
 import hashlib
 import json
 import unittest
@@ -314,7 +313,7 @@ class LineStartTests(unittest.TestCase):
         self.addCleanup(world.close)
 
         def select(ref: str) -> dict:
-            return lines.select_line(world.conn, MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1), ref,
+            return lines.select_line(world.conn, MARKET_COMMIT, ref,
                                      slug="passing-start", market=market(), reviews=precheck.review_records)
 
         def code(ref: str) -> str:
@@ -341,7 +340,7 @@ class LineStartTests(unittest.TestCase):
 
         def code(ref: str) -> str:
             with self.assertRaises(Refusal) as caught:
-                lines.select_line(world.conn, MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1), ref,
+                lines.select_line(world.conn, MARKET_COMMIT, ref,
                                   slug="untraded-start", market=market(), reviews=precheck.review_records)
             return caught.exception.code
 
@@ -360,8 +359,7 @@ class LineStartTests(unittest.TestCase):
         reviewed(released["source"], 0, {})
         self.assertEqual(code(released["candidate"]), "START_REVIEW_REQUIRED", "a later pass without fills")
         reviewed(released["source"], 3, {})
-        selected = lines.select_line(world.conn, MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1),
-                                     released["candidate"], slug="untraded-start", market=market(),
+        selected = lines.select_line(world.conn, MARKET_COMMIT, released["candidate"], slug="untraded-start", market=market(),
                                      reviews=precheck.review_records)
         self.assertEqual((selected["line"], selected["created"]), ("untraded-start", True))
 

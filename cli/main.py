@@ -140,15 +140,6 @@ def _json_file(path: str, code: str) -> dict:
     return value
 
 
-def _utc_day(text: str) -> date:
-    if not isinstance(text, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
-        raise refuse("WINDOW_INVALID", f"{text!r} is not a YYYY-MM-DD UTC day", expected="YYYY-MM-DD")
-    try:
-        return date.fromisoformat(text)
-    except ValueError as exc:
-        raise refuse("WINDOW_INVALID", f"{text!r} is not a calendar day", expected="YYYY-MM-DD") from exc
-
-
 def _utc_time(text: str) -> datetime:
     try:
         moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
@@ -598,17 +589,16 @@ def _targets(args) -> tuple[str, str] | None:
     return given
 
 
-def line_select(conn: db.LedgerConnection, market: dict, start: str, window_start: str, window_end: str,
-                market_at: str | None, slug: str, line_targets: tuple | None = None) -> dict:
-    """line select: the user's research line (start candidate, development window, pinned market commit)
-    and, when given, the user's targets for it."""
+def line_select(conn: db.LedgerConnection, market: dict, start: str, market_at: str | None, slug: str,
+                line_targets: tuple | None = None) -> dict:
+    """line select: the user's research line (start candidate, pinned market commit; the development period is
+    the product's rule) and, when given, the user's targets for it."""
     from registration import precheck
-    first, last = _utc_day(window_start), _utc_day(window_end)
-    selected = lines.select_line(conn, market_at or "main", first, last, start, slug=slug,
-                                 market=_market_facts(market), reviews=precheck.review_records,
-                                 targets=line_targets)
+    selected = lines.select_line(conn, market_at or "main", start, slug=slug, market=_market_facts(market),
+                                 reviews=precheck.review_records, targets=line_targets)
+    line = lines.read_line(conn, selected["line_id"])
     return {"line": selected["line"], "line_id": selected["line_id"], "start": start,
-            "window": {"start": first.isoformat(), "end": last.isoformat()},
+            "window": {"start": line["dev_start"], "end": line["dev_end"]},
             "market_commit": selected["market_commit"], "universe_rule": selected["universe_rule"],
             "created": selected["created"], "targets": selected["targets"]}
 
@@ -1277,10 +1267,10 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "candidate, its source reviews, the open lines and targets (writer, head)",
         "one research_line row named <slug> and, when given, the line's targets in the same commit; the same "
         "choice under that name again writes no line (created false); publishes",
-        "line, line_id, start, window {start, end}, market_commit, universe_rule, created, targets",
+        "line, line_id, start, window {start, end} (the development period: the last four complete calendar "
+        "quarters before today that the market covers), market_commit, universe_rule, created, targets",
         "START_REVIEW_REQUIRED (the start has no passed source review, or a failed one); START_NOT_FOUND; "
-        "WINDOW_INVALID; WINDOW_OUT_OF_COVERAGE (end after the market's latest complete day); "
-        "MARKET_COMMIT_UNRESOLVED; LINE_CONFLICT (the name holds another choice); LINE_SLUG_INVALID; "
+        "MARKET_COMMIT_UNRESOLVED (no commit, universe rule or complete day); LINE_CONFLICT (the name holds another choice); LINE_SLUG_INVALID; "
         "TARGETS_INVALID"),
     ("line", "targets"): (
         "the targets in force for the line or the default (writer, head)",
@@ -1868,14 +1858,14 @@ def _parser() -> Parser:
     _ledger_option(command)
     _at(command)
     command = verb(line, "select", "record the user's research line")
-    command.epilog = ("One record per choice: a later change of start, window or market commit is a new line "
-                      "record, never an edit. --slug names the line.")
+    command.epilog = ("One record per choice: a later change of start or market commit is a new line record, never "
+                      "an edit. --slug names the line. The development period is not a choice: the last four complete "
+                      "calendar quarters before today that the market covers, the same for every line opened in "
+                      "one quarter.")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--start", required=True,
                          help="start candidate as ID@N; a revision whose source review passed")
-    command.add_argument("--window-start", required=True, help="development window start, YYYY-MM-DD UTC")
-    command.add_argument("--window-end", required=True, help="development window end (exclusive), YYYY-MM-DD UTC")
     command.add_argument("--market-at", help="market commit to pin (default: the newest day)")
     _targets_options(command, "the line reads the ledger default when both are omitted")
     command.add_argument("--slug", required=True,
@@ -2475,7 +2465,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("line", "select"):
         market = profiles.market(args.market)
         with db.connect(profile, "writer") as conn:
-            return line_select(conn, market, args.start, args.window_start, args.window_end, args.market_at,
+            return line_select(conn, market, args.start, args.market_at,
                                args.slug, _targets(args)), 0
     if key == ("line", "targets"):
         with db.connect(profile, "writer") as conn:

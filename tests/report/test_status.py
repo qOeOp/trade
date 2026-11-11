@@ -23,7 +23,7 @@ from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
 from report import runs, seams, status
 from runtime import image
-from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, market, reviewed, source
+from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, market, pinned, reviewed, source
 from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
@@ -43,8 +43,9 @@ class OpenLinesStateTests(unittest.TestCase):
         with db.connect(world.profile, "reader") as conn:
             state = status.research_state(conn)
         self.assertEqual((state["line"]["name"], [item["name"] for item in state["open_lines"]]), (mine, [mine]))
-        other = lines.select_line(world.conn, MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1), "rsi@1",
-                                  slug="rsi-wider", market=market(), reviews=reviewed(source("root")))["line"]
+        with pinned(date(2026, 1, 1), date(2026, 3, 1)):
+            other = lines.select_line(world.conn, MARKET_COMMIT, "rsi@1", slug="rsi-wider", market=market(),
+                                      reviews=reviewed(source("root")))["line"]
         with db.connect(world.profile, "reader") as conn:
             state, named = status.research_state(conn), status.research_state(conn, other)
         self.assertIsNone(state["line"])
@@ -467,8 +468,9 @@ class SameKeyLineCandidatesTests(unittest.TestCase):
 
     @classmethod
     def line(cls, slug: str, data: bytes, start: str) -> str:
-        return lines.select_line(cls.world.conn, MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), start,
-                                 slug=slug, market=market(), reviews=reviewed(data))["line"]
+        with pinned():
+            return lines.select_line(cls.world.conn, MARKET_COMMIT, start, slug=slug, market=market(),
+                                     reviews=reviewed(data))["line"]
 
     def table(self, line: str) -> dict:
         return status.research_status(self.world.profile, line=line)["comparison"]

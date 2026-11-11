@@ -19,8 +19,8 @@ from ledger import db, evidence, judgments, lines, strategies, trials
 from shared.refusals import refuse
 from market import export, universe
 from registration import precheck, register, seams
-from tests.ledger.dolt import (IDENTITY, MARKET_COMMIT, RUNTIME, Service, context, coverage, market as line_market,
-                               reviewed, sha, source)
+from tests.ledger.dolt import (IDENTITY, MARKET_COMMIT, RUNTIME, Service, context, coverage, january,
+                               market as line_market, reviewed, sha, source)
 
 
 OTHER_COMMIT = "n" * 32
@@ -184,9 +184,10 @@ class World:
             self.profile = self.service.ledger(name)
             self.conn = db.connect(self.profile, "writer")
             strategies.publish_candidate(self.profile, source("root"), "rsi", "Fixture", "the line's start")
-            self.line = lines.select_line(self.conn, MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), "rsi@1",
-                                          slug="rsi-root", market=line_market(latest_complete_day=date(2026, 3, 31)),
-                                          reviews=reviewed(source("root")))
+            with january():
+                self.line = lines.select_line(self.conn, MARKET_COMMIT, "rsi@1", slug="rsi-root",
+                                              market=line_market(latest_complete_day=date(2026, 3, 31)),
+                                              reviews=reviewed(source("root")))
             self.counter = 0
         except BaseException:
             self.close()

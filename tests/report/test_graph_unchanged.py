@@ -17,7 +17,7 @@ from shared.refusals import refuse
 from registration import precheck
 from replay import entry
 from report import graph, seams, status
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market
+from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market, pinned
 from tests.registration.world import RUNNER_ARGV, capture, config, source
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT, OUTCOMES, market_returns
@@ -48,9 +48,10 @@ class UnchangedTests(unittest.TestCase):
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.child["trial_id"]}])
         world.scenario = {}
         cls.line, cls.line_id = world.line["line"], world.line["line_id"]
-        other = lines.select_line(world.conn, MARKET_COMMIT, date(2026, 2, 1), date(2026, 3, 1), cls.control_ref,
-                                  slug="other-window", market=line_market(latest_complete_day=date(2026, 3, 31)),
-                                  reviews=precheck.review_records)
+        with pinned(date(2026, 2, 1), date(2026, 3, 1)):
+            other = lines.select_line(world.conn, MARKET_COMMIT, cls.control_ref, slug="other-window",
+                                      market=line_market(latest_complete_day=date(2026, 3, 31)),
+                                      reviews=precheck.review_records)
         cls.other_line, cls.other_line_id = other["line"], other["line_id"]
 
     def head(self) -> str:
@@ -198,8 +199,9 @@ class UnchangedTests(unittest.TestCase):
             targets.set_targets(conn, self.other_line_id, 0.15, 0.2)
         self.answers(since, False, same=True)
         since = self.head()
-        lines.select_line(self.world.conn, MARKET_COMMIT, date(2026, 2, 2), date(2026, 3, 1), self.control_ref, slug="third",
-                          market=line_market(latest_complete_day=date(2026, 3, 31)), reviews=precheck.review_records)
+        with pinned(date(2026, 2, 2), date(2026, 3, 1)):
+            lines.select_line(self.world.conn, MARKET_COMMIT, self.control_ref, slug="third",
+                              market=line_market(latest_complete_day=date(2026, 3, 31)), reviews=precheck.review_records)
         self.answers(since, False, same=True)
 
     def test_an_explore_trial_elsewhere_moves_only_the_counts(self):
