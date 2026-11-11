@@ -88,7 +88,7 @@ function AboutBody() {
       </dl>
       <p className="text-fg-muted">
         Research runs through the Agent: ask it to start research. A version then runs on paper from its menu, with public
-        market data and simulated fills. Real orders go only through the operator's <Code>live</Code> command, never from this page.
+        market data and simulated fills. Real orders come only from a Live run that the operator saves a credential for and starts on the Live page.
       </p>
       <p className="flex flex-wrap gap-x-3 gap-y-1">
         <External href={guideHref("deploy/README.md")}>Deployment guide</External>
