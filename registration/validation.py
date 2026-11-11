@@ -284,6 +284,11 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mappin
             or not isinstance(members, Mapping) or set(members) != set(instruments)):
         raise refuse("MEMBERSHIP_CHANGED", "the trial trades instruments other than its recorded membership",
                      missing=("instruments",))
+    read = received.get("commit") if isinstance(received, Mapping) else None
+    if read != row["market_commit"]:
+        raise refuse("MEMBERSHIP_CHANGED", f"the membership file the trial read is of market commit "
+                                           f"{read}, not the trial's market commit "
+                                           f"{row['market_commit']}", missing=("membership",))
     if row["universe_rule"] != registration["universe_rule"]:
         raise refuse("MEMBERSHIP_CHANGED", f"universe rule {row['universe_rule']} is not the registered "
                                            f"{registration['universe_rule']}", missing=("universe_rule",))

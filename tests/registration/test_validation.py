@@ -579,6 +579,12 @@ class ValidationTests(unittest.TestCase):
         members = inputs["membership"]["membership"]
         wider = members_of(inputs, {**members, "CCCUSDT": members["AAAUSDT"]})
         self.assertEqual(self.refused_bind("checks", inputs=wider), "MEMBERSHIP_CHANGED")
+        other_commit = {**inputs, "membership": {**inputs["membership"], "commit": "f" * 32}}  # same members
+        self.assertEqual(self.refused_bind("checks", inputs=other_commit), "MEMBERSHIP_CHANGED")
+        with self.assertRaises(Refusal) as caught:
+            self.bind("checks", inputs=other_commit)
+        self.assertIn(f"market commit {'f' * 32}, not the trial's market commit {MARKET_COMMIT}",
+                      caught.exception.message)
         self.assertEqual(self.refused_bind("checks", start=start - timedelta(seconds=1)), "WINDOW_MISMATCH")
         self.assertEqual(self.refused_bind("checks", end=end + timedelta(seconds=1)), "WINDOW_MISMATCH")
         uncovered = {**inputs, "receipts": {SYMBOLS[0]: inputs["receipts"][SYMBOLS[0]]}}
