@@ -84,6 +84,7 @@ BARS = 16
 COMPARISONS = 64
 COUNTS = 16
 BUNDLE = re.compile(r"[A-Za-z0-9._@-]{1,200}")  # a registration bundle
+LINE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")  # a research line's name (ledger.lines.SLUG)
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}")  # a Binance symbol such as BTCUSDT
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")  # a UTC day
 COMMIT = re.compile(r"[0-9a-v]{32}")  # a Dolt commit hash in full
@@ -495,8 +496,9 @@ class Hub:
             return 202, self.state(key, at is None, have)
 
     def readings(self, line: str | None = None) -> dict:
-        """Each line's recommendation as its newest drawn graph says it, from the cached views only; `line`,
-        when named and not drawn at the head, is asked for, so a later read has it."""
+        """Each line's recommendation as its newest drawn graph says it, by line name, from the cached views only;
+        `line`, when named and not drawn at the head, is asked for, so a later read has it. The summary's numbers
+        are the layout's reading of the whole graph, so they come from a draw, never from a second derivation."""
         if line is not None:
             with self.lock:
                 if self.head is not None:
@@ -749,8 +751,8 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return
             if url.path == "/api/readings":
                 line = query.get("line")
-                if line is not None and not BUNDLE.fullmatch(line):
-                    self.json(400, _failure("BAD_REQUEST", "line is a registration bundle"))
+                if line is not None and not LINE.fullmatch(line):
+                    self.json(400, _failure("BAD_REQUEST", "line is a research line's name"))
                     return
                 self.json(200, hub.readings(line))
                 return
