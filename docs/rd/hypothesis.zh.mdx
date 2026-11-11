@@ -4,7 +4,7 @@
 
 这一步做四件事。先界定假设：选父版本和对照，把改动收成一处规则。再查来源：先读已有的，缺什么再检索，原件入账。然后写下五样：理由和预测、来源、检验条件、网格、适用条件。最后登记：代码把这些和执行身份一起锁进账本，回放开始时再核对一遍。怎么想、怎么写由 skill 指导；锁定和核对由代码强制。
 
-举个例子：全池 RSI 路线的 H08，父版本是加了资金费过滤的 H07，改动只有一处，把单笔预算从 500 降回 100。对照没有用父版本 H07 的运行，而是同样 100 预算、不带过滤的 H05。这些都在回放之前登记好，回放开始时代码逐项核对，对不上就不跑。
+举个例子：一个候选的父版本是加了资金费过滤的上一版，改动只有一处，把单笔预算从 500 降回 100。对照不必用父版本的运行，可以选同样 100 预算、不带过滤的另一版。这些都在回放之前登记好，回放开始时代码逐项核对，对不上就不跑。
 
 <ChapterMap chapter="H" />
 
@@ -52,11 +52,11 @@
 
 <div className="rd-example">
 
-全池 RSI 路线里，H02 比较结果不理想，H03 照样从 H02 派生，而当时被推荐的是 H01；H06 比 H05 差，之后的 H07 也照样进入谱系。推荐的版本不必是下一个实验的父版本。
+比如某一版比较结果不理想，下一版照样可以从它派生，哪怕当时被推荐的是另一版；比对照差的版本之后也照样进入谱系。推荐的版本不必是下一个实验的父版本。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 对照和父版本分开选，必须已通过、已封存、有资格、可比 [#H-1-1-2]
 
@@ -66,11 +66,11 @@
 
 <div className="rd-example">
 
-全池 RSI 路线里，H08 的父版本是 H07，对照却选了同样 100 预算、不带资金费过滤的 H05。父版本定从哪一版改，对照定和谁比，两件事分开定。
+比如一个候选的父版本是加了资金费过滤的上一版，对照却选了同样 100 预算、不带资金费过滤的另一版。父版本定从哪一版改，对照定和谁比，两件事分开定。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validate` `registration.check_comparable` `registration.require`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validate` `registration.check_comparable` `registration.require`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 一个假设只改一处规则，网格各点以同一句改动说明发布 [#H-1-1-3]
 
@@ -80,11 +80,11 @@
 
 <div className="rd-example">
 
-H06 只把单笔预算从 100 提到 500，H10 只把分钟成交量占比上限从 1% 提到 5%，各是一处规则改动。比如「让出场更聪明」这样的说法，要先收束成一处具体的规则，就像 H03 的改动：普通退出等 120 秒没成交就撤单、余量重报。
+比如只把单笔预算从 100 提到 500，或者只把分钟成交量占比上限从 1% 提到 5%，各是一处规则改动。「让出场更聪明」这样的说法，要先收束成一处具体的规则，比如：普通退出等 120 秒没成交就撤单、余量重报。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 从相关策略政策与证据提出可检验假设，登记受影响职责 [#H-1-1-4]
 
@@ -94,7 +94,7 @@ H06 只把单笔预算从 100 提到 500，H10 只把分钟成交量占比上限
 
 <div className="rd-example">
 
-归因推演里，H07 的净改善全部来自资金费，价格那一块反而下降了约 282 USDT。据此，下一个假设可以单独检验价格这一块，指向的职责是 H1 和 C1，登记时就写这两个编号。
+比如归因显示一个资金费过滤候选的净改善全部来自资金费，价格那一块反而下降了。据此，下一个假设可以单独检验价格这一块，指向的职责是 H1 和 C1，登记时就写这两个编号。
 
 </div>
 
@@ -150,11 +150,11 @@ H06 只把单笔预算从 100 提到 500，H10 只把分钟成交量占比上限
 
 <div className="rd-example">
 
-全池 RSI 路线留存了 RSI 长度和数量容量两组先验证据包。比如要提一个跟成交量上限有关的假设，先读「数量容量」那一包，条件仍相符就直接引用，只为它没覆盖的部分再检索。比如修订单接口这类工程问题，依据就是引擎文档和原生预检，不用去找盈利论文。
+比如路线里已留存了一组讲数量容量的先验证据包，要提一个跟成交量上限有关的假设，就先读这一包，条件仍相符就直接引用，只为它没覆盖的部分再检索。修订单接口这类工程问题，依据就是引擎文档和原生预检，不用去找盈利论文。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 每次检索记一行；说没找到，只能说按这些查询没找到 [#H-2-1-2]
 
@@ -182,11 +182,11 @@ H06 只把单笔预算从 100 提到 500，H10 只把分钟成交量占比上限
 
 <div className="rd-example">
 
-全池 RSI 演练里，各假设的理由都做了分层，并保留了论文或官方实践原件、实际读到的范围和原市场的限制。论文支持的是机制或规则的选择空间，并没有校准 2000 USDT 的预算、5% 的成交量占比或 120 秒的等待。
+比如各假设的理由都分层写，并保留论文或官方实践原件、实际读到的范围和原市场的限制。论文支持的是机制或规则的选择空间，并不校准某个具体的预算、成交量占比或等待秒数。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 来源只影响研究优先级，不证明在本市场有效，事后材料只追加 [#H-2-2-3]
 
@@ -196,7 +196,7 @@ H06 只把单笔预算从 100 提到 500，H10 只把分钟成交量占比上限
 
 <div className="rd-example">
 
-全池 RSI 演练里，后来补充的材料没有回填进旧的先验证据包。比如一个资金费过滤的假设回放后，又找到一篇讲资金费方向的论文。它只能作为一个新的、带日期的后续证据包入账，原来的登记和理由分类保持原样。
+比如一个资金费过滤的假设回放后，又找到一篇讲资金费方向的论文。它只能作为一个新的、带日期的后续证据包入账，原来的登记和理由分类保持原样。
 
 </div>
 
@@ -218,7 +218,7 @@ H06 只把单笔预算从 100 提到 500，H10 只把分钟成交量占比上限
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.add_bundle` `registration.validate` `cli.evidence_add`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.add_bundle` `registration.validate` `cli.evidence_add`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 每份来源记状态和条件；撤稿不算，复述不算独立来源 [#H-2-3-2]
 
@@ -284,7 +284,7 @@ H06 只把单笔预算从 100 提到 500，H10 只把分钟成交量占比上限
 
 <div className="rd-example">
 
-H07 按已知的历史资金费支付方向过滤新入场。它登记时的预测正是针对资金费这一项，并写明不声称资金费单项的因果。回放后归因发现价格那一块反而变差，这个数就可以和预测并排对照。
+比如一个候选按已知的历史资金费支付方向过滤新入场。它登记时的预测针对资金费这一项，并写明不声称资金费单项的因果。回放后归因要是发现价格那一块反而变差，这个数就可以和预测并排对照。
 
 </div>
 
@@ -302,7 +302,7 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 检验条件 [#H-3-2]
 
@@ -318,7 +318,7 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 <div className="rd-example">
 
-全池 RSI 演练里，十项都给出了 98.5% 的配对区间，用的 0.015 这类数值是与方法相容的探索值，并未经本产品校准；十项区间全部跨零，说明不能宣称稳定改善，也不能据此说机制无效。
+比如登记时给出 98.5% 的配对区间，用的 0.015 这类数值是与方法相容的探索值，并未经本产品校准；区间跨零时，不能宣称稳定改善，也不能据此说机制无效。
 
 </div>
 
@@ -394,7 +394,7 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 <div className="rd-example">
 
-全池 RSI 演练里，顺序都是审查先于登记、登记先于研究运行；每项都保留了源码、父版本、改动、登记和原生证据。
+比如每个候选都按审查先于登记、登记先于研究运行的顺序走，每项都保留源码、父版本、改动、登记和原生证据。
 
 </div>
 
@@ -408,7 +408,7 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 <div className="rd-example">
 
-全池 RSI 演练的正式运行都钉在同一个运行环境摘要和同一个市场提交上，开发窗口是 2025-10-09 至 2026-10-07。按这条规则，这些都由代码读出，Agent 不能自己写一个进去。
+比如一条路线的正式运行都钉在同一个运行环境摘要和同一个市场提交上，开发窗口也随路线固定。按这条规则，这些都由代码读出，Agent 不能自己写一个进去。
 
 </div>
 
@@ -417,7 +417,7 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 3. 按路线钉住的市场提交导出一份不可变的输入，算出内容身份。
 4. 把这几样合成执行身份，随登记一起写入。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.register` `runtime.inspect_runtime` `registration.market_inputs`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.register` `runtime.inspect_runtime` `registration.market_inputs`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 启动引擎前，要在开试验的同一事务里绑定登记 [#H-4-1-3]
 
@@ -427,7 +427,7 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 <div className="rd-example">
 
-全池 RSI 演练共有 67 次试验，绑定到正式研究运行的只有 11 次（含根），其余 56 次没有绑定登记，不算登记研究的结果。
+比如账本里有些试验没有绑定登记，它们不算登记研究的结果；只有在同一事务里绑定了登记的试验，才对应正式研究运行。
 
 </div>
 
@@ -482,7 +482,7 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:registration_attempt">registration_attempt</Ref> `registration.bind`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:registration_attempt">registration_attempt</Ref> `registration.bind`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 回放过的源码不能当新的登记，只有事前声明的预检例外 [#H-4-2-2]
 
@@ -492,11 +492,11 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 <div className="rd-example">
 
-比如 Agent 先用探索回放跑了一版，看着不错想补一份登记，会被拒绝。只在 BTC 上正式跑过的源码，可以另行登记到 ETH；登记里含 BTC 就不行。全池 RSI 演练里，预检用的工程支架另行声明、单独保留，没有冒充自然小时级的策略机会。
+比如 Agent 先用探索回放跑了一版，看着不错想补一份登记，会被拒绝。只在 BTC 上正式跑过的源码，可以另行登记到 ETH；登记里含 BTC 就不行。预检用的工程支架要另行声明、单独保留，不冒充自然小时级的策略机会。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.exposure_exempt` `registration.sealed_no_result` `registration.validate`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.exposure_exempt` `registration.sealed_no_result` `registration.validate`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 待定事项 [#H-pending]
 

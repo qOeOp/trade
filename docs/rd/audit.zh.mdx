@@ -4,7 +4,7 @@
 
 本章做四件事。先汇总退出码、异常记录、执行身份和审计结果，判回放是否有效；再核对输入数据在回放前后没变、引擎确实全读完了；然后由独立审计进程逐表对账，检查提交起点、区间外只减仓、止损覆盖和下架前的清仓；最后在读取时算出经济证据资格，不合格的运行只留诊断，比较时一律拒绝。两道关都由代码对所有策略执行同一套，不评价策略好坏。
 
-举个例子：全池 RSI 路线的十个正式假设 H01 到 H10 都通过了审计，也都有真实成交和相互匹配的原生记录，所以都具备经济证据资格。演练中另有一次试验，运行器正常退出，审计却非零退出。它照样记为失败；它的原始封存缺失，后来恢复出的材料与原记录分开保存，没有拿来补成成功。
+举个例子：一个候选的回放通过了审计，也有真实成交和相互匹配的原生记录，就具备经济证据资格。另一次试验要是运行器正常退出、审计却非零退出，它照样记为失败；原始封存缺失时，后来恢复出的材料与原记录分开保存，不拿来补成成功。
 
 <ChapterMap chapter="G" />
 
@@ -52,11 +52,11 @@
 
 <div className="rd-example">
 
-全池 RSI 路线的 H01 到 H04 账户都是亏损，但审计照样判它们有效，绩效指标照常算出来，亏损如实进入比较。按这条规定，登记前跑的原生预检只留工作副本，不作为运行入账。
+比如一个候选账户亏损，审计照样判它有效，绩效指标照常算出来，亏损如实进入比较。按这条规定，登记前跑的原生预检只留工作副本，不作为运行入账。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` <Ref id="table:run">run</Ref> `ledger.metrics`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` <Ref id="table:run">run</Ref> `ledger.metrics`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 运行或审计失败、有发现或有异常记录，就判无效 [#G-1-1-2]
 
@@ -66,11 +66,11 @@
 
 <div className="rd-example">
 
-全池 RSI 演练里有一次试验，运行器正常退出，审计却非零退出。它照样记为失败，当时的退出状态原样保留，没有事后改记成成功。
+比如一次试验运行器正常退出，审计却非零退出。它照样记为失败，当时的退出状态原样保留，不事后改记成成功。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.audit_problems` `replay.seal`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.audit_problems` `replay.seal`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 策略构造或回调抛异常就无效，干净退出也不掩盖 [#G-1-1-3]
 
@@ -84,7 +84,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.guard_callback` `engine.execution_failure` `engine.main`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.guard_callback` `engine.execution_failure` `engine.main`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 原生摘要里的执行身份要和试验记录一致，否则无效 [#G-1-1-4]
 
@@ -112,7 +112,7 @@
 
 <div className="rd-example">
 
-全池 RSI 路线的账本里共有 67 次试验，只有 11 次绑定了正式研究回放，其余的也都留在账本里。未绑定的 56 次里，有 8 次也登记了长于 300 天的窗口，可能失败或中断了，不能说它们都跑完了全年。
+比如账本里一条路线有很多试验，只有一部分绑定了正式研究回放，其余的也都留在账本里。没绑定的试验里有的也登记了长窗口，可能失败或中断了，不能说它们都跑完了全程。
 
 </div>
 
@@ -130,7 +130,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_audit` `engine.protection` <Ref id="table:run">run</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_audit` `engine.protection` <Ref id="table:run">run</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 7.2　核对输入与消费 [#G-2]
 
@@ -176,7 +176,7 @@
 
 <div className="rd-example">
 
-全池 RSI 路线钉住一个市场提交，每次回放都从它导出数据。比如导出之后，有个合约的文件在回放过程中被改写了，结束时字节对不上，这次运行就判无效。
+比如一条路线钉住一个市场提交，每次回放都从它导出数据。导出之后，有个合约的文件在回放过程中被改写了，结束时字节对不上，这次运行就判无效。
 
 </div>
 
@@ -208,11 +208,11 @@
 
 <div className="rd-example">
 
-全池 RSI 路线的 210 个合约里，BAKE 和 HIFI 在输入开始前就已下架，AIA 下架后重新上市，分成两段。按这条规定，这类情况只作为覆盖事实原样传给报告，不会因此把运行判无效。
+比如币池里有合约在输入开始前就已下架，也有合约下架后重新上市、分成两段。按这条规定，这类情况只作为覆盖事实原样传给报告，不会因此把运行判无效。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.verify_coverage` `ledger.audit_problems`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.verify_coverage` `ledger.audit_problems`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 生命周期事件要和原生计数相符，入账时只信封存原件 [#G-2-2-2]
 
@@ -226,7 +226,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.lifecycle_events` `ledger.original_coverage` `ledger.ingest_run`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.lifecycle_events` `ledger.original_coverage` `ledger.ingest_run`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 7.3　回放后独立审计 [#G-3]
 
@@ -282,7 +282,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.execute` `engine.audit_main` `engine.audit`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.execute` `engine.audit_main` `engine.audit`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 审计不查信号和止损价格，每次结果写明检查边界 [#G-3-1-2]
 
@@ -298,7 +298,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_result`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_result`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 各表对账 [#G-3-2]
 
@@ -340,7 +340,7 @@
 
 <div className="rd-example">
 
-全池 RSI 路线的运行到窗口结束时可能仍有持仓，比如 H06 期末还有 +53.94 USDT 的浮动盈亏。这时审计只对账余额，不对含浮动盈亏的权益。
+比如运行到窗口结束时仍有持仓、带着一笔浮动盈亏。这时审计只对账余额，不对含浮动盈亏的权益。
 
 </div>
 
@@ -372,7 +372,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.commission_findings` `engine.generic_audit`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.commission_findings` `engine.generic_audit`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 持仓保护与终止检查 [#G-3-3]
 
@@ -404,7 +404,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.protection` `engine.load_strategy`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.protection` `engine.load_strategy`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 无结算价下架前必须清仓撤单，之后的订单事件算迟到 [#G-3-3-3]
 
@@ -416,7 +416,7 @@
 
 <div className="rd-example">
 
-全池 RSI 路线按用户授权的方案，保留原币池和原窗口，要求策略在合约下架前用原生订单平仓，审计严格核验那时已空仓、没有活动订单。这个方案不等于已经拿到了全部真实的退市结算价。
+比如拿不到某些合约实际的下架结算价时，经用户授权，可以保留原币池和原窗口，要求策略在合约下架前用原生订单平仓，审计严格核验那时已空仓、没有活动订单。这个方案不等于已经拿到了全部真实的退市结算价。
 
 </div>
 
@@ -432,7 +432,7 @@
 
 固定 Nautilus 2.0.0rc7 的原生探针确认：PRE_CLOSE 不自动拒绝开仓，CLOSE 才拒绝订单且包括减仓。GTD 请求的到期时间也不等于已经收到原生到期确认；相邻撮合事件之间的到期请求可能到下一撮合事件才留下 OrderExpired，须安排原生撤销/到期在截止时完成，不能用请求时间改写事件。部分成交括号单撤销剩余入场量时，原生保留止损与止盈并缩到已成交数量（2.0.0rc7 之前会连带撤掉）；裸仓检查继续独立执行。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.entry_windows` `engine.entry_findings` `engine.episode_membership`</span> <span className="rd-tier rd-tier-rehearsal">原生探针与回归测试</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.entry_windows` `engine.entry_findings` `engine.episode_membership` · 原生回归测试 `tests/engine/test_entry_membership.py`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 7.4　判定经济证据资格 [#G-4]
 
@@ -484,11 +484,11 @@
 
 <div className="rd-example">
 
-全池 RSI 的 H09 闭仓收益拆成：价格盈亏 2929.09，减手续费 855.50，加资金费 1976.15，合计约 4049.73 USDT，和审计数对得上。H01 到 H10 都过了这一关。
+比如一个候选的闭仓收益拆成价格盈亏减手续费加资金费，合计要和审计数对得上。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.native_reasons` `registration.assess`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.native_reasons` `registration.assess`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 不可用的运行只留诊断，比较和对照登记都拒绝它 [#G-4-1-2]
 
@@ -498,11 +498,11 @@
 
 <div className="rd-example">
 
-比如一个改动把入场条件收得太紧，整个窗口一笔都没成交，收益是 0。它不能拿来和年化 -0.29% 的 H01 比较并「胜出」，只留下零成交的诊断，供 Agent 去查原因。
+比如一个改动把入场条件收得太紧，整个窗口一笔都没成交，收益是 0。它不能拿来和年化为负的对照比较并「胜出」，只留下零成交的诊断，供 Agent 去查原因。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.mask` `registration.require`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.mask` `registration.require`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 资格的来源与呈现 [#G-4-2]
 
@@ -516,11 +516,11 @@
 
 <div className="rd-example">
 
-全池 RSI 演练里有一次试验，审计非零退出，原始封存也缺失。后来恢复出的材料与原记录分开保存，原封存仍按缺失处理，没有拿它补成通过。
+比如一次试验审计非零退出，原始封存也缺失。后来恢复出的材料与原记录分开保存，原封存仍按缺失处理，不拿它补成通过。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_capture` `ledger.recover_capture`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_capture` `ledger.recover_capture`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 绑定本运行的独立源码审查失败，就不作证据 [#G-4-2-2]
 
@@ -534,7 +534,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.source_reviews` `registration.record_review`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.source_reviews` `registration.record_review`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 资格在读取时按当前判据算出，不改写审计结论 [#G-4-2-3]
 
@@ -548,7 +548,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.check_identity` `registration.assess` `report.directory_report`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.check_identity` `registration.assess` `report.directory_report`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 其他边界归属 [#G-pending]
 

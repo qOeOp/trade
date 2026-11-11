@@ -4,7 +4,7 @@
 
 这一章做六件事。先划定研究记录只存账本（ledger，唯一持久保存研究记录、只增不改的版本化数据库）和它的备份与公开副本；再规定账本里每类记录装什么、谁来写；然后说明怎么证明记录没被改过，以及登记确实早于回放。最后两件讲运行环境（runtime image，自动构建、按摘要钉死的隔离容器镜像）：回放在什么里面跑，每次回放留下哪些身份，凭这些身份怎么重跑核对。
 
-举个例子：全池 RSI 十轮演练结束后，整条路线的证据都在一个独立账本和它的备份里。复核时从关闭时的账本版本重新导出最终证据包，17 个文件的哈希全部和原封存一致。所有回放都钉在同一个运行环境摘要和同一个市场提交上，所以独立 Agent 能在同一版本上重算 H09、H10 的账户数字，没有发现实质差异。
+举个例子：一条路线收尾后，整条路线的证据都在账本和它的备份里。复核时从关闭时的账本版本重新导出最终证据包，逐个文件核对哈希和原封存一致。所有回放都钉在同一个运行环境摘要和同一个市场提交上，所以独立 Agent 能在同一版本上重算推荐候选的账户数字，和原结果核对。
 
 <ChapterMap chapter="J" />
 
@@ -62,29 +62,29 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-example">
 
-比如 Agent 在会话里算出 H09 的某个数，却没有入账，复盘时就不能拿它当依据，要先入账再引用。写入只走声明过的命令，Agent 不直接连库写：同内容重试只算一次；同一个包名换了内容会被拒绝（BUNDLE_EXISTS），占用产品保留的包名也会被拒绝（RESERVED_BUNDLE）。
+比如 Agent 在会话里算出某个候选的某个数，却没有入账，复盘时就不能拿它当依据，要先入账再引用。写入只走声明过的命令，Agent 不直接连库写：同内容重试只算一次；同一个包名换了内容会被拒绝（BUNDLE_EXISTS），占用产品保留的包名也会被拒绝（RESERVED_BUNDLE）。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 账本之外的去向 [#J-1-2]
 
 账本之外的东西都是临时工作副本；测试只写隔离账本。
 
-#### 工作副本只放临时目录，测试和演练只写隔离账本 [#J-1-2-1]
+#### 工作副本只放临时目录，测试和演示只写隔离账本 [#J-1-2-1]
 
 没发布的策略、探索脚本、回放输出和派生报告都是临时工作副本。回放前代码核对输出目录：必须在临时目录下，而且是新建的，否则拒绝。研究回放的工作目录在报告入账后删除，给了 --output 则保留作原生报告缓存，失败时留着供诊断。
 
-测试和演练只写隔离账本，和活动账本不共用任何路径。账本只追加，测试数据一旦写进活动账本就删不掉，会和真实研究混在一起。
+测试和演示只写隔离账本，和活动账本不共用任何路径。账本只追加，测试数据一旦写进活动账本就删不掉，会和真实研究混在一起。
 
 <div className="rd-example">
 
-全池 RSI 十轮演练写的是一个独立的 Dolt 账本，不是活动账本。演练的工作目录都在 /tmp 下，复核时以那个独立账本和它的备份为准。
+比如一次产品演示或工程试验写的是一个隔离的 Dolt 账本，不是活动账本；它的工作目录都在 /tmp 下。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `shared.paths.temporary_path` `cli.ledger_temp`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `shared.paths.temporary_path` `cli.ledger_temp`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 代码仓库只放产品代码和环境构建定义，策略和登记只在账本 [#J-1-2-2]
 
@@ -98,7 +98,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 13.2　记录：账本装什么、谁能写什么 [#J-2]
 
@@ -154,11 +154,11 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-example">
 
-全池 RSI 演练里，H01 到 H04 账户都亏损，但每个版本照样留下了源码、父版本、改动说明、登记和原生证据。H08 的父版本是 H07，改动是把单笔预算从 500 降回 100。
+比如一个账户亏损的版本，照样留下源码、父版本、改动说明、登记和原生证据；改动说明写的是这一版相对父版本改了什么，比如把单笔预算从 500 降回 100。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.publish_candidate` `ledger.check_source` <Ref id="table:candidate">candidate</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.publish_candidate` `ledger.check_source` <Ref id="table:candidate">candidate</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 登记在回放前锁成不可变的证据包，要改只能另行登记 [#J-2-1-2]
 
@@ -172,7 +172,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.register` `ledger.add_bundle` <Ref id="table:evidence_bundle">evidence_bundle</Ref> <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.register` `ledger.add_bundle` <Ref id="table:evidence_bundle">evidence_bundle</Ref> <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 回放的记录 [#J-2-2]
 
@@ -186,11 +186,11 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-example">
 
-全池 RSI 演练的账本里共有 67 条试验，只有 11 条绑定了正式研究回放（含参考根），另外 56 条没有绑定。其中 8 条也登记了超过 300 天的窗口，可能失败或中断，所以不能说它们都跑完了全年。
+比如账本里一条路线有很多试验，只有一部分绑定了正式研究回放（含参考根），其余没有绑定。没绑定的试验里有的也登记了长窗口，可能失败或中断，所以不能说它们都跑完了全程。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.open_trial` <Ref id="table:trial">trial</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.open_trial` <Ref id="table:trial">trial</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 研究和样本外回放各入账一个运行，记结论和身份 [#J-2-2-2]
 
@@ -200,11 +200,11 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-example">
 
-全池 RSI 的 H01 到 H10 十个运行都通过了审计，都带绩效指标。演练结束后，独立 Agent 从原生报告重算 H09、H10 的账户数字，和账本里的没有实质差异；按新的存法，这种复算改为重放出原生报告、核对指纹后再算。
+比如一条路线的正式运行都通过了审计，都带绩效指标。收尾时由独立 Agent 重放出原生报告、核对指纹后，重算推荐候选的账户数字，和账本里的核对。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:run">run</Ref> `ledger.ingest_run` `ledger.metrics`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:run">run</Ref> `ledger.ingest_run` `ledger.metrics`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 通过的回放只存三样：封存结果、逐日序列和持仓周期 [#J-2-2-3]
 
@@ -214,11 +214,11 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-example">
 
-全池 ROOT 运行的原生报告约 1.9 GB，其中账户报告 1.46 GB；按这条规则，它在账本里只有一行封存结果、366 行日收益和 3225 行持仓周期，原始体积不到 1 MB。日收益仍是配对比较唯一的计算单位。
+比如一个全池根运行的原生报告可能有好几 GB；按这条规则，它在账本里只有一行封存结果、每天一行日收益和每个周期一行持仓周期，原始体积很小。日收益仍是配对比较唯一的计算单位。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` `ledger.load_run`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` `ledger.load_run`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 失败、无效与中断回放的去向 [#J-2-3]
 
@@ -232,11 +232,11 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-example">
 
-全池 RSI 演练里有一次 27 号试验，引擎进程退出码是 0，审计器退出码是 1。它被记为失败，没有因为引擎正常退出就当作成功。
+比如一次试验引擎进程退出码是 0，审计器退出码是 1。它被记为失败，不因为引擎正常退出就当作成功。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` `ledger.audit_problems` `ledger.summary_problems`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` `ledger.audit_problems` `ledger.summary_problems`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 每次回放不论成败，都封存原生日志和退出码；源码与覆盖回执只记哈希 [#J-2-3-2]
 
@@ -250,7 +250,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.seal_capture` `replay.execute`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.seal_capture` `replay.execute`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 中断的回放读为缺失，恢复只能另起证据包追加 [#J-2-3-3]
 
@@ -260,11 +260,11 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-example">
 
-全池 RSI 演练的 27 号试验，原始封存缺失。后来恢复的材料另外存放，和原记录分开，没有回填成当时的成功。
+比如一次试验的原始封存缺失。后来恢复的材料另外存放，和原记录分开，不回填成当时的成功。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_capture` `ledger.recover_capture` `ledger.start_receipt`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_capture` `ledger.recover_capture` `ledger.start_receipt`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 写入分工 [#J-2-4]
 
@@ -278,11 +278,11 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-example">
 
-比如 Agent 写一条推荐 H09 的判断，正文写「推荐 H09，依据是 H09 的候选、对应的试验和某个账本版本」，而不是把年化 4.24% 抄进去；读的时候，数字从账本当场取。
+比如 Agent 写一条推荐某个候选的判断，正文写「推荐这个候选，依据是它的候选、对应的试验和某个账本版本」，而不是把年化数字抄进去；读的时候，数字从账本当场取。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.add_bundle` `ledger.add_judgment` <Ref id="table:judgment">judgment</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.add_bundle` `ledger.add_judgment` <Ref id="table:judgment">judgment</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 样本外只认 main 自动构建的环境和含 main 最新提交的代码 [#J-2-4-4]
 
@@ -333,11 +333,11 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-example">
 
-比如要复现演练关闭时的试验计数，就按关闭那次提交的修订库去读试验视图。即使之后视图定义改过，读出的仍是当时的口径和数据。
+比如要复现某条路线关闭时的试验计数，就按关闭那次提交的修订库去读试验视图。即使之后视图定义改过，读出的仍是当时的口径和数据。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_trials">v_trials</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_trials">v_trials</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">Dolt 2.4.2 [隔离验证](https://github.com/qOeOp/trade/blob/81dfba5052f838db02417a991a661ff1fdd39a62/docs/plans/dolt-history-view-semantics-verification.zh.md)：只改视图定义、再只改底表数据的三个提交中，修订库保留当时定义和数据，视图 AS OF 使用当前定义计算旧数据；现有 `read_as_of` 普通／流式读取、主分支推进后的固定连接及重启后读数均通过，共 12 个对照组合，已有相关测试 2 项通过、无跳过。仅覆盖单层合成视图；嵌套视图、跨库依赖、其他 schema 演进和所有报告路径未全面验证，不关闭 J.2.9.1 的结构读取口径一致性缺口。</p>
 
@@ -355,7 +355,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">实现 `cli.ledger_sql` `registration.assess` `registration.mask` `report.run_report` `report.review_all`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">实现 `cli.ledger_sql` `registration.assess` `registration.mask` `report.run_report` `report.review_all`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">Dolt 2.4.2 隔离实测：仅授视图 SELECT 时查询被拒；增加底表 SELECT 后，底表和视图均可读；撤回底表权限后再次拒绝。SQL SECURITY DEFINER 在本次探针中未提供免底表授权的读取能力。该实测验证权限行为，不证明完整研究流程的结论引用。</p>
 
@@ -423,7 +423,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-example">
 
-全池 RSI 演练里，H08 的入场次数、H09「无改善」的概括、27 号试验引擎失败的措辞，都是靠追加更正改过来的，原记录还在。后来的人先读合并了更正的摘要，需要时再查原件。
+比如运行的入场次数写错、结论概括写错、试验失败原因措辞不准，都靠追加更正改过来，原记录还在。后来的人先读合并了更正的摘要，需要时再查原件。
 
 </div>
 
@@ -531,7 +531,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `cli.main` `ledger.add_bundle` `CATALOGUE`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `cli.main` `ledger.add_bundle` `CATALOGUE`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 封存产物的保护 [#J-3-4]
 
@@ -545,7 +545,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-example">
 
-全池 RSI 演练关闭后，从关闭时的账本版本重新导出最终证据包，17 个文件的哈希全部和原封存一致。
+比如一条路线关闭后，从关闭时的账本版本重新导出最终证据包，每个文件的哈希都要和原封存一致。
 
 </div>
 
@@ -559,11 +559,11 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-example">
 
-全池 RSI 演练里，大原件分块保存经过了额外授权，并做过原子写入、导出和恢复的验证。
+比如预检的大原件超过普通封存的容量上限，就分块保存，并且要能原子写入、导出和恢复。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.seal_capture` <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.seal_capture` <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 备份与整体复核 [#J-3-5]
 
@@ -581,7 +581,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 <div className="rd-example">
 
-全池 RSI 演练的复核写明：/tmp 下的工作副本随时可能失效，持久的依据只有那个独立账本和它的备份。所以备份必须放在临时目录之外。
+比如 /tmp 下的工作副本随时可能失效，持久的依据只有账本和它的备份。所以备份必须放在临时目录之外。
 
 </div>
 
@@ -599,7 +599,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.review_all` `cli.ledger_review`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.review_all` `cli.ledger_review`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 13.4　登记先于回放：先后顺序怎么证明 [#J-4]
 
@@ -675,7 +675,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 4. 三者和一个账本版本同笔成功，任一被拒就整笔回滚。
 5. 提交成功后，才启动回放容器。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.open_trial` `ledger.start_receipt` `ledger.write`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.open_trial` `ledger.start_receipt` `ledger.write`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 锁定与先后的核对 [#J-4-2]
 
@@ -689,7 +689,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 <div className="rd-example">
 
-全池 RSI 演练里，源码审查先于登记，登记先于研究运行，这个顺序在账本里查得到。
+比如源码审查先于登记，登记先于研究运行，这个顺序在账本里查得到。
 
 </div>
 
@@ -699,7 +699,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 4. 核对执行身份与登记逐字相同，源码有通过的预检和审查。
 5. 核对这个网格点没用过，再记下这次消耗。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.bind` `registration.require_precheck` <Ref id="table:trial">trial</Ref> <Ref id="table:registration_attempt">registration_attempt</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.bind` `registration.require_precheck` <Ref id="table:trial">trial</Ref> <Ref id="table:registration_attempt">registration_attempt</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 样本外登记后取公共时间戳凭证，须早于窗口起点 [#J-4-2-2]
 
@@ -772,7 +772,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 <div className="rd-example">
 
-全池 RSI 演练的所有回放都钉在同一个运行环境摘要上（以 53dfe024 开头），里面的引擎是 Nautilus 2.0.0rc3。
+比如一条路线的所有回放都钉在同一个运行环境摘要上，里面的引擎版本随摘要固定。
 
 </div>
 
@@ -804,11 +804,11 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 <div className="rd-example">
 
-全池 RSI 的 H09 和 H10 用的是同一个镜像，区别只在挂进去的策略源码；市场数据也是只读挂进去的，不在镜像里。
+比如同一条路线的两个候选用的是同一个镜像，区别只在挂进去的策略源码；市场数据也是只读挂进去的，不在镜像里。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.layout` `runtime.inspect_runtime`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.layout` `runtime.inspect_runtime`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 容器不联网、只读、去特权，只挂声明的目录 [#J-5-2-2]
 
@@ -842,7 +842,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 4. 在隔离容器里先跑运行器，再跑独立的审计器。
 5. 无论成败都封存执行记录；研究和样本外回放再入账运行。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.execute` `cli.replay_run` `replay.explore`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.execute` `cli.replay_run` `replay.explore`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 旧、新运行环境配对重放 [#J-5-3]
 
@@ -870,13 +870,13 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 <div className="rd-example">
 
-比如把 H09 在旧、新两个环境各跑一次，结果一致。这只说明 H09 在这段窗口和这个账户下引擎行为没变，不说明 H10 也没变，更不说明 H09 更好。要在新环境下比较 H09 和对照 H08，仍要先登记并重放 H08，再重放 H09。
+比如把候选 A 在旧、新两个环境各跑一次，结果一致。这只说明 A 在这段窗口和这个账户下引擎行为没变，不说明候选 B 也没变，更不说明 A 更好。要在新环境下比较 A 和它的对照 C，仍要先登记并重放 C，再重放 A。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/changes.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺一次演练检验 Agent 在配对通过后不把一致写成普遍一致或策略有效。</p>
+<p className="rd-note">缺一次执行记录，检验 Agent 在配对通过后不把一致写成普遍一致或策略有效。</p>
 
 ### 有意变更或证明不了时 [#J-5-4]
 
@@ -892,11 +892,11 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 <div className="rd-example">
 
-比如把引擎升级到新版本，资金费的算法有意改了。旧环境下 H01 到 H10 的运行都还在、都能读回。契约没变时由 <Ref id="V.2" /> 恢复可比资格；契约随之升级时，研究状态列出 RUNTIME_UNSUPPORTED 与推荐、对照候选，用户关闭这条线，在新契约上新开。
+比如把引擎升级到新版本，资金费的算法有意改了。旧环境下的运行都还在、都能读回。契约没变时由 <Ref id="V.2" /> 恢复可比资格；契约随之升级时，研究状态列出 RUNTIME_UNSUPPORTED 与推荐、对照候选，用户关闭这条线，在新契约上新开。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `report.research_state` `runtime.validate_identity` `runtime.resolve`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `report.research_state` `runtime.validate_identity` `runtime.resolve`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 13.6　回放身份与复现：每次回放留下什么、怎么重跑 [#J-6]
 
@@ -957,7 +957,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 3. 运行器装载时重算哈希、核对入口类，不符就拒绝装载。
 4. 原生摘要写回实际执行的源码哈希，入账时比对，不符即判无效。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.seal` `engine.load_strategy` `ledger.read_candidate`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.seal` `engine.load_strategy` `ledger.read_candidate`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 运行环境身份要由镜像清单和镜像内探针核对一致 [#J-6-1-2]
 
@@ -971,7 +971,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.inspect_runtime` `engine.describe` `engine.effective_configuration`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.inspect_runtime` `engine.describe` `engine.effective_configuration`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 输入身份由市场提交和导出内容构成，登记和回放必须相等 [#J-6-1-3]
 
@@ -981,11 +981,11 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 <div className="rd-example">
 
-全池 RSI 路线的输入钉在同一个市场提交上，210 个合约原样导出：BAKE 和 HIFI 在输入前已下架，保留为不活跃身份；AIA 重新上市，分成两段。
+比如一条路线的输入钉在同一个市场提交上，合约原样导出：输入前已下架的合约保留为不活跃身份；重新上市的合约分成两段。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.market_inputs` `registration.export_fingerprint`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.market_inputs` `registration.export_fingerprint`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 输入数据的覆盖情况在启动前记下，并随执行封存 [#J-6-1-4]
 
@@ -999,7 +999,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.input_coverage` `ledger.original_coverage` `market.coverage_facts`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.input_coverage` `ledger.original_coverage` `market.coverage_facts`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 复现合同 [#J-6-2]
 
@@ -1017,7 +1017,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.export_history` `report.review_all` `cli.ledger_export`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.export_history` `report.review_all` `cli.ledger_export`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 封存产物读取时就核验，缺失或不符的运行标为不可用 [#J-6-2-3]
 
@@ -1031,7 +1031,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.load_run` `ledger.read_capture` `registration.assess`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.load_run` `ledger.read_capture` `registration.assess`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 变化的种类 [#J-6-3]
 
@@ -1047,13 +1047,13 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 <div className="rd-example">
 
-全池 RSI 路线的窗口是 2025-10-09 到 2026-10-07。比如 10 月的完整数据到了，Agent 会报告「窗口可以延长到 10 月底，目前缺新的市场提交」，然后问你要不要扩展。
+比如一条路线的窗口截至 2026-10-07，10 月的完整数据到了，Agent 会报告「窗口可以延长到 10 月底，目前缺新的市场提交」，然后问你要不要扩展。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺一次新月份到达后用户选定新数据合同并据此重放的演练。</p>
+<p className="rd-note">缺一次新月份到达后用户选定新数据合同并据此重放的执行记录。</p>
 
 ## 待定事项 [#J-pending]
 

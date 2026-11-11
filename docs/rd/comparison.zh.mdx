@@ -4,7 +4,7 @@
 
 这一章做四件事。先把登记的每个网格点各回放一次，全部跑完再看数；再核可比资格，也就是确认两边在同一运行环境、同一账户配置、同一份输入数据上跑，能逐日配对；然后用两边每天的账户收益做配对检验，算出差多少（效应）、可能落在哪个范围（区间）和 p；最后把这些数连同试验次数一起交出来，只给数，不判通过或失败。运行环境之类的执行身份变了，旧结果就不能直接比：只换了镜像，要先重放推荐的候选和它的对照；旧运行无法在同条件下重建（运行契约变了，或导出内容、市场数据真的变了），旧线只作历史，在新身份下另起一条线。
 
-举个例子：全池 RSI 路线的 H08 是从 H07 改出来的，但登记时选的对照是同样 100 预算的 H05。H08 跑完、审计通过后，代码核对两边环境、配置和数据都相同，再逐日配对算出效应、区间和 p。十个假设的 98.5% 配对年化差区间全部跨零，所以这些结果只能说「不确定」，既不说明机制无效，也不能说已经稳定改善。
+举个例子：一个候选从父版本改出来，但登记时选的对照可以是谱系里另一个同样预算的版本。候选跑完、审计通过后，代码核对两边环境、配置和数据都相同，再逐日配对算出效应、区间和 p。配对年化差区间跨零时，结果只能说「不确定」，既不说明机制无效，也不能说已经稳定改善。
 
 <ChapterMap chapter="V" />
 
@@ -62,7 +62,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 网格点的绩效指标只从单运行报告里读 [#V-1-2-2]
 
@@ -72,11 +72,11 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 <div className="rd-example">
 
-全池 RSI 演练里，正式的 H01 到 H10 十个运行都有效、都有经济证据资格，绩效指标都能读。反过来，比如某个点一笔都没成交，读出来的年化是空的，附原因「零成交」：它不是 0%，也不是比对照少亏。
+比如某个网格点一笔都没成交，读出来的年化是空的，附原因「零成交」：它不是 0%，也不是比对照少亏。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 9.2　核可比资格：比较前确认两边能配对 [#V-2]
 
@@ -128,7 +128,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 <div className="rd-example">
 
-全池 RSI 演练固定了一个运行环境摘要（引擎 Nautilus 2.0.0rc3），十个假设都在它里面回放。比如之后同一个标签指向了重新构建的镜像，标签没变但摘要变了，新跑的结果就不能和旧结果直接比。
+比如一条路线的回放都钉在一个运行环境摘要上。之后同一个标签指向了重新构建的镜像，标签没变但摘要变了，新跑的结果就不能和旧结果直接比。
 
 </div>
 
@@ -142,11 +142,11 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 <div className="rd-example">
 
-全池 RSI 演练的候选都用同一份账户：初始 100000 USDT、1 分钟撮合、交易窗 2025-10-09 至 2026-10-07。H06 把单笔预算从 100 提到 500，改的是策略源码，不是账户配置，所以它和 H05 仍然可比。
+比如一条路线的候选都用同一份账户：同样的初始资本、撮合粒度和交易窗。某个候选把单笔预算从 100 提到 500，改的是策略源码，不是账户配置，所以它和对照仍然可比。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.config_key` `registration.check_comparable` `engine.effective_configuration`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.config_key` `registration.check_comparable` `engine.effective_configuration`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 两边的输入数据去掉路径和时刻后须相同 [#V-2-1-3]
 
@@ -156,7 +156,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 <div className="rd-example">
 
-全池 RSI 演练的输入是同一个市场提交下 210 个合约的并集。H07 按历史资金费方向过滤新入场，实际做的合约组合可以和 H06 不一样，但输入数据是同一份，两边照样可比。
+比如一条路线的输入是同一个市场提交下全部合约的并集。某个候选按历史资金费方向过滤新入场，实际做的合约组合可以和对照不一样，但输入数据是同一份，两边照样可比。
 
 </div>
 
@@ -174,11 +174,11 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 <div className="rd-example">
 
-全池 RSI 演练里，H08 的父版本是 H07，但对照选的是同样 100 预算的 H05。比较时代码只认登记里声明的 H05 那份运行，不会拿 H07 来比。
+比如一个候选的父版本是它的上一版，对照却选了谱系里另一个同样预算的版本。比较时代码只认登记里声明的那份对照运行，不会拿父版本来比。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `hypothesis_compare`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `hypothesis_compare`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 配对单位是交易窗口内逐日对齐的账户日收益 [#V-2-2-2]
 
@@ -188,7 +188,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 <div className="rd-example">
 
-全池 RSI 演练的预热从 2025-10-07 开始，交易窗从 2025-10-09 开始，预热那两天的日收益不参与配对。比如某一边中间少了一天，就不能拿前后两天补上，这一边直接判为不可用。
+比如预热比交易窗早两天开始，预热那两天的日收益不参与配对。某一边中间少了一天，就不能拿前后两天补上，这一边直接判为不可用。
 
 </div>
 
@@ -202,11 +202,11 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 <div className="rd-example">
 
-绩效归因推演里，以 ROOT 的 3225 个持仓周期为对照，人为删掉、推迟、拆分一部分交易造出候选。交易配对按固定算法把它们分成一一对应、拆并、只在对照、只在候选四类；这些只用来描述差异，不拿来算 p。
+比如以一个对照运行的持仓周期为基础，人为删掉、推迟、拆分一部分交易造出候选。交易配对按固定算法把它们分成一一对应、拆并、只在对照、只在候选四类；这些只用来描述差异，不拿来算 p。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 核查时点与拒绝 [#V-2-3]
 
@@ -222,11 +222,11 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 <div className="rd-example">
 
-比如运行环境重建后摘要变了，H10 的新运行要和 H09 的旧运行比，会被拒绝并列出「运行环境不同」。Agent 的做法是先把 H09 迁到新环境，再重放 H10，然后再比；而不是把旧序列截一截拼上去。
+比如运行环境重建后摘要变了，候选的新运行要和对照的旧运行比，会被拒绝并列出「运行环境不同」。Agent 的做法是先把对照迁到新环境重放，再重放候选，然后再比；而不是把旧序列截一截拼上去。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 重放范围和结果呈现 [#V-2-4]
 
@@ -252,7 +252,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/changes.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺一次变化后重放并更新推荐的演练。</p>
+<p className="rd-note">缺一次变化后重放并更新推荐的执行记录。</p>
 
 ## 9.3　做配对检验：效应、区间和 p 怎么算 [#V-3]
 
@@ -308,7 +308,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 <div className="rd-example">
 
-比如一年里候选平均每天比对照多赚 0.01%，块长 10 天，重抽一万次，其中 1300 次拼出来的平均不低于 0.01%，p 约为 0.13。全池 RSI 演练里 H05 相对它的对照正是 0.1338：方向是好的，但还不能说确定更好。
+比如一年里候选平均每天比对照多赚 0.01%，块长 10 天，重抽一万次，其中 1300 次拼出来的平均不低于 0.01%，p 约为 0.13：方向是好的，但还不能说确定更好。
 
 </div>
 
@@ -322,7 +322,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 <div className="rd-example">
 
-全池 RSI 演练里，H09 相对 H08 的 98.5% 配对年化差区间约为 −9.5 到 +19.0 个百分点。区间跨零而且很宽，说明 H09 是否真比 H08 好，这一年的数据还说不准。
+比如候选相对对照的 98.5% 配对年化差区间是 −10 到 +20 个百分点。区间跨零而且很宽，说明候选是否真比对照好，这一年的数据还说不准。
 
 </div>
 
@@ -424,11 +424,11 @@ Agent 按skill在登记的条件内解读，同时按指标口径看资金使用
 
 <div className="rd-example">
 
-全池 RSI 演练里，H02 账户亏损、相对对照 p 为 0.6338，照样派生出了 H03；H06 比 H05 差，照样派生出了 H07。
+比如一个账户亏损、相对对照 p 很大的有效候选，照样可以派生出下一版；比对照差的候选也一样。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `report.paired`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `report.paired`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 每份结果都绑定完整身份，缺一项就拒绝 [#V-4-1-2]
 
@@ -438,11 +438,11 @@ Agent 按skill在登记的条件内解读，同时按指标口径看资金使用
 
 <div className="rd-example">
 
-全池 RSI 演练收尾后，从关闭时的账本版本重新导出，引用的 50 份计划、登记、运行、报告和比较凭据都和记录的哈希一致；另一个 Agent 在同一版本上重算 H09、H10 的账户数字，没有发现实质差异。
+比如一条路线收尾后，从关闭时的账本版本重新导出，引用的计划、登记、运行、报告和比较凭据都要和记录的哈希一致；另一个 Agent 在同一版本上重算推荐候选的账户数字，再和原结果核对。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `ledger.read_as_of` `ledger.metrics_revision`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `ledger.read_as_of` `ledger.metrics_revision`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 结果的读法 [#V-4-2]
 
@@ -456,7 +456,7 @@ p 是在登记的原假设和配对重抽模型下的尾部概率，不是策略
 
 <div className="rd-example">
 
-全池 RSI 演练十个假设的配对年化差区间全部跨零。读法是：这些改动的效果还不确定；不能说 RSI 方向被否定了，也不能说 H09 已经确认稳定更好。
+比如一条路线所有假设的配对年化差区间都跨零。读法是：这些改动的效果还不确定；不能说这个方向被否定了，也不能说推荐的候选已经确认稳定更好。
 
 </div>
 
@@ -470,11 +470,11 @@ p 是在登记的原假设和配对重抽模型下的尾部概率，不是策略
 
 <div className="rd-example">
 
-全池 RSI 演练的 H09 把预算从 100 提到 2000，年化 4.24%，这个账户差照算。但它的闭仓收益里，价格部分约 2929 USDT、资金费约 1976 USDT、费用约 −856 USDT，资金费占了很大一块，推荐理由里要写明，不能全算成 RSI 选点的本事。
+比如一个候选把单笔预算从 100 提到 2000，年化升高，这个账户差照算。但它的闭仓收益里要是资金费占了很大一块，推荐理由里就要写明，不能全算成入场选点的本事。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 检验结果的呈现 [#V-4-3]
 
@@ -494,7 +494,7 @@ p 是在登记的原假设和配对重抽模型下的尾部概率，不是策略
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.paired`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.paired`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 试验次数与选择效应 [#V-4-4]
 
@@ -508,7 +508,7 @@ Agent 自己数，最容易漏掉失败和中断的那些，把结果看得比�
 
 <div className="rd-example">
 
-全池 RSI 演练的账本里共有 67 次试验，其中只有 11 次绑定了正式的研究回放（含 ROOT），另外 56 次没有。按这条规则，全部试验数从这 67 次起算，只去掉其中的复现和策略运行前就被停下的试验（逐个列在 excluded_trials 里），而不是只数那 11 次。
+比如账本里一条路线共有 60 次试验，其中只有 10 次绑定了正式的研究回放（含根），另外 50 次没有。按这条规则，全部试验数从这 60 次起算，只去掉其中的复现和策略运行前就被停下的试验（逐个列在 excluded_trials 里），而不是只数那 10 次。
 
 </div>
 
@@ -539,4 +539,4 @@ Agent 自己数，最容易漏掉失败和中断的那些，把结果看得比�
 - **不进文档**　策略嵌入离线拟合常量绕过网格计数：归第 4 章源码契约与独立源码审查；比较只认已发布源码的内容哈希。
 - **不进文档**　双父合成版本与谁比：合成版本按第 3 章一父加来源证据处理；本章由「对照由登记声明、不必是父版本」（<Ref id="V.2.2.1" />）覆盖。
 - **不进文档**　自动选点（贝叶斯优化、Thompson sampling、部分因子）：产品不做自动选点；第 5 章只留交互实验一句并标待验证。
-- **不进文档**　「配对检验与候选流程提高研发成功率」的主张：两次演练无同条件新旧流程对照，属待验证，不写成本章任何能力；本章只写方法与边界。
+- **不进文档**　「配对检验与候选流程提高研发成功率」的主张：没有同条件的新旧流程对照，属待验证，不写成本章任何能力；本章只写方法与边界。

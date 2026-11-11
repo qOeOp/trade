@@ -4,7 +4,7 @@
 
 本章做两件事。先定候选的身份：账本按源码字节算出内容哈希（可以理解成这份字节的指纹），以它为准，名字只是叫法。再说候选怎样连起来：新候选指向一个研发父版本（它是从哪一版改来的），附一句改动说明；没有父版本的叫根，是一棵树的起点。这样连成的树和森林叫谱系。任何候选都能再派生新枝，运行结果和推荐都不改变它的身份和位置。
 
-举个例子：全池 RSI 路线里，H01 到 H04 账户都是亏的，比较也不显著，但它们照样是合法的候选，后面的版本继续从它们派生；H06 比 H05 退步，下一步 H07 仍从 H06 改出来。H03 的父版本是 H02，而当时被推荐的是 H01。每一版都留着源码、父版本、改动说明、登记和原生证据，谱系只记「从哪改来、改了什么」，不记成绩好坏。
+举个例子：一条路线里，前几版账户都是亏的、比较也不显著，但它们照样是合法的候选，后面的版本可以继续从它们派生；某一版比上一版退步，下一版仍可以从它改出来。父版本也不必是当时被推荐的那一版。每一版都留着源码、父版本、改动说明、登记和原生证据，谱系只记「从哪改来、改了什么」，不记成绩好坏。
 
 <ChapterMap chapter="T" />
 
@@ -54,13 +54,11 @@ Agent 写完一份完整的单文件策略源码，决定它是根，还是带�
 
 <div className="rd-example">
 
-全池 RSI 演练里，每个假设的网格点都按已发布版本的内容哈希登记、绑定执行，报告和比较都指回确切的源码。比如把 H05 原样再发布一次，会被拒绝并返回 H05；在它的注释里加一句话再发布，字节变了，就是一个新候选，要作为根、或带上父版本和改动说明另行发布。
+比如每个假设的网格点都按已发布版本的内容哈希登记、绑定执行，报告和比较都指回确切的源码。把某一版原样再发布一次，会被拒绝并返回那一版；在它的注释里加一句话再发布，字节变了，就是一个新候选，要作为根、或带上父版本和改动说明另行发布。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:candidate">candidate</Ref> `ledger.publish_candidate` `ledger.read_candidate`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
-<p className="rd-note">演练中，每个假设的网格点都以已发布版本的内容哈希登记并绑定执行，报告与比较都指向精确源码。</p>
 
 ## 3.2　连成谱系：父、对照与分枝 [#T-2]
 
@@ -114,11 +112,11 @@ Agent 选一个已有候选当父版本，写一句改动说明，发布新候�
 
 <div className="rd-example">
 
-全池 RSI 路线的清单里，ROOT 是参考根，H01 到 H10 都挂在各自的父版本下，比如 H08 的父版本是 H07；十项正式运行都显示通过、有经济证据资格。最终推荐 H09 这件事不在清单里，而是写在 Agent 的推荐判断里。想看某次复盘时的清单，按那时的账本版本读就行。
+比如一条路线的清单里，根是参考根，之后每一版都挂在各自的父版本下，每项正式运行都显示是否通过、有没有经济证据资格。最终推荐哪一版不在清单里，而是写在 Agent 的推荐判断里。想看某次复盘时的清单，按那时的账本版本读就行。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `cli.candidate_list` `report.candidates` `ledger.read_as_of`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `cli.candidate_list` `report.candidates` `ledger.read_as_of`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 待定事项 [#T-pending]
 

@@ -4,7 +4,7 @@
 
 本章做五件事。交易所公开数据按月导入市场，市场提交就是数据截至的那一天；窗口分成预热段和交易段，边界和可见时刻都固定；可交易的合约名单按公开规则逐月算出，上市和下架按权威事件处理；账户和条款对所有候选都一样，没建模的部分标为近似；撮合和结算全部交给引擎。
 
-举个例子：全池 RSI 路线钉住一个市场提交，交易段从 2025-10-09 到 2026-10-07，预热从 2025-10-07 开始。涉及的 210 个合约里，BAKE、HIFI 在输入开始前已下架，AIA 下架后重新上市，拆成两段。这组历史回放各自使用一个 100000 USDT 的账户，采用 K 线环境：按 1 分钟成交价 K 线撮合、按 1 分钟标记价估值。十个假设都在这同一个环境里跑，结果才能两两比较。
+举个例子：一条路线钉住一个市场提交，预热段和交易段的起止都固定。涉及的合约里，有的在输入开始前已下架，有的下架后重新上市、拆成两段。这组历史回放各自使用一个同样初始资本的账户，采用 K 线环境：按 1 分钟成交价 K 线撮合、按 1 分钟标记价估值。路线里的假设都在这同一个环境里跑，结果才能两两比较。
 
 <ChapterMap chapter="W" />
 
@@ -100,7 +100,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-example">
 
-全池 RSI 路线用的就是这几样：按 1 分钟成交价 K 线撮合，按 1 分钟标记价给账户估值，资金费按每个合约自己的结算时刻收付。
+比如 K 线环境用的就是这几样：按 1 分钟成交价 K 线撮合，按 1 分钟标记价给账户估值，资金费按每个合约自己的结算时刻收付。
 
 </div>
 
@@ -114,7 +114,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-example">
 
-全池 RSI 路线的 RSI 信号看小时线。每根小时线都由 Nautilus 从这一小时里的 1 分钟 K 线聚合，导出的数据里没有小时线。
+比如 RSI 信号看小时线时，每根小时线都由 Nautilus 从这一小时里的 1 分钟 K 线聚合，导出的数据里没有小时线。
 
 </div>
 
@@ -138,7 +138,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.missing_intervals` `market.coverage_facts`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.missing_intervals` `market.coverage_facts`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 已存的日子只追加、不改，市场提交是数据截至的那一天 [#W-1-3-2]
 
@@ -148,7 +148,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-example">
 
-全池 RSI 路线的十个假设都钉在同一个市场提交上。即使之后又导入了新的日子和月份，这十次回放读到的仍是截至那一天的数据。
+比如一条路线的假设都钉在同一个市场提交上。即使之后又导入了新的日子和月份，这些回放读到的仍是截至那一天的数据。
 
 </div>
 
@@ -204,11 +204,11 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-example">
 
-全池 RSI 路线的预热段从 2025-10-07 开始，交易段从 2025-10-09 到 2026-10-07T08:30Z。比如有人把起点写成不带时区的「2025-10-09 08:00」，或者写成 08:00:30，引擎还没启动就会被拒绝。
+比如预热段从 2025-10-07 开始，交易段从 2025-10-09 开始。有人把起点写成不带时区的「2025-10-09 08:00」，或者写成 08:00:30，引擎还没启动就会被拒绝。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.parse_window`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.parse_window`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 开发窗口随研究路线由你选定，登记的交易段必须等于它 [#W-2-1-2]
 
@@ -218,11 +218,11 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-example">
 
-全池 RSI 路线的开发窗口是 2025-10-09 到 2026-10-07T08:30Z，十个假设的交易段都等于它。比如某次登记把交易段写到 2026-09-30 就结束，会被拒绝；想换窗口，要由你另选路线。
+比如一条路线的开发窗口是 2025-10-09 到 2026-10-07T08:30Z，路线里每个假设的交易段都要等于它。某次登记把交易段写到 2026-09-30 就结束，会被拒绝；想换窗口，要由你另选路线。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.select_line` `registration.validate` `cli.line_select`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.select_line` `registration.validate` `cli.line_select`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### K 线对策略可见的时刻只有一个：收盘时刻 [#W-2-1-3]
 
@@ -246,7 +246,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-example">
 
-全池 RSI 路线的成绩从 2025-10-09 起算，10 月 7 日、8 日两天预热不算进去。比如某次运行少了一天的日收益，它和其他运行的配对比较就会被拒绝。
+比如成绩从交易段第一天起算，之前两天的预热不算进去。某次运行少了一天的日收益，它和其他运行的配对比较就会被拒绝。
 
 </div>
 
@@ -260,7 +260,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 这是事后独立审计，不是运行器拦单：不静默丢单、不改时间、不修补结果。通过这一项也不证明信号输入早于提交；因果时钟仍由原生预检与独立源码审查核验。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.submission_findings` `engine.write_native_reports`</span> <span className="rd-tier rd-tier-rehearsal">原生探针与回归测试</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.submission_findings` `engine.write_native_reports` · 原生回归测试 `tests/engine/test_warmup_submissions.py`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 预热与就绪 [#W-2-2]
 
@@ -278,7 +278,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.plan_instances` `engine.warmup` `engine.read_market`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.plan_instances` `engine.warmup` `engine.read_market`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 改信号周期或指标长度，要登记初始化条件并报告两边实际何时就绪 [#W-2-2-2]
 
@@ -288,7 +288,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-example">
 
-全池 RSI 路线的 H05 把 RSI 长度从 14 改到 24，就属于这种改动：登记要写明 RSI 24 需要多少根小时线才能第一次给出信号，回放后分别写出 H05 和对照第一次就绪的时点。
+比如把 RSI 长度从 14 改到 24，就属于这种改动：登记要写明 RSI 24 需要多少根小时线才能第一次给出信号，回放后分别写出候选和对照第一次就绪的时点。
 
 </div>
 
@@ -298,7 +298,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 4. 原始输入有多少条，不能当作已经就绪的证据。
 5. 解读检验结果时写明两边首次就绪的时点。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 6.3　产出共同可交易范围 [#W-3]
 
@@ -350,7 +350,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-example">
 
-全池 RSI 路线涉及 210 个合约，这是各月名单的并集，不是同一时刻能交易的数量。BAKE 和 HIFI 在输入开始前就已下架，仍以不活跃的身份留在名单里。
+比如路线涉及的合约数是各月名单的并集，不是同一时刻能交易的数量。在输入开始前就已下架的合约，仍以不活跃的身份留在名单里。
 
 </div>
 
@@ -373,7 +373,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.membership_path` `registration.market_inputs`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.membership_path` `registration.market_inputs`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 成员变化与生命周期 [#W-3-2]
 
@@ -387,11 +387,11 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-example">
 
-历史全池 RSI 演练的原月度名单去重 210 个合约、211 个片段；BAKE、HIFI 在其 2025-10-07 输入起点前已终止，留下 208 个活跃合约。AIA 下架后再上市分两段，因此有 209 个活跃片段。[历史追溯](https://github.com/qOeOp/trade/blob/987649db361f22d23dcf8fb47b17d7970753b6bc/docs/plans/historical-fullpool-input-trace.zh.md)已定位该口径，尚未找回完整旧输入原件，不认定恢复通过。当前窗口从 2025-10-01 开始，BAKE 的终止在窗内，不能照搬旧窗前排除结论。
+比如一个合约在输入起点前已终止，就不建实例；一个合约下架后再上市，就分成两个片段、各建一个实例。窗口起点一变，哪些合约在窗前终止也跟着变，不能照搬旧窗口的排除结论。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.episode_active` `engine.episode_membership` `engine.read_universe`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.episode_active` `engine.episode_membership` `engine.read_universe`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 上市、停止新开仓、下架结算，都以引擎原生事件供给 [#W-3-2-2]
 
@@ -411,7 +411,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-example">
 
-全池 RSI 路线没有拿到所有合约实际的下架结算价。你授权的方案是保留原来的币池和窗口，让策略在下架前用原生订单平仓，并严格核对下架时已经空仓、没有挂着的订单。
+比如拿不到所有合约实际的下架结算价时，经你授权，可以保留原来的币池和窗口，让策略在下架前用原生订单平仓，并严格核对下架时已经空仓、没有挂着的订单。
 
 </div>
 
@@ -421,7 +421,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 4. 只把窗口内的事件按引擎原生格式交给回放。
 5. 引擎执行原生结算；PRE_CLOSE 开仓截止由策略执行、独立审计核验；没有结算价时只提供终止时刻并核对此前空仓。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.validate_lifecycle` `market.require_native_price` `market.write_lifecycle_events`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.validate_lifecycle` `market.require_native_price` `market.write_lifecycle_events`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 被重用的合约代码按片段拆成独立合约和实例，状态不跨片段 [#W-3-2-3]
 
@@ -431,11 +431,11 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-example">
 
-全池 RSI 路线就遇到过这两类真实阻断：AIA 重新上市后要拆成两段；还有中文名的合约，要换成 ASCII 别名才能作为引擎里的合约，公开名另行原样记下。
+比如某个合约下架后重新上市，要拆成两段；又比如中文名的合约，要换成 ASCII 别名才能作为引擎里的合约，公开名另行原样记下。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.split_episodes` `market.native_symbol` `market.export_episode`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.split_episodes` `market.native_symbol` `market.export_episode`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 覆盖核验 [#W-3-3]
 
@@ -453,7 +453,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.coverage_facts` `market.export_catalogs` `replay.input_coverage`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.coverage_facts` `market.export_catalogs` `replay.input_coverage`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 缺口、零成交、资金费缺失各自记为事实并写原因，不当成经济失败 [#W-3-3-2]
 
@@ -467,11 +467,11 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 <div className="rd-example">
 
-全池第一次尝试时，在 AIA、LIT 的数据缺口和 BAKE、HIFI 的活动与资金费问题上停了下来，等你授权改范围后才继续，那一轮改成只跑 BTC、ETH。后来的全池十轮演练保留了原来的币池和窗口。
+比如某些合约有数据缺口，或者活动与资金费数据有问题，Agent 先停下来报告，等你决定要不要改范围才继续，而不是自己删币或缩窗。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 6.4　固定账户、条款与已知近似 [#W-4]
 
@@ -517,7 +517,7 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 <div className="rd-example">
 
-全池 RSI 路线的 H09 平均名义敞口约 4161 USDT，最高的那一分钟约 40229 USDT，全都出自同一个 10 万 USDT 的账户。
+比如一个候选的平均名义敞口和最高那一分钟的敞口，全都出自同一个 10 万 USDT 的账户。
 
 </div>
 
@@ -535,7 +535,7 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `engine.effective_configuration` `engine.parse_configuration`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `engine.effective_configuration` `engine.parse_configuration`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 不建模与近似 [#W-4-2]
 
@@ -563,11 +563,11 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 <div className="rd-example">
 
-全池 RSI 路线的 H09 历史回放全年费用约 857 USDT，来自当时的假设费率。报价环境另行声明的保证金率须从对应有效配置读取，不能从这笔旧运行或“默认杠杆 1”推断出来。
+比如一次历史回放的全年费用来自当时假设的费率。报价环境另行声明的保证金率须从对应有效配置读取，不能从旧运行或“默认杠杆 1”推断出来。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.build_instrument` `market.terms` `engine.read_market`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.build_instrument` `market.terms` `engine.read_market`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 6.5　模拟撮合与结算 [#W-5]
 
@@ -613,7 +613,7 @@ K 线环境用 1 分钟成交价 K 线驱动撮合，标记价与资金费供估
 
 <div className="rd-example">
 
-全池 RSI 路线的旧 K 线回放共有 523230 个交易分钟。换为报价环境后，同一分钟内可以有多次报价事件；不能仍以分钟数代替报价条数核对，也不能把旧 K 线成交结果直接当成新环境结果。
+比如旧 K 线回放按交易分钟数核对输入条数。换为报价环境后，同一分钟内可以有多次报价事件；不能仍以分钟数代替报价条数核对，也不能把旧 K 线成交结果直接当成新环境结果。
 
 </div>
 
@@ -627,7 +627,7 @@ K 线环境用 1 分钟成交价 K 线驱动撮合，标记价与资金费供估
 
 <div className="rd-example">
 
-全池 RSI 路线 H02 的原生限价退出例子属于旧 K 线环境：卖价只被最高价触到时不成交。报价环境须按其报价序列重跑，不能沿用这根 K 线的成交判断。
+比如原生限价退出在旧 K 线环境里：卖价只被最高价触到时不成交。报价环境须按其报价序列重跑，不能沿用这根 K 线的成交判断。
 
 </div>
 
@@ -673,7 +673,7 @@ K 线环境按成交价 K 线判断止损：开盘已越过触发价时按开盘
 
 <div className="rd-example">
 
-全池 RSI 路线的 H09 一年里持仓收到的资金费约 1979 USDT，比全部成交费用（约 857 USDT）还多。比如某合约改成每 4 小时结算一次，引擎就在那几个实际时刻结算，不按 8 小时算。
+比如一个候选一年里持仓收到的资金费可能比全部成交费用还多。某合约改成每 4 小时结算一次，引擎就在那几个实际时刻结算，不按 8 小时算。
 
 </div>
 
