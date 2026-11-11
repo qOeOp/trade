@@ -55,7 +55,8 @@ CREATE TABLE candidate (
 );
 
 -- A research line: its starting candidate and the development period fixed when it opened
--- (docs/plans/line-close-history-test-20261110.zh.md).
+-- (docs/plans/line-close-history-test-20261110.zh.md). market_commit pins the market data the line reads;
+-- its registrations default to it.
 CREATE TABLE research_line (
   line_id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(64) NOT NULL UNIQUE,

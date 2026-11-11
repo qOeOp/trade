@@ -504,7 +504,7 @@ A1 的授权写明：评审中出现计划以外的存储字段，单独再问�
 
 ## 7. 实施时要核对的事
 
-- `research_line.market_day` 的读者只剩"登记的默认市场"（`cli/main.py:612`）。如果实施时发现它只服务于被删掉的线归属推断，就删掉这一列。
+- `research_line.market_day` 保留（用户 2026-11-11「按建议」）：开发期由开线日推出，但市场版本钉住了这条线读到的数据，登记默认用它（`cli/main.py:612`）。
 - `comparison_design` 各列的类型，照 `registration/validation.py` 对 `DESIGN_KEYS` 的校验定。
 - 读者账号能不能调用 `DOLT_VERIFY_CONSTRAINTS('--output-only')`；不能的话，`ledger review` 用管理员连接跑这一项。
 - 第 3 阶段合入以后跑 L11 的规模测试：约 2 万个 trial、1,000 条线，给读命令计时，定上限。
