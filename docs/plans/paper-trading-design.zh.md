@@ -9,6 +9,11 @@
 
 本文是动手前的设计，只有调研和方案，没有代码。
 
+> 2026-11-11：已实施，之后多处改变，以代码和这些文档为准：存储见[决定记录](paper-run-storage-decision.zh.md)
+> 和独立 Paper 库（#2587）；远程部署见 [Paper compose 部署](paper-compose-deployment.zh.md)、
+> [持续交付](paper-continuous-delivery.zh.md)；中断续跑见[原生恢复](paper-native-recovery.zh.md)；
+> 运行中按月重读成员见[按月成员](paper-monthly-membership-20261111.zh.md)。
+
 ## 结论
 
 - **能做，而且不用自己写撮合和账户。** 锁定的 `nautilus_trader==2.0.0rc7`（10-25 从 rc3 升上来，#1722）已经带齐了：实时节点 `LiveNode`；
