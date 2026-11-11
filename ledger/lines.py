@@ -91,9 +91,9 @@ def list_lines(profile: db.LedgerProfile, at: str | None = None, *, every: bool 
     """The open line declarations (L11), or with `every` the closed ones too, and their open/closed state at one
     pinned ledger commit; no market read."""
     with db.read_as_of(profile, at) as conn:
+        targets = line_targets.targets_by_line(conn)
         return {"ledger_commit": db.head_commit(conn),
-                "lines": [{**{key: line[key] for key in LISTED},
-                           "targets": line_targets.targets_for(conn, line["line_id"])}
+                "lines": [{**{key: line[key] for key in LISTED}, "targets": targets(line["line_id"])}
                           for line in lines(conn, open_only=not every)]}
 
 

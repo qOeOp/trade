@@ -10,6 +10,7 @@ targets, else the default, else none. Only an open line takes new targets.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
 import math
 
@@ -41,11 +42,17 @@ def check(max_drawdown, annual_return) -> tuple[Decimal, Decimal]:
     return _value("max_drawdown", max_drawdown, True), _value("annual_return", annual_return, False)
 
 
+def _tips(conn: db.LedgerConnection, scopes: tuple[int, ...] | None = None) -> dict[int, dict]:
+    """The rows in force (the ones no later row supersedes) by scope, for `scopes` or every scope."""
+    where = f" AND t.scope_key IN ({', '.join(['%s'] * len(scopes))})" if scopes else ""
+    return {row["scope_key"]: row for row in conn.dicts(
+        f"SELECT target_id, line_id, scope_key, max_drawdown, annual_return, created_at FROM {TABLE} t "
+        f"WHERE NOT EXISTS (SELECT 1 FROM {TABLE} n WHERE n.supersedes = t.target_id){where}", scopes or ())}
+
+
 def _tip(conn: db.LedgerConnection, line_id: int | None) -> dict | None:
     """The row in force for one scope: the one no later row supersedes."""
-    return conn.one(f"SELECT target_id, line_id, max_drawdown, annual_return, created_at FROM {TABLE} t "
-                    f"WHERE t.scope_key = %s AND NOT EXISTS (SELECT 1 FROM {TABLE} n WHERE n.supersedes = t.target_id)",
-                    (line_id or 0,))
+    return _tips(conn, (line_id or 0,)).get(line_id or 0)
 
 
 def _reading(row: dict, source: str) -> dict:
@@ -53,14 +60,23 @@ def _reading(row: dict, source: str) -> dict:
             "source": source, "target_id": row["target_id"], "created_at": row["created_at"]}
 
 
+def _in_force(tips: dict[int, dict], line_id: int | None) -> dict | None:
+    own = tips.get(line_id) if line_id is not None else None
+    if own is not None:
+        return _reading(own, "line")
+    return _reading(tips[0], "default") if 0 in tips else None
+
+
 def targets_for(conn: db.LedgerConnection, line_id: int | None) -> dict | None:
     """{max_drawdown, annual_return, source (line or default), target_id, created_at} in force for
     line `line_id` at the version this connection reads, or None when neither the line nor the ledger has any."""
-    own = _tip(conn, line_id) if line_id is not None else None
-    if own is not None:
-        return _reading(own, "line")
-    default = _tip(conn, None)
-    return _reading(default, "default") if default is not None else None
+    return _in_force(_tips(conn, (line_id or 0, 0)), line_id)
+
+
+def targets_by_line(conn: db.LedgerConnection) -> Callable[[int | None], dict | None]:
+    """targets_for for any line, from one read of every scope's targets in force."""
+    tips = _tips(conn)
+    return lambda line_id: _in_force(tips, line_id)
 
 
 def set_targets(conn: db.LedgerConnection, line_id: int | None, max_drawdown, annual_return) -> dict:
