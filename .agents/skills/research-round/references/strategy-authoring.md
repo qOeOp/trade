@@ -169,6 +169,9 @@ Verify uncertain order or event behaviour with a small native probe before relyi
 in a temporary directory, run on the host with `uv run --frozen --project REPO python
 /tmp/RUNDIR/probe.py` (it imports `engine` and `market`), building a
 `BacktestEngine(BacktestEngineConfig())` with one `Strategy()`, an instrument and bars.
+Nautilus is compiled: `__doc__` and `inspect.getsource` give nothing, and its signatures are in the
+`.pyi` stubs under `.venv/lib/python*/site-packages/nautilus_trader/`, which `rg` skips unless
+given `-uu`. An empty search there is not an absent API.
 
 ## Publish and precheck
 
