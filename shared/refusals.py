@@ -580,6 +580,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                               ("Mount the stage's output directory writable at /reports.",)),
     "ARGV_INVALID": ("A container argument is not a string.",
                      ("Pass the runner's arguments as strings.",)),
+    "STAGE_MEMORY_LIMIT": ("A replay stage's container was killed at its memory limit (runtime.container.STAGE_MEMORY); "
+                           "a trial's capture is sealed as a host failure naming this code.",
+                           ("Reduce what the run holds in memory (a shorter window, fewer contracts or orders), or "
+                            "report the stage and its measured peak so the limit can be retuned.",)),
     # Runtime (runtime/image.py)
     "RUNTIME_UNAVAILABLE": ("The runtime image could not be pulled, inspected or pinned to one digest.",
                             ("Check the image reference and the container runtime, then rerun. A pull that never "
