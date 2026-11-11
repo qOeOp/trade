@@ -34,7 +34,9 @@ export function Dropdown({ trigger, label, children, align = "start", variant = 
 }
 
 /** A toolbar widget whose popup is a panel of its own (a list to search and pick from) rather than a menu;
- *  `children` gets a function that closes it. */
+ *  `children` gets a function that closes it. The panel is at least 22rem wide (the run picker's widest
+ *  filter row, Live's four phases with two-digit counts), so switching its lists or showing an empty one
+ *  keeps one width; a narrow window caps it at the width available. */
 export function PopoverWidget({ trigger, label, children }: {
   trigger: ReactNode; label: string; children: (close: () => void) => ReactNode;
 }) {
@@ -47,7 +49,7 @@ export function PopoverWidget({ trigger, label, children }: {
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content align="start" sideOffset={4} collisionPadding={8}
-          className="z-50 flex max-h-[min(440px,var(--radix-popover-content-available-height))] w-max min-w-56 max-w-[min(480px,var(--radix-popover-content-available-width))] flex-col gap-px overflow-auto rounded-popup border border-popup-border bg-popup p-1 shadow-popup outline-none">
+          className="z-50 flex max-h-[min(440px,var(--radix-popover-content-available-height))] w-max min-w-[min(22rem,var(--radix-popover-content-available-width))] max-w-[min(480px,var(--radix-popover-content-available-width))] flex-col gap-px overflow-auto rounded-popup border border-popup-border bg-popup p-1 shadow-popup outline-none">
           {children(() => setOpen(false))}
         </Popover.Content>
       </Popover.Portal>
