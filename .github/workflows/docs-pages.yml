@@ -73,6 +73,12 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    # Pages takes one deployment at a time: a second one started while the first is in progress
+    # is refused, so deploys of one ref queue here. A queued deploy that a still newer run replaces
+    # is cancelled; that newer commit also changes the site and deploys it.
+    concurrency:
+      group: docs-pages-deploy-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: read
       pages: write
