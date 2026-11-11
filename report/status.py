@@ -486,11 +486,11 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     current = line_identity(conn, record["line_id"], identities)
     own = set(lines.line_trials(conn, record["line_id"])["trials"])
     passed, without = _passed_research_runs(conn, checker, records, window, record["universe_rule"])
-    facts = measures.runs_facts(conn, [row["trial_id"] for row in passed])
+    read = {trial_id: (_headline(facts, TABLE_MEASURES), deflated_range(facts, testing))
+            for trial_id, facts in measures.runs_facts(conn, [row["trial_id"] for row in passed])}
     found = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
               "execution_identity": identities.get(row["trial_id"]),
-              "measures": _headline(facts[row["trial_id"]], TABLE_MEASURES),
-              "deflated_sharpe": deflated_range(facts[row["trial_id"]], testing)} for row in passed]
+              "measures": read[row["trial_id"]][0], "deflated_sharpe": read[row["trial_id"]][1]} for row in passed]
     excluded = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
                  "execution_identity": identities.get(row["trial_id"]), "reasons": row["reasons"]} for row in without]
     for item in found:
@@ -573,14 +573,17 @@ def research_runs(ledger, at: str | None = None, line: str | None = None, by: st
                                         "t.line_id WHERE t.purpose = 'research'"):
             owners.setdefault(trial_id, []).append(name)
         listed = []
-        facts = measures.runs_facts(conn, [row["trial_id"] for row in found])
+        derived: dict[int, dict] = {}  # each run's RUN_MEASURES only, so its series go with its chunk
+        for trial_id, facts in measures.runs_facts(conn, [row["trial_id"] for row in found]):
+            measured = measures.derive_measures(facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for a "
+                                                                        "listing"})
+            derived[trial_id] = {key: measured[key] for key in RUN_MEASURES}
         for row in found:
-            derived = measures.derive_measures(facts[row["trial_id"]],
-                                               market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for a listing"})
+            measured = derived[row["trial_id"]]
             item = {"candidate": row["candidate"], "trial_id": row["trial_id"], "group": groups[row["trial_id"]],
                     "lines": owners.get(row["trial_id"], []),
-                    "measures": {key: derived[key]["value"] for key in RUN_MEASURES}}
-            missing = {key: derived[key]["null_reason"] for key in RUN_MEASURES if derived[key]["value"] is None}
+                    "measures": {key: measured[key]["value"] for key in RUN_MEASURES}}
+            missing = {key: measured[key]["null_reason"] for key in RUN_MEASURES if measured[key]["value"] is None}
             if missing:
                 item["null_reasons"] = missing
             listed.append((item, row))
