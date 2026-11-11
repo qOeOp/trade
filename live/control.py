@@ -245,7 +245,7 @@ def resolve(config: configuration.Configuration, request_id: str, *, binding: re
             path = credentials.resolve_prepare_path_locked(root, run_id, ref, request_id)
             runs.prepare_locked(root, run_id, _profile(config), inputs["research_at"], inputs["candidate"],
                                  inputs["symbols"], Path(inputs["universe_file"]), path, inputs["runtime"],
-                                 **inputs["config"],
+                                 **inputs["config"], market_root=config.market_root,
                                  strategy_file=Path(inputs["strategy_file"]), strategy_class=inputs["entry_class"],
                                  request_id=request_id, credential_ref=ref, recover_partial=True)
             return requests.view_locked(root, request_id)
