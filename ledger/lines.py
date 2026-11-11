@@ -81,12 +81,14 @@ def open_line(conn: db.LedgerConnection, line: str | int | None = None) -> dict:
     return record
 
 
+LISTED = ("line_id", "name", "start", "dev_start", "dev_end", "market_commit", "created_at", "closed")
+
+
 def list_lines(profile: db.LedgerProfile, at: str | None = None) -> dict:
     """All line declarations and their open/closed state at one pinned ledger commit; no market read."""
     with db.read_as_of(profile, at) as conn:
-        fields = ("line_id", "name", "start", "dev_start", "dev_end", "market_commit", "created_at", "closed")
         return {"ledger_commit": db.head_commit(conn),
-                "lines": [{**{key: line[key] for key in fields},
+                "lines": [{**{key: line[key] for key in LISTED},
                            "targets": line_targets.targets_for(conn, line["line_id"])} for line in lines(conn)]}
 
 
