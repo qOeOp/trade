@@ -100,25 +100,26 @@
   --cal-down-2: light-dark(color-mix(in oklab, var(--pnl-down) 20%, var(--island)), color-mix(in oklab, var(--pnl-down) 30%, var(--island)));
   --cal-down-3: light-dark(color-mix(in oklab, var(--pnl-down) 34%, var(--island)), color-mix(in oklab, var(--pnl-down) 46%, var(--island)));
   /* the Market heatmap's tiles: a narrow grey middle and three steps each way, the up and down pair mixed
-     into the grey at fixed shares (never into black, so neighbouring steps stay apart); white ink on them,
-     the text colour on the grey and on light mode's first steps, and a glass badge in either ink */
+     into the grey at fixed shares (never into black, so neighbouring steps stay apart). Every tile's text
+     keeps 4.5:1: light mode's tiles carry the text colour and a white glass badge, dark mode's white ink
+     and a dark glass badge, its shares kept low enough for white */
   --heat-0: light-dark(oklch(0.885 var(--n-c) var(--n-h)), oklch(0.38 var(--n-c) var(--n-h)));
-  --heat-up-1: light-dark(color-mix(in oklab, var(--candle-up) 50%, var(--heat-0)), color-mix(in oklab, var(--candle-up) 55%, var(--heat-0)));
-  --heat-up-2: light-dark(color-mix(in oklab, var(--candle-up) 80%, var(--heat-0)), color-mix(in oklab, var(--candle-up) 72%, var(--heat-0)));
-  --heat-up-3: light-dark(color-mix(in oklab, var(--candle-up) 88%, var(--heat-0)), color-mix(in oklab, var(--candle-up) 85%, var(--heat-0)));
-  --heat-down-1: light-dark(color-mix(in oklab, var(--candle-down) 40%, var(--heat-0)), color-mix(in oklab, var(--candle-down) 48%, var(--heat-0)));
-  --heat-down-2: light-dark(color-mix(in oklab, var(--candle-down) 76%, var(--heat-0)), color-mix(in oklab, var(--candle-down) 68%, var(--heat-0)));
-  --heat-down-3: light-dark(color-mix(in oklab, var(--candle-down) 88%, var(--heat-0)), color-mix(in oklab, var(--candle-down) 85%, var(--heat-0)));
-  --heat-ink: oklch(0.985 0 0);
+  --heat-up-1: light-dark(color-mix(in oklab, var(--candle-up) 50%, var(--heat-0)), color-mix(in oklab, var(--candle-up) 50%, var(--heat-0)));
+  --heat-up-2: light-dark(color-mix(in oklab, var(--candle-up) 80%, var(--heat-0)), color-mix(in oklab, var(--candle-up) 60%, var(--heat-0)));
+  --heat-up-3: light-dark(color-mix(in oklab, var(--candle-up) 88%, var(--heat-0)), color-mix(in oklab, var(--candle-up) 72%, var(--heat-0)));
+  --heat-down-1: light-dark(color-mix(in oklab, var(--candle-down) 40%, var(--heat-0)), color-mix(in oklab, var(--candle-down) 50%, var(--heat-0)));
+  --heat-down-2: light-dark(color-mix(in oklab, var(--candle-down) 76%, var(--heat-0)), color-mix(in oklab, var(--candle-down) 60%, var(--heat-0)));
+  --heat-down-3: light-dark(color-mix(in oklab, var(--candle-down) 88%, var(--heat-0)), color-mix(in oklab, var(--candle-down) 76%, var(--heat-0)));
+  --heat-ink: light-dark(var(--fg), oklch(0.985 0 0));
   --heat-ink-0: var(--fg);
   --heat-ink-1: light-dark(var(--fg), oklch(0.985 0 0));
-  --heat-badge: light-dark(oklch(1 0 0 / 0.1), oklch(1 0 0 / 0.16));
+  --heat-badge: light-dark(oklch(1 0 0 / 0.3), oklch(0 0 0 / 0.16));
   --heat-badge-0: light-dark(oklch(0 0 0 / 0.07), oklch(1 0 0 / 0.1));
-  --heat-badge-1: light-dark(oklch(0 0 0 / 0.07), oklch(1 0 0 / 0.16));
+  --heat-badge-1: light-dark(oklch(0 0 0 / 0.07), oklch(0 0 0 / 0.16));
   /* the badge's hairline: lighter than its ink where the ink is dark, so it stays an edge, not an outline */
-  --heat-badge-edge: oklch(1 0 0 / 0.22);
+  --heat-badge-edge: light-dark(oklch(0 0 0 / 0.08), oklch(1 0 0 / 0.14));
   --heat-badge-edge-0: light-dark(oklch(0 0 0 / 0.1), oklch(1 0 0 / 0.14));
-  --heat-badge-edge-1: light-dark(oklch(0 0 0 / 0.1), oklch(1 0 0 / 0.2));
+  --heat-badge-edge-1: light-dark(oklch(0 0 0 / 0.1), oklch(1 0 0 / 0.14));
   --heat-edge: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.07), oklch(1 0 0 / 0.14));
 
   /* code: IntelliJ's Python colours (Islands light, dark); a diff tints lines with the meets and fail hues */
