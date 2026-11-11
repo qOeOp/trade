@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import traceback
 
 from .paper_host import PAPER, PaperHost, runtime_default
 from .paper_release import PaperRelease
@@ -58,8 +59,23 @@ def owners(transaction: dict) -> tuple[str, str]:
     return transaction.get("previous_owner") or revision(transaction["previous"]), revision(transaction["candidate"])
 
 
+def failure_origin(error: BaseException) -> str:
+    """The exception class and the innermost product source line it passed, never its payload."""
+    kind = type(error)
+    name = kind.__qualname__ if kind.__module__ == "builtins" else f"{kind.__module__}.{kind.__qualname__}"
+    root = Path(__file__).resolve().parent.parent
+    where = None
+    for frame, line in traceback.walk_tb(error.__traceback__):
+        path = Path(frame.f_code.co_filename).resolve()
+        if path.is_relative_to(root) and "site-packages" not in path.parts:
+            where = f"{path.relative_to(root)}:{line}"
+    return f"{name} at {where}" if where else name
+
+
 def failure_summary(error: Exception) -> str:
-    """Only fixed classifications cross the journal boundary; exception payloads stay private."""
+    """Only fixed classifications and code identity cross the journal boundary; exception payloads
+    stay private. An unclassified failure names its class and source line so the operator can find
+    it without rerunning the release under a traceback wrapper."""
     from .live_host import AccountLockBusy, AccountLockWaitExpired, LiveBusy
 
     if isinstance(error, AccountLockWaitExpired):
@@ -94,11 +110,11 @@ def failure_summary(error: Exception) -> str:
         }
         message = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str else None
         if message is None:
-            return "unclassified runtime failure"
+            return f"unclassified runtime failure ({failure_origin(error)})"
         if message.startswith("protected container changed during release: "):
             return "protected container changed"  # a ledger, Docker API or Paper container restarted mid-release
-        return known.get(message, "unclassified runtime failure")
-    return "unexpected release failure"
+        return known.get(message) or f"unclassified runtime failure ({failure_origin(error)})"
+    return f"unexpected release failure ({failure_origin(error)})"
 
 
 def report_failure(phase: str, error: Exception) -> None:
