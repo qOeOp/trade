@@ -101,7 +101,7 @@ def _comparison(profile, bundle: str, trial_id: int, at: str, checker: Mapping |
     evidence = found.get("evidence") or None
     attribution = found.get("attribution") or {}
     predictions = [{"measure": f"{p.get('slice')}.{p.get('measure')}" if p.get("slice") else p.get("measure"),
-                    "direction": p.get("direction"),
+                    "direction": p.get("direction"), "reason": p.get("registered_reason"),
                     "outcome": {True: "held", False: "failed"}.get(p.get("same_sign"), "untestable")}
                    for p in attribution.get("predictions") or []] or None
     if evidence is None:

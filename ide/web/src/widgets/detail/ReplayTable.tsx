@@ -4,6 +4,7 @@ import { useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
 import { chooseTrial } from "../../state/stage";
 import { meets, PURPOSE, tone } from "../../model/semantics";
+import { reasonLabels } from "../../model/measures";
 import { useMemo, type ReactElement } from "react";
 import { pct, ratio } from "../../lib/format";
 import { textClass } from "../../theme/roles";
@@ -34,7 +35,7 @@ export function ReplayTable({ trials, targets }: { trials: Trial[]; targets: Tar
     col.accessor("sharpe", { header: "Sharpe", meta: { numeric: true }, sortUndefined: "last", cell: (x) => value(x.getValue(), ratio(x.getValue())) }) as Column<Trial>,
     col.accessor("eligible", { header: "Elig", meta: { align: "right", width: FIT.elig }, cell: (x) => {
       const t = x.row.original;
-      if (t.eligible === false) return <Tip content={t.ineligible_reason ?? "Ineligible"}><span className="text-fail">Lost</span></Tip>;
+      if (t.eligible === false) return <span className="text-fail">Lost</span>;
       // The check's ink stops 1px inside its box; the margin puts it flush with the header's right edge.
       return t.eligible ? <Icon name="check" tone="meets" className="-mr-px align-middle" /> : <Missing />;
     } }) as Column<Trial>,
@@ -42,5 +43,25 @@ export function ReplayTable({ trials, targets }: { trials: Trial[]; targets: Tar
   const runsPage = useOnRunsPage(), { stage, trial } = useShown();
   const picks = runsPage ? { onRow: (t: Trial) => { if (drawable(t)) chooseTrial(t.trial_id); }, selected: stage === "backtest" && trial ? String(trial.trial_id) : null,
     wrapRow: (t: Trial, tr: ReactElement) => (t.purpose === "research" ? tr : <Tip content="Out-of-sample replay: not on this line's window">{tr}</Tip>) } : {};
-  return <div className="-mx-2"><DataTable data={trials} columns={cols} rowId={(t) => String(t.trial_id)} fixed sticky={false} {...picks} /></div>;
+  const lost = trials.filter((t) => t.eligible === false);
+  return (
+    <>
+      <div className="-mx-2"><DataTable data={trials} columns={cols} rowId={(t) => String(t.trial_id)} fixed sticky={false} {...picks} /></div>
+      {/* Why each run lost its evidence, in words, the record's detail after it. */}
+      {lost.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5">
+          {lost.map((t) => (
+            <li key={t.trial_id} className="flex min-w-0 gap-2">
+              <span className="shrink-0 tabular-nums text-fg-faint">Trial {t.trial_id}</span>
+              <span className="min-w-0 truncate" title={t.ineligible_reason ?? undefined}>
+                {t.ineligible_reason ? reasonLabels(t.ineligible_reason).map((r, i) => (
+                  <span key={i}>{i > 0 && "; "}<span className="text-fail">{r.label}</span>{r.detail && <span className="text-fg-faint"> {r.detail}</span>}</span>
+                )) : <span className="text-fail">Ineligible</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
 }

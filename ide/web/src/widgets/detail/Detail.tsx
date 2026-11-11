@@ -16,6 +16,7 @@ import { Token } from "../../components/Token";
 import { Header } from "./Header";
 import { Readings } from "./Readings";
 import { ReplayTable } from "./ReplayTable";
+import { measureLabel } from "../../model/measures";
 import { StagePerformance } from "./StagePerformance";
 import { TranslatedCardGroup } from "../../components/TranslatedCardGroup";
 import { MarketDetails } from "../market/MarketDetails";
@@ -26,6 +27,8 @@ const OUTCOME: Record<string, [string, string]> = {
 };
 const VERDICT: Record<string, [string, string]> = { passed: ["Passed", "text-meets"], failed: ["Failed", "text-fail"] };
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
+/** A mean daily log difference as the daily percent it compounds to, signed: +0.012%. */
+const daily = (log: number) => Math.expm1(log).toLocaleString("en-US", { style: "percent", minimumFractionDigits: 3, maximumFractionDigits: 3, signDisplay: "exceptZero" }).replace("-", "\u2212");
 
 // Where the inspector is widened past 48rem, the groups sit in two columns: what changed and the
 // conclusion on the left, the performance and evidence on the right; narrower, one column in order.
@@ -50,15 +53,19 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
           <table className="w-full"><tbody>
             {c.predictions.map((p, i) => {
               const [label, cls] = OUTCOME[p.outcome ?? ""] ?? ["Not judged", "text-fg-faint"];
+              const named = p.measure ? measureLabel(p.measure) : null;
               return (
-                <tr key={i} className="border-b border-line last:border-0">
-                  <td className="py-1 pr-2 font-mono">{p.measure ?? <Missing />}</td>
+                <tr key={i} className="border-b border-line align-top last:border-0">
+                  <td className="py-1 pr-2">{named
+                    ? <Tip content={<span className="font-mono">{p.measure}</span>}><span>{named.measure}{named.slice && <span className="text-fg-faint"> · {named.slice}</span>}</span></Tip>
+                    : <Missing />}
+                    {p.reason && <span title={p.reason} className="line-clamp-2 text-small text-fg-faint">{p.reason}</span>}</td>
                   <td className="py-1 pr-2 text-fg-muted">
                     {p.direction === "up" ? <span className="inline-flex items-center gap-1"><Icon name="arrow-up" size={12} />Up</span>
                       : p.direction === "down" ? <span className="inline-flex items-center gap-1"><Icon name="arrow-down" size={12} />Down</span>
                       : p.direction ?? <Missing />}
                   </td>
-                  <td className={`py-1 text-right ${cls}`}>{label}</td>
+                  <td className={`whitespace-nowrap py-1 text-right ${cls}`}>{label}</td>
                 </tr>
               );
             })}
@@ -76,8 +83,9 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
         {cmp ? (
           <KeyValues items={[
             ["Control", cmp.vs_trial != null ? <span>trial {cmp.vs_trial}</span> : null],
-            ["Mean daily log diff.", cmp.mean_daily_log_difference != null ? <span>{cmp.mean_daily_log_difference.toPrecision(3)}</span> : null],
-            ["Detectable annual diff.", <Tip content="The annual return difference over the control this sample detects with 80% power: a power reading, not a threshold"><span>{cmp.detectable?.toLocaleString("en-US", percent) ?? "-"}</span></Tip>],
+            ["Mean daily difference", cmp.mean_daily_log_difference != null
+              ? <Tip content="The mean of the daily log return differences over the control, as a daily percent"><span>{daily(cmp.mean_daily_log_difference)}</span></Tip> : null],
+            ["Detectable annual difference", <Tip content="The annual return difference over the control this sample detects with 80% power: a power reading, not a threshold"><span>{cmp.detectable?.toLocaleString("en-US", percent) ?? "-"}</span></Tip>],
             ["Difference intervals", cmp.intervals_cross_zero == null ? null : <Tip content="The basic and studentized intervals of the mean daily log difference and the annual return difference interval: candidate and control are told apart when any of them excludes zero"><span>{cmp.intervals_cross_zero ? "All cross zero" : "Some exclude zero"}</span></Tip>],
           ]} />
         ) : <p className="text-fg-faint">{compared.kind === "reading" ? "Computing the comparison…"
