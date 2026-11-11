@@ -242,16 +242,24 @@ class RestartTests(unittest.TestCase):
             daemon.start.assert_not_called()
             self.assertEqual(daemon.recovery_failures[1]["code"], "PAPER_RECOVERY_UNAVAILABLE")
 
-    def test_unexpected_node_end_does_not_seal_away_recovery_originals(self):
+    def test_only_a_pause_or_a_missing_summary_resumes_every_other_end_seals(self):
+        """A runner refusal (TERMS_CHANGED, a breach, a failed restore) or a node that stopped on its own leaves a
+        dirty checkpoint that resume refuses; sealing captures its recovery originals instead of retrying forever."""
+        reasons = ["SIGINT", None, "TERMS_CHANGED", "PAPER_EXEC_CLIENT_NOT_SANDBOX", "PAPER_RECOVERY_UNAVAILABLE",
+                   "node_stopped"]
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             daemon = self.daemon(root)
-            daemon.runs.return_value = {"runs": [{"paper_id": 1, "state": "ended"}]}
-            (root / "out").mkdir()
-            (root / "out/summary.json").write_text(json.dumps({"stop_reason": "node_stopped"}))
-            with mock.patch.object(runs, "run_dir", return_value=root):
+            daemon.stopping = set()
+            daemon.runs.return_value = {"runs": [{"paper_id": i, "state": "ended"} for i in range(1, 7)]}
+            for i, reason in enumerate(reasons, 1):
+                (root / str(i) / "out").mkdir(parents=True)
+                if reason:
+                    (root / str(i) / "out/summary.json").write_text(json.dumps({"stop_reason": reason}))
+            with mock.patch.object(runs, "run_dir", side_effect=lambda _, i: root / str(i)):
                 daemon.seal_found()
-            daemon.cli.assert_called_once_with("resume", "--paper-id", "1")
+            self.assertEqual([call.args[0] for call in daemon.cli.call_args_list],
+                             ["resume", "resume", "seal", "seal", "seal", "seal"])
 
 
 def events(response) -> tuple[str, object]:

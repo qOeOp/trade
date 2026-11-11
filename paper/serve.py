@@ -442,7 +442,7 @@ class Daemon:
             self.seal_found()
 
     def seal_found(self) -> None:
-        """Seal explicit ends. An interruption continues the same unsealed run, or remains stopped.
+        """Seal every end but a pause. An interruption continues the same unsealed run, or remains stopped.
 
         A missing/inconsistent recovery point never falls back to a fresh Sandbox account. The CLI
         serializes resume/stop/seal and counts actual attempts, including failures before journalling.
@@ -479,8 +479,10 @@ class Daemon:
                 summary = json.loads((output / "summary.json").read_bytes())
             except (FileNotFoundError, ValueError):
                 summary = None
-            final = (output / "STOP").exists() or bool(summary and summary.get("stop_reason") in ("STOP_FILE", "DURATION"))
-            action = "seal" if final else "resume"
+            # Only a pause (SIGTERM/SIGINT) or an interruption before the summary leaves a run to continue;
+            # every other end (STOP, duration, a runner refusal, the node stopping by itself) is sealed.
+            paused = summary is None or summary.get("stop_reason") in ("SIGTERM", "SIGINT")
+            action = "resume" if paused and not (output / "STOP").exists() else "seal"
             try:
                 self.cli(action, "--paper-id", str(run["paper_id"]))
                 self.recovery_failures.pop(run["paper_id"], None)
