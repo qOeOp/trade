@@ -16,8 +16,8 @@ export function useStretches(own: Piece | null, symbol: string | null): Stretch[
   const { version, chain, stage } = useShown();
   const listing = usePaperRuns();
   const chains = useMemo(() => (version === null ? (chain.length ? [chain] : []) : chainsOf(version, listing?.runs ?? [])), [version, chain, listing]);
-  const pieces = usePieces(useMemo(() => chains.flat(), [chains]), symbol);
-  const shown = chain.at(-1);
   const traded = useMemo(() => (symbol ? chains.filter((c) => c.at(-1)!.symbols.includes(symbol)) : chains), [chains, symbol]);
+  const pieces = usePieces(useMemo(() => traded.flat(), [traded]), symbol);
+  const shown = chain.at(-1);
   return useMemo(() => stretchesOf(traded, pieces, own, shown, stage !== "backtest"), [traded, pieces, own, shown, stage]);
 }
