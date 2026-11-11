@@ -373,7 +373,7 @@
   - `final_equity`：等于 `trial.starting_balance` 乘以日收益连乘。封存时已经检查过两者一致（`returns_compound_to_equity`），读者（`report/review.py:163`、`report/comparison.py:303`、`report/measures.py:116`）改为推导。
 
 重封：
-- 只有产品的封存命令重封。重新回放后，新的原生报告要与 `run.fingerprints` 逐项相同，才用当前代码覆盖 `report` 和 `product_commit`。
+- 只有产品的封存命令重封（`replay reseal --trial-id N --output DIR`）。重新回放后，新的原生报告要与 `run.fingerprints` 逐项相同（换镜像也一样），才用当前代码覆盖 `report` 和 `product_commit`；当前代码算出的读数没变就不写。
 - 旧值留在 Dolt 历史和公开副本里（L10，B7 已授权）。
 - 写账号对整张表有 UPDATE，"只有封存命令重封"是代码约定，数据库挡不住。所以 `ledger review` 检查：每个改动 `run_reading` 已有行的提交，都是重封提交（提交信息和 `op_id`），而且同一提交里没有别的承诺行。
 

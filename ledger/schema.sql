@@ -363,8 +363,8 @@ CREATE TABLE run (
   CHECK ((failure_reasons IS NOT NULL) <> (fingerprints IS NOT NULL))
 );
 
--- The one current reading of a passed run: replaceable by the product's seal command after a replay whose
--- native reports match run.fingerprints; earlier values stay in Dolt history.
+-- The one current reading of a passed run: replaceable by `replay reseal` after a replay whose native reports
+-- match run.fingerprints; earlier values stay in Dolt history.
 CREATE TABLE run_reading (
   trial_id INT PRIMARY KEY,
   report JSON NOT NULL,

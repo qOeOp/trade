@@ -145,6 +145,49 @@ class ReproduceTests(unittest.TestCase):
 
 
 @unittest.skipUnless(BINARY, SKIP)
+class ResealTests(unittest.TestCase):
+    """A reading is replaced only from a reproduction equal to every fingerprint table, in one reseal commit."""
+
+    def setUp(self):
+        self.world = ReplayWorld("reseal")
+        self.addCleanup(self.world.close)
+        registration, (ref,) = registered_grid(self.world, ["s1"])
+        self.world.fingerprint = FINGERPRINT
+        self.trial_id = entry.run(self.world.profile, self.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+                                  registration=registration)["trial_id"]
+
+    def reseal(self, name: str) -> dict:
+        return reproduce.reseal(self.trial_id, self.world.output(name), ledger=self.world.profile,
+                                market=self.world.market)
+
+    def reading(self) -> tuple:
+        return tuple(self.world.service.sql(self.world.profile, "SELECT report, product_commit, op_id FROM run_reading "
+                                                                f"WHERE trial_id = {self.trial_id}")[0])
+
+    def test_a_new_metrics_commit_replaces_the_reading_in_one_reseal_commit(self):
+        sealed = self.reading()
+        unchanged = self.reseal("same-code")
+        self.assertEqual((unchanged["resealed"], self.reading()), (False, sealed), "the same code writes nothing")
+        with patch.object(metrics, "product_commit", return_value="f" * 40):
+            done = self.reseal("new-code")
+        self.assertTrue(done["resealed"])
+        self.assertEqual(self.reading()[1:], ("f" * 40, done["op_id"]))
+        sql = lambda query: self.world.service.sql(self.world.profile, query)  # noqa: E731
+        self.assertEqual(sql(f"SELECT message FROM dolt_log WHERE commit_hash = '{done['ledger_commit']}'"),
+                         [(f"reseal:{done['op_id']}",)])
+        self.assertEqual(sorted(name for (name,) in sql(f"SELECT table_name FROM dolt_diff WHERE commit_hash = "
+                                                         f"'{done['ledger_commit']}'")), ["ledger_head", "run_reading"],
+                         "a reseal commit writes no commitment row (ledger review's check)")
+
+    def test_a_reproduction_that_differs_leaves_the_reading(self):
+        sealed = self.reading()
+        self.world.fingerprint = {"fills": {"rows": 3}}
+        with patch.object(metrics, "product_commit", return_value="f" * 40), self.assertRaises(Refusal) as caught:
+            self.reseal("differs")
+        self.assertEqual((caught.exception.code, self.reading()), ("REPRODUCTION_MISMATCH", sealed))
+
+
+@unittest.skipUnless(BINARY, SKIP)
 class AnotherImageTests(unittest.TestCase):
     """A product update: a run replayed on a new main build keeps its result tables, and then holds that identity."""
 

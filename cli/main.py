@@ -1547,6 +1547,15 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "REPRODUCTION_MISMATCH (fingerprints or sealed facts differ, or the original has none): the trial is written; RUNTIME_NOT_MAIN; UNKNOWN_RUN, "
         "UNKNOWN_CANDIDATE; NOT_TEMPORARY_PATH, "
         "PATH_EXISTS; OUT_OF_SAMPLE_RESERVED"),
+    ("replay", "reseal"): (
+        "the passed run, its reading and the candidate (writer, head); then as replay reproduce",
+        "replay reproduce's explore trial; then, when the current metrics code computes another reading, run_reading "
+        "updated (report, product_commit, op_id) in one reseal:<op_id> commit; publishes",
+        "trial_id, reproduction_trial_id, directory, product_commit, previous_product_commit, resealed (false when "
+        "the reading is unchanged), ledger_commit, op_id",
+        "RUN_NOT_PASSED (no passed run with a reading); REPRODUCTION_MISMATCH (any fingerprint table differs, also "
+        "on another image): the reproduction trial is written, the reading is not; REPORT_UNREADABLE (the current "
+        "metrics code cannot read the reproduction); replay reproduce's refusals"),
     ("market", "init"): (
         "the profile directory",
         "the market directory at --root with its lock alone (the first import writes the first file) and the profile "
@@ -2084,7 +2093,7 @@ def _parser() -> Parser:
     command.add_argument("--registration-id", required=True, type=int, help="validation registration ID")
     _at(command)
 
-    replay = verbs("replay", "replays: explore, precheck, run, report, reproduce")
+    replay = verbs("replay", "replays: explore, precheck, run, report, reproduce, reseal")
     command = runner(replay, "explore", "replay an unpublished strategy file (not evidence)")
     command.epilog = textwrap.fill(
         "Records an explore trial in the ledger; the replay counts as prior exposure of that source and is never "
@@ -2159,6 +2168,16 @@ def _parser() -> Parser:
                       "other tables listed in tables_differing. A match lets the run count that image, configuration "
                       "and inputs as its own too, and adds no exposure; so does identically reproducing the precheck "
                       "a registration cites. Any other exploration of a source counts as its prior exposure.")
+    command = verb(replay, "reseal", "replace a passed run's reading with what the current metrics code computes from "
+                                     "a reproduction equal to every fingerprint table")
+    _ledger_option(command)
+    _market_option(command)
+    command.add_argument("--trial-id", required=True, type=int, help="the passed run whose reading to replace")
+    command.add_argument("--output", required=True, help="new directory under the temporary root")
+    command.add_argument("--image", help="as replay reproduce --image")
+    command.epilog = ("Runs replay reproduce, which records an explore trial. Only when every native report equals "
+                      "the run's fingerprints does the current metrics code compute the report again; the run, its "
+                      "returns and cycles stay. The old reading stays in Dolt history and the public copy.")
 
     market = verbs("market", "market data: init, import, import-quotes, import-trades, import-metrics, "
                              "follow, lifecycle, coverage, bars")
@@ -2487,6 +2506,10 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         from replay import reproduce
         return reproduce.reproduce(args.trial_id, Path(args.output), ledger=db.profile(args.ledger),
                                    market=profiles.market(args.market), image=args.image), 0
+    if key == ("replay", "reseal"):
+        from replay import reproduce
+        return reproduce.reseal(args.trial_id, Path(args.output), ledger=db.profile(args.ledger),
+                                market=profiles.market(args.market), image=args.image), 0
     if key == ("ledger", "service") and args.action in ("run", "check"):
         from cli import service
         if args.action == "check":
