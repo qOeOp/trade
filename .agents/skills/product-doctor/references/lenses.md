@@ -80,6 +80,10 @@ alone does not verify a consumer.
   unused, check consumers a name search misses: pickling across worker pools, reflection,
   configuration, the replay image. Code without a consumer protects nothing; a guard that can still
   fire is not residue and takes the removal test. One finding per removed thing.
+- Structure: before local smells, read the package layers (`tests/test_package_layers.py`),
+  import cycles inside a package, and the largest and most often changed modules (`git log`), and
+  name what holds each shape in place. A shape the index lists as deliberate is reported again only
+  when its stated reason no longer holds.
 
 ## Removal test
 

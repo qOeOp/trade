@@ -76,7 +76,8 @@ writes no record, index row or finding.
    its special cases merge (the remedy whenever special cases exist; an authority item for a
    refusal, audit or authority boundary); removal
    ([removal test](references/lenses.md#removal-test)); a narrow addition only for a wrong product
-   output, a trust boundary the Agent cannot hold or recurrence across sessions. State why each
+   output, a trust boundary the Agent cannot hold or recurrence across sessions; for recurrence a
+   test or CI check can find, the addition is that check (an `authority` item). State why each
    earlier option does not fit, the net change in mechanisms, branches, rules and skill words, and
    why any growth was unavoidable.
 6. **Report decisions.** Use [record.md](references/record.md) for verified findings, authority
