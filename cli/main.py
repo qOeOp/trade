@@ -1379,8 +1379,10 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "product_commit; comparison (the line's comparison table: line, dev_start, dev_end, universe_rule, "
         "execution_identity (the line's, from its "
         "latest research trial since line select; null before the first), runs [{candidate, trial_id, "
-        "execution_identity {runtime_contract, execution, image_digest, keys}, measures, dominated_by, "
-        "non_dominated}] (dominance only within one identity), candidates (those of the line's identity, which a "
+        "execution_identity {runtime_contract, execution, image_digest, keys}, measures, deflated_sharpe "
+        "{effective_trials, all_purpose_trials} (the run's deflated Sharpe at each multiple_testing count with its "
+        "daily_sharpe_variance; null without that reading), dominated_by, non_dominated}] (dominance only within one "
+        "identity), candidates (those of the line's identity, which a "
         "recommendation names), without_economic_evidence; null without a line)",
         "LINE_UNKNOWN (--line); "
         "UNKNOWN_REF (--at)"),
