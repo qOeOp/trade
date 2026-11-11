@@ -59,6 +59,25 @@ def _fill_market(profile: dict) -> None:
          members=[(date(2026, 1, 1), "BTCUSDT"), (date(2026, 2, 1), "BTCUSDT")])
 
 
+
+HISTORY = 1_672_531_200_000  # 2023-01-01T00:00:00Z
+
+
+def _fill_history(profile: dict) -> None:
+    """A week of BTCUSDT bars and funding from 2023-01-01, BTCUSDT a universe member from 2023-01: with _fill_market
+    twelve quarters of coverage before its last quarter end (2025-12-31), so a line opened on BTCUSDT gets the
+    one-year development period 2023 (ledger.lines.development_period), where .github/scripts/fresh-install.sh
+    replays."""
+    count = 7 * 24 * 60
+    i = np.arange(count)
+    price = (17000 + (i % 997) / 10) * 10**8
+    columns = {"ts_open": HISTORY + i * MINUTE, **{name: price.astype(np.int64) for name in ("open", "high", "low", "close")}}
+    bars = {("BTCUSDT", "LAST"): {**columns, "volume": np.where(i % 5 != 0, 15_000, 0).astype(np.int64)},
+            ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(count, np.int64)}}
+    seed(profile, month="2023-01", through="2023-01-08", terms=[], bars=bars,
+         funding={"BTCUSDT": [(HISTORY + 8 * 3_600_000 * k, "0.0001") for k in range(3 * 7)]},
+         members=[(date(2023, 1, 1), "BTCUSDT")])
+
 @unittest.skipUnless(BINARY, SKIP)
 class CommandTests(unittest.TestCase):
     @classmethod

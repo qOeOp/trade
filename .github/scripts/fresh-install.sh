@@ -82,15 +82,18 @@ step "The market profile (after ledger is healthy) and the fixture market"
 printf '{"name": "market", "kind": "market", "role": "active", "root": "%s/market"}\n' "$D" > "$D/ledgers/market.json"
 uv run --frozen python -c '
 import json, sys
-from tests.cli.test_commands import _fill_market
-_fill_market(json.load(open(sys.argv[1])))
+from tests.cli.test_commands import _fill_history, _fill_market
+profile = json.load(open(sys.argv[1]))
+_fill_market(profile)
+_fill_history(profile)
 ' "$D/ledgers/market.json"
 cli market coverage --symbols BTCUSDT --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z
 done_
 
-# The development period is the last four complete quarters the market covers: 2025 for this fixture (bars from
-# 2025-12-24 to 2026-01-31), so the replay trades in its last days.
-window=(--symbols BTCUSDT --start 2025-12-26T00:00:00Z --trade-start 2025-12-27T00:00:00Z --end 2025-12-30T00:00:00Z)
+# The development period lies before a two-year holdout ending at the last quarter end the market covers
+# (2025-12-31). BTCUSDT is covered from 2023-01, twelve quarters, so a line gets the one-year period 2023
+# (line-close-history-test-20261110.zh.md 3.1), where the fixture holds a week of bars.
+window=(--symbols BTCUSDT --start 2023-01-02T00:00:00Z --trade-start 2023-01-03T00:00:00Z --end 2023-01-06T00:00:00Z)
 step "A research line, as research-start opens one: the candidate template published, prechecked, reviewed"
 cli candidate new --output "$work/candidate" --strategy-id fresh-install >/dev/null
 cli candidate publish --file "$work/candidate/strategy.py" --strategy-id fresh-install --entry-class Strategy1 \

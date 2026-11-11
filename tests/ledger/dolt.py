@@ -145,7 +145,8 @@ def reviewed(*sources: bytes):
 
 def pinned(start=None, end=None):
     """Pin the development period (ledger.lines.development_period, whose rule test_lines tests) to [start, end),
-    default January 2026: the fixtures' market and windows are a month or two, the rule's period a year."""
+    default January 2026: the fixtures' market and windows are a month or two, the rule's period three years
+    before a two-year holdout."""
     from datetime import date
     from ledger import lines
     period = (start or date(2026, 1, 1), end or date(2026, 2, 1))
