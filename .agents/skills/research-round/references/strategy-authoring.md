@@ -69,7 +69,9 @@ header template, the entry class, the two hooks and a sizing helper.
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL` for a period `WARMUP` declares (3, 5,
   15, 30 MINUTE; 1, 2, 4, 6, 8, 12 HOUR; 1 DAY); the aggregated bars arrive as
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL` (the subscription type's `.standard()`), stamped on
-  close (Paper and Live: 5 s later, once the last minute is in), the first one whole.
+  close (Paper and Live: 5 s later, once the last minute is in), the first one whole. The warm-up
+  history of the same period arrives as `{instrument_id}-<N>-<UNIT>-LAST-EXTERNAL`, a different bar
+  type with the same `bar_type.spec`: route bars by instrument and `spec`, so that neither is dropped.
 - Every market-data price or indicator input used to decide whether, how much or at what price
   to submit (signals, quantity inputs and specification-check prices included) must come from a
   completed event strictly earlier than submission. Trace each input's timestamp; guarding the signal
