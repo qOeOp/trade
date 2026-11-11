@@ -1,110 +1,160 @@
-# 研究判断与主体
+# 研究线、目标与判断
 
-保存只追加的研究判断、取代关系，以及判断针对的候选、试验和登记主体；另存用户给研究路线定的研究目标。
+研究线是用户选定的一条研究路线，开线时固定开发期；关线记录结束一条线。用户的两项研究目标按线存，没有就读账本默认值。Agent 的判断只追加，针对一条线上的候选、试验或登记。
 
 [数据库总览](/zh/docs/design-ledger/)
 
-### `judgment` [#def-table-judgment]
+### `research_line` [#def-table-research_line]
 
-Agent 的一条判断：推荐、优先级、解释或搜索暴露；只追加，正文只引用不抄写事实
+研究线：名字、起点候选、钉住的市场日和范围规则，以及开线时由规则算出、不能选择的开发期。改起点或市场日是另一条线，不改旧行
 
-<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "主键", required: true }, "kind": { type: "VARCHAR(32)", description: "recommendation | priority | interpretation | search_exposure", required: true }, "line_bundle": { type: "VARCHAR(160)", description: "所属研究路线的 research-line-* 证据包", required: true }, "based_on_commit": { type: "CHAR(32)", description: "做判断时读的账本提交哈希；不早于路线包所在提交", required: true }, "body": { type: "TEXT", description: "Agent 的自由文本；只引用候选、试验、登记包与账本提交，不抄绩效指标、计数、资格或结果类别", required: true }, "supersedes": { type: "BIGINT", description: "被取代的上一条判断；同 kind、同路线，至多被取代一次", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "触发器写入的服务器时间", required: true } }} />
+<TypeTable type={{ "line_id": { type: "INT AUTO_INCREMENT", description: "研究线编号，自增", required: true }, "name": { type: "VARCHAR(64)", description: "研究线名字（slug）", required: true }, "start_source_sha256": { type: "CHAR(64)", description: "起点候选；须有通过的源码审查", required: true }, "market_day": { type: "DATE", description: "这条线读到的市场数据截至日；登记默认用它", required: true }, "universe_rule": { type: "VARCHAR(60)", description: "共同交易范围规则", required: true }, "dev_start": { type: "DATE", description: "开发期第一天", required: true }, "dev_end": { type: "DATE", description: "开发期结束后的第一天（不含）；保留期从这天开始", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID：同一载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值", required: true } }} />
 
 **键与约束**
 
-- 主键　`judgment_id`
+- 主键　`line_id`
+- 唯一　`name`
 - 唯一　`op_id`
-- 唯一　`supersedes`
-- 外键　`line_bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
-- 外键　`supersedes` → <Ref id="table:judgment">judgment</Ref> `judgment_id`
-- CHECK　`kind IN ('recommendation','priority','interpretation','search_exposure')`
-- CHECK　`line_bundle LIKE 'research-line-%'`
+- 外键　`start_source_sha256` → <Ref id="table:candidate">candidate</Ref> `source_sha256`
+- CHECK　`dev_start \< dev_end`
 
-**Dolt 能力**
+**保护与读写规则**
 
-- **dolt_diff_judgment**　只应出现 added；dolt_tests 在提交时核对
-- **AS OF**　按任一账本提交读当时的判断
-- **分支控制与账号**　写账号对本表只有 INSERT
+- 一次写入一个事务、一个 Dolt 提交，并把 `ledger_head` 加一；写账号对本表只有 INSERT，`ledger review` 报告任何被改或被删的行（ROW_CHANGED）
+- 开发期不是选择：Q 是今天之前、市场已覆盖的最后一个日历季末；保留期是截至 Q 的 8 个季度，开发期是它之前的 12 个季度（起点预检的合约在 Q 之前不足 24 个季度覆盖时取 4 个季度；不足 12 个季度不能开线，`LINE_HISTORY_SHORT`）
+- 同一季度开的线共用同一开发期；线开着时，探索、预检和研究回放只能在开发期内交易
 
-**写入方**　`ledger.add_judgment`
+**写入方**　`ledger.lines.select_line`（`line select`）
 
-**读取视图**　<Ref id="table:v_judgments">v_judgments</Ref>
+**读取方**　`line list`、`line select`、`research state`
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref>
-
-**依据**
-
-- [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
-- [Dolt — SQL procedures](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)　官方文档
-- [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)　官方文档
+**关联章节**　<Ref id="E.4.1.1">E.4.1.1</Ref> <Ref id="E.4.1.2">E.4.1.2</Ref>
 
 </div>
 
-### `judgment_subject` [#def-table-judgment_subject]
+### `line_close` [#def-table-line_close]
 
-一条判断涉及的候选、试验或登记包，以及它们在判断里的角色
+关线：结束一条研究线并存总结。关线前，关线历史回测的每一段都要有运行（`line history`），否则 `HISTORY_INCOMPLETE`
 
-<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "所属判断", required: true }, "seq": { type: "INT", description: "判断内序号", required: true }, "role": { type: "VARCHAR(16)", description: "recommended | parent | control | about", required: true }, "strategy_id": { type: "VARCHAR(100)", description: "候选引用名 ID", required: false }, "revision": { type: "INT", description: "候选版本号", required: false }, "trial_id": { type: "INT", description: "试验；覆盖没有运行行的未完成与预检失败尝试", required: false }, "registration_bundle": { type: "VARCHAR(160)", description: "登记包；须在 registration_attempt 中出现过", required: false } }} />
+<TypeTable type={{ "line_id": { type: "INT", description: "被关的研究线；一条线只关一次", required: true }, "summary": { type: "TEXT", description: "关线总结（UTF-8，最长 32 KB）", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID：同一载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值；即关线时刻", required: true } }} />
 
 **键与约束**
 
-- 主键　`judgment_id`, `seq`
-- 外键　`judgment_id` → <Ref id="table:judgment">judgment</Ref> `judgment_id`
-- 外键　`strategy_id, revision` → <Ref id="table:candidate">candidate</Ref> `strategy_id, revision`
-- 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
-- 外键　`registration_bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
-- CHECK　`恰有一类目标非空：(strategy_id, revision) | trial_id | registration_bundle`
-- CHECK　`role IN ('recommended','parent','control') 时目标必须是候选`
+- 主键　`line_id`
+- 唯一　`op_id`
+- 外键　`line_id` → <Ref id="table:research_line">research_line</Ref> `line_id`
+- CHECK　`LENGTH(summary) > 0`
 
-**Dolt 能力**
+**保护与读写规则**
 
-- **dolt_diff_judgment_subject**　只应出现 added；dolt_tests 在提交时核对
+- 一次写入一个事务、一个 Dolt 提交，并把 `ledger_head` 加一；写账号对本表只有 INSERT，`ledger review` 报告任何被改或被删的行（ROW_CHANGED）
+- 同一总结再关是重放；关线之后同步备份（`ledger export --kind backup`），同步失败不撤销关线，`ledger review` 报告落后的备份（BACKUP_BEHIND）
+- 已关的线不删也不压缩：它们是多重检验的分母。读命令默认只看开着的线
 
-**写入方**　`ledger.add_judgment`
+**写入方**　`ledger.lines.close_line`（`line close`）
 
-**读取视图**　<Ref id="table:v_judgments">v_judgments</Ref>
+**读取方**　`line list --all`、`research history`
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref>
-
-**依据**
-
-- [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
-- [Dolt — SQL procedures](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)　官方文档
-- [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)　官方文档
+**关联章节**　<Ref id="E.4.1.3">E.4.1.3</Ref> <Ref id="X.1.1.1">X.1.1.1</Ref>
 
 </div>
 
 ### `line_target` [#def-table-line_target]
 
-用户给一条研究路线或整本账本（默认值）定的两个研究目标；只追加，改目标是新的一行取代同一范围里原来生效的那一行
+研究目标：用户给一条线（或账本默认）定的最大回撤和最低年化。改目标追加一行取代当前行；同一范围只有一条链
 
-<TypeTable type={{ "target_id": { type: "BIGINT", description: "自增主键", required: true }, "line_bundle": { type: "VARCHAR(160)", description: "所属研究路线的 research-line-* 证据包；NULL 为账本默认值，没有自己目标的路线读它", required: false }, "max_drawdown": { type: "DECIMAL(7,4)", description: "用户的最大回撤上限，比例（0.15 即 15%）", required: true }, "annual_return": { type: "DECIMAL(7,4)", description: "用户的最低年化收益，比例（0.20 即 20%）", required: true }, "supersedes": { type: "BIGINT", description: "被取代的同一范围上一行；至多被取代一次；生效的是链末端，不靠时间排序", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "触发器 line_target_created 写入的服务器 UTC 时间", required: true } }} />
+<TypeTable type={{ "target_id": { type: "BIGINT AUTO_INCREMENT", description: "目标编号，自增", required: true }, "line_id": { type: "INT", description: "所属研究线；NULL 为账本默认", required: false }, "scope_key": { type: "INT 生成列", description: "范围：line_id，默认为 0（由 `COALESCE(line_id, 0)` 生成）", required: true }, "root_scope": { type: "INT 生成列", description: "链头的范围；唯一键保证每个范围只有一条链（由 `IF(supersedes IS NULL, COALESCE(line_id, 0), NULL)` 生成）", required: false }, "max_drawdown": { type: "DECIMAL(7,4)", description: "最大回撤目标，0 到 1 之间", required: true }, "annual_return": { type: "DECIMAL(7,4)", description: "最低年化目标，大于 0", required: true }, "supersedes": { type: "BIGINT", description: "被取代的同范围目标；一个目标最多被取代一次", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID：同一载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值", required: true } }} />
 
 **键与约束**
 
 - 主键　`target_id`
-- 唯一　`op_id`
 - 唯一　`supersedes`
-- 外键　`line_bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
-- 外键　`supersedes` → <Ref id="table:line_target">line_target</Ref> `target_id`
-- CHECK　`line_bundle IS NULL OR line_bundle LIKE 'research-line-%'`
-- CHECK　`max_drawdown > 0 AND max_drawdown < 1`
+- 唯一　`op_id`
+- 唯一　`root_scope`
+- 唯一　`target_id`, `scope_key`
+- 外键　`line_id` → <Ref id="table:research_line">research_line</Ref> `line_id`
+- 外键　`supersedes`, `scope_key` → <Ref id="table:line_target">line_target</Ref> `target_id`, `scope_key`
+- CHECK　`supersedes IS NULL OR supersedes \< target_id`
+- CHECK　`max_drawdown > 0 AND max_drawdown \< 1`
 - CHECK　`annual_return > 0`
 
-**Dolt 能力**
+**保护与读写规则**
 
-- **dolt_diff_line_target**　只应出现 added
-- **AS OF**　按任一账本提交读当时生效的目标；ledger upgrade 补建本表之前的提交没有这张表，读作未设目标
-- **分支控制与账号**　写账号对本表只有 INSERT
+- 一次写入一个事务、一个 Dolt 提交，并把 `ledger_head` 加一；写账号对本表只有 INSERT，`ledger review` 报告任何被改或被删的行（ROW_CHANGED）
+- 目标是用户的，只照用户说的记；它指导读报告，不决定候选资格。与当前目标相同的值不写
 
-**写入方**　`ledger.set_targets`（经 `ledger.select_line` 或 line targets）
+**写入方**　`ledger.targets.set_targets`（`line targets`、`line select --max-drawdown/--annual-return`）
+
+**读取方**　`line targets`、`research status`、`research history`
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="A.2.3.3">A.2.3.3</Ref>
+**关联章节**　<Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="A.2.2.1">A.2.2.1</Ref>
+
+</div>
+
+### `judgment` [#def-table-judgment]
+
+Agent 判断：一条线上的推荐、优先级、解读或搜索暴露，基于一个确切的账本提交；更正取代同线同类的旧判断，只追加
+
+<TypeTable type={{ "judgment_id": { type: "BIGINT AUTO_INCREMENT", description: "判断编号，自增", required: true }, "kind": { type: "ENUM('recommendation', 'priority', 'interpretation', 'search_exposure')", description: "recommendation 推荐；priority 研究优先级；interpretation 对试验结果的解读；search_exposure 搜索暴露", required: true }, "line_id": { type: "INT", description: "所属研究线", required: true }, "based_on_commit": { type: "CHAR(32)", description: "依据的账本提交（32 位 Dolt 哈希）；须是写入时头提交的祖先", required: true }, "body": { type: "TEXT", description: "判断正文", required: true }, "supersedes": { type: "BIGINT", description: "被取代的同线判断；最多被取代一次", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID：同一载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值", required: true } }} />
+
+**键与约束**
+
+- 主键　`judgment_id`
+- 唯一　`supersedes`
+- 唯一　`op_id`
+- 唯一　`judgment_id`, `line_id`
+- 索引　`line_id`, `kind`
+- 外键　`line_id` → <Ref id="table:research_line">research_line</Ref> `line_id`
+- 外键　`supersedes`, `line_id` → <Ref id="table:judgment">judgment</Ref> `judgment_id`, `line_id`
+- CHECK　`supersedes IS NULL OR supersedes \< judgment_id`
+- CHECK　`LENGTH(based_on_commit) = 32`
+
+**保护与读写规则**
+
+- 一次写入一个事务、一个 Dolt 提交，并把 `ledger_head` 加一；写账号对本表只有 INSERT，`ledger review` 报告任何被改或被删的行（ROW_CHANGED）
+- 推荐必须点名它所依据的比较表里的全部候选；完成的研究试验没有解读时，下一次登记拒绝（`INTERPRETATION_REQUIRED`）
+
+**写入方**　`ledger.judgments.add_judgment`（`judgment add`）
+
+**读取方**　`research state`、`research status`
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref>
+
+</div>
+
+### `judgment_subject` [#def-table-judgment_subject]
+
+判断主体：判断针对的候选、试验或研究登记，每行恰好一个
+
+<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "所属判断", required: true }, "seq": { type: "INT", description: "主体序号", required: true }, "role": { type: "ENUM('about', 'recommended', 'parent', 'control')", description: "about 关于；recommended 被推荐；parent 研发父版本；control 比较对照。除 about 外都必须是候选", required: true }, "source_sha256": { type: "CHAR(64)", description: "候选主体", required: false }, "trial_id": { type: "INT", description: "试验主体", required: false }, "research_registration_id": { type: "INT", description: "研究登记主体", required: false } }} />
+
+**键与约束**
+
+- 主键　`judgment_id`, `seq`
+- 外键　`judgment_id` → <Ref id="table:judgment">judgment</Ref> `judgment_id`
+- 外键　`source_sha256` → <Ref id="table:candidate">candidate</Ref> `source_sha256`
+- 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
+- 外键　`research_registration_id` → <Ref id="table:research_registration">research_registration</Ref> `registration_id`
+- CHECK　`(source_sha256 IS NOT NULL) + (trial_id IS NOT NULL) + (research_registration_id IS NOT NULL) = 1`
+- CHECK　`role = 'about' OR source_sha256 IS NOT NULL`
+
+**保护与读写规则**
+
+- 与判断同一提交写入
+- 外键挡的是产品代码的错误：写账号能在会话里关掉外键检查，所以 `ledger review` 对新提交逐个外键查对不上的行（CONSTRAINT_VIOLATED）
+
+**写入方**　`ledger.judgments.add_judgment`
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref>
 
 </div>

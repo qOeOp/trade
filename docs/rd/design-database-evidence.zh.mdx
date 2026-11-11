@@ -1,83 +1,85 @@
 # 证据包与原件
 
-证据包组织文件目录，目录指向按内容哈希存储的原件；研究线与登记声明也使用证据包，不另造重复记录。
+证据包是一组命名文件，文件按内容哈希指向只存一份的原件。包的种类说明它装什么；产品种类只由产品代码写，Agent 只写自己的包。
 
 [数据库总览](/zh/docs/design-ledger/)
 
 ### `evidence_bundle` [#def-table-evidence_bundle]
 
-证据包头：登记、源码审查、执行封存、生命周期事实、研究路线、更正与 Agent 自由文本都以证据包入账；包名即身份
+证据包：名字即身份，从不替换。试验的 start、capture、recovery 包以 `trial-<id>-` 开头并在本行记下试验
 
-<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "证据包名。产品保留命名空间：trial-<id>-execution-start、trial-<id>-execution、trial-<id>-recovery、trial-<id>-recovery-*、registration-*、source-review-*、research-line-<date>-<slug>、lifecycle-<market_day>，只由对应的产品命令经 ledger.write_files 写；其余名字（如 correction-*、Agent 的来源与笔记包）由 Agent 经 ledger.add_bundle 写；同名第二次写入 BUNDLE_EXISTS", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器见 [[J.4.1.1]]）", required: true } }} />
+<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "包名，`[A-Za-z0-9][A-Za-z0-9_.-]{0,159}`；`trial-<id>-…` 与 `lifecycle-…` 是产品保留的名字", required: true }, "kind": { type: "ENUM('start', 'capture', 'recovery', 'lifecycle', 'source', 'agent')", description: "start 试验开始（源码与覆盖回执）；capture 捕获；recovery 恢复；lifecycle 某市场日的上下架事实；source 登记引用的来源原件（`source-<sha256>`）；agent Agent 自己的证据", required: true }, "trial_id": { type: "INT", description: "start、capture、recovery 包所属试验；其他种类为 NULL", required: false }, "one_per_trial": { type: "VARCHAR(16) 生成列", description: "start 或 capture 时等于种类，用唯一键保证一次试验最多一个开始包和一个捕获包（由 `IF(kind IN ('start', 'capture'), kind, NULL)` 生成）", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID；随业务行写入的包可为 NULL", required: false }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值", required: true } }} />
 
 **键与约束**
 
 - 主键　`bundle`
 - 唯一　`op_id`
+- 唯一　`trial_id`, `one_per_trial`
+- 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
+- CHECK　`(kind IN ('start', 'capture', 'recovery')) = (trial_id IS NOT NULL)`
+- CHECK　`trial_id IS NULL OR bundle LIKE CONCAT('trial-', trial_id, '-%')`
 
-**Dolt 能力**
+**保护与读写规则**
 
-- **J.3.2.1**　每次写入恰一个 DOLT_COMMIT，与业务行同一事务
-- **J.3.1.1**　dolt_diff_evidence_bundle 只出现 added；dolt_history_evidence_bundle 给每行每提交的哈希与时间
-- **J.3.1.3**　AS OF \<commit|tag|branch> 读该版本的包
-- **J.4.1.1**　created_at 与 trial.created_at 比较＝登记先于试验；不用可指定的提交日期
+- 一次写入一个事务、一个 Dolt 提交，并把 `ledger_head` 加一；写账号对本表只有 INSERT，`ledger review` 报告任何被改或被删的行（ROW_CHANGED）
+- 包与它的业务行同一提交写入
 
-**写入方**　`ledger.add_bundle（Agent 的来源、笔记与更正）；ledger.write_files（产品保留命名空间：登记、源码审查、研究路线、生命周期、开始回执、执行封存、恢复材料）`
+**写入方**　`ledger.evidence.write_files`（产品种类）；`ledger.evidence.add_bundle`（`evidence add`，种类 agent）
 
-**读取视图**　<Ref id="table:v_evidence">v_evidence</Ref>
+**读取方**　`evidence export`、`ledger.evidence.load_bundle`
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref>
+**关联章节**　<Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="H.2.3.1">H.2.3.1</Ref>
 
 </div>
 
 ### `evidence` [#def-table-evidence]
 
-证据包内文件：每个文件按内容哈希指向一份 <Ref id="table:evidence_content">evidence_content</Ref>；大原件按固定块分行，逻辑文件由包内清单重组
+包内文件目录：包名 × 路径 → 内容哈希
 
-<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "所属证据包", required: true }, "path": { type: "VARCHAR(512)", description: "包内相对路径；分块封存时为 <逻辑文件>.part-<n>，清单文件 execution.json 记逻辑名、总长、总哈希与块序（容量规则见 [[J.3.4.2]]）", required: true }, "sha256": { type: "CHAR(64)", description: "文件内容的哈希；外键指向库内派生该哈希的内容行，读回时对字节重算核对，不符 LEDGER_CORRUPT", required: true } }} />
+<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "所属包", required: true }, "path": { type: "VARCHAR(512)", description: "包内相对路径，最长 512", required: true }, "sha256": { type: "CHAR(64)", description: "内容哈希；只能指向已存在的原件", required: true } }} />
 
 **键与约束**
 
 - 主键　`bundle`, `path`
+- 索引　`sha256`
 - 外键　`bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
 - 外键　`sha256` → <Ref id="table:evidence_content">evidence_content</Ref> `sha256`
 
-**Dolt 能力**
+**保护与读写规则**
 
-- **J.3.2.1**　与包头同一事务恰一个 DOLT_COMMIT
-- **J.3.1.1**　dolt_diff_evidence 只出现 added；其余任何 modified/removed 即篡改发现，登记与审查结论不能被事后改写
-- **J.3.1.3**　AS OF \<commit|tag|branch> 读该版本的文件
-- **J.3.4.1**　内容寻址：哈希只能指向已存在的内容行，内容行的哈希由库内生成列派生，调用方不能把字节配上别的哈希；INDEX sha256 供按内容查找
-- **J.3.5.1**　随 dolt_backup 整份备份，并随账本推到公开的 DoltHub 副本；服务的自动 GC 只回收不可达的块，被引用的原件永久保留
+- 一次写入一个事务、一个 Dolt 提交，并把 `ledger_head` 加一；写账号对本表只有 INSERT，`ledger review` 报告任何被改或被删的行（ROW_CHANGED）
 
-**写入方**　`ledger.add_bundle（Agent 命名空间，含 registration.register 写的登记包）；ledger.start_receipt、ledger.seal_capture、ledger.recover_capture（产品保留命名空间）`
+**写入方**　`ledger.evidence.write_files`
 
-**读取视图**　<Ref id="table:v_evidence">v_evidence</Ref>
+**读取方**　`ledger.evidence.load_bundle`（读回时重算哈希）
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref>
+**关联章节**　<Ref id="J.3.4.1">J.3.4.1</Ref>
 
 </div>
 
 ### `evidence_content` [#def-table-evidence_content]
 
-证据原件字节：每份不同内容只存一次（模式第 2 代），多个包、多个路径的相同文件共用一行
+原件：按内容只存一份；哈希由库内生成，写入方不能把改过的字节配上旧哈希
 
-<TypeTable type={{ "sha256": { type: "CHAR(64)", description: "生成列 SHA2(content,256) STORED，主键；调用方不能填写", required: true }, "content": { type: "LONGBLOB", description: "原件字节，非空", required: true } }} />
+<TypeTable type={{ "sha256": { type: "CHAR(64) 生成列", description: "内容哈希（主键）（由 `SHA2(content, 256)` 生成）", required: true }, "content": { type: "LONGBLOB", description: "原字节，非空", required: true } }} />
 
 **键与约束**
 
 - 主键　`sha256`
 - CHECK　`LENGTH(content) > 0`
-- 生成列　`sha256 = SHA2(content, 256) STORED`
 
-**Dolt 能力**
+**保护与读写规则**
 
-- **J.3.2.1**　与引用它的 evidence 行同一事务；已存在的内容只被引用，不再插入（写入账号只有 INSERT）
-- **J.3.1.1**　dolt_diff_evidence_content 只出现 added
-- Dolt 2.4.2 只在插入字节时计算生成列；对已存的长二进制重算 SHA2（更新所在行或改生成列定义）会让服务端 panic（实测）；内容行只插不改，读回时的哈希核对在 Python 里做
+- 已有的内容只被引用，不再插入；写账号只有 INSERT
 
-**写入方**　`ledger.write_files`
+**写入方**　`ledger.evidence.write_files`
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.3.4.2">J.3.4.2</Ref>
+
+</div>

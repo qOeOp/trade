@@ -24,7 +24,7 @@
 - **W.1.3.2**　已结束月份的 agg_trade、quote 文件不再写。进行中的月份重写：K 线与资金费已有的日子须与来源重读逐行相同，否则 MONTH_EXISTS；名单须与已存行相同，否则 UNIVERSE_CHANGED；metrics 已存的行原样留下
 - **J.3.2.2**　一次只有一个导入：导入全程持有 `lock` 的 fcntl 文件锁，第二个导入拒绝 CONCURRENT_IMPORT。fcntl 锁只在共用一个内核的进程之间互斥：所有写者（market-import 与任何市场写命令）都在这个 compose 项目的容器里跑，共用 Docker 虚拟机的内核；锁管不到的写者由 place 核对目标的 inode 与修改时间拦下（同一拒绝码）
 
-**市场提交**　它包含的最后一天 D，写作 `YYYY-MM-DD`，如 `2026-11-03`（否则 MARKET_COMMIT_INVALID）。按提交读，读到的是：
+**市场日**　它包含的最后一天 D，写作 `YYYY-MM-DD`，如 `2026-11-03`（否则 MARKET_COMMIT_INVALID）。研究账本里的试验、登记、研究线和 Paper 运行都把它存为 `market_day DATE`；市场代码里仍叫 commit（`market.resolve_commit`、拒绝码 `MARKET_COMMIT_*`）。按市场日读，读到的是：
 
 | 表 | 读到的行 |
 |---|---|
@@ -56,7 +56,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 ### `instrument` [#def-table-instrument]
 
-合约条款按观测时刻追加：精度步长与限额取自交易所公开条款原文，已下架合约从成交推断步长；导出按市场提交取最新一行
+合约条款按观测时刻追加：精度步长与限额取自交易所公开条款原文，已下架合约从成交推断步长；导出按市场日取最新一行
 
 <TypeTable type={{ "symbol": { type: "string", description: "交易所公开合约名", required: true }, "observed_at": { type: "int64", description: "观测时刻 UTC 毫秒；每次条款变化追加一行", required: true }, "terms_source": { type: "string", description: "exchange_info（公开原文）或 inferred（推断）", required: true }, "price_increment": { type: "string", description: "原精度字符串，小数位即精度", required: true }, "size_increment": { type: "string", description: "原精度字符串", required: true }, "min_quantity": { type: "string", description: "inferred 时为空", required: false }, "max_quantity": { type: "string", description: "inferred 时为空", required: false }, "min_notional": { type: "string", description: "inferred 时为空", required: false }, "min_price": { type: "string", description: "inferred 时为空", required: false }, "max_price": { type: "string", description: "inferred 时为空", required: false }, "classification": { type: "string", description: "条款原文分类：contract_type、quote_asset、underlying_type、underlying_sub_types；范围规则据此排除指数类、稳定币对与股票类；inferred 时为空", required: false } }} />
 
@@ -68,9 +68,9 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 **存储保证**
 
 - **W.1.3.2**　条款文件只追加：已存的观测加新的观测，条款没变不写
-- **W.1.3.2**　`market.read_table` 按市场提交读出 observed_at 在截至日次日结束之前的观测
+- **W.1.3.2**　`market.read_table` 按市场日读出 observed_at 在截至日次日结束之前的观测
 - **W.1.3.2**　`market.write_file` 写入时逐批核对行规则（CHECK_FAILED）
-- **W.4.2.2**　导出取该市场提交下 observed_at 最新一行，回执记 CURRENT_SNAPSHOT_APPROXIMATION
+- **W.4.2.2**　导出取该市场日下 observed_at 最新一行，回执记 CURRENT_SNAPSHOT_APPROXIMATION
 
 **写入方**　`market.import_month`
 
@@ -101,7 +101,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 **存储保证**
 
 - **W.1.3.2**　一个月一个文件；重写进行中的月份时已有的日子须与来源重读逐行相同，否则 MONTH_EXISTS
-- **W.1.3.2**　`market.read_table` 按市场提交读出截至日及以前的 K 线
+- **W.1.3.2**　`market.read_table` 按市场日读出截至日及以前的 K 线
 - **W.1.3.2**　`market.write_file` 写入时逐批核对行规则（CHECK_FAILED）
 - **W.1.1.2**　同一分钟两来源不等即整次导入拒绝，不以一方覆盖另一方
 
@@ -135,7 +135,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 **写入方**　`cli.market_import_quotes` → `market.import_quotes`，从已存的 <Ref id="table:agg_trade" /> 文件推出，推算由 `market.derive` 负责。同合约同月已有文件时拒绝。
 
-**读取方**　`market.quote_rows` 经 `market.read_table` 按市场提交流式读取，经 `market.write_quotes` 写为原生 QuoteTick，`market.export_episode` 把 `counts.quote`、`quote_size` 写入导出回执；报价环境由 `engine.execution_account` 选择。该提交下区间内没有本表文件时读为空流，默认 K 线导出仍可用；报价环境缺有效报价仍按现有检查拒绝。
+**读取方**　`market.quote_rows` 经 `market.read_table` 按市场日流式读取，经 `market.write_quotes` 写为原生 QuoteTick，`market.export_episode` 把 `counts.quote`、`quote_size` 写入导出回执；报价环境由 `engine.execution_account` 选择。该提交下区间内没有本表文件时读为空流，默认 K 线导出仍可用；报价环境缺有效报价仍按现有检查拒绝。
 
 **关联与边界**　`symbol` 在应用读取时与 instrument 条款、universe_month 成员及生命周期片段关联，没有外键。推算规则和逐合约／时段／用途的证据边界沿用 <Ref id="W.1.2.1" />，原生强平环境沿用 <Ref id="W.4.2.1" />。
 
@@ -191,7 +191,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 **存储保证**
 
 - **W.1.3.2**　一个月一个文件；重写进行中的月份时已有的日子须与来源重读逐行相同，否则 MONTH_EXISTS
-- **W.1.3.2**　`market.read_table` 按市场提交读出截至日及以前的结算
+- **W.1.3.2**　`market.read_table` 按市场日读出截至日及以前的结算
 - **W.1.3.2**　`market.write_file` 写入时逐批核对行规则（CHECK_FAILED）
 
 **写入方**　`market.import_month`
@@ -210,7 +210,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 ### `universe_month` [#def-table-universe_month]
 
-共同可交易范围 universe：环境按事前规则在每个 UTC 月初产出的成员名单，不排名、不取前 N；后来下架的合约留在当时名单里；成员时间路径由本表在钉住的市场提交上派生
+共同可交易范围 universe：环境按事前规则在每个 UTC 月初产出的成员名单，不排名、不取前 N；后来下架的合约留在当时名单里；成员时间路径由本表在钉住的市场日上派生
 
 <TypeTable type={{ "universe_rule": { type: "string", description: "产出该行的范围规则版本", required: true }, "month": { type: "date32", description: "UTC 月初", required: true }, "symbol": { type: "string", description: "成员合约的交易所公开名；ticker 重用在导出时按生命周期拆为原生合约", required: true } }} />
 
@@ -223,7 +223,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 - **W.1.3.2**　随 K 线导入写，一个月一个文件；这个月已有名单时，算出的须与已存行相同，否则 UNIVERSE_CHANGED
 - **W.1.3.2**　放到位前由 `market.data_tests` 核对最新月份：成员在该月前一 UTC 日有 LAST 且 volume > 0 的 bar 行、成员有条款、universe_rule 等于 `universe.RULE`；任一失败 DATA_TESTS_FAILED
-- **W.1.3.2**　`market.read_table` 重现任一市场提交的成员时间路径
+- **W.1.3.2**　`market.read_table` 重现任一市场日的成员时间路径
 - **W.1.3.2**　`market.write_file` 写入时逐批核对行规则（CHECK_FAILED）
 - **W.3.1.2**　按 market_day 读出范围规则、合约清单与每合约 [start, end) 成员时间路径，进入输入身份
 - **X.1.3.1**　样本外绑定时在登记的 market_day 与本次 market_day 下逐行比对登记前各月名单

@@ -478,11 +478,11 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 <div className="rd-example">
 
-比如某个网格点回放到一半因为内存不足中断了，这个点已经用掉；修好后要再跑同一份源码，得另开一份登记，写明它是那一次的再试。
+比如某个网格点回放到一半因为超过内存上限被拒（`STAGE_MEMORY_LIMIT`），这个点已经用掉；修好后要再跑同一份源码，得另开一份登记，写明它是那一次的再试。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:registration_attempt">registration_attempt</Ref> `registration.bind`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:trial">trial</Ref> <Ref id="table:registration_grid_point">registration_grid_point</Ref> `registration.bind`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 回放过的源码不能当新的登记，只有事前声明的预检例外 [#H-4-2-2]
 

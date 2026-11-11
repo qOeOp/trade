@@ -1,0 +1,73 @@
+# Paper 库
+
+Paper 运行是执行记录，不是研究：存在独立的 Paper 库里，从不进研究账本，不发布，也不增加试验计数和暴露。本机和远程主机都用自己的 Paper 库。
+
+[数据库总览](/zh/docs/design-ledger/)
+
+Paper 库由 `ledger init` 为声明持有 `paper` 的 profile 建立（模式见 `ledger/paper.sql`，代数为 `PAPER_SCHEMA_VERSION`）。它也有 `ledger_schema` 和 `ledger_head` 两张单行表，含义同研究账本（[模式版本与写入协调](/zh/docs/design-database-coordination/)）。写账号有 SELECT、INSERT 和 DELETE（`paper delete` 删除一个已封存的运行），对 `ledger_head` 另有 UPDATE；时间由服务器触发器写，内容哈希是生成列。
+
+Paper 运行不是研究试验：不进试验计数，不算对样本外的暴露，原生报告的指纹也不适用，因为实时行情重放不回来（[决定记录](https://github.com/qOeOp/trade/blob/main/docs/plans/paper-run-storage-decision.zh.md)）。
+
+### `paper_source` [#def-table-paper_source]
+
+复制来的源码：`paper start` 从研究账本读出已发布候选，把字节和入口类复制到 Paper 库
+
+<TypeTable type={{ "source_sha256": { type: "CHAR(64) 生成列", description: "源码哈希（生成列），等于研究候选的身份（由 `SHA2(source, 256)` 生成）", required: true }, "source": { type: "LONGBLOB", description: "源码原字节", required: true }, "entry_class": { type: "VARCHAR(100)", description: "入口类", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID：同一载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值", required: true } }} />
+
+**键与约束**
+
+- 主键　`source_sha256`
+- 唯一　`op_id`
+
+**写入方**　`ledger.paper.copy_source`
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.1.2.1">J.1.2.1</Ref>
+
+</div>
+
+### `paper_run` [#def-table-paper_run]
+
+Paper 运行声明：容器启动前写下源码、运行环境、合约、市场日和有效配置；运行从 created_at 开始
+
+<TypeTable type={{ "paper_id": { type: "BIGINT AUTO_INCREMENT", description: "运行编号，自增", required: true }, "source_sha256": { type: "CHAR(64)", description: "复制来的源码", required: true }, "image_ref": { type: "VARCHAR(300)", description: "执行镜像引用 `<仓库>@sha256:<摘要>`", required: true }, "symbols": { type: "JSON", description: "合约（JSON 数组）", required: true }, "market_day": { type: "DATE", description: "读成员名单的市场日", required: true }, "config": { type: "JSON", description: "有效配置（JSON）", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID：同一载荷重试返回原记录；UNIQUE；同一启动重试返回原声明", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值", required: true } }} />
+
+**键与约束**
+
+- 主键　`paper_id`
+- 唯一　`op_id`
+- 外键　`source_sha256` → <Ref id="table:paper_source">paper_source</Ref> `source_sha256`
+
+**写入方**　`ledger.paper.open_paper_run`（`paper start`）
+
+**读取方**　`paper list`、IDE 的 Paper 页
+
+### `paper_seal` [#def-table-paper_seal]
+
+封存：运行结束后写一次，与它的文件同一提交
+
+<TypeTable type={{ "paper_id": { type: "BIGINT", description: "所属运行", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID：同一载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值", required: true } }} />
+
+**键与约束**
+
+- 主键　`paper_id`
+- 唯一　`op_id`
+- 外键　`paper_id` → <Ref id="table:paper_run">paper_run</Ref> `paper_id`
+
+**写入方**　`ledger.paper.seal_paper_run`
+
+### `paper_file` [#def-table-paper_file]
+
+封存的文件：按 UTC 日分的事件日志、停止时的概要、日志和 `seal.json`（封存时算一次的读数）
+
+<TypeTable type={{ "paper_id": { type: "BIGINT", description: "所属封存", required: true }, "path": { type: "VARCHAR(255)", description: "文件路径", required: true }, "content": { type: "LONGBLOB", description: "原字节", required: true }, "sha256": { type: "CHAR(64) 生成列", description: "内容哈希（生成列）（由 `SHA2(content, 256)` 生成）", required: true } }} />
+
+**键与约束**
+
+- 主键　`paper_id`, `path`
+- 外键　`paper_id` → <Ref id="table:paper_seal">paper_seal</Ref> `paper_id`
+
+**写入方**　`ledger.paper.seal_paper_run`
+
+**读取方**　`ledger.paper.paper_files`、`ledger.paper.seal_of`
