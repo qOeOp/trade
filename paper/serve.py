@@ -510,9 +510,7 @@ class Daemon:
             return self._runs()
 
     def _runs(self) -> dict:
-        found = runs.listing(self.profile)
-        with db.connect(self.profile, "reader") as conn:
-            rows = {row["paper_id"]: row for row in records.paper_runs(conn)}
+        found = runs.listing(self.profile)  # one ledger read: a run deleted meanwhile is still this listing's
         for run in found["runs"]:
             recovery = self.recovery_failures.get(run["paper_id"])
             if recovery and run["state"] in ("ended", "unsealed"):
@@ -520,10 +518,9 @@ class Daemon:
             if run["paper_id"] in self.stopping and run["state"] in ("running", "ended"):
                 run["state"] = "stopping"
             if run["state"] == "sealed":
-                run["seal"] = rows[run["paper_id"]]["seal"]
                 self.journals.pop(run["paper_id"], None)
             else:
-                run["live"] = live_readings(rows[run["paper_id"]], self.journal(run["paper_id"]))
+                run["live"] = live_readings(run, self.journal(run["paper_id"]))
                 directory = runs.run_dir(self.profile, run["paper_id"]) / "out"
                 failures = _read_bytes(directory / FAILURES)
                 run["live"]["held"] = held(directory)
@@ -664,6 +661,22 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             self.send_event("resumed", {"lines": resume.lines, "bars": resume.bars})
             return rest
 
+        def sealed(self, row: dict, instrument: str | None, files: dict[str, bytes], whole: list[dict],
+                   rest: list[dict], seal: dict) -> None:
+            """A sealed run's stream from its capture: `rest` of the journal `whole`, its failures and readings,
+            then the end."""
+            bars = [line for line in whole if line["kind"] == "bar"]
+            journal = Journal(lines=[line for line in whole if line["kind"] != "bar"], bars=len(bars),
+                              last_bar_ns=max((line.get("ts_event") or 0 for line in bars), default=None))
+            self.send_event("lines", [line for line in rest if _wanted(line, instrument)])
+            if instrument is None:
+                self.send_event("closes", closes(rest))
+            failures = failure_records(files.get(FAILURES))
+            self.send_event("failures", failures)
+            self.send_event("readings", live_readings(row, journal) | {
+                "exceptions": sum(item["count"] for item in failures)})
+            self.send_event("end", seal)
+
         def stream(self, paper_id: int, instrument: str | None, resume: Resume | None = None) -> None:
             """Server-sent events: `lines` (the journal so far, then what is appended: every line but the bars
             of other contracts), `closes` (for a stream of no contract, the Account view's: every contract's
@@ -684,23 +697,14 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             self.end_headers()
             try:
                 if sealed is not None:
-                    bars = [line for line in whole if line["kind"] == "bar"]
-                    journal = Journal(lines=[line for line in whole if line["kind"] != "bar"], bars=len(bars),
-                                      last_bar_ns=max((line.get("ts_event") or 0 for line in bars), default=None))
-                    rest = self.resume(whole, resume)
-                    self.send_event("lines", [line for line in rest if _wanted(line, instrument)])
-                    if instrument is None:
-                        self.send_event("closes", closes(rest))
-                    failures = failure_records(files.get(FAILURES))
-                    self.send_event("failures", failures)
-                    self.send_event("readings", live_readings(row, journal) | {
-                        "exceptions": sum(item["count"] for item in failures)})
-                    self.send_event("end", sealed)
+                    self.sealed(row, instrument, files, whole, self.resume(whole, resume), sealed)
                     return
                 directory = runs.run_dir(daemon.profile, row["paper_id"]) / "out"
                 offset, state_seen, failures_seen, beat, first, shown = 0, 0.0, 0.0, time.monotonic(), True, None
+                seen = 0  # the journal lines read so far: the sealed capture's journal goes on from there
                 while True:
                     offset, lines, _ = read_lines(directory / "events.jsonl", offset)
+                    seen += len(lines)
                     if first:
                         lines = self.resume(lines, resume)
                     kept = [line for line in lines if _wanted(line, instrument)]
@@ -731,7 +735,11 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                         beat = time.monotonic()
                     listed = next((run for run in daemon.runs()["runs"] if run["paper_id"] == paper_id), None)
                     if listed is not None and listed["state"] == "sealed":
-                        self.send_event("end", listed["seal"])
+                        # The run's directory may be gone before its last lines were read: they, its failures
+                        # and readings come from the capture, then the end.
+                        files = daemon.bundle(paper_id)
+                        whole = daemon.sealed_lines(paper_id, files)
+                        self.sealed(row, instrument, files, whole, whole[seen:], listed["seal"])
                         return
                     live = (listed or {}).get("live")
                     if live is not None and _changed(live) != shown:  # a new minute, bar or fill
