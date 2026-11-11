@@ -282,6 +282,8 @@ CREATE TABLE source_review (
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
   INDEX source_review_trial (trial_id),
+  -- precheck.review_records reads a source's reviews by source
+  INDEX source_review_by_source (source_sha256),
   UNIQUE KEY source_review_source (review_id, source_sha256),
   FOREIGN KEY (trial_id, source_sha256, purpose) REFERENCES trial (trial_id, source_sha256, purpose),
   CHECK ((verdict = 'passed') = (api_status IN ('passed', 'no_opportunity')
