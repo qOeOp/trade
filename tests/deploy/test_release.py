@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -688,6 +689,23 @@ class SelectionTests(unittest.TestCase):
                 values.pop("TRADE_DOMAIN", None), values.pop("TRADE_DATA", None)
                 config = Config.installed(env)
         self.assertEqual((config.domain, config.data), ("www.trade.test", Path("/data/trade")))
+
+    @unittest.skipUnless(shutil.which("docker"), "needs Docker Compose")
+    def test_the_workstation_paper_service_gets_the_paper_memory_budget_from_the_env_file(self):
+        compose = Path(__file__).resolve().parents[2] / "deploy/compose.yaml"
+        with tempfile.TemporaryDirectory() as root:
+            for memory in ("4g", ""):
+                env = Path(root) / "trade.env"
+                env.write_text("TRADE_SERVICE_IMAGE=s\nTRADE_IDE_IMAGE=i\nTRADE_RUNTIME_IMAGE=r\nTRADE_UID=1\n"
+                               f"TRADE_GID=1\nTRADE_DATA=/data\nTRADE_PAPER_MEMORY={memory}\n")
+                with patch.dict(os.environ, {}, clear=False) as values:
+                    values.pop("TRADE_PAPER_MEMORY", None)
+                    result = subprocess.run(["docker", "compose", "--env-file", str(env), "-f", str(compose),
+                                             "config", "--format", "json", "paper"],
+                                            capture_output=True, text=True, timeout=60, check=True)
+                # Empty reaches paper/runs.py budget() as "", which keeps its default.
+                self.assertEqual(json.loads(result.stdout)["services"]["paper"]["environment"]["TRADE_PAPER_MEMORY"],
+                                 memory)
 
     def test_router_state_and_docker_lifecycle_reject_non_web_or_non_agent_names(self):
         self.assertEqual(route_name(route_config(WEB + A, None)), WEB + A)
