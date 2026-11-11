@@ -51,6 +51,9 @@ uv run --frozen python -m deploy.images --env deploy/.env   # names the images: 
 docker compose -f deploy/compose.yaml up -d   # waits for the first start: open http://127.0.0.1:8765/
 ```
 
+CI runs these steps from an empty host to one replay on each image build ([`.github/scripts/fresh-install.sh`](../.github/scripts/fresh-install.sh),
+which says what it does differently).
+
 ### First start
 
 `up -d` stays waiting on the ledger until its first start is done. The page at <http://127.0.0.1:8765/> asks for
