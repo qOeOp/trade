@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { Dialog } from "radix-ui";
 import { Icon } from "../icons/Icon";
 import { shortSha } from "../lib/format";
-import { commitHref, guideHref, ledgerGap, paperLine, placeOf, runtimeDigest, type About } from "../model/about";
+import { commitHref, guideHref, releaseHref, ledgerGap, paperLine, placeOf, runtimeDigest, type About } from "../model/about";
 import { summary } from "../model/marketImport";
 import { useAgentService } from "../state/agent";
 import { copyFault, readAbout, useAbout, usePaperHealth, usePublicCopy } from "../state/about";
@@ -76,7 +76,10 @@ function AboutBody() {
     <div className="space-y-3 text-dense">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
         {reading.kind === "ready" && <>
-          <Row name="Version"><External href={commitHref(reading.about.build)}><Mono>{shortSha(reading.about.build)}</Mono></External></Row>
+          <Row name="Version">
+            {reading.about.version && <><External href={releaseHref(reading.about.version)}><Mono>{reading.about.version}</Mono></External> · </>}
+            <External href={commitHref(reading.about.build)}><Mono>{shortSha(reading.about.build)}</Mono></External>
+          </Row>
           <Ledger about={reading.about} />
         </>}
         {reading.kind === "reading" && <Row name="Ledger">Reading…</Row>}

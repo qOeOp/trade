@@ -268,6 +268,26 @@ prevents DoltHub publication and does not grant permission to delete data. See
 [`remote-paper-data-split.zh.md`](../../docs/plans/remote-paper-data-split.zh.md) for the storage decision,
 limits and 4-core/8-GB evaluation scope.
 
+## Rolling back
+
+The release plane only moves forward along `main`, so a rollback is a new commit, not a reselection:
+
+1. Name what runs: the IDE's About (version and commit), or the Web container in
+   `/var/lib/trade-release/router/active.json` (`trade-release-web-<commit>`).
+2. Stop further releases while you work: `sudo systemctl stop trade-release.timer`. A release already running
+   finishes by itself; do not kill it.
+3. Revert the bad merge on a branch (`git revert -m 1 <merge-commit>`), or revert back to the last good tag
+   ([`CHANGELOG.md`](../../CHANGELOG.md)), and merge it through the usual checks. Then
+   `sudo systemctl start trade-release.timer`: the next tick releases that commit like any other.
+4. Check the About dialog names the new commit, and `journalctl -u trade-release.service` shows it routed.
+
+What a rollback does not undo: ledger records and the market directory only grow, and running Paper and Live runs
+keep the runtime image and controller they started with. A schema or protocol change therefore has to stay readable
+by the revision before it; a revert that needs the ledger rewound is a destructive write for the user to decide.
+A target that failed stays in `/var/lib/trade-release/failed/`, and the three newest good Web, Agent and controller
+containers stay on the host for inspection. A workstation without the release plane goes back with
+`deploy.images --revision` ([Image versions](../README.md#image-versions)).
+
 ## Live on this host
 
 The operator-only Live CLI is documented in [`engine/README.md`](../../engine/README.md#live-execution). The base Paper

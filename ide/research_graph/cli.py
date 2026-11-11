@@ -5,6 +5,7 @@ import argparse
 import json
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 from . import compare, contract
@@ -48,9 +49,10 @@ def main(argv: list[str] | None = None) -> int:
         product = Path(args.product)
         build = subprocess.run(["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True,
                                check=True).stdout.strip()
+        version = tomllib.loads((product / "pyproject.toml").read_text())["project"]["version"]
         serve.serve(serve.Product(product, args.ledger, args.market), build, args.host, args.port, args.hosts, args.agent,
                     args.paper, Path(args.market_import) if args.market_import else None, args.overview, args.research,
-                    args.setup, live_socket=args.live_socket, live_router=args.live_router)
+                    args.setup, live_socket=args.live_socket, live_router=args.live_router, version=version)
         return 0
     diff = compare.compare(contract.load_graph(args.a), contract.load_graph(args.b), args.until)
     print(compare.markdown(diff))

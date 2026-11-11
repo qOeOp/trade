@@ -222,8 +222,9 @@ class CompletedView:
 class Hub:
     """Heads, fetches, cached views and the open pages' states."""
 
-    def __init__(self, product: Product, build: str, poll: float = 5.0, mirror: Callable[[], str] | None = None):
-        self.product, self.build, self.poll, self.mirror = product, build, poll, mirror
+    def __init__(self, product: Product, build: str, poll: float = 5.0, mirror: Callable[[], str] | None = None,
+                 version: str | None = None):
+        self.product, self.build, self.poll, self.mirror, self.version = product, build, poll, mirror, version
         self.line_index = Pinned[str](product.lines)
         self.trials = Pinned[tuple[int, str]](lambda key: product.trial(*key), TRIALS)
         self.bars = Pinned[tuple[str, str, str, str]](lambda key: product.bars(*key), BARS)
@@ -752,13 +753,14 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             self.events(Client(line, since, at, have))
 
         def about(self) -> None:
-            """What this deployment runs: the page's build and the ledger's state, or the refusal reading it."""
+            """What this deployment runs: the product version and the page's build, and the ledger's state or the
+            refusal reading it."""
             try:
                 found = hub.product.service()
             except ProductError as exc:
-                self.json(200, {"build": hub.build, "ledger": None, "refusal": exc.body})
+                self.json(200, {"version": hub.version, "build": hub.build, "ledger": None, "refusal": exc.body})
                 return
-            self.json(200, {"build": hub.build, "ledger": {"running": found["running"], "remote": found.get("remote"),
+            self.json(200, {"version": hub.version, "build": hub.build, "ledger": {"running": found["running"], "remote": found.get("remote"),
                                                            "unpublished": bool(found.get("unpublished")),
                                                            "behind_seconds": found.get("behind_seconds"),
                                                            "diverged": bool(found.get("diverged")),
@@ -830,8 +832,8 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str],
           agent: str | None = None, paper: str | None = None, status: Path | None = None,
           overview: str | None = None, research: str | None = None, setup: str | None = None, *,
-          live_socket: Path | None = None, live_router: str | None = None) -> None:
-    hub = Hub(product, build, mirror=mirror_head(research) if research else None)
+          live_socket: Path | None = None, live_router: str | None = None, version: str | None = None) -> None:
+    hub = Hub(product, build, mirror=mirror_head(research) if research else None, version=version)
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
                                           status, overview, research, setup,
                                           live_socket=live_socket, live_router=live_router))
