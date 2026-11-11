@@ -59,11 +59,19 @@ def _lineage(rows: list[dict], seeds: set[str], elsewhere: set[str]) -> list[dic
     return sorted((by_id[key] for key in seen), key=lambda r: (r["created_at"], r["strategy_id"], r["revision"]))
 
 
-def line_members(conn: db.LedgerConnection, line: str, start: str, rows: list[dict]) -> tuple[list[dict], set[int]]:
+def research_trials(conn: db.LedgerConnection) -> list[dict]:
+    """Every research trial's ID, source and line, in one read (line_members' `researched`)."""
+    return conn.dicts("SELECT trial_id, source_sha256, line_id FROM trial WHERE purpose = 'research'")
+
+
+def line_members(conn: db.LedgerConnection, line: str, start: str, rows: list[dict],
+                 researched: list[dict] | None = None) -> tuple[list[dict], set[int]]:
     """The candidates (of `rows`, the candidate table) a line's graph draws, oldest first, and its research
-    trials: those connected (_lineage) to its start (`start`) and to the candidates of its research trials."""
-    on_line = set(lines.line_trials(conn, line)["trials"])
-    researched = conn.dicts("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'research'")
+    trials: those connected (_lineage) to its start (`start`) and to the candidates of its research trials.
+    `researched` is research_trials' read when the caller already has it (one read for every line)."""
+    researched = research_trials(conn) if researched is None else researched
+    line_id = lines.read_line(conn, line)["line_id"]
+    on_line = {row["trial_id"] for row in researched if row["line_id"] == line_id}
     sources = {row["source_sha256"] for row in researched if row["trial_id"] in on_line}
     seeds = {start} | {f"{r['strategy_id']}@{r['revision']}" for r in rows if r["source_sha256"] in sources}
     elsewhere = {row["source_sha256"] for row in researched} - sources
@@ -79,9 +87,9 @@ def line_list(profile, at: str | None = None) -> dict:
     (`versions`, oldest first), read at the same commit."""
     listed = lines.list_lines(db.profile(profile), at)
     with db.read_as_of(db.profile(profile), listed["ledger_commit"]) as conn, db.reusing_pinned_reads():
-        rows = _candidate_rows(conn)
+        rows, researched = _candidate_rows(conn), research_trials(conn)
         for item in listed["lines"]:
-            members, _ = line_members(conn, item["name"], item["start"], rows)
+            members, _ = line_members(conn, item["name"], item["start"], rows, researched)
             item["versions"] = [f"{r['strategy_id']}@{r['revision']}" for r in members]
     return listed
 

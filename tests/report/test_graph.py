@@ -182,7 +182,9 @@ class ResearchGraphTests(unittest.TestCase):
         old = graph.research_graph(self.world.profile, self.world.line["line"])
         self.assertTrue(any(t["purpose"] == "research" for c in old["candidates"] for t in c["trials"]))
         self.assertIn(second, {c["id"] for c in old["candidates"]})
-        listed = {item["name"]: item["versions"] for item in graph.line_list(self.world.profile)["lines"]}
+        with patch.object(graph, "research_trials", wraps=graph.research_trials) as read:
+            listed = {item["name"]: item["versions"] for item in graph.line_list(self.world.profile)["lines"]}
+        self.assertEqual(read.call_count, 1, "E1: the research trials are read once for every line")
         for each in (bundle, self.world.line["line"]):
             self.assertEqual(set(listed[each]), {c["id"] for c in graph.research_graph(self.world.profile, each)["candidates"]},
                              "line list names the versions each line's graph draws")
