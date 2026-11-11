@@ -71,14 +71,16 @@ not a substitute for the disposition.
 - `deploy/compose.yaml`'s `market-import` service imports without asking; the user
   authorized it. It keeps bars through the last closed day, and for its contracts the metrics daily
   and the aggTrades and quotes of each closed month; its status file's `kinds` names them (`bars`'s
-  `scope`, each other kind by contract). For what it keeps, never offer a manual import: read the
-  service's health (`docker compose -f deploy/compose.yaml ps market-import`) and its status file,
-  and report a gap with the state there (`waiting`, `lagging`, or `stopped` with its refusal; months
-  it `skipped` are archive gaps no import fills). Other contracts and kinds, and months before its
-  range, are supplied through `market import`, `market import-quotes` or
-  `market import-metrics`, a write the user decides, as in part 4, except bars in a month the market
-  holds: `MONTH_EXISTS` whichever `--symbols`, and no command adds them, so name the contracts
-  `market coverage` holds.
+  `scope`, each other kind by contract). For what it keeps, never offer a manual import: read its
+  container's health (`docker ps --filter label=com.docker.compose.service=market-import`, which
+  names it) and status file (`docker exec NAME cat /tmp/market-import/status.json`), and report a
+  gap with the state there (`waiting`, `lagging`, or `stopped` with its refusal; months it
+  `skipped` are archive gaps no import fills). Other contracts and kinds, and months before its
+  range, are supplied through `market import`, `market import-quotes` or `market import-metrics`, a
+  write the user decides, as in part 4, run in that container (`docker exec NAME python -m cli.main
+  market ... --market /run/trade/market-import.json`: the import lock holds only there), except
+  bars in a month the market holds: `MONTH_EXISTS` whichever `--symbols`, and no command adds
+  them, so name the contracts `market coverage` holds.
 - Before the first replay of a line or of a session, check the checkout again as at the start
   (SKILL.md): `HEAD` is the current `origin/main` and the working tree is clean.
 - When a new month arrives, read the latest complete month and compare it with the line's window
