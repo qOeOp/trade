@@ -1,7 +1,7 @@
 import NumberFlow from "@number-flow/react";
 import type { ReactNode } from "react";
 import type { SummaryWidget } from "../model/types";
-import { meets } from "../model/semantics";
+import { meets, ROLE } from "../model/semantics";
 import { pct } from "../lib/format";
 import { Missing } from "../components/Missing";
 import { Tip } from "../components/Tip";
@@ -21,7 +21,7 @@ function Metric({ label, children, unit, tip, miss = false }: { label: string; c
   return tip ? <Tip content={tip} side="bottom">{body}</Tip> : body;
 }
 
-// The current recommendation's readout against the targets, how many runs it was chosen from (the
+// The current recommendation's readout against the targets (or that it is ineligible now, CF-08), how many runs it was chosen from (the
 // multiple-testing context of "best") and how long it has held. The toolbar names the version itself.
 // One line high: readings that do not fit wrap onto a hidden second line, so none shows cut in half.
 export function Recommendation({ widget }: { widget: SummaryWidget }) {
@@ -31,6 +31,7 @@ export function Recommendation({ widget }: { widget: SummaryWidget }) {
   const num = (x: number | null | undefined, format: typeof percent | typeof two) => (x == null ? <Missing /> : <NumberFlow value={x} format={format} locales="en-US" />);
   return (
     <div className={`flex min-w-0 flex-wrap items-center gap-x-4 text-dense ${usePhone() ? "gap-y-1" : "h-[1lh] overflow-hidden"}`}>
+      {widget.status === "masked" && <Metric label="Now" miss tip={ROLE.masked.hint}>Ineligible</Metric>}
       <Metric label="Return" tip={`Target ≥ ${pct(t.annual_return)}`} miss={meets(r?.annual_return, t.annual_return, true) === false}>{num(r?.annual_return, percent)}</Metric>
       <Metric label="Drawdown" tip={`Target ≤ ${pct(t.max_drawdown)}`} miss={meets(r?.max_drawdown, t.max_drawdown, false) === false}>{num(r?.max_drawdown, percent)}</Metric>
       <Metric label="Sharpe">{num(r?.sharpe, two)}</Metric>

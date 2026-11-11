@@ -59,7 +59,10 @@ export type Widget = { id: string; type: string; slot?: string; title?: string }
 
 export type SummaryWidget = Widget & {
   targets: Targets | null;
+  /** The version the latest recommendation judgment names, which may since have lost its evidence: `status` is its
+   *  standing now (`masked` when its latest research run is no longer eligible). */
   recommended: string | null;
+  status: Status | null;
   reading: { annual_return: number | null; max_drawdown: number | null; sharpe: number | null; win_rate: number | null } | null;
   recommendations: number;
   recommendations_unchanged: number;
