@@ -97,7 +97,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
                                                      include_metrics=include_metrics)
         inspection = entry.registration_seams.current.inspect_runtime(identity, runner_argv, exported)
         config, recorded_config = (trials.config_key(value) for value in (inspection.get("effective_config"), effective))
-        if not (config == recorded_config if same_image else reproduction.shared_equal(config, recorded_config)):
+        if config != recorded_config:
             raise refuse("REPRODUCTION_MISMATCH", f"the effective configuration of trial {trial_id} differs",
                          missing=("effective_config",))
         if not same_image:

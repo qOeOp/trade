@@ -220,6 +220,20 @@ class AnotherImageTests(unittest.TestCase):
         self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0], before,
                          "nothing is written before the check")
 
+    def test_on_another_image_the_whole_configuration_must_be_equal(self):
+        """B3 / C10 ("全部授权", 2026-11-10): a key only the new image's configuration holds is a difference."""
+        real = registration_seams.current.inspect_runtime
+
+        def extra(identity, runner_argv, inputs):
+            found = real(identity, runner_argv, inputs)
+            return {**found, "effective_config": {**found["effective_config"], "new_setting": "on"}}
+        before = self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0]
+        with registration_seams.use(inspect_runtime=extra), self.assertRaises(Refusal) as caught:
+            self.replay(self.unbuilt, "extra-setting")
+        self.assertEqual(caught.exception.code, "REPRODUCTION_MISMATCH")
+        self.assertIn("effective configuration", caught.exception.message)
+        self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0], before)
+
     def test_an_explore_without_table_hashes_never_matches_on_another_image(self):
         self.world.fingerprint = ALL_TABLES
         done = self.replay(self.explored, "explored")
@@ -228,11 +242,6 @@ class AnotherImageTests(unittest.TestCase):
         real = execution.read_capture
         with patch.object(execution, "read_capture", lambda c, t, *a: {**real(c, t, *a), "table_hashes": None}):
             self.assertFalse(reproduction.matches(conn, done["reproduction_trial_id"], self.explored))
-
-    def test_configuration_keys_only_one_side_holds_are_not_compared(self):
-        old = {"runtime_contract": "v6", "account": {"venue": "B"}}
-        self.assertTrue(reproduction.shared_equal(old, {"runtime_contract": "v7", "account": {"venue": "B", "execution": "bars"}}))
-        self.assertFalse(reproduction.shared_equal(old, {"runtime_contract": "v7", "account": {"venue": "C"}}))
 
 
 @unittest.skipUnless(BINARY, SKIP)

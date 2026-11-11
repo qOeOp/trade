@@ -19,7 +19,6 @@ IDENTITY = ("source_sha256", "symbols", "input_start", "trade_start", "trade_end
 # What must agree across images: fees are in the fills, the equity path in the daily returns. Account and order
 # tables change their representation between Nautilus versions while these stay the same.
 RESULT_TABLES = ("fills", "positions", "exposures", "returns_series")
-NOT_COMPARED_ACROSS_IMAGES = ("runtime_contract",)
 
 
 def _trials(conn: db.LedgerConnection, where: str = "", args: tuple = ()) -> list[dict]:
@@ -69,17 +68,6 @@ def fingerprint_hash(capture: Mapping) -> str | None:
         return None
     entry = (capture.get("listed") or {}).get(execution.FINGERPRINT_RESULT) or {}
     return entry.get("sha256") if entry.get("status") in ("captured", "hashed") else None
-
-
-def shared_equal(one: Mapping, other: Mapping) -> bool:
-    """Whether every key both configurations hold agrees; a newer contract states what an older one left implicit."""
-    for key in one.keys() & other.keys():
-        if key in NOT_COMPARED_ACROSS_IMAGES:
-            continue
-        both = isinstance(one[key], Mapping) and isinstance(other[key], Mapping)
-        if not (shared_equal(one[key], other[key]) if both else one[key] == other[key]):
-            return False
-    return True
 
 
 def _recorded_tables(conn: db.LedgerConnection, trial_id: int) -> Mapping | None:
@@ -164,7 +152,7 @@ def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_tria
 
     On the same image: the same configuration and the same whole fingerprint. On another image, for a sealed run and
     a reproduction that recorded its table hashes (only `replay reproduce` does, on a main build): the configuration
-    keys both hold and the semantic hashes of RESULT_TABLES.
+    whole configuration and the semantic hashes of RESULT_TABLES.
 
     Callers decide which original trials are eligible anchors (for example the precheck actually
     cited by a registration). Equal hashes alone never grant a general exposure exemption.
@@ -191,7 +179,7 @@ def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_tria
             return fingerprint == anchored and config == expected
         hashes = captured.get("table_hashes")
         tables = (recorded or (lambda trial_id: _recorded_tables(conn, trial_id)))(original_trial_id)
-        if not isinstance(hashes, Mapping) or not isinstance(tables, Mapping) or not shared_equal(config, expected):
+        if not isinstance(hashes, Mapping) or not isinstance(tables, Mapping) or config != expected:
             return False
         return (all(table in hashes and table in tables for table in RESULT_TABLES)
                 and not set(differing_tables(hashes, tables)) & set(RESULT_TABLES))
