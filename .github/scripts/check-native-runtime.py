@@ -181,13 +181,13 @@ def check_replay_image(output: Path) -> None:
         except ModuleNotFoundError:
             continue
         raise AssertionError(f"the replay image holds {name}")
-    from tests.engine.test_partial_entry_protection import replay
+    from tests.engine.test_fill_model import audited_replay
 
     output.mkdir(parents=True, exist_ok=True)
-    audit = replay(output / "reports")
+    audit = audited_replay(output / "reports")
     assert audit["passed"], audit
     (output / "audit.json").write_text(json.dumps(audit, indent=2) + "\n")
-    print(f"Native {platform.machine()} replay image: closure only, bracket replay passed")
+    print(f"Native {platform.machine()} replay image: closure only, protected-entry replay passed")
 
 
 def main() -> None:
