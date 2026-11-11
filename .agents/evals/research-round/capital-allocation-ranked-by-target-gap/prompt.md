@@ -8,7 +8,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 研究路线 `line-rsi-1h`：开发窗口 2022-01-01 至 2025-06-30，1 小时线，BTC、ETH、SOL 三个 USDT 永续共用一个 100,000 USDT 的固定资本账户。`research state` 的 `targets`：最大回撤 0.20、年化收益 0.12。
 
-当前参考候选 `rsi-root@4`，运行 `run-r4a`，账本提交 `b81d0e2`，经济证据资格可用。`replay report --trial-id run-r4a` 和对照 `run-r3c`（`rsi-root@3`）的配对比较：
+当前参考候选 `rsi-root@4`，运行 414，账本提交 `b81d0e2`，经济证据资格可用。`replay report --trial-id 414` 和对照运行 403（`rsi-root@3`）的配对比较：
 
 | 项 | 数值 |
 |---|---|
@@ -16,10 +16,10 @@ allowed_tools: [Read, Glob, Grep, Skill]
 | 年化 | 0.71% |
 | MARK 最大回撤 | 0.19% |
 | `capital` · 全窗口平均名义 | 58 USDT |
-| `capital` · `time_in_market@1` | 0.058 |
+| `capital` · `time_in_market` | 0.058 |
 | 每个计划名义 / 同时计划数上限 | 1,000 USDT / 1 |
 | 毛收益 / 手续费 / 资金费 | +3,210 / 655 / 55 USDT |
-| 对 `run-r3c` 的年化效应 | +0.3%，区间 [+0.05%, +0.6%] |
+| 对运行 403 的年化效应 | +0.3%，区间 [+0.05%, +0.6%] |
 
 还没登记的三个下一步：
 - A：加日线趋势过滤，分辨收益来自震荡市均值回归还是趋势市回调（预检约 30 分钟，网格 3 点）；

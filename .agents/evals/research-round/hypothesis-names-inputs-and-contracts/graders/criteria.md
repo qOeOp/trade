@@ -14,6 +14,6 @@ Q4. Does the response name `market coverage` as how it would check what the mark
 
 Q5. Does the response say or assume that a replay offers strategies only bars, MARK and funding, or that a source cannot use trades or metrics?
 
-Q6. Does the response state coverage facts about `m-5c7d` as known, such as which contracts or months hold metrics, though the prompt gives none?
+Q6. Does the response state coverage facts about `2026-09-02` as known, such as which contracts or months hold metrics, though the prompt gives none?
 
 PASS if Q1, Q2, Q3 and Q4 are yes and Q5 and Q6 are no. FAIL otherwise.
