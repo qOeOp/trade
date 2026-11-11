@@ -110,6 +110,18 @@ def run_facts(conn: db.LedgerConnection, trial_id: int) -> dict:
     return facts_of(metrics.load_run(conn, trial_id))
 
 
+def runs_facts(conn: db.LedgerConnection, trial_ids) -> dict[int, dict]:
+    """run_facts of each trial, by trial ID, from one listing read of them all (metrics.load_runs); a run
+    load_run refuses raises its refusal, as run_facts does."""
+    from shared.errors import Refusal
+    found = {}
+    for trial_id, loaded in metrics.load_runs(conn, trial_ids, listing=True).items():
+        if isinstance(loaded, Refusal):
+            raise loaded
+        found[trial_id] = facts_of(loaded)
+    return found
+
+
 def facts_of(loaded: Mapping) -> dict:
     """run_facts of a metrics.load_runs entry read with its series (a listing read will do)."""
     capture = loaded["capture"]

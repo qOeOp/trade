@@ -21,7 +21,7 @@ from ledger import db, evidence, execution, judgments, lines, metrics, strategie
 from registration import reproduction
 from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
-from report import runs, seams, status
+from report import measures, runs, seams, status
 from runtime import image
 from tests.ledger.dolt import MARKET_DAYS, BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, market, pinned, reviewed, source
 from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture
@@ -495,6 +495,14 @@ class SameKeyLineCandidatesTests(unittest.TestCase):
         self.assertEqual(owners, {self.mine: [self.world.line["line"]], self.theirs: [self.other],
                                   self.follows: [self.started]}, "the line a run belongs to, not every line it fits")
         self.assertEqual(len(listed["groups"]), 1, "one identity across the three lines")
+
+    def test_the_listing_and_the_comparison_table_read_their_runs_together(self):
+        """E4: one batched read of the runs a listing derives measures for, not one read per run."""
+        with mock.patch.object(measures, "run_facts", side_effect=AssertionError("one run read at a time")):
+            listed = status.research_runs(self.world.profile)
+            table = self.table(self.other)
+        self.assertEqual(len(listed["runs"]), 3)
+        self.assertTrue(all(item["measures"] for item in table["runs"]))
 
     def test_status_counts_the_research_attempts_of_the_lines_it_reads(self):
         """L11: the open lines by default, the line named alone when one is named."""

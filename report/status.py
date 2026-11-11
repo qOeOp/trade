@@ -466,9 +466,10 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     current = line_identity(conn, record["line_id"], identities)
     own = set(lines.line_trials(conn, record["line_id"])["trials"])
     passed, without = _passed_research_runs(conn, checker, records, window, record["universe_rule"])
+    facts = measures.runs_facts(conn, [row["trial_id"] for row in passed])
     found = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
               "execution_identity": identities.get(row["trial_id"]),
-              "measures": _headline(measures.run_facts(conn, row["trial_id"]), TABLE_MEASURES)} for row in passed]
+              "measures": _headline(facts[row["trial_id"]], TABLE_MEASURES)} for row in passed]
     excluded = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
                  "execution_identity": identities.get(row["trial_id"]), "reasons": row["reasons"]} for row in without]
     for item in found:
@@ -551,8 +552,9 @@ def research_runs(ledger, at: str | None = None, line: str | None = None, by: st
             for trial_id in lines.line_trials(conn, item["line_id"])["trials"]:
                 owners.setdefault(trial_id, []).append(item["name"])
         listed = []
+        facts = measures.runs_facts(conn, [row["trial_id"] for row in found])
         for row in found:
-            derived = measures.derive_measures(measures.run_facts(conn, row["trial_id"]),
+            derived = measures.derive_measures(facts[row["trial_id"]],
                                                market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for a listing"})
             item = {"candidate": row["candidate"], "trial_id": row["trial_id"], "group": groups[row["trial_id"]],
                     "lines": owners.get(row["trial_id"], []),
