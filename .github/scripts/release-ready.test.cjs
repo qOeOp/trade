@@ -264,6 +264,13 @@ test('different historical Dockerfiles are skipped before parsing and do not blo
   }
 });
 
+test('a candidate from before engine/runtime/Dockerfile existed is skipped; a target without one fails closed', async () => {
+  const f = fixture(); f.setInput(A, 'engine/runtime/Dockerfile', null);
+  await f.go(); assert.deepEqual(f.records, [withheld]);
+  const target = fixture(); target.setInput(B, 'engine/runtime/Dockerfile', null);
+  await assert.rejects(target.go(), /Runtime Dockerfile is missing/); assert.deepEqual(target.records, []);
+});
+
 test('Dockerfile prefilter does not hide incomplete trees, target parser failures or matching-candidate defects', async () => {
   const target = fixture();
   target.setInput(B, 'engine/runtime/Dockerfile', `${dockerfile}\nRUN printf target \\\n  runtime\n`);

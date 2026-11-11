@@ -82,12 +82,13 @@ function runtimeInputs(github, repo) {
       const tree = found.data.tree.map(({ path, mode, type, sha }) => ({ path, mode, type, sha }));
       const dockerfiles = tree.filter((entry) => entry.path === 'engine/runtime/Dockerfile');
       const dockerfile = dockerfiles[0];
-      if (dockerfiles.length !== 1 || dockerfile.type !== 'blob'
-          || !['100644', '100755'].includes(dockerfile.mode) || !SHA.test(dockerfile.sha)) {
-        throw Error('Runtime Dockerfile is missing or invalid');
+      if (dockerfiles.length > 1 || dockerfile && (dockerfile.type !== 'blob'
+          || !['100644', '100755'].includes(dockerfile.mode) || !SHA.test(dockerfile.sha))) {
+        throw Error('Runtime Dockerfile is invalid');
       }
+      // null: a commit from before engine/runtime/Dockerfile existed. It matches no target; a target needs one.
       let projection;
-      return { dockerfileSha: dockerfile.sha, project() {
+      return { dockerfileSha: dockerfile?.sha ?? null, project() {
         if (!projection) projection = (async () => {
           const blob = await github.rest.git.getBlob({ ...repo, file_sha: dockerfile.sha });
           if (blob.data.sha !== dockerfile.sha || blob.data.encoding !== 'base64' || typeof blob.data.content !== 'string') {
@@ -114,6 +115,7 @@ function runtimeInputs(github, repo) {
 
 async function matchingRuntime(github, repo, sha, readArchive, inputs) {
   const expected = await inputs(sha);
+  if (!expected.dockerfileSha) throw Error('Runtime Dockerfile is missing');
   const expectedProjection = await expected.project();
   const candidates = await github.paginate(github.rest.actions.listWorkflowRuns, { ...repo, workflow_id: 'runtime-image.yml',
     branch: 'main', event: 'push', status: 'success', per_page: 100 });
