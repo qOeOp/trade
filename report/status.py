@@ -248,8 +248,8 @@ def research_status(ledger, at: str | None = None, line: str | None = None) -> d
         (bound,), = conn.rows("SELECT COUNT(*) FROM trial WHERE validation_registration_id IS NOT NULL")
         unwitnessed = sum(_stamp(conn, registration_id) is None for registration_id in registrations)
         line = line or (opened[0] if len(opened) == 1 else None)
-        table = comparison_table(conn, line, checker, records) if line is not None else None
         testing = multiple_testing(conn, line, found["counted"], available) if line is not None else None
+        table = comparison_table(conn, line, checker, records, testing) if line is not None else None
     return {"ledger_commit": commit, "trials": len(found["counted"]), "multiple_testing": testing,
             "excluded_trials": excluded, "lines": scope,
             "research_attempts": len(attempts), "audit_passed_research_runs": counted["passed"],
@@ -457,7 +457,19 @@ def _dominates(better: Mapping, worse: Mapping) -> bool:
     return all(mine >= theirs for mine, theirs in pairs) and any(mine > theirs for mine, theirs in pairs)
 
 
-def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mapping, records: list) -> dict:
+def deflated_range(facts: Mapping, testing: Mapping | None) -> dict | None:
+    """One run's deflated Sharpe (measures.deflated_sharpe) over its trading-window daily returns, at each
+    end of the line's multiple-testing reading: `effective_trials` and `all_purpose_trials`, both with its
+    `daily_sharpe_variance`; an end is None when it cannot be computed. None without a reading."""
+    if testing is None:
+        return None
+    returns = [value for ts, value, _ in facts["returns"] if facts["trade_start_ns"] <= ts < facts["trade_end_ns"]]
+    return {name: measures.deflated_sharpe(returns, testing[name], testing["daily_sharpe_variance"])
+            for name in ("effective_trials", "all_purpose_trials")}
+
+
+def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mapping, records: list,
+                     testing: Mapping | None = None) -> dict:
     """Every passed research run with economic evidence whose trading window is the line's development
     window and whose universe rule is the line's (older candidates and other lines included), with
     its execution identity (_identities), the four measures of its report and whether another run of
@@ -465,8 +477,9 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     without a readable identity. `execution_identity` is the line's (line_identity) and `candidates`
     the candidates with a run of it among the line's own trials (line_trials), and the line's start
     with a run of it, which a recommendation must name; other lines' runs stay in `runs`. Passed runs
-    of that window without economic evidence are listed apart with their reasons and no measures. Nothing is
-    ranked, scored or stored."""
+    of that window without economic evidence are listed apart with their reasons and no measures. With the
+    line's multiple-testing reading (`testing`), each run carries its deflated Sharpe range (deflated_range),
+    else null. Nothing is ranked, scored or stored."""
     record = lines.read_line(conn, line)  # LINE_UNKNOWN for a bad name
     window = _window(record)
     identities = _identities(conn)
@@ -476,7 +489,8 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     facts = measures.runs_facts(conn, [row["trial_id"] for row in passed])
     found = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
               "execution_identity": identities.get(row["trial_id"]),
-              "measures": _headline(facts[row["trial_id"]], TABLE_MEASURES)} for row in passed]
+              "measures": _headline(facts[row["trial_id"]], TABLE_MEASURES),
+              "deflated_sharpe": deflated_range(facts[row["trial_id"]], testing)} for row in passed]
     excluded = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
                  "execution_identity": identities.get(row["trial_id"]), "reasons": row["reasons"]} for row in without]
     for item in found:

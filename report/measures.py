@@ -245,6 +245,47 @@ def sharpe_lo(returns: Sequence[float]) -> dict | None:
             "autocorrelations": rho}
 
 
+EULER_GAMMA = 0.5772156649015329
+
+
+def deflated_sharpe(returns: Sequence[float], trials: float | None, variance: float | None) -> float | None:
+    """Bailey & López de Prado (2014)'s deflated Sharpe ratio of one daily return series
+    (deflated_sharpe_of): its per-day Sharpe ratio (mean over sample standard deviation, not annualized),
+    skewness and raw (not excess) kurtosis over its T days. None without `trials` or `variance`, with
+    fewer than three days or for a constant series. The one formula every reader uses: `research status`
+    at a line's two trial counts, the closing history test at its participant count."""
+    if trials is None or variance is None or len(returns) < 3:
+        return None
+    values = np.asarray(returns, dtype=float)
+    centred = values - values.mean()
+    spread = float(np.sqrt((centred @ centred) / len(values)))
+    if spread == 0:
+        return None
+    return deflated_sharpe_of(float(values.mean()) / statistics.stdev(values.tolist()),
+                              float((centred ** 3).mean()) / spread ** 3, float((centred ** 4).mean()) / spread ** 4,
+                              len(values), trials, variance)
+
+
+def deflated_sharpe_of(sharpe: float, skew: float, kurt: float, days: int, trials: float,
+                       variance: float) -> float | None:
+    """The probability that a per-day Sharpe ratio SR over T = `days` exceeds SR0, the expected maximum
+    per-day Sharpe ratio of N = `trials` independent trials whose per-day Sharpe ratios have variance
+    V = `variance`: SR0 = sqrt(V)·((1 − γ)·Φ⁻¹(1 − 1/N) + γ·Φ⁻¹(1 − 1/(N·e))) and
+    DSR = Φ((SR − SR0)·sqrt(T − 1) / sqrt(1 − skew·SR + (kurt − 1)/4·SR²)). SR0 is 0 for N ≤ 1 and never
+    below 0. None for a negative V, fewer than two days or a bracket that is not positive."""
+    if variance < 0 or days < 2:
+        return None
+    normal = statistics.NormalDist()
+    floor = 0.0
+    if trials > 1:
+        floor = max(0.0, math.sqrt(variance) * ((1 - EULER_GAMMA) * normal.inv_cdf(1 - 1 / trials)
+                                                + EULER_GAMMA * normal.inv_cdf(1 - 1 / (trials * math.e))))
+    bracket = 1 - skew * sharpe + (kurt - 1) / 4 * sharpe ** 2
+    if bracket <= 0:
+        return None
+    return normal.cdf((sharpe - floor) * math.sqrt(days - 1) / math.sqrt(bracket))
+
+
 def regime_labels(market: Mapping | None, days: Sequence[str]) -> tuple[dict[str, str | None] | None, str | None]:
     """Each day's volatility regime from the equal-weight basket's daily returns known before it: "high"
     when the absolute basket return of the prior day is above the median absolute basket return of
