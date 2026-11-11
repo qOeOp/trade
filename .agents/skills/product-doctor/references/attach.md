@@ -43,8 +43,13 @@ verified. Never rewrite an entry; a later reading adds one that names it.
 Fix a verified diagnosis then, so that later sessions can verify the fix, when its remedy is `fix`,
 `remove` or `skill` and AGENTS.md makes it no authority item: one root cause per PR, from its own
 worktree on `origin/main`, carrying a row in `docs/plans/doctor/index.zh.md` (source `attach`,
-status `in PR` with that PR), and a diagnoses entry naming the PR. Ask the user for an authority
-item; leave an unverified diagnosis unfixed.
+status `in PR` with that PR), and a diagnoses entry naming the PR. Leave an unverified diagnosis
+unfixed.
+
+Never stop for the user. Where remedies compete, take the first that needs no authority in SKILL.md
+step 5's order and name the others in the entry. Keep an authority item, with its recommendation,
+in the diagnoses entry, and put all of them to the user at once when the research session ends
+(Handover), or earlier only if the user writes.
 
 ## Boundaries
 
@@ -58,10 +63,10 @@ its own fixes: its diagnoses are what the full audit rechecks first. It is never
 
 When the research session ends, stop every collector and write `evidence/manifest.md` listing each
 file, what it holds, its time range and SHA-256. Then give the user the full-audit steps from
-SKILL.md, adding the evidence directory and `diagnoses.md` to the handover items, and say that the
-full audit runs every step: its own timeline, the three fresh workstream reviewers, the ledger
-fidelity test and the whole-product review. Hand over nothing else: no notes, timeline or account
-of the session. Evidence in /tmp is lost on a reboot; what the audit cannot read is a coverage gap
+SKILL.md, adding the evidence directory and `diagnoses.md` to the handover items, ask the open
+authority items, and say that the full audit runs every step: its own timeline, the three fresh
+workstream reviewers, the ledger fidelity test and the whole-product review. Hand over nothing
+else: no notes, timeline or account of the session. Evidence in /tmp is lost on a reboot; what the audit cannot read is a coverage gap
 in its record.
 
 ## Not in the evidence
