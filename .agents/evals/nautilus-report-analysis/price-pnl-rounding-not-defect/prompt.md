@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-封存运行 run 412（`ema-size@3`，账本提交 `5c6d7e8`，保留目录 `/tmp/run-412`）。我让子代理用 `tables(412, at="5c6d7e8", directory=Path("/tmp/run-412"))` 逐个周期核对：用成交的数量和价格精确算出毛现金流，和周期的 `price_pnl` 比。
+封存运行 run 412（`ema-size@3`，账本提交 `5c6d7e8`，保留目录 `/tmp/run-412`）。我让子代理用 `tables(412, at="5c6d7e8", directory=Path("/tmp/run-412"))` 逐个周期核对：用成交的数量和价格精确算出毛现金流，和周期的 `price_pnl` 比。这是封存运行的报告分析，按本仓库的报告分析规则办。
 
 子代理的结论：
 
