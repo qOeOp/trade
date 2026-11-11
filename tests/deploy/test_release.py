@@ -9,10 +9,13 @@ import unittest
 from unittest.mock import Mock, patch
 
 from deploy.release import GitSource, Release
-from ledger import lines as ledger_lines
 from deploy.paper_host import PAPER
 from deploy.release_host import (AGENT, AHEAD, KEPT_RELEASES, WEB, Config, DockerHost, ahead, revision,
                                  route_config, route_name, route_owner)
+
+# The keys of a `line list` entry, written out: the release controller's tests run on the host's system Python,
+# which cannot import the ledger. tests/ledger/test_lines.py holds them equal to ledger.lines.LISTED.
+LINE_KEYS = ("line_id", "name", "start", "dev_start", "dev_end", "market_commit", "created_at", "closed", "targets")
 
 
 A, B, C, D = (letter * 40 for letter in "abcd")
@@ -709,8 +712,7 @@ class SelectionTests(unittest.TestCase):
     def test_readiness_draws_the_lines_of_active_runs_the_newest_or_none_on_an_empty_ledger(self):
         host = DockerHost(Config())
         def listed(name, version, created_at):  # a `line list` entry (graph.line_list over lines.list_lines)
-            return {**dict.fromkeys(ledger_lines.LISTED), "targets": None, "name": name, "versions": [version],
-                    "created_at": created_at}
+            return {**dict.fromkeys(LINE_KEYS), "name": name, "versions": [version], "created_at": created_at}
 
         lines = [listed("old", "v1", "2026-01-01T00:00:00"), listed("new", "v2", "2026-02-01T00:00:00")]
         runs = {"runs": [{"candidate": "v1", "state": "running"}]}
