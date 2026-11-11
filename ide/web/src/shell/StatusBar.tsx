@@ -3,7 +3,7 @@ import type { LineageWidget, SummaryWidget } from "../model/types";
 import { ACTIVE } from "../model/chain";
 import { ancestors, lineageTree } from "../model/lineageTree";
 import { useView, useWidget } from "../model/view";
-import { plural } from "../lib/format";
+import { marketThrough, plural } from "../lib/format";
 import { useAtom } from "../state/atom";
 import { useBacktest, type Loaded } from "../state/backtest";
 import { requestFocus, useHovered } from "../state/linking";
@@ -26,14 +26,14 @@ import { VersionLine } from "../components/VersionLine";
 /** Where the stage the Runs page shows comes from. */
 const SOURCE = { backtest: "", paper: " · 1m bars · Binance public data · Sandbox fills", live: " · native execution observations" } as const;
 const EXECUTION: Record<string, string> = { bars: "1m bars", quotes: "aggTrades quotes" };
-/** The backtest's: its daily series (a contract's daily bars on a contract's chart), the runtime image and
- *  the line's market commit (each by its end), how it filled; or, in the failure colour, that its report is
+/** The backtest's: its daily series (a contract's daily bars on a contract's chart), the runtime image (by
+ *  its end) and the last day of the line's market data, how it filled; or, in the failure colour, that its report is
  *  not served here. */
 function backtestSource(l: Loaded | null, market: string | null, contract: boolean): { text: string; failed: boolean } {
   if (l?.kind === "absent") return { text: " · data not served by this IDE", failed: true };
   if (l?.kind !== "ready") return { text: "", failed: false };
   const { image, execution } = l.b, digest = image?.replace(/^sha256:/, "");
-  return { text: [contract ? " · 1d bars" : " · 1d series", digest && `image …${digest.slice(-6)}`, market && `market …${market.slice(-4)}`, execution && (EXECUTION[execution] ?? execution)]
+  return { text: [contract ? " · 1d bars" : " · 1d series", digest && `image …${digest.slice(-6)}`, market && `market ${marketThrough(market)}`, execution && (EXECUTION[execution] ?? execution)]
     .filter(Boolean).join(" · "), failed: false };
 }
 

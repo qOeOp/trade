@@ -19,6 +19,14 @@ export const clockSpan = (from: number, to: number) => Math.max(0, Math.floor(to
 export const ratio = (v?: number | null) => (v == null ? MISSING : v.toFixed(2));
 export const when = (v?: string | null, zone: TimeZone = "UTC") => (v ? dateTime(utcInstant(v), zone, "minute") : "");
 export const shortSha = (v?: string | null) => (v ? v.slice(0, 8) : MISSING);
+/** A market commit is the last day the market data includes, eight date digits and 24 zeros: that day,
+ *  2026-11-10, or null for anything else (a Dolt hash from before the market was plain files). */
+export const marketDay = (v?: string | null) => {
+  const day = v?.match(/^(\d{4})(\d\d)(\d\d)0{24}$/);
+  return day ? `${day[1]}-${day[2]}-${day[3]}` : null;
+};
+/** A market commit in words: "through 2026-11-10", else "commit" and its short hash. */
+export const marketThrough = (v: string) => { const day = marketDay(v); return day ? `through ${day}` : `commit ${shortSha(v)}`; };
 /** Dollars, compact: $1.56T, $820M, $4.1K; `digits` after the point (two by default). */
 export function usd(v?: number | null, digits = 2): string {
   if (v == null) return MISSING;
