@@ -55,6 +55,9 @@ uv run --frozen python -m cli.main market follow --bar-symbols BTCUSDT ETHUSDT S
 Then open your Agent at the repository root and say "start research". It reads the ledger, offers lines that can start
 and asks for your targets. It stops and asks before anything [`AGENTS.md`](AGENTS.md) reserves for you.
 
+Running it from day to day (Paper, Live, backups, updates): the [operator manual](docs/operator/README.md), its
+[FAQ](docs/operator/faq.md) and [troubleshooting](docs/operator/troubleshooting.md).
+
 ## Run a research line
 
 Install Python 3.14 and [uv](https://docs.astral.sh/uv/). Agents use one entry, the command line
@@ -210,6 +213,7 @@ project is not affiliated with, sponsored or endorsed by Binance.
 - [`deploy/`](deploy/): the base deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its three images; [`deploy/remote/`](deploy/remote/README.md) adds what a server needs, automatic release included.
 - [`ide/`](ide/): the trade IDE, a page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, the web renderer and the ledger-versus-session comparison.
 - [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain site: rules, architecture and decisions. Functions and skills are read from the code and `.agents/skills/`. A chapter's English page with no `.mdx` file of its own is built from its `.zh.mdx`.
+- [`docs/operator/`](docs/operator/README.md): the operator manual, FAQ and troubleshooting, for the person who runs the product.
 - [`docs/plans/`](docs/plans/): storage decisions, field reviews and notes from past work; each says when it was written, and the code wins where they differ.
 
 The vendored Nautilus source and the former backtest, market-data and
