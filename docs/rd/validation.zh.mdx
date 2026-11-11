@@ -114,7 +114,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validation_register` `ledger.stamped_at` `cli.validation_registration`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">隔离 Dolt 2.4.2 与本地时间戳机构测试覆盖无凭证拒绝、失败重试沿用最初凭证；真实公共凭证另有离线验签样本。这些证据不等于完整真实样本外回放或公共服务可用性验证。</p>
+<p className="rd-note">第 1 代账本的隔离测试（`tests/registration/test_validation.py`、`tests/ledger/test_witness.py`，2026-11-11 在 Dolt 2.7.2 上 29 项全过、无跳过）用本地时间戳机构覆盖无凭证拒绝、失败重试沿用最初凭证；真实公共凭证另有离线验签样本。这些证据不等于完整真实样本外回放或公共服务可用性验证。</p>
 
 ### 一次性与一致性 [#X-1-3]
 
@@ -134,7 +134,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 <div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:trial">trial</Ref> <Ref id="table:validation_registration">validation_registration</Ref> `registration.validation_bind` `ledger.open_trial`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">独立 Dolt 2.4.2 测试已验证一次绑定、失败重试与拒绝不消耗；仍缺真实样本外完整交付。</p>
+<p className="rd-note">第 1 代账本的隔离测试（`tests/registration/test_validation.py`、`tests/ledger/test_witness.py`，2026-11-11 在 Dolt 2.7.2 上 29 项全过、无跳过）覆盖一次绑定、失败重试与拒绝不消耗；仍缺真实样本外完整交付。</p>
 
 #### 样本外回放必须和登记逐项一致，否则整笔撤回、不启动 [#X-1-3-2]
 
@@ -154,7 +154,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validation_bind` `replay.seal` `registration.membership_unchanged`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">独立 Dolt 2.4.2 测试已验证固定账户基准、重试成员与设计边界；市场和镜像检查使用测试替身，仍缺真实跨市场提交与完整样本外回放。</p>
+<p className="rd-note">第 1 代账本的隔离测试（`tests/registration/test_validation.py`、`tests/ledger/test_witness.py`，2026-11-11 在 Dolt 2.7.2 上 29 项全过、无跳过）覆盖固定账户基准、重试成员与设计边界；市场和镜像检查使用测试替身，仍缺真实跨市场提交与完整样本外回放。</p>
 
 ## 12.2　报告结果 [#X-2]
 

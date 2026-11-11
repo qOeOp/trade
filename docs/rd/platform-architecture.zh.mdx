@@ -32,13 +32,13 @@
 
 ## 部署
 
-Compose 运行五个服务：`ide`、`ledger`、`market-import`、`paper` 和 `docker-api`。除 `ide` 与 `docker-api` 外都用 `trade-service` 服务镜像；它与执行策略的、按摘要固定的 `strategy-runtime` 镜像分开。只有 Paper daemon 经受限 API 代理访问 Docker。
+Compose 运行五个服务：`ide`、`ledger`、`market-import`、`paper` 和 `docker-api`。除 `ide` 与 `docker-api` 外都用 `trade-service` 服务镜像；它与执行策略的、按摘要固定的 `trade-runtime` 镜像分开：回放用回放镜像，Paper 和 Live 用执行镜像（`exec-` 标签）。只有 Paper daemon 经受限 API 代理访问 Docker。
 
 <a id="ide" />
 
 ## IDE
 
-IDE 用只读账户直接读活动 Dolt SQL 服务里的研究账本，经市场命令读只读挂载的市场目录，自己不留副本。本地 Chat 运行只读命令，对话保存在自己的 volume。Paper 面板将请求与数据流代理给 daemon；daemon 经 CLI 写入活动研究账本（远程主机上写隔离的 `paper` 库）。
+IDE 用只读账户直接读活动 Dolt SQL 服务里的研究账本，经市场命令读只读挂载的市场目录，自己不留副本。本地 Chat 运行只读命令，对话保存在自己的 volume。Paper 面板将请求与数据流代理给 daemon；daemon 经 CLI 写入独立的 `paper` 库，从不写研究账本。
 
 <a id="paper" />
 
@@ -50,7 +50,7 @@ IDE 用只读账户直接读活动 Dolt SQL 服务里的研究账本，经市场
 
 ## 远程主机与发布
 
-`deploy/remote/` 叠加在基础部署上，提供 HTTPS 和 GitHub 登录，研究库是只读镜像，执行记录放在隔离的 `paper` 库。`ledger mirror` 从公开副本引导只读研究库并新建空的 `paper` 库，不持有 DoltHub 发布密钥，拒绝接管已有的研究写入服务；`ledger sync` 只拉取并校验公开副本的不可变提交后快进，从不发布。通过检查的 main 构建会自动发布到这台主机，不打断运行中的策略。步骤、边界和发布范围以 [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md) 为准。
+`deploy/remote/` 叠加在基础部署上，提供 HTTPS 和 GitHub 登录，研究库是只读镜像，执行记录放在隔离的 `paper` 库。`ledger mirror` 从公开副本引导只读研究库并新建空的 `paper` 库，不持有 DoltHub 发布密钥，拒绝接管已有的研究写入服务；`ledger sync` 只拉取并校验公开副本的不可变提交后快进，从不发布。主机只跟随版本标签（`v0.2.0` 起的 `v*`）自动发布，main 的构建只进 `main-ready`，发版由用户决定；发布不打断运行中的策略。步骤、边界和发布范围以 [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md) 为准。
 
 <a id="live" />
 
@@ -62,4 +62,4 @@ IDE 用只读账户直接读活动 Dolt SQL 服务里的研究账本，经市场
 
 ## 数据与证据
 
-活动 Dolt SQL 服务只承载研究账本（[远程主机](#remote)另有隔离的 `paper` 库），实际库名由连接档案指定；`dolt_backup` 与 DoltHub 保存它的历史副本。市场数据在市场目录，是按表、按月的普通 Parquet 文件，没有副本。副本都不产生另一份事实来源。原生报告是缓存：按固定输入与运行环境重建，再与已存指纹核对。
+Dolt SQL 服务承载研究账本和独立的 `paper` 库，实际库名由连接档案指定；`dolt_backup` 与 DoltHub 只保存研究账本的历史副本，`paper` 库从不发布。市场数据在市场目录，是按表、按月的普通 Parquet 文件，没有副本。副本都不产生另一份事实来源。原生报告是缓存：按固定输入与运行环境重建，再与已存指纹核对。
