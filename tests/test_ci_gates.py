@@ -3,6 +3,7 @@
 import itertools
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -14,7 +15,15 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SELECTOR = ROOT / ".github/scripts/ci-paths.py"
-WORKFLOWS = ("docs-pages", "ide-web", "runtime-image", "ide-image", "quality")
+GATE = ROOT / ".github/actions/gate/action.yml"
+# workflow: (gate job name, a required status check on main; jobs that run on every event; jobs left out of the gate)
+GATES = {
+    "docs-pages": ("docs-gate", "", {"deploy"}),  # main only, after the gate reported
+    "ide-web": ("ide-web-gate", "", set()),
+    "ide-image": ("ide-image-gate", "", set()),
+    "quality": ("quality", "skill-names", set()),
+}
+PUSH_FILTERED = ("docs-pages", "ide-web", "ide-image", "runtime-image")
 TESTED = "**\n!docs/**\n!.agents/evals/**"
 
 
@@ -103,32 +112,77 @@ class CiPathsTests(unittest.TestCase):
             self.assertEqual(self.select("", base="", event=event), (0, "changed=true\n"))
 
 
+def section(source, start, end="\n  [a-z-]+:\n"):
+    """The text after the first `start` up to the next match of `end` (by default the next job)."""
+    return re.split(end, source.split(start, 1)[1], maxsplit=1)[0]
+
+
+class WorkflowWiringTests(unittest.TestCase):
+    def test_each_gate_keeps_its_check_name_and_hands_every_other_job_to_the_shared_gate(self):
+        for name, (check, always, outside) in GATES.items():
+            jobs = (ROOT / f".github/workflows/{name}.yml").read_text().split("\njobs:\n", 1)[1]
+            gate = jobs.split("\n  gate:\n", 1)[1]
+            needs = re.fullmatch(r"    name: (\S+)\n    if: always\(\)\n    needs: \[(.*)\]", "\n".join(gate.splitlines()[:3]))
+            with self.subTest(workflow=name):
+                self.assertEqual(needs[1], check)
+                self.assertEqual(set(needs[2].split(", ")), set(re.findall(r"^  ([a-z-]+):$", jobs, re.M)) - {"gate"} - outside)
+                self.assertIn("      - uses: ./.github/actions/gate\n        with:\n          needs: ${{ toJSON(needs) }}\n"
+                              + (f"          always: {always}\n" if always else ""), gate)
+
+    def test_push_paths_equal_the_paths_the_changes_job_selects(self):
+        # release-ready.cjs reads "no push run" as "nothing to release", so the two lists must not drift apart.
+        for name in PUSH_FILTERED:
+            source = (ROOT / f".github/workflows/{name}.yml").read_text()
+            push = re.findall(r"^      - (\S+)$", section(source, "\n  push:\n", "\n  [a-z_]+:\n"), re.M)
+            selected = section(section(source, "\n  changes:\n"), "          paths: |\n", "\n(?! {12})")
+            with self.subTest(workflow=name):
+                self.assertTrue(push)
+                self.assertEqual(push, [line.strip() for line in selected.splitlines()])
+
+
 @unittest.skipUnless(shutil.which("jq"), "CI gate probes require jq (present on CI runners)")
 class CiGateTests(unittest.TestCase):
-    def test_actual_gates_fail_closed_for_failed_cancelled_or_unexpectedly_skipped_jobs(self):
-        for name in WORKFLOWS:
-            source = (ROOT / f".github/workflows/{name}.yml").read_text()
-            gate = source.split("\n  gate:\n", 1)[1]
-            command = textwrap.dedent(gate.split("        run: |\n", 1)[1])
-            jobs = {"ide-web": ("build", "agent"), "docs-pages": ("build",), "quality": ("tests",)}.get(name, ("image",))
-            always = {"quality": ("skill-names",)}.get(name, ())  # run on every PR whatever the selector says
-            for changed, selector_result in itertools.product(
-                ("true", "false", "", "invalid"), ("success", "failure", "cancelled", "skipped")
-            ):
-                outcomes = ("success", "failure", "cancelled", "skipped")
-                for results in itertools.product(outcomes, repeat=len(jobs) + len(always)):
-                    needs = {"changes": {"result": selector_result, "outputs": {"changed": changed}}}
-                    needs.update({job: {"result": result} for job, result in zip(jobs + always, results, strict=True)})
-                    selected, unconditional = results[:len(jobs)], results[len(jobs):]
-                    expected = selector_result == "success" and all(r == "success" for r in unconditional) and (
-                        (changed == "true" and all(r == "success" for r in selected))
-                        or (changed == "false" and all(r == "skipped" for r in selected))
-                    )
-                    with self.subTest(workflow=name, changed=changed, selector=selector_result, results=results):
-                        result = subprocess.run(
-                            ["bash", "-e", "-c", command],
-                            env={**os.environ, "NEEDS": json.dumps(needs)},
-                            capture_output=True,
-                            text=True,
-                        )
-                        self.assertEqual(result.returncode == 0, expected)
+    OUTCOMES = ("success", "failure", "cancelled", "skipped")
+
+    def passes(self, command, needs, always=""):
+        result = subprocess.run(
+            ["bash", "-e", "-c", command],
+            env={**os.environ, "NEEDS": json.dumps(needs), "ALWAYS": always},
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+
+    def assert_fails_closed(self, command, jobs, always=()):
+        """Every selector state and job outcome: pass only on a clean selector with each job as it selected."""
+        for changed, selector_result, results in itertools.product(
+            ("true", "false", "", "invalid"), self.OUTCOMES,
+            itertools.product(self.OUTCOMES, repeat=len(jobs) + len(always)),
+        ):
+            needs = {"changes": {"result": selector_result, "outputs": {"changed": changed}}}
+            needs.update({job: {"result": result} for job, result in zip(jobs + always, results, strict=True)})
+            selected, unconditional = results[:len(jobs)], results[len(jobs):]
+            expected = selector_result == "success" and all(r == "success" for r in unconditional) and (
+                (changed == "true" and all(r == "success" for r in selected))
+                or (changed == "false" and all(r == "skipped" for r in selected))
+            )
+            with self.subTest(changed=changed, selector=selector_result, results=results, always=always):
+                self.assertEqual(self.passes(command, needs, " ".join(always)), expected)
+
+    def test_the_shared_gate_fails_closed_for_failed_cancelled_or_unexpectedly_skipped_jobs(self):
+        command = textwrap.dedent(GATE.read_text().split("      run: |\n", 1)[1])
+        self.assert_fails_closed(command, ("build",))
+        self.assert_fails_closed(command, ("tests",), ("skill-names",))
+        selector = {"result": "success", "outputs": {"changed": "true"}}
+        for needs, always in (
+            ({"changes": selector, "build": {"result": "success"}, "agent": {"result": "skipped"}}, ""),
+            ({"changes": selector, "tests": {"result": "success"}}, "skill-names"),  # a named job that is not needed
+            ({"changes": selector, "image": {"result": "success"}, "replay-image": {"result": "failure"}}, " image\n"),
+        ):
+            with self.subTest(needs=needs, always=always):
+                self.assertFalse(self.passes(command, needs, always))
+
+    def test_the_runtime_image_gate_fails_closed(self):
+        source = (ROOT / ".github/workflows/runtime-image.yml").read_text()
+        command = textwrap.dedent(source.split("\n  gate:\n", 1)[1].split("        run: |\n", 1)[1])
+        self.assert_fails_closed(command, ("image",))
