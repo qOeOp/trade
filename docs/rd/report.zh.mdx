@@ -4,7 +4,7 @@
 
 这一章讲三件事。先分工：哪几项由产品代码算，其中哪些封存时算一次存进账本、哪些读时按定义版本现算，哪些描述统计由 Agent 按 skill 自己算、还要交给别人复算。再定口径：年化、夏普、计划胜率、最大回撤、利润来源和资金使用率各按什么分母、什么总体、什么采样来算。最后给模板：报告按固定栏目输出，栏目来自一套固定的切面，算不出的栏留着写原因。
 
-举个例子：全池 RSI 路线里，H09 的报告给出年化 4.24%、最大回撤 8.44%。光看这两个数还不够。报告同时列出闭仓收益里将近一半来自资金费；再配上同一运行的资金使用，平均名义敞口约 4161 USDT。读的人能看出它赚的钱从哪来、用了多少资金，再自己判断。
+举个例子：一个候选的报告给出年化和最大回撤。光看这两个数还不够。报告同时列出闭仓收益里有多少来自资金费；再配上同一运行的资金使用，比如平均名义敞口占初始资金的多少。读的人能看出它赚的钱从哪来、用了多少资金，再自己判断。
 
 <ChapterMap chapter="R" />
 
@@ -71,11 +71,11 @@
 
 <div className="rd-example">
 
-全池 RSI 路线的 H09，账户年化 4.24%，标记价最大回撤 8.44%；闭仓利润拆成价格盈亏约 2929 USDT、手续费约 856 USDT、资金费约 1976 USDT。回撤来自封存结果，年化和利润拆分是读时从逐日序列和持仓周期算出的；都由代码算，Agent 只能读，不能改。
+比如一个候选的报告里，账户年化、标记价最大回撤，以及闭仓利润拆成的价格盈亏、手续费和资金费，都由代码算。回撤来自封存结果，年化和利润拆分是读时从逐日序列和持仓周期算出的；Agent 只能读，不能改。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.summary_statistics` `ledger.metrics` `report.derive_measures` `ledger.economics`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.summary_statistics` `ledger.metrics` `report.derive_measures` `ledger.economics`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 利润来源拆分要逐项对上账，有一处对不上就整体不给 [#R-1-1-2]
 
@@ -85,7 +85,7 @@
 
 <div className="rd-example">
 
-H09 的闭仓数字能对上：价格盈亏 2929.09 − 手续费 855.50 ＋ 资金费 1976.15 ＝ 已实现 4049.73 USDT。账户整体的资金费 1978.63、手续费 857.47 是另一个总体（包括没平的持仓），两者并排列出，不相加。
+比如闭仓数字要能对上：价格盈亏 − 手续费 ＋ 资金费 ＝ 已实现盈亏。账户整体的资金费和手续费是另一个总体（包括没平的持仓），两者并排列出，不相加。
 
 </div>
 
@@ -109,7 +109,7 @@ H09 的闭仓数字能对上：价格盈亏 2929.09 − 手续费 855.50 ＋ 资
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `ledger.metrics_revision` `ledger.ingest_run` `report.review_all`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `ledger.metrics_revision` `ledger.ingest_run` `report.review_all`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 没有经济证据资格的运行，绩效指标整体置空 [#R-1-1-4]
 
@@ -123,7 +123,7 @@ H09 的闭仓数字能对上：价格盈亏 2929.09 − 手续费 855.50 ＋ 资
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.run_report` `registration.mask` `registration.assess`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.run_report` `registration.mask` `registration.assess`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### Agent 自算的描述统计 [#R-1-2]
 
@@ -137,11 +137,11 @@ Agent 自己算的描述统计，从读取入口（`report.tables`）取账本�
 
 <div className="rd-example">
 
-比如 Agent 想看 H09 各合约的平均持仓时长，就取持仓周期表按合约分组，写上账本版本。想看某一笔订单从提交到撤单的完整事件序列，持仓周期里没有，就先重放 H09 到 /tmp，指纹一致后再读订单事件。
+比如 Agent 想看某个候选各合约的平均持仓时长，就取持仓周期表按合约分组，写上账本版本。想看某一笔订单从提交到撤单的完整事件序列，持仓周期里没有，就先重放这次运行到 /tmp，指纹一致后再读订单事件。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 夏普这类比率用引擎自带的统计工具，对开发窗口的日收益来算 [#R-1-2-2]
 
@@ -151,7 +151,7 @@ Agent 自己算的描述统计，从读取入口（`report.tables`）取账本�
 
 <div className="rd-example">
 
-全池 RSI 路线最后比较 H09 和 H10 时，H09 的夏普和索提诺都更好。这类比较只在同一种算法下才有意义：两边都用引擎统计类，对同一个开发窗口的日收益算。
+比如比较两个候选的夏普和索提诺，只在同一种算法下才有意义：两边都用引擎统计类，对同一个开发窗口的日收益算。
 
 </div>
 
@@ -165,11 +165,11 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 <div className="rd-example">
 
-全池 RSI 路线收尾时，另一个 Agent 在关闭时的账本版本上，经读取入口重新算了 H09 和 H10 的账户数、闭仓对账、全部手续费和资金费、期末浮动盈亏和资金使用，没发现实质差异。
+比如一条路线收尾时，另一个 Agent 在关闭时的账本版本上，经读取入口重新算推荐候选及其对照的账户数、闭仓对账、全部手续费和资金费、期末浮动盈亏和资金使用，再和原结果核对。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 每个绩效指标附带什么 [#R-1-3]
 
@@ -187,7 +187,7 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.run_report` `registration.check_identity` `ledger.metrics_revision`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.run_report` `registration.check_identity` `ledger.metrics_revision`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 局限清单去重后完整列出，不挑不删 [#R-1-3-4]
 
@@ -197,11 +197,11 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 <div className="rd-example">
 
-全池 RSI 路线用 1 分钟 K 线的最新成交价撮合，用 1 分钟标记价给账户采样。所以 K 线内部的价格路径看不到，这一条会出现在每份报告的局限里，哪怕它看起来不严重。
+比如一条路线用 1 分钟 K 线的最新成交价撮合，用 1 分钟标记价给账户采样，K 线内部的价格路径就看不到。这一条会出现在每份报告的局限里，哪怕它看起来不严重。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.run_report` `ledger.metrics` `engine.generic_result`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.run_report` `ledger.metrics` `engine.generic_result`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 8.2　年化、夏普、胜率、回撤与利润来源的口径 [#R-2]
 
@@ -259,11 +259,11 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 <div className="rd-example">
 
-全池 RSI 路线的开发窗口从 2025-10-09 到 2026-10-07 08:30，约 363.35 天。H09 期末权益 104219.99 USDT，初始 100000 USDT，按 365 ÷ 363.35 折算，年化 4.24%。
+比如开发窗口不足一年、约 363 天，期末权益是初始权益的 1.04 倍，年化就按 1.04 的（365 ÷ 363）次方减 1 来算，略高于 4%。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.summary_statistics` `engine.parse_window`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.summary_statistics` `engine.parse_window`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 夏普用开发窗口的逐日收益算，按 365 天年化 [#R-2-1-2]
 
@@ -273,7 +273,7 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 <div className="rd-example">
 
-全池 RSI 路线的数据从 2025-10-07 开始预热，交易从 2025-10-09 开始。前两天不进夏普的计算，只用 10-09 起每天的收益。
+比如数据比交易段早两天开始预热，这两天不进夏普的计算，只用交易段起每天的收益。
 
 </div>
 
@@ -291,7 +291,7 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.plan_metrics` `ledger.cycles` `ledger.expiry_plan_owners`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.plan_metrics` `ledger.cycles` `ledger.expiry_plan_owners`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 最大回撤 [#R-2-2]
 
@@ -309,7 +309,7 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 <div className="rd-example">
 
-全池 RSI 路线每分钟按标记价采样一次权益。H09 的最大回撤是 8.44%，H10 是 12.05%。K 线内部更深的瞬间低点看不到，这一点写进局限。
+比如每分钟按标记价采样一次权益，最大回撤就在这条分钟序列上算。K 线内部更深的瞬间低点看不到，这一点写进局限。
 
 </div>
 
@@ -327,7 +327,7 @@ skill 规定资金使用率怎么算、怎么和回撤一起读；算它用的�
 
 <div className="rd-example">
 
-全池 RSI 路线里，H09 在全部 523230 个交易分钟上（空仓的分钟也算）平均名义敞口约 4161 USDT，按分钟采样的峰值约 40229 USDT。这个峰值是按分钟采的，不是真实的盘中极值，也不是保证金。
+比如平均名义敞口按全部交易分钟算（空仓的分钟也算），峰值取按分钟采样的最大值。这个峰值是按分钟采的，不是真实的盘中极值，也不是保证金。
 
 </div>
 
@@ -336,7 +336,7 @@ skill 规定资金使用率怎么算、怎么和回撤一起读；算它用的�
 3. 锁定保证金：取自账户数据，包括挂单占用的部分。
 4. 在市时间：有敞口的 K 线根数占开发窗口根数的比例。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · references/capital.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · references/capital.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 回撤用产品算的值，而且必须和同一运行的资金使用率一起读 [#R-2-3-2]
 
@@ -346,11 +346,11 @@ skill 规定资金使用率怎么算、怎么和回撤一起读；算它用的�
 
 <div className="rd-example">
 
-全池 RSI 路线的 H08 最大回撤只有 0.62%，看起来很稳；但它平均名义敞口只有 393.72 USDT，约为初始 10 万的 0.39%。按这条规则，它只能写成「敞口很小」，不能写成「风险控制好」。
+比如某个候选最大回撤不到 1%，看起来很稳；但它平均名义敞口也只有初始资金的百分之零点几。按这条规则，它只能写成「敞口很小」，不能写成「风险控制好」。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 成交量占比在封存时由代码算出，只作容量警示 [#R-2-3-3]
 
@@ -412,7 +412,7 @@ skill 规定资金使用率怎么算、怎么和回撤一起读；算它用的�
 
 <div className="rd-example">
 
-全池 RSI 路线 H07 对 H06 的利润来源一栏，账户口径的差是：价格 −281.67，手续费 ＋119.38，资金费 ＋828.73，期末浮动 −8.62，合计 ＋657.82 USDT。这一栏让人一眼看出：资金费多出的部分比总改善还大，价格腿反而变差了。
+比如一个加了资金费过滤的候选对它的对照，利润来源一栏按账户口径列出价格、手续费、资金费、期末浮动四项和合计。要是资金费多出的部分比总改善还大、价格腿反而变差，这一栏让人一眼看出来。
 
 </div>
 
@@ -455,7 +455,7 @@ Agent 写一次运行或一次比较的报告时，按模板的栏目顺序写�
 
 <div className="rd-example">
 
-全池 RSI 的 H09 封存后，封存结果里有最大回撤 8.44% 和它的起止日期、分钟采样的名义敞口峰值约 40229 USDT 等；年化 4.24% 和闭仓里的资金费 1976.15 USDT，则是读的时候从逐日序列和持仓周期算出来的。
+比如一次运行封存后，封存结果里有最大回撤和它的起止日期、分钟采样的名义敞口峰值等；年化和闭仓里的资金费，则是读的时候从逐日序列和持仓周期算出来的。
 
 </div>
 
@@ -469,7 +469,7 @@ Agent 写一次运行或一次比较的报告时，按模板的栏目顺序写�
 
 <div className="rd-example">
 
-比较 H07 和 H06，一次调用就同时拿到 p、区间，以及利润来源桥：价格 −281.67、手续费 ＋119.38、资金费 ＋828.73、期末浮动 −8.62。
+比如比较一个候选和它的对照，一次调用就同时拿到 p、区间，以及价格、手续费、资金费、期末浮动四项的利润来源桥。
 
 </div>
 
@@ -503,7 +503,7 @@ PBO/CSCV（回测过拟合概率）不纳入默认正式报告，不用于资格
 
 <div className="rd-example">
 
-比如 Agent 好奇 H09 在周末和工作日的表现差别，临时按星期几拆了一张表。这张表留在 /tmp；它要是让 Agent 决定下一个假设去改周末不开仓，判断里就写清用了哪份持仓周期、哪个账本版本，再由另一个 Agent 重算一遍。
+比如 Agent 好奇某个候选在周末和工作日的表现差别，临时按星期几拆了一张表。这张表留在 /tmp；它要是让 Agent 决定下一个假设去改周末不开仓，判断里就写清用了哪份持仓周期、哪个账本版本，再由另一个 Agent 重算一遍。
 
 </div>
 
@@ -535,13 +535,11 @@ PBO/CSCV（回测过拟合概率）不纳入默认正式报告，不用于资格
 
 <div className="rd-example">
 
-H07 对 H06：价格 −281.67，手续费 +119.38（少付），资金费 +828.73，浮动 −8.62，合计 +657.82，正好等于账户净值差。报告给出的标量是 price、fee、funding、open_mark、account。
+比如四项是价格、手续费（少付记正）、资金费和期末浮动，相加正好等于账户净值差。报告给出的标量是 price、fee、funding、open_mark、account。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。</p>
 
 #### 规模与仓位择时：描述敞口与每日单位收益的共同变化 [#R-3-2-2]
 
@@ -551,7 +549,7 @@ H07 对 H06：价格 −281.67，手续费 +119.38（少付），资金费 +828.
 
 <div className="rd-example">
 
-H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 倍；年化从 0.27% 升到 4.24%，回撤从 0.62% 升到 8.44%，单位敞口净收益从 0.65 升到 0.97。推演里没有逐日敞口数据，择时项没算。
+比如单笔预算放大 20 倍，平均总名义敞口不一定跟着放大 20 倍；年化和回撤一起变时，单位敞口净收益描述每单位敞口赚了多少，仍要连同不确定性读。没有逐日敞口数据时，择时项算不出，留空写原因。
 
 </div>
 
@@ -563,8 +561,6 @@ H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 �
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。</p>
-
 #### 费用压力：手续费乘几倍，账户差就没了 [#R-3-2-3]
 
 这个切面给一个盈亏平衡费率倍数：两侧手续费同时乘上多少倍，账户净值差正好归零。费用按净额算，已扣挂单返佣；候选本来就少付费用、差又是正的，就写「不会归零」。不设阈值。标量是 breakeven_fee_multiple。
@@ -575,13 +571,11 @@ H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 �
 
 <div className="rd-example">
 
-比如候选比对照多付 500 USDT 手续费，账户差仍是 +1000。手续费同乘 3 倍时，多付的变成 1500，差正好归零，倍数就是 3。演练里 H06 放大预算后手续费放大约四倍，而价格盈亏只放大约两倍，这类改动就该看这个倍数。
+比如候选比对照多付 500 USDT 手续费，账户差仍是 +1000。手续费同乘 3 倍时，多付的变成 1500，差正好归零，倍数就是 3。放大预算这类改动，手续费和价格盈亏放大的幅度不一定相同，就该看这个倍数。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。</p>
 
 #### 品种与方向：差是不是集中在少数合约或一个方向 [#R-3-2-4]
 
@@ -591,13 +585,11 @@ H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 �
 
 <div className="rd-example">
 
-推演里 H09 对 H08 的改善，VELVET 一个合约就贡献了 43%。这说明改善高度集中，在逐合约复核之前，不能说品质整体变好了。
+比如候选对对照的改善里，差最大的一个合约就占了四成多。这说明改善高度集中，在逐合约复核之前，不能说品质整体变好了。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。</p>
 
 #### 市场暴露：赚的是跟着大盘走，还是自己的本事 [#R-3-2-5]
 
@@ -627,13 +619,11 @@ H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 �
 
 <div className="rd-example">
 
-H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五天后，剩下的差是负的，说明这 20 倍预算带来的改善集中在少数几天。
+比如候选在 13 个月里只胜了 6 个；又比如去掉差最大的五天后剩下的差是负的，说明改善集中在少数几天。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。</p>
 
 #### 波动状态：差出在高波动日还是低波动日 [#R-3-2-11]
 
@@ -649,7 +639,7 @@ H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五�
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">文献核查后加入（10-20），尚无演练证据。</p>
+<p className="rd-note">文献核查后加入（10-20），尚无执行证据。</p>
 
 #### 交易结构：两侧各自统计再比，不逐笔配对 [#R-3-2-7]
 
@@ -679,7 +669,7 @@ H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五�
 
 <div className="rd-example">
 
-推演时拿 ROOT 的 3225 个持仓周期，人为删掉、推迟、拆开和新增一部分交易来测这个算法：配上 2904 对，其中 2896 对正确（99.7%）；错配的 8 对都是新增交易碰上被删交易，重合度偏低。这是人造扰动，实现后要在第一组真实比较上复核。
+比如拿一个对照运行的持仓周期，人为删掉、推迟、拆开和新增一部分交易造出候选，来测这个算法：看配上了多少对、其中多少对正确、错配出在哪类交易上。这是人造扰动，还要在真实比较上复核。
 
 </div>
 
@@ -712,7 +702,7 @@ H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五�
 
 <div className="rd-example">
 
-比如 Agent 想根据「H09 的改善有 43% 来自 VELVET」提出限制单合约敞口的假设，这个占比就是驱动决定的数，要由另一个 Agent 从同一份持仓周期重算，对上了才用。
+比如 Agent 想根据「某个候选的改善有四成来自单个合约」提出限制单合约敞口的假设，这个占比就是驱动决定的数，要由另一个 Agent 从同一份持仓周期重算，对上了才用。
 
 </div>
 

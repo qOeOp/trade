@@ -4,7 +4,7 @@
 
 决定权分三层。你决定研究方向和一切需要授权的事；Agent 在你选定的路线里决定全部研究动作，不逐项问你；代码只在步骤之间核对事实，比如这次回放有没有效、能不能当比较证据，但不判断好坏、不决定下一步。三层之间只通过账本传东西，账本是唯一长期保存的研究记录。
 
-举个例子：全池 RSI 演练里，你选定了 RSI 路线，并决定保留原来的币池和窗口。之后十个假设都由 Agent 自己提、自己登记、自己回放，没有一个逐个问过你；但涉及数据约定、检查边界和本机资源的改动，它都停下来问过你，拿到明确授权才做。
+举个例子：你选定了一条路线，并决定保留原来的币池和窗口。之后的假设都由 Agent 自己提、自己登记、自己回放，不用逐个问你；但涉及数据约定、检查边界和本机资源的改动，它要停下来问你，拿到明确授权才做。
 
 <ChapterMap chapter="A" />
 
@@ -58,7 +58,7 @@
 
 <div className="rd-example">
 
-全池 RSI 演练里，H06 放大单笔预算后结果比 H05 差，Agent 据此提出 H07：按已知的历史资金费方向过滤新入场。H07 照样走完九步：源码审查在登记之前，登记在研究回放之前。十个假设都是这样推进的，没有一步单独问过你。
+比如某一版放大单笔预算后结果比对照差，Agent 据此提出下一个假设：按已知的历史资金费方向过滤新入场。这个假设照样走完九步：源码审查在登记之前，登记在研究回放之前。每个假设都这样推进，不用单独问你。
 
 </div>
 
@@ -142,7 +142,7 @@ Agent 读研究状态，产出源码、登记和判断；代码只给绩效指�
 
 <div className="rd-example">
 
-全池 RSI 演练里，H03 的父版本是 H02，而当时被推荐的是 H01；H08 的父版本是 H07，对照却是同样 100 预算的 H05。单笔预算从 100 改到 500、又改回 100、再改到 2000，都是 Agent 在源码里改的，没有问过你。推荐和反馈里也不能把这个预算说成你定的限制。
+比如一个候选的父版本是它的上一版，而当时被推荐的是另一版；对照也可以是同样预算的第三版。单笔预算从 100 改到 500、又改回 100、再改到 2000，都是 Agent 在源码里改的，不用问你。推荐和反馈里也不能把这个预算说成你定的限制。
 
 </div>
 
@@ -152,9 +152,7 @@ Agent 读研究状态，产出源码、登记和判断；代码只给绩效指�
 4. 仓位规则写在源码里，不另设一个名义上限去模仿保证金；资金使用率从报告里读。
 5. 改这些设计变量不需要授权，也不能在推荐或反馈里说成是你的约束。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
-
-<p className="rd-note">演练中 Agent 自行决定父版本与对照并在源码中改仓位规则，没有请求授权；所选父版本与当时的推荐候选不同。</p>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 用户决定的 [#A-2-3]
 
@@ -170,7 +168,7 @@ Agent 读研究状态，产出源码、登记和判断；代码只给绩效指�
 
 <div className="rd-example">
 
-全池 RSI 演练里遇到过上下架、中文原生身份、内存不足、原件容量这些真实阻断，都是修代码、发布新运行环境或新源码，再重新登记解决的，没有放宽任何一项检查。大原件要分块保存，也是另外拿到了你的授权才做的。
+比如遇到上下架、中文原生身份、内存不足、原件容量这类阻断，都靠修代码、发布新运行环境或新源码，再重新登记解决，不放宽任何一项检查。大原件要分块保存这类改动，要另外拿到你的授权才做。
 
 </div>
 
@@ -181,9 +179,7 @@ Agent 读研究状态，产出源码、登记和判断；代码只给绩效指�
 5. 被检查挡住时，正确做法是修源码或代码，发布新候选或新运行环境，再重新登记，而不是改检查。
 6. 要加新的产品代码，先说明谁会用它、它解决哪个阻断、预期改善什么、什么情况能证明它没用。不在这份清单上的事（包括仓位这类设计变量）不需要授权。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
-
-<p className="rd-note">演练中遇到的阻断都通过修复代码并发布新运行环境或新源码后重新登记解决，未放宽任何拒绝或审计检查。</p>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 **规则的验证与删减**
 
