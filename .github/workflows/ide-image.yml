@@ -12,7 +12,11 @@ on:
     paths:
       - .github/workflows/ide-image.yml
       - ide/**
-      - deploy/**
+      - deploy/*.py
+      - deploy/Dockerfile
+      - deploy/Dockerfile.dockerignore
+      - deploy/entrypoint.sh
+      - deploy/docker-api/**
       - cli/**
       - engine/**
       - ledger/**
@@ -59,7 +63,11 @@ jobs:
           paths: |
             .github/workflows/ide-image.yml
             ide/**
-            deploy/**
+            deploy/*.py
+            deploy/Dockerfile
+            deploy/Dockerfile.dockerignore
+            deploy/entrypoint.sh
+            deploy/docker-api/**
             cli/**
             engine/**
             ledger/**
