@@ -1,6 +1,6 @@
 ---
 name: research-start
-description: Starts or resumes strategy research in this repository and has the user choose its research line. Use at the start of every research session or after an interruption, whenever the user asks to start, restart or change research direction, when a line cannot continue, and when checking coverage gaps or whether low-activity inferred quotes support a selected contract, period and liquidation scenario.
+description: Starts or resumes strategy research in this repository and has the user choose its research line. Use at the start of every research session or after an interruption, whenever the user asks to start, restart or change research direction or to end a line, when a line cannot continue, and when checking coverage gaps or whether low-activity inferred quotes support a selected contract, period and liquidation scenario.
 ---
 
 # Research start
