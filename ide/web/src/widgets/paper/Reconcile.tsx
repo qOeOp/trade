@@ -93,11 +93,22 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
     </Prompt>;
   }
   const { fills, bars, replay } = r.result;
+  const barsOf = only ? [bars[only]].filter(Boolean) : Object.values(bars);
+  const missing = barsOf.reduce((n, b) => n + b!.missing_bars, 0), unlike = barsOf.reduce((n, b) => n + b!.differing_bars, 0);
+  const barCounts = <span className="text-fg-faint">{plural(missing, "live bar")} missing, {unlike} unlike the archive</span>;
+  const invalid = replay.status === "invalid" && <p className="px-3 pb-2 text-dense text-fail">The replay is invalid: {replay.problems.map((p) => p.code ?? p.message).join(", ")}</p>;
+  if (!fills) return (
+    <div className="flex flex-col">
+      <p className="flex flex-wrap gap-x-2 gap-y-1 px-3 py-2 text-dense tabular-nums text-fg-muted">
+        <span className="text-fail">The replay wrote no order events, so its fills cannot be compared</span>
+        <span className="text-fg-faint">·</span>{barCounts}
+      </p>
+      {invalid}
+    </div>
+  );
   // Newest first, what differs above what is the same.
   const mine = (only ? fills.filter((m) => symbolOf(m.instrument) === only) : fills).slice().reverse();
   const differ = mine.filter((m) => m.class !== "same"), same = mine.filter((m) => m.class === "same");
-  const barsOf = only ? [bars[only]].filter(Boolean) : Object.values(bars);
-  const missing = barsOf.reduce((n, b) => n + b!.missing.length, 0), unlike = barsOf.reduce((n, b) => n + b!.differing.length, 0);
   const count = (k: Matched["class"]) => mine.filter((m) => m.class === k).length;
   const suspects = mine.filter((m) => m.look_ahead_suspect).length;
   const following = mine.filter((m) => m.cause === "consequence").length;
@@ -112,10 +123,10 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
           <Count key="replay" n={count("replay_only")} one="only in the replay" many="only in the replay" tone="text-misses" />,
           <Count key="suspects" n={suspects} one="look-ahead suspect" tone="text-fail" />,
           ...(following ? [<span key="following" className="text-fg-faint">{following} after an earlier difference</span>] : []),
-          <span key="bars" className="text-fg-faint">{plural(missing, "live bar")} missing, {unlike} unlike the archive</span>,
+          <span key="bars">{barCounts}</span>,
         ].flatMap((item, i) => (i ? [<span key={`sep-${i}`} className="text-fg-faint">·</span>, item] : [item]))}
       </p>
-      {replay.status === "invalid" && <p className="px-3 pb-2 text-dense text-fail">The replay is invalid: {replay.problems.map((p) => p.code ?? p.message).join(", ")}</p>}
+      {invalid}
       {mine.length ? (
         <table className="w-full border-collapse text-dense tabular-nums">
           {shown.length > 0 && <thead><tr>

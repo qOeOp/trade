@@ -146,6 +146,63 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class InputTests(unittest.TestCase):
+    """The replay is the run's own: its leverage; and what the replay did not write is not read as none."""
+
+    def reconciled(self, events_written: bool) -> tuple[list[str], dict]:
+        import json
+        from unittest import mock
+        from replay import entry
+
+        row = {"config": {"candidate": "example@1", "leverage": "5", "fees": {}}, "symbols": ["BTCUSDT"],
+               "source_sha256": "s" * 64, "image_ref": "image"}
+        lines = journal([initialized("P-1", "ENTRY"), filled("P-1", START + 30 * 10**9, "100.0", "1")], 3)
+        argv: list[str] = []
+
+        def replayed(market, commit, source, entry_class, image, given, output, name, timeout):
+            argv.extend(given)
+            reports = Path(output) / entry.REPORTS
+            reports.mkdir(parents=True)
+            if events_written:
+                with gzip.open(reports / "order_events.jsonl.gz", "wt") as stream:
+                    for event in (initialized("R-1", "ENTRY"), filled("R-1", START + 30 * 10**9, "100.0", "1")):
+                        stream.write(json.dumps(event) + "\n")
+            return {"path": str(output), "status": "passed", "problems": []}
+
+        with tempfile.TemporaryDirectory() as name, \
+                mock.patch.object(reconcile.db, "connect"), \
+                mock.patch.object(reconcile.records, "read_paper_run", return_value=row), \
+                mock.patch.object(reconcile.records, "seal_of", return_value={}), \
+                mock.patch.object(reconcile.strategies, "read_candidate", return_value={"source": b"", "entry_class": "E"}), \
+                mock.patch.object(reconcile, "_journal", return_value=lines), \
+                mock.patch.object(reconcile, "window", return_value=(START, START + 3 * MINUTE)), \
+                mock.patch.object(reconcile, "_archive", return_value=("c" * 32, {"BTCUSDT": archived(3)})), \
+                mock.patch.object(entry, "replay_unrecorded", side_effect=replayed), \
+                mock.patch("paper.runs.ledger_key", return_value="k"):
+            found = reconcile.reconcile(object(), {}, None, 7, Path(name) / "out")
+            result = json.loads(Path(found["path"]).read_text(encoding="utf-8"))
+        return argv, result
+
+    def test_the_replay_runs_at_the_runs_leverage(self):
+        argv, result = self.reconciled(True)
+        self.assertEqual(argv[argv.index("--leverage") + 1], "5")
+        self.assertEqual((result["summary"]["same"], len(result["fills"])), (1, 1))
+
+    def test_a_replay_without_order_events_has_no_fill_comparison(self):
+        _, result = self.reconciled(False)
+        self.assertIsNone(result["fills"])
+        self.assertEqual({key: result["summary"][key] for key in ("paper_fills", "replay_fills", "same", "paper_only")},
+                         {"paper_fills": 1, "replay_fills": None, "same": None, "paper_only": None})
+
+    def test_each_contract_counts_every_bar_its_list_leaves_out(self):
+        minutes = reconcile.LISTED + 10
+        found = reconcile.compare(journal([], minutes, skip=tuple(range(minutes))), [],
+                                  {"BTCUSDT": archived(minutes, {0: "99.0"})}, None, START, START + minutes * MINUTE)
+        listed = found["bars"]["BTCUSDT"]
+        self.assertEqual((len(listed["missing"]), listed["missing_bars"]), (reconcile.LISTED, minutes))
+        self.assertEqual(listed["differing_bars"], 0)
+
+
 class ExportTests(unittest.TestCase):
     def test_a_reconciliations_market_export_is_fresh_so_it_goes_with_the_replay(self):
         # On the Paper host the temporary directory is a host directory: a reused export there is never evicted.
