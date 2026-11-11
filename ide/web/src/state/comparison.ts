@@ -1,6 +1,7 @@
 // The comparison of the version a page opens, read once per version, commit and build (the commit its graph was drawn
 // at, so a graph kept across a head that does not reach it keeps its answers): the bootstrap behind it
-// runs only for a version somebody looks at, and an answer stays in the browser (a refusal does not). A version
+// runs only for a version somebody looks at, and an answer stays in the browser. A failure is shown but kept by
+// neither, so the next time the version is opened it is asked again (CF-30). A version
 // compares its registration's last research run when that run passed, as the graph does; any other has nothing to ask for.
 import { useEffect } from "react";
 import { fetchComparison, type Fetched } from "../lib/comparisonApi";
@@ -17,7 +18,8 @@ const reads = atom<ReadonlyMap<string, Compared>>(new Map());
 const put = (key: string, value: Compared) => reads.set(new Map(reads.get()).set(key, value));
 
 async function read(key: string, bundle: string, trial: number, at: string): Promise<void> {
-  if (reads.get().has(key)) return;
+  const had = reads.get().get(key);
+  if (had && had.kind !== "failed") return;
   put(key, { kind: "reading" });
   const kept = await readKept<{ comparison: Comparison | null }>(KIND, key);
   if (kept) { put(key, { kind: "ready", comparison: kept.comparison }); return; }
