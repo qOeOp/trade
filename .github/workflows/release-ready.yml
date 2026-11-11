@@ -10,7 +10,10 @@ on:
       - .github/scripts/release-ready.cjs
       - .github/scripts/release-ready.test.cjs
       - deploy/runtime_inputs.py
-  workflow_run:
+  # zizmor flags every workflow_run trigger: it runs with the base repository's token on events a fork can cause.
+  # Here it only wakes the publisher: both jobs check out main (never the triggering run's code or artifacts), and
+  # release-ready.cjs admits only push runs on main of qoeop/trade, by head SHA and artifact identity.
+  workflow_run:  # zizmor: ignore[dangerous-triggers]
     workflows: [quality, ide-web, ide-image, runtime-image, docs-pages, remote-paper-auth]
     types: [in_progress, completed]
     branches: [main]
