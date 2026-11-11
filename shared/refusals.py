@@ -101,8 +101,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         "its product command.",
                         ("Write those through their commands (replays, `execution recover`, `market lifecycle`); "
                          "name your own evidence otherwise, for example correction-*.",)),
-    "INVALID_EVIDENCE_PATH": ("An evidence source is a symbolic link, or a path in the bundle is absolute, "
-                              "contains .. or repeats another.",
+    "INVALID_EVIDENCE_PATH": ("An evidence source is missing or a symbolic link, or a path in the bundle is "
+                              "absolute, contains .., is too long or repeats another (--note is stored as "
+                              "note.md); the message names which.",
                               ("Copy the files into a plain directory without links or duplicate names.",)),
     "EMPTY_EVIDENCE": ("An evidence file is empty, or the sources hold no file.",
                        ("Remove empty files and pass at least one nonempty file.",)),

@@ -40,14 +40,22 @@ def check_name(bundle) -> None:
                      expected="[A-Za-z0-9][A-Za-z0-9_.-]{0,159}")
 
 
-def _path_refused(name: str) -> None:
-    raise refuse("INVALID_EVIDENCE_PATH", f"evidence path {name!r} is a link, absolute, contains .., repeats "
-                                          "another or is too long")
+def _path_refused(name: str, why: str) -> None:
+    raise refuse("INVALID_EVIDENCE_PATH", f"evidence path {name!r} {why}", missing=(name,))
 
 
-def _path_ok(name: str) -> bool:
+def _path_problem(name: str) -> str | None:
+    """Why `name` cannot be a path in a bundle, or None."""
     posix = PurePosixPath(name)
-    return bool(name) and not posix.is_absolute() and ".." not in posix.parts and len(name.encode()) <= PATH_LIMIT
+    if not name:
+        return "is empty"
+    if posix.is_absolute():
+        return "is absolute"
+    if ".." in posix.parts:
+        return "contains .."
+    if len(name.encode()) > PATH_LIMIT:
+        return f"is longer than {PATH_LIMIT} bytes"
+    return None
 
 
 def _check_content(name: str, data: bytes) -> None:
@@ -63,22 +71,27 @@ def _read_sources(sources: list[Path]) -> dict[str, bytes]:
     for given in sources:
         given = Path(given)
         if given.is_symlink() or not given.exists():
-            _path_refused(str(given))
+            _path_refused(str(given), "is a link" if given.is_symlink() else "does not exist")
         if given.is_dir():
             for directory, names, filenames in os.walk(given, followlinks=False):
                 for name in sorted(names) + sorted(filenames):
                     path = Path(directory) / name
                     if path.is_symlink():
-                        _path_refused(path.relative_to(given).as_posix())
+                        _path_refused(path.relative_to(given).as_posix(), f"is a link ({path})")
                 for name in sorted(filenames):
                     path = Path(directory) / name
                     found.append((path.relative_to(given).as_posix(), path))
         else:
             found.append((given.name, given))
     files: dict[str, bytes] = {}
+    paths: dict[str, Path] = {}
     for name, path in found:
-        if name in files or not _path_ok(name) or not path.is_file():
-            _path_refused(name)
+        if name in files:
+            _path_refused(name, f"comes from both {paths[name]} and {path}")
+        problem = _path_problem(name) or (None if path.is_file() else "is not a regular file")
+        if problem:
+            _path_refused(name, problem)
+        paths[name] = path
         if PurePosixPath(name).suffix.lower() in MEDIA_SUFFIXES:
             raise refuse("MEDIA_NOT_KEPT", f"{name}: media files are not kept; store derived evidence only",
                          missing=(name,))
@@ -118,8 +131,9 @@ def write_files(conn: db.LedgerConnection, bundle: str, files: dict[str, bytes],
         raise ValueError(f"bundle kind {kind!r} with trial {trial_id!r}")
     check_name(bundle)
     for name, data in files.items():
-        if not isinstance(name, str) or not _path_ok(name):
-            _path_refused(str(name))
+        problem = "is not text" if not isinstance(name, str) else _path_problem(name)
+        if problem:
+            _path_refused(str(name), problem)
         _check_content(name, data)
     hashes = digests(files)
     stored = _stored(conn, bundle)
