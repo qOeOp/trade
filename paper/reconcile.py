@@ -23,12 +23,13 @@ import gzip
 import json
 from pathlib import Path
 
+from engine.config import ACCOUNT_CONTRACT
 from ledger import db, paper as records, strategies
 from shared import paths
 from shared.refusals import refuse
 
 
-FORMAT = "paper-reconcile@2026-10-26"
+FORMAT = "paper-reconcile@2026-11-11"
 MINUTE_NS = 60 * 10**9
 ON_TIME_NS = MINUTE_NS  # a fill within one bar of its counterpart is on time
 PAIR_NS = 10 * MINUTE_NS  # an uncalibrated example value: fills further apart are different trades
@@ -251,6 +252,8 @@ def compare(lines: list[dict], replay_events: list[dict], archive: Mapping[str, 
                         "equity_max_difference": str(max(gaps)) if gaps else None},
             "fills": fills,
             "bars": {symbol: {**{key: item[key] for key in ("archive", "live", "late")},
+                              # The lists stop at LISTED; the counts are complete.
+                              "missing_bars": len(item["missing"]), "differing_bars": len(item["differing"]),
                               "missing": [_utc(close) for close in item["missing"][:LISTED]],
                               "live_only": [_utc(close) for close in item["live_only"][:LISTED]],
                               "differing": [{"close": _utc(close), "fields": fields}
@@ -301,17 +304,22 @@ def reconcile(profile: db.LedgerProfile, market: dict, at: str | None, paper_id:
     output = paths.temporary_path(output)
     output.mkdir(mode=0o700, parents=True)
     argv = ["--symbols", *row["symbols"], "--start", _utc(start), "--trade-start", _utc(start), "--end", _utc(end),
-            "--execution", "bars"]
+            # A run declared before its leverage was recorded ran at the default.
+            "--execution", "bars", "--leverage", row["config"].get("leverage", ACCOUNT_CONTRACT["default_leverage"])]
     replayed = entry.replay_unrecorded(market, commit, candidate["source"], candidate["entry_class"], row["image_ref"],
                                        argv, output / "replay", f"trade-paper-reconcile-{runs.ledger_key(profile)}-{paper_id}",
                                        timeout)
     reports = Path(replayed["path"]) / entry.REPORTS
     events_file = reports / "order_events.jsonl.gz"
-    events = [json.loads(raw) for raw in gzip.open(events_file)] if events_file.is_file() else []
+    events = [json.loads(raw) for raw in gzip.open(events_file)] if events_file.is_file() else None
+    compared = compare(lines, events or [], archive, reports if (reports / "account.csv").is_file() else None, start, end)
+    if events is None:  # the replay wrote no order events: its fills are unknown, not none
+        compared["fills"] = None
+        compared["summary"] |= dict.fromkeys(("replay_fills", "same", "price", "quantity", "time", "paper_only",
+                                              "replay_only", "look_ahead_suspects"))
     result = {"format": FORMAT, "paper_id": paper_id, "candidate": row["config"]["candidate"],
               "source_sha256": row["source_sha256"], "image_ref": row["image_ref"], "market_commit": commit,
               "window": {"start": _utc(start), "end": _utc(end)}, "fees": row["config"].get("fees"),
-              "replay": {key: replayed[key] for key in ("status", "problems", "path")},
-              **compare(lines, events, archive, reports if (reports / "account.csv").is_file() else None, start, end)}
+              "replay": {key: replayed[key] for key in ("status", "problems", "path")}, **compared}
     (output / "reconcile.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
     return {"path": str(output / "reconcile.json"), "summary": result["summary"], "replay": result["replay"]}

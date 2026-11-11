@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 from ledger import db, paper as records, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
-from paper import runs
+from paper import reconcile, runs
 
 
 PREFIX = "/api/paper"
@@ -432,9 +432,10 @@ class Daemon:
         if found.get("state") in ("reconciling", "failed"):
             return {"paper_id": paper_id, **found}
         done = sorted(self.reconcile_root().glob(f"{paper_id}-*/reconcile.json"))
-        if not done:
+        result = json.loads(done[-1].read_text(encoding="utf-8")) if done else None
+        if result is None or result.get("format") != reconcile.FORMAT:  # one of an older format is replayed again
             return {"paper_id": paper_id, "state": "none"}
-        return {"paper_id": paper_id, "state": "done", "result": json.loads(done[-1].read_text(encoding="utf-8"))}
+        return {"paper_id": paper_id, "state": "done", "result": result}
 
     def seal_ended(self) -> None:
         while True:

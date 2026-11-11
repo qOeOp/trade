@@ -16,18 +16,21 @@ export type Matched = {
   delay_ms?: number; price_bps?: number; cause?: Cause; look_ahead_suspect?: boolean; follows?: string;
   evidence?: { missing_bars: number; differing_bars: number; first: string | null };
 };
+/** The fill counts but `paper_fills` are null when the replay wrote no order events. */
 type Summary = {
-  paper_fills: number; replay_fills: number; same: number; price: number; quantity: number; time: number;
-  paper_only: number; replay_only: number; look_ahead_suspects: number; missing_bars: number; differing_bars: number;
-  late_bars: number; equity_max_difference: string | null;
+  paper_fills: number; replay_fills: number | null; same: number | null; price: number | null; quantity: number | null;
+  time: number | null; paper_only: number | null; replay_only: number | null; look_ahead_suspects: number | null;
+  missing_bars: number; differing_bars: number; late_bars: number; equity_max_difference: string | null;
 };
-type ContractBars = { archive: number; live: number; late: number; missing: string[]; live_only: string[];
-                             differing: { close: string; fields: Record<string, [string, string]> }[] };
-/** reconcile.json (paper-reconcile@2026-10-26). */
+/** A contract's bars: complete counts, and the first of each kind listed. */
+type ContractBars = { archive: number; live: number; late: number; missing_bars: number; differing_bars: number;
+                      missing: string[]; live_only: string[];
+                      differing: { close: string; fields: Record<string, [string, string]> }[] };
+/** reconcile.json (paper-reconcile@2026-11-11); `fills` is null when the replay wrote no order events. */
 type Result = {
   paper_id: number; window: { start: string; end: string }; market_commit: string; image_ref: string;
   replay: { status: "passed" | "invalid"; problems: { code?: string; message?: string }[] };
-  summary: Summary; fills: Matched[]; bars: Record<string, ContractBars>;
+  summary: Summary; fills: Matched[] | null; bars: Record<string, ContractBars>;
   equity: { paper: [number, string][]; replay: [number, string][] };
 };
 export type Reconciliation = {

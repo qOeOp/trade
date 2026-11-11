@@ -23,7 +23,7 @@ from unittest import mock
 
 from ledger import db, paper as records, strategies
 from shared.errors import Refusal
-from paper import runs, serve
+from paper import reconcile, runs, serve
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 from tests.ledger.test_paper import ROW, journal, line, snapshot, START, MINUTE
 
@@ -291,7 +291,7 @@ class ReconcileOutputTests(unittest.TestCase):
             (output / "replay").mkdir()
             if fails:
                 raise fails
-            (output / "reconcile.json").write_text(json.dumps({"output": output.name}))
+            (output / "reconcile.json").write_text(json.dumps({"format": reconcile.FORMAT, "output": output.name}))
         daemon.cli = mock.Mock(side_effect=cli)
         thread = mock.Mock(side_effect=lambda target, daemon: SimpleNamespace(start=target))
         with mock.patch.object(db, "connect"), mock.patch.object(records, "read_paper_run"), \
@@ -308,7 +308,10 @@ class ReconcileOutputTests(unittest.TestCase):
             (root / "31-20261108T000000Z").mkdir()  # another run's
             self.reconcile(daemon, "20261109T000001Z")
             self.assertEqual(sorted(path.name for path in root.iterdir()), ["3-20261109T000001Z", "31-20261108T000000Z"])
-            self.assertEqual(daemon.reconciliation(3)["result"], {"output": "3-20261109T000001Z"})
+            self.assertEqual(daemon.reconciliation(3)["result"], {"format": reconcile.FORMAT, "output": "3-20261109T000001Z"})
+            (root / "3-20261109T000001Z" / "reconcile.json").write_text(json.dumps({"format": "paper-reconcile@2026-10-26"}))
+            self.assertEqual(daemon.reconciliation(3)["state"], "none", "an older format is replayed again")
+            (root / "3-20261109T000001Z" / "reconcile.json").write_text(json.dumps({"format": reconcile.FORMAT}))
 
             self.reconcile(daemon, "20261109T000002Z", fails=subprocess.TimeoutExpired("paper reconcile", 1))
             self.assertEqual(sorted(path.name for path in root.iterdir()), ["3-20261109T000001Z", "31-20261108T000000Z"])
