@@ -22,6 +22,7 @@ import re
 import secrets
 import stat
 import time
+import urllib.parse
 
 from deploy.telegram import TOKEN, Failure, settings as saved_settings, telegram
 from live import configuration, runs, state, views
@@ -41,6 +42,7 @@ FINAL = frozenset({"clean_stopped", "reconciled_flat", "venue_flat", "not_armed"
 NAMES = {"clean_stopped": "stopped flat", "reconciled_flat": "reconciled flat", "venue_flat": "flat at Binance",
          "not_armed": "ended before arming, no order placed"}
 DAY_NS = 86_400 * 10**9
+PAGE = re.compile(r"https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?\Z")  # TRADE_PAGE, set by the release on the control
 
 
 Call = Callable[[str, str, dict], dict]
@@ -246,8 +248,19 @@ def _result(run: dict) -> str | None:
     return next((value for _, value in reversed(run.get("minute_results") or []) if value is not None), None)
 
 
+def _link(run_id: str) -> str:
+    """The run's page on this deployment's IDE (a phone opens it as the run's page), where the release names it."""
+    page = os.environ.get("TRADE_PAGE", "")
+    return f"\n{page}/?live={urllib.parse.quote(run_id, safe='')}" if PAGE.fullmatch(page) else ""
+
+
 def messages(run: dict) -> list[tuple[str, str]]:
-    """(key, text) for what this run's current facts say, in order."""
+    """(key, text) for what this run's current facts say, in order, each ending with the run's page."""
+    link = _link(run["run_id"])
+    return [(key, text + link) for key, text in _messages(run)]
+
+
+def _messages(run: dict) -> list[tuple[str, str]]:
     run_id, host = run["run_id"], run.get("host") or {}
     name = f"Live run {run_id} ({run.get('source_name')})"
     current, mode, terminal = host.get("state"), host.get("mode"), run.get("terminal") or {}
@@ -397,7 +410,8 @@ def tick(config: configuration.Configuration, *, call: Call = telegram, now: int
             record = _load(directory)
             facts = collect(config, set(record["closed"]))
             step(record, facts, time.time_ns() if now is None else now,
-                 lambda text: call(token, "sendMessage", {"chat_id": chat, "text": text}),
+                 lambda text: call(token, "sendMessage", {"chat_id": chat, "text": text,
+                                                          "link_preview_options": {"is_disabled": True}}),
                  lambda: _save(directory, record), stop)
     except Exception:
         pass  # notification never affects run maintenance; the page shows the last recorded error

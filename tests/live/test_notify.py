@@ -248,6 +248,14 @@ class Collecting(test_views.LiveViewTests):
         self.assertEqual(facts[0]["stop_reason"], "other")
         texts = [text for _, text in notify.messages(facts[0])]
         self.assertEqual(texts, ["Live run probe-one (example-live@2) fill: BUY 0.001 BTCUSDT-PERP.BINANCE at 75000."])
+        # The release names the IDE's page; each notice then ends with the run's page there, under the same key.
+        with patch.dict(os.environ, {"TRADE_PAGE": "https://trade.example.com"}):
+            linked = notify.messages(facts[0])
+        self.assertEqual([key for key, _ in linked], [key for key, _ in notify.messages(facts[0])])
+        self.assertEqual([text for _, text in linked], [texts[0] + "\nhttps://trade.example.com/?live=probe-one"])
+        for page in ("http://trade.example.com", "https://trade.example.com/x", "https://evil.test\n"):
+            with patch.dict(os.environ, {"TRADE_PAGE": page}):
+                self.assertEqual([text for _, text in notify.messages(facts[0])], texts, page)
         self.assertEqual(notify.collect(SimpleNamespace(root=self.root, sources={}), {"probe-one"}), [])
 
 

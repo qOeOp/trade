@@ -139,6 +139,8 @@ class LiveHost:
                 "--network", self.web.config.backend, "--env", "TRADE_DOLT_HOST=ledger",
                 "--env", "HOME=/tmp", "--env", "DOCKER_CONFIG=/tmp/docker-public",
                 "--env", "DOCKER_HOST=unix:///var/run/docker.sock",
+                # Telegram notices end with the run's page here (live/notify.py).
+                "--env", f"TRADE_PAGE=https://{self.web.config.domain}",
                 "--mount", "type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock",
                 "--group-add", str(DOCKER_SOCKET.stat().st_gid),
                 "--mount", f"type=bind,src={root},dst={root}" + (",readonly" if helper else ""),
