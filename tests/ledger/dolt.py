@@ -57,12 +57,12 @@ SYMBOLS = ["AAAUSDT-PERP.BINANCE", "BBBUSDT-PERP.BINANCE"]
 ACCOUNT = {"starting_balance_usdt": "100000", "execution": "bars", "oms_type": "NETTING", "fees": "assumed-v1"}
 
 
-def coverage(market_commit: str = MARKET_COMMIT, *, effective_config: dict | None = None, receipts: dict | None = None,
+def coverage(market_day: str = MARKET_COMMIT, *, effective_config: dict | None = None, receipts: dict | None = None,
              membership: dict | None = None, **identity) -> bytes:
     """input-coverage.json as replay.input_coverage writes it: the effective configuration, the export receipts by
     symbol, the input identity (`identity` overrides its keys: symbols, universe_rule, export_content_sha256,
     lifecycle_bundle) and, when given, the membership file's content."""
-    input_identity = {"market_database": "market", "market_commit": market_commit, "universe_rule": "pool-v1",
+    input_identity = {"market_database": "market", "market_day": market_day, "universe_rule": "pool-v1",
                       "symbols": list(SYMBOLS), "export_content_sha256": "e" * 64, **identity}
     effective = effective_config or {"runtime_contract": IDENTITY["runtime_contract"], **window(),
                                      "execution_bar_minutes": 1440, "symbols": list(input_identity["symbols"]),
@@ -183,9 +183,9 @@ def grid_point(conn, line_id: int, data: bytes, receipt: bytes | None = None, ru
                "(%s, %s, 'passed', 'passed', 'fixture', 'passed', 'fixture', 'passed', 'fixture', 'passed', 'fixture', "
                "'fixture', %s)", (precheck, sha(data), op + ":review"))
         (review_id,), = c.rows("SELECT LAST_INSERT_ID()")
-        c.rows("INSERT INTO research_registration (line_id, image_ref, market_commit, universe_rule, lifecycle_bundle, "
+        c.rows("INSERT INTO research_registration (line_id, image_ref, market_day, universe_rule, lifecycle_bundle, "
                "export_sha256, comparable_config_sha256, body, op_id) VALUES (%s, %s, %s, %s, %s, %s, %s, '{}', %s)",
-               (line_id, runtime["image_ref"], columns["market_commit"], columns["universe_rule"],
+               (line_id, runtime["image_ref"], columns["market_day"], columns["universe_rule"],
                 columns["lifecycle_bundle"], columns["export_sha256"], columns["comparable_config_sha256"], op))
         (registration_id,), = c.rows("SELECT LAST_INSERT_ID()")
         c.rows("INSERT INTO registration_grid_point (registration_id, source_sha256, source_review_id) "

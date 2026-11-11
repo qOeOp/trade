@@ -35,7 +35,7 @@ The runner takes the strategy reference, the inputs, the window and the account,
   and the contracts: `--symbols SYMBOL ...` (Binance symbols such as `BTCUSDT`) or `--universe pool`
   (every contract the universe holds in some month of the trade window), and optionally the
   commit's lifecycle bundle (`--lifecycle-bundle lifecycle-<commit>`). The replay entry exports the
-  commit into one Catalog per contract and passes the runner `--market-root`, `--market-commit`,
+  commit into one Catalog per contract and passes the runner `--market-root`, `--market-day`,
   `--universe` (the membership file it wrote) and the symbols; the runner checks each Catalog's
   `export.json` against the commit, the window and the one-minute timeframe. Every strategy instance
   receives its contract's membership as `universe_membership` ([UTC start, end) nanosecond
@@ -160,7 +160,7 @@ configuration: the exported metrics files already carry it into the input identi
 the run does not stream, and any in paper trading, is `METRICS_NOT_SERVED`.
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
-`market_root`, `market_commit`, `universe_path`, `universe_sha256` (the membership file's bytes),
+`market_root`, `market_day`, `universe_path`, `universe_sha256` (the membership file's bytes),
 `symbols`, `start`, `trade_start`, `end` and `account`; its digest leaves out the two host paths, so
 the registration's probe and the replay compare the same digest. A runner refusal starts with a
 code of `config.REFUSALS`.

@@ -10,7 +10,7 @@ from engine.config import Refusal, effective_configuration, ns as _ns, parse_con
 
 
 ARGV = [
-    "--market-root", "/inputs/market", "--market-commit", "c" * 32, "--symbols", "BTCUSDT",
+    "--market-root", "/inputs/market", "--market-day", "c" * 32, "--symbols", "BTCUSDT",
     "--start", "2025-01-01T00:00:00Z", "--end", "2025-01-02T00:00:00Z",
     "--trade-start", "2025-01-01T01:00:00Z", "--output", "/reports",
     "--strategy-file", "/unused.py", "--strategy-class", "Unused",

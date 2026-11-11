@@ -94,17 +94,17 @@ def read_source(conn: db.LedgerConnection, source_sha256: str) -> dict:
 
 
 def open_paper_run(conn: db.LedgerConnection, source_sha256: str, image_ref: str, symbols: list[str],
-                   market_commit: str, config: dict, op_id: str) -> dict:
+                   market_day: str, config: dict, op_id: str) -> dict:
     """Declare one paper run of a copied source; `op_id` names this start (a retry with the same ID returns
     the same run)."""
     read_source(conn, source_sha256)
     payload = {"source_sha256": source_sha256, "image_ref": image_ref, "symbols": list(symbols),
-               "market_commit": market_commit, "config": config}
+               "market_day": market_day, "config": config}
 
     def insert(c, op):
-        c.rows("INSERT INTO paper_run (source_sha256, image_ref, symbols, market_commit, config, op_id, created_at) "
+        c.rows("INSERT INTO paper_run (source_sha256, image_ref, symbols, market_day, config, op_id, created_at) "
                "VALUES (%s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(6))",
-               (source_sha256, image_ref, json.dumps(list(symbols)), market_commit,
+               (source_sha256, image_ref, json.dumps(list(symbols)), market_day,
                 json.dumps(config, sort_keys=True), op))
         return c.one("SELECT * FROM paper_run WHERE op_id = %s", (op,))
 

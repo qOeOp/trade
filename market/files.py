@@ -8,7 +8,7 @@ financial data in plain Parquet files whose paths say what they hold.
 
 There is no manifest: what the files hold is what the market holds, and the code that imports them is the record of
 how they were made. A market commit is the last day it includes, written as eight date digits and 24 zeros so it keeps
-the shape the ledger's market_commit has; reading at a commit reads the rows of that day and before. A write goes to
+the shape the ledger's market_day has; reading at a commit reads the rows of that day and before. A write goes to
 a temporary file that the import sees as the file (`write_file`) until `place` renames it into position.
 """
 

@@ -95,7 +95,7 @@ class MembershipTests(unittest.TestCase):
                                   "s" * 32: months_rows(self.months[:3]),
                                   "b" * 32: months_rows(self.months[:2]) + months_rows(self.months[2:3], ["AAAUSDT"])
                                   + months_rows(self.months[3:])})
-        self.registration = {"market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
+        self.registration = {"market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
                              "created_at": datetime(2026, 10, 19, 12), "window_start": datetime(2026, 11, 2),
                              "window_end": datetime(2026, 11, 9)}
 
@@ -329,7 +329,7 @@ class ValidationTests(unittest.TestCase):
         self.bind("corrected", inputs=inputs)
         self.assertEqual(self.refused_bind("corrected", inputs=inputs), "REGISTRATION_CONSUMED")
 
-    def test_retry_market_commit_cannot_rebase_the_original_membership_check(self):
+    def test_retry_market_day_cannot_rebase_the_original_membership_check(self):
         trial_id = self.bind("retry-members")
         self.world.seal_run(trial_id, "invalid")
         changed = "d" * 32

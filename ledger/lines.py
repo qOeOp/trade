@@ -27,7 +27,7 @@ from shared.refusals import refuse
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 SLUG_LIMIT = 48
 SUMMARY_LIMIT = 32 * 1024  # bytes of a line summary; an index, not a report
-LINE_COLUMNS = ("l.line_id, l.name, l.start_source_sha256, c.strategy_id, c.revision, l.market_commit, "
+LINE_COLUMNS = ("l.line_id, l.name, l.start_source_sha256, c.strategy_id, c.revision, l.market_day, "
                 "l.universe_rule, l.dev_start, l.dev_end, l.created_at, x.summary AS closed_summary, "
                 "x.created_at AS closed_at")
 LINES = ("research_line l JOIN candidate c ON c.source_sha256 = l.start_source_sha256 "
@@ -36,7 +36,7 @@ LINES = ("research_line l JOIN candidate c ON c.source_sha256 = l.start_source_s
 
 def _record(row: dict) -> dict:
     return {"line_id": row["line_id"], "name": row["name"], "start": f"{row['strategy_id']}@{row['revision']}",
-            "start_sha256": row["start_source_sha256"], "market_commit": row["market_commit"],
+            "start_sha256": row["start_source_sha256"], "market_day": row["market_day"],
             "universe_rule": row["universe_rule"], "dev_start": row["dev_start"].isoformat(),
             "dev_end": row["dev_end"].isoformat(), "created_at": row["created_at"],
             "closed": row["closed_at"] is not None, "closed_at": row["closed_at"], "summary": row["closed_summary"]}
@@ -81,7 +81,7 @@ def open_line(conn: db.LedgerConnection, line: str | int | None = None) -> dict:
     return record
 
 
-LISTED = ("line_id", "name", "start", "dev_start", "dev_end", "market_commit", "created_at", "closed")
+LISTED = ("line_id", "name", "start", "dev_start", "dev_end", "market_day", "created_at", "closed")
 
 
 def list_lines(profile: db.LedgerProfile, at: str | None = None, *, every: bool = False) -> dict:
@@ -181,7 +181,7 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
     if "failed" in verdicts or "passed" not in verdicts:
         raise refuse("START_REVIEW_REQUIRED", f"{start} has {'a failed' if 'failed' in verdicts else 'no passed'} "
                                               "source review", missing=(start,))
-    choice = {"name": slug, "start_source_sha256": candidate["source_sha256"], "market_commit": facts["commit"],
+    choice = {"name": slug, "start_source_sha256": candidate["source_sha256"], "market_day": facts["commit"],
               "universe_rule": facts["universe_rule"], "dev_start": window_start.isoformat(),
               "dev_end": window_end.isoformat()}
 
@@ -189,7 +189,7 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
         if c.rows("SELECT 1 FROM research_line WHERE name = %s", (slug,)):
             raise refuse("LINE_CONFLICT", f"a line named {slug} already exists with another choice; name this "
                                           "direction with another slug", missing=(slug,))
-        c.rows("INSERT INTO research_line (name, start_source_sha256, market_commit, universe_rule, dev_start, dev_end, "
+        c.rows("INSERT INTO research_line (name, start_source_sha256, market_day, universe_rule, dev_start, dev_end, "
                "op_id) VALUES (%s, %s, %s, %s, %s, %s, %s)", (*choice.values(), operation))
         (line_id,), = c.rows("SELECT LAST_INSERT_ID()")
         if targets is not None:
@@ -204,7 +204,7 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
 
     written = db.write(conn, "select_line", choice, "research_line", insert, replay)
     line = read_line(conn, written["record"]["line_id"])
-    return {"line": line["name"], "line_id": line["line_id"], "market_commit": line["market_commit"],
+    return {"line": line["name"], "line_id": line["line_id"], "market_day": line["market_day"],
             "universe_rule": line["universe_rule"], "op_id": written["op_id"], "created": not written["replayed"],
             "targets": line_targets.targets_for(conn, line["line_id"])}
 

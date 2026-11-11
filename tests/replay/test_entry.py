@@ -90,7 +90,7 @@ class ExecutionBindingTests(unittest.TestCase):
         workdir = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, workdir, True)
         (workdir / entry.SOURCE).mkdir()
-        argv = ["--market-root", "/inputs/market", "--market-commit", "c" * 32, "--symbols", "AAAUSDT",
+        argv = ["--market-root", "/inputs/market", "--market-day", "c" * 32, "--symbols", "AAAUSDT",
                 "--start", "2026-01-01T00:00:00Z", "--end", "2026-01-02T00:00:00Z"]
         inspection = engine_config.describe(engine_config.parse_configuration(["--describe", *argv]))
         options = entry._strategy_argv(workdir, IDENTITY, inspection, "Fixture", "a" * 64)
@@ -213,7 +213,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         self.assertEqual(runner["argv"][runner["argv"].index("--execution-binding") + 1],
                          f"{entry.STRATEGY_DIR}/{entry.EXECUTION_BINDING}", "a precheck loads as a sealed replay")
         review = precheck.record_review(self.world.profile, self.world.review_body(checked["trial_id"]), "reviewer-b")
-        identity = {"image_ref": checked["image_ref"], "market_commit": MARKET_COMMIT, "lifecycle_bundle": None,
+        identity = {"image_ref": checked["image_ref"], "market_day": MARKET_COMMIT, "lifecycle_bundle": None,
                     "comparable_config_sha256": checked["comparable_config_sha256"]}
         self.assertEqual(precheck.require_precheck(self.world.conn, review["review_id"], published["source_sha256"],
                                                    identity), checked["trial_id"])
@@ -475,7 +475,7 @@ class SealedReplayTests(unittest.TestCase):
         shutil.rmtree(workdir)
 
     def test_what_the_runner_wrote_but_the_report_cannot_read_makes_the_run_invalid(self):
-        cases = [({"summary": {"market_commit": "z" * 32}}, "COVERAGE_MISMATCH"),
+        cases = [({"summary": {"market_day": "z" * 32}}, "COVERAGE_MISMATCH"),
                  ({"corrupt_exposures": True}, "NATIVE_REPORT_UNREADABLE"),
                  ({"summary": {"final_equity_usdt": None}}, "SUMMARY_INCOMPLETE"),
                  ({"summary": {"period_start_utc": "the first of January"}}, "METRICS_UNREADABLE"),

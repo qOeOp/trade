@@ -181,7 +181,7 @@ class StrategyLoaderTests(unittest.TestCase):
 
     def configuration(self, extra=None):
         argv = [
-            "--market-root", "/inputs/market", "--market-commit", "c" * 32, "--universe", str(self.universe()),
+            "--market-root", "/inputs/market", "--market-day", "c" * 32, "--universe", str(self.universe()),
             "--symbols", "BTCUSDT", "ETHUSDT",
             "--start", "2025-10-07T00:00:00Z", "--end", "2026-10-07T08:30:00Z",
             "--output", "/reports", "--strategy-file", str(self.source),
@@ -219,7 +219,7 @@ class StrategyLoaderTests(unittest.TestCase):
         resolved = effective_configuration(args)
         effective = resolved.values
         self.assertEqual(effective["trade_start"], args.window.start)
-        self.assertEqual(set(effective), {"runtime_contract", "execution_bar_minutes", "market_root", "market_commit",
+        self.assertEqual(set(effective), {"runtime_contract", "execution_bar_minutes", "market_root", "market_day",
                                           "universe_path", "universe_sha256", "symbols", "start", "end",
                                           "trade_start", "account"})
         self.assertEqual((effective["execution_bar_minutes"], effective["universe_sha256"]),
@@ -431,7 +431,7 @@ class StrategyLoaderTests(unittest.TestCase):
 
     def test_a_refusal_before_the_replay_is_a_receipt_with_its_stage_and_code(self):
         output = self.root / "reports"
-        argv = ["--market-root", str(self.root / "market"), "--market-commit", "c" * 32, "--symbols", "BTCUSDT",
+        argv = ["--market-root", str(self.root / "market"), "--market-day", "c" * 32, "--symbols", "BTCUSDT",
                 "--start", "2025-10-07T00:00:00Z", "--end", "2025-10-08T00:00:00Z", "--output", str(output),
                 "--strategy-file", str(self.source), "--strategy-class", "ProbeStrategy"]
         self.addCleanup(strategy_runtime.clear_failures)

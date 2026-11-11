@@ -80,7 +80,7 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
             entry._cleanup(exported)
         ran.append({"source_sha256": item["source_sha256"], "segment": item["label"], "run": item["trial_id"],
                     "history_trial_id": sealed["trial_id"], "status": sealed["status"]})
-    return {"line": record["name"], "market_commit": commit, "ran": ran,
+    return {"line": record["name"], "market_day": commit, "ran": ran,
             "left": max(len(todo) - len(ran), 0),
             "participants": len({item["source_sha256"] for item in plan}),
             "segments_without_trading": sum(item["window"] is None for item in plan)}

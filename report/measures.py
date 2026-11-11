@@ -632,7 +632,7 @@ def market_for(run: Mapping) -> dict | None:
     from report import seams
     identity = run.get("input_identity") or {}
     try:
-        return seams.current.market_returns(identity.get("market_database"), identity.get("market_commit"),
+        return seams.current.market_returns(identity.get("market_database"), identity.get("market_day"),
                                             identity.get("universe_rule"),
                                             datetime.fromtimestamp(run["trade_start_ns"] // 10**9, timezone.utc)
                                             - timedelta(days=REGIME_WINDOW),

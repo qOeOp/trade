@@ -60,7 +60,7 @@ def verify_coverage(coverage, summary) -> tuple[dict, ...]:
     symbols = identity.get("symbols") if isinstance(identity, Mapping) else None
     receipts = coverage.get("export_receipts") if isinstance(coverage, Mapping) else None
     if (not isinstance(coverage, Mapping) or coverage.get("format") != FORMAT or not isinstance(identity, Mapping)
-            or not identity.get("market_commit") or not isinstance(symbols, list) or not symbols
+            or not identity.get("market_day") or not isinstance(symbols, list) or not symbols
             or not isinstance(receipts, Mapping)
             or any(not isinstance(receipts.get(symbol), Mapping) or receipts[symbol].get("status") == "missing"
                    or not _instruments(receipts[symbol]) for symbol in symbols)):
@@ -78,8 +78,8 @@ def verify_coverage(coverage, summary) -> tuple[dict, ...]:
     conflicts = []
     if covered != native:
         conflicts.append("instruments")
-    if summary.get("market_commit") != identity.get("market_commit"):
-        conflicts.append("market_commit")
+    if summary.get("market_day") != identity.get("market_day"):
+        conflicts.append("market_day")
     if None in receipt_bounds or receipt_bounds != summary_bounds:
         conflicts.append("input_interval")
     if conflicts:

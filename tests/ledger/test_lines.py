@@ -43,7 +43,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.open_code(), "RESEARCH_LINE_REQUIRED")
         before = db.head_commit(self.conn)
         first = self.select()
-        self.assertEqual((first["line"], first["market_commit"], first["universe_rule"], first["created"]),
+        self.assertEqual((first["line"], first["market_day"], first["universe_rule"], first["created"]),
                          ("ema-trend", MARKET_COMMIT, "pool-v1", True))
         self.assertEqual(lines.open_line(self.conn)["line_id"], first["line_id"])
         again = self.select()
@@ -194,10 +194,10 @@ class ResearchLineTests(unittest.TestCase):
                 lines.line_trials(self.conn, name)
             self.assertEqual(caught.exception.code, "LINE_UNKNOWN")
 
-    def test_lines_on_one_market_commit_and_window_keep_the_trials_that_name_them(self):
+    def test_lines_on_one_market_day_and_window_keep_the_trials_that_name_them(self):
         line = self.select()
         other = self.select(slug="ema-other")
-        self.assertEqual((line["market_commit"], other["market_commit"]), (MARKET_COMMIT, MARKET_COMMIT))
+        self.assertEqual((line["market_day"], other["market_day"]), (MARKET_COMMIT, MARKET_COMMIT))
         mine = self.research_trial(line["line_id"], "mine")
         theirs = self.research_trial(other["line_id"], "theirs")
         self.assertEqual(lines.line_trials(self.conn, "ema-trend")["trials"], [mine])

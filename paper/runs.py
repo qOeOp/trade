@@ -325,7 +325,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         raise refuse("PAPER_START_FAILED", f"paper run {row['paper_id']} did not start and was sealed with START_FAILED: {exc}",
                      missing=(str(sealed["paper_id"]),), write_status="written") from exc
     return {"paper_id": row["paper_id"], "candidate": candidate, "source_sha256": row["source_sha256"],
-            "image_ref": identity["image_ref"], "symbols": chosen, "market_commit": commit,
+            "image_ref": identity["image_ref"], "symbols": chosen, "market_day": commit,
             "directory": str(directory), "containers": named, "ledger_commit": row["ledger_commit"],
             "write_status": row["write_status"]}
 
@@ -414,7 +414,7 @@ def listing(profile: db.LedgerProfile) -> dict:
                      # Its containers still on the host: a sealed run's are left over (paper serve collects them).
                      "containers": sorted(role for paper_id, role in live if paper_id == row["paper_id"]),
                      "created_at": row["created_at"], "image_ref": row["image_ref"],
-                     "market_commit": row["market_commit"], "config": row["config"],
+                     "market_day": row["market_day"], "config": row["config"],
                      # The status under the current rule (records.verdict), from the reasons sealed; the seal
                      # keeps the status it was sealed with.
                      "status": records.verdict(seal_row.get("reasons")) if row["seal"] else None, "reasons": seal_row.get("reasons"),

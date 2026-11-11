@@ -27,7 +27,7 @@ class ResumePolicyTests(unittest.TestCase):
         source = b"# original strategy\n"
         self.row = {"paper_id": 8, "op_id": "start:8", "source_sha256": hashlib.sha256(source).hexdigest(),
                     "image_ref": "ghcr.io/example/runtime@sha256:" + "b" * 64,
-                    "symbols": ["BTCUSDT"], "market_commit": "c" * 32, "config": {"execution": "paper-bars"}}
+                    "symbols": ["BTCUSDT"], "market_day": "c" * 32, "config": {"execution": "paper-bars"}}
         (self.root / "inputs/strategy.py").write_bytes(source)
         (self.root / "inputs/universe.json").write_bytes(b'{"membership":{}}')
         self.terms = {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001"}}

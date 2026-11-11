@@ -658,7 +658,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
                   "registration": {"candidate": strategies.name(strategies.candidate_by_sha(conn, row["source_sha256"])),
                                    "source_sha256": row["source_sha256"],
                                    "window_start": row["window_start"], "window_end": row["window_end"],
-                                   "universe_rule": row["universe_rule"], "market_commit": row["market_commit"],
+                                   "universe_rule": row["universe_rule"], "market_day": row["market_day"],
                                    "design": design, "registered_at": row["created_at"], "retry_of": row["retry_of"]},
                   "witness": {"registration_id": origin["registration_id"], "commit_hash": witness_commit,
                               **_witness(conn, witness_commit)},

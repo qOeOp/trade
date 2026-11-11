@@ -55,7 +55,7 @@ def serialized(function):
 def identity(row: dict, universe: bytes) -> str:
     # op_id binds the point to the logical declaration and survives moving that ledger to a server.
     value = {key: row[key] for key in ("paper_id", "op_id", "source_sha256", "image_ref", "symbols",
-                                       "market_commit", "config")}
+                                       "market_day", "config")}
     value["universe_sha256"] = hashlib.sha256(universe).hexdigest()
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 

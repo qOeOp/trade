@@ -732,13 +732,13 @@ def _unresolved_market(record: Mapping) -> list[dict]:
     """A gate when the active market holds no version of the line's pinned market commit: the line's next
     registration is refused MARKET_COMMIT_UNRESOLVED and its runs cannot be replayed until that version is
     back in it. Nothing when the market cannot be read."""
-    found = seams.current.market_commit(record["market_commit"])
+    found = seams.current.market_day(record["market_day"])
     if found is None or found["commit"] is not None:
         return []
     return [{"code": "MARKET_COMMIT_UNRESOLVED",
-             "message": f"the line's market commit {record['market_commit']} is no day the active market "
+             "message": f"the line's market commit {record['market_day']} is no day the active market "
                         f"{found['database']} holds, so the line cannot register or replay until the market reaches it",
-             "missing": [record["market_commit"]]}]
+             "missing": [record["market_day"]]}]
 
 
 def _facts(profile, commit: str) -> dict:
@@ -793,7 +793,7 @@ def research_state(conn: db.LedgerConnection, line: str | None = None, at: str |
         commit = db.head_commit(pinned)
         records = precheck.review_records(pinned)
         opened = lines.lines(pinned, open_only=True)
-        open_lines = [{key: item[key] for key in ("name", "start", "dev_start", "dev_end", "market_commit")}
+        open_lines = [{key: item[key] for key in ("name", "start", "dev_start", "dev_end", "market_day")}
                       for item in opened]
         line = line or (opened[0]["name"] if len(opened) == 1 else None)
         if line is None:  # no open line, or several: the facts the user chooses from, and the one next step

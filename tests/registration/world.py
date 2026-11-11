@@ -98,7 +98,7 @@ class FakeMarket:
                 "receipts": receipts}
 
     def validate_lifecycle(self, body, commit, files):
-        if not isinstance(body, dict) or body.get("market_commit") != commit:
+        if not isinstance(body, dict) or body.get("market_day") != commit:
             raise refuse("LIFECYCLE_INPUT", "the lifecycle manifest is bound to another market commit")
         return body.get("episodes", {})
 
@@ -280,7 +280,7 @@ class World:
         """A coverage receipt with the registration's execution identity (`identity` and `effective_config`
         override it)."""
         execution = self.plan(registration_id)["execution"]
-        given = {"market_commit": execution["market_commit"], "universe_rule": execution["universe_rule"],
+        given = {"market_day": execution["market_day"], "universe_rule": execution["universe_rule"],
                  "export_content_sha256": execution["export_sha256"], "symbols": list(SYMBOLS),
                  **({"lifecycle_bundle": execution["lifecycle_bundle"]} if execution["lifecycle_bundle"] else {}),
                  **identity}

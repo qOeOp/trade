@@ -108,7 +108,7 @@ def record_lifecycle(profile, market, at: str | None, manifest: Path, notices: l
     with db.connect(profile, "writer") as conn:
         written = db.write(conn, "record_lifecycle", {"bundle": bundle, "files": digests}, "evidence_bundle",
                            lambda c, op: evidence.write_files(c, bundle, files, kind="lifecycle", op_id=op), op_id=op_id)
-    return {"bundle": bundle, "market_commit": commit, "files": digests,
+    return {"bundle": bundle, "market_day": commit, "files": digests,
             "episodes": {symbol: len(found) for symbol, found in episodes.items()},
             "write_status": written["write_status"], "ledger_commit": written["commit"]}
 
@@ -136,7 +136,7 @@ def load_lifecycle(profile: db.LedgerProfile, bundle: str, commit: str, *, marke
     `profile` is the research ledger profile; `market` the market adapter whose validate_lifecycle
     checks the manifest.
     """
-    if bundle != f"lifecycle-{commit}":  # the market command writes lifecycle-<market_commit> for each commit
+    if bundle != f"lifecycle-{commit}":  # the market command writes lifecycle-<market_day> for each commit
         raise refuse("LIFECYCLE_INPUT", f"{bundle!r} is not the lifecycle bundle lifecycle-{commit} of the pinned "
                                         "market commit", missing=(str(bundle),), expected=f"lifecycle-{commit}")
     try:
@@ -227,7 +227,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
         raise
     inputs = {"root": inputs["root"], "membership_file": inputs["membership_file"]}
     chosen: dict[str, bool | list[str]] = {"universe": True} if universe else {"symbols": list(symbols)}
-    identity = {"market_database": adapter.database, "market_commit": commit, "universe_rule": rule,
+    identity = {"market_database": adapter.database, "market_day": commit, "universe_rule": rule,
                 "selection": chosen, "symbols": list(symbols), **fingerprint}
     if lifecycle_bundle is not None:
         identity["lifecycle_bundle"] = lifecycle_bundle

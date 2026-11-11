@@ -503,7 +503,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
               "derived_findings": dict(sorted(totals["derived_findings"].items())),
               "per_symbol": dict(sorted(totals["per_symbol"].items())),
               "universe_filled": {f"{key:%Y-%m}": value for key, value in filled.items()}}
-    return {**result, "market_commit": files.latest_commit(market), "seconds": round(time.monotonic() - started)}
+    return {**result, "market_day": files.latest_commit(market), "seconds": round(time.monotonic() - started)}
 
 
 def _month_bars(market: files.Market, start_ms: int, end_ms: int, prepared: dict[str, str], kept: list[str]):
@@ -850,7 +850,7 @@ def _import_quotes(market: files.Market, month: date, start_ms: int, end_ms: int
     per_symbol = {item["symbols"][0]: item["per_symbol"] for item in found}
     return {"month": label, "through": series._ms_day(end_ms).isoformat(), "quote_rule": quotes.RULE,
             "symbols": scope, "quote_rows": sum(item["quotes"] for item in per_symbol.values()),
-            "per_symbol": per_symbol, "market_commit": files.latest_commit(market),
+            "per_symbol": per_symbol, "market_day": files.latest_commit(market),
             "seconds": round(time.monotonic() - started)}
 
 

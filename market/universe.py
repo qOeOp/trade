@@ -112,19 +112,19 @@ def rule_of(market, commit: str | None) -> str:
     return RULE
 
 
-def membership_path(market, market_commit: str, window_end: int) -> dict:
+def membership_path(market, market_day: str, window_end: int) -> dict:
     """market.membership_path: {universe_rule, membership: {symbol: [[start_ns, end_ns], ...]}} at an exact
     market commit."""
     from market import files
     from market.sources import MarketError
     try:
-        commit = files.resolve_commit(market, market_commit)
+        commit = files.resolve_commit(market, market_day)
     except MarketError as exc:
-        raise _refuse(f"market commit {market_commit!r} does not resolve ({exc.code})", "MARKET_COMMIT_UNRESOLVED",
-                      missing=(str(market_commit),)) from exc
-    if commit != market_commit:
-        raise _refuse(f"{market_commit!r} is not an exact market commit", "MARKET_COMMIT_UNRESOLVED",
-                      missing=(str(market_commit),))
+        raise _refuse(f"market commit {market_day!r} does not resolve ({exc.code})", "MARKET_COMMIT_UNRESOLVED",
+                      missing=(str(market_day),)) from exc
+    if commit != market_day:
+        raise _refuse(f"{market_day!r} is not an exact market commit", "MARKET_COMMIT_UNRESOLVED",
+                      missing=(str(market_day),))
     rows = months_of(market, commit)
     if not rows:
         raise _refuse(f"market commit {commit} has no universe month", "UNIVERSE_EMPTY_AT_COMMIT", missing=(commit,))

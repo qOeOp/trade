@@ -95,7 +95,7 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "RUNTIME_PROBE_INVALID")
 
     def test_the_runner_describes_the_paths_the_layout_declares(self):
-        argv = ["--describe", "--market-root", "/m", "--market-commit", "c" * 32, "--symbols", "BTCUSDT",
+        argv = ["--describe", "--market-root", "/m", "--market-day", "c" * 32, "--symbols", "BTCUSDT",
                 "--start", "2025-01-01T00:00:00Z", "--end", "2025-01-02T00:00:00Z"]
         described = json.loads(subprocess.run([sys.executable, "-m", "engine.run", *argv], capture_output=True,
                                               text=True, check=True).stdout)
@@ -112,7 +112,7 @@ class ProbeTests(unittest.TestCase):
 
     def test_the_host_hashes_a_described_configuration_as_the_runner_does(self):
         def described(*extra):
-            argv = ["--describe", "--market-commit", "c" * 32, "--symbols", "BTCUSDT", "ETHUSDT",
+            argv = ["--describe", "--market-day", "c" * 32, "--symbols", "BTCUSDT", "ETHUSDT",
                     "--start", "2025-01-01T00:00:00Z", "--trade-start", "2025-01-01T12:00:00Z",
                     "--end", "2025-01-02T00:00:00Z", *extra]
             return json.loads(subprocess.run([sys.executable, "-m", "engine.run", *argv], capture_output=True,

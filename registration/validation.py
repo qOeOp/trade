@@ -99,8 +99,8 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
         raise changed(f"universe rule {identity.get('universe_rule')} is not the registered "
                       f"{registration['universe_rule']}", "universe_rule")
     registered_month = seams.month_of(registration["created_at"])
-    then = _by_month(adapter.universe_month(registration["market_commit"]))
-    now = _by_month(adapter.universe_month(identity["market_commit"]))
+    then = _by_month(adapter.universe_month(registration["market_day"]))
+    now = _by_month(adapter.universe_month(identity["market_day"]))
     for month in sorted(set(then) | set(now)):
         if month <= registered_month and then.get(month) != now.get(month):
             symbols = sorted({row[1] for row in set(then.get(month, [])) ^ set(now.get(month, []))})
@@ -110,7 +110,7 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
     absent = [month for month in _months(start, end) if month not in now]
     if absent:
         raise changed("window months not produced at the market commit: " + ", ".join(absent), *absent)
-    derived = adapter.membership_path(identity["market_commit"], _ns(end))["membership"]
+    derived = adapter.membership_path(identity["market_day"], _ns(end))["membership"]
     received = inputs.get("membership")
     given = received.get("membership") if isinstance(received, Mapping) else None
     given = given if isinstance(given, Mapping) else {}
@@ -158,7 +158,7 @@ def _retry_allowed(conn: db.LedgerConnection, original: dict) -> bool:
 
 
 def _same_registration(conn: db.LedgerConnection, prior: Mapping, payload: Mapping) -> bool:
-    return ({"source_sha256": prior["source_sha256"], "market_commit": prior["market_commit"],
+    return ({"source_sha256": prior["source_sha256"], "market_day": prior["market_day"],
              "universe_rule": prior["universe_rule"], "window_start": prior["window_start"].isoformat(),
              "window_end": prior["window_end"].isoformat(),
              "design": register.read_design(conn, prior["comparison_design_id"]), "retry_of": prior["retry_of"]}
@@ -192,7 +192,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                 raise refuse("CANDIDATE_UNKNOWN", f"{candidate!r} is no published candidate",
                              missing=(str(candidate),)) from exc
             raise
-        market_commit = seams.current.market(market_profile).resolve_commit(market)
+        market_day = seams.current.market(market_profile).resolve_commit(market)
         if retry_of is not None:
             original = _registration(conn, retry_of)
             if (original is None or original["source_sha256"] != row["source_sha256"]
@@ -201,7 +201,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                     or register.read_design(conn, original_registration(conn, original)["comparison_design_id"])
                     != dict(design) or not _retry_allowed(conn, original)):
                 raise refuse("RETRY_NOT_ALLOWED", f"registration {retry_of} cannot be retried", missing=(str(retry_of),))
-        payload = {"source_sha256": row["source_sha256"], "market_commit": market_commit,
+        payload = {"source_sha256": row["source_sha256"], "market_day": market_day,
                    "universe_rule": universe_rule, "window_start": start.isoformat(), "window_end": end.isoformat(),
                    "design": dict(design), "retry_of": retry_of}
 
@@ -210,9 +210,9 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
             if retry_of is None and start <= now:  # the table's CHECK holds it too
                 raise refuse("REGISTRATION_TOO_LATE", f"the window starts at {start}, not after the registration "
                                                       f"time {now}", missing=("window_start",))
-            c.rows("INSERT INTO validation_registration (source_sha256, market_commit, universe_rule, window_start, "
+            c.rows("INSERT INTO validation_registration (source_sha256, market_day, universe_rule, window_start, "
                    "window_end, comparison_design_id, retry_of, op_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                   (row["source_sha256"], market_commit, universe_rule, start, end, register.write_design(c, design),
+                   (row["source_sha256"], market_day, universe_rule, start, end, register.write_design(c, design),
                     retry_of, op))
             (registration_id,), = c.rows("SELECT LAST_INSERT_ID()")
             return {"registration_id": registration_id}
@@ -285,10 +285,10 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mappin
         raise refuse("MEMBERSHIP_CHANGED", "the trial trades instruments other than its recorded membership",
                      missing=("instruments",))
     read = received.get("commit") if isinstance(received, Mapping) else None
-    if read != row["market_commit"]:
+    if read != row["market_day"]:
         raise refuse("MEMBERSHIP_CHANGED", f"the membership file the trial read is of market commit "
                                            f"{read}, not the trial's market commit "
-                                           f"{row['market_commit']}", missing=("membership",))
+                                           f"{row['market_day']}", missing=("membership",))
     if row["universe_rule"] != registration["universe_rule"]:
         raise refuse("MEMBERSHIP_CHANGED", f"universe rule {row['universe_rule']} is not the registered "
                                            f"{registration['universe_rule']}", missing=("universe_rule",))

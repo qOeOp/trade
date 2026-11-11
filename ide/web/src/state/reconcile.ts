@@ -28,7 +28,7 @@ type ContractBars = { archive: number; live: number; late: number; missing_bars:
                       differing: { close: string; fields: Record<string, [string, string]> }[] };
 /** reconcile.json (paper-reconcile@2026-11-11); `fills` is null when the replay wrote no order events. */
 type Result = {
-  paper_id: number; window: { start: string; end: string }; market_commit: string; image_ref: string;
+  paper_id: number; window: { start: string; end: string }; market_day: string; image_ref: string;
   replay: { status: "passed" | "invalid"; problems: { code?: string; message?: string }[] };
   summary: Summary; fills: Matched[] | null; bars: Record<string, ContractBars>;
   equity: { paper: [number, string][]; replay: [number, string][] };

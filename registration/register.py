@@ -363,7 +363,7 @@ def _runtime_transition(conn: db.LedgerConnection, plan: Mapping, execution: Map
     if not execution.get("image_digest") or execution["image_digest"] == previous["image_digest"]:
         return False
     if any(execution.get(key) != previous[key] for key in ("comparable_config_sha256", "export_sha256",
-                                                           "market_commit", "universe_rule", "lifecycle_bundle")):
+                                                           "market_day", "universe_rule", "lifecycle_bundle")):
         return False
     if (plan["body"] != prior["body"] or plan["comparison"] != prior["comparison"]
             or [point["candidate"] for point in plan["points"]] != [point["candidate"] for point in prior["grid"]]):
@@ -587,7 +587,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
         lines.require_not_closing(conn, held["line_id"])
         identity = seams.current.resolve_runtime(runtime_ref)
         runner = seams.runner_inputs(list(runner_argv))
-        exported = registration_inputs.market_inputs(market, held["market_commit"], runner["window"],
+        exported = registration_inputs.market_inputs(market, held["market_day"], runner["window"],
                                                      runner["selection"], runner.get("lifecycle_bundle"), True, profile,
                                                      include_quotes=runner["execution"] == "quotes",
                                                      include_trades=runner.get("trade_ticks", False),
@@ -598,7 +598,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
             registration_inputs.cleanup(exported)
         inputs = exported["identity"]
         execution = {"image_ref": identity["image_ref"], "image_digest": identity["image_digest"],
-                     "runtime_contract": identity["runtime_contract"], "market_commit": inputs["market_commit"],
+                     "runtime_contract": identity["runtime_contract"], "market_day": inputs["market_day"],
                      "universe_rule": inputs["universe_rule"], "lifecycle_bundle": inputs.get("lifecycle_bundle"),
                      "export_sha256": inputs["export_content_sha256"],
                      "comparable_config_sha256": trials.comparable_config_sha256(inspection.get("effective_config")),
@@ -612,7 +612,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
         plan = {"body": {key: body[key] for key in BODY_KEYS}, "control_trial_id": body["control_trial_id"],
                 "comparison": body["comparison"], "retry_of": body.get("retry_of"), "grid": body["grid"],
                 "prechecks": body["prechecks"]}
-        stored = {key: execution[key] for key in ("image_ref", "market_commit", "universe_rule", "lifecycle_bundle",
+        stored = {key: execution[key] for key in ("image_ref", "market_day", "universe_rule", "lifecycle_bundle",
                                                    "export_sha256", "comparable_config_sha256")}
         payload = {"line_id": held["line_id"], "plan": plan, "execution": stored}
 
@@ -631,7 +631,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
             points = validate(c, plan, execution, before_replay=False, line=held)
             design_id = write_design(c, plan["comparison"])
             c.rows("INSERT INTO research_registration (line_id, retry_of, control_trial_id, comparison_design_id, "
-                   "image_ref, market_commit, universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256, "
+                   "image_ref, market_day, universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256, "
                    "body, op_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                    (held["line_id"], plan["retry_of"], plan["control_trial_id"], design_id, *stored.values(),
                     db.canonical_json(plan["body"]), op))
@@ -652,7 +652,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
 
 
 REGISTRATION_COLUMNS = ("registration_id", "line_id", "retry_of", "control_trial_id", "comparison_design_id",
-                        "image_ref", "market_commit", "universe_rule", "lifecycle_bundle", "export_sha256",
+                        "image_ref", "market_day", "universe_rule", "lifecycle_bundle", "export_sha256",
                         "comparable_config_sha256", "body", "created_at")
 
 
@@ -666,7 +666,7 @@ def read_design(conn: db.LedgerConnection, design_id: int) -> dict:
 def registrations(conn: db.LedgerConnection, line_id: int | None = None) -> list[dict]:
     """Every research registration (or those of one line), oldest first: {registration_id, line_id, retry_of,
     control_trial_id, comparison (the design's DESIGN_KEYS, or None), execution {image_ref, image_digest,
-    market_commit, universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256}, body, grid
+    market_day, universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256}, body, grid
     [{candidate, source_sha256, source_review_id}], parent (strategy_id@revision or None), change, created_at}."""
     where, args = (" WHERE line_id = %s", (line_id,)) if line_id is not None else ("", ())
     rows = conn.dicts(f"SELECT {', '.join(REGISTRATION_COLUMNS)} FROM research_registration{where} "
@@ -692,7 +692,7 @@ def registrations(conn: db.LedgerConnection, line_id: int | None = None) -> list
         found.append({"registration_id": row["registration_id"], "line_id": row["line_id"], "retry_of": row["retry_of"],
                       "control_trial_id": row["control_trial_id"],
                       "comparison": designs.get(row["comparison_design_id"]),
-                      "execution": {**{key: row[key] for key in ("image_ref", "market_commit", "universe_rule",
+                      "execution": {**{key: row[key] for key in ("image_ref", "market_day", "universe_rule",
                                                                  "lifecycle_bundle", "export_sha256",
                                                                  "comparable_config_sha256")},
                                     "image_digest": precheck.digest_of(row["image_ref"])},
@@ -734,7 +734,7 @@ def bind(conn: db.LedgerConnection, registration_id: int, source_sha256: str, ro
         raise refuse("SOURCE_MISMATCH", f"source {source_sha256} is not in the grid of registration {registration_id}",
                      missing=(str(source_sha256),))
     registered = registration["execution"]
-    names = {"image_ref": "runtime_image", "market_commit": "market_commit", "universe_rule": "universe_rule",
+    names = {"image_ref": "runtime_image", "market_day": "market_day", "universe_rule": "universe_rule",
              "lifecycle_bundle": "lifecycle_bundle", "export_sha256": "input_identity",
              "comparable_config_sha256": "effective_configuration"}
     conflicts = [name for key, name in names.items() if row[key] != registered[key]]

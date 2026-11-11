@@ -133,7 +133,7 @@ table("orders.csv", orders); table("fills.csv", fills); table("positions.csv", p
 summary = {"source_sha256": option("--strategy-sha256"), "integrity_passed": True, "integrity_findings": [],
            "starting_balance_usdt": "100000", "final_equity_usdt": final, "closed_trades": 1,
            "data_interval_minutes": 1440, "input_start_utc": start, "period_start_utc": trade_start,
-           "period_end_utc": end, "market_commit": option("--market-commit"),
+           "period_end_utc": end, "market_day": option("--market-day"),
            "per_coin": [{"instrument": s + "-PERP.BINANCE", "counts": {"last": 1, "mark": 1, "funding": 0}} for s in symbols]}
 summary.update(runtime_identity=binding["runtime_identity"], effective_config_sha256=binding["effective_config_sha256"])
 summary.update(scenario.get("summary", {}))

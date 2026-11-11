@@ -11,7 +11,7 @@ An Agent that did not write the source reviews the sealed precheck capture under
 review is one source_review row of that precheck trial and its source. Passing says the source runs,
 not that it is economic evidence; any failed review of the precheck fails it.
 
-What a precheck is compared with is an execution identity: {image_ref, market_commit, universe_rule,
+What a precheck is compared with is an execution identity: {image_ref, market_day, universe_rule,
 lifecycle_bundle, comparable_config_sha256, symbols}, the trial columns a registration fixes (its
 window, export content and instruments set aside, since a precheck replays a shorter window).
 """
@@ -32,8 +32,8 @@ VERDICTS = ("passed", "failed")
 PASSING = ("passed", "no_opportunity")
 NOTE_LIMIT = 8000  # uncalibrated example value
 # Trial columns a precheck shares with the identity it is exempted against, and those it must share to be cited.
-EXEMPT_COLUMNS = ("market_commit", "universe_rule", "lifecycle_bundle", "comparable_config_sha256")
-PRECHECK_COLUMNS = ("market_commit", "lifecycle_bundle", "comparable_config_sha256")
+EXEMPT_COLUMNS = ("market_day", "universe_rule", "lifecycle_bundle", "comparable_config_sha256")
+PRECHECK_COLUMNS = ("market_day", "lifecycle_bundle", "comparable_config_sha256")
 # The longest trading window a precheck may replay and stay exempt from exposure; an uncalibrated
 # example value. A longer precheck has seen enough of the window to count as a replay of it.
 PRECHECK_MAX_DAYS = 7

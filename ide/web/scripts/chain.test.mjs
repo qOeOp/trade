@@ -112,13 +112,13 @@ test("20261106-03: exposure autoscale accepts an empty visible price range", () 
 const MIN = 60e9, T0 = Date.UTC(2026, 9, 28) * 1e6;
 const at = (ns) => new Date(ns / 1e6).toISOString().replace("T", " ").replace("Z", "");
 const sealed = (paper_id, { stop = "KILLED", reasons = [], total = 0.01, stopped = T0 + 2880 * MIN, candidate = "ema@3", symbols = ["BTCUSDT"], created = T0, status = "complete" } = {}) => ({
-  paper_id, candidate, symbols, state: "sealed", created_at: at(created), source_sha256: "", image_ref: "", market_commit: "", config: {},
+  paper_id, candidate, symbols, state: "sealed", created_at: at(created), source_sha256: "", image_ref: "", market_day: "", config: {},
   status, reasons, total_return: total, max_drawdown: 0,
   seal: { status: "complete", reasons, total_return: total, max_drawdown: 0, final_equity_usdt: String(100_000 * (1 + total)), fills: 0,
           started_ns: created, stopped_ns: stopped, stop_reason: stop, daily_returns: [], positions_closed: 0 },
 });
 const running = (paper_id, { created = T0 + 2925 * MIN, candidate = "ema@3", symbols = ["BTCUSDT"], total = -0.02 } = {}) => ({
-  paper_id, candidate, symbols, state: "running", created_at: at(created), source_sha256: "", image_ref: "", market_commit: "", config: {},
+  paper_id, candidate, symbols, state: "running", created_at: at(created), source_sha256: "", image_ref: "", market_day: "", config: {},
   status: null, reasons: null, total_return: null, max_drawdown: null,
   live: { total_return: total, starting_balance_usdt: "100000", final_equity_usdt: String(100_000 * (1 + total)), started_ns: created, equity: [] },
 });

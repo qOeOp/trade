@@ -224,7 +224,7 @@ class CommandTests(unittest.TestCase):
         commit = coverage["commit"]
         self.assertEqual((coverage["scope"]["symbols"], coverage["scope"]["expanded"]), (["BTCUSDT"], True))
         self.assertEqual(coverage["coverage"][0]["last"]["missing_minutes"], 0)
-        manifest = self.write("lifecycle.json", {"format": "native-lifecycle-v1", "market_commit": commit, "episodes": [
+        manifest = self.write("lifecycle.json", {"format": "native-lifecycle-v1", "market_day": commit, "episodes": [
             {"symbol": "BTCUSDT", "instrument_id": "BTCUSDT-E1-PERP.BINANCE", "start_ns": 0, "sources": ["notice.txt"],
              "events": []}]})
         notice = self.write("notice.txt", "the exchange notice")
@@ -260,7 +260,7 @@ class CommandTests(unittest.TestCase):
         root_review = self.prechecked("fixture@1", "root")
         line = self.ok(*selection)
         self.assertEqual(line["line"], "fixture-trend")
-        self.assertEqual((line["created"], line["market_commit"]), (True, commit))
+        self.assertEqual((line["created"], line["market_day"]), (True, commit))
 
         # An exploration trades inside its line's development period
         draft = self.write("draft.py", SOURCE + "# draft\n")

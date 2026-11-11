@@ -486,7 +486,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
         "scope": {"ledger_commit": commit, "start": _iso(since_at["date"]) if since_at else None, "end": None},
         # research-graph@3 names the line by `bundle`; it now holds the line's name.
         "line": {"bundle": line, "start": record["start"], "window": [record["dev_start"], record["dev_end"]],
-                 "market_commit": record["market_commit"], "targets": targets, "trial_counts": trial_counts,
+                 "market_day": record["market_day"], "targets": targets, "trial_counts": trial_counts,
                  "gates": gates},
         "candidates": candidates, "events": events,
         "gaps": [

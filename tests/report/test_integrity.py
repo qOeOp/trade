@@ -171,8 +171,8 @@ class IntegrityTests(unittest.TestCase):
         statements = [
             (f"INSERT INTO comparison_design ({', '.join(register.DESIGN_KEYS)}) VALUES "
              f"({', '.join(['%s'] * len(register.DESIGN_KEYS))})", tuple(design[key] for key in register.DESIGN_KEYS)),
-            ("INSERT INTO validation_registration (source_sha256, market_commit, universe_rule, window_start, window_end, "
-             "comparison_design_id, retry_of, op_id, created_at) SELECT source_sha256, market_commit, universe_rule, "
+            ("INSERT INTO validation_registration (source_sha256, market_day, universe_rule, window_start, window_end, "
+             "comparison_design_id, retry_of, op_id, created_at) SELECT source_sha256, market_day, universe_rule, "
              "'2100-01-01', '2100-02-01', LAST_INSERT_ID(), NULL, %s, UTC_TIMESTAMP(6) FROM trial WHERE trial_id = %s",
              (op, trial_id)),
             (f"UPDATE validation_registration SET created_at = '2000-01-01', window_start = {window} WHERE op_id = %s",

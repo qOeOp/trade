@@ -110,7 +110,7 @@ class ComparabilityTests(unittest.TestCase):
         are set aside; anything else in the configuration makes it another one."""
         key = trials.comparable_config_sha256(config(root="/tmp/a"))
         self.assertEqual(key, trials.comparable_config_sha256(config(root="/var/b")))
-        self.assertEqual(key, trials.comparable_config_sha256({**config(), "market_commit": "n" * 32,
+        self.assertEqual(key, trials.comparable_config_sha256({**config(), "market_day": "n" * 32,
                                                                "universe_sha256": "f" * 64}))
         self.assertEqual(key, trials.comparable_config_sha256(config(
             symbols=["AAAUSDT"], start="2026-01-05T00:00:00Z", trade_start="2026-01-06T00:00:00Z",

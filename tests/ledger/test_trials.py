@@ -65,7 +65,7 @@ class OpenTrialTests(unittest.TestCase):
         workdir = self.directory()
         opened = self.open("explore", data=data, start_context=context(data, workdir))
         trial = self.service.sql(self.profile, f"SELECT purpose, source_sha256, {db.IMAGE_DIGEST}, platform, "
-                                               "runtime_contract, market_commit, universe_rule, export_sha256, "
+                                               "runtime_contract, market_day, universe_rule, export_sha256, "
                                                "execution, starting_balance, trade_start, runner_argv, line_id "
                                                "FROM trial WHERE trial_id = %s", (opened["trial_id"],))[0]
         self.assertEqual(trial[:10], ("explore", sha(data), IDENTITY["image_digest"], IDENTITY["platform"],
@@ -150,7 +150,7 @@ class OpenTrialTests(unittest.TestCase):
                         {**RUNTIME, "image_digest": "sha256:" + "c" * 64}, {**IDENTITY}, {**RUNTIME, "inspection": {}}):
             with self.subTest(runtime=runtime):
                 self.assertEqual(self.code(runtime_identity=runtime), "RUNTIME_NOT_PINNED")
-        for field in ("market_commit", "universe_rule", "symbols", "export_content_sha256"):
+        for field in ("market_day", "universe_rule", "symbols", "export_content_sha256"):
             incomplete = json.loads(coverage())
             del incomplete["input_identity"][field]
             with self.subTest(field=field):

@@ -917,7 +917,7 @@ def main(argv: list[str] | None = None) -> None:
         strategy = load_strategy(config.strategy_file, config.strategy_class, config.strategy_sha256)
         stage = "inputs"
         window = config.window
-        rows = read_market(config.market_root, list(config.symbols), config.market_commit, window.start_ns,
+        rows = read_market(config.market_root, list(config.symbols), config.market_day, window.start_ns,
                            window.end_ns)
         universe = read_universe(config.universe_path, list(config.symbols))
         config.output.mkdir(parents=True, exist_ok=True)
@@ -930,7 +930,7 @@ def main(argv: list[str] | None = None) -> None:
             **strategy_metadata(strategy), **runtime_source_metadata(), **executed,
             "effective_config_sha256": effective.digest,
             "engine_version": importlib.metadata.version("nautilus_trader"),
-            "market_commit": config.market_commit,
+            "market_day": config.market_day,
             "strategy": strategy.entry_class,
         }
         _, findings = report.write_native_reports(config.output, finished, strategies, rows, identity, window,

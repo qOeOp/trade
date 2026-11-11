@@ -84,7 +84,7 @@ class WitnessLedgerTests(unittest.TestCase):
             conn.rows("INSERT INTO comparison_design (method, block_days, resamples, inner_resamples, seed, alpha, "
                       "minimum_effect, design_reason) VALUES ('fixture', 5, 100, 10, 1, 0.05, 0, %s)", (label,))
             (design,), = conn.rows("SELECT LAST_INSERT_ID()")
-            conn.rows("INSERT INTO validation_registration (source_sha256, market_commit, universe_rule, window_start, "
+            conn.rows("INSERT INTO validation_registration (source_sha256, market_day, universe_rule, window_start, "
                       "window_end, comparison_design_id, retry_of, op_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                       (sha(source("validated")), "m" * 32, universe_rule, start, start + timedelta(days=90), design,
                        retry_of, op))

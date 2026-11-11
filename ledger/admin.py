@@ -221,7 +221,7 @@ def _run_record(conn: db.LedgerConnection, trial_id: int) -> dict:
                                 "image_digest": trial["image_digest"], "runtime_identity": start.get("runtime_identity"),
                                 "input_identity": start.get("input_identity"),
                                 "effective_config": coverage.get("effective_config"),
-                                "market_commit": trial["market_commit"],
+                                "market_day": trial["market_day"],
                                 "window": {"input_start": trial["input_start"], "trade_start": trial["trade_start"],
                                            "trade_end": trial["trade_end"]},
                                 "fingerprints": run["fingerprints"],
@@ -263,12 +263,12 @@ def export_history(profile: db.LedgerProfile, destination: Path, at: str | None 
             files[f"{table}.json"] = _json(conn.dicts(f"SELECT * FROM {table} ORDER BY {order}"))
         head = db.resolve_commit(conn, db.BRANCH)
     images = sorted({record["replay_identity"]["image_ref"] for record in records.values()})
-    market_commits = sorted({record["replay_identity"]["market_commit"] for record in records.values()
-                             if record["replay_identity"]["market_commit"]})
+    market_days = sorted({record["replay_identity"]["market_day"] for record in records.values()
+                             if record["replay_identity"]["market_day"]})
     manifest = {"format": EXPORT_FORMAT, "ledger_name": profile.name, "database": profile.database, "at": at,
                 "commit": commit, "candidates": listed,
                 "runs": [record["replay_identity"] for record in records.values()],
-                "images": images, "market_commits": market_commits,
+                "images": images, "market_days": market_days,
                 "files": {path: hashlib.sha256(data).hexdigest() for path, data in sorted(files.items())},
                 "check": "replay each run by its identity (replay.reproduce) and compare with engine.compare_reports"}
     encoded = _json(manifest)
@@ -296,5 +296,5 @@ def export_history(profile: db.LedgerProfile, destination: Path, at: str | None 
         raise
     shutil.rmtree(retired, ignore_errors=True)
     return {"at": at, "commit": commit, "ledger_name": profile.name, "backup_path": str(backup) if backup else None,
-            "candidates": len(listed), "runs": len(records), "images": images, "market_commits": market_commits,
+            "candidates": len(listed), "runs": len(records), "images": images, "market_days": market_days,
             "manifest_path": str(final / MANIFEST), "content_hash": hashlib.sha256(encoded).hexdigest()}

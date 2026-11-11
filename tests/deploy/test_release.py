@@ -15,7 +15,7 @@ from deploy.release_host import (AGENT, AHEAD, KEPT_RELEASES, WEB, Config, Docke
 
 # The keys of a `line list` entry, written out: the release controller's tests run on the host's system Python,
 # which cannot import the ledger. tests/ledger/test_lines.py holds them equal to ledger.lines.LISTED.
-LINE_KEYS = ("line_id", "name", "start", "dev_start", "dev_end", "market_commit", "created_at", "closed", "targets")
+LINE_KEYS = ("line_id", "name", "start", "dev_start", "dev_end", "market_day", "created_at", "closed", "targets")
 
 
 A, B, C, D = (letter * 40 for letter in "abcd")

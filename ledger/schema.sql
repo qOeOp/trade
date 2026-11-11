@@ -55,13 +55,13 @@ CREATE TABLE candidate (
 );
 
 -- A research line: its starting candidate and the development period fixed when it opened
--- (docs/plans/line-close-history-test-20261110.zh.md). market_commit pins the market data the line reads;
+-- (docs/plans/line-close-history-test-20261110.zh.md). market_day pins the market data the line reads;
 -- its registrations default to it.
 CREATE TABLE research_line (
   line_id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(64) NOT NULL UNIQUE,
   start_source_sha256 CHAR(64) NOT NULL,
-  market_commit CHAR(32) NOT NULL,
+  market_day CHAR(32) NOT NULL,
   universe_rule VARCHAR(60) NOT NULL,
   dev_start DATE NOT NULL,
   dev_end DATE NOT NULL,
@@ -160,7 +160,7 @@ CREATE TABLE research_registration (
   control_trial_id INT NULL,
   comparison_design_id INT NULL,
   image_ref VARCHAR(300) NOT NULL,
-  market_commit CHAR(32) NOT NULL,
+  market_day CHAR(32) NOT NULL,
   universe_rule VARCHAR(60) NOT NULL,
   lifecycle_bundle VARCHAR(160) NULL,
   export_sha256 CHAR(64) NOT NULL,
@@ -169,7 +169,7 @@ CREATE TABLE research_registration (
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
   INDEX research_registration_line (line_id),
-  UNIQUE KEY research_registration_identity (registration_id, line_id, image_ref, market_commit, universe_rule,
+  UNIQUE KEY research_registration_identity (registration_id, line_id, image_ref, market_day, universe_rule,
                                              export_sha256, comparable_config_sha256),
   FOREIGN KEY (line_id) REFERENCES research_line (line_id),
   FOREIGN KEY (retry_of) REFERENCES research_registration (registration_id),
@@ -184,7 +184,7 @@ CREATE TABLE research_registration (
 CREATE TABLE validation_registration (
   registration_id INT AUTO_INCREMENT PRIMARY KEY,
   source_sha256 CHAR(64) NOT NULL,
-  market_commit CHAR(32) NOT NULL,
+  market_day CHAR(32) NOT NULL,
   universe_rule VARCHAR(60) NOT NULL,
   window_start DATETIME(6) NOT NULL,
   window_end DATETIME(6) NOT NULL,
@@ -219,7 +219,7 @@ CREATE TABLE trial (
   runtime_contract VARCHAR(40) NOT NULL,
   platform VARCHAR(40) NOT NULL,
   build_revision CHAR(40) NULL,
-  market_commit CHAR(32) NOT NULL,
+  market_day CHAR(32) NOT NULL,
   universe_rule VARCHAR(60) NOT NULL,
   lifecycle_bundle VARCHAR(160) NULL,
   export_sha256 CHAR(64) NOT NULL,
@@ -240,9 +240,9 @@ CREATE TABLE trial (
   UNIQUE KEY trial_validation (validation_registration_id),
   FOREIGN KEY (candidate_sha256, runtime_contract) REFERENCES candidate (source_sha256, runtime_contract),
   FOREIGN KEY (line_id) REFERENCES research_line (line_id),
-  FOREIGN KEY (research_registration_id, line_id, image_ref, market_commit, universe_rule, export_sha256,
+  FOREIGN KEY (research_registration_id, line_id, image_ref, market_day, universe_rule, export_sha256,
                comparable_config_sha256)
-    REFERENCES research_registration (registration_id, line_id, image_ref, market_commit, universe_rule,
+    REFERENCES research_registration (registration_id, line_id, image_ref, market_day, universe_rule,
                                       export_sha256, comparable_config_sha256),
   FOREIGN KEY (validation_registration_id, source_sha256, universe_rule, trade_start, trade_end)
     REFERENCES validation_registration (registration_id, source_sha256, universe_rule, window_start, window_end),

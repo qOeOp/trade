@@ -37,7 +37,7 @@ INPUT_IDENTITY = coverage_receipt()["input_identity"]
 
 def native_summary(**changes) -> dict:
     summary = {"input_start_utc": "2026-01-01T00:00:00Z", "period_end_utc": "2026-02-01T00:00:00Z",
-               "market_commit": MARKET_COMMIT,
+               "market_day": MARKET_COMMIT,
                "per_coin": [{"instrument": symbol, "counts": {"last": 1}} for symbol in SYMBOLS]}
     summary.update(changes)
     return summary
@@ -333,7 +333,7 @@ class VerifyCoverageTests(unittest.TestCase):
                  (unreceipted, native_summary(), "COVERAGE_RECEIPT_INVALID"),
                  (coverage_receipt(), native_summary(per_coin=native_summary()["per_coin"][:1]),
                   "COVERAGE_MISMATCH"),
-                 (coverage_receipt(), native_summary(market_commit="n" * 32), "COVERAGE_MISMATCH"),
+                 (coverage_receipt(), native_summary(market_day="n" * 32), "COVERAGE_MISMATCH"),
                  (coverage_receipt(), native_summary(input_start_utc="2026-01-02T00:00:00Z"),
                   "COVERAGE_MISMATCH"),
                  (coverage_receipt(), native_summary(per_coin=[

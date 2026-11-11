@@ -313,7 +313,7 @@ def reconcile(profile: db.LedgerProfile, market: dict, at: str | None, paper_id:
         compared["summary"] |= dict.fromkeys(("replay_fills", "same", "price", "quantity", "time", "paper_only",
                                               "replay_only", "look_ahead_suspects"))
     result = {"format": FORMAT, "paper_id": paper_id, "candidate": row["config"]["candidate"],
-              "source_sha256": row["source_sha256"], "image_ref": row["image_ref"], "market_commit": commit,
+              "source_sha256": row["source_sha256"], "image_ref": row["image_ref"], "market_day": commit,
               "window": {"start": _utc(start), "end": _utc(end)}, "fees": row["config"].get("fees"),
               "replay": {key: replayed[key] for key in ("status", "problems", "path")}, **compared}
     (output / "reconcile.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")

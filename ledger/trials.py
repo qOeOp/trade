@@ -30,12 +30,12 @@ PURPOSES = ("explore", "precheck", "research", "validation", "history")
 UNBOUND = ("explore", "precheck")
 EPOCH = datetime(1970, 1, 1)
 MINUTE_NS = 60 * 10**9
-INPUT_FIELDS = ("market_commit", "universe_rule", "symbols", "export_content_sha256")
+INPUT_FIELDS = ("market_day", "universe_rule", "symbols", "export_content_sha256")
 WINDOW_FIELDS = ("start", "trade_start", "end")
 EXECUTIONS = ("bars", "quotes")
 CONFIG_KEYS = ("runtime_contract", "start", "trade_start", "end", "symbols", "account")  # the engine's keys
 # Configuration keys export_content_sha256 already covers (the commit they were read at, the membership file's hash)
-COVERED_CONFIG_KEYS = ("market_commit", "universe_sha256")
+COVERED_CONFIG_KEYS = ("market_day", "universe_sha256")
 # Keys the trial row holds as its window and instruments; a precheck may differ from its registration in them.
 CONFIG_SET_ASIDE = frozenset(("start", "trade_start", "end", "symbols"))
 
@@ -72,7 +72,7 @@ def comparable_config_sha256(config: object) -> str:
 
 
 def execution_identity(receipt: bytes) -> dict:
-    """The trial columns a coverage receipt's bytes give: market_commit, universe_rule, lifecycle_bundle,
+    """The trial columns a coverage receipt's bytes give: market_day, universe_rule, lifecycle_bundle,
     export_sha256, comparable_config_sha256, execution, starting_balance and instruments."""
     try:
         parsed = json.loads(receipt.decode("utf-8"))
@@ -99,7 +99,7 @@ def execution_identity(receipt: bytes) -> dict:
         raise refuse("TRIAL_INPUT_INCOMPLETE", "the coverage receipt's input identity or configuration is incomplete",
                      missing=tuple(missing))
     assert isinstance(identity, Mapping) and isinstance(symbols, list)
-    return {"market_commit": identity["market_commit"], "universe_rule": identity["universe_rule"],
+    return {"market_day": identity["market_day"], "universe_rule": identity["universe_rule"],
             "lifecycle_bundle": identity.get("lifecycle_bundle"), "export_sha256": identity["export_content_sha256"],
             "comparable_config_sha256": comparable_config_sha256(config), "execution": execution_mode,
             "starting_balance": balance, "instruments": sorted(set(symbols))}

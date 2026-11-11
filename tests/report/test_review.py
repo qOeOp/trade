@@ -163,9 +163,9 @@ class TamperTests(unittest.TestCase):
     def test_4_a_registration_added_in_its_trials_own_commit_is_found(self):
         with self.reader() as conn:
             self.assertNotIn("REGISTRATION_AFTER_TRIAL", codes(review.review_all(conn)))  # the product's order
-        registration = ("line_id, retry_of, control_trial_id, comparison_design_id, image_ref, market_commit, "
+        registration = ("line_id, retry_of, control_trial_id, comparison_design_id, image_ref, market_day, "
                         "universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256, body")
-        trial = ("purpose, source_sha256, line_id, image_ref, runtime_contract, platform, build_revision, market_commit, "
+        trial = ("purpose, source_sha256, line_id, image_ref, runtime_contract, platform, build_revision, market_day, "
                  "universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256, execution, "
                  "starting_balance, input_start, trade_start, trade_end, runner_argv")
         self.admin_sql(

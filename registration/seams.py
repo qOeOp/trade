@@ -33,7 +33,7 @@ def _resolve_runtime(reference: str | None) -> dict:
 # output and market options itself and mounts the inputs at fixed container paths, so registration and
 # every replay probe the same effective configuration (no host path enters it).
 RESERVED_RUNNER_OPTIONS = ("--strategy-file", "--strategy-class", "--strategy-sha256", "--execution-binding",
-                           "--output", "--describe", "--market-root", "--market-commit")
+                           "--output", "--describe", "--market-root", "--market-day")
 # Read by the entry, not passed to the runner as given: `--universe pool` selects the universe (the entry
 # then passes the runner `--universe` with the membership file it wrote), `--symbols` the contracts.
 ENTRY_OPTIONS = ("--universe", "--symbols", "--lifecycle-bundle")
@@ -68,7 +68,7 @@ def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list
         skipping = False
         argv.append(value)
     symbols = list(inputs.get("symbols") or (inputs.get("identity") or {}).get("symbols") or ())
-    argv += ["--market-root", MARKET_ROOT, "--market-commit", inputs["identity"]["market_commit"],
+    argv += ["--market-root", MARKET_ROOT, "--market-day", inputs["identity"]["market_day"],
              "--universe", MEMBERSHIP]
     if symbols:
         argv += ["--symbols", *symbols]

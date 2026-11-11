@@ -69,7 +69,7 @@ class RegisterTests(unittest.TestCase):
         plan = self.world.plan(self.root)
         execution = plan["execution"]
         self.assertEqual(execution, registered["execution"])
-        self.assertEqual((execution["image_digest"], execution["market_commit"], execution["universe_rule"],
+        self.assertEqual((execution["image_digest"], execution["market_day"], execution["universe_rule"],
                           execution["lifecycle_bundle"], execution["comparable_config_sha256"]),
                          (RUNTIME["image_digest"], MARKET_COMMIT, "pool-v1", None,
                           trials.comparable_config_sha256(config())))
@@ -453,7 +453,7 @@ class BindTests(unittest.TestCase):
         self.assertEqual(self.refused_trial(registration, outsider).code, "SOURCE_MISMATCH")
         cases = [({"symbols": ["AAAUSDT"], "export_content_sha256": "d" * 64}, None, ("input_identity",)),
                  ({}, config(account={**ACCOUNT, "fees": "other"}), ("effective_configuration",)),
-                 ({"market_commit": "n" * 32}, None, ("market_commit",))]
+                 ({"market_day": "n" * 32}, None, ("market_day",))]
         for identity, effective, conflict in cases:
             with self.subTest(conflict=conflict):
                 exc = self.refused_trial(registration, data,
