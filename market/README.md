@@ -33,7 +33,7 @@ lock                                 the import lock (fcntl)
 ```
 
 `market init --name <name> --kind active|isolated|temporary --root <directory>` makes an empty one and its profile
-(`kind: market`, `role: <kind>`, `root`) in the profile directory; an active market lies outside the checkout and
+(`holds: market`, `kind: <kind>`, `root`) in the profile directory; an active market lies outside the checkout and
 temporary directories, and making one needs the user's authority. Commands without `--market` use the active
 market profile. What each deployment keeps, its contracts and first months, is its own configuration
 (`market follow`), not a fact of the directory.

@@ -87,12 +87,14 @@ class LedgerProfile:
     backup_root: Path | None = None
 
     def as_json(self) -> dict:
-        return {"name": self.name, "kind": self.kind, "database": self.database,
+        return {"name": self.name, "holds": "ledger", "kind": self.kind, "database": self.database,
                 "service": str(self.service_root),
                 "backup": str(self.backup_root) if self.backup_root else None}
 
     @classmethod
     def from_json(cls, value: dict) -> LedgerProfile:
+        if value.get("holds", "ledger") != "ledger":
+            raise KeyError("holds")  # a market's profile
         return cls(name=value["name"], database=value["database"], service_root=Path(value["service"]),
                    kind=value.get("kind"), backup_root=Path(value["backup"]) if value.get("backup") else None)
 

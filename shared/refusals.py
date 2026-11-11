@@ -30,8 +30,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("The profiles are the .json files in the profile directory (`~/.local/share/trade/ledgers`, or "
                         "`TRADE_LEDGER_HOME`). Make a ledger with `ledger init`, or start the compose service "
                         "(`deploy/README.md`); make a market with `market init`.",)),
-    "LEDGER_KIND": ("The profile is not a market.",
-                    ("Pass a market profile.",)),
+    "LEDGER_KIND": ("The profile is not a market's (`holds: market`), or is in the old market format.",
+                    ("Pass a market profile; rewrite an old one as the message says.",)),
     "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
                            "not answer (a long write such as an import can stall it for minutes; otherwise its process, "
                            "its container or the Docker host is hung).",

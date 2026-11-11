@@ -488,7 +488,7 @@ class LiveCustodyTests(LiveFixture):
 
     def market_profile(self) -> Path:
         path = self.root / "market-profile.json"
-        path.write_text(json.dumps({"name": "market", "kind": "market", "role": "reader", "root": str(self.root)}))
+        path.write_text(json.dumps({"name": "market", "holds": "market", "kind": "reader", "root": str(self.root)}))
         return path
 
     def preflight(self, source=b"original", entry_class="Original", rows=(), candidate="found", read_error=None):

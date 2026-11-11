@@ -213,7 +213,7 @@ class InstalledAuthorityTests(unittest.TestCase):
                      "--max-loss-usdt", "2", "--duration-seconds", "8100", "--leverage", "3",
                      "--market", str(self.work / "market-profile.json")]
             (self.work / "market-profile.json").write_text(
-                '{"name": "market", "kind": "market", "role": "reader", "root": "/unused-market"}')
+                '{"name": "market", "holds": "market", "kind": "reader", "root": "/unused-market"}')
         return cli._parser().parse_args(args)
 
     def commit_other(self):

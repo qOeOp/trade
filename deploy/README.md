@@ -115,7 +115,7 @@ writes run in market-import (`docker compose exec market-import python -m cli.ma
 VM's kernel.
 
 ```json
-{"name": "market", "kind": "market", "role": "active", "root": "/Users/me/.local/share/trade/market"}
+{"name": "market", "holds": "market", "kind": "active", "root": "/Users/me/.local/share/trade/market"}
 ```
 
 On a new machine the ledger starts first: its bootstrap refuses a profile directory that already holds a

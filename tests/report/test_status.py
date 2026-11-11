@@ -125,15 +125,15 @@ class UnresolvedMarketTests(unittest.TestCase):
         self.assertEqual((gate["code"], gate["missing"]), ("MARKET_COMMIT_UNRESOLVED", ["a" * 32]))
 
     def test_a_run_reads_the_market_profile_its_market_database_names_else_the_active_one(self):
-        local = {"name": "market", "kind": "market", "role": "active", "root": "/srv/market"}
-        copy = {"name": "market-copy", "kind": "market", "root": "/srv/copy"}
+        local = {"name": "market", "holds": "market", "kind": "active", "root": "/srv/market"}
+        copy = {"name": "market-copy", "holds": "market", "root": "/srv/copy"}
         with tempfile.TemporaryDirectory() as home, mock.patch.dict("os.environ", {"TRADE_LEDGER_HOME": home}):
             for profile in (local, copy):
                 Path(home, f"{profile['name']}.json").write_text(json.dumps(profile), encoding="utf-8")
             self.assertEqual(seams._market_profile("market"), local, "market-copy.json sorts first")
             self.assertEqual(seams._market_profile("market-copy"), copy)
             self.assertEqual(seams._market_profile(None), local)
-            Path(home, "market.json").write_text(json.dumps({**local, "role": "isolated"}), encoding="utf-8")
+            Path(home, "market.json").write_text(json.dumps({**local, "kind": "isolated"}), encoding="utf-8")
             for name in (None, "absent"):
                 with self.subTest(name=name), self.assertRaises(Refusal) as caught:
                     seams._market_profile(name)
@@ -143,7 +143,7 @@ class UnresolvedMarketTests(unittest.TestCase):
         from datetime import date
         from market import files
         from tests.market.directory import directory, forged
-        profile = {**directory(self.addCleanup), "name": "market", "kind": "market", "role": "active"}
+        profile = {**directory(self.addCleanup), "name": "market", "holds": "market", "kind": "active"}
         forged(profile, "bar", date(2025, 1, 1), rows=dict(zip(
             ("symbol", "price_type", "ts_open", "open", "high", "low", "close", "volume"),
             (["BTCUSDT"], ["LAST"], [1735689600000], [1], [1], [1], [1], [1]), strict=True)))

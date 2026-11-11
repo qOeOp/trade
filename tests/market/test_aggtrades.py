@@ -181,7 +181,7 @@ class CompleteImportTests(unittest.TestCase):
             empty = directory(self.addCleanup)
             made = files.init_market('agg', Path(empty['root']), 'isolated')
             self.assertEqual(json.loads(Path(made['profile']).read_text()),
-                             {'name': 'agg', 'kind': 'market', 'role': 'isolated', 'root': empty['root']})
+                             {'name': 'agg', 'holds': 'market', 'kind': 'isolated', 'root': empty['root']})
             shutil.copytree(profile['root'], empty['root'], dirs_exist_ok=True)
             with patch('sys.stdout', new_callable=io.StringIO) as out, patch('sys.stderr', new_callable=io.StringIO):
                 rc = main.main(['market', 'import-trades', '--market', made['profile'], '--month', '2025-01',

@@ -62,7 +62,7 @@ class Directory(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root, True)
-        self.profile = {"name": "market", "kind": "market", "root": str(self.root)}
+        self.profile = {"name": "market", "holds": "market", "root": str(self.root)}
 
     def importer(self) -> files.Market:
         return files.open_market(self.profile, "import")

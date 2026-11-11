@@ -124,7 +124,7 @@ class ImportTests(unittest.TestCase):
     def test_month_stored_exactly_as_one_file_with_coverage_through_the_cli(self):
         profile = self.market()
         named = self.cache / "market.json"
-        named.write_text(json.dumps({"name": "metrics", "kind": "market", "role": "isolated", "root": profile["root"]}))
+        named.write_text(json.dumps({"name": "metrics", "holds": "market", "kind": "isolated", "root": profile["root"]}))
         days = [date(2025, 1, n) for n in range(1, 32)]
         skip = {START + 7 * metrics.STEP}
         with serving(self.exchange(days, skip=skip)), patch("sys.stdout", new_callable=io.StringIO) as out, \
