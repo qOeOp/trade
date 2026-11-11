@@ -39,6 +39,7 @@ def main() -> int:
     checkout = Path(os.environ["CLI_STANDIN_CHECKOUT"])
     entry.WORK_ROOT = tempfile.gettempdir()
     with registration_seams.use(resolve_runtime=lambda reference: dict(IDENTITY), inspect_runtime=world.inspect,
+                                require_ci_build=lambda identity, inspection: world.BUILD_REVISION,
                                 checkout=lambda: checkout), january(), \
             replay_seams.use(container_command=_command, build_revision=lambda identity: world.BUILD_REVISION,
                              layout=_layout, stop=lambda name: None):
