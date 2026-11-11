@@ -16,6 +16,7 @@ on:
       - deploy/Dockerfile
       - deploy/Dockerfile.dockerignore
       - deploy/entrypoint.sh
+      - deploy/compose.yaml
       - deploy/docker-api/**
       - cli/**
       - engine/**
@@ -34,6 +35,7 @@ on:
       - .github/scripts/ci-paths.py
       - .github/scripts/publish-platform-image.sh
       - .github/scripts/check-native-runtime.py
+      - .github/scripts/fresh-install.sh
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -66,6 +68,7 @@ jobs:
             deploy/Dockerfile
             deploy/Dockerfile.dockerignore
             deploy/entrypoint.sh
+            deploy/compose.yaml
             deploy/docker-api/**
             cli/**
             engine/**
@@ -84,6 +87,7 @@ jobs:
             .github/scripts/ci-paths.py
             .github/scripts/publish-platform-image.sh
             .github/scripts/check-native-runtime.py
+            .github/scripts/fresh-install.sh
 
   image:
     needs: changes
@@ -383,10 +387,74 @@ jobs:
             echo "::warning title=Docker API proxy::could not read the build deploy/compose.yaml pins"
           fi
 
+  # A fresh install from an empty host state to one replay, with this build's images (.github/scripts/fresh-install.sh
+  # says what differs from a person's install and why). A fork's pull request pushes no images, so it has none to run.
+  fresh-install:
+    needs: [changes, image]
+    if: needs.changes.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: echo "::notice title=Fresh install::not run, since a fork's pull request pushes no images"
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Name this build's images and the runtime its replay uses
+        id: images
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          OWNER: ${{ github.repository_owner }}
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          revision="$(git rev-parse HEAD)"
+          registry="ghcr.io/${OWNER,,}"
+          digest() { docker buildx imagetools inspect --format '{{json .Manifest}}' "$1" | jq -er .digest; }
+          # The runtime this commit's replays pair with: its own runtime-image build when the commit changes that
+          # workflow's inputs (the same paths and base it selects by), otherwise the current main runtime.
+          case "$EVENT" in pull_request) base="$PR_BASE";; push) base="$BEFORE";; *) base="$(git rev-parse HEAD^1)";; esac
+          paths="$(python3 -c '
+          import re, sys
+          source = open(".github/workflows/runtime-image.yml").read().split("\n  changes:\n", 1)[1]
+          print(re.split(r"\n(?! {12})", source.split("          paths: |\n", 1)[1], maxsplit=1)[0].replace(" " * 12, ""))
+          ')"
+          CI_EVENT_NAME=pull_request CI_BASE_SHA="$base" CI_PATHS="$paths" GITHUB_OUTPUT="$RUNNER_TEMP/runtime" \
+            python3 .github/scripts/ci-paths.py
+          if grep -qx 'changed=true' "$RUNNER_TEMP/runtime"; then
+            tag="$registry/trade-runtime:sha-$revision-amd64"
+            for _ in $(seq 80); do docker buildx imagetools inspect "$tag" >/dev/null 2>&1 && break; sleep 30; done
+            runtime="$registry/trade-runtime@$(digest "$tag")"
+          else
+            runtime="$registry/trade-runtime@$(docker buildx imagetools inspect --raw "$registry/trade-runtime:main" \
+              | jq -er '.manifests[] | select(.platform.architecture == "amd64") | .digest')"
+          fi
+          {
+            echo "ide=$registry/trade-ide@$(digest "$registry/trade-ide:sha-$revision-amd64")"
+            echo "service=$registry/trade-service@$(digest "$registry/trade-service:sha-$revision-amd64")"
+            echo "runtime=$runtime"
+          } | tee -a "$GITHUB_OUTPUT"
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        if: steps.images.outcome == 'success'
+      - if: steps.images.outcome == 'success'
+        run: uv python install 3.14 && uv sync --frozen
+      - name: From an empty host to one replay
+        if: steps.images.outcome == 'success'
+        env:
+          IDE: ${{ steps.images.outputs.ide }}
+          SERVICE: ${{ steps.images.outputs.service }}
+          RUNTIME: ${{ steps.images.outputs.runtime }}
+        run: bash .github/scripts/fresh-install.sh "$IDE" "$SERVICE" "$RUNTIME"
+
   gate:
     name: ide-image-gate
     if: always()
-    needs: [changes, image, manifest]
+    needs: [changes, image, manifest, fresh-install]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
