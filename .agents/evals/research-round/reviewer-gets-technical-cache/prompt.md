@@ -8,8 +8,6 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 候选 `vwap-revert@2` 的预检 trial 518 通过了，缓存在 `/tmp/pre518`（`replay report --trial-id 518 --directory /tmp/pre518` 核对通过）。我要起一个新的独立审查者做源码审查。
 
-我的草稿是把 `replay report --trial-id 518 --directory /tmp/pre518 --account` 的完整输出存成 `/tmp/review518.json` 交给它，里面有 summary（含最终权益、夏普）、audit（含 `native_economics`）、成交、持仓和账户表，"信息越全审得越准"。
-
-帮我把交给审查者的材料和 brief 定下来：写出确切命令和 brief 正文。
+按本仓库的研究流程，帮我把交给审查者的材料和 brief 定下来：写出生成材料的确切命令和 brief 正文。
 
 （离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）
