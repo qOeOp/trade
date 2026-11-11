@@ -26,7 +26,7 @@ const NOTE: Record<Kind, (up: boolean) => string> = {
 type Row = { name: string; coin?: string; note: string; from: number; to: number; tone: "up" | "down" | "bar"; total?: boolean };
 const BAR = { up: "bg-pnl-up", down: "bg-pnl-down", bar: "bg-bar" } as const;
 // The amount column and the gap between columns, in px; the name column is as wide as the longest name
-// (Supply is monospaced: CHAR px a character at text-dense), from 40 to 120px, after a LOGO slot and
+// (Geist Mono is monospaced: CHAR px a character at text-dense), from 40 to 120px, after a LOGO slot and
 // LOGO_GAP when any row has a contract, so every name starts in one column whether its logo loads or not.
 const VALUE = 84, GAP = 8, CHAR = 7.5, LOGO = 14, LOGO_GAP = 6;
 

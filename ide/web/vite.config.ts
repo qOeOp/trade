@@ -9,8 +9,8 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 // weights (the package is not installed: it declares its own build tool as a dependency). The page is
 // one file opened from disk, so the slices stay on jsDelivr at that version and a browser fetches only
 // those holding characters on screen; offline, Chinese falls through to the system face. The page sets
-// only 400 and 600, so Regular and Medium cover it, split where Supply's are; size-adjust sizes its
-// Chinese beside Supply's letters.
+// only 400 and 600, so Regular and Medium cover it, split at 450; size-adjust sizes its
+// Chinese beside Geist Mono's letters.
 const HARMONY = "https://cdn.jsdelivr.net/npm/harmonyos-sans-sc-webfont-splitted@1.1.0/dist/";
 const HARMONY_WEIGHTS = { Regular: "100 449", Medium: "450 900" };
 const HARMONY_SIZE = "96%";
