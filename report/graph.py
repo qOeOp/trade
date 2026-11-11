@@ -31,30 +31,55 @@ def _iso(value) -> str | None:
     return value.isoformat() if value is not None else None
 
 
+class _Lineage:
+    """The candidate links of one candidate table (`rows`), built once and walked per line: parents and a shared
+    strategy id link candidates; `researched` (research_trials' read) gives each line's research trials and sources."""
+
+    def __init__(self, rows: list[dict], researched: list[dict]):
+        self.by_id = {f"{r['strategy_id']}@{r['revision']}": r for r in rows}
+        self.linked: dict[str, set[str]] = {key: set() for key in self.by_id}
+        self.of_source: dict[str, set[str]] = {}
+        by_strategy: dict[str, list[str]] = {}
+        for key, row in self.by_id.items():
+            self.of_source.setdefault(row["source_sha256"], set()).add(key)
+            by_strategy.setdefault(row["strategy_id"], []).append(key)
+            if row["parent"] is not None and row["parent"] in self.by_id:
+                self.linked[key].add(row["parent"])
+                self.linked[row["parent"]].add(key)
+        for keys in by_strategy.values():
+            for key in keys:
+                self.linked[key].update(k for k in keys if k != key)
+        self.trials: dict[int, set[int]] = {}
+        self.sources: dict[int, set[str]] = {}
+        for row in researched:
+            self.trials.setdefault(row["line_id"], set()).add(row["trial_id"])
+            self.sources.setdefault(row["line_id"], set()).add(row["source_sha256"])
+        self.researched = {row["source_sha256"] for row in researched}
+
+    def walk(self, seeds: set[str], elsewhere: set[str]) -> list[dict]:
+        """The candidates connected to the seeds, never through a candidate in `elsewhere`, oldest first."""
+        seen, todo = set(), [key for key in seeds if key in self.by_id]
+        while todo:
+            key = todo.pop()
+            if key not in seen:
+                seen.add(key)
+                todo.extend(self.linked[key] - seen - elsewhere)
+        return sorted((self.by_id[key] for key in seen), key=lambda r: (r["created_at"], r["strategy_id"], r["revision"]))
+
+    def members(self, line_id: int, start: str) -> tuple[list[dict], set[int]]:
+        """line_members for the line `line_id`: its start and the candidates of its research trials are the seeds,
+        and a candidate whose research runs are all another line's (`elsewhere`) does not draw that line here."""
+        sources = self.sources.get(line_id, set())
+        seeds = {start}.union(*(self.of_source.get(source, ()) for source in sources))
+        elsewhere = set().union(*(self.of_source.get(source, ()) for source in self.researched - sources))
+        return self.walk(seeds, elsewhere), self.trials.get(line_id, set())
+
+
 def _lineage(rows: list[dict], seeds: set[str], elsewhere: set[str]) -> list[dict]:
     """The candidates connected to the seeds (the line's start and the candidates of its research
     trials) through parents or a shared strategy id, never through a candidate in `elsewhere` (its
     research runs are all another line's): one parent across lines does not draw that line here."""
-    by_id = {f"{r['strategy_id']}@{r['revision']}": r for r in rows}
-    linked: dict[str, set[str]] = {key: set() for key in by_id}
-    by_strategy: dict[str, list[str]] = {}
-    for key, row in by_id.items():
-        by_strategy.setdefault(row["strategy_id"], []).append(key)
-        if row["parent"] is not None:
-            parent = row["parent"]
-            if parent in by_id:
-                linked[key].add(parent)
-                linked[parent].add(key)
-    for keys in by_strategy.values():
-        for key in keys:
-            linked[key].update(k for k in keys if k != key)
-    seen, todo = set(), [key for key in seeds if key in by_id]
-    while todo:
-        key = todo.pop()
-        if key not in seen:
-            seen.add(key)
-            todo.extend(linked[key] - seen - elsewhere)
-    return sorted((by_id[key] for key in seen), key=lambda r: (r["created_at"], r["strategy_id"], r["revision"]))
+    return _Lineage(rows, []).walk(seeds, elsewhere)
 
 
 def research_trials(conn: db.LedgerConnection) -> list[dict]:
@@ -66,14 +91,9 @@ def line_members(conn: db.LedgerConnection, line: str, start: str, rows: list[di
                  researched: list[dict] | None = None) -> tuple[list[dict], set[int]]:
     """The candidates (of `rows`, the candidate table) a line's graph draws, oldest first, and its research
     trials: those connected (_lineage) to its start (`start`) and to the candidates of its research trials.
-    `researched` is research_trials' read when the caller already has it (one read for every line)."""
+    `researched` is research_trials' read when the caller already has it."""
     researched = research_trials(conn) if researched is None else researched
-    line_id = lines.read_line(conn, line)["line_id"]
-    on_line = {row["trial_id"] for row in researched if row["line_id"] == line_id}
-    sources = {row["source_sha256"] for row in researched if row["trial_id"] in on_line}
-    seeds = {start} | {f"{r['strategy_id']}@{r['revision']}" for r in rows if r["source_sha256"] in sources}
-    elsewhere = {row["source_sha256"] for row in researched} - sources
-    return _lineage(rows, seeds, {f"{r['strategy_id']}@{r['revision']}" for r in rows if r["source_sha256"] in elsewhere}), on_line
+    return _Lineage(rows, researched).members(lines.read_line(conn, line)["line_id"], start)
 
 
 def _candidate_rows(conn: db.LedgerConnection) -> list[dict]:
@@ -85,9 +105,9 @@ def line_list(profile, at: str | None = None, every: bool = False) -> dict:
     versions its graph draws (`versions`, oldest first), read at the same commit."""
     listed = lines.list_lines(db.profile(profile), at, every=every)
     with db.read_as_of(db.profile(profile), listed["ledger_commit"]) as conn, db.reusing_pinned_reads():
-        rows, researched = _candidate_rows(conn), research_trials(conn)
+        lineage = _Lineage(_candidate_rows(conn), research_trials(conn))
         for item in listed["lines"]:
-            members, _ = line_members(conn, item["name"], item["start"], rows, researched)
+            members, _ = lineage.members(item["line_id"], item["start"])
             item["versions"] = [f"{r['strategy_id']}@{r['revision']}" for r in members]
     return listed
 
