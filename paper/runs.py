@@ -196,7 +196,7 @@ def _membership(market: dict, at: str | None, symbols: list[str] | None, now_ns:
 
 def write_months(market: dict, directory: Path, symbols: list[str], after: str) -> list[str]:
     """inputs/membership/<YYYY-MM>.json for each month after `after` (YYYY-MM) that the market's latest commit holds:
-    {"market_commit", "members"}, the run's contracts in that month's universe. The running runner reads a month's
+    {"market_day", "members"}, the run's contracts in that month's universe. The running runner reads a month's
     file once the month has begun (engine.paper.Membership; coverage U9); a written file is never rewritten. Returns
     the months written."""
     from market import files, universe
@@ -213,7 +213,7 @@ def write_months(market: dict, directory: Path, symbols: list[str], after: str) 
         if path.exists():
             continue
         temporary = path.with_suffix(".partial")
-        temporary.write_text(json.dumps({"market_commit": commit, "members": sorted(set(symbols) & held[month])},
+        temporary.write_text(json.dumps({"market_day": commit, "members": sorted(set(symbols) & held[month])},
                                         sort_keys=True), encoding="utf-8")
         os.replace(temporary, path)
         written.append(month)
@@ -360,7 +360,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         raise refuse("PAPER_START_FAILED", f"paper run {row['paper_id']} did not start and was sealed with START_FAILED: {exc}",
                      missing=(sealed["bundle"],), write_status="written") from exc
     return {"paper_id": row["paper_id"], "candidate": candidate, "source_sha256": row["source_sha256"],
-            "image_ref": identity["image_ref"], "symbols": chosen, "market_commit": commit,
+            "image_ref": identity["image_ref"], "symbols": chosen, "market_day": commit,
             "directory": str(directory), "containers": named, "ledger_commit": row["ledger_commit"],
             "write_status": row["write_status"]}
 
@@ -450,7 +450,7 @@ def listing(profile: db.LedgerProfile) -> dict:
                      # Its containers still on the host: a sealed run's are left over (paper serve collects them).
                      "containers": sorted(role for paper_id, role in live if paper_id == row["paper_id"]),
                      "created_at": row["created_at"], "image_ref": row["image_ref"],
-                     "market_commit": row["market_commit"], "config": row["config"],
+                     "market_day": row["market_day"], "config": row["config"],
                      # The status under the current rule (records.verdict), from the reasons sealed; the seal
                      # keeps the status it was sealed with.
                      "status": records.verdict(seal_row.get("reasons")) if row["seal"] else None, "reasons": seal_row.get("reasons"),

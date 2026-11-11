@@ -41,7 +41,7 @@ class FingerprintTests(unittest.TestCase):
                              pieces=[{"episode": None, "counts": {"last": 2}}])
         unread["membership_file"].write_text('{"commit": "c2", "universe_rule": "r2", "membership": {}}')
         (unread["root"] / "lifecycle-evidence").mkdir()
-        (unread["root"] / "lifecycle-evidence" / "lifecycle.json").write_text('{"market_commit": "c2"}')
+        (unread["root"] / "lifecycle-evidence" / "lifecycle.json").write_text('{"market_day": "c2"}')
         self.assertEqual(inputs.export_fingerprint(unread, semantic=True), kept)
         self.assertNotEqual(inputs.export_fingerprint(unread, semantic=False), inputs.export_fingerprint(base, semantic=False))
         for name, receipt in (("fees", {"assumed": {"taker_fee": "0.0007"}}),
@@ -103,7 +103,7 @@ class MarketInputTests(unittest.TestCase):
     def test_the_universe_selection_takes_every_member_intersecting_the_trading_window(self):
         exported = self.call()
         identity = exported["identity"]
-        self.assertEqual((identity["market_commit"], identity["universe_rule"], identity["symbols"]),
+        self.assertEqual((identity["market_day"], identity["universe_rule"], identity["symbols"]),
                          (MARKET_COMMIT, "pool-v1", ["AAAUSDT", "BBBUSDT"]))
         self.assertEqual(set(identity["membership"]), {"AAAUSDT", "BBBUSDT"})
         window = (LINE_WINDOW["start"], LINE_WINDOW["end"])
@@ -135,7 +135,7 @@ class LifecycleTests(unittest.TestCase):
     def setUpClass(cls):
         cls.world = World("lifecycle")
         cls.addClassCleanup(cls.world.close)
-        manifest = {"market_commit": MARKET_COMMIT, "episodes": {"AAAUSDT": [{"symbol": "AAAUSDT"}]}}
+        manifest = {"market_day": MARKET_COMMIT, "episodes": {"AAAUSDT": [{"symbol": "AAAUSDT"}]}}
         product_write(cls.world.conn, "lifecycle_fixture", "lifecycle-" + MARKET_COMMIT,
                       {"lifecycle.json": json.dumps(manifest).encode(), "sources/delisting.html": b"<p>delisted</p>"})
         product_write(cls.world.conn, "lifecycle_fixture", "lifecycle-" + "n" * 32,

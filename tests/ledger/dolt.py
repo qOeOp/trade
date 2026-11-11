@@ -51,8 +51,8 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def inputs(market_commit: str = MARKET_COMMIT) -> dict:
-    return {"identity": {"market_database": "market", "market_commit": market_commit, "universe_rule": "pool-v1",
+def inputs(market_day: str = MARKET_COMMIT) -> dict:
+    return {"identity": {"market_database": "market", "market_day": market_day, "universe_rule": "pool-v1",
                          "symbols": ["AAAUSDT-PERP.BINANCE", "BBBUSDT-PERP.BINANCE"],
                          "export_content_sha256": "e" * 64},
             "input_coverage": b'{"format":"execution-input-coverage-v1"}'}

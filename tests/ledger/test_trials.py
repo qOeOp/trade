@@ -107,7 +107,7 @@ class OpenTrialTests(unittest.TestCase):
                         {**RUNTIME, "image_digest": "sha256:" + "c" * 64}, {**IDENTITY}, {**RUNTIME, "inspection": {}}):
             with self.subTest(runtime=runtime):
                 self.assertEqual(self.code(runtime_identity=runtime), "RUNTIME_NOT_PINNED")
-        for field in ("market_commit", "universe_rule", "symbols", "export_content_sha256"):
+        for field in ("market_day", "universe_rule", "symbols", "export_content_sha256"):
             incomplete = inputs()
             del incomplete["identity"][field]
             with self.subTest(field=field):

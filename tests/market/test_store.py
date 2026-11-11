@@ -73,7 +73,7 @@ class ImportTests(unittest.TestCase):
         cls.scope = ["BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT"]
         with serving(cls.exchange):
             cls.results = {month: cls.imported(month) for month in (JAN, FEB, MAR)}
-        cls.commits = {month: result["market_commit"] for month, result in cls.results.items()}
+        cls.commits = {month: result["market_day"] for month, result in cls.results.items()}
 
     @classmethod
     def imported(cls, month: date, scope=None) -> dict:
@@ -307,7 +307,7 @@ class ImportTests(unittest.TestCase):
                     "reason": "delisting", "trading_event": None, "is_trading": None, "is_quoting": None,
                     "is_short_sell_restricted": None}
         closed = DELISTED * 1_000_000
-        body = {"format": lifecycle.FORMAT, "market_commit": self.commits[MAR], "episodes": [
+        body = {"format": lifecycle.FORMAT, "market_day": self.commits[MAR], "episodes": [
             {"symbol": "CCCUSDT", "instrument_id": iid, "start_ns": 0, "sources": ["notice.txt"],
              "events": [status("PRE_CLOSE", closed - 3_600_000_000_000), status("CLOSE", closed),
                         {"type": "InstrumentClose", "instrument_id": iid, "close_price": "100.01",
@@ -331,7 +331,7 @@ class ImportTests(unittest.TestCase):
         tail = [(type(event).__name__, getattr(event, "action", None) and event.action.name)
                 for event in list(run.market_events(rows, start, end))[-2:]]
         self.assertEqual(tail, [("InstrumentStatus", "CLOSE"), ("InstrumentClose", None)])
-        for wrong in ({**body, "market_commit": self.commits[FEB]},
+        for wrong in ({**body, "market_day": self.commits[FEB]},
                       {**body, "episodes": [{**body["episodes"][0], "sources": ["absent.txt"]}]},
                       {**body, "episodes": [{**body["episodes"][0], "events": body["episodes"][0]["events"][2:]}]}):
             with self.subTest(wrong=wrong):
@@ -567,9 +567,9 @@ class LaterImportTests(unittest.TestCase):
         with serving(found), on(MAR):
             first = store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
             # With March's members the newest day is February's last, which reads them.
-            self.assertEqual(first["market_commit"], date(2025, 2, 28).isoformat())
+            self.assertEqual(first["market_day"], date(2025, 2, 28).isoformat())
             self.assertEqual(store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
-                             ["market_commit"], first["market_commit"])
+                             ["market_day"], first["market_day"])
             self.refused("MONTH_INVALID", store.import_month, profile, APR, self.cache, 1, scope, log=lambda line: None)
         self.assertEqual((first["through"], first["bar_rows"], first["funding_rows"], first["universe_members"]),
                          ("2025-03-01", 0, 0, ["BBBUSDT", "BTCUSDT"]))
@@ -699,7 +699,7 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual(sorted(set(rows(self.backfilled, "universe_month")["month"].to_pylist())), [FEB, MAR])
 
     def test_the_stored_months_stay_as_they_were(self):
-        self.assertEqual((self.feb["universe_members"], self.feb["market_commit"]), ([], date(2025, 2, 27).isoformat()))
+        self.assertEqual((self.feb["universe_members"], self.feb["market_day"]), ([], date(2025, 2, 27).isoformat()))
         self.assertEqual((Path(self.backfilled["root"]) / "bar" / "2025-02.parquet").read_bytes(), self.stored)
 
     def test_months_extend_only_at_either_end(self):

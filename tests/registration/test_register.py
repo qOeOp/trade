@@ -68,7 +68,7 @@ class RegisterTests(unittest.TestCase):
         plan = self.world.plan("registration-root")
         execution = plan["execution"]
         self.assertEqual(execution, registered["execution"])
-        self.assertEqual((execution["image_digest"], execution["input_identity"]["market_commit"],
+        self.assertEqual((execution["image_digest"], execution["input_identity"]["market_day"],
                           execution["input_identity"]["symbols"]), (RUNTIME["image_digest"], MARKET_COMMIT,
                                                                     ["AAAUSDT", "BBBUSDT"]))
         self.assertEqual(plan["body"]["grid"][0]["candidate"], "rsi@1")
@@ -201,7 +201,7 @@ class RegisterTests(unittest.TestCase):
         explored = self.world.publish("explored first")
         review = self.world.prechecked(explored["source"])
         trials.open_trial(self.world.conn, "explore", sha(explored["source"]), RUNTIME,
-                          {"identity": {"market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
+                          {"identity": {"market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
                                         "symbols": ["AAAUSDT"], "export_content_sha256": "e" * 64},
                            "input_coverage": b"{}"}, LINE_WINDOW, context(explored["source"], "/tmp/peek"))
         body = self.derived(grid=[{"candidate": explored["candidate"], "params": {}}],
@@ -502,9 +502,9 @@ class BindTests(unittest.TestCase):
         exc = self.refused_trial(bundle, data, execution=execution)
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("effective_configuration",)))
         execution = copy.deepcopy(self.world.plan(bundle)["execution"])
-        execution["input_identity"]["market_commit"] = "n" * 32
+        execution["input_identity"]["market_day"] = "n" * 32
         exc = self.refused_trial(bundle, data, execution=execution)
-        self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("market_commit",)),
+        self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("market_day",)),
                          "equal content at another commit is another line's run")
         exc = self.refused_trial(bundle, data, runtime=OTHER_RUNTIME)
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("runtime_image",)))

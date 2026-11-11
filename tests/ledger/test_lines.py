@@ -45,7 +45,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.open_code(), "RESEARCH_LINE_REQUIRED")
         before = db.head_commit(self.conn)
         first = self.select()
-        self.assertEqual((first["bundle"], first["market_commit"], first["created"]),
+        self.assertEqual((first["bundle"], first["market_day"], first["created"]),
                          (self.name("ema-trend"), MARKET_COMMIT, True))
         self.assertEqual(lines.open_line(self.conn)["bundle"], first["bundle"])
         again = self.select(slug="another-name")  # the same choice is that open line, whatever its slug
@@ -166,9 +166,9 @@ class ResearchLineTests(unittest.TestCase):
         window = {"start": JAN, "trade_start": JAN + DAY, "end": JAN + 31 * DAY}
         start_sha = sha(source("start"))
 
-        def trial(purpose="research", market_commit=MARKET_COMMIT, trial_window=window, workdir="/tmp/a"):
+        def trial(purpose="research", market_day=MARKET_COMMIT, trial_window=window, workdir="/tmp/a"):
             binder = attempt_binder(registration, start_sha) if purpose == "research" else None
-            return trials.open_trial(self.conn, purpose, start_sha, RUNTIME, inputs(market_commit), trial_window,
+            return trials.open_trial(self.conn, purpose, start_sha, RUNTIME, inputs(market_day), trial_window,
                                      context(source("start"), workdir), binder)["trial_id"]
 
         counted = trial()
@@ -183,7 +183,7 @@ class ResearchLineTests(unittest.TestCase):
         with db.read_as_of(self.profile, since) as pinned:
             self.assertEqual(lines.line_trials(pinned, line["bundle"])["trials"], [counted])
         self.other_trial({"start": JAN, "trade_start": JAN + DAY, "end": JAN + 30 * DAY}, workdir="/tmp/d")
-        self.other_trial(window, market_commit="n" * 32, workdir="/tmp/e")
+        self.other_trial(window, market_day="n" * 32, workdir="/tmp/e")
         self.assertEqual(lines.line_trials(self.conn, line["bundle"])["count"], 2)
         lines.close_line(self.profile, line["bundle"], b"ema trend summary")
         successor = self.select(slug="ema-trend-again")
@@ -196,7 +196,7 @@ class ResearchLineTests(unittest.TestCase):
                 lines.line_trials(self.conn, bundle)
             self.assertEqual(caught.exception.code, "LINE_UNKNOWN")
 
-    def test_lines_on_one_market_commit_and_window_keep_the_trials_their_plans_name(self):
+    def test_lines_on_one_market_day_and_window_keep_the_trials_their_plans_name(self):
         line = self.select()["bundle"]
         window = {"start": JAN, "trade_start": JAN + DAY, "end": JAN + 31 * DAY}
         self.publish_and_register_other()
@@ -286,11 +286,11 @@ class ResearchLineTests(unittest.TestCase):
                                  context(source("other"), workdir),
                                  attempt_binder(bundle, sha(source("other"))))["trial_id"]
 
-    def other_trial(self, trial_window, market_commit=MARKET_COMMIT, workdir="/tmp/c"):
+    def other_trial(self, trial_window, market_day=MARKET_COMMIT, workdir="/tmp/c"):
         # Each grid point is consumed once: a fresh registration per extra research trial.
         self.registrations = getattr(self, "registrations", 2) + 1
         bundle = self.registration(f"registration-{self.registrations}")
-        return trials.open_trial(self.conn, "research", sha(source("other")), RUNTIME, inputs(market_commit),
+        return trials.open_trial(self.conn, "research", sha(source("other")), RUNTIME, inputs(market_day),
                                  trial_window, context(source("other"), workdir),
                                  attempt_binder(bundle, sha(source("other"))))["trial_id"]
 

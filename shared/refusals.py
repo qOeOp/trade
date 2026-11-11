@@ -103,7 +103,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                             ("Rename the bundle within the allowed characters and length.",)),
     "RESERVED_BUNDLE": ("The bundle name lies in a product namespace (trial-<id>-execution(-start), "
                         "trial-<id>-recovery(-*), registration-*, source-review-*, research-line-*, "
-                        "lifecycle-<market_commit>), written only by its product command.",
+                        "lifecycle-<market_day>), written only by its product command.",
                         ("Write those through their commands (`registration add`, `source review`, `line select`); "
                          "name your own evidence otherwise, for example correction-*.",)),
     "INVALID_EVIDENCE_PATH": ("An evidence source is a symbolic link, or a path in the bundle is absolute, "
@@ -439,7 +439,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "EXPORT_CONTENT_INVALID": ("The export root or membership file holds a symbolic link, the membership file is "
                                "missing, or a receipt or the membership file holds no replay facts.",
                                ("Export the market inputs again into a new directory.",)),
-    "LIFECYCLE_INPUT": ("The lifecycle evidence bundle is not lifecycle-<market_commit> of the pinned commit, is "
+    "LIFECYCLE_INPUT": ("The lifecycle evidence bundle is not lifecycle-<market_day> of the pinned commit, is "
                         "missing, lacks lifecycle.json, fails its hash check or does not validate against the "
                         "pinned market commit.",
                         ("Write the lifecycle bundle for this market commit again with the market command.",)),

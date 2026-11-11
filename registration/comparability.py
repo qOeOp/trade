@@ -18,7 +18,7 @@ from shared.refusals import refuse
 CONFIG_KEYS = ("runtime_contract", "start", "trade_start", "end", "symbols", "account")  # the engine's keys
 INPUT_KEY = "export_content_sha256"  # what the engine reads of the export root and the membership file
 # Configuration keys export_content_sha256 already covers (the commit they were read at, the membership file's hash)
-COVERED_CONFIG_KEYS = ("market_commit", "universe_sha256")
+COVERED_CONFIG_KEYS = ("market_day", "universe_sha256")
 COMPARABLE_PURPOSES = ("research", "validation")
 
 

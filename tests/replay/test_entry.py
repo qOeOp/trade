@@ -89,7 +89,7 @@ class ExecutionBindingTests(unittest.TestCase):
         workdir = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, workdir, True)
         (workdir / entry.SOURCE).mkdir()
-        argv = ["--market-root", "/inputs/market", "--market-commit", "c" * 32, "--symbols", "AAAUSDT",
+        argv = ["--market-root", "/inputs/market", "--market-day", "c" * 32, "--symbols", "AAAUSDT",
                 "--start", "2026-01-01T00:00:00Z", "--end", "2026-01-02T00:00:00Z"]
         inspection = engine_config.describe(engine_config.parse_configuration(["--describe", *argv]))
         options = entry._strategy_argv(workdir, IDENTITY, inspection, "Fixture", "a" * 64)
@@ -466,7 +466,7 @@ class SealedReplayTests(unittest.TestCase):
         shutil.rmtree(workdir)
 
     def test_what_the_runner_wrote_but_the_report_cannot_read_makes_the_run_invalid(self):
-        cases = [({"summary": {"market_commit": "z" * 32}}, "COVERAGE_MISMATCH"),
+        cases = [({"summary": {"market_day": "z" * 32}}, "COVERAGE_MISMATCH"),
                  ({"corrupt_exposures": True}, "NATIVE_REPORT_UNREADABLE"),
                  ({"summary": {"final_equity_usdt": None}}, "SUMMARY_INCOMPLETE"),
                  ({"summary": {"period_start_utc": "the first of January"}}, "METRICS_UNREADABLE"),

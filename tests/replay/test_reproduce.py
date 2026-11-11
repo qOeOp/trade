@@ -220,7 +220,7 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
     @staticmethod
     def inspect(identity, runner_argv, inputs):
         config = engine_config.parse_configuration([
-            "--describe", "--market-root", str(inputs["root"]), "--market-commit", MARKET_COMMIT,
+            "--describe", "--market-root", str(inputs["root"]), "--market-day", MARKET_COMMIT,
             "--symbols", *inputs["symbols"], *(a for a in runner_argv if a not in registration_seams.ENTRY_FLAGS)])
         effective = engine_config.effective_configuration(config)
         return {"runtime_contract": identity["runtime_contract"], "effective_config": effective.values,

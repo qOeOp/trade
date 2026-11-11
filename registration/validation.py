@@ -99,8 +99,8 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
         raise changed(f"universe rule {identity.get('universe_rule')} is not the registered "
                       f"{registration['universe_rule']}", "universe_rule")
     registered_month = seams.month_of(registration["created_at"])
-    then = _by_month(adapter.universe_month(registration["market_commit"]))
-    now = _by_month(adapter.universe_month(identity["market_commit"]))
+    then = _by_month(adapter.universe_month(registration["market_day"]))
+    now = _by_month(adapter.universe_month(identity["market_day"]))
     for month in sorted(set(then) | set(now)):
         if month <= registered_month and then.get(month) != now.get(month):
             symbols = sorted({row[1] for row in set(then.get(month, [])) ^ set(now.get(month, []))})
@@ -110,7 +110,7 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
     absent = [month for month in _months(start, end) if month not in now]
     if absent:
         raise changed("window months not produced at the market commit: " + ", ".join(absent), *absent)
-    derived = adapter.membership_path(identity["market_commit"], _ns(end))["membership"]
+    derived = adapter.membership_path(identity["market_day"], _ns(end))["membership"]
     given = identity.get("membership") or {}
     subset = None if baseline.get("universe") is True else baseline.get("symbols")
     if subset:
@@ -162,7 +162,7 @@ def _design(registration: Mapping) -> dict:
 
 
 def _same_registration(prior: Mapping, payload: Mapping) -> bool:
-    return ({"candidate": f"{prior['strategy_id']}@{prior['revision']}", "market_commit": prior["market_commit"],
+    return ({"candidate": f"{prior['strategy_id']}@{prior['revision']}", "market_day": prior["market_day"],
              "universe_rule": prior["universe_rule"], "window_start": prior["window_start"].isoformat(),
              "window_end": prior["window_end"].isoformat(), "design": _design(prior), "retry_of": prior["retry_of"]}
             == dict(payload))
@@ -195,7 +195,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                 raise refuse("CANDIDATE_UNKNOWN", f"{candidate!r} is no published candidate",
                              missing=(str(candidate),)) from exc
             raise
-        market_commit = seams.current.market(market_profile).resolve_commit(market)
+        market_day = seams.current.market(market_profile).resolve_commit(market)
         if retry_of is not None:
             original = _registration(conn, retry_of)
             if (original is None or (original["strategy_id"], original["revision"]) != (row["strategy_id"], row["revision"])
@@ -203,15 +203,15 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                     or original["universe_rule"] != universe_rule
                     or _design(original_registration(conn, original)) != dict(design) or not _retry_allowed(conn, original)):
                 raise refuse("RETRY_NOT_ALLOWED", f"registration {retry_of} cannot be retried", missing=(str(retry_of),))
-        payload = {"candidate": f"{row['strategy_id']}@{row['revision']}", "market_commit": market_commit,
+        payload = {"candidate": f"{row['strategy_id']}@{row['revision']}", "market_day": market_day,
                    "universe_rule": universe_rule, "window_start": start.isoformat(), "window_end": end.isoformat(),
                    "design": dict(design), "retry_of": retry_of}
 
         def insert(c, op):
-            c.rows("INSERT INTO validation_registration (strategy_id, revision, market_commit, universe_rule, "
+            c.rows("INSERT INTO validation_registration (strategy_id, revision, market_day, universe_rule, "
                    "window_start, window_end, design, retry_of, op_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, "
                    "%s, %s, UTC_TIMESTAMP(6))",
-                   (row["strategy_id"], row["revision"], market_commit, universe_rule, start, end,
+                   (row["strategy_id"], row["revision"], market_day, universe_rule, start, end,
                     db.canonical_json(dict(design)), retry_of, op))
             (registration_id,), = c.rows("SELECT LAST_INSERT_ID()")
             created = c.rows("SELECT created_at FROM validation_registration WHERE registration_id = %s",

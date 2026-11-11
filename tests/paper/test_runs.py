@@ -166,6 +166,6 @@ class MonthFileTests(unittest.TestCase):
             (directory / "inputs").mkdir()
             self.assertEqual(runs.write_months({}, directory, ["AAAUSDT", "BBBUSDT"], "2026-01"), ["2026-02"])
             written = directory / "inputs" / "membership" / "2026-02.json"
-            self.assertEqual(json.loads(written.read_text()), {"market_commit": "c" * 32, "members": ["AAAUSDT"]})
+            self.assertEqual(json.loads(written.read_text()), {"market_day": "c" * 32, "members": ["AAAUSDT"]})
             self.assertEqual(sorted(path.name for path in written.parent.iterdir()), ["2026-02.json"])
             self.assertEqual(runs.write_months({}, directory, ["AAAUSDT", "BBBUSDT"], "2026-01"), [])  # never rewritten

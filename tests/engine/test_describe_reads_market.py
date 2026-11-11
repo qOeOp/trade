@@ -29,7 +29,7 @@ class DescribeTests(unittest.TestCase):
     def describe(self, root: Path) -> dict:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            run.main(["--describe", "--market-root", str(root), "--market-commit", "c" * 32, "--symbols", "AAAUSDT",
+            run.main(["--describe", "--market-root", str(root), "--market-day", "c" * 32, "--symbols", "AAAUSDT",
                       "--start", utc_text(START * 10**6), "--end", utc_text(END * 10**6)])
         return json.loads(out.getvalue())
 

@@ -386,7 +386,7 @@ def build_parser() -> argparse.ArgumentParser:
     strategy.add_argument("--execution-binding", type=Path)
     inputs = parser.add_argument_group("inputs: one market commit exported per contract (market.export)")
     inputs.add_argument("--market-root", type=Path, required=True, help="directory of per-contract Catalogs")
-    inputs.add_argument("--market-commit", required=True, help="the market database commit they were exported from")
+    inputs.add_argument("--market-day", required=True, help="the market day (YYYY-MM-DD) they were exported from")
     inputs.add_argument("--universe", type=Path, help="universe membership JSON handed to every strategy")
     inputs.add_argument("--symbols", nargs="+", required=True, help="Binance symbols, e.g. BTCUSDT")
     inputs.add_argument("--metrics", action="store_true",
@@ -418,7 +418,7 @@ class RunnerConfiguration:
     strategy_sha256: str | None
     execution_binding: Path | None
     market_root: Path
-    market_commit: str
+    market_day: str
     universe_path: Path | None
     symbols: tuple[str, ...]
     window: Window
@@ -482,7 +482,7 @@ def parse_configuration(argv: list[str] | None = None) -> RunnerConfiguration:
     if len(args.symbols) != len(set(args.symbols)):
         raise Refusal("SYMBOL_DUPLICATE", "--symbols must be unique")
     return RunnerConfiguration(args.describe, args.strategy_file, args.strategy_class, args.strategy_sha256,
-                               args.execution_binding, args.market_root, args.market_commit,
+                               args.execution_binding, args.market_root, args.market_day,
                                args.universe, tuple(args.symbols), window, args.output, args.execution,
                                margin_rates_of(args.execution, args.initial_margin, args.maintenance_margin),
                                args.metrics, starting_balance_of(args.starting_balance), leverage_of(args.leverage))
@@ -532,7 +532,7 @@ def effective_configuration(config: RunnerConfiguration) -> EffectiveConfigurati
         "runtime_contract": RUNTIME_CONTRACT,
         "execution_bar_minutes": EXECUTION_BAR_MINUTES,
         "market_root": str(config.market_root),
-        "market_commit": config.market_commit,
+        "market_day": config.market_day,
         "universe_path": str(universe) if universe is not None else None,
         "universe_sha256": hashlib.sha256(read_universe_bytes(universe)).hexdigest() if universe is not None else None,
         "symbols": list(config.symbols),

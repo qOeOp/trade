@@ -37,7 +37,7 @@ SLUG_LIMIT = 48
 FILE = "research-line.json"
 PLAN_FILE = "research-plan.json"
 FORMAT = "research-line-v2"
-FIELDS = ("market_database", "market_commit", "universe_rule", "window_start", "window_end", "start", "start_sha256",
+FIELDS = ("market_database", "market_day", "universe_rule", "window_start", "window_end", "start", "start_sha256",
           "note")
 TAG_PREFIX = "line/"
 SUMMARY_LIMIT = 32 * 1024  # bytes of a line summary; an index, not a report
@@ -110,7 +110,7 @@ def list_lines(profile: db.LedgerProfile, at: str | None = None) -> dict:
     """All line declarations and their open/closed state at one pinned ledger commit; no market read."""
     with db.read_as_of(profile, at) as conn:
         opened = set(open_lines(conn))
-        fields = ("bundle", "start", "window_start", "window_end", "market_commit", "created_at")
+        fields = ("bundle", "start", "window_start", "window_end", "market_day", "created_at")
         items = []
         for bundle in line_bundles(conn):
             record = read_line(conn, bundle)
@@ -126,21 +126,21 @@ def _keyed(conn: db.LedgerConnection) -> list[tuple]:
     found = []
     for bundle in line_bundles(conn):
         line = read_line(conn, bundle)
-        found.append((line["created_at"], bundle, line["market_commit"],
+        found.append((line["created_at"], bundle, line["market_day"],
                       datetime.combine(date.fromisoformat(line["window_start"]), time()),
                       datetime.combine(date.fromisoformat(line["window_end"]), time())))
     return found
 
 
-def _owner(keyed: list[tuple], market_commit, start: datetime, end: datetime, before) -> str | None:
+def _owner(keyed: list[tuple], market_day, start: datetime, end: datetime, before) -> str | None:
     owner = None
     for created, bundle, commit, first, last in keyed:
-        if created < before and (commit, first, last) == (market_commit, start, end):
+        if created < before and (commit, first, last) == (market_day, start, end):
             owner = bundle
     return owner
 
 
-def registration_line(conn: db.LedgerConnection, market_commit: str | None, window, registered_at) -> str | None:
+def registration_line(conn: db.LedgerConnection, market_day: str | None, window, registered_at) -> str | None:
     """The line of a registration whose plan names none, written before several lines could hold one
     market commit and window: the last line added before it (`registered_at`, its bundle's creation
     time) with its market commit and window ({trade_start, trade_end} ISO dates), or None."""
@@ -148,7 +148,7 @@ def registration_line(conn: db.LedgerConnection, market_commit: str | None, wind
         start, end = (datetime.combine(date.fromisoformat(window[key]), time()) for key in ("trade_start", "trade_end"))
     except (KeyError, TypeError, ValueError):
         return None
-    return _owner(_keyed(conn), market_commit, start, end, registered_at)
+    return _owner(_keyed(conn), market_day, start, end, registered_at)
 
 
 def select_line(conn: db.LedgerConnection, market_database: str, market_at: str, window_start: date,
@@ -204,7 +204,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
     if "failed" in verdicts or "passed" not in verdicts:
         raise refuse("START_REVIEW_REQUIRED", f"{start} has {'a failed' if 'failed' in verdicts else 'no passed'} "
                                               "source review", missing=(start,))
-    choice = {"market_database": market_database, "market_commit": facts["commit"],
+    choice = {"market_database": market_database, "market_day": facts["commit"],
               "universe_rule": facts["universe_rule"], "window_start": window_start.isoformat(),
               "window_end": window_end.isoformat(), "start": start, "start_sha256": candidate["source_sha256"],
               "note": note}
@@ -212,7 +212,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
                    if all(line[key] == value for key, value in choice.items())), None)
     if latest is not None:
         content_sha256 = hashlib.sha256(evidence.encode({"format": FORMAT, **choice})).hexdigest()
-        return {"bundle": latest["bundle"], "market_commit": latest["market_commit"],
+        return {"bundle": latest["bundle"], "market_day": latest["market_day"],
                 "universe_rule": latest["universe_rule"], "content_sha256": content_sha256,
                 "op_id": db.derive_op_id("select_line", {"bundle": latest["bundle"], "content_sha256": content_sha256}),
                 "created": False,
@@ -238,7 +238,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
             raise refuse("LINE_CONFLICT", f"{bundle} already exists with another choice; name this direction "
                                           "with another slug", missing=(bundle,)) from exc
         raise
-    return {"bundle": bundle, "market_commit": facts["commit"],
+    return {"bundle": bundle, "market_day": facts["commit"],
             "universe_rule": facts["universe_rule"], "content_sha256": content_sha256, "op_id": written["op_id"],
             "created": not written["replayed"], "targets": line_targets.targets_for(conn, bundle)}
 
@@ -255,8 +255,8 @@ def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str |
         raise refuse("LINE_UNKNOWN", f"no research line {line_bundle!r} at {db.head_commit(conn)}",
                      missing=(str(line_bundle),))
     keyed = _keyed(conn)
-    _, _, market_commit, first, last = next(item for item in keyed if item[1] == line_bundle)
-    shared = sum(item[2:] == (market_commit, first, last) for item in keyed) > 1
+    _, _, market_day, first, last = next(item for item in keyed if item[1] == line_bundle)
+    shared = sum(item[2:] == (market_day, first, last) for item in keyed) > 1
     registered = {trial_id: (bundle, created) for trial_id, bundle, created in conn.rows(
         "SELECT a.trial_id, a.registration_bundle, b.created_at FROM registration_attempt AS a "
         "JOIN evidence_bundle AS b ON b.bundle = a.registration_bundle")}
@@ -268,14 +268,14 @@ def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str |
                           PLAN_FILE) if shared else {}
     found = []
     for trial_id in windowed:
-        if _market_commit(trial_id, receipts) != market_commit:
+        if _market_day(trial_id, receipts) != market_day:
             continue
         if trial_id not in registered:
             raise refuse("LEDGER_CORRUPT", f"research trial {trial_id} has no registration attempt",
                          missing=(f"trial {trial_id}",))
         bundle, created = registered[trial_id]
         named = _plan_line(bundle, plans) if shared else None
-        if (named or _owner(keyed, market_commit, first, last, created)) == line_bundle:
+        if (named or _owner(keyed, market_day, first, last, created)) == line_bundle:
             found.append(trial_id)
     if since_commit is not None:
         since = db.resolve_commit(conn, since_commit)
@@ -324,16 +324,16 @@ def _start_bundle(trial_id: int) -> str:
     return f"trial-{trial_id}-execution-start"
 
 
-def _market_commit(trial_id: int, receipts: dict[str, tuple[bytes, str]]) -> str:
+def _market_day(trial_id: int, receipts: dict[str, tuple[bytes, str]]) -> str:
     """The market commit of a research trial's input identity, read from execution.json of its start
     receipt (of `receipts`, _stored_files of it; written in the trial's own commit, so a missing or
     unreadable one is ledger damage)."""
     bundle = _start_bundle(trial_id)
     try:
-        market_commit = _stored_json(receipts.get(bundle))["input_identity"]["market_commit"]
-        if not isinstance(market_commit, str):
+        market_day = _stored_json(receipts.get(bundle))["input_identity"]["market_day"]
+        if not isinstance(market_day, str):
             raise TypeError("market commit is not text")
-        return market_commit
+        return market_day
     except (ValueError, KeyError, TypeError) as exc:
         raise refuse("LEDGER_CORRUPT", f"research trial {trial_id} has no readable start receipt",
                      missing=(f"{bundle}/{execution.MANIFEST}",)) from exc

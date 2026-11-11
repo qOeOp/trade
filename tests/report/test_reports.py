@@ -482,10 +482,10 @@ class ReportTests(unittest.TestCase):
         with db.connect(self.profile, "reader") as conn:
             found = status.research_state(conn, full=True)
         line = found["line"]
-        self.assertEqual({key: line[key] for key in ("bundle", "start", "window_start", "window_end", "market_commit",
+        self.assertEqual({key: line[key] for key in ("bundle", "start", "window_start", "window_end", "market_day",
                                                      "universe_rule", "note")},
                          {"bundle": self.world.line["bundle"], "start": "rsi@1", "window_start": "2026-01-01",
-                          "window_end": "2026-02-01", "market_commit": self.world.line["market_commit"],
+                          "window_end": "2026-02-01", "market_day": self.world.line["market_day"],
                           "universe_rule": self.world.line["universe_rule"], "note": None})
         self.assertIsNone(found["recommendation"])
         self.assertEqual(found["trials_on_line"], 4)

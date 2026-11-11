@@ -26,7 +26,7 @@ PURPOSES = ("explore", "precheck", "research", "validation")
 UNBOUND = ("explore", "precheck")
 EPOCH = datetime(1970, 1, 1)
 MINUTE_NS = 60 * 10**9
-INPUT_FIELDS = ("market_commit", "universe_rule", "symbols", "export_content_sha256")
+INPUT_FIELDS = ("market_day", "universe_rule", "symbols", "export_content_sha256")
 WINDOW_FIELDS = ("start", "trade_start", "end")
 
 Binder = Callable[[db.LedgerConnection, int], None]
@@ -55,7 +55,7 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
     """Write the trial row, its start receipt and its binding as one write; returns the trial ID.
 
     `runtime_identity`: image_ref, image_digest, platform, runtime_contract and `inspection`
-    (the probe report). `inputs`: `identity` (market_commit, universe_rule, symbols,
+    (the probe report). `inputs`: `identity` (market_day, universe_rule, symbols,
     export_content_sha256, ...) and `input_coverage` (coverage receipt bytes). `window`: start,
     trade_start, end in UTC nanoseconds. `start_context`: argv, mounts, workdir, source_bytes.
     Inside the caller's write the trial joins it; otherwise this call commits it.

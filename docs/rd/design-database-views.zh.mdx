@@ -142,7 +142,7 @@ JOIN evidence e ON e.bundle = b.bundle
 
 样本外登记、它绑定的试验与运行状态
 
-<TypeTable type={{ "registration_id": { type: "BIGINT", description: "样本外登记", required: false }, "strategy_id": { type: "VARCHAR(100)", description: "被验候选 ID", required: false }, "revision": { type: "INT", description: "被验候选版本", required: false }, "market_commit": { type: "CHAR(32)", description: "钉住的市场提交", required: false }, "universe_rule": { type: "VARCHAR(80)", description: "范围规则", required: false }, "window_start": { type: "DATETIME(6)", description: "窗口起点", required: false }, "window_end": { type: "DATETIME(6)", description: "窗口终点", required: false }, "trial_id": { type: "INT", description: "绑定的试验；未绑定为空", required: false }, "run_status": { type: "VARCHAR(10)", description: "passed | invalid", required: false }, "created_at": { type: "DATETIME(6)", description: "登记时间", required: false } }} />
+<TypeTable type={{ "registration_id": { type: "BIGINT", description: "样本外登记", required: false }, "strategy_id": { type: "VARCHAR(100)", description: "被验候选 ID", required: false }, "revision": { type: "INT", description: "被验候选版本", required: false }, "market_day": { type: "CHAR(32)", description: "钉住的市场提交", required: false }, "universe_rule": { type: "VARCHAR(80)", description: "范围规则", required: false }, "window_start": { type: "DATETIME(6)", description: "窗口起点", required: false }, "window_end": { type: "DATETIME(6)", description: "窗口终点", required: false }, "trial_id": { type: "INT", description: "绑定的试验；未绑定为空", required: false }, "run_status": { type: "VARCHAR(10)", description: "passed | invalid", required: false }, "created_at": { type: "DATETIME(6)", description: "登记时间", required: false } }} />
 
 **Dolt 能力**
 
@@ -150,7 +150,7 @@ JOIN evidence e ON e.bundle = b.bundle
 
 ```sql
 CREATE VIEW v_validations AS
-SELECT g.registration_id, g.strategy_id, g.revision, g.market_commit, g.universe_rule,
+SELECT g.registration_id, g.strategy_id, g.revision, g.market_day, g.universe_rule,
        g.window_start, g.window_end, b.trial_id, r.status AS run_status, g.created_at
 FROM validation_registration g
 LEFT JOIN validation_binding b ON b.registration_id = g.registration_id

@@ -34,7 +34,7 @@ export type Seal = {
 };
 export type PaperRun = {
   paper_id: number; op_id?: string; candidate: string | null; source_sha256: string; symbols: string[]; state: RunState;
-  created_at: string; image_ref: string; market_commit: string; config: Record<string, unknown>;
+  created_at: string; image_ref: string; market_day: string; config: Record<string, unknown>;
   status: "complete" | "invalid" | null; reasons: string[] | null; total_return: number | null; max_drawdown: number | null;
   /** The listing leaves the equity path to the run's stream; it has the path's outline (at most 120 points,
    *  [minute ns, equity]) and the runner's last open positions and orders (null before its first state). */

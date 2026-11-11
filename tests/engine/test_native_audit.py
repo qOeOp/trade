@@ -78,7 +78,7 @@ def reports(open_position=False, short=False):
                 {"ts_event": EXIT, "total": "100000" if open_position else "100009", "locked": "0",
                  "free": "100000" if open_position else "100009", "currency": "USDT",
                  "base_currency": "USDT", "account_id": "BINANCE-001"}]
-    summary = {"signal_variant": "daily-pivot", "integrity_passed": True, "denied_orders": 0, "market_commit": COMMIT,
+    summary = {"signal_variant": "daily-pivot", "integrity_passed": True, "denied_orders": 0, "market_day": COMMIT,
                "rejected_orders": 0, "closed_trades": 0 if open_position else 1,
                "winning_trades": 0 if open_position else 1, "starting_balance_usdt": "100000",
                "final_equity_usdt": "100010" if open_position else "100009", "period_end_utc": EXIT,
@@ -123,10 +123,10 @@ class NativeAuditTests(unittest.TestCase):
     def check(self, values):
         summary = values["summary"]
         receipt = values.get("coverage", {
-            "format": "execution-input-coverage-v1", "input_identity": {"market_commit": summary["market_commit"]},
+            "format": "execution-input-coverage-v1", "input_identity": {"market_day": summary["market_day"]},
             "effective_config": {"start": summary["input_start_utc"], "trade_start": summary["period_start_utc"],
                                  "end": summary["period_end_utc"]},
-            "membership": {"commit": summary["market_commit"], "membership": {
+            "membership": {"commit": summary["market_day"], "membership": {
                 "BTCUSDT": [[pd.Timestamp(summary["input_start_utc"]).value, pd.Timestamp(summary["period_end_utc"]).value]]}},
             "export_receipts": {"BTCUSDT": {"assumed": RATES, "pieces": [{"index": None, "instrument_id": SCOPE["instrument_id"],
                 "last_bar_ns": pd.Timestamp(summary["period_end_utc"]).value - 1_000_000, "episode": None}]}}})
@@ -421,7 +421,7 @@ class LifecycleAuditTests(unittest.TestCase):
         counted = {"instrument_status": sum(item["type"] == "InstrumentStatus" for item in events),
                    "instrument_close": sum(item["type"] == "InstrumentClose" for item in events)}
         values["summary"].update(input_start_utc="2026-01-01T00:00:00Z", period_end_utc="2026-01-02T00:00:00Z",
-                                 market_commit=self.COMMIT,
+                                 market_day=self.COMMIT,
                                  per_coin=[{"instrument": SCOPE["instrument_id"], "counts": counts or counted}])
         ends = [item["ts_event"] for item in events if item.get("action") == "CLOSE" or item["type"] == "InstrumentClose"]
         last = pd.Timestamp(last_bar).value if last_bar else min(ends, default=pd.Timestamp("2026-01-02").value) - 1_000_000
@@ -433,7 +433,7 @@ class LifecycleAuditTests(unittest.TestCase):
                         "membership": {"commit": self.COMMIT, "membership": {"BTCUSDT": [[0, 10**20]]}},
                         "effective_config": {"start": "2026-01-01T00:00:00Z", "trade_start": "2026-01-01T00:00:00Z",
                                              "end": "2026-01-02T00:00:00Z"},
-                        "input_identity": {"market_commit": self.COMMIT, "lifecycle_bundle": bundle},
+                        "input_identity": {"market_day": self.COMMIT, "lifecycle_bundle": bundle},
                         "export_receipts": {"BTCUSDT": receipt}, **coverage}
         values["coverage"] = receipt_file
         return NativeAuditTests.check(self, values)

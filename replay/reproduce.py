@@ -80,7 +80,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
                      missing=("image",))
     exported = None
     try:
-        exported = registration_inputs.market_inputs(market, recorded.get("market_commit"), window,
+        exported = registration_inputs.market_inputs(market, recorded.get("market_day"), window,
                                                      dict(selection), recorded.get("lifecycle_bundle"),
                                                      True, ledger, include_quotes=include_quotes,
                                                      include_trades=include_trades,

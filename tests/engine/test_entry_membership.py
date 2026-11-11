@@ -143,13 +143,13 @@ def native_case(root, case, mode="preclose"):
         output = root / "reports"
         summary, _ = write_native_reports(
             output, replay, {"AAA": source}, [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "counts": {}, "catalog_path": root}],
-            {"strategy_uses_stop_loss": True, "market_commit": "c" * 32},
+            {"strategy_uses_stop_loss": True, "market_day": "c" * 32},
             window, ACCOUNT_CONTRACT, [], 7)
         intervals = [[START, END]] if mode == "preclose" else [[START, cutoff]]
         if case in {"rejoin", "resting_rejoin"}:
             intervals.append([CUTOFF + BAR_NS, END])
         episode = {"start_ns": START, "instrument_id": str(INSTRUMENT_ID), "events": source.lifecycle} if lifecycle else None
-        receipt = {"format": "execution-input-coverage-v1", "input_identity": {"market_commit": "c" * 32,
+        receipt = {"format": "execution-input-coverage-v1", "input_identity": {"market_day": "c" * 32,
                     **({"lifecycle_bundle": "lifecycle-probe"} if lifecycle else {})},
                    "effective_config": {"start": window.start, "trade_start": window.trade_start, "end": window.end},
                    "membership": {"commit": "c" * 32, "membership": {"AAAUSDT": intervals}},

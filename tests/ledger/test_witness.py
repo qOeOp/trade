@@ -81,7 +81,7 @@ class WitnessLedgerTests(unittest.TestCase):
         start = datetime(2030, 1, 1)
 
         def insert(conn, op):
-            conn.rows("INSERT INTO validation_registration (strategy_id, revision, market_commit, universe_rule, "
+            conn.rows("INSERT INTO validation_registration (strategy_id, revision, market_day, universe_rule, "
                       "window_start, window_end, design, retry_of, op_id, created_at) VALUES ('validated', 1, %s, "
                       "%s, %s, %s, %s, %s, %s, NOW())",
                       ("m" * 32, universe_rule, start, start + timedelta(days=90),

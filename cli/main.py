@@ -612,7 +612,7 @@ def line_select(conn: db.LedgerConnection, market: dict, start: str, window_star
                                  targets=line_targets)
     return {"bundle": selected["bundle"], "start": start,
             "window": {"start": first.isoformat(), "end": last.isoformat()},
-            "market_commit": selected["market_commit"], "universe_rule": selected["universe_rule"],
+            "market_day": selected["market_day"], "universe_rule": selected["universe_rule"],
             "content_sha256": selected["content_sha256"], "created": selected["created"],
             "targets": selected["targets"]}
 
@@ -1281,7 +1281,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "candidate, its source reviews, the open lines and targets (writer, head)",
         "the bundle research-line-<UTC YYYYMMDD>-<slug> (research-line.json) and, when given, the line's targets "
         "in the same commit; a choice equal to an open line writes no line (created false); publishes",
-        "bundle, start, window {start, end}, market_commit, universe_rule, content_sha256, created, targets",
+        "bundle, start, window {start, end}, market_day, universe_rule, content_sha256, created, targets",
         "START_REVIEW_REQUIRED (the start has no passed source review, or a failed one); START_NOT_FOUND; "
         "WINDOW_INVALID; WINDOW_OUT_OF_COVERAGE (end after the market's latest complete day); "
         "MARKET_COMMIT_UNRESOLVED; LINE_CONFLICT (today's name and slug hold another choice); LINE_SLUG_INVALID; "
@@ -1357,7 +1357,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "when it cannot be resolved), runs_behind_image (the line's passed runs not yet on it: `replay reproduce "
         "--image`; null without it), targets, open_lines "
         "[{bundle, start, window_start, "
-        "window_end, market_commit}], recommendation, priority, "
+        "window_end, market_day}], recommendation, priority, "
         "review_every, undistinguished_runs {trials, uncompared, distinguished} (the line's latest runs read back "
         "for a due change of approach, null without a line: trials leave candidate and control undistinguished, uncompared "
         "have no comparison and neither count nor clear, distinguished ended the reading; reported, never refused; "
@@ -1373,7 +1373,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("line", "list"): (
         "all research line declarations and closing tags at --at (reader); no market",
         "nothing; never publishes",
-        "ledger_commit, lines [{bundle, start, window_start, window_end, market_commit, created_at, closed, versions}] "
+        "ledger_commit, lines [{bundle, start, window_start, window_end, market_day, created_at, closed, versions}] "
         "oldest first; closed is derived from closing tags at the commit read; versions are the candidates its "
         "research graph draws, oldest first",
         "LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
@@ -1525,7 +1525,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "data_tests, bars last",
         "month, universe_rule, scope, through, instruments_appended, bar_rows, funding_rows, universe_members, "
         "gaps, source_rows, excluded, inferred_terms, rounded_volumes, derived_findings, per_symbol, "
-        "universe_filled (a backfill: the stored months it gave members), market_commit, seconds; progress lines "
+        "universe_filled (a backfill: the stored months it gave members), market_day, seconds; progress lines "
         "on stderr",
         "MONTH_INVALID (the first import takes any closed month; after that only the latest month, to extend "
         "it, the month after it once it is complete, or the month just before the earliest (a backfill); a skipped "
@@ -1542,7 +1542,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "not stored, its Binance daily aggTrades archive (checksum-verified, cached under --cache-root)",
         "best bid/ask quote rows inferred from the trades, one file per contract and month, placed in symbol order; a "
         "refused contract leaves the others' files",
-        "month, through, quote_rule, symbols, quote_rows, per_symbol, market_commit, seconds; progress lines on stderr",
+        "month, through, quote_rule, symbols, quote_rows, per_symbol, market_day, seconds; progress lines on stderr",
         "MONTH_INVALID (not YYYY-MM, or the month has not ended; any earlier month is accepted, in any order); "
         "MONTH_EXISTS (a named contract already has the month's quotes); MARKET_EMPTY (no bars yet); UNIVERSE_UNKNOWN "
         "(the month has no members; import its bars or name --symbols); TERMS_UNKNOWN; TRADES_NOT_HELD (no aggTrades "
@@ -1555,7 +1555,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "all eight source fields in agg_trade, one file per contract and month, placed in symbol order; a refused "
         "contract leaves the others' files in place; no change to bars, quotes or replay exports",
         "month, imports (one per contract in symbol order: month, symbols, codec (binance-aggtrades-int64-scale8-v1: "
-        "price and quantity exactly x1e8), trade_rows, seconds), trade_rows (all contracts), market_commit, seconds; a "
+        "price and quantity exactly x1e8), trade_rows, seconds), trade_rows (all contracts), market_day, seconds; a "
         "line per placed contract on stderr",
         "MONTH_INVALID (the month has not ended; any earlier month in any order); IMPORT_SCOPE (a repeated or malformed "
         "symbol); the first refused contract's refusal, naming the contracts written; MARKET_EMPTY; MONTH_EXISTS; "
@@ -1570,7 +1570,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "ones' files; no change to bars, quotes, trades or replay exports",
         "month, imports (one per contract in symbol order: month, from, through (exclusive end day), symbols, readings "
         "(daily rows, repeated_rows merged, empty ratios), unpublished (days without an archive), metrics_rows), "
-        "metrics_rows (all contracts), market_commit, seconds; daily progress on stderr",
+        "metrics_rows (all contracts), market_day, seconds; daily progress on stderr",
         "MONTH_INVALID (no closed UTC day); IMPORT_SCOPE; UNIVERSE_UNKNOWN; MONTH_EXISTS (every closed day already "
         "held); ARCHIVE_NOT_PUBLISHED (no day published); SOURCE_SHAPE (header, symbol, a create_time off the "
         "five-minute grid of its day, no open interest, a negative or non-decimal value, two different rows at one "
@@ -1610,7 +1610,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "anything is written",
         "the ledger bundle lifecycle-<market commit> (lifecycle.json and the notices); the same content again is "
         "a replay; publishes the ledger",
-        "bundle, market_commit, files {path: sha256}, episodes (count per contract), write_status, ledger_commit",
+        "bundle, market_day, files {path: sha256}, episodes (count per contract), write_status, ledger_commit",
         "LIFECYCLE_INPUT (a file missing, not regular or not JSON, or the manifest does not fit the commit); "
         "BUNDLE_EXISTS (a different manifest; a correction belongs to a new market commit); "
         "MARKET_COMMIT_UNRESOLVED"),
@@ -1640,7 +1640,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "internal Docker network with the runner and the egress proxy, left running (the command returns at "
         "once); the same --op-id again is a replay; separate research inputs are captured in this database; "
         "publishes only when this profile has its own allowed origin",
-        "paper_id, candidate, source_sha256, image_ref, symbols, market_commit, directory, containers, "
+        "paper_id, candidate, source_sha256, image_ref, symbols, market_day, directory, containers, "
         "ledger_commit, write_status (a replay gives paper_id, write_status, directory)",
         "PAPER_RUN_ACTIVE (this source already runs); PAPER_MEMORY_FULL (its reservation exceeds the free paper memory); EMPTY_SYMBOLS; "
         "UNKNOWN_CANDIDATE, BAD_REF; RUNTIME_UNAVAILABLE; LEDGER_UPGRADE_REQUIRED (no paper_run table); "

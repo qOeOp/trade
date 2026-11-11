@@ -42,7 +42,7 @@ export function StageSource({ className }: { className: string }) {
   const { line } = useView(), { stage, name } = useShown(), backtest = useBacktest();
   // The chart's view: the run's, else (a version with no paper run) a contract only while its backtest traded it.
   const tab = useAtom(paperTab), chart = useRunData()?.view ?? (backtest?.kind === "ready" && backtest.b.cycles.some((c) => c.symbol === tab) ? tab : null);
-  const tested = backtestSource(stage === "backtest" ? backtest : null, line.market_commit ?? null, !!chart && chart !== "equity");
+  const tested = backtestSource(stage === "backtest" ? backtest : null, line.market_day ?? null, !!chart && chart !== "equity");
   return stage && <span className={className}>{name}{SOURCE[stage]}<span className={tested.failed ? "text-fail" : ""}>{tested.text}</span></span>;
 }
 
