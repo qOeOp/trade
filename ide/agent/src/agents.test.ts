@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { AgentStore, fingerprint, publicAgent, status } from "./agents.ts";
+import { AgentStore, fingerprint, KeyRequired, publicAgent, status } from "./agents.ts";
 import { dataDir } from "./fixtures.test-support.ts";
 
 const input = { name: "Claude", provider: "anthropic" as const, baseURL: null, key: "sk-ant-secret-1234", models: ["m1"], defaultModel: "m1" };
@@ -35,4 +35,14 @@ test("a failed test leaves the agent failed until something changes", () => {
   const agent = store.create(input);
   assert.equal(status(store.setProbe(agent.id, { at: "t", fingerprint: fingerprint(agent), ok: false, steps: [], models: [] })!), "failed");
   assert.equal(status(store.update(agent.id, { models: ["m1", "m2"] })!), "untested");
+});
+
+test("changing the provider or base URL needs the key again", () => {
+  const store = new AgentStore(dataDir());
+  const agent = store.create(input);
+  assert.throws(() => store.update(agent.id, { baseURL: "https://evil.example" }), KeyRequired);
+  assert.throws(() => store.update(agent.id, { provider: "openai", key: "" }), KeyRequired);
+  assert.equal(store.get(agent.id)!.baseURL, null);
+  assert.equal(store.update(agent.id, { baseURL: null, name: "Same" })!.name, "Same", "an unchanged URL keeps the key");
+  assert.equal(store.update(agent.id, { provider: "openai", key: "sk-openai-5678" })!.key, "sk-openai-5678");
 });

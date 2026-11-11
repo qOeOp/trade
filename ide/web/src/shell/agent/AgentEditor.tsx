@@ -7,7 +7,8 @@ import { BRAND_TONE } from "../../icons/brands";
 import { BrandMark } from "../../icons/Icon";
 
 // Adding or editing an agent. The key is write-only: an existing agent shows only its last four
-// characters and an empty field keeps it. Models come from the provider's own list once the key is
+// characters and an empty field keeps it, except when the provider or base URL changes: the
+// service then refuses without the key, so a stored key never goes to a new destination. Models come from the provider's own list once the key is
 // saved; choosing them and a default, then testing, makes the agent active.
 const URL_HINT: Record<Provider, string> = {
   deepseek: "https://api.deepseek.com", openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com/v1",
@@ -25,6 +26,7 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const moved = saved !== null && (provider !== saved.provider || (baseURL.trim() || null) !== saved.baseURL);
   const run = async (work: () => Promise<void>) => {
     setBusy(true); setError(null);
     try { await work(); } catch (e) { setError(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e)); } finally { setBusy(false); }
@@ -60,10 +62,10 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
       </div>
       <TextField label="Name" value={name} suggest={PROVIDER_LABEL[provider]} onValue={setName} />
       <TextField label="API key" type="password" autoComplete="off" value={key} onValue={setKey}
-        placeholder={saved ? `ends ${saved.keyHint}, empty keeps it` : "never shown again"} />
+        placeholder={saved ? (moved ? "needed again for a new provider or URL" : `ends ${saved.keyHint}, empty keeps it`) : "never shown again"} />
       <TextField label="Base URL" value={baseURL} suggest={URL_HINT[provider]} onValue={setBaseURL}
         hint="Only for a proxy or a compatible gateway." />
-      <FormButton icon={saved ? "retry" : undefined} disabled={busy || (!saved && key.trim().length < 8)} onClick={() => void saveAndList()}>
+      <FormButton icon={saved ? "retry" : undefined} disabled={busy || ((!saved || moved) && key.trim().length < 8)} onClick={() => void saveAndList()}>
         {saved ? "Save and list models again" : "Save and list models"}
       </FormButton>
       {listed.length > 0 && (
@@ -76,7 +78,7 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
       {/* macOS order: Cancel, then the default action at the far right. */}
       <div className="flex justify-end gap-2 pt-1">
         <FormButton disabled={busy} onClick={() => onDone(saved)}>Cancel</FormButton>
-        <FormButton primary disabled={busy || !saved || models.size === 0} onClick={() => void finish()}>Done</FormButton>
+        <FormButton primary disabled={busy || !saved || moved || models.size === 0} onClick={() => void finish()}>Done</FormButton>
       </div>
     </div>
   );

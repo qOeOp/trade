@@ -46,6 +46,22 @@ test("an agent becomes active by passing its test, and no answer carries its key
   assert.ok(!JSON.stringify(await (await call("/agents")).json()).includes("secret"));
 });
 
+test("a stored key never follows a new base URL or provider", async () => {
+  const { agents, call } = setup();
+  const agent = agents.create({ ...input, provider: "anthropic", baseURL: null });
+  for (const change of [{ baseURL: "https://evil.example/v1" }, { provider: "openai" }]) {
+    const response = await call(`/agents/${agent.id}`, { method: "PUT", body: JSON.stringify({ ...change, key: "" }) });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json() as { code: string }).code, "KEY_REQUIRED");
+  }
+  assert.equal(agents.get(agent.id)!.baseURL, null, "the refused change is not stored");
+  const moved = await call(`/agents/${agent.id}`, { method: "PUT", body: JSON.stringify({ baseURL: "https://proxy.example/v1", key: "sk-new-key-5678" }) });
+  assert.equal(moved.status, 200);
+  assert.equal(agents.get(agent.id)!.key, "sk-new-key-5678");
+  const renamed = await call(`/agents/${agent.id}`, { method: "PUT", body: JSON.stringify({ name: "Renamed", baseURL: "https://proxy.example/v1" }) });
+  assert.equal(renamed.status, 200, "the same URL keeps the stored key");
+});
+
 test("a model that answers without calling the tool fails the test", async () => {
   const dir = dataDir();
   const agents = new AgentStore(dir);
