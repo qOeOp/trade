@@ -49,10 +49,9 @@ report. Defer a template lacking required data, instrument support or native evi
   scope, locked in the registration's input identity: all of the pool when chosen, or the explicit
   subset when chosen, not a universal all-pool requirement. If environment, data or capacity blocks
   it, report the concrete blocker and affected scope; never silently drop contracts, shorten the
-  window or substitute a short run. The user may choose bounded formal research through the
-  existing line-selection and registration process. Its report applies only to that scope;
-  expansion requires a new registration, and a different development window follows line selection.
-  Never reuse an old registration or extrapolate the bounded result to the full pool.
+  window or substitute a short run. The user may choose a contract subset through the existing
+  line-selection and registration process. Its report applies only to that scope; expansion
+  requires a new registration. Never reuse an old registration or extrapolate the bounded result to the full pool.
   New registration is necessary, not guaranteed: existing prior-exposure and retry checks still
   apply. A passed bounded run is not a retry exemption for expanding the same source.
 - Publish the root without a parent (`candidate publish`), precheck and review it. A repair
