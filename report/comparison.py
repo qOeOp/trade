@@ -670,12 +670,20 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
         output["window_read_before_binding"] = conn.dicts(
             "SELECT trial_id, purpose, source_sha256, trade_start, trade_end, created_at FROM trial WHERE created_at > %s "
             "AND trade_start < %s AND %s < trade_end AND trial_id <> %s AND (%s IS NULL OR created_at < %s) ORDER BY trial_id",
-            (row["created_at"], row["window_end"], row["window_start"], (binding or {}).get("trial_id", -1),
+            (origin["created_at"], row["window_end"], row["window_start"], (binding or {}).get("trial_id", -1),
              (binding or {}).get("bound_at"), (binding or {}).get("bound_at")))
-        family_rows = conn.dicts("SELECT g.registration_id, c.strategy_id, c.revision, g.comparison_design_id FROM "
-                                 "validation_registration g JOIN candidate c ON c.source_sha256 = g.source_sha256 "
-                                 "WHERE g.window_start = %s AND g.window_end = %s AND g.universe_rule = %s ORDER BY "
-                                 "g.registration_id", (row["window_start"], row["window_end"], row["universe_rule"]))
+        # One member per original registration; its p is the latest attempt's on its retry chain (a retry keeps
+        # the original's candidate, window, universe rule and design).
+        registered = conn.dicts("SELECT g.registration_id, g.retry_of, c.strategy_id, c.revision, "
+                                "g.comparison_design_id FROM validation_registration g JOIN candidate c ON "
+                                "c.source_sha256 = g.source_sha256 WHERE g.window_start = %s AND g.window_end = %s AND "
+                                "g.universe_rule = %s ORDER BY g.registration_id",
+                                (row["window_start"], row["window_end"], row["universe_rule"]))
+        latest: dict[int, dict] = {}
+        for item in registered:
+            latest[validation.original_registration(conn, item)["registration_id"]] = item
+        family_rows = [{**latest[item["registration_id"]], "original": item["registration_id"]}
+                       for item in registered if item["retry_of"] is None]
         family_size = len(family_rows)
         if binding is None:
             limitations.append("UNBOUND: no validation replay is bound to the registration")
@@ -704,7 +712,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
             assert own is not None  # comparison_design_id is NOT NULL
             tested, _ = (output["single"], None) if member["registration_id"] == registration_id else \
                 _single_of(conn, member_run, own, family_size)  # each member's p by its own registered design
-            members.append({"registration_id": member["registration_id"],
+            members.append({"registration_id": member["original"], "latest_attempt": member["registration_id"],
                             "candidate": f"{member['strategy_id']}@{member['revision']}", "design": own,
                             "trial_id": (member_run or {}).get("trial_id"),
                             "p_one_sided": None if tested is None else tested["p_one_sided"], "p_holm": None})

@@ -407,6 +407,14 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(retry["witness"]["status"], "stamped")
         self.registered["retry"], self.windows["retry"] = retry, (start, end)
         self.bind("retry")
+        # CF-12 ("授权", 2026-11-11): the retry is no family member of its own; the original is, with the
+        # retry's p, and the window is read from the original registration on
+        found = comparison.validation_report(self.world.profile, retry["registration_id"])
+        self.assertEqual([(member["registration_id"], member["latest_attempt"]) for member in found["family"]["members"]],
+                         [(original["registration_id"], retry["registration_id"])])
+        self.assertEqual(found["family"]["size"], 1)
+        self.assertIn(trial_id, [item["trial_id"] for item in found["window_read_before_binding"]],
+                      "the consumed attempt traded the window after the original registration")
 
     def test_a_bound_registration_without_a_run_is_retried_only_after_its_capture(self):
         original = self.registered["interrupted"]
