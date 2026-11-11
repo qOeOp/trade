@@ -171,7 +171,9 @@ class JournalTests(unittest.TestCase):
             found.read(path)
         self.assertEqual((found.bars, found.last_bar_ns), (1, START + MINUTE - 10**6))
         self.assertFalse(any(item["kind"] == "bar" for item in found.lines))
-        live = serve.live_readings(ROW, found)
+        with mock.patch.object(records, "equity_path", wraps=records.equity_path) as computed:
+            live = serve.live_readings(ROW, found)
+        self.assertEqual(computed.call_count, 1, "CF-24: the readings and the drawn path share one equity path")
         sealed = records.readings(ROW, journal(), 0, None, None, None)
         self.assertEqual((live["total_return"], live["max_drawdown"], live["fills"]),
                          (sealed["total_return"], sealed["max_drawdown"], sealed["fills"]))

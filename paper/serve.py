@@ -118,8 +118,8 @@ class Journal:
 
 def live_readings(row: dict, journal: Journal) -> dict:
     """The readings a seal would compute from the journal so far, with the equity path behind them."""
-    found = records.readings(row, journal.lines, journal.unreadable, None, None, None)
-    path, _ = records.equity_path(journal.lines)
+    path, funding = records.equity_path(journal.lines)
+    found = records.readings(row, journal.lines, journal.unreadable, None, None, None, path_and_funding=(path, funding))
     return {key: found[key] for key in ("total_return", "max_drawdown", "final_equity_usdt", "funding_usdt",
                                         "fills", "orders_submitted", "positions_closed", "missing_bars",
                                         "late_bars", "protection_gaps", "started_ns")} | {

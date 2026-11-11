@@ -243,10 +243,12 @@ def killed(lines: list[dict], summary: dict | None, exit_code: int | None, oom_k
 
 
 def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None, exit_code: int | None,
-             egress: bytes | None, start_failed: bool = False, oom_killed: bool = False, failures: int = 0) -> dict:
+             egress: bytes | None, start_failed: bool = False, oom_killed: bool = False, failures: int = 0,
+             path_and_funding: tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]] | None = None) -> dict:
     """seal.json: the run's status with its reasons, and the readings computed once at sealing. A runner killed
     from outside (killed()) ends the run as a stop does: what it journaled stands, its stop reason is KILLED.
-    `failures` counts the records of the run's runtime_failures.jsonl."""
+    `failures` counts the records of the run's runtime_failures.jsonl; `path_and_funding` is equity_path(lines)
+    when the caller already has it."""
     reasons: list[str] = ["START_FAILED"] if start_failed else []
     ended_by_kill = killed(lines, summary, exit_code, oom_killed)
     if not lines:
@@ -286,7 +288,7 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         reasons.append("EGRESS_DENIED")
 
     starting = _decimal(((summary or {}).get("account") or {}).get("starting_balance_usdt")) or Decimal(100000)
-    path, funding_by_ns = equity_path(lines)
+    path, funding_by_ns = equity_path(lines) if path_and_funding is None else path_and_funding
     funding_total = sum((flow for _, flow in funding_by_ns), Decimal(0))
     final = None
     if summary is not None and _decimal(summary.get("balance_total")) is not None:
