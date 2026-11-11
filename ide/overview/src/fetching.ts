@@ -58,3 +58,9 @@ export class Host {
 }
 
 export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Runs `task` every `ms` from its start, for ever. A task of `host` also waits out that host's pause (its 429 or
+ *  418); a task of any other source does not. */
+export async function every(ms: number, task: () => Promise<void>, host?: Host, wait = sleep): Promise<never> {
+  for (;;) { const started = Date.now(); await task(); await wait(Math.max(ms - (Date.now() - started), 0) + (host?.wait() ?? 0)); }
+}
