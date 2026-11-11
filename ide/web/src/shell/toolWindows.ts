@@ -15,7 +15,7 @@ import { selection } from "../state/selection";
 import { hideSide, type Side } from "../state/shell";
 import type { Atom } from "../state/atom";
 import { sourceTreeControl, versionTreeControl, type TreeControl } from "../state/versionTree";
-import { RENDERERS, unknownRenderer, type Renderer } from "../widgets/registry";
+import { RENDERERS, type Renderer } from "../widgets/registry";
 import { CoinsWindow } from "../widgets/market/CoinsWindow";
 import { NewsTools, NewsWindow } from "../widgets/market/NewsWindow";
 import { TradesTools, TradesWindow } from "../widgets/paper/TradesWindow";
@@ -42,16 +42,16 @@ const treeActions = (tree: Atom<TreeControl | null>): HeaderAction[] => [
 const alt = (n: number) => ({ keys: `⌥${n}`, binding: `Alt+Digit${n}` });
 
 const SPECS: readonly ToolWindow[] = [
-  { id: "versions", side: "left", icon: "tool.versions", shortcut: alt(1), source: "lineage@2", renderer: RENDERERS.tree,
+  { id: "versions", side: "left", icon: "tool.versions", shortcut: alt(1), source: "lineage", renderer: RENDERERS.tree,
     actions: () => treeActions(versionTreeControl) },
-  { id: "sources", side: "left", icon: "tool.sources", shortcut: alt(7), source: "sources@1", renderer: RENDERERS.sources,
+  { id: "sources", side: "left", icon: "tool.sources", shortcut: alt(7), source: "sources", renderer: RENDERERS.sources,
     actions: () => treeActions(sourceTreeControl) },
-  { id: "inspector", side: "right", icon: "tool.inspector", shortcut: alt(2), source: "candidate-detail@1", renderer: RENDERERS.detail,
+  { id: "inspector", side: "right", icon: "tool.inspector", shortcut: alt(2), source: "candidate-detail", renderer: RENDERERS.detail,
     actions: () => [{ id: "locate", icon: "locate", label: "Locate in graph", run: () => { const id = selection.get(); if (id) requestFocus(id); } }, hide("right")] },
-  { id: "progress", side: "bottom", icon: "tool.progress", shortcut: alt(3), source: "progress@1", renderer: RENDERERS.progress, actions: () => [hide("bottom")] },
-  { id: "readings", side: "bottom", icon: "tool.readings", shortcut: alt(4), source: "scatter@1", renderer: RENDERERS.scatter, actions: () => [hide("bottom")] },
-  { id: "table", side: "bottom", icon: "tool.table", shortcut: alt(5), source: "table@1", renderer: RENDERERS.table, actions: () => [hide("bottom")] },
-  { id: "gaps", side: "bottom", icon: "tool.gaps", shortcut: alt(6), source: "notes@1", renderer: RENDERERS.notes, actions: () => [hide("bottom")] },
+  { id: "progress", side: "bottom", icon: "tool.progress", shortcut: alt(3), source: "progress", renderer: RENDERERS.progress, actions: () => [hide("bottom")] },
+  { id: "readings", side: "bottom", icon: "tool.readings", shortcut: alt(4), source: "scatter", renderer: RENDERERS.scatter, actions: () => [hide("bottom")] },
+  { id: "table", side: "bottom", icon: "tool.table", shortcut: alt(5), source: "table", renderer: RENDERERS.table, actions: () => [hide("bottom")] },
+  { id: "gaps", side: "bottom", icon: "tool.gaps", shortcut: alt(6), source: "notes", renderer: RENDERERS.notes, actions: () => [hide("bottom")] },
 ];
 
 const TRADES: ToolWindow = {
@@ -79,24 +79,15 @@ const AGENT: ToolWindow = {
   ],
 };
 
-/** The widget types the toolbar and the editor take; everything else is a tool window. */
-const PLACED_ELSEWHERE = new Set(["summary@1", "lineage@2"]);
-
 /** The tool windows in stripe order, each with the widget it shows: the view's, then Trades; with an
- *  overview service, Coins and News; with a chat service, the Agent window last on the right; then the widget
- *  types the page does not know. */
+ *  overview service, Coins and News; with a chat service, the Agent window last on the right. */
 export function toolWindows(widgets: readonly Widget[], agent = false, market = false, page: ToolPage = "research"): (ToolWindow & { widget: Widget })[] {
   const known = SPECS.flatMap((s) => {
     const widget = widgets.find((w) => w.type === s.source);
     if (widget) return [{ ...s, widget }];
-    return page === "runs" && s.id === "inspector" ? [{ ...s, widget: { id: "runs-details", type: "candidate-detail@1", items: [], default: null } }] : [];
+    return page === "runs" && s.id === "inspector" ? [{ ...s, widget: { id: "runs-details", type: "candidate-detail", items: [], default: null } }] : [];
   });
-  const claimed = new Set([...SPECS.map((s) => s.source), ...PLACED_ELSEWHERE]);
-  const unknown = widgets.filter((w) => !claimed.has(w.type)).map((widget) => ({
-    id: `unknown:${widget.type}`, side: "bottom" as const, icon: "tool.gaps" as const, source: widget.type,
-    renderer: unknownRenderer(widget), actions: () => [hide("bottom")], widget,
-  }));
   const own = (w: ToolWindow) => ({ ...w, widget: { id: w.id, type: w.id } });
-  return [...known, own(TRADES), ...(market ? [own(COINS), own(NEWS)] : []), ...(agent ? [own(AGENT)] : []), ...unknown]
+  return [...known, own(TRADES), ...(market ? [own(COINS), own(NEWS)] : []), ...(agent ? [own(AGENT)] : [])]
     .filter((w) => w.side !== "bottom" || bottomToolOnPage(w.id, page));
 }

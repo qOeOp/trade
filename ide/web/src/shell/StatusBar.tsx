@@ -57,8 +57,8 @@ export const lineCounts = (s: SummaryWidget) => `${plural(s.versions, "version")
  *  Market pages (the editor says it otherwise). */
 export function StatusBar() {
   const { line } = useView();
-  const lineage = useWidget<LineageWidget>("lineage@2");
-  const summary = useWidget<SummaryWidget>("summary@1");
+  const lineage = useWidget<LineageWidget>("lineage");
+  const summary = useWidget<SummaryWidget>("summary");
   const tree = useMemo(() => (lineage ? lineageTree(lineage) : null), [lineage]);
   const hovered = useHovered();
   const selected = useSelection();

@@ -146,27 +146,27 @@ readings and eligibility, comparison, source reviews, interpretation and status;
 (judgments, line changes, eligibility changes); and `gaps`. It holds no conversation or host state.
 Unknown values are null. The schema is authoritative.
 
-## View model (`research-graph-view@1`)
+## View model (`research-graph-view`)
 
 Served by `/api/view`: a manifest (`line`, `targets`, `counts`) and
-`widgets`. Each widget is self-contained, with an `id`, a versioned `type`, a `slot` (`top`, `main` or
+`widgets`. Each widget is self-contained, with an `id`, a `type`, a `slot` (`top`, `main` or
 `side`) and an optional `title`, so each can be drawn, cached or sent on its own. Positions are in
 research units, never pixels.
 
 | Type | Content |
 |---|---|
-| `summary@1` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
-| `lineage@2` | `targets`, `axis` (positions: the line's n-th trial at n, other lines' trials taking no room; `min`, `max`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first research run or else the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `revisions` (a version drawn without its parent, from the latest earlier revision of its strategy ID), `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `trials` (each trial with its number, `x`, version and purpose) |
-| `progress@1` | `targets`, `axis` (the lineage's `min`, `max`, `scope_start`), `points` (research runs' returns with their trial number and `x`) and `recommended` (the versions the trail passed through) |
-| `scatter@1` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
-| `table@1` | `targets` and `rows`: one per version with its role, status, prediction, first trial, research-run count and the last run's readings |
-| `notes@1` | `items`: plain notes (the graph's `gaps`) |
-| `candidate-detail@1` | `default` and `items`: the graph's candidate records (without their source) with `status_class` and `prediction_class` |
-| `sources@1` | `items`: each version's `id`, `parent` (null when it is not in the graph) and `source` (null when the graph holds none), by id |
+| `summary` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
+| `lineage` | `targets`, `axis` (positions: the line's n-th trial at n, other lines' trials taking no room; `min`, `max`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first research run or else the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `revisions` (a version drawn without its parent, from the latest earlier revision of its strategy ID), `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `trials` (each trial with its number, `x`, version and purpose) |
+| `progress` | `targets`, `axis` (the lineage's `min`, `max`, `scope_start`), `points` (research runs' returns with their trial number and `x`) and `recommended` (the versions the trail passed through) |
+| `scatter` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
+| `table` | `targets` and `rows`: one per version with its role, status, prediction, first trial, research-run count and the last run's readings |
+| `notes` | `items`: plain notes (the graph's `gaps`) |
+| `candidate-detail` | `default` and `items`: the graph's candidate records (without their source) with `status_class` and `prediction_class` |
+| `sources` | `items`: each version's `id`, `parent` (null when it is not in the graph) and `source` (null when the graph holds none), by id |
 
 `status` is one of `recommended`, `meets_targets`, `below_targets`, `masked`, `precheck_failed`,
 `unrun`; `prediction` one of `held`, `failed`, `mixed`, `none`. A new kind of chart is a new widget
-type; a changed widget is a new version of its type.
+type, which the page draws by its own renderer.
 
 ## Renderer
 

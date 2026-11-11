@@ -17,8 +17,8 @@ import { Island } from "./Island";
  *  lineage stays mounted while another view shows, so its view is kept. Before there is a view, Versions and
  *  Sources have nothing to show, so the editor says why. */
 export function Editor() {
-  const lineage = useWidget<LineageWidget>("lineage@2");
-  const sources = useWidget<SourcesWidget>("sources@1");
+  const lineage = useWidget<LineageWidget>("lineage");
+  const sources = useWidget<SourcesWidget>("sources");
   const { id, diff } = useOpenFile();
   const left = useShell().last.left;
   const files = left === "sources", runs = left === "runs", market = left === "market";

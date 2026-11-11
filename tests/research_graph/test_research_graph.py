@@ -58,8 +58,8 @@ class LayoutTests(unittest.TestCase):
         view = layout.build_view(GRAPH)
         widgets = {w["id"]: w for w in view["widgets"]}
         self.assertEqual([(w["type"], w["slot"]) for w in view["widgets"]],
-                         [("summary@1", "top"), ("lineage@2", "main"), ("progress@1", "main"), ("scatter@1", "main"), ("table@1", "main"), ("notes@1", "main"),
-                          ("candidate-detail@1", "side"), ("sources@1", "side")])
+                         [("summary", "top"), ("lineage", "main"), ("progress", "main"), ("scatter", "main"), ("table", "main"), ("notes", "main"),
+                          ("candidate-detail", "side"), ("sources", "side")])
         tree = widgets["lineage"]
         nodes = {n["id"]: n for n in tree["nodes"]}
         self.assertEqual([n["trials"] for n in tree["nodes"]][-1], [5], "the palette finds a version by its trial")
@@ -81,7 +81,7 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(progress["axis"]["max"], tree["axis"]["max"], "the same x as the lineage")
         self.assertEqual(len(widgets["readings"]["points"]), 3)
         self.assertEqual(widgets["details"]["default"], "a@1")
-        self.assertFalse(any("source" in c for c in widgets["details"]["items"]), "the source travels once, in sources@1")
+        self.assertFalse(any("source" in c for c in widgets["details"]["items"]), "the source travels once, in sources")
         self.assertEqual([(s["id"], s["parent"], s["source"]) for s in widgets["sources"]["items"]],
                          [("a@1", "root@1", "class A:\n    pass\n"), ("b@1", "a@1", None), ("root@1", None, "class Root:\n    pass\n")])
         self.assertEqual({r["id"]: (r["role"], r["runs"], r["annual_return"]) for r in widgets["versions"]["rows"]},

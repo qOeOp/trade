@@ -18,7 +18,7 @@ const WAITING: Record<string, string> = {
 };
 const waiting = (state: string) => WAITING[state] ?? "Reading the ledger…";
 const NO_LINE_CHOSEN = ["LINE_AMBIGUOUS", "RESEARCH_LINE_REQUIRED"];
-const VIEW_FORMAT = "research-graph-view@1";
+const VIEW_FORMAT = "research-graph-view";
 const KEPT_VIEWS = 32;
 
 /** The open lines a LINE_AMBIGUOUS refusal names, each as this page with `line` set. */
@@ -120,7 +120,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
       if (held !== null && commit !== null && commit !== shown) {
         const scope = held.scope!;
         // The counts are the one thing on it that moves with the ledger.
-        const widgets = held.widgets.map((w) => (w.type === "summary@1" && "trial_counts" in message ? { ...w, trial_counts: message.trial_counts } : w));
+        const widgets = held.widgets.map((w) => (w.type === "summary" && "trial_counts" in message ? { ...w, trial_counts: message.trial_counts } : w));
         const stamped = { ...held, widgets, scope: { ...scope, ledger_commit: commit, drawn_commit: scope.drawn_commit ?? scope.ledger_commit } };
         shown = commit;
         hold(stamped);

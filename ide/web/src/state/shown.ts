@@ -16,13 +16,13 @@ import { choiceOf, choices } from "./stage";
 /** The targets the shown stage answers to: its line's, or with no line drawn (a phone's Runs tab) those of the
  *  line its run's version is on. */
 export function useTargets(): { limit: number | null; annual: number | null } {
-  const view = useView(), lineage = useWidget<LineageWidget>("lineage@2"), { lines } = useResearchLines(), { run } = useShown();
+  const view = useView(), lineage = useWidget<LineageWidget>("lineage"), { lines } = useResearchLines(), { run } = useShown();
   const t = view.targets ?? lineage?.targets ?? (run?.candidate ? lineOf(lines, run.candidate)?.targets : null) ?? null;
   return { limit: t?.max_drawdown ?? null, annual: t?.annual_return ?? null };
 }
 
 export function useShown(): Shown {
-  const detail = useWidget<DetailWidget>("candidate-detail@1");
+  const detail = useWidget<DetailWidget>("candidate-detail");
   const version = useSelection();
   const listing = useAtom(paperRuns);
   const live = useLiveTrading().view.runs;

@@ -25,7 +25,7 @@ const EDGE_TYPES = { elbow: Elbow };
 // its first research run on its lineage row; the ruler above and the progress chart below share the x.
 // `onOpen`: a tap on a version opens it (a phone), where a click selects and a double-click opens its source.
 export function Lineage({ widget, onOpen }: { widget: LineageWidget; onOpen?: (id: string) => void }) {
-  const progress = useWidget<ProgressWidget>("progress@1");
+  const progress = useWidget<ProgressWidget>("progress");
   const inset = (progress ? progressGutter(progress) : 0) + UNIT / 2;
   // The size the canvas measured of each version, handed back with it: a node without one is hidden, its
   // edges with it, until it is measured again, so every new view would blink the whole canvas. A version
