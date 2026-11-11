@@ -152,12 +152,13 @@ def _stopped(conn: db.LedgerConnection) -> set[int]:
 def counted_trials(conn: db.LedgerConnection) -> dict:
     """The trials that count as tests of a strategy, and the ones that do not (user decision
     2026-10-20): a reproduction (an explore trial replaying an earlier trial that has a run, with the
-    same source, image digest, windows, instruments and export content, or one reproduction.matches)
+    same source, image digest, windows, instruments, export content and comparable configuration, or one
+    reproduction.matches)
     and a trial the product stopped before the strategy ran (stopped_before_strategy). Derived from the
     stored trial, instrument and capture rows; nothing is marked. Each counted trial carries its
     `instruments` (a list of instrument IDs)."""
     trials = conn.dicts(f"SELECT t.trial_id, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST}, t.export_sha256, "
-                        "t.input_start, t.trade_start, t.trade_end, r.status FROM trial t LEFT JOIN run r "
+                        "t.comparable_config_sha256, t.input_start, t.trade_start, t.trade_end, r.status FROM trial t LEFT JOIN run r "
                         "ON r.trial_id = t.trial_id ORDER BY t.trial_id")
     instruments: dict[int, list[str]] = {}
     for trial_id, symbol in conn.rows("SELECT trial_id, instrument_id FROM trial_instrument "
@@ -175,12 +176,14 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
         identity = (trial["source_sha256"], trial["image_digest"], tuple(trial["instruments"]), trial["input_start"],
                     trial["trade_start"], trial["trade_end"])
         source = (identity[0], *identity[2:])
+        # CF-09: an explore that changes only the configuration (--leverage, --starting-balance) is a new test.
+        exact = (*identity, trial["export_sha256"], trial["comparable_config_sha256"])
         reproduced = trial["purpose"] == "explore" and (
-            (*identity, trial["export_sha256"]) in with_run
+            exact in with_run
             or any(matches(trial_id, earlier) for earlier in by_source.get(source, ())))
         by_source.setdefault(source, []).append(trial_id)
         if trial["status"] is not None:
-            with_run.add((*identity, trial["export_sha256"]))
+            with_run.add(exact)
         if reproduced:
             reproductions.append(trial_id)
         elif trial_id in stopped_ids:

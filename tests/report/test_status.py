@@ -24,7 +24,7 @@ from replay import entry, reproduce
 from report import measures, runs, seams, status
 from runtime import image
 from tests.ledger.dolt import MARKET_DAYS, BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, market, pinned, reviewed, source
-from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture
+from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture, config
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
 
@@ -224,6 +224,24 @@ class TrialCountTests(unittest.TestCase):
         self.assertEqual(after["multiple_testing"]["research_trials"], 1, "only the trial whose strategy ran")
         self.assertEqual(after["invalid_research_runs"], 1, "the attempt itself still counts as invalid")
 
+
+    def test_an_explore_that_changes_only_its_configuration_is_counted(self):
+        """CF-09: the same source, image, window, instruments and export under another configuration (an explore's
+        --leverage) is another test, not a reproduction of the earlier run; the same configuration again is one."""
+        world = self.world
+        data = source("leverage only")
+        base = config(symbols=["AAAUSDT"], start="2026-01-05T00:00:00Z", trade_start="2026-01-06T00:00:00Z",
+                      end="2026-01-08T00:00:00Z")
+        levered = {**base, "account": {**base["account"], "leverage": 3}}
+        first = world.open_precheck(data, effective_config=base, purpose="explore")
+        world.seal_run(first)
+        other = world.open_precheck(data, effective_config=levered, purpose="explore")
+        world.seal_run(other)
+        again = world.open_precheck(data, effective_config=base, purpose="explore")
+        with db.connect(world.profile, "reader") as conn:
+            found = status.counted_trials(conn)
+        counted = {row["trial_id"] for row in found["counted"]}
+        self.assertEqual((first in counted, other in counted, found["reproductions"]), (True, True, [again]))
 
 def trial(start: str, end: str, instruments=("BTCUSDT",), purpose="research") -> dict:
     return {"trade_start": datetime.fromisoformat(start), "trade_end": datetime.fromisoformat(end),
