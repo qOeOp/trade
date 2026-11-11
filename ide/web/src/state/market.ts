@@ -39,7 +39,9 @@ export function openPath(path: Path): void {
   marketCoin.set(null);
 }
 
-const onPage = () => shell.get().last.left === "market";
+/** Set while the phone shows: its runs' positions are marked at the snapshot's prices, on every tab. */
+export const pricesWanted = atom(false);
+const onPage = () => shell.get().last.left === "market" || pricesWanted.get();
 
 async function read(path: string): Promise<Response | null> {
   try { return await fetch(path, { cache: "no-store" }); } catch { return null; }
@@ -81,6 +83,7 @@ export async function detectOverview(): Promise<void> {
   const stale = () => Date.now() - (snapshot.get()?.read ?? 0) >= POLL_MS;
   if (onPage()) await readSnapshot();
   shell.subscribe(() => { if (onPage() && stale()) void readSnapshot(); });
+  pricesWanted.subscribe(() => { if (onPage() && stale()) void readSnapshot(); });
   whileVisible(() => {
     if (onPage()) void readSnapshot();
     else void read("/api/overview/health").then((r) => overviewService.set(r?.ok ? "present" : "offline"));

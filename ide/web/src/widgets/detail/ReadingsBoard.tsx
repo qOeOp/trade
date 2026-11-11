@@ -14,7 +14,9 @@ type N = number | null | undefined;
  *  drawdown at the end (`ended`) or when last seen, or the run's stop. */
 export type Facts = {
   basis: string; limit: number | null; minimum: number | null;
-  mdd: N; annual: N; short?: number; sharpe: N; winRate: N;
+  mdd: N; annual: N; short?: number;
+  /** Absent where the page cannot compute them (a phone's paper run): the Ratios group then stays out. */
+  sharpe?: N; winRate?: N;
   account?: { ret: N; needed: N; ahead: N; usdt: N; dd: N | "stop"; ended: boolean; stale: boolean };
   stats?: { pf: N; avgWin: N; avgLoss: N; perTrade: N; hold: N; inMarket: N; streak: N; stale: boolean };
 };
@@ -30,7 +32,7 @@ const Said = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => <spa
 
 /** The deepest drawdown so far (quiet) and the drawdown now (in the text colour) along a track to the
  *  limit, graduated in fifths, its end marked in the missed-target colour. */
-function Track({ used, now }: { used: number; now: number }) {
+export function Track({ used, now }: { used: number; now: number }) {
   return (
     <div className="relative h-1.5">
       <div className="absolute inset-0 flex gap-px overflow-hidden rounded-full">
@@ -75,11 +77,11 @@ function Ledger({ f }: { f: Facts }) {
       ...f.minimum === null ? [] : [{ name: yearly === null ? "The minimum" : <><Said ok={yearly} yes="Meets" no="Misses" /> the minimum</>, ...num(f.minimum, digits, "%"), sub: true }],
       ...f.short == null ? [] : [{ name: `Too short: ${Math.floor(f.short)} of ${ANNUAL_DAYS} days`, sub: true }],
     ] },
-    { title: "Ratios", rows: [
-      { name: "Sharpe", ...num(f.sharpe, (n) => `${sign(n, false)}${Math.abs(n).toFixed(2)}`) },
+    ...f.sharpe === undefined && f.winRate === undefined && !t ? [] : [{ title: "Ratios", rows: [
+      { name: "Sharpe", ...num(f.sharpe ?? null, (n) => `${sign(n, false)}${Math.abs(n).toFixed(2)}`) },
       ...t ? [{ name: "Profit factor", ...num(t.pf, (n) => n.toFixed(2)), stale: t.stale }] : [],
-      { name: "Win rate", ...num(f.winRate, digits, "%") },
-    ] },
+      { name: "Win rate", ...num(f.winRate ?? null, digits, "%") },
+    ] }],
     ...t ? [
       { title: "Trades", aside: "USDT", rows: [{ name: "Average win", n: amount(t.avgWin) }, { name: "Average loss", n: amount(t.avgLoss) }, { name: "Per trade", n: amount(t.perTrade) }].map((r) => ({ ...r, stale: t.stale })) },
       // the hold's last unit stands in the unit column ("1h 5" "m"), so its number ends on the same edge
@@ -130,8 +132,8 @@ function Strip({ f }: { f: Facts }) {
     : shown(f.annual, (n) => { const ok = meets(n, f.minimum, true); return <span className={ok === null ? pnlClass(n) : ok ? "text-meets" : "text-misses"}>{sign(n)}{pct(n)}</span>; });
   const groups: { title: string; aside?: string; cells: Cell[] }[] = [
     { title: "Returns", aside: f.minimum === null ? undefined : `minimum ${pct(f.minimum, 0)} a year`, cells: [
-      { name: "Annual return", value: annual }, { name: "Sharpe", value: shown(f.sharpe, (n) => `${sign(n, false)}${Math.abs(n).toFixed(2)}`) },
-      ...t ? [{ name: "Profit factor", value: shown(t.pf, (n) => n.toFixed(2)), stale: t.stale }] : [], { name: "Win rate", value: shown(f.winRate, pct) }] },
+      { name: "Annual return", value: annual }, { name: "Sharpe", value: shown(f.sharpe ?? null, (n) => `${sign(n, false)}${Math.abs(n).toFixed(2)}`) },
+      ...t ? [{ name: "Profit factor", value: shown(t.pf, (n) => n.toFixed(2)), stale: t.stale }] : [], { name: "Win rate", value: shown(f.winRate ?? null, pct) }] },
     ...t ? [
       { title: "Trades", aside: "USDT", cells: [{ name: "Average win", value: amount(t.avgWin) }, { name: "Average loss", value: amount(t.avgLoss) },
         { name: "Per trade", value: amount(t.perTrade) }, { name: "Losing streak", value: shown(t.streak, (n) => `${n}`) }].map((c) => ({ ...c, stale: t.stale })) },

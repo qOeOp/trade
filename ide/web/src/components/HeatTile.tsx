@@ -78,8 +78,10 @@ const groupStats = (n: Node, color: Color) => (
  *  metric's badge on top; a coin's price and money (on a large tile also its open interest by exchange),
  *  or a group's leaders and totals, as room allows; a group's market cap, median and up and down counts
  *  at the foot. A group opens a level, a coin selects. */
-export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
+export function HeatTile({ tile, frame, color, hovered, selected, onPick, opens = true }: {
   tile: Tile<Node>; frame: TileFrame; color: Color; hovered: boolean; selected: boolean; onPick: () => void;
+  /** Whether a group opens its level (a phone's one-level map: no). */
+  opens?: boolean;
 }) {
   const n = tile.data, { width: w, height: h } = tile, k = step(n.value, color), phone = usePhone();
   const style0 = tileStyle(w, h, n.name, frame.maxArea, frame.minArea), [ink, badge, edge] = inkRoles(k);
@@ -116,7 +118,7 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
             className={`absolute flex flex-col overflow-hidden border text-left transition-[left,top,width,height] duration-300 ease-out ${ring}`}>
       <div className={`flex min-w-0 justify-between ${stack ? "flex-col items-start gap-1" : st.vertical ? "flex-col items-start gap-2" : "items-baseline gap-2"}`}>
         <span className="min-w-0 max-w-full truncate leading-tight" style={{ fontSize: st.nameSize, fontWeight: st.nameWeight }}>
-          {n.name}{n.kind !== "coin" && w > 90 && <span className="ml-1 font-normal opacity-60">›</span>}
+          {n.name}{n.kind !== "coin" && opens && w > 90 && <span className="ml-1 font-normal opacity-60">›</span>}
         </span>
         {/* Slim and long (padding in em, so it keeps its shape at every size), raised by a hairline, a lit top
             edge and a short shadow, as vibe-trading's badge is. */}

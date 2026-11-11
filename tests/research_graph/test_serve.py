@@ -146,6 +146,17 @@ class HubTests(unittest.TestCase):
         self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
         self.assertEqual(self.product.drawn, ["a" * 32], "a cached view is not drawn again")
 
+    def test_readings_come_from_drawn_graphs_and_ask_for_a_named_line(self):
+        self.hub.refresh(wait=True)
+        self.assertEqual(self.hub.readings(), {"lines": {}}, "nothing is drawn for a read")
+        self.assertEqual(self.product.drawn, [])
+        self.hub.readings("line-a")
+        until(lambda: "line-a" in self.hub.readings()["lines"])
+        found = self.hub.readings()["lines"]["line-a"]
+        summary = next(w for w in serve.layout.build_view(GRAPH)["widgets"] if w["type"] == "summary@1")
+        self.assertEqual((found["ledger_commit"], found["recommended"], found["reading"]),
+                         ("a" * 32, summary["recommended"], summary["reading"]))
+
     def test_a_slow_head_read_does_not_hold_a_page(self):
         until(lambda: self.hub.view(None, None, None)[0] == 200)
         self.product.hold, self.product.head = threading.Event(), "b" * 32

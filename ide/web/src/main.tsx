@@ -14,7 +14,8 @@ import { detectPublicCopy } from "./state/about";
 import { detectMarketImport } from "./state/marketImport";
 import { detectLiveTrading, liveTrading } from "./state/liveTrading";
 import { detectPaperService, paperRuns } from "./state/paper";
-import { phoneTab, viewStatus } from "./state/phone";
+import { showLiveRun } from "./state/liveWorkspace";
+import { phoneNow, viewStatus } from "./state/phone";
 import { initSelection, selection } from "./state/selection";
 import { choiceOf, choices as runChoices, restoreLiveRun, restoreStage, pickWanted } from "./state/stage";
 import "virtual:harmonyos-sans-sc.css";
@@ -41,11 +42,9 @@ function show(next: View): void {
   pickWanted(paperRuns.get()?.runs ?? null);
 }
 
-// Before a view: what the shell's editor, or a phone's Research tab, says instead of the graph.
+// Before a view: what the shell's editor says instead of the graph.
 const status = (text: string, busy = false, choices?: Choice[], next?: string[]) => {
   viewStatus.set({ text, busy, choices, next });
-  const live = choiceOf(runChoices.get(), selection.get()).stage === "live";
-  if (!busy && !choices && shown === null && phoneTab.get() !== "live" && !live) phoneTab.set("research");
   if (shown === null) root.render(<StrictMode><Crashed reset={null}><App view={null} /></Crashed></StrictMode>);
 };
 
@@ -78,3 +77,14 @@ void detectMarketImport();
 detectPublicCopy();
 void detectOverview();
 void detectLiveTrading();
+
+// A link to a Live run (a Telegram message's, or a phone's Copy link for the desktop): the desktop opens it once
+// Live lists it; a phone opens its own page (state/phone.ts). Only selection: nothing is sent to Live.
+const linkedLive = new URLSearchParams(window.location.search).get("live");
+if (linkedLive && !phoneNow()) {
+  const stop = liveTrading.subscribe(() => {
+    if (!liveTrading.get().view.runs.some((run) => run.id === linkedLive)) return;
+    stop();
+    showLiveRun(linkedLive);
+  });
+}

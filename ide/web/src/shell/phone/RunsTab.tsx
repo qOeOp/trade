@@ -1,86 +1,73 @@
-import { useState } from "react";
-import { PhoneBar, PhoneBarButton, PhonePage } from "../../components/PhoneBar";
-import { Sheet } from "../../components/Sheet";
-import { TextButton } from "../../components/TextButton";
+import { PhonePage } from "../../components/PhoneBar";
+import { PhoneHeading, PhoneNotice } from "../../components/PhoneParts";
 import { useNow } from "../../components/hooks/useNow";
-import { waitingUntil } from "../../model/observation";
-import { pnlClass } from "../../theme/roles";
-import { signedPct } from "../../components/RunTile";
+import { ACTIVE } from "../../model/chain";
+import { liveStatus } from "../../model/phoneRuns";
+import type { LiveRun } from "../../model/liveTrading";
+import { useLiveTrading } from "../../state/liveTrading";
 import { usePaperRuns, usePaperService } from "../../state/paper";
-import { desktopLayout, useLandscape } from "../../state/phone";
-import { useRunData } from "../../state/runData";
-import { useShown, useTargets } from "../../state/shown";
-import { StageReadings } from "../../widgets/detail/Readings";
-import { StagePerformance } from "../../widgets/detail/StagePerformance";
-import { RunHealth } from "../../widgets/paper/RunPicker";
-import { RunMenuList } from "../../widgets/runs/RunMenuList";
-import { LiveRuns } from "./LiveRuns";
-import { RunsPage } from "../../widgets/paper/RunsPage";
-import { useEquity } from "../../widgets/paper/EquityReading";
-import { TradesTools, TradesWindow } from "../../widgets/paper/TradesWindow";
-import { StageSource } from "../StatusBar";
-import { useTabRun } from "./useTabRun";
+import { usePhoneRun } from "../../state/phone";
+import { useTimeZone } from "../../state/timeZone";
+import { nsMilliseconds } from "../../lib/time";
+import { clock, LiveCard, PaperCard, UnresolvedNotice } from "./RunCards";
+import { LivePage } from "./LivePage";
+import { PaperPage } from "./PaperPage";
+import { PhoneTop } from "./PhoneTop";
 
-/** The Runs tab, the phone's front page: the run in the bar, its equity at a glance as the chart's Equity switch reads it (whole
- *  part in the text colour, cents and unit faint), then the Runs page's own chart with its switches, then Details'
- *  cards and the Trades window, one under another. Turned sideways, the chart alone. */
-export function RunsTab() {
-  useTabRun();
-  const service = usePaperService(), listing = usePaperRuns(), landscape = useLandscape(), now = useNow();
-  const { run, chain, stage, trial, version } = useShown(), data = useRunData(), { limit, annual } = useTargets(), equity = useEquity();
-  const [picking, setPicking] = useState(false);
-  if (stage === "live") return <LiveRuns />;
-  if (landscape) return <RunsPage />;
-  const mine = data && data.run.paper_id === run?.paper_id ? data : null, all = listing?.runs ?? [], s = mine?.s ?? null;
-  const paper = stage === "paper" && run !== null, available = paper || (stage === "backtest" && trial !== null);
-  const [title = "", revision] = (stage === "backtest" ? version ?? "" : run?.candidate ?? "").split("@");
-  const { whole = "", cents = "", ret = null } = equity ?? {}, waiting = paper && waitingUntil(run, s?.lines ?? []) !== null;
+const count = (n: number, what: string) => `${n} ${what}`;
+
+/** The Live runs a phone shows: those not ended, else the last one. */
+export function shownLive(runs: readonly LiveRun[]): LiveRun[] {
+  const open = runs.filter((r) => !r.ended);
+  return open.length ? open : runs.slice(-1);
+}
+
+/** What needs a look before anything else: a Live run left unresolved (what it left open and where to deal with it),
+ *  Telegram failing, a service not answering. */
+function Notices() {
+  const { view } = useLiveTrading(), paper = usePaperService(), zone = useTimeZone();
+  const unresolved = view.runs.filter((r) => liveStatus(r).word === "Unresolved");
+  const failed = view.notify?.lastError, at = nsMilliseconds(failed?.atNs);
+  return (
+    <div className="space-y-2 px-3 pt-3 empty:hidden">
+      {unresolved.map((r) => <UnresolvedNotice key={r.id} run={r} />)}
+      {failed && <PhoneNotice tone="misses">Telegram failed{at !== null ? ` at ${clock(at, zone)}` : ""} ({failed.code}). Alerts are not reaching you.</PhoneNotice>}
+      {view.availability === "unavailable" && view.runs.length > 0 && <PhoneNotice tone="misses">Live is not answering. These are its last facts.</PhoneNotice>}
+      {paper === "offline" && <PhoneNotice tone="misses">Paper is not answering. These are its last facts.</PhoneNotice>}
+    </div>
+  );
+}
+
+/** The Runs tab, the phone's front page: every Live run and paper run still going as a card, each opening its page. */
+function Home() {
+  const { view } = useLiveTrading(), listing = usePaperRuns(), service = usePaperService(), now = useNow(5000);
+  const live = shownLive(view.runs), runs = listing?.runs ?? [];
+  const going = runs.filter((r) => ACTIVE.has(r.state)), sealed = runs.length - going.length;
+  const running = view.runs.filter((r) => r.running).length;
   return (
     <>
-      <PhoneBar>
-        <PhoneBarButton label={stage === "backtest" ? "Choose a run" : `Runs: ${all.length} paper runs`} onClick={() => setPicking(true)}>
-          {available ? <span className="flex min-w-0 font-mono"><span className="truncate font-semibold">{title}</span>{revision && <span className="shrink-0 text-fg-faint">@{revision}</span>}</span>
-            : <span className="truncate text-fg-faint">{service === "absent" ? "Paper runs are not served" : "No paper run"}</span>}
-        </PhoneBarButton>
-      </PhoneBar>
+      <PhoneTop title="Runs" />
       <PhonePage>
-        {available && (
-          <div className="px-3 pt-3">
-            <StageSource className="block text-small leading-tight text-fg-faint" />
-            {paper && whole && (
-              <p className="mt-1 whitespace-nowrap font-semibold tabular-nums leading-none tracking-tighter" style={{ fontSize: 34 }}>
-                {whole}{cents && <span className="text-fg-faint">.{cents}</span>}<span className="ml-1.5 text-dense font-normal tracking-normal text-fg-faint">USDT</span>
-              </p>
-            )}
-            {paper && !waiting && (
-              <p className="mt-1.5 flex min-w-0 items-center gap-2 whitespace-nowrap text-dense">
-                <span className={`shrink-0 tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span>
-                <span className="min-w-0 truncate"><RunHealth run={run} chain={chain} now={now} failures={s?.failures ?? null} /></span>
-              </p>
-            )}
-          </div>
-        )}
-        <div className={`mt-2 overflow-hidden ${waiting ? "h-[52dvh] min-h-80" : "h-[72dvh] min-h-96"}`}><RunsPage /></div>
-        <div className="@container space-y-2 px-2 pb-3 pt-1 text-dense">
-          {available && <div className="rounded-card border border-card-border bg-island-alt px-3 pt-2"><StageReadings targets={{ annual_return: annual, max_drawdown: limit }} /></div>}
-          <StagePerformance />
+        <Notices />
+        <PhoneHeading title="Live" aside={view.availability === "unavailable" && !view.runs.length ? "Not connected" : count(running, "running")} />
+        <div className="space-y-2 px-3">
+          {live.map((r) => <LiveCard key={r.id} run={r} now={now} />)}
+          {!live.length && <p className="text-dense text-fg-faint">No Live run. A run starts from the desktop.</p>}
         </div>
-        {available && (
-          <section className="border-t border-line text-dense">
-            <div className="flex min-h-(--header-h) flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1"><TradesTools /></div>
-            <div data-page-table className="overflow-x-auto"><TradesWindow /></div>
-          </section>
-        )}
-        <div className="flex items-center justify-between gap-3 border-t border-line px-3 py-3 text-small text-fg-faint">
-          <span>Run paper and Stop are in the desktop layout</span>
-          <TextButton className="shrink-0" onClick={() => desktopLayout.set(true)}>Desktop layout</TextButton>
+        <PhoneHeading title="Paper" aside={service === "absent" ? "Not served" : `${count(going.length, "running")} · ${count(sealed, "sealed")}`} />
+        <div className="space-y-2 px-3 pb-4">
+          {going.map((r) => <PaperCard key={r.paper_id} run={r} now={now} />)}
+          {!going.length && service !== "absent" && <p className="text-dense text-fg-faint">No paper run. A run starts from the desktop.</p>}
         </div>
       </PhonePage>
-      <Sheet open={picking} onClose={() => setPicking(false)} title="Runs">
-        <div className="px-2 pb-3">
-          <RunMenuList phone close={() => setPicking(false)} />
-        </div>
-      </Sheet>
     </>
   );
+}
+
+/** The Runs tab: its cards, or the page of the run one opened. */
+export function RunsTab() {
+  const run = usePhoneRun();
+  if (run?.kind === "live") return <LivePage id={run.id} />;
+  if (run?.kind === "paper") return <PaperPage id={run.id} />;
+  return <Home />;
 }

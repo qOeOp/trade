@@ -1,75 +1,68 @@
+// The phone's run cards and pages (model/phoneRuns.ts): what Live's native events and the paper listing say is
+// held, working and used of the loss threshold. A wrong row here is a wrong position on a phone holding real money.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createContext } from "node:vm";
 import { loader } from "./load.mjs";
 
-const paper = { paper_id: 777, candidate: "fixture-retest@1", symbols: ["BTCUSDT"] };
-async function phone() {
-  const effects = [];
-  const window = { location: new URL("https://fixture.invalid/"), addEventListener() {} };
-  const context = createContext({ URL, URLSearchParams, window,
-    history: { replaceState: (_state, _title, path) => { window.location = new URL(path, window.location.href); } },
-  });
-  const graph = loader({ context, packages: [], stubs: {
-    "state/paper": { usePaperRuns: () => ({ runs: [paper] }) },
-    "widgets/paper/RunPicker": { runOrder: (runs) => runs },
-    react: { useEffect: (effect) => effects.push(effect), useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
-  } });
-  const { useTabRun } = await graph.namespace("shell/phone/useTabRun.ts");
-  const stage = graph.loaded("state/stage.ts");
-  const selection = graph.loaded("state/selection.ts");
-  const choice = () => stage.choiceOf(stage.choices.get(), selection.selection.get());
-  const render = () => { useTabRun(); for (const effect of effects.splice(0)) effect(); };
-  return { stage, selection, choice, render };
-}
+const { liveHeld, liveWorking, lastFill, liveMoney, liveStatus, paperHeld, paperIssues, paperEquity, marked, stopFor, away } = await loader().namespace("model/phoneRuns.ts");
 
-test("phone Live → Paper → Live keeps the exact run and candidate across the automatic Paper fallback", async () => {
-  const h = await phone();
-  h.selection.initSelection(new Set([paper.candidate]), paper.candidate);
-  h.stage.chooseLiveRun("fixture-live-run", paper.candidate);
-  h.render();
-  h.stage.chooseStage("paper");
-  h.render();
-  assert.equal(h.selection.selection.get(), paper.candidate, "the phone must not deselect this explicit version stage");
-  assert.equal(h.choice().stage, "paper");
-  h.stage.chooseStage("live");
-  h.render();
-  assert.equal(h.choice().stage, "live");
-  assert.equal(h.choice().liveRun, "fixture-live-run");
-  assert.equal(h.selection.selection.get(), paper.candidate);
+const T = Date.UTC(2026, 10, 11, 0, 10), ns = (ms) => String(BigInt(ms) * 1_000_000n);
+const row = (type, ms, extra = {}) => ({ event_type: type, ts_event: ns(ms), observed_ns: ns(ms), event_ref: { source: "native", cursor: `${type}:${ms}` },
+  instrument_id: "BTCUSDT-PERP.BINANCE", ...extra });
+const fact = (label, value) => ({ label, value });
+const run = (over = {}) => ({
+  id: "r1", candidate: "rsi@1", running: true, ended: false, symbols: ["BTCUSDT"], observedNs: { account: ns(T), terminal: null },
+  config: [fact("Budget (USDT)", "90"), fact("Loss threshold (USDT)", "5")], host: [fact("State", "running")], ending: [fact("Stop requested", "No")],
+  equity: { budget: 90, minutes: [[1, 90], [2, 88.5], [3, null], [4, 91.84]] },
+  orders: [row("OrderAccepted", T, { client_order_id: "E-1", order_side: "SELL", order_type: "LIMIT", price: "74700", quantity: "0.002" }),
+    row("OrderFilled", T + 1000, { client_order_id: "E-1", order_side: "SELL", last_px: "74652.3", last_qty: "0.002" }),
+    row("OrderAccepted", T + 2000, { client_order_id: "S-1", order_side: "BUY", order_type: "STOP_MARKET", trigger_price: "75880.0", quantity: "0.002" }),
+    row("OrderAccepted", T + 3000, { client_order_id: "E-2", order_side: "BUY", order_type: "LIMIT", price: "70000", quantity: "0.002" }),
+    row("OrderCanceled", T + 4000, { client_order_id: "E-2" })],
+  positions: [row("PositionOpened", T + 1000, { position_id: "P-1", side: "SHORT", signed_qty: "-0.002", avg_px_open: "74652.3" }),
+    row("PositionOpened", T - 9000, { position_id: "P-0", side: "LONG", signed_qty: "0.001", avg_px_open: "70000" }),
+    row("PositionClosed", T - 5000, { position_id: "P-0", side: "FLAT", signed_qty: "0" })],
+  ...over,
 });
 
-test("phone startup still defaults to Paper when research only selected a version, without stage intent", async () => {
-  const h = await phone();
-  h.selection.initSelection(new Set([paper.candidate]), paper.candidate);
-  h.render();
-  assert.equal(h.selection.selection.get(), null);
-  assert.equal(h.choice().stage, "paper");
-  assert.equal(h.choice().run, 777);
-  h.render();
-  assert.equal(h.choice().run, 777);
+test("a Live run holds what its positions' latest native events leave open, and works what its orders' have not ended", () => {
+  assert.deepEqual(liveHeld(run()).map((h) => [h.symbol, h.long, h.qty, h.entry]), [["BTCUSDT", false, 0.002, 74652.3]]);
+  assert.deepEqual(liveWorking(run()).map((o) => [o.key, o.buy, o.type, o.trigger]), [["S-1", true, "stop market", 75880]],
+    "the filled entry and the cancelled one are not working");
+  assert.deepEqual(lastFill(run()), { ms: T + 1000, symbol: "BTCUSDT", buy: false, qty: 0.002, px: 74652.3 });
 });
 
-test("an unattributed Live run keeps its identity through phone Paper and back without copying version choices", async () => {
-  const h = await phone();
-  h.selection.initSelection(new Set([paper.candidate]), paper.candidate);
-  h.stage.chooseLiveRun("live-without-research", "unavailable@1");
-  h.render();
-  h.stage.chooseStage("paper");
-  h.render();
-  assert.equal(h.choice().run, 777);
-  h.stage.chooseStage("live");
-  h.render();
-  assert.equal(h.choice().liveRun, "live-without-research");
-  assert.equal(h.selection.selection.get(), null);
+test("the loss used is the budget less the account; the deepest loss stays; the run stops at budget less the threshold", () => {
+  assert.deepEqual(liveMoney(run()), { budget: 90, equity: 91.84, result: 91.84 - 90, maxLoss: 5, deepest: 1.5, stopsAt: 85 });
+  assert.equal(liveMoney(run({ equity: null, config: [] })), null, "no budget, no figures");
 });
 
-test("phone automatic defaults do not replace an explicitly selected backtest", async () => {
-  const h = await phone();
-  h.selection.initSelection(new Set([paper.candidate]), paper.candidate);
-  h.stage.chooseTrial(321);
-  h.render();
-  assert.equal(h.selection.selection.get(), paper.candidate);
-  assert.equal(h.choice().stage, "backtest");
-  assert.equal(h.choice().trial, 321);
+test("a Live run's state reads as one word: unresolved before anything else, a requested stop while it runs", () => {
+  assert.equal(liveStatus(run()).word, "Running");
+  assert.equal(liveStatus(run({ ending: [fact("Stop requested", "Yes")] })).word, "Stopping");
+  assert.equal(liveStatus(run({ running: false, host: [fact("State", "unresolved")] })).tone, "fail");
+  assert.equal(liveStatus(run({ running: false, ended: true, host: [fact("State", "clean_stopped")] })).word, "Ended");
+});
+
+test("a paper run's card reads the listing: its held positions, its issues and its outline in seconds", () => {
+  const paper = { paper_id: 8, symbols: ["BTCUSDT"], total_return: null, live: {
+    starting_balance_usdt: "100000", final_equity_usdt: "100390.18", total_return: 0.0039, missing_bars: 58, late_bars: 0, exceptions: 1, protection_gaps: 0,
+    outline: [[1_700_000_000_000_000_000, 100000], [1_700_000_060_000_000_000, 100390.18]],
+    held: { minute_ns: 1, orders: [], positions: [{ position_id: "P", instrument_id: "BTCUSDT-PERP.BINANCE", signed_qty: "-0.400", avg_px_open: "74652.30", mark: "73657.7", unrealized_pnl: "397.84", realized_pnl: "0" }] } } };
+  assert.deepEqual(paperHeld(paper).map((h) => [h.long, h.qty, h.pnl, h.mark]), [[false, 0.4, 397.84, 73657.7]]);
+  assert.deepEqual(paperIssues(paper).map((i) => i.text), ["58 missing bars", "1 exception"]);
+  assert.deepEqual(paperEquity(paper), { starting: 100000, equity: 100390.18, ret: 0.0039, points: [[1_700_000_000, 100000], [1_700_000_060, 100390.18]] });
+  assert.deepEqual(paperHeld({ ...paper, live: { ...paper.live, held: null } }), [], "before the runner's first state");
+});
+
+test("a Live position is marked at the overview's price, its stop found on the other side and its distance from the mark", () => {
+  const short = { key: "P", symbol: "BTCUSDT", long: false, qty: 0.002, entry: 74652.3, mark: null, pnl: null };
+  const [m] = marked([short], [{ symbol: "ETHUSDT", price: 2000 }, { symbol: "BTCUSDT", price: 73652.3 }]);
+  assert.equal(m.mark, 73652.3);
+  assert.ok(Math.abs(m.pnl - 2) < 1e-9, "a short gains as the price falls");
+  assert.deepEqual(marked([short], undefined).map((h) => [h.mark, h.pnl]), [[null, null]], "no snapshot, no estimate");
+  const stop = { key: "S", symbol: "BTCUSDT", buy: true, qty: 0.002, type: "stop market", trigger: 75880, price: null, reduceOnly: true };
+  assert.equal(stopFor(short, [{ ...stop, buy: false }]), null, "a sell stop does not protect a short");
+  assert.equal(stopFor(short, [stop]), stop);
+  assert.ok(Math.abs(away(75880, 73652.3) - 0.030245) < 1e-5);
 });

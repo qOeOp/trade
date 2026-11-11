@@ -29,6 +29,7 @@ import chevronsDownUp from "lucide-static/icons/chevrons-down-up.svg?raw";
 import chevronsUpDown from "lucide-static/icons/chevrons-up-down.svg?raw";
 import circleAlert from "lucide-static/icons/circle-alert.svg?raw";
 import copy from "lucide-static/icons/copy.svg?raw";
+import monitor from "lucide-static/icons/monitor.svg?raw";
 import ellipsisVertical from "lucide-static/icons/ellipsis-vertical.svg?raw";
 import fileCode from "lucide-static/icons/file-code.svg?raw";
 import fileText from "lucide-static/icons/file-text.svg?raw";
@@ -70,6 +71,7 @@ export const ICONS = {
   more: { svg: ellipsisVertical },
   hide: { svg: minus },
   copy: { svg: copy },
+  desktop: { svg: monitor },
   settings: { svg: settings },
   ledger: { svg: gitFork },
   "file.python": { svg: fileCode },
