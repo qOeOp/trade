@@ -1295,8 +1295,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "a segment with a history run is skipped, so a rerun resumes; publishes",
         "line, market_commit, ran [{source_sha256, segment, run, history_trial_id, status}], left, participants, "
         "segments_without_trading",
-        "LINE_UNKNOWN, LINE_ENDED; MARKET_COMMIT_UNRESOLVED; REPRODUCTION_MISMATCH (the image gives a run another "
-        "effective configuration); the replay refusals of a sealed run"),
+        "LINE_UNKNOWN, LINE_ENDED; MARKET_COMMIT_UNRESOLVED; REPRODUCTION_CONFIG_DIFFERS (the image gives a run "
+        "another effective configuration); the replay refusals of a sealed run"),
     ("line", "close"): (
         "--summary (a regular UTF-8 file, at most 32 KB); the line, its history trials and its closing at the head "
         "(writer); the market's first and latest complete day at the newest day",
@@ -1525,8 +1525,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "an explore trial with its start receipt and capture (committed before the fingerprint check); the new "
         "--output directory, kept on a mismatch; publishes on success",
         "directory, trial_id, fingerprints_match (true), reproduction_trial_id, image_ref, tables_differing",
-        "REPRODUCTION_MISMATCH (config differs, or a precheck on another image: nothing written; fingerprints or "
-        "sealed facts differ, or the original has none: the trial is written); RUNTIME_NOT_MAIN; UNKNOWN_RUN, "
+        "REPRODUCTION_IMAGE_DIFFERS (a precheck on another image), REPRODUCTION_CONFIG_DIFFERS: nothing written; "
+        "REPRODUCTION_MISMATCH (fingerprints or sealed facts differ, or the original has none): the trial is written; RUNTIME_NOT_MAIN; UNKNOWN_RUN, "
         "UNKNOWN_CANDIDATE; NOT_TEMPORARY_PATH, "
         "PATH_EXISTS; OUT_OF_SAMPLE_RESERVED"),
     ("market", "init"): (

@@ -71,8 +71,8 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
             effective = (stored["capture"].get("input_coverage") or {}).get("effective_config")
             if not _same_configuration(trials.config_key(inspection.get("effective_config")),
                                        trials.config_key(effective)):
-                raise refuse("REPRODUCTION_MISMATCH", f"the effective configuration of run {item['trial_id']} "
-                                                      f"differs on segment {item['label']}",
+                raise refuse("REPRODUCTION_CONFIG_DIFFERS", f"the effective configuration of run {item['trial_id']} "
+                                                            f"differs on segment {item['label']}",
                              missing=("effective_config",))
             sealed = entry.seal(ledger, revision, identity["image_ref"], exported, runner_argv, None, None,
                                 market=market, history=record["line_id"])

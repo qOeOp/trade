@@ -86,7 +86,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
     identity = entry._resolve(image or (reached[-1]["image_ref"] if reached else trial["image_ref"]))
     same_image = identity["image_digest"] == trial["image_digest"]
     if not same_image and original is not None and original["purpose"] == "precheck":
-        raise refuse("REPRODUCTION_MISMATCH", f"precheck {trial_id} reproduces only on its own image",
+        raise refuse("REPRODUCTION_IMAGE_DIFFERS", f"precheck {trial_id} reproduces only on its own image",
                      missing=("image",))
     exported = None
     try:
@@ -98,7 +98,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
         inspection = entry.registration_seams.current.inspect_runtime(identity, runner_argv, exported)
         config, recorded_config = (trials.config_key(value) for value in (inspection.get("effective_config"), effective))
         if config != recorded_config:
-            raise refuse("REPRODUCTION_MISMATCH", f"the effective configuration of trial {trial_id} differs",
+            raise refuse("REPRODUCTION_CONFIG_DIFFERS", f"the effective configuration of trial {trial_id} differs",
                          missing=("effective_config",))
         if not same_image:
             entry.registration_seams.current.require_main_build(dict(identity), dict(inspection))

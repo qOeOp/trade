@@ -20,7 +20,8 @@ registrations below concern development research, not another validation opportu
   old source still runs.
 - `REPRODUCTION_MISMATCH` means the result changed: list each run and its tables for the user. That
   run is history under the new identity, and so are its p values; never carry them forward or
-  rewrite them. Other runs that moved keep their standing.
+  rewrite them. Other runs that moved keep their standing. `REPRODUCTION_CONFIG_DIFFERS` means
+  the configuration changed: the run stays on its image; a line that needs it cannot continue (below).
 - When a run needed for the line did not move and the conditions are the same (contract,
   configuration and inputs), rebuild it with a new `retry_of` registration, the control first; keep
   its research declarations, grid, configuration and inputs unchanged, cite fresh matching source

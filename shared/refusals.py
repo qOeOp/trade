@@ -317,6 +317,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "EXPORT_CHANGED_BEFORE_EXECUTION": ("The exported inputs no longer have the content hash their input identity "
                                         "records; nothing was started.",
                                         ("Export the inputs again (rerun the same command).",)),
+    "REPRODUCTION_IMAGE_DIFFERS": ("A precheck is reproduced only on the image it ran on; nothing was written.",
+                                   ("Reproduce it without --image, or precheck the source again on the new image.",)),
+    "REPRODUCTION_CONFIG_DIFFERS": ("The image gives the run another effective configuration than the one it sealed, so "
+                                    "the replay would be another experiment; nothing was written.",
+                                    ("The run cannot move to this image: keep it as history on the image it reached; "
+                                     "a line that needs it there restarts under the new identity.",)),
     "REPRODUCTION_MISMATCH": ("The reproduced native reports do not carry the semantic fingerprint recorded for the "
                               "run (on another image, its fills, positions, exposures and returns_series), or no "
                               "fingerprint exists on either side to compare, or a directory read as a "

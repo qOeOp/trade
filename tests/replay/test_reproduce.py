@@ -220,6 +220,17 @@ class AnotherImageTests(unittest.TestCase):
         self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0], before,
                          "nothing is written before the check")
 
+    def test_a_precheck_reproduces_only_on_its_own_image(self):
+        """U8 ("全按建议", 2026-11-11): the image, the configuration and the result each have their own code."""
+        checked = entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, "rsi@1", RUNTIME["image_ref"],
+                                 list(ARGV), self.world.output("precheck-own-image"))["trial_id"]
+        before = self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0]
+        with self.assertRaises(Refusal) as caught:
+            self.replay(checked, "precheck-other-image")
+        self.assertEqual((caught.exception.code, caught.exception.write_status),
+                         ("REPRODUCTION_IMAGE_DIFFERS", "not_written"))
+        self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0], before)
+
     def test_on_another_image_the_whole_configuration_must_be_equal(self):
         """B3 / C10 ("全部授权", 2026-11-10): a key only the new image's configuration holds is a difference."""
         real = registration_seams.current.inspect_runtime
@@ -230,7 +241,7 @@ class AnotherImageTests(unittest.TestCase):
         before = self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0]
         with registration_seams.use(inspect_runtime=extra), self.assertRaises(Refusal) as caught:
             self.replay(self.unbuilt, "extra-setting")
-        self.assertEqual(caught.exception.code, "REPRODUCTION_MISMATCH")
+        self.assertEqual(caught.exception.code, "REPRODUCTION_CONFIG_DIFFERS")
         self.assertIn("effective configuration", caught.exception.message)
         self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0], before)
 
@@ -316,7 +327,7 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                 with self.assertRaises(Refusal) as caught:
                     self.reproduce(trial_id, "changed-" + field)
                 self.assertEqual((caught.exception.code, caught.exception.write_status),
-                                 ("REPRODUCTION_MISMATCH", "not_written"))
+                                 ("REPRODUCTION_CONFIG_DIFFERS", "not_written"))
                 self.assertEqual(self.world.seq(), before)
                 self.assertEqual(len(self.world.commands), commands)
 
