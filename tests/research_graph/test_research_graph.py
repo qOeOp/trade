@@ -90,6 +90,16 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual((summary["recommended"], summary["runs_since_recommendation_changed"], summary["masked_runs"]),
                          ("a@1", 1, 1), "one research run (trial 5) since a@1 became the recommendation")
 
+    def test_a_recommendation_that_lost_its_evidence_is_shown_apart_from_its_eligibility(self):
+        graph = copy.deepcopy(GRAPH)
+        graph["candidates"][1]["trials"][1].update(eligible=False, ineligible_reason="SOURCE_REVIEW_FAILED")
+        widgets = {w["id"]: w for w in layout.build_view(graph)["widgets"]}
+        nodes = {n["id"]: n for n in widgets["lineage"]["nodes"]}
+        self.assertEqual(nodes["a@1"]["status"], "masked", "CF-08: eligibility before the recommendation")
+        summary = widgets["summary"]
+        self.assertEqual((summary["recommended"], summary["status"]), ("a@1", "masked"),
+                         "the latest recommendation still names it; its status says it is ineligible now")
+
     def test_other_lines_trials_take_no_room_on_the_axis(self):
         graph = copy.deepcopy(GRAPH)
         numbers = iter([10, 20, 103, 140, 250])  # trials 1-5 renumbered as if other lines ran in between

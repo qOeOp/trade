@@ -50,13 +50,15 @@ def research_runs(candidate: dict) -> list[dict]:
 
 
 def status(candidate: dict, targets: dict) -> str:
-    """recommended | masked | precheck_failed | unrun | meets_targets | below_targets."""
-    if candidate.get("status") == "recommended":
-        return "recommended"
+    """masked | recommended | precheck_failed | unrun | meets_targets | below_targets. Eligibility first: a version
+    the recommendation still names whose latest research run lost its economic evidence is masked now, and the
+    summary keeps the recommendation apart from it (CF-08)."""
     runs = research_runs(candidate)
     last = runs[-1] if runs else None
     if candidate.get("status") == "masked" or (last and last.get("eligible") is False):
         return "masked"
+    if candidate.get("status") == "recommended":
+        return "recommended"
     if candidate.get("status") == "precheck_failed":
         return "precheck_failed"
     if not last or last.get("annual_return") is None:
