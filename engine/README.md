@@ -172,8 +172,8 @@ code of `config.REFUSALS`.
 The runner allocates every source: replay, Paper and Live call `Strategy.__new__` with
 `engine.strategy.source_config`, which holds the run's strategy ID, HEDGING (a position per entry order), UUID order
 IDs, no native stop, GTD or
-contingent-order management (the venue expires GTD orders and the runner ends the run) and a market exit that only
-reduces. The source's `__init__(self, instrument_id, bar_type, **kwargs)` calls `super().__init__()`. A source that
+contingent-order management (the venue expires GTD orders, the runner ends the run, and the order rules below refuse
+contingent orders) and a market exit that only reduces. The source's `__init__(self, instrument_id, bar_type, **kwargs)` calls `super().__init__()`. A source that
 defines `__new__` or names `StrategyConfig` is `SOURCE_REACH`; one whose configuration differs after construction is
 `SOURCE_CONFIG`; one whose classes define `on_stop` is `ON_STOP_DEFINED`.
 
@@ -273,9 +273,11 @@ strings, is the same in every process that runs a replay.
   (`TRADE_RUNTIME_IMAGE`, deploy/README.md), and `paper start`, `paper serve` and `live preflight` default to
   `exec-main`.
 
-Each image's shared tags are published after both native checks pass and their small bracket reports compare
-successfully. Per-platform tags append `-arm64` or `-amd64`. The replay image's check proves it holds only its closure
-and replays a bracket; the execution image's also exercises the pinned Redis snapshot/reload and the engine tests.
+Each image's shared tags are published after both native checks pass and the reports of their protected-entry replay
+(`tests.engine.test_fill_model.audited_replay`: a market entry with its reduce-only stop, written and audited by the
+product) compare across the two CPUs. Per-platform tags append `-arm64` or `-amd64`. The replay image's check proves
+it holds only its closure and that replay passes its audit; the execution image's also exercises the pinned Redis
+snapshot/reload and the engine tests.
 They do not replace the paired CLI acceptance below, including nonzero funding and the intended strategy and market
 inputs.
 

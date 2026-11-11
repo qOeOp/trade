@@ -167,7 +167,7 @@ def check_live_native_cache_failure() -> None:
 
 
 def check_replay_image(output: Path) -> None:
-    """The replay image holds its closure and nothing Paper or Live runs; a bracket replay passes its audit."""
+    """The replay image holds its closure and nothing Paper or Live runs; a protected-entry replay passes its audit."""
     from engine.config import AUDIT_PATH, RUNTIME_SOURCE_PATHS
 
     shipped = {path.name for path in Path("/opt/trade/engine").glob("*.py")}
