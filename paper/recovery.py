@@ -93,7 +93,11 @@ def launched(directory: Path, action: str) -> None:
 
 
 @serialized
-def resume(profile: db.LedgerProfile, paper_id: int) -> dict:
+def resume(profile: db.LedgerProfile, market: dict, paper_id: int) -> dict:
+    """Restart the unsealed run `paper_id` from its native checkpoint, with every original input unchanged: the
+    strategy source, the identity the checkpoint binds, the pinned container, and the contract terms, re-exported
+    from the market at the run's commit and compared with inputs/terms.json (CF-18: a terms file changed on the
+    host would otherwise be read silently on restart). PAPER_RECOVERY_UNAVAILABLE otherwise."""
     from paper import runs
     with db.connect(profile, "reader") as conn:
         row = records.read_paper_run(conn, paper_id)
@@ -109,6 +113,15 @@ def resume(profile: db.LedgerProfile, paper_id: int) -> dict:
     expected = identity(row, (directory / "inputs" / "universe.json").read_bytes())
     if hashlib.sha256((directory / "inputs" / "strategy.py").read_bytes()).hexdigest() != row["source_sha256"]:
         raise refuse("PAPER_RECOVERY_UNAVAILABLE", "the run's original strategy input has changed")
+    try:
+        held = json.loads((directory / "inputs" / "terms.json").read_bytes())
+    except (OSError, ValueError):
+        held = None
+    expected_terms = json.loads(json.dumps(runs._terms(market, row["market_commit"], list(row["symbols"])),
+                                           sort_keys=True))
+    if held != expected_terms:
+        raise refuse("PAPER_RECOVERY_UNAVAILABLE", "the run's terms input no longer matches the contract terms at "
+                                                   f"its market commit {row['market_commit']}")
     try:
         checkpoint.read(directory / "out", expected)
     except RuntimeRefusal as exc:

@@ -1652,12 +1652,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "UNKNOWN_CANDIDATE, BAD_REF; RUNTIME_UNAVAILABLE; LEDGER_KIND (--ledger is not a Paper database); "
         "PAPER_START_FAILED (the containers did not start; the run is sealed with START_FAILED, write_status written)"),
     ("paper", "resume"): (
-        "the unsealed run, its pinned container, source input and native checkpoint/journal cut (reader)",
+        "the unsealed run, its pinned container, source and terms inputs and native checkpoint/journal cut "
+        "(reader); the contract terms at the run's market commit (--market)",
         "records a recovery attempt, then starts the same runner and account; no new run or ledger row; "
         "all lifecycle commands share a database advisory lock",
         "paper_id, write_status (written or replayed), state (resuming or running)",
         "PAPER_RUN_UNKNOWN; PAPER_RECOVERY_UNAVAILABLE (sealed/user-stopped run, missing or dirty checkpoint, "
-        "changed identity, journal tail, missing container, a running run of the source or three recovery "
+        "changed identity, terms that no longer match the market commit, journal tail, missing container, a "
+        "running run of the source or three recovery "
         "attempts per hour); PAPER_MEMORY_FULL (its reservation exceeds the free paper memory)"),
     ("paper", "stop"): (
         "the paper run (reader); its runner container",
@@ -2211,6 +2213,7 @@ def _parser() -> Parser:
     _op_id(command)
     command = verb(paper, "resume", "continue one unsealed run from its consistent native checkpoint")
     _paper_option(command)
+    _market_option(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command = verb(paper, "stop", "stop a running paper run and seal it")
     _paper_option(command)
@@ -2570,7 +2573,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             return paper_runs.stop(profile, args.paper_id, args.wait_seconds), 0
         if args.verb == "resume":
             from paper import recovery
-            return recovery.resume(profile, args.paper_id), 0
+            return recovery.resume(profile, profiles.market(args.market), args.paper_id), 0
         if args.verb == "seal":
             return paper_runs.seal(profile, args.paper_id), 0
         if args.verb == "delete":

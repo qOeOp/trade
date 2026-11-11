@@ -360,7 +360,7 @@ class Daemon:
 
     def resume_run(self, paper_id: int) -> dict:
         """Retry the existing checkpoint protocol; never start a replacement account."""
-        found = self.cli("resume", "--paper-id", str(paper_id))
+        found = self.cli("resume", "--paper-id", str(paper_id), *(["--market", self.market] if self.market else []))
         self.recovery_failures.pop(paper_id, None)
         return found
 
