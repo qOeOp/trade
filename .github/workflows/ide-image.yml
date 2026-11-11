@@ -3,7 +3,7 @@ name: ide-image
 # The trade IDE service image, the image of the same compose project's ledger service and paper daemon
 # (the Dockerfile's `service` target) and its Docker API proxy (`docker-api`) are built here, never on a
 # workstation: the graph it serves names the product commit it was drawn with, so the image must hold
-# exactly a commit of this repository. A main build moves the `main` tag; a pull request build gets a `pr-N` tag. Every
+# exactly a commit of this repository. A main build moves the `main` tag forward; a pull request build gets a `pr-N` tag. Every
 # image carries that commit in org.opencontainers.image.revision.
 
 on:
@@ -43,8 +43,11 @@ on:
 permissions:
   contents: read
 
+# One group per main commit: a group holds one pending run, so a shared main group cancelled queued builds in a
+# burst of merges, and release-ready never admits a runtime whose commit has a cancelled run. The `main` tag moves
+# only forward (publish-platform-image.sh), so an older build finishing last does not move it back.
 concurrency:
-  group: ide-image-${{ github.ref }}
+  group: ide-image-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -115,7 +118,6 @@ jobs:
         id: names
         env:
           EVENT: ${{ github.event_name }}
-          REF: ${{ github.ref }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OWNER: ${{ github.repository_owner }}
           ARCH: ${{ matrix.arch }}
@@ -126,8 +128,6 @@ jobs:
             local found="$1:sha-$revision-$ARCH"
             if [ "$EVENT" = pull_request ]; then
               found="$found,$1:pr-$PR_NUMBER-$ARCH"
-            elif [ "$REF" = refs/heads/main ]; then
-              found="$found,$1:main-$ARCH"
             fi
             echo "$found"
           }
@@ -365,6 +365,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}  # compares commits before the main tag moves
         run: |
           revision="$(git rev-parse HEAD)"
           alias=''
