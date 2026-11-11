@@ -1,8 +1,9 @@
 """A line's closing history test (`replay.history`).
 
 Before a line closes, every candidate with a passed research run on it (ledger.lines.history_participants)
-is replayed over each segment of ledger.lines.history_segments: the calendar years before the development
-period, the period again as the control, and the forward segment after it. Each segment replays the
+is replayed over each segment of ledger.lines.history_segments: the veto segments (the calendar years before the
+development period), the period again as the control, the two-year holdout after it as one segment, and the
+forward segment after the holdout. Each segment replays the
 candidate's latest passed research run by its identity (source, image, configuration, instrument rule),
 only over another window, on one market commit, from zero position and the same starting balance; it is a
 history trial, sealed as a run like any other. Candidates go by their development-period Sharpe, highest

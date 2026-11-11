@@ -1316,8 +1316,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("line", "history"): (
         "the open line, its passed research runs and history trials (writer, head); the market at --market-at "
         "(default: the newest day): its first day and latest complete day; each run's runtime image, probed",
-        "one history trial and its run per segment left (each calendar year before the development period, the "
-        "period again as the control, the forward segment after it), candidates by development-period Sharpe; "
+        "one history trial and its run per segment left (each calendar year before the development period as a "
+        "veto segment, the period again as the control, the two-year holdout after it as one segment, the forward "
+        "segment after the holdout), candidates by development-period Sharpe; "
         "a segment with a history run is skipped, so a rerun resumes; publishes",
         "line, market_day, ran [{source_sha256, segment, run, history_trial_id, status}], left, participants, "
         "segments_without_trading",
@@ -1417,8 +1418,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "(reader); no market",
         "nothing; never publishes",
         "ledger_commit, short_days, lines [{line, closed, dev_start, dev_end, targets, participants, research_trials, "
-        "rows [{source_sha256, run, development (the research run's cell), cells [{trial_id, kind (year, control or "
-        "forward), label, trade_start, trade_end, status, whole_year, short, measures {annual_return, "
+        "rows [{source_sha256, run, development (the research run's cell), cells [{trial_id, kind (veto, control, "
+        "holdout or forward), label, trade_start, trade_end, status, whole_year, short, measures {annual_return, "
         "mark_max_drawdown, sharpe_365, cycles, plan_win_rate} (passed runs only)}], control_reproduces, summary "
         "{whole_years, profitable_years, median_annual_return, worst_annual_return, worst_mark_max_drawdown, "
         "years_meeting_targets, meets_targets} or null when the control does not reproduce}]}]. Rows by "
@@ -1967,9 +1968,10 @@ def _parser() -> Parser:
     _targets_options(command, None)
     command = verb(line, "history", "run the line's closing history test")
     command.epilog = ("Every candidate with a passed research run on the line replays its latest such run over each "
-                      "calendar year before the development period, the period again (a control that must reproduce "
-                      "the run) and the forward segment after it: same source, image and configuration, another "
-                      "window. The candidates are fixed by the line's first history trial. Rerun to resume; "
+                      "calendar year before the development period (veto), the period again (a control that must "
+                      "reproduce the run), the two-year holdout after it in one run and the forward segment after "
+                      "the holdout: same source, image and configuration, another window. The candidates are fixed "
+                      "by the line's first history trial. Rerun to resume; "
                       "`line close` needs every segment to have a run.")
     _ledger_option(command)
     _market_option(command)

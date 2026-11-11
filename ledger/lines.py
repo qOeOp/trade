@@ -287,19 +287,23 @@ def line_trials(conn: db.LedgerConnection, line: str | int, since_commit: str | 
 # The closing history test
 
 def history_segments(dev_start: date, dev_end: date, first_day: date, after_last: date) -> list[dict]:
-    """The trade segments of a line's closing history test: each calendar year before the development
-    period, from the market's `first_day` and cut at the period's start; the period itself again, as the
-    control; and the forward segment from the period's end to `after_last` (the day after the market's
-    latest complete day), when it is not empty. Each is {kind (year | control | forward), label, start, end},
-    end exclusive."""
+    """The trade segments of a line's closing history test (line-close-history-test-20261110.zh.md 3.4): the veto
+    segments, each calendar year before the development period from the market's `first_day` and cut at the
+    period's start; the period itself again, as the control; the holdout, the HOLDOUT_QUARTERS quarters after the
+    period as one segment; and the forward segment from the holdout's end to `after_last` (the day after the
+    market's latest complete day). The holdout and forward segment are cut at `after_last` and left out when
+    empty. Each is {kind (veto | control | holdout | forward), label, start, end}, end exclusive."""
     segments = []
     for year in range(first_day.year, dev_start.year + 1):
         start, end = max(date(year, 1, 1), first_day), min(date(year + 1, 1, 1), dev_start)
         if start < end:
-            segments.append({"kind": "year", "label": str(year), "start": start, "end": end})
+            segments.append({"kind": "veto", "label": str(year), "start": start, "end": end})
     segments.append({"kind": "control", "label": "development", "start": dev_start, "end": dev_end})
+    held = holdout_end(dev_end)
     if dev_end < after_last:
-        segments.append({"kind": "forward", "label": "forward", "start": dev_end, "end": after_last})
+        segments.append({"kind": "holdout", "label": "holdout", "start": dev_end, "end": min(held, after_last)})
+    if held < after_last:
+        segments.append({"kind": "forward", "label": "forward", "start": held, "end": after_last})
     return segments
 
 
@@ -350,7 +354,7 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
     research run `trial_id`, `window` (input_start, trade_start, trade_end: the run's warm-up before a trade
     start no earlier than the segment's or than the market's first day plus that warm-up; None when nothing of
     the segment is left to trade) and `done` (the history trial with a run that covers it, or None). A forward
-    segment is covered by any history run trading from the period's end: its end moves with the market."""
+    segment is covered by any history run trading from the holdout's end: its end moves with the market."""
     record = read_line(conn, line_id)
     dev_start, dev_end = date.fromisoformat(record["dev_start"]), date.fromisoformat(record["dev_end"])
     segments = history_segments(dev_start, dev_end, first_day, after_last)
@@ -368,8 +372,8 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
             window = ({"input_start": start - warmup, "trade_start": start, "trade_end": end} if start < end
                       else None)
             if segment["kind"] == "forward":
-                done = next((row["trial_id"] for row in own if row["trade_start"] >= datetime.combine(dev_end, time())),
-                            None)
+                done = next((row["trial_id"] for row in own if row["trade_start"] >= datetime.combine(
+                    holdout_end(dev_end), time())), None)
             else:
                 done = next((row["trial_id"] for row in own if window is not None
                              and (row["trade_start"], row["trade_end"]) == (start, end)), None)

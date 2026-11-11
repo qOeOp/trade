@@ -24,11 +24,14 @@ MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "cycles", "plan_
 
 
 def _kind(row: dict, dev_start: datetime, dev_end: datetime) -> str:
-    if row["trade_start"] >= dev_end:
+    """veto, control, holdout or forward (ledger.lines.history_segments)."""
+    if row["trade_start"] >= datetime.combine(lines.holdout_end(dev_end.date()), time()):
         return "forward"
+    if row["trade_start"] >= dev_end:
+        return "holdout"
     if row["trade_start"] >= dev_start and row["trade_end"] == dev_end:
         return "control"
-    return "year"
+    return "veto"
 
 
 def _whole_year(row: dict) -> bool:
@@ -38,9 +41,9 @@ def _whole_year(row: dict) -> bool:
 
 
 def _cell(conn: db.LedgerConnection, row: dict, kind: str) -> dict:
-    cell = {"trial_id": row["trial_id"], "kind": kind, "label": str(row["trade_start"].year) if kind == "year"
+    cell = {"trial_id": row["trial_id"], "kind": kind, "label": str(row["trade_start"].year) if kind == "veto"
             else kind, "trade_start": row["trade_start"].isoformat(), "trade_end": row["trade_end"].isoformat(),
-            "status": row["status"], "whole_year": kind == "year" and _whole_year(row),
+            "status": row["status"], "whole_year": kind == "veto" and _whole_year(row),
             "short": (row["trade_end"] - row["trade_start"]).days < SHORT_DAYS}
     if row["status"] == "passed":
         derived = measures.derive_measures(measures.run_facts(conn, row["trial_id"]),

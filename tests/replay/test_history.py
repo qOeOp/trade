@@ -22,18 +22,24 @@ from tests.replay.world import ReplayWorld, registered_grid
 
 
 class SegmentTests(unittest.TestCase):
-    def test_segments_are_the_years_before_the_period_the_period_and_the_forward_part(self):
-        found = lines.history_segments(date(2025, 10, 1), date(2026, 10, 1), date(2019, 9, 1), date(2026, 11, 11))
+    def test_segments_are_the_veto_years_the_period_the_holdout_and_the_forward_part(self):
+        found = lines.history_segments(date(2021, 10, 1), date(2024, 10, 1), date(2019, 9, 1), date(2026, 11, 11))
         self.assertEqual([(item["kind"], item["label"], item["start"], item["end"]) for item in found], [
-            ("year", "2019", date(2019, 9, 1), date(2020, 1, 1)),
-            *[("year", str(year), date(year, 1, 1), date(year + 1, 1, 1)) for year in range(2020, 2025)],
-            ("year", "2025", date(2025, 1, 1), date(2025, 10, 1)),
-            ("control", "development", date(2025, 10, 1), date(2026, 10, 1)),
+            ("veto", "2019", date(2019, 9, 1), date(2020, 1, 1)),
+            ("veto", "2020", date(2020, 1, 1), date(2021, 1, 1)),
+            ("veto", "2021", date(2021, 1, 1), date(2021, 10, 1)),
+            ("control", "development", date(2021, 10, 1), date(2024, 10, 1)),
+            ("holdout", "holdout", date(2024, 10, 1), date(2026, 10, 1)),
             ("forward", "forward", date(2026, 10, 1), date(2026, 11, 11))])
 
     def test_a_period_at_the_market_start_and_end_has_only_the_control(self):
         found = lines.history_segments(date(2026, 1, 1), date(2026, 4, 1), date(2026, 1, 1), date(2026, 4, 1))
         self.assertEqual([item["kind"] for item in found], ["control"])
+
+    def test_a_holdout_the_market_does_not_reach_yet_is_cut_at_its_last_day(self):
+        found = lines.history_segments(date(2026, 1, 1), date(2026, 2, 1), date(2026, 1, 1), date(2026, 4, 1))
+        self.assertEqual([(item["kind"], item["start"], item["end"]) for item in found], [
+            ("control", date(2026, 1, 1), date(2026, 2, 1)), ("holdout", date(2026, 2, 1), date(2026, 4, 1))])
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -55,7 +61,7 @@ class HistoryRunTests(unittest.TestCase):
         with self.assertRaises(Refusal) as refused:
             lines.close_line(world.profile, line, b"summary", days)
         self.assertEqual(refused.exception.code, "HISTORY_INCOMPLETE")
-        self.assertEqual(len(refused.exception.missing), 3, "2025 (from November), the control and the forward part")
+        self.assertEqual(len(refused.exception.missing), 3, "2025 (from November), the control and the holdout")
 
         first = history.run_history(world.profile, world.market, MARKET_COMMIT, line, limit=1)
         self.assertEqual((len(first["ran"]), first["left"], first["participants"]), (1, 2, 1))
@@ -76,11 +82,12 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(row["run"], passed["trial_id"])
         self.assertTrue(row["control_reproduces"], "the control replays the research run bit for bit")
         cells = {cell["kind"]: cell for cell in row["cells"]}
-        self.assertEqual(set(cells), {"year", "control", "forward"})
-        self.assertEqual(cells["year"]["trade_start"], "2025-11-02T00:00:00",
+        self.assertEqual(set(cells), {"veto", "control", "holdout"})
+        self.assertEqual(cells["veto"]["trade_start"], "2025-11-02T00:00:00",
                          "the year starts one warm-up day after the market's first day")
-        self.assertFalse(cells["year"]["whole_year"])
-        self.assertEqual(cells["forward"]["trade_end"], "2026-04-01T00:00:00")
+        self.assertFalse(cells["veto"]["whole_year"])
+        self.assertEqual((cells["holdout"]["trade_start"], cells["holdout"]["trade_end"]),
+                         ("2026-02-01T00:00:00", "2026-04-01T00:00:00"), "the holdout, cut at the market's last day")
         self.assertEqual(row["summary"]["whole_years"], 0)
         self.assertIsNone(row["summary"]["meets_targets"], "no whole year outside the period to judge by")
 
