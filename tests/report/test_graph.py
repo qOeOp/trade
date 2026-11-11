@@ -17,7 +17,7 @@ from unittest.mock import patch
 from ledger import db, execution, lines, metrics, strategies, targets
 from shared.errors import Refusal
 from shared.refusals import refuse
-from registration import precheck
+from registration import precheck, register
 from replay import entry
 from report import comparison, graph, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market, pinned
@@ -171,6 +171,40 @@ class ResearchGraphTests(unittest.TestCase):
         gate, = found["line"]["gates"]
         self.assertEqual(gate["code"], "INTERPRETATION_REQUIRED", "a research run without an interpretation holds the next registration")
         self.assertIn(str(trial_id), gate["message"])
+
+    def test_2c_a_recommended_version_that_loses_its_evidence_is_masked(self):
+        """CF-08: the recommendation stays an event, but the version is shown masked, not as the current pick."""
+        world = self.world
+        published = world.publish("recommended-then-failed", parent=None)
+        data, ref = published["source"], published["candidate"]
+        try:  # the earlier tests' runs are interpreted first, as the next registration requires
+            register.require_line_records(world.conn, world.line["line_id"])
+        except Refusal as exc:
+            for missing in exc.missing:
+                world.judge("interpretation", subjects=[{"role": "about", "trial_id": int(missing.split()[1])}])
+        registration = world.register(world.body([ref], {ref: world.prechecked(data)}))["registration_id"]
+        world.scenario = {"returns": CANDIDATE_RETURNS}
+        trial_id = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+                             registration=registration)["trial_id"]
+        world.scenario = {}
+        world.judge("interpretation", subjects=[{"role": "about", "trial_id": trial_id}])
+        named = [{"role": "recommended", "candidate": ref}]
+        try:
+            world.judge("recommendation", subjects=named)
+        except Refusal as exc:  # a recommendation names every candidate of the comparison table
+            world.judge("recommendation", subjects=named + [{"role": "about", "candidate": other} for other in exc.missing])
+        self.assertEqual({c["id"]: c["status"] for c in self.graph()["candidates"]}[ref], "recommended")
+        with db.read_as_of(world.profile) as conn:
+            (precheck_id,), = conn.rows("SELECT trial_id FROM trial WHERE purpose = 'precheck' AND source_sha256 = %s",
+                                        (strategies.read_candidate(conn, ref)["source_sha256"],))
+        precheck.record_review(world.profile, world.review_body(
+            precheck_id, "failed", causal={"status": "failed", "note": "The input arrives after submission."}),
+            "reviewer-g")
+        found = self.graph()
+        self.assertEqual(contract.check_graph(found), [])
+        version = next(c for c in found["candidates"] if c["id"] == ref)
+        self.assertEqual((version["status"], version["trials"][-1]["eligible"]), ("masked", False))
+        self.assertEqual([e["recommends"] for e in found["events"] if e["kind"] == "recommendation"][-1], ref)
 
     def test_3_a_new_line_on_another_window_shows_no_run_of_the_old_one(self):
         first, second = self.refs

@@ -439,10 +439,10 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
         interpretation = next((row["body"] for row in reversed(current) if row["kind"] == "interpretation" and any(
             s["trial_id"] in trial_ids or (registration is not None and s["research_registration_id"] == registration)
             for s in subjects.get(row["judgment_id"], []))), None)
-        if key in chosen:
-            state = "recommended"
-        elif research and research[-1]["eligible"] is False:
+        if research and research[-1]["eligible"] is False:  # a recommendation does not outlive lost evidence
             state = "masked"
+        elif key in chosen:
+            state = "recommended"
         elif not research:
             state = "precheck_failed" if any(r["verdict"] == "failed" for r in reviews) else "unrun"
         else:
@@ -491,9 +491,10 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
         "candidates": candidates, "events": events,
         "gaps": [
             "Runs without economic evidence carry no measures (the product masks them); their reasons are kept.",
-            "Status: recommended is the latest recommendation's recommended subject; superseded is any other version "
-            "with economic evidence, whether or not the recommendation names it; masked, precheck_failed and unrun come "
-            "from availability and reviews.",
+            "Status: masked is a version whose latest research run has no economic evidence, even when the latest "
+            "recommendation names it (the recommendation stays an event); recommended is that recommendation's "
+            "recommended subject otherwise; superseded is any other version with economic evidence; precheck_failed "
+            "and unrun come from reviews.",
             "Research runs are the line's own (its window and market commit); other trials of a version are kept "
             "by source. A version whose research runs are all another line's is left out, with what only it links.",
             "Interpretation is the latest current interpretation judgment naming the version's registration or trials.",
