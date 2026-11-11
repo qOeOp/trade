@@ -110,5 +110,6 @@ result matches is no new exposure.
   remote host, and tagging one is the user's call each time (`CHANGELOG.md`). `deploy/remote/README.md` says
   what switches and what stays.
 - A fix for a doctor finding starts from the diagnosis record and the index, never from the
-  auditing session; one root cause per PR, the finding id in the body. The PR adds or changes only
+  auditing session, except an attach session fixing its own verified diagnosis (product-doctor
+  `attach.md`); one root cause per PR, the finding id in the body. The PR adds or changes only
   its own finding's eval case and leaves every other grader alone; a grader change is its own PR.
