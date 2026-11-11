@@ -149,6 +149,19 @@ class LiveWebControlTests(unittest.TestCase):
         self.assertFalse((self.root / "credentials").exists())
         self.assertEqual(before, {str(path): path.read_bytes() for path in self.root.rglob("*") if path.is_file()})
 
+    def fake_research(self, stack, origin, identity):
+        """Research reader, image and market terms are fake; returns the market-terms mock."""
+        stack.enter_context(patch.object(control, "_profile", return_value=object()))
+        stack.enter_context(patch.object(runs.db, "read_as_of"))
+        stack.enter_context(patch.object(runs.strategies, "read_candidate", return_value=origin))
+        stack.enter_context(patch("registration.validation.candidate_registrations", return_value=[]))
+        stack.enter_context(patch("engine.load.load_strategy"))
+        stack.enter_context(patch("engine.load.read_universe"))
+        stack.enter_context(patch.object(runs.image, "resolve", return_value=identity))
+        stack.enter_context(patch.object(runs.image, "inspect_runtime", return_value={}))
+        stack.enter_context(patch.object(runs.image, "require_main_build"))
+        return stack.enter_context(patch.object(runs, "_market_terms", return_value={"commit": "c", "terms": {}}))
+
     def test_prepare_preflight_start_reuse_original_inputs_through_operator_control(self):
         """Use real custody/protocol functions; only research, image and venue/host IO are fake."""
         _, saved = self.execute( "credential_save", None, {
@@ -163,16 +176,7 @@ class LiveWebControlTests(unittest.TestCase):
         body = {"request_id": "prepare-lifecycle-one", "run_id": "lifecycle", "source_id": "example",
                 "credential_ref": ref, "config": self.config.defaults}
         with ExitStack() as stack:
-            stack.enter_context(patch.object(control, "_profile", return_value=object()))
-            stack.enter_context(patch.object(runs.db, "read_as_of"))
-            stack.enter_context(patch.object(runs.strategies, "read_candidate", return_value=origin))
-            stack.enter_context(patch("registration.validation.candidate_registrations", return_value=[]))
-            stack.enter_context(patch("engine.load.load_strategy"))
-            stack.enter_context(patch("engine.load.read_universe"))
-            stack.enter_context(patch.object(runs.image, "resolve", return_value=identity))
-            stack.enter_context(patch.object(runs.image, "inspect_runtime", return_value={}))
-            stack.enter_context(patch.object(runs.image, "require_main_build"))
-            terms = stack.enter_context(patch.object(runs, "_market_terms", return_value={"commit": "c", "terms": {}}))
+            terms = self.fake_research(stack, origin, identity)
             stack.enter_context(patch.object(runs, "_network", return_value={"network": "fake-network"}))
             runner = stack.enter_context(patch.object(runs, "_runner", return_value={
                 "Id": "c" * 64, "State": {"Running": True, "Status": "running"}}))
@@ -211,6 +215,38 @@ class LiveWebControlTests(unittest.TestCase):
             self.assertEqual([row["mode"] for row in launches], ["preflight", "run"])
             self.assertTrue(all(row["credentials_path"] == str((self.root / "credentials" / f"{ref}.json").resolve())
                                 for row in launches))
+
+    def test_resolve_completes_an_interrupted_prepare_with_the_declared_market(self):
+        _, saved = self.execute("credential_save", None, {
+            "request_id": "save-resolve-one", "api_key": "fake-key", "api_secret": "fake-secret"})
+        ref = saved["data"]["credential_ref"]
+        source_hash = self.raw["sources"][0]["source_sha256"]
+        origin = {"strategy_id": "example", "revision": 1, "entry_class": "Example",
+                  "source": self.source.read_bytes(), "source_sha256": source_hash,
+                  "runtime_contract": "replay-contract@v7"}
+        identity = {"image_ref": self.config.runtime, "image_digest": "sha256:" + "b" * 64,
+                    "platform": "linux/amd64", "runtime_contract": "replay-contract@v7"}
+        body = {"request_id": "prepare-resolve-one", "run_id": "resolved", "source_id": "example",
+                "credential_ref": ref, "config": self.config.defaults}
+        original = state.write_new
+
+        def interrupted(path, data):
+            if path.name == "universe.json" and path.parent.name == "inputs":
+                raise SystemExit()
+            original(path, data)
+
+        with ExitStack() as stack:
+            terms = self.fake_research(stack, origin, identity)
+            with patch.object(state, "write_new", side_effect=interrupted), self.assertRaises(SystemExit):
+                self.execute("prepare", None, body)
+            directory = state.directory(self.root, "resolved")
+            self.assertTrue((directory / "inputs" / "strategy.py").exists())
+            self.assertFalse((directory / "inputs" / "manifest.json").exists())
+            status, resolved = self.execute("resolve", "prepare-resolve-one", {"request_id": "prepare-resolve-one"})
+            self.assertEqual(status, 200, resolved)
+            self.assertEqual(resolved["data"]["request"]["outcome"], "effect_recorded")
+            self.assertTrue((directory / "inputs" / "manifest.json").exists())
+            self.assertEqual(terms.call_args_list[-1].args, (Path("/unused-market"), ["BTCUSDT"]))
 
     def test_private_command_uses_fixed_argv_and_stdin_only_and_discards_raw_errors(self):
         fake = {"request_id": "save-command-one", "api_key": "sentinel-key", "api_secret": "sentinel-secret"}
