@@ -35,6 +35,16 @@ class ResearchSyncTests(unittest.TestCase):
             response = connection.getresponse()
             return response.status, response.read()
 
+    def test_the_mirror_syncs_on_its_own_until_stopped(self):
+        stop, calls = threading.Event(), []
+        sync = mock.Mock()
+        sync.request.side_effect = lambda: calls.append(1) or (stop.set() if len(calls) == 3 else None)
+        worker = threading.Thread(target=replica.keep_synced, args=(sync, stop, 0.01), daemon=True)
+        worker.start()
+        worker.join(5)
+        self.assertFalse(worker.is_alive(), "the loop ends once stopped")
+        self.assertEqual(len(calls), 3, "a sync at start and one per interval, none after stop")
+
     def test_a_mirror_head_comes_from_the_controller_and_a_page_follows_it_with_no_product_read(self):
         address = "http://127.0.0.1:%d" % self.upstream.server_port
         product = FakeProduct()

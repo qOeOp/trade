@@ -277,8 +277,9 @@ Acceptance requires: unauthenticated page/API/SSE denial, a GitHub user outside 
 organization outside the team included), a team member admitted, expired login does not stop runners, source/host/CSRF checks still hold, bounded logs, and a native
 checkpoint resume using the same run. Config validation alone is not an actual GitHub callback/HTTPS test.
 
-The toolbar's **Sync DoltHub** button updates only the configured read-only research mirror. Fetch is
-validated at an immutable commit, then fast-forwarded; errors keep the previously displayed version.
+The mirror's controller syncs the configured read-only research mirror from DoltHub at start and every
+60 s; the toolbar's **Sync DoltHub** starts one at once. Fetch is validated at an immutable commit, then
+fast-forwarded; errors keep the previously displayed version and show in the sync status.
 No browser request can choose an origin or database. Paper captures the selected strategy's exact source
 and required parent inputs into its own database before launch; research updates do not replace running
 inputs. Stop, native resume and logs use the execution records. No execution writes are pushed to research.

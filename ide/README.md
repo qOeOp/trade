@@ -25,7 +25,7 @@ page is the web renderer's page: it reads `/api/view?line=&since=&at=` (200 a vi
 202 a state, otherwise the refusal JSON; without `line` the graph is the only open line's, and when
 several are open the page lists them as links that add `line`) and follows `/api/events` (Server-Sent Events: the current
 state on connect, then `fetching`, `checking`, `queued`, `computing`, `ready`, `unchanged` or `error`, with a heartbeat every
-15 s). A hidden page closes its stream and reads the view again when shown. While a page without `at` is open the head is read every 5 s. With `--research` (a mirror) it comes from the mirror's controller, the only place a Sync moves it, so no
+15 s). A hidden page closes its stream and reads the view again when shown. While a page without `at` is open the head is read every 5 s. With `--research` (a mirror) it comes from the mirror's controller, which syncs from DoltHub every 60 s (Sync DoltHub starts one at once), so no
 product process runs per read. Only the first head is waited for:
 later `/api/view` answers at once with the last view while a head read runs in the background. A failed
 refresh is told as `error` over the view a page holds. When the head moves, each open page's graph is
