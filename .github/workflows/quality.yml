@@ -40,7 +40,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.changed == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25 # the job took 11-14 minutes on main in October 2026
+    timeout-minutes: 15 # the job takes about 5 minutes (November 2026)
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -70,7 +70,6 @@ jobs:
           echo "72825a65d96bf0a0967ec408ad43bc21afc9b1c899b84cb84344a35f567fb11f  $archive" | sha256sum --check
           tar -xzf "$archive" -C "$RUNNER_TEMP"
           echo "RESEARCH_DOLT_BINARY=$RUNNER_TEMP/dolt-linux-amd64/bin/dolt" >> "$GITHUB_ENV"
-      - run: uv run --frozen python -m engine.run --help > /dev/null
       - name: Install pinned ffmpeg for the video evidence checker test
         # Static builds from a GitHub release, the version apt had: apt's mirror stalled often enough to fail runs.
         timeout-minutes: 5

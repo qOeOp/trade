@@ -14,7 +14,6 @@
 !runtime/
 !shared/
 !ide/
-!tests/live/protocol-*.json
 !deploy/*.py
 !deploy/entrypoint.sh
 !deploy/docker-api/
