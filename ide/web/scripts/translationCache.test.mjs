@@ -1,17 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { runInNewContext } from "node:vm";
-import ts from "typescript";
+import { createContext } from "node:vm";
+import { namespace } from "./load.mjs";
 
-const code = ts.transpileModule(readFileSync(new URL("../src/lib/translationCache.ts", import.meta.url), "utf8"), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText;
-
-function policy(globals = {}) {
-  const warnings = [], exports = {};
-  runInNewContext(code, { URL, exports, console: { warn: (...args) => warnings.push(args) }, ...globals });
-  return { ...exports, warnings };
+async function policy(globals = {}) {
+  const warnings = [], context = createContext({ URL, console: { warn: (...args) => warnings.push(args) }, ...globals });
+  return { ...await namespace("lib/translationCache.ts", { context, sources: [], packages: [] }), warnings };
 }
 
 function storage(urls) {
@@ -30,7 +24,7 @@ function storage(urls) {
 }
 
 test("remove retired trials, old revisions and other quantizations; reuse current q4 files", async () => {
-  const { TRANSLATION_MODEL: model, pruneTranslationCache } = policy();
+  const { TRANSLATION_MODEL: model, pruneTranslationCache } = await policy();
   const base = `https://huggingface.co/${model.id}/resolve/`;
   const current = `${base}${model.revision}/`;
   const retained = [
@@ -53,7 +47,7 @@ test("remove retired trials, old revisions and other quantizations; reuse curren
 });
 
 test("leave unrelated models, hosts, paths, runtime files and cache namespaces untouched", async () => {
-  const { TRANSLATION_MODEL: model, pruneTranslationCache } = policy();
+  const { TRANSLATION_MODEL: model, pruneTranslationCache } = await policy();
   const untouched = [
     "https://huggingface.co/Xenova/another-model/resolve/main/onnx/model.onnx",
     "https://huggingface.co/Xenova/opus-mt-en-zh-other/resolve/main/onnx/model.onnx",
@@ -70,7 +64,7 @@ test("leave unrelated models, hosts, paths, runtime files and cache namespaces u
 });
 
 test("first visits do not create caches, and unavailable storage does not block translation", async () => {
-  const { pruneTranslationCache, warnings } = policy();
+  const { pruneTranslationCache, warnings } = await policy();
   await pruneTranslationCache("transformers-cache");
   await pruneTranslationCache("transformers-cache", {
     keys: async () => [], open: () => assert.fail("must not create an empty cache"),
@@ -82,7 +76,7 @@ test("first visits do not create caches, and unavailable storage does not block 
 });
 
 test("a failed deletion leaves all retained files intact and does not fail model loading", async () => {
-  const { pruneTranslationCache, warnings } = policy();
+  const { pruneTranslationCache, warnings } = await policy();
   const cache = storage(["https://huggingface.co/Xenova/opus-mt-en-zh/resolve/main/config.json"]);
   const originalOpen = cache.open;
   cache.open = async (name) => ({ ...await originalOpen(name), delete: async () => { throw new Error("cache unavailable"); } });

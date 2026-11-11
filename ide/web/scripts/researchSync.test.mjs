@@ -1,11 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
+import { createContext } from "node:vm";
 import { test } from "node:test";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const source = ts.transpileModule(readFileSync(new URL("../src/state/researchSync.ts", import.meta.url), "utf8"),
-  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const atom = (initial) => { let value = initial; return { get: () => value, set: (next) => { value = next; } }; };
 async function page(replies) {
   const sessionRequired = atom(false), requests = [];
@@ -15,15 +12,9 @@ async function page(replies) {
     if (reply instanceof Error) throw reply;
     return { status: reply.status, ok: reply.status < 300, json: async () => reply.body };
   } });
-  const module = new SourceTextModule(source, { context });
-  await module.link(async (name) => {
-    const values = name === "./atom" ? { atom } : name === "./session" ? { sessionRequired } : { pageFetch: context.fetch };
-    return new SyntheticModule(Object.keys(values), function () {
-      for (const [key, value] of Object.entries(values)) this.setExport(key, value);
-    }, { context });
-  });
-  await module.evaluate();
-  return { ...module.namespace, sessionRequired, requests };
+  const module = await namespace("state/researchSync.ts", { context, sources: [], packages: [],
+    stubs: { "state/atom": { atom }, "state/session": { sessionRequired }, "lib/paperApi": { pageFetch: context.fetch } } });
+  return { ...module, sessionRequired, requests };
 }
 test("sync failure retains the previously observed research version", async () => {
   const p = await page([{ status: 200, body: { state: "idle", ledger_commit: "old", origin: "published" } },

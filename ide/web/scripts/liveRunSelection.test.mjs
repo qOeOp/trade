@@ -1,15 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { SourceTextModule } from "node:vm";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const mod = new SourceTextModule(ts.transpileModule(readFileSync(new URL("../src/model/liveRunSelection.ts", import.meta.url), "utf8"), {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-}).outputText);
-await mod.link(() => { throw new Error("selection needs no runtime dependency"); });
-await mod.evaluate();
-const { shownLiveRun } = mod.namespace;
+const { shownLiveRun } = await namespace("model/liveRunSelection.ts", { sources: [], packages: [] });
 const run = (id, candidate, observedNs) => ({ id, candidate, evidence: [{ source: "lifecycle", observedNs }] });
 const runs = [run("7", "a@1", "1000"), run("web-later", "a@1", "3000"), run("web-other", "b@1", "9000")];
 

@@ -1,17 +1,9 @@
 // How the About panel names what `/api/about` and the paper daemon answer (model/about.ts).
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { SourceTextModule } from "node:vm";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const module = new SourceTextModule(ts.transpileModule(
-  readFileSync(new URL("../src/model/about.ts", import.meta.url), "utf8"),
-  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } },
-).outputText);
-await module.link(() => { throw new Error("model/about.ts imports nothing"); });
-await module.evaluate();
-const { ledgerGap, paperLine, placeOf, publicCopyFault, runtimeDigest } = module.namespace;
+const { ledgerGap, paperLine, placeOf, publicCopyFault, runtimeDigest } = await namespace("model/about.ts", { sources: [], packages: [] });
 
 test("a DoltHub remote is named by its repository and links to its page; another stays as it is", () => {
   assert.deepEqual(placeOf("https://doltremoteapi.dolthub.com/owner/ledger"),

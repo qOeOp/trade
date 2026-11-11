@@ -1,16 +1,11 @@
 // Render the real main toolbar, Runs picker, stage actions and action group together. Only
 // unrelated widgets and command primitives are marked; no Paper or Live command is invoked.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule } from "node:vm";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import ts from "typescript";
+import { loader } from "./load.mjs";
 
-const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const paperRun = { paper_id: 777, candidate: "fixture-retest@1", state: "running", live: { final_equity_usdt: "9876.54" } };
 let shown, service, listing, stream, runsPage, liveRuns = [{ id: "fixture-live-run" }];
 const opened = [];
@@ -49,31 +44,9 @@ const fixtures = {
     RunHealth: ({ run }) => createElement("span", { "data-paper-health": run.paper_id }, "Paper running"),
   },
 };
-const modules = new Map();
-const fake = (id, exports) => {
-  if (!modules.has(id)) modules.set(id, new SyntheticModule(Object.keys(exports), function () {
-    for (const [key, value] of Object.entries(exports)) this.setExport(key, value);
-  }));
-  return modules.get(id);
-};
-const real = new Set(["shell/MainToolbar", "shell/toolbar/RunsWidget", "shell/toolbar/ToolbarActions", "components/ActionGroup"]);
-const load = (relative) => {
-  const path = resolve(src, `${relative}.tsx`);
-  if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText, { identifier: path }));
-  return modules.get(path);
-};
-const linker = async (name, from) => {
-  if (!name.startsWith(".")) return fake(name, await import(name));
-  const target = resolve(dirname(from.identifier), name), relative = target.slice(src.length + 1);
-  if (real.has(relative)) return load(relative);
-  assert.ok(fixtures[relative], `Unexpected toolbar dependency: ${relative}`);
-  return fake(target, fixtures[relative]);
-};
-const component = load("shell/MainToolbar");
-await component.link(linker);
-await component.evaluate();
+const graph = loader({ stubs: fixtures,
+  sources: ["shell/MainToolbar", "shell/toolbar/RunsWidget", "shell/toolbar/ToolbarActions", "components/ActionGroup"] });
+const { MainToolbar } = await graph.namespace("shell/MainToolbar.tsx");
 const render = (stage, { paper = true, paperService = "present", warning = false, retainedStream = true,
   onRuns = true, version = "selected-research@2", live = true } = {}) => {
   runsPage = onRuns;
@@ -82,7 +55,7 @@ const render = (stage, { paper = true, paperService = "present", warning = false
   stream = retainedStream ? { paperId: 777, readings: { final_equity_usdt: "8765.43" } } : null;
   shown = { stage, run: paper ? paperRun : null, chain: paper ? [paperRun] : [], version,
     trial: { trial_id: 321 }, liveRun: live ? { id: "fixture-live-run", candidate: "live-retest@3" } : null };
-  return renderToStaticMarkup(createElement(component.namespace.MainToolbar));
+  return renderToStaticMarkup(createElement(MainToolbar));
 };
 const noPaperReadout = (html) => assert.doesNotMatch(html, /9876|8765|42%|Equity|Return|data-paper-health|Paper running|data-paper-menu|data-action="(?:Stop|Delete) paper"/);
 const count = (html, pattern) => [...html.matchAll(pattern)].length;
@@ -163,8 +136,8 @@ test("non-Runs pages have no action group", () => {
 test("Live actions keep the exact selected run target and never dispatch a trading command", () => {
   render("live");
   opened.length = 0;
-  const { useRunActions } = load("shell/toolbar/RunsWidget").namespace;
-  const { ActionButton } = load("components/ActionGroup").namespace;
+  const { useRunActions } = graph.loaded("shell/toolbar/RunsWidget.tsx");
+  const { ActionButton } = graph.loaded("components/ActionGroup.tsx");
   const click = (element) => {
     if (!element || typeof element !== "object") return;
     if (element.type === ActionButton) element.props.onClick();

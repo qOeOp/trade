@@ -1,15 +1,9 @@
 // A new read that changed nothing must hand back the objects already drawn (lib/shared.ts): the page redraws by identity.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { SourceTextModule } from "node:vm";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const module = new SourceTextModule(ts.transpileModule(readFileSync(new URL("../src/lib/shared.ts", import.meta.url), "utf8"),
-  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText);
-await module.link(() => { throw new Error("shared.ts imports nothing"); });
-await module.evaluate();
-const { shared } = module.namespace;
+const { shared } = await namespace("lib/shared.ts", { sources: [], packages: [] });
 const copy = (x) => JSON.parse(JSON.stringify(x));
 
 test("an equal read is the last one itself", () => {

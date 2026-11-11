@@ -1,48 +1,29 @@
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule } from "node:vm";
 import * as React from "react";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
 // Render the actual action component with deterministic hook scheduling. DOM styling/portals are
 // outside this unit test; its real event handlers and useLiveAction pending refs are exercised.
 async function component(name, fixtures = {}) {
-  const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src"), modules = new Map(), slots = [];
+  const slots = [];
   let cursor = 0;
   const hooks = { ...React,
     useState(initial) { const at = cursor++; if (!(at in slots)) slots[at] = initial; return [slots[at], (value) => { slots[at] = value; }]; },
     useRef(initial) { const at = cursor++; if (!(at in slots)) slots[at] = { current: initial }; return slots[at]; },
     useEffect() {},
   };
-  const synthetic = (name, values) => {
-    if (!modules.has(name)) modules.set(name, new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }));
-    return modules.get(name);
-  };
-  const load = (path) => {
-    if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
-    }).outputText, { identifier: path }));
-    return modules.get(path);
-  };
-  const root = load(resolve(src, `components/${name}.tsx`));
-  await root.link(async (specifier, from) => {
-    if (specifier === "react") return synthetic(specifier, hooks);
-    if (specifier === "radix-ui") return synthetic(specifier, { Dialog: Object.fromEntries(["Root", "Portal", "Overlay", "Content", "Title", "Description", "Close"].map((key) => [key, `Dialog${key}`])), Collapsible: {} });
-    if (!specifier.startsWith(".")) return synthetic(specifier, await import(specifier));
-    const stem = resolve(dirname(from.identifier), specifier);
-    if (fixtures[stem.slice(src.length + 1)]) return synthetic(stem, fixtures[stem.slice(src.length + 1)]);
+  const exports = await namespace(`components/${name}.tsx`, { stubs: {
     // The wizard's workspace draft is the canvas form's; these dialogs run with none (and no browser globals).
-    if (stem === resolve(src, "state/liveWorkspace")) return synthetic(stem, {
-      FRESH_DRAFT: { version: null, step: 0, chosen: null, edits: {}, preparedId: null }, liveDraft: { get: () => null, set: () => {} }, useLiveDraft: () => null });
-    if (stem === resolve(src, "icons/Icon")) return synthetic(stem, { Icon: () => null });
-    if (stem === resolve(src, "components/IconButton")) return synthetic(stem, { IconButton: function IconButton() { return null; } });
-    return load([`${stem}.ts`, `${stem}.tsx`].find(existsSync));
-  });
-  await root.evaluate();
-  return (props) => { cursor = 0; return root.namespace[name](props); };
+    "state/liveWorkspace": {
+      FRESH_DRAFT: { version: null, step: 0, chosen: null, edits: {}, preparedId: null }, liveDraft: { get: () => null, set: () => {} }, useLiveDraft: () => null },
+    "icons/Icon": { Icon: () => null },
+    "components/IconButton": { IconButton: function IconButton() { return null; } },
+    ...fixtures,
+    react: hooks,
+    "radix-ui": { Dialog: Object.fromEntries(["Root", "Portal", "Overlay", "Content", "Title", "Description", "Close"].map((key) => [key, `Dialog${key}`])), Collapsible: {} },
+  } });
+  return (props) => { cursor = 0; return exports[name](props); };
 }
 const descendants = (node) => !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(descendants) : [node, ...descendants(node.props?.children), ...descendants(node.props?.footer)];
 const control = (tree, label) => descendants(tree).find((node) => ["FormButton", "TextButton"].includes(node.type?.name) && node.props.children === label);

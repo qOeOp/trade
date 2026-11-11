@@ -1,9 +1,8 @@
 // Exercise the actual live-page transport with deterministic HTTP/SSE interleavings and no ledger.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule, createContext } from "node:vm";
-import ts from "typescript";
+import { createContext } from "node:vm";
+import { namespace } from "./load.mjs";
 
 async function page(stored = null, views = []) {
   const requests = [], shown = [], notices = [], nexts = [], updates = [], timers = [], urls = [], kept = [];
@@ -16,28 +15,15 @@ async function page(stored = null, views = []) {
     fetch: (url) => new Promise((resolve) => requests.push({ url, resolve })),
     EventSource: class { constructor(url) { events = this; urls.push(url); streams++; this.closed = false; } close() { this.closed = true; streams--; } },
   });
-  const source = (path) => new SourceTextModule(ts.transpileModule(
-    readFileSync(new URL(path, import.meta.url), "utf8"),
-    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } },
-  ).outputText, { context });
-  const live = source("../src/live.ts");
-  await live.link((name) => {
-    if (name === "./lib/lines") return source("../src/lib/lines.ts");
-    if (name === "./state/researchLines") return new SyntheticModule(["readResearchLines", "researchLines"], function () {
-      this.setExport("readResearchLines", () => Promise.resolve());
-      this.setExport("researchLines", { get: () => ({ lines: [] }) });
-    }, { context });
-    if (name === "./lib/storage") return new SyntheticModule(["keep", "readKept"], function () {
-      this.setExport("keep", (kind, key, value) => { kept.push([kind, key, value.scope.ledger_commit, value.scope.drawn_commit]); return Promise.resolve(); });
-      this.setExport("readKept", () => Promise.resolve(stored));
-    }, { context });
-    assert.equal(name, "./state/update");
-    return new SyntheticModule(["update"], function () {
-      this.setExport("update", { set: (value) => updates.push(value) });
-    }, { context });
-  });
-  await live.evaluate();
-  live.namespace.follow((view) => { shown.push(view.scope.ledger_commit); views.push(view); }, (text, busy, choices, next) => { notices.push(text); nexts.push(next); });
+  const live = await namespace("live.ts", { context, sources: ["lib/lines"], packages: [], stubs: {
+    "state/researchLines": { readResearchLines: () => Promise.resolve(), researchLines: { get: () => ({ lines: [] }) } },
+    "lib/storage": {
+      keep: (kind, key, value) => { kept.push([kind, key, value.scope.ledger_commit, value.scope.drawn_commit]); return Promise.resolve(); },
+      readKept: () => Promise.resolve(stored),
+    },
+    "state/update": { update: { set: (value) => updates.push(value) } },
+  } });
+  live.follow((view) => { shown.push(view.scope.ledger_commit); views.push(view); }, (text, busy, choices, next) => { notices.push(text); nexts.push(next); });
   const flush = async () => {
     for (let i = 0; i < 12; i++) {
       await Promise.resolve();

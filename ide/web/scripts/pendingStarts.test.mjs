@@ -1,20 +1,17 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { SourceTextModule, createContext } from "node:vm";
+import { createContext } from "node:vm";
 import { test } from "node:test";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const source = ts.transpileModule(readFileSync(new URL("../src/lib/pendingStarts.ts", import.meta.url), "utf8"),
-  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 function storage() {
   const map = new Map();
   return { get length() { return map.size; }, key: (i) => [...map.keys()][i], getItem: (k) => map.get(k) ?? null,
     setItem: (k, v) => map.set(k, v), removeItem: (k) => map.delete(k) };
 }
-async function page(sessionStorage) {
+function page(sessionStorage) {
   let n = 0;
-  const mod = new SourceTextModule(source, { context: createContext({ window: { sessionStorage }, crypto: { randomUUID: () => `page-${++n}-${Math.random()}` } }) });
-  await mod.link(() => { throw Error("unexpected import"); }); await mod.evaluate(); return mod.namespace;
+  const context = createContext({ window: { sessionStorage }, crypto: { randomUUID: () => `page-${++n}-${Math.random()}` } });
+  return namespace("lib/pendingStarts.ts", { context, sources: [], packages: [] });
 }
 test("a lost response survives page reload and confirmation removes only its own pending command", async () => {
   const disk = storage(), first = await page(disk);

@@ -1,18 +1,10 @@
 // The market import's status-bar line (model/marketImport.ts), read from the status `market follow` writes:
 // the worst condition is named, in the order the healthcheck would fail, and skipped months are not one.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { SourceTextModule } from "node:vm";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const module = new SourceTextModule(ts.transpileModule(
-  readFileSync(new URL("../src/model/marketImport.ts", import.meta.url), "utf8"),
-  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } },
-).outputText);
-await module.link(() => { throw new Error("model/marketImport.ts imports nothing"); });
-await module.evaluate();
-const { position, rows, summary } = module.namespace;
+const { position, rows, summary } = await namespace("model/marketImport.ts", { sources: [], packages: [] });
 
 const AT = "2026-11-02T00:30:00+00:00";
 const caught = { state: "caught_up", rows: 0, commits: [] };

@@ -1,29 +1,13 @@
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule } from "node:vm";
+import { SourceTextModule } from "node:vm";
 import { createElement, Fragment } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Tooltip } from "radix-ui";
-import ts from "typescript";
+import { loader, src } from "./load.mjs";
 
-const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
-const modules = new Map();
 let canvasRun, canvasView, draft = null;
-const synthetic = (name, values) => {
-  if (!modules.has(name)) modules.set(name, new SyntheticModule(Object.keys(values), function () {
-    for (const [key, value] of Object.entries(values)) this.setExport(key, value);
-  }));
-  return modules.get(name);
-};
-function load(path) {
-  if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText, { identifier: path }));
-  return modules.get(path);
-}
 const components = new SourceTextModule(`
   export { LiveCredentialsDialog } from "./components/LiveCredentialsDialog";
   export { LiveLaunchWizard } from "./components/LiveLaunchWizard";
@@ -32,36 +16,29 @@ const components = new SourceTextModule(`
   export { LiveRunIdentity } from "./components/LiveRunIdentity";
   export { LiveRunCanvas } from "./widgets/live/LiveRunCanvas";
 `, { identifier: resolve(src, "live-component-test.ts") });
-await components.link(async (specifier, from) => {
-  if (!specifier.startsWith(".")) return synthetic(specifier, await import(specifier));
-  const stem = resolve(dirname(from.identifier), specifier);
-  const fixtures = {
-    "state/shown": { useShown: () => ({ liveRun: canvasRun, version: null, trial: null }) },
-    "state/liveTrading": { useLiveTrading: () => ({ view: canvasView ?? blank, actions: {} }) },
-    "state/liveWorkspace": { openLiveWizard: () => {}, openLiveRequests: () => {}, openLiveCredentials: () => {}, showLiveRun: () => {},
-      FRESH_DRAFT: { version: null, step: 0, chosen: null, edits: {}, preparedId: null },
-      liveDraft: { get: () => draft, set: (next) => { draft = next; } }, useLiveDraft: () => draft },
-    "state/paper": { usePaperRuns: () => null },
-    "state/atom": { useAtom: () => ({}) },
-    "state/timeZone": { useTimeZone: () => "UTC" },
-    "state/stage": { choices: {}, choiceOf: () => ({}) },
-    "widgets/runs/RunStages": { RunStages: () => null },
-    "widgets/live/LiveChart": { LiveChart: ({ run }) => createElement("div", null, `[chart of ${run.id}]`) },
-    "widgets/live/LiveSwitches": { LiveSwitches: ({ view }) => createElement("span", null, `[switch ${view}]`),
-      LiveEquity: ({ run }) => createElement("div", null, `[equity of ${run.id}]`) },
-    "widgets/paper/ChartSwitches": { GROUP: "" },
-  };
-  const fixture = fixtures[stem.slice(src.length + 1)];
-  if (fixture) return synthetic(stem, fixture);
-  if (stem === resolve(src, "icons/Icon")) return synthetic(stem, { Icon: () => null });
+await components.link(loader({ stubs: {
+  "state/shown": { useShown: () => ({ liveRun: canvasRun, version: null, trial: null }) },
+  "state/liveTrading": { useLiveTrading: () => ({ view: canvasView ?? blank, actions: {} }) },
+  "state/liveWorkspace": { openLiveWizard: () => {}, openLiveRequests: () => {}, openLiveCredentials: () => {}, showLiveRun: () => {},
+    FRESH_DRAFT: { version: null, step: 0, chosen: null, edits: {}, preparedId: null },
+    liveDraft: { get: () => draft, set: (next) => { draft = next; } }, useLiveDraft: () => draft },
+  "state/paper": { usePaperRuns: () => null },
+  "state/atom": { useAtom: () => ({}) },
+  "state/timeZone": { useTimeZone: () => "UTC" },
+  "state/stage": { choices: {}, choiceOf: () => ({}) },
+  "widgets/runs/RunStages": { RunStages: () => null },
+  "widgets/live/LiveChart": { LiveChart: ({ run }) => createElement("div", null, `[chart of ${run.id}]`) },
+  "widgets/live/LiveSwitches": { LiveSwitches: ({ view }) => createElement("span", null, `[switch ${view}]`),
+    LiveEquity: ({ run }) => createElement("div", null, `[equity of ${run.id}]`) },
+  "widgets/paper/ChartSwitches": { GROUP: "" },
+  "icons/Icon": { Icon: () => null },
   // SSR has no portal host. Inspect actual dialog contents; browser checks cover the Radix frame.
-  if (stem === resolve(src, "components/LiveDialogFrame")) return synthetic(stem, {
+  "components/LiveDialogFrame": {
     LiveDialogFrame: ({ open, title, description, children, footer, steps }) => open
       ? createElement(Fragment, null, "[dialog]", title, description, steps, children, footer) : null,
     LiveLaunchSteps: () => createElement("ol", { "aria-label": "New live run steps" }),
-  });
-  return load([`${stem}.ts`, `${stem}.tsx`].find(existsSync));
-});
+  },
+} }).link);
 await components.evaluate();
 // Inside the tooltip provider App mounts, as IconButton's tooltip needs one.
 const render = (name, props) => renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(components.namespace[name], props)));

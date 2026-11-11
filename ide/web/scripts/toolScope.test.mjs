@@ -1,29 +1,12 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { SourceTextModule, SyntheticModule } from "node:vm";
-import ts from "typescript";
+import { loader } from "./load.mjs";
 
 const storage = new Map();
 globalThis.window = { location: { search: "" }, localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) } };
-const modules = new Map();
-function load(path) {
-  if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-  }).outputText, { identifier: path }));
-  return modules.get(path);
-}
-const root = load(resolve(dirname(fileURLToPath(import.meta.url)), "../src/state/shell.ts"));
-await root.link(async (specifier, from) => {
-  if (specifier.startsWith(".")) return load(`${resolve(dirname(from.identifier), specifier)}.ts`);
-  const found = await import(specifier);
-  return new SyntheticModule(Object.keys(found), function () { for (const [key, value] of Object.entries(found)) this.setExport(key, value); });
-});
-await root.evaluate();
-const state = root.namespace;
-const { toolPage, bottomToolOnPage } = modules.get(resolve(dirname(fileURLToPath(import.meta.url)), "../src/model/toolScope.ts")).namespace;
+const { namespace, loaded } = loader();
+const state = await namespace("state/shell.ts");
+const { toolPage, bottomToolOnPage } = loaded("model/toolScope.ts");
 const visible = () => ["progress", "readings", "table", "gaps", "trades", "coins", "news", "unknown:future@1"]
   .filter((id) => bottomToolOnPage(id, toolPage(state.shell.get().last.left)));
 
@@ -72,7 +55,7 @@ test("the former Live destination selects the Live stage inside Runs with shared
   assert.deepEqual(visible(), ["trades"]);
   assert.equal(state.shell.get().open.bottom, "trades");
   assert.equal(state.shell.get().open.right, "inspector");
-  const stages = modules.get(resolve(dirname(fileURLToPath(import.meta.url)), "../src/state/stage.ts")).namespace;
+  const stages = loaded("state/stage.ts");
   assert.equal(stages.choiceOf(stages.choices.get(), null).stage, "live");
   state.toggleSide("bottom");
   state.toggleSide("bottom");
