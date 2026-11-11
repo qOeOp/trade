@@ -10,7 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261112-01 | 服务器研究镜像只在页面菜单 **Sync DoltHub** 被点时才从 DoltHub 拉取（`cli/replica.py` 只有 `POST /api/research/sync`），研究进行中服务器页面一直显示 `No line`、`Research lines · 0`，而本机与 DoltHub 已有线 `dow-theory-btc-eth`；用户先在页面上看到 | fix（控制器启动即同步，此后每 60 s 一次；按钮仍立即同步） | attach | unknown | in PR | 2026-11-12 | 2026-11-12 |
+| 20261112-01 | 服务器研究镜像只在页面菜单 **Sync DoltHub** 被点时才从 DoltHub 拉取（`cli/replica.py` 只有 `POST /api/research/sync`），研究进行中服务器页面一直显示 `No line`、`Research lines · 0`，而本机与 DoltHub 已有线 `dow-theory-btc-eth`；用户先在页面上看到 | fix（控制器启动即同步，此后每 60 s 一次；按钮仍立即同步） | attach | unknown | in PR [#2753](https://github.com/qOeOp/trade/pull/2753) | 2026-11-12 | 2026-11-12 |
 | 20261109-01 | 连续分不出差异到期时要求列出其他线；多线并行时那些线常由别的会话推进，用户每次都选继续（[线内换思路](https://github.com/qOeOp/trade/blob/ca91b2083/docs/plans/doctor/2026-11-09-due-stop-in-line.zh.md)） | skill | user（Behavior and decision evidence） | hours（b9df 一次等待约 5.5 h） | fixed 10fe80dfd [#2503](https://github.com/qOeOp/trade/pull/2503) | 2026-11-09 | 2026-11-11 |
 | 20261107-101 | 发布版形态：用户 11-07 定自托管单操作者；README、`AGENTS.md`、部署文档还没写明这个定位（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | fix（写明定位） | user（Product contracts and delivery） | unknown | fixed 961cf4d3f [#2240](https://github.com/qOeOp/trade/pull/2240) | 2026-11-07 | 2026-11-07 |
 | 20261107-102 | 公开仓库和镜像无 LICENSE、无第三方许可清单，Supply 字体无授权文件（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | authority + fix | doctor | unknown | fixed 13dd4e976 [#2624](https://github.com/qOeOp/trade/pull/2624) | 2026-11-07 | 2026-11-11 |
