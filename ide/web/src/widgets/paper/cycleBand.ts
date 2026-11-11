@@ -10,7 +10,7 @@ import { fixed, signed } from "../../lib/paperApi";
 import type { Cycle } from "../../model/backtest";
 import { orderType } from "../../model/trades";
 import type { Tip } from "./candleEvents";
-import { dated } from "./chartTheme";
+import { stamp } from "./chartTheme";
 import { STRIP } from "./eventFlags";
 import { spacing } from "./viewAnchor";
 
@@ -57,8 +57,8 @@ export class CycleBand implements ISeriesPrimitive<Time> {
     if (!p) return null;
     const { c } = p;
     return { x, y, title: `${c.long ? "Long" : "Short"} · ${signed(c.pnl ?? 0)}`, rows: [
-      { text: `Opened ${dated(c.opened, zone)}` },
-      { text: `Closed ${dated(c.closed, zone)}${c.type ? ` by ${orderType(c.type)}` : ""}` },
+      { text: `Opened ${stamp(c.opened, zone)}` },
+      { text: `Closed ${stamp(c.closed, zone)}${c.type ? ` by ${orderType(c.type)}` : ""}` },
       { text: `Fees ${fixed(c.fees, 2)} · funding ${signed(c.funding)}` },
       { text: "No prices stored for backtest cycles", faint: true },
     ] };

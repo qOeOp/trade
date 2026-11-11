@@ -9,7 +9,7 @@
 // last. Over the line, each stretch a chain of runs was offline or no run ran (downLook.ts), opaque the
 // pane's height, so nothing drawn from the series runs across it and the line simply stops either side of
 // it; only words (the notes' names, the stretches' names) and the closes' arrows draw over it.
-import { CEILING, BARS, DAY_S, FEW, dayBars, drawdownRows, frameOf, span, type DayBar, type Frame } from "./equityBands";
+import { DAY_S, FEW, dayBars, drawdownRows, frameOf, span, type DayBar, type Frame } from "./equityBands";
 import type { Restart } from "../../model/paper";
 import { downsOf, downTags, drawDown, tagged, widened, type Down, type DownLook } from "./downLook";
 import { xAt } from "./equityPlace";
@@ -22,7 +22,7 @@ import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Serie
 export type EquityPoint = { time: number; value: number; peak: number; pace: number | null; minute?: number; down?: boolean; stretch?: number; cut?: boolean; day?: boolean };
 export type EquityLook = { line: string; pace: string; knockout: string; knockoutWidth: number; haze: string; ahead: string; behind: string;
                            ceiling: string; held: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook };
-export { BARS, CEILING, FEW, type DayBar };
+export { FEW, type DayBar };
 const BLUR = 10, DROP = 6;  // px: the line's shadow's blur and how far down it falls
 /** How far (px) the line's knockout and shadow reach above and below it: the value axis keeps this much
  *  room inside the plot (equityApi.ts), so the plot's edge never cuts them. */

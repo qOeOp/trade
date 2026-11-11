@@ -27,7 +27,7 @@ export const phoneNow = () => narrow.get() && !desktopLayout.get();
 
 export type PhoneTab = "runs" | "market" | "research";
 /** A run's page over the Runs tab: a Live run by its id, a paper run by its number. */
-export type PhoneRun = { kind: "live"; id: string } | { kind: "paper"; id: number };
+type PhoneRun = { kind: "live"; id: string } | { kind: "paper"; id: number };
 
 const address = new URLSearchParams(window.location.search);
 const linked = (): PhoneRun | null => {
@@ -37,7 +37,7 @@ const linked = (): PhoneRun | null => {
 /** Runs when it opens; Research when the address names a line or asks for the lines. */
 export const phoneTab = atom<PhoneTab>(!linked() && (address.has("line") || window.location.hash === "#lines") ? "research" : "runs");
 /** The run page open, as the address names it (a Telegram message's link: ?live=<run id>). */
-export const phoneRun = atom<PhoneRun | null>(linked());
+const phoneRun = atom<PhoneRun | null>(linked());
 export const usePhoneRun = () => useAtom(phoneRun);
 
 let pushed = false;
@@ -74,8 +74,6 @@ type ViewStatus = { text: string; busy: boolean; choices?: { label: string; href
 export const viewStatus = atom<ViewStatus>({ text: "", busy: true });
 
 const keyboard = atom(false);
-export const useKeyboard = () => useAtom(keyboard);
-
 /** Marks the page a phone's, for the sizes of theme/tokens.css, while this shell shows, and keeps the page on the
  *  part of the screen an open keyboard leaves (Safari leaves the layout the screen's size and scrolls it instead). */
 export function usePhoneRoot(): void {

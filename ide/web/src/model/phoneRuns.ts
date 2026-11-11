@@ -11,7 +11,7 @@ export type Held = { key: string; symbol: string; long: boolean; qty: number; en
 export type Working = { key: string; symbol: string; buy: boolean | null; qty: number | null; type: string; trigger: number | null; price: number | null; reduceOnly: boolean };
 export type Fill = { ms: number; symbol: string; buy: boolean | null; qty: number | null; px: number | null };
 export type Money = { budget: number; equity: number | null; result: number | null; maxLoss: number | null; deepest: number; stopsAt: number | null };
-export type LiveStatus = { word: string; tone: "meets" | "misses" | "fail" | "masked" };
+type LiveStatus = { word: string; tone: "meets" | "misses" | "fail" | "masked" };
 
 const ENDED = new Set(["OrderFilled", "OrderCanceled", "OrderRejected", "OrderExpired", "OrderDenied"]);
 const ms = (ns: string | number | null | undefined) => (ns == null || ns === "" ? NaN : Number(ns) / 1e6);

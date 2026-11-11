@@ -13,7 +13,7 @@ type Opened = { item: SourceItem | undefined; parent: SourceItem | undefined; co
 
 /** The open version, its parent, and whether the change from the parent shows: the comparison is on
  *  and both sources are in the graph. */
-export function opened(widget: SourcesWidget | undefined, id: string, diff: boolean): Opened {
+function opened(widget: SourcesWidget | undefined, id: string, diff: boolean): Opened {
   const item = widget?.items.find((i) => i.id === id);
   const parent = item?.parent ? widget?.items.find((i) => i.id === item.parent) : undefined;
   return { item, parent, comparing: diff && item?.source != null && parent?.source != null };

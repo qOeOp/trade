@@ -10,7 +10,6 @@ import { useOverviewService } from "../state/market";
 import { useMarketImport } from "../state/marketImport";
 import { usePaperService } from "../state/paper";
 import { FormButton } from "./chat/Field";
-import { Sheet } from "./Sheet";
 
 const LINK = "text-fg underline decoration-line-strong underline-offset-3 hover:decoration-current";
 const External = ({ href, children }: { href: string; children: ReactNode }) =>
@@ -119,20 +118,5 @@ export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => v
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-}
-
-export function AboutSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  useRead(open);
-  return (
-    <Sheet open={open} onClose={onClose} title={TITLE}>
-      <div className="space-y-3 px-4 pb-[calc(16px+env(safe-area-inset-bottom))] pt-1">
-        <div>
-          <p aria-hidden className="text-ui font-semibold">{TITLE}</p>
-          <p className="text-dense text-fg-muted">{NOTE}</p>
-        </div>
-        <AboutBody />
-      </div>
-    </Sheet>
   );
 }

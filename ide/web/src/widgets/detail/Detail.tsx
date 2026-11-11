@@ -133,7 +133,7 @@ export function Detail({ widget }: { widget: DetailWidget }) {
   return market ? <MarketDetails /> : runs && stage === "live" ? <LiveRunDetails /> : <SelectedDetail widget={widget} />;
 }
 
-export function SelectedDetail({ widget }: { widget: DetailWidget }) {
+function SelectedDetail({ widget }: { widget: DetailWidget }) {
   const selected = useSelection();
   const { targets } = useView();
   const runsPage = useOnRunsPage(), { run } = useShown();
