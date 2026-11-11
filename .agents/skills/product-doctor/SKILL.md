@@ -18,7 +18,8 @@ research conclusions and experiment selection belong to `research-round`.
   (passwords) or fetch a running IDE's home page (paper token): `ledger review` gives the backup head.
 - AGENTS.md owns common authority and implementation boundaries; reference it rather than copying
   its rules. This skill additionally retains item-by-item user authority for stored-field changes.
-  Diagnosis grants no implementation authority.
+  Diagnosis grants no implementation authority, except an attach session's fixes
+  ([attach.md](references/attach.md#diagnoses)).
 - A full audit runs in a fresh session on a different host from the research session (Codex or
   Claude Code; [hosts.md](references/hosts.md) tells them apart by transcript path), so that it
   shares no context with the round and uses another model family. When the transcript to audit is
