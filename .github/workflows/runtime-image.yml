@@ -1,7 +1,7 @@
 name: runtime-image
 
 # The native replay image is built here, never on a workstation. A main build moves the `main`
-# tag (the current runtime); a pull request build gets a `pr-N` tag for exploration and
+# tag forward (the current runtime); a pull request build gets a `pr-N` tag for exploration and
 # engineering parity. Every image carries the commit it was built from in
 # org.opencontainers.image.revision.
 
@@ -29,8 +29,11 @@ on:
 permissions:
   contents: read
 
+# One group per main commit: a group holds one pending run, so a shared main group cancelled queued builds in a
+# burst of merges, and release-ready never admits a runtime whose commit has a cancelled run. The `main` tag moves
+# only forward (publish-platform-image.sh), so an older build finishing last does not move it back.
 concurrency:
-  group: runtime-image-${{ github.ref }}
+  group: runtime-image-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -84,7 +87,6 @@ jobs:
         id: names
         env:
           EVENT: ${{ github.event_name }}
-          REF: ${{ github.ref }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OWNER: ${{ github.repository_owner }}
           ARCH: ${{ matrix.arch }}
@@ -94,8 +96,6 @@ jobs:
           tags="$image:sha-$REVISION-$ARCH"
           if [ "$EVENT" = pull_request ]; then
             tags="$tags,$image:pr-$PR_NUMBER-$ARCH"
-          elif [ "$REF" = refs/heads/main ]; then
-            tags="$tags,$image:main-$ARCH"
           fi
           {
             echo "image=$image"
@@ -217,6 +217,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}  # compares commits before the main tag moves
         run: |
           REVISION="$(git rev-parse HEAD)"
           alias=''
