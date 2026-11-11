@@ -223,6 +223,31 @@ class ImportTests(unittest.TestCase):
         self.refused("UNKNOWN_REF", read.stored_bars, self.profile, "no-such-ref", "BTCUSDT", "LAST", "1m", *window,
                      None)
 
+    def test_an_export_is_renamed_into_place_whole_so_a_failure_or_a_second_writer_keeps_what_is_there(self):
+        start, end = ns(MAR), ns(date(2025, 3, 2))
+        root = Path(tempfile.mkdtemp(prefix="market-export-test-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        job = {"profile": self.profile, "commit": self.commits[MAR], "symbol": "BTCUSDT", "start_ns": start,
+               "end_ns": end, "path": str(root / "commit" / "key" / "BTCUSDT"), "include_quotes": False}
+        target = Path(job["path"])
+        first = export.export_episode(job)
+        held = {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
+        failing = patch.object(export, "write_funding", side_effect=RuntimeError("disk full"))
+        with failing, self.assertRaises(RuntimeError):
+            export.export_episode(job)
+        self.assertEqual({path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()},
+                         held, "a failed export leaves the directory it would have replaced")
+        write_funding = export.write_funding
+
+        def meanwhile(*args):  # a second process of the same key, which found no receipt a moment before
+            self.assertEqual(export.complete(target), first, "the first writer's export stays readable")
+            return write_funding(*args)
+
+        with patch.object(export, "write_funding", side_effect=meanwhile):
+            self.assertEqual(export.export_episode(job), first)
+        self.assertEqual(sorted(path.name for path in (root / "commit").iterdir()), ["key"], "no work directory is left")
+        self.assertEqual([path.name for path in (root / "commit" / "key").iterdir()], ["BTCUSDT"])
+
     def test_an_export_loads_whole_into_the_engine_stream(self):
         from engine import run
         from engine.load import read_market
