@@ -50,7 +50,10 @@ undistinguished does not mean no better) and keeps the control's contracts and i
 (hypothesis.md); say in one line that an approach needing more belongs to another line, never as
 an option. Draw on hypotheses other lines tested (as ideas for this line's source), recombined
 parts of different mechanisms and sources outside the ledger (`research-sources`,
-`video-evidence`), not only mechanism keywords. When the bottleneck is unclear (opportunities,
+`video-evidence`), not only mechanism keywords. A fusion merges a closed line's candidate rule,
+chosen where its `research history` holds up in years this line's candidate fails, into this
+line's source as one change; `rationale.local` names each part and those years, which never count
+toward its targets. When the bottleneck is unclear (opportunities,
 signal quality, costs or capital use), the first step tells the leading explanations apart. Each
 approach names its first experiment and control, the outcome that would change the next step,
 and what its source states apart from your own design.
