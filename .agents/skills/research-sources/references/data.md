@@ -1,5 +1,12 @@
 # Economic, positioning and crypto derivatives data
 
+## Contents
+
+- Point in time
+- FRED / ALFRED — economic, rate and liquidity series
+- CFTC Commitments of Traders — positioning in regulated crypto futures
+- Third-party crypto derivatives data: Coinalyze, CryptoHFTData
+
 ## Point in time
 
 Whatever a backtest or decision reads as of a past moment uses only what was published by then.
