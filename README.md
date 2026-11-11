@@ -19,8 +19,9 @@ Know these before you start:
 
 - **Your research can be public and permanent.** A deployment's ledger, and any ledger you give a DoltHub repository,
   publishes complete strategy source, results and judgments on every command that changes it. DoltHub history cannot
-  be taken back, and there is no private mode. Market data comes from Binance's public archives; their terms are yours
-  to check.
+  be taken back, and there is no private mode. Market data comes from Binance's public archives under non-commercial
+  terms, and a public ledger carries readings derived from it: [Licence and data
+  attribution](#licence-and-data-attribution).
 - **Binance must answer from your host.** It refuses some regions and hosting providers: see
   [What the market range costs](deploy/README.md#what-the-market-range-costs), which also gives the disk and memory measured.
 - **Paper trading needs no credential**: Binance public data and simulated fills. **Live trading (`live/`) is an
@@ -175,6 +176,23 @@ The documentation is published at [Trade 研究文档](https://qoeop.github.io/t
 Build the original Next.js/Fumadocs site locally with
 `npm ci --prefix docs-site && npm run build --prefix docs-site`; the static
 export is `docs-site/out`.
+
+## Licence and data attribution
+
+The code is under the MIT License ([`LICENSE`](LICENSE)); the components the images and the page carry keep their own
+licences ([`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)). The MIT License covers neither market data nor what is
+computed from it.
+
+Market data: [Binance Vision](https://data.binance.vision) historical archives, © Binance, under the [Binance
+Vision Dataset Terms](https://github.com/binance/binance-public-data/blob/master/TERMS_AND_CONDITIONS.md) v1.0 and
+the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+(CC BY-NC-SA 4.0), provided as is, without warranties. This product does not redistribute the archives: a market
+directory is downloaded by each deployment. It changes them only by converting them to Parquet and computing replays
+over them. The readings a ledger stores from those replays (metrics, report measures, cycles, daily returns, audit
+and eligibility verdicts) are derived from Binance Vision data: wherever a ledger is published, its DoltHub copy
+included, those readings are licensed under CC BY-NC-SA 4.0 with this attribution, as the terms' §4.5 requires. The
+terms also limit use to non-commercial purposes (§3.4, §4.1–4.4); checking that your use fits them is yours. This
+project is not affiliated with, sponsored or endorsed by Binance.
 
 ## Repository map
 

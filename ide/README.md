@@ -171,13 +171,13 @@ type; a changed widget is a new version of its type.
 ## Renderer
 
 The page reads nothing but the view model. `research_graph/render.py` serves a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
-primitives, TanStack Table, visx, cmdk, CodeMirror; PP Supply Mono from `web/fonts/` for every Latin letter and digit, Inter's Latin subset for the few symbols it lacks,
+primitives, TanStack Table, visx, cmdk, CodeMirror; Geist Mono from `web/fonts/` (SIL Open Font License) for every Latin letter and digit, Inter's Latin subset for the few symbols it lacks,
 HarmonyOS Sans SC for Chinese, whose unicode-range slices load from jsDelivr only for the characters on screen
 (offline, Chinese falls back to the system face); its own npm
 toolchain), laid out like an IntelliJ IDE with the Islands theme: regions are rounded islands 4px apart on the
 window frame, following the design rules in
 [`docs/plans/research-graph-design-spec.zh.md`](../docs/plans/research-graph-design-spec.zh.md): warm low-chroma
-OKLCH neutrals, two heading sizes (18px for the version name, 16px for card groups) in weight 600, one monospace face (Supply) for
+OKLCH neutrals, two heading sizes (18px for the version name, 16px for card groups) in weight 600, one monospace face (Geist Mono) for
 letters and digits alike, so a reading's digits, point and % share a height, one shadow for popups, a blue ring for
 keyboard focus, and short ease-out motion on hover and tooltips only. The lineage is one figure on the trial axis at a fixed scale: a
 canvas that pans but never zooms and only as far as its content (the first drawn version follows the shared
