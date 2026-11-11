@@ -256,6 +256,25 @@ class RestartTests(unittest.TestCase):
             daemon.start.assert_not_called()
             self.assertEqual(daemon.recovery_failures[1]["code"], "PAPER_RECOVERY_UNAVAILABLE")
 
+    def test_the_runs_listing_carries_a_failed_recovery_on_ended_and_unsealed_runs_only(self):
+        """The release tick's probe reads `recovery: {code, message}` from /api/paper/runs (#2628)."""
+        failure = {"code": "PAPER_RECOVERY_UNAVAILABLE", "message": "journal has a tail"}
+        daemon = self.daemon(Path("/nonexistent"))
+        daemon.stopping, daemon.starting, daemon.journals, daemon.listed = set(), set(), {}, None
+        daemon.recovery_failures = {paper_id: failure for paper_id in (1, 2, 3, 4)}
+        daemon.journal = mock.Mock()
+        listed = {"runs": [{"paper_id": 1, "state": "ended"}, {"paper_id": 2, "state": "unsealed"},
+                           {"paper_id": 3, "state": "running"}, {"paper_id": 4, "state": "sealed"}]}
+        with tempfile.TemporaryDirectory() as name, \
+                mock.patch.object(runs, "listing", return_value=listed), \
+                mock.patch.object(runs, "run_dir", return_value=Path(name)), \
+                mock.patch.object(serve, "live_readings", side_effect=lambda row, journal: {}):
+            found = {run["paper_id"]: run for run in serve.Daemon._runs(daemon)["runs"]}
+        self.assertEqual(found[1]["recovery"], failure)
+        self.assertEqual(found[2]["recovery"], failure)
+        self.assertNotIn("recovery", found[3], "a running run has recovered")
+        self.assertNotIn("recovery", found[4], "a sealed run is done")
+
     def test_only_a_pause_or_a_missing_summary_resumes_every_other_end_seals(self):
         """A runner refusal (TERMS_CHANGED, a breach, a failed restore) or a node that stopped on its own leaves a
         dirty checkpoint that resume refuses; sealing captures its recovery originals instead of retrying forever."""
