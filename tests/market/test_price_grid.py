@@ -2,6 +2,7 @@
 one commit, one of them holding a minute off the terms' tick, trade on one grid."""
 
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 import tempfile
 import unittest
@@ -31,6 +32,7 @@ class PriceGridTests(unittest.TestCase):
                       terms=[("BTCUSDT", {"price_increment": "0.10", "size_increment": "0.001"})],
                       bars={("BTCUSDT", "LAST"): columns,
                             ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(len(times), np.int64)}},
+                      funding={"BTCUSDT": [(START + 8 * 3_600_000 * i, Decimal("0.0001")) for i in range(6)]},
                       members=[(JAN, "BTCUSDT")])
         with tempfile.TemporaryDirectory() as temp:
             found = {}

@@ -149,6 +149,18 @@ def price_grid(market: files.Market, commit: str, symbol: str, increment: str) -
     return places, grid
 
 
+def require_funding_files(market: files.Market, symbol: str, opens: np.ndarray) -> None:
+    """Every month holding one of the window's LAST bars has its funding file: without it Nautilus would replay that
+    month without a single settlement and no check would see it (FUNDING_FILE_MISSING)."""
+    months = sorted({series._ms_day(int(day) * DAY).replace(day=1) for day in np.unique(np.asarray(opens) // DAY)})
+    held = {entry.relative for entry in files.entries(market, "funding")}
+    absent = [files.relative_path("funding", month) for month in months
+              if files.relative_path("funding", month) not in held]
+    if absent:
+        raise _refuse(f"{symbol}: the market holds bars but no funding file in {', '.join(absent)}",
+                      "FUNDING_FILE_MISSING", missing=tuple(absent))
+
+
 def _exact(values: np.ndarray, scale: int, precision: int) -> bool:
     return precision >= scale or not len(values) or not np.any(values % 10 ** (scale - precision))
 
@@ -497,6 +509,7 @@ def _export_episode(job: dict, path: Path) -> dict:
     raw = {"last": coverage.read_bars(market, commit, symbol, "LAST", start, end),
            "mark": coverage.read_bars(market, commit, symbol, "MARK", start, end),
            "funding": coverage.read_funding(market, commit, symbol, start, end)}
+    require_funding_files(market, symbol, raw["last"]["ts_open"])
     facts = coverage.coverage_facts(market, commit, symbol, start, end, raw["last"], raw["mark"], raw["funding"])
     split = split_episodes(symbol, job.get("episodes"), raw, start_ns, end_ns)
     # Every complete UTC day before the window's end, inside the piece: a contract listed late starts

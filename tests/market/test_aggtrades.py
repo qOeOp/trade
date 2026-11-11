@@ -3,7 +3,7 @@ read them. No active market or real network."""
 
 from collections import Counter
 from datetime import UTC, date, datetime
-from decimal import localcontext
+from decimal import Decimal, localcontext
 import hashlib
 import io
 import json
@@ -148,6 +148,7 @@ def bars_market(cleanup, size='0.001') -> dict:
     seed(profile, month='2025-01', through='2025-02-01',
          terms=[('BTCUSDT', {'price_increment': '0.01', 'size_increment': size})],
          bars={('BTCUSDT', 'LAST'): columns, ('BTCUSDT', 'MARK'): {**columns, 'volume': np.zeros(count, np.int64)}},
+         funding={'BTCUSDT': [(START + 8 * 3_600_000 * i, Decimal('0.0001')) for i in range(31 * 3)]},
          members=[(date(2025, 2, 1), 'BTCUSDT')])  # January's last day waits for them
     return profile
 

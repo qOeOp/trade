@@ -763,6 +763,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                       ("Report the contract named; the market is inconsistent.",)),
     "MARK_INEXACT": ("A mark price is not exact at the precision it is written with.",
                      ("Report the contract named; the exporter never rounds.",)),
+    "FUNDING_FILE_MISSING": ("A month holding the window's bars has no funding file, so the replay would settle no "
+                             "funding in it.",
+                             ("Re-import the month named with `market import`; a funding file is never optional.",)),
     "FUNDING_UNSORTED": ("A contract's funding settlement times are not strictly increasing.",
                          ("Report the contract named; the market is inconsistent.",)),
     "FUNDING_RATE_SHAPE": ("A funding rate is not a finite decimal.",

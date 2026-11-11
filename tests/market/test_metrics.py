@@ -111,6 +111,7 @@ class ImportTests(unittest.TestCase):
         seed(profile, month="2025-01", through="2025-02-01",
              terms=[("BTCUSDT", {"price_increment": "0.01", "size_increment": "0.001"})],
              bars={("BTCUSDT", "LAST"): columns, ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(2880, np.int64)}},
+             funding={"BTCUSDT": [(START - store.DAY + 8 * 3_600_000 * i, Decimal("0.0001")) for i in range(6)]},
              members=[(JAN, "BTCUSDT")])
         return profile
 
