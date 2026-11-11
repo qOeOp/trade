@@ -44,7 +44,10 @@ input checks inside an existing line); this is not a new session.
 
 Precheck the published source on the shortest window and fewest contracts the change needs. A
 fresh reviewer with no authoring context receives only the candidate id, sealed precheck bundle,
-verified report cache (`replay report`) and api/causal/activity/readiness items. Its brief says it
+the verified report cache cut to its technical part (`replay report --trial-id P --directory D | jq
+'{stages, outcome, runtime_failures, trade_start: .summary.trade_start_by_strategy, audit: (.audit |
+del(.native_economics)), orders: .reports.orders, order_events: .reports.order_events}'`: no item
+reads returns, fees or PnL) and api/causal/activity/readiness items. Its brief says it
 reads no host or session memory, which carries earlier sessions' conclusions. It keeps the review
 bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
 after a repair (Codex: `fork_turns: "none"`). Api, causal and readiness are source properties,
