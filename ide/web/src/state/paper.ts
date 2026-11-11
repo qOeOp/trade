@@ -11,7 +11,7 @@ import { atom, useAtom } from "./atom";
 import { phoneNow } from "./phone";
 import { showRunsPage } from "./shell";
 import { chooseRun, pickWanted } from "./stage";
-import { confirmStart, pendingStart, unconfirmedStarts, unsettled, type Scope } from "../lib/pendingStarts";
+import { confirmStart, pendingStart, unconfirmedStarts, unsettled, type PendingStart, type Scope } from "../lib/pendingStarts";
 import { sessionRequired } from "./session";
 
 const POLL_MS = 3000, PHONE_POLL_MS = 15_000;
@@ -100,12 +100,15 @@ export async function detectPaperService(): Promise<void> {
     return;
   }
   await poll();
-  if (paperService.get() === "present") {
-    await Promise.all(unconfirmedStarts().map((p) => startPaper(p.candidate, p.scope)));
-  }
+  if (paperService.get() === "present") await Promise.all(unconfirmedStarts().map(checkStart));
   whileVisible(() => void poll(), phoneNow() ? PHONE_POLL_MS : POLL_MS);
 }
 
+async function checkStart(p: PendingStart): Promise<void> { // an earlier page's unanswered start, never resent
+  const prior = await paperApi<{ run: unknown }>(`/starts?op_id=${encodeURIComponent(p.op_id)}`).catch(() => null);
+  if (prior?.run) confirmStart(p.op_id);
+  else if (prior) say(`Paper start not confirmed · ${p.candidate} · start it again if no run appears`, true);
+}
 /** The version's run that has not been sealed yet, if any (one per version at a time). */
 export const activeRun = (listing: Listing | null, candidate: string) =>
   listing?.runs.find((r) => r.candidate === candidate && ACTIVE.has(r.state));

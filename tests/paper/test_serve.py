@@ -86,8 +86,22 @@ class GateTests(unittest.TestCase):
                                                        write_status="not_written")
                 with mock.patch("sys.stderr", new_callable=io.StringIO) as logged:
                     answer = request(self.port, "POST", "/api/paper/runs", b'{"candidate": "a@1"}', **json_body)
-                self.assertEqual(answer, (status, {"code": code, "message": "4 paper runs are running; stop one first"}))
+                self.assertEqual(answer, (status, {"code": code, "message": "4 paper runs are running; stop one first",
+                                                   "missing": [], "write_status": "not_written"}))
                 self.assertIn(f"{status} {code}: 4 paper runs are running", logged.getvalue())
+
+    def test_a_start_that_failed_after_its_declaration_says_what_it_wrote(self):
+        """The command line's refusal reaches the page whole: PAPER_START_FAILED was written and names its capture."""
+        daemon = serve.Daemon.__new__(serve.Daemon)
+        daemon.ledger, daemon.product = None, Path(".")
+        printed = Refusal("PAPER_START_FAILED", "paper run 7 did not start and was sealed with START_FAILED",
+                          missing=("paper-7-capture",), write_status="written").as_dict()
+        done = subprocess.CompletedProcess([], 1, stdout="", stderr=json.dumps(printed))
+        with mock.patch.object(serve.subprocess, "run", return_value=done), self.assertRaises(serve.Failure) as caught:
+            daemon.cli("start", "--candidate", "a@1")
+        self.assertEqual((caught.exception.status, caught.exception.body), (409, {
+            "code": "PAPER_START_FAILED", "message": "paper run 7 did not start and was sealed with START_FAILED",
+            "missing": ["paper-7-capture"], "write_status": "written"}))
 
     def test_a_resumed_stream_names_all_three_parameters_as_integers(self):
         for query in ("lines=3", "lines=3&last=1&bars=x", "lines=-1&last=1&bars=0"):
