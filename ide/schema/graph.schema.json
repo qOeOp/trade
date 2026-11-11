@@ -184,6 +184,12 @@
                     "null"
                   ]
                 },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "outcome": {
                   "enum": [
                     "held",

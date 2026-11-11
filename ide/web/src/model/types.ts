@@ -25,7 +25,7 @@ export type Candidate = {
   change?: string | null;
   duties?: string[] | null;
   hypothesis?: string | null;
-  predictions?: { measure?: string | null; direction?: string | null; outcome?: string | null }[] | null;
+  predictions?: { measure?: string | null; direction?: string | null; reason?: string | null; outcome?: string | null }[] | null;
   registration?: string | null;
   trials?: Trial[] | null;
   comparison?: {
