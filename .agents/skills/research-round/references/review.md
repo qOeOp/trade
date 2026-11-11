@@ -12,7 +12,10 @@ identity are history, never ranked against it. Compare them all; `candidates` se
 names every candidate in it. Its body weighs the recommended version and each comparable candidate whose evidence
 or availability changed since the previous recommendation (every one at the first) on return, drawdown, Sharpe, win rate,
 costs, exposure, profit mechanism and uncertainty using replay report, and cites the previous
-recommendation for the rest instead of restating it. State trade-offs and retained references; unavailable measures
+recommendation for the rest instead of restating it. Among versions that differ only in constants
+and that their comparisons leave undistinguished, recommend one whose neighbours on each changed
+constant also hold up, not the highest reading, and give the neighbours' range of Sharpe and annual
+return beside it. State trade-offs and retained references; unavailable measures
 keep their reasons, and invalid or diagnostic-only runs stay separate and are not recommended.
 
 The table's non_dominated set is neither eligibility nor a ranking or gate.
