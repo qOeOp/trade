@@ -95,7 +95,10 @@
 ### R2 Live 只跑研究候选本身
 
 - Live 只接受新账本里某个候选的确切源码哈希，删除改写版路径（`strategy_file`/`strategy_class`、`origin_candidate` 与 `source` 之分）和保留的旧类身份（`engine/live_source.py:241-243`）。
-- Live 预检要求证据：同一源码在 Live 将用的镜像、品种和接近钱包的起始资金下，有一份已封存的回放，或者原证据在该镜像上复现成功。
+- Live 预检要求证据：同一源码在接近钱包的起始资金和 Live 的品种下，有一份已封存的回放，或者原证据复现成功。拆镜像后（`replay-image-20261111.zh.md`）证据和 Live 不在同一个镜像上：
+  - Live 跑执行镜像（`trade-runtime:exec-*`）的摘要，证据回放用回放镜像（`trade-runtime:main` 等）。
+  - 两者"同一份回放代码"的判据：执行镜像 `--describe` 报出的 `source_files_sha256`、`audit_source_sha256`、`dependency_lock_sha256` 与证据运行的回放镜像逐项相等。执行镜像照抄回放镜像的构建步骤（`tests/runtime/test_replay_closure.py`），所以同一提交构建的两者总是相等。
+  - 不相等时，先在与执行镜像回放代码相同的回放镜像上复现证据，再允许 Live。
 - Live 证据用 `bars` 环境，与 Paper 一致；`quotes` 环境的结果是成交敏感性分析，不替代它。
 - Binance 不支持订单列表，所以括号单这类写法在研究里就被 R1.4 拒绝，不再有"研究完再改写"。
 
