@@ -4,7 +4,8 @@ Private files under LIVE_ROOT/notify (0700), written only by the control and its
 - telegram.json (0600): the bot token and the one private chat it is bound to. Saved only with its chat.
 - state.json (0600): what has been sent, so a restart or a second control never resends.
 - lock: one sender per tick; the settings commands wait up to WAIT seconds for it.
-No read route returns the token, and it never reaches a log, argv, env or exception text.
+No read route returns the token, and it never reaches a log, argv, env or exception text. The call and the
+settings read are deploy/telegram.py, which the host's release tick shares for its failure notices.
 docs/plans/live-telegram-notify-20261110.zh.md records the decision.
 """
 
@@ -15,26 +16,22 @@ from contextlib import contextmanager
 import copy
 from datetime import datetime, timezone
 import fcntl
-import json
 import os
 from pathlib import Path
 import re
 import secrets
 import stat
 import time
-import urllib.error
-import urllib.request
 
+from deploy.telegram import TOKEN, Failure, settings as saved_settings, telegram
 from live import configuration, runs, state, views
 
 
 ACTIONS = frozenset({"notify_save", "notify_test", "notify_remove"})
-TOKEN = re.compile(r"[0-9]{1,20}:[A-Za-z0-9_-]{20,100}\Z")
 REASON = re.compile(r"[A-Za-z0-9_.:-]{1,64}\Z")
 FORMAT = "live-notify-v1"
 FRESH: dict = {"format": FORMAT, "done": [], "attempts": {}, "closed": [], "last_sent_ns": None,
                "last_error": None, "dropped": 0}
-TIMEOUT = 10
 BACKOFF_NS = 10 * 10**9  # doubles per failure up to MAX_BACKOFF_NS; only a refused message (4xx but 429) is dropped
 MAX_BACKOFF_NS = 300 * 10**9
 MAX_PER_TICK = 5
@@ -46,33 +43,7 @@ NAMES = {"clean_stopped": "stopped flat", "reconciled_flat": "reconciled flat", 
 DAY_NS = 86_400 * 10**9
 
 
-class Failure(Exception):
-    """A Telegram call that did not succeed: only an HTTP status class or `network`, never the URL."""
-
-    def __init__(self, code: str, status: int | None = None):
-        super().__init__(code)
-        self.code, self.status = code, status
-
-
 Call = Callable[[str, str, dict], dict]
-
-
-def telegram(token: str, method: str, payload: dict) -> dict:
-    request = urllib.request.Request(f"https://api.telegram.org/bot{token}/{method}",
-                                     data=json.dumps(payload).encode(), method="POST",
-                                     headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-            value = json.loads(response.read(1 << 20))
-    except urllib.error.HTTPError as exc:
-        status = exc.code
-        exc.close()
-        raise Failure(f"http_{status // 100}xx", status) from None
-    except Exception:  # URLError, timeouts, http.client protocol errors and unreadable bodies
-        raise Failure("network") from None
-    if not isinstance(value, dict) or value.get("ok") is not True:
-        raise Failure("response")
-    return value
 
 
 def _store():
@@ -123,18 +94,13 @@ def _locked(directory: Path, *, wait: float = 0):
 
 
 def _settings(directory: Path) -> tuple[str, int]:
-    path = directory / "telegram.json"
-    if not _private(path, stat.S_IFREG):
-        raise state.fail("LIVE_NOTIFY_UNCONFIGURED", "no Telegram bot token is saved")
     try:
-        value = state.read(path)
-    except Exception:
+        found = saved_settings(directory)
+    except ValueError:
         raise _store() from None
-    token, chat = value.get("bot_token"), value.get("chat_id")
-    if set(value) != {"bot_token", "chat_id"} or not isinstance(token, str) or not TOKEN.fullmatch(token) \
-            or type(chat) is not int:
-        raise _store()
-    return token, chat
+    if found is None:
+        raise state.fail("LIVE_NOTIFY_UNCONFIGURED", "no Telegram bot token is saved")
+    return found
 
 
 def _load(directory: Path) -> dict:

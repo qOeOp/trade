@@ -131,6 +131,11 @@ its token. The control binds the one private chat that messaged the bot and keep
 `LIVE_ROOT/notify/telegram.json` (0600); it then sends run starts and ends, fills, runs needing attention and a
 daily summary at the first check after 00:00 UTC, from the control container to `api.telegram.org` over the backend
 network. `LIVE_ROOT/notify/state.json` records what was sent, so a restart or a second control does not resend.
+The release tick sends to the same chat, from the host, what fails outside Live: a tick that failed, a Paper run
+that stopped and could not resume, and a research ledger whose publish has failed for 30 minutes or whose origin
+history changed elsewhere (read through the routed Web). Each is sent once while it lasts and again only after it
+cleared; `/var/lib/trade-release/notices.json` records what was sent. It reads the token file named by the Live
+declaration's `root`; without Live or a saved token nothing is sent.
 
 The page remains a controller: closing it does not stop a strategy. **Request stop** remains available
 while a start response is pending or observations cannot refresh. Wait for native terminal evidence and
@@ -367,7 +372,7 @@ importing mixed versions. Do not terminate the release
 service or any strategy to make installation proceed.
 
 Stage the reviewed `deploy/__init__.py`, `release.py`, `release_host.py`, `runtime_inputs.py`,
-`live_host.py`, `live_configuration.py`, `paper_host.py` and `paper_release.py` as one complete directory, root-owned with module
+`live_host.py`, `live_configuration.py`, `paper_host.py`, `paper_release.py` and `telegram.py` as one complete directory, root-owned with module
 mode 0644. Inventory and preserve the installed `remote/` compose files and every other reviewed asset;
 retain the original directory intact. Use an atomic directory exchange on the same filesystem so an
 interruption cannot leave a mixture of module versions. Do not execute deployment code from a fetched

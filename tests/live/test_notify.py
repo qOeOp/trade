@@ -5,7 +5,6 @@ Every Telegram call is injected; no test reaches the network.
 
 from datetime import datetime, timezone
 import fcntl
-import http.client
 import json
 import os
 from pathlib import Path
@@ -113,24 +112,6 @@ class Settings(Base):
         result = notify.execute(self.config, "notify_remove", {}, call=Telegram())
         self.assertEqual(result, {"configured": False, "last_sent_ns": None, "last_error": None, "dropped": 0})
         self.assertEqual(sorted(path.name for path in (self.root / "notify").iterdir()), ["lock"])
-
-    def test_telegram_failure_names_only_a_status_class_or_network(self):
-        error = notify.urllib.error.HTTPError("https://api.telegram.org/bot" + TOKEN, 401, "Unauthorized", {}, None)
-        with patch.object(notify.urllib.request, "urlopen", side_effect=error):
-            with self.assertRaises(notify.Failure) as caught:
-                notify.telegram(TOKEN, "sendMessage", {})
-        self.assertEqual((caught.exception.code, caught.exception.status), ("http_4xx", 401))
-        self.assertIsNone(caught.exception.__cause__)
-        self.assertTrue(caught.exception.__suppress_context__)
-        with patch.object(notify.urllib.request, "urlopen", side_effect=notify.urllib.error.URLError("x")):
-            with self.assertRaises(notify.Failure) as caught:
-                notify.telegram(TOKEN, "sendMessage", {})
-        self.assertEqual(caught.exception.code, "network")
-        self.assertNotIn(TOKEN, repr(caught.exception))
-        with patch.object(notify.urllib.request, "urlopen", side_effect=http.client.IncompleteRead(b"")):
-            with self.assertRaises(notify.Failure) as caught:
-                notify.telegram(TOKEN, "sendMessage", {})
-        self.assertEqual(caught.exception.code, "network")
 
     def test_a_settings_command_waits_for_a_sending_control_then_refuses_as_busy(self):
         notify.execute(self.config, "notify_save", {"bot_token": TOKEN}, call=Telegram([private_update(7)]))
