@@ -16,7 +16,8 @@ and when `research unchanged` says the new head gives that line the same graph, 
 instead of being drawn. A page may also name the graph its browser kept (`have`, with the `build` that drew it), and
 is then told `unchanged` instead of having one drawn; every other answer goes the same way as without it.
 Up to 16 trials' reports, 64 versions' comparisons and 16 contracts' daily bars stay in memory, keyed by what they were read for,
-and `research history` (`/api/history`, the closing history tests of every line, at the head or `at`) for the last 4 commits.
+and `research history` (`/api/history`, the closing history tests of every line, at the head or `at`) for the last 4 commits,
+and the lines with their recommendations (`line list --readings`, `/api/readings`, the phone's Research tab) for the last 4 commits.
 Nothing is written anywhere.
 
 With an agent URL (the trade IDE's chat service, `ide/agent`), requests under `/api/agent/`
@@ -85,6 +86,7 @@ BARS = 16
 COMPARISONS = 64
 COUNTS = 16
 HISTORIES = 4
+READINGS = 4
 BUNDLE = re.compile(r"[A-Za-z0-9._@-]{1,200}")  # a registration bundle
 LINE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")  # a research line's name (ledger.lines.SLUG)
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}")  # a Binance symbol such as BTCUSDT
@@ -170,6 +172,10 @@ class Product:
         """Every line's closing history test (the History page's heatmap), as `research history` reads it."""
         return self.run("research", "history", f"--ledger={self.ledger}", f"--at={commit}")
 
+    def readings(self, commit: str) -> dict:
+        """Every line with its recommendation as its graph's summary reads it, without drawing a graph (the phone)."""
+        return self.run("line", "list", "--all", "--readings", f"--ledger={self.ledger}", f"--at={commit}")
+
     def graph(self, commit: str, line: str | None, since: str | None) -> dict:
         options = [f"--line={line}"] if line else []
         options += [f"--since={since}"] if since else []
@@ -234,6 +240,7 @@ class Hub:
         self.product, self.build, self.poll, self.mirror, self.version = product, build, poll, mirror, version
         self.line_index = Pinned[str](product.lines)
         self.history = Pinned[str](product.history, HISTORIES)
+        self.readings = Pinned[str](product.readings, READINGS)
         self.trials = Pinned[tuple[int, str]](lambda key: product.trial(*key), TRIALS)
         self.bars = Pinned[tuple[str, str, str, str]](lambda key: product.bars(*key), BARS)
         self.comparisons = Pinned[tuple[str, int, str]](lambda key: product.comparison(*key), COMPARISONS)
@@ -502,27 +509,6 @@ class Hub:
                 return 200, self.views[available].view
             return 202, self.state(key, at is None, have)
 
-    def readings(self, line: str | None = None) -> dict:
-        """Each line's recommendation as its newest drawn graph says it, by line name, from the cached views only;
-        `line`, when named and not drawn at the head, is asked for, so a later read has it. The summary's numbers
-        are the layout's reading of the whole graph, so they come from a draw, never from a second derivation."""
-        if line is not None:
-            with self.lock:
-                if self.head is not None:
-                    key = self.key(self.head, line, None)
-                    self._want_for(key, False, None)
-                    self._notify()
-        found: dict[str, dict] = {}
-        with self.lock:
-            for key, cached in self.views.items():  # completion order: a newer graph of a line replaces an older
-                summary = next((w for w in cached.view.get("widgets", []) if w.get("type") == "summary"), None)
-                bundle = (cached.view.get("line") or {}).get("bundle")
-                if cached.live and key[4] is None and summary is not None and bundle:
-                    found[bundle] = {"ledger_commit": key[2]} | {name: summary.get(name) for name in (
-                        "recommended", "reading", "targets", "recommendations", "runs_since_recommendation_changed",
-                        "research_runs", "versions")}
-        return {"lines": found}
-
     def join(self, client: Client) -> None:
         with self.lock:
             self.clients.append(client)
@@ -757,17 +743,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             if url.path == "/api/about":
                 self.about()
                 return
-            if url.path == "/api/readings":
-                line = query.get("line")
-                if line is not None and not LINE.fullmatch(line):
-                    self.json(400, _failure("BAD_REQUEST", "line is a research line's name"))
-                    return
-                self.json(200, hub.readings(line))
-                return
             if url.path == "/api/market-import" and status is not None:
                 self.json(*market_import(status, datetime.now(UTC)))
                 return
-            if url.path not in ("/api/view", "/api/events", "/api/lines", "/api/history"):
+            if url.path not in ("/api/view", "/api/events", "/api/lines", "/api/history", "/api/readings"):
                 self.json(404, _failure("NOT_FOUND", url.path))
                 return
             line = query.get("line")
@@ -776,10 +755,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             have = kept if COMMIT.fullmatch(kept) and query.get("build") == hub.build and line and not {"since", "at"} & query.keys() else None
             try:
                 since, at = hub.resolve(query.get("since"), query.get("at"))
-                if url.path in ("/api/lines", "/api/history"):
+                if url.path in ("/api/lines", "/api/history", "/api/readings"):
                     with hub.lock:
                         commit = at or hub.head
-                    pinned = hub.line_index if url.path == "/api/lines" else hub.history
+                    pinned = {"/api/lines": hub.line_index, "/api/history": hub.history, "/api/readings": hub.readings}[url.path]
                     self.json(200, pinned.get(commit or hub.product.commit()))
                     return
             except ProductError as exc:

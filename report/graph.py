@@ -100,15 +100,75 @@ def _candidate_rows(conn: db.LedgerConnection) -> list[dict]:
     return conn.dicts(f"SELECT {report_candidates.CANDIDATE_COLUMNS} FROM {report_candidates.CANDIDATES}")
 
 
-def line_list(profile, at: str | None = None, every: bool = False) -> dict:
+def _run_reading(conn: db.LedgerConnection, trial_id: int, checker: Mapping, records: list,
+                 run: Mapping | Refusal) -> tuple[dict, dict | None]:
+    """A sealed research run as the graph draws it: whether it is eligible (availability), its four measures when it
+    is (else why not) and the source check availability read, from its metrics.load_runs entry `run`."""
+    reading: dict = {"eligible": None, "ineligible_reason": None}
+    value = report_candidates.assess_listed(conn, trial_id, checker, records, run)
+    reading["eligible"] = bool(value["economic_evidence_available"])
+    if reading["eligible"] and not isinstance(run, Refusal):  # a run that refuses is never eligible
+        headline = status._headline(measures.facts_of(run), status.TABLE_MEASURES)
+        reading.update({field: headline[name]["value"] for name, field in MEASURE_KEYS.items()})
+    else:
+        reading["ineligible_reason"] = "; ".join(value["reasons"]) or None
+    return reading, value.get("source_check")
+
+
+def _recommendation(conn: db.LedgerConnection, line_id: int, on_line: set[int], members: list[dict], checker: Mapping,
+                    records: list) -> dict | None:
+    """What a line's graph summary says of its recommendation, read without drawing the graph: the version its latest
+    current recommendation judgment names, since when it has named it (the first of the latest judgments naming
+    it), how many of the line's research trials came after, and its latest sealed research run on the line read as
+    the graph reads it (_run_reading: eligible now, and its measures when it is). None without a recommendation."""
+    judged = conn.dicts("SELECT judgment_id, kind, created_at, supersedes FROM judgment WHERE line_id = %s "
+                        "ORDER BY judgment_id", (line_id,))
+    replaced = {row["supersedes"] for row in judged if row["supersedes"] is not None}
+    current = [row for row in judged if row["kind"] == "recommendation" and row["judgment_id"] not in replaced]
+    if not current:
+        return None
+    named = {judgment: f"{strategy}@{revision}" for judgment, strategy, revision in conn.rows(
+        "SELECT s.judgment_id, c.strategy_id, c.revision FROM judgment_subject s JOIN judgment j ON j.judgment_id = "
+        "s.judgment_id JOIN candidate c ON c.source_sha256 = s.source_sha256 WHERE j.line_id = %s AND s.role = "
+        "'recommended' ORDER BY s.judgment_id, s.seq", (line_id,))}
+    version = named.get(current[-1]["judgment_id"])
+    if version is None:
+        return None
+    since = current[-1]
+    for row in reversed(current):
+        if named.get(row["judgment_id"]) != version:
+            break
+        since = row
+    trials = conn.dicts("SELECT t.trial_id, t.source_sha256, t.created_at, r.status FROM trial t LEFT JOIN run r ON "
+                        "r.trial_id = t.trial_id WHERE t.purpose = 'research' ORDER BY t.trial_id")
+    mine = [row for row in trials if row["trial_id"] in on_line]
+    source = next((r["source_sha256"] for r in members if f"{r['strategy_id']}@{r['revision']}" == version), None)
+    last = next((row for row in reversed(mine) if row["source_sha256"] == source and row["status"] is not None), None)
+    found = {"recommended": version, "since": _iso(since["created_at"]), "research_runs": len(mine),
+             "runs_since": sum(1 for row in mine if row["created_at"] > since["created_at"]),
+             "trial_id": None, "eligible": None, "annual_return": None, "max_drawdown": None}
+    if last is not None:
+        run = metrics.load_runs(conn, [last["trial_id"]], listing=True)[last["trial_id"]]
+        reading, _ = _run_reading(conn, last["trial_id"], checker, records, run)
+        found.update(trial_id=last["trial_id"], eligible=reading["eligible"],
+                     annual_return=reading.get("annual_return"), max_drawdown=reading.get("max_drawdown"))
+    return found
+
+
+def line_list(profile, at: str | None = None, every: bool = False, readings: bool = False) -> dict:
     """`line list`: the open line declarations, or with `every` all of them (ledger.lines.list_lines), each with the
-    versions its graph draws (`versions`, oldest first), read at the same commit."""
+    versions its graph draws (`versions`, oldest first), read at the same commit; with `readings` also its
+    recommendation as the graph's summary reads it (_recommendation), without drawing the graph."""
     listed = lines.list_lines(db.profile(profile), at, every=every)
     with db.read_as_of(db.profile(profile), listed["ledger_commit"]) as conn, db.reusing_pinned_reads():
         lineage = _Lineage(_candidate_rows(conn), research_trials(conn))
+        checker: dict = availability.check_identity() if readings else {}
+        records: list[dict] = precheck.review_records(conn) if readings else []
         for item in listed["lines"]:
-            members, _ = lineage.members(item["line_id"], item["start"])
+            members, on_line = lineage.members(item["line_id"], item["start"])
             item["versions"] = [f"{r['strategy_id']}@{r['revision']}" for r in members]
+            if readings:
+                item["recommendation"] = _recommendation(conn, item["line_id"], on_line, members, checker, records)
     return listed
 
 
@@ -380,17 +440,10 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
                      "annual_return": None, "max_drawdown": None, "sharpe": None, "win_rate": None,
                      "eligible": None, "ineligible_reason": None, "at": _iso(row["created_at"])}
             if row["purpose"] == "research" and row["status"] is not None:
-                run = loaded[row["trial_id"]]
-                value = report_candidates.assess_listed(conn, row["trial_id"], checker, records, run)
-                trial["eligible"] = bool(value["economic_evidence_available"])
-                if value.get("source_check") is not None:
-                    source_checks[row["trial_id"]] = value["source_check"]
-                if trial["eligible"] and not isinstance(run, Refusal):  # a run that refuses is never eligible
-                    headline = status._headline(measures.facts_of(run), status.TABLE_MEASURES)
-                    for name, field in MEASURE_KEYS.items():
-                        trial[field] = headline[name]["value"]
-                else:
-                    trial["ineligible_reason"] = "; ".join(value["reasons"]) or None
+                reading, check = _run_reading(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
+                trial.update(reading)
+                if check is not None:
+                    source_checks[row["trial_id"]] = check
             trials_of[key].append(trial)
         plans: dict[str, tuple[int, dict]] = {}
         for key, trials in trials_of.items():  # the registration the latest run was bound through
