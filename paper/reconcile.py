@@ -270,7 +270,7 @@ def _archive(market: dict, at: str | None, symbols: list[str], start: int, end: 
     from market import read
     commit, found = None, {}
     for symbol in symbols:
-        stored = read.stored_bars(market, commit or at, symbol, "LAST", "1m", _utc(start), _utc(end), None)
+        stored = read.stored_bars(market, commit or at, symbol, "LAST", "1m", _utc(start), _utc(end), None, funding=False)
         commit = stored["commit"]
         found[symbol] = stored["bars"]["rows"]
         if not found[symbol] or found[symbol][-1][1] * 10**6 < end - 10**6:
