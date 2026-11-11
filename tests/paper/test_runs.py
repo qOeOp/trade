@@ -112,3 +112,41 @@ class SealCollectTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "could not be removed"):
                 self.run_with(root, {"status": "complete"}, [{"paper_id": 7, "role": "runner", "running": False}])
             self.assertTrue(root.exists())
+
+
+class StartFailureTests(unittest.TestCase):
+    """A declared run whose inputs cannot be written is sealed with START_FAILED, not left for the orphan sweep."""
+
+    def start(self, root, failing):
+        profile = SimpleNamespace(database="paper", service_root=root.parent)
+        row = {"paper_id": 7, "write_status": "written", "source_sha256": "s" * 64, "ledger_commit": "l"}
+        with mock.patch.object(runs.db, "connect"), \
+                mock.patch.object(runs.strategies, "read_candidate",
+                                  return_value={"source_sha256": "s" * 64, "source": b"class E: pass\n", "entry_class": "E"}), \
+                mock.patch.object(runs.image, "resolve", return_value={"image_ref": "image@sha256:" + "a" * 64}), \
+                mock.patch.object(runs, "containers", return_value=[]), \
+                mock.patch.object(runs, "_membership", return_value=("c" * 32, {"universe_rule": "fixed"}, ["BTCUSDT"])), \
+                mock.patch.object(runs, "_terms", return_value={}), mock.patch.object(runs, "admit"), \
+                mock.patch.object(runs.records, "open_paper_run", return_value=row), \
+                mock.patch.object(runs, "run_dir", return_value=root), \
+                mock.patch.object(runs, "bind", side_effect=failing), \
+                mock.patch.object(runs, "_run_containers", side_effect=AssertionError("no containers after a failure")), \
+                mock.patch.object(runs, "seal", return_value={"bundle": "paper-7-capture"}) as seal, \
+                self.assertRaises(Refusal) as caught:
+            runs.start.__wrapped__(profile, {}, None, "example@1", None, None)
+        return caught.exception, seal
+
+    def test_an_input_write_failure_after_the_declaration_seals_start_failed(self):
+        with tempfile.TemporaryDirectory() as name:
+            refusal, seal = self.start(Path(name) / "7", OSError("No space left on device"))
+        self.assertEqual(refusal.code, "PAPER_START_FAILED")
+        self.assertEqual(seal.call_args.args[1], 7)
+        self.assertIn("No space left on device", seal.call_args.kwargs["start_error"])
+
+    def test_a_directory_left_from_before_seals_start_failed(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name) / "7"
+            (root / "inputs").mkdir(parents=True)
+            refusal, seal = self.start(root, AssertionError("no binding after a failed mkdir"))
+        self.assertEqual(refusal.code, "PAPER_START_FAILED")
+        self.assertIn("FileExistsError", seal.call_args.kwargs["start_error"])

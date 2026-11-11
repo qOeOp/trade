@@ -318,13 +318,13 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
     directory = run_dir(profile, row["paper_id"])
     if row["write_status"] == "replayed":
         return {"paper_id": row["paper_id"], "write_status": "replayed", "directory": str(directory)}
-    for part in ("inputs", "out", "egress"):
-        (directory / part).mkdir(parents=True, exist_ok=False)
-    (directory / "inputs" / "strategy.py").write_bytes(found["source"])
-    (directory / "inputs" / "universe.json").write_text(json.dumps(membership, sort_keys=True), encoding="utf-8")
-    (directory / "inputs" / "terms.json").write_text(json.dumps(terms, sort_keys=True), encoding="utf-8")
-    bind(row, directory)
-    try:
+    try:  # from the declaration on, every failure seals START_FAILED
+        for part in ("inputs", "out", "egress"):
+            (directory / part).mkdir(parents=True, exist_ok=False)
+        (directory / "inputs" / "strategy.py").write_bytes(found["source"])
+        (directory / "inputs" / "universe.json").write_text(json.dumps(membership, sort_keys=True), encoding="utf-8")
+        (directory / "inputs" / "terms.json").write_text(json.dumps(terms, sort_keys=True), encoding="utf-8")
+        bind(row, directory)
         launched(directory, "start")
         named = _run_containers(identity, profile, row, found["entry_class"], directory, memory, duration_seconds)
     except Exception as exc:
