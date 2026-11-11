@@ -1,38 +1,22 @@
 # Roots from templates and user sources
 
-## First batch
+## Templates
 
-EMA crossover, Supertrend, Donchian/Turtle system 1, Turtle system 2, Channel BreakOut, Dual
-Thrust, Keltner breakout, Bollinger Bands, RSI, Connors RSI(2), single-instrument time-series
-momentum, Pivot Reversal. Each decides per contract; the line's contract scope sets which contracts.
+A template is a published strategy rule the user admits; there is no standing roster. Nominate one
+with its mechanism, primary source, where each default parameter is located and open questions,
+keeping originals in evidence bundles. The user's admission, for example choosing a line option
+that starts from it, covers transcription, publishing, precheck, independent review and the first
+report without asking again. One whose source cannot be verified waits with the reason; never
+relax the source requirement or substitute another. A root you design yourself is not a template,
+needs no admission and takes the same precheck, review and registration.
 
-- For the first batch, transcribe only templates on the user-confirmed list above, unless the user
-  explicitly approves a roster replacement. Later batches follow the scope below. One whose source cannot be verified waits with the reason and leaves a
-  gap; never relax the source requirement or replace it automatically to fill the batch.
-- The Agent discovers, verifies and nominates replacements, presenting the mechanism, primary
-  source, parameter verification, replacement reason and unresolved questions. Keep originals and
-  verification notes in existing evidence bundles.
-  The user decides both roster replacement and use of the template, and may authorize both once.
-  Within that authorization, continue transcription, publishing, precheck, independent review and
-  the first replay through the existing process without asking for the same authority again.
-- A root the Agent designs itself is not a template and needs no template authorization; it goes
-  through the same precheck, independent review and registration.
-
-## Later batches
-
-- Cross-sectional momentum, pairs and funding carry are research directions, not admitted templates
-  or a fixed second roster. Nominate concrete templates on demand under the source and user-authority
-  rules above. Enable them individually after at least one first-batch template has completed the
-  First report workflow below; neither all 12 first-batch templates nor all later directions must
-  be ready. A user may authorize admission and use once, conditional on the required evidence.
-- Before enabling a template, use the existing native precheck and independent review, with the
-  smallest sufficient probe for unobserved behavior, to verify what it needs: cross-sectional
-  selection, shared-capital allocation and old positions/orders on membership changes; for two-leg
-  structures also verify one leg filling before the other, an unfilled leg and loss of eligibility.
-  Multiple contracts running together, two independent replays or normal two-leg fills alone do not
-  establish these behaviors. Probes never replace registration and the first formal replay.
-- Defer a template lacking required data, instrument support or native evidence. Perpetual inputs
-  and a per-contract strategy instance do not establish two-leg coordination.
+A template that needs cross-sectional selection, shared-capital allocation, membership changes or
+two legs verifies those behaviours before its first report, with the native precheck, independent
+review and the smallest probe that observes them (for two legs also one leg filling before the
+other, an unfilled leg and loss of eligibility). Several contracts running together, two
+independent replays or normal two-leg fills do not establish them, and a per-contract instance on
+perpetual inputs does not coordinate two legs. Probes never replace registration and the first
+report. Defer a template lacking required data, instrument support or native evidence.
 
 ## Transcription
 
