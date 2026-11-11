@@ -30,9 +30,12 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import heapq
 import json
 from pathlib import Path
 import re
+from typing import Iterator
+import zlib
 
 from engine.native_csv import dict_reader
 
@@ -51,47 +54,85 @@ TABLES = {
 # The walk that numbers random identifiers: the event history holds every order and fill event.
 NUMBERING_ORDER = ("order_events", "orders", "fills", "positions", "account", "exposures", "returns_series",
                    "fill_volumes")
+RUN_BYTES = 64 * 1024 * 1024  # renumbered lines held before they are sorted and compressed into a run
 RANDOM = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
-def _csv_rows(path: Path) -> list[dict]:
-    if path.suffix == ".gz":
-        with gzip.open(path, "rt", encoding="utf-8", newline="") as stream:
-            return list(dict_reader(stream))
-    with path.open(newline="", encoding="utf-8") as stream:
-        return list(dict_reader(stream))
+def _csv_rows(path: Path) -> Iterator[dict]:
+    """A report's rows, one at a time."""
+    with (gzip.open(path, "rt", encoding="utf-8", newline="") if path.suffix == ".gz"
+          else path.open(newline="", encoding="utf-8")) as stream:
+        yield from dict_reader(stream)
 
 
-def _event_rows(path: Path) -> list[dict]:
-    """The event history with each event's position in its own order's history."""
-    seen: dict[str, int]
-    rows, seen = [], {}
+def _event_rows(path: Path) -> Iterator[dict]:
+    """The event history, one event at a time, with each event's position in its own order's history."""
+    seen: dict[str, int] = {}
     with gzip.open(path, "rt", encoding="utf-8") as stream:
         for line in stream:
             event = json.loads(line)
             identity = event["client_order_id"]
             seen[identity] = seen.get(identity, -1) + 1
-            rows.append({**event, "seq": seen[identity]})
-    return rows
+            yield {**event, "seq": seen[identity]}
 
 
 def _text(row: dict) -> str:
     return json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
-def _sha(lines: list[str]) -> str:
-    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+def _runs(lines: Iterator[bytes]) -> list[bytes]:
+    """`lines` sorted in bounded memory: runs of at most RUN_BYTES, each sorted and kept zlib-compressed one line
+    to a line (a JSON text holds no raw newline)."""
+    runs: list[bytes] = []
+    held: list[bytes] = []
+    size = 0
+    for line in lines:
+        held.append(line)
+        size += len(line)
+        if size >= RUN_BYTES:
+            held.sort()  # UTF-8 bytes sort as their text does
+            runs.append(zlib.compress(b"".join(found + b"\n" for found in held), 1))
+            held, size = [], 0
+    if held:
+        held.sort()
+        runs.append(zlib.compress(b"".join(found + b"\n" for found in held), 1))
+    return runs
 
 
-def report_fingerprint(directory: Path) -> dict:
-    """{table: {rows, sha256[, file_sha256]}} of one report directory; reads only."""
-    directory = Path(directory)
-    tables = {name: (_event_rows if name == "order_events" else _csv_rows)(directory / file)
-              for name, (file, _) in TABLES.items()}
-    texts = {name: [_text(row) for row in rows] for name, rows in tables.items()}
+def _read_run(run: bytes) -> Iterator[bytes]:
+    decompressor, rest = zlib.decompressobj(), b""
+    for start in range(0, len(run), 1 << 16):
+        *lines, rest = (rest + decompressor.decompress(run[start:start + (1 << 16)])).split(b"\n")
+        yield from lines
+    if rest + decompressor.flush():
+        raise ValueError("a sorted run ends inside a line")
+
+
+def _hash(runs: list[bytes]) -> tuple[int, str]:
+    """(rows, hash of the lines of `runs` in sorted order joined by newlines)."""
+    rows, whole = 0, hashlib.sha256()
+    for line in heapq.merge(*map(_read_run, runs)):
+        if rows:
+            whole.update(b"\n")
+        whole.update(line)
+        rows += 1
+    return rows, whole.hexdigest()
+
+
+def _file_sha(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _numbering(directory: Path) -> dict[str, str]:
+    """Each random identifier's number, by the walk of NUMBERING_ORDER. Only rows holding an identifier are
+    kept, and as their masked text and identifiers: a stable sort orders them as it orders the whole table."""
     numbers: dict[str, str] = {}
     for name in NUMBERING_ORDER:
-        rows, found = tables[name], texts[name]
+        path = directory / TABLES[name][0]
         if name == "order_events":
             # Orders by client order ID with its random part masked (a liquidation order's ID, and every ID of a
             # source using UUID client order IDs, is fresh every run), orders of one masked ID by the time of their
@@ -100,24 +141,39 @@ def report_fingerprint(directory: Path) -> dict:
             # part keep the plain ID order.
             first: dict[str, tuple] = {}
             history: dict[str, list[str]] = {}
-            for row, text in zip(rows, found, strict=True):
-                first.setdefault(row["client_order_id"], (row.get("ts_event"), row.get("instrument_id", "")))
-                history.setdefault(row["client_order_id"], []).append(RANDOM.sub("~", text))
-            walk = sorted(range(len(rows)), key=lambda index: (RANDOM.sub("~", rows[index]["client_order_id"]),
-                                                               *first[rows[index]["client_order_id"]],
-                                                               history[rows[index]["client_order_id"]],
-                                                               rows[index]["seq"]))
+            found: list[tuple[str, int, list[str]]] = []
+            for row in _event_rows(path):
+                text, identity = _text(row), row["client_order_id"]
+                first.setdefault(identity, (row.get("ts_event"), row.get("instrument_id", "")))
+                history.setdefault(identity, []).append(RANDOM.sub("~", text))
+                found.append((identity, row["seq"], RANDOM.findall(text)))
+            found.sort(key=lambda item: (RANDOM.sub("~", item[0]), *first[item[0]], history[item[0]], item[1]))
+            walk = [identifiers for _, _, identifiers in found]
         else:
-            walk = sorted(range(len(rows)), key=lambda index: RANDOM.sub("~", found[index]))
-        for index in walk:
-            for match in RANDOM.finditer(found[index]):
-                numbers.setdefault(match.group(0), f"#{len(numbers) + 1}")
+            kept = [(RANDOM.sub("~", text), identifiers) for text in map(_text, _csv_rows(path))
+                    if (identifiers := RANDOM.findall(text))]
+            kept.sort(key=lambda item: item[0])
+            walk = [identifiers for _, identifiers in kept]
+        for identifiers in walk:
+            for identifier in identifiers:
+                numbers.setdefault(identifier, f"#{len(numbers) + 1}")
+    return numbers
+
+
+def report_fingerprint(directory: Path) -> dict:
+    """{table: {rows, sha256[, file_sha256]}} of one report directory; reads only.
+
+    The reports are read row by row, twice: once to number the random identifiers, then one table at a time
+    for its hash, whose renumbered lines are sorted in compressed runs of bounded size."""
+    directory = Path(directory)
+    numbers = _numbering(directory)
     result = {}
     for name, (file, stable) in TABLES.items():
-        lines = sorted(RANDOM.sub(lambda match: numbers[match.group(0)], text) for text in texts[name])
-        entry = {"rows": len(lines), "sha256": _sha(lines)}
+        rows, whole = _hash(_runs(RANDOM.sub(lambda match: numbers[match.group(0)], _text(row)).encode("utf-8")
+                                  for row in (_event_rows if name == "order_events" else _csv_rows)(directory / file)))
+        entry = {"rows": rows, "sha256": whole}
         if stable:
-            entry["file_sha256"] = hashlib.sha256((directory / file).read_bytes()).hexdigest()
+            entry["file_sha256"] = _file_sha(directory / file)
         result[name] = entry
     return result
 

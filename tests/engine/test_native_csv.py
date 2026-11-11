@@ -61,7 +61,7 @@ elif mode == "fingerprint-gzip":
             writer = csv.writer(stream)
             writer.writerow(["payload"])
             writer.writerow([payload])
-        assert _csv_rows(path) == [{"payload": payload}]
+        assert list(_csv_rows(path)) == [{"payload": payload}]
 elif mode == "parity":
     from engine.compare_reports import compare_reports
     from tests.engine.test_compare import _replay
