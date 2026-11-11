@@ -306,12 +306,17 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
     Events are applied one timestamp at a time and the state is read after each timestamp, so nothing depends on
     the order of different orders' events within one nanosecond. Each order's native status is rebuilt from its
     events and coverage is engine.protection's: a stop covers its unfilled quantity while ACCEPTED, from its
-    acceptance until it is triggered, filled or ends.
+    acceptance until it is triggered, filled or ends. The open positions of each side and the orders of each
+    contract that may cover a stop are kept as indexes, so a timestamp reads only its own sides' live state.
     """
     Side = tuple[str, str, str]  # strategy, contract, LONG or SHORT
     held_by: defaultdict[str, Decimal] = defaultdict(Decimal)  # position ID -> its open quantity
     side_of: dict[str, Side] = {}  # position ID -> its side, from its first fill
     opened_by: defaultdict[str, list[str]] = defaultdict(list)  # position ID -> the orders filled into it
+    open_on: defaultdict[Side, set[str]] = defaultdict(set)  # side -> its positions with an open quantity
+    # contract -> the orders that may cover a stop (a working reduce-only stop with an unfilled quantity), by
+    # initialization; the side each covers is chosen against the held quantity
+    resting: defaultdict[tuple[str, str], dict[str, int]] = defaultdict(dict)
     previous_stops: defaultdict[Side, set[str]] = defaultdict(set)
     uncovered: dict[Side, dict] = {}
     orders: dict[str, dict] = {}
@@ -336,7 +341,8 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
                                     "side": event["order_side"], "type": event["order_type"],
                                     "reduce_only": event["reduce_only"] is True,
                                     "quantity": _positive(event["quantity"], f"{identity} quantity"),
-                                    "filled": Decimal(0), "status": "INITIALIZED", "previous": None}
+                                    "filled": Decimal(0), "status": "INITIALIZED", "previous": None,
+                                    "number": orders[identity]["number"] if identity in orders else len(orders)}
             if identity not in orders:
                 raise EventPayloadInvalid(f"{identity} has a {kind} before its initialization")
             order = orders[identity]
@@ -370,18 +376,27 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
                 held_by[position_id] += quantity if opening else -quantity
                 if held_by[position_id] < 0:
                     raise EventPayloadInvalid(f"a fill of {identity} reduces position {position_id} below zero")
+                if held_by[position_id] > 0:
+                    open_on[side_of[position_id]].add(position_id)
+                else:
+                    open_on[side_of[position_id]].discard(position_id)
             elif kind in ENDING_EVENTS:
                 order["status"] = ENDING_EVENTS[kind]
             elif kind not in PASSIVE_EVENTS | {"OrderInitialized"}:
                 raise EventPayloadInvalid(f"unknown native order event type {kind}")
+            if (order["reduce_only"] and order["type"] in stop_coverage.STOP_TYPES and order["status"] == "ACCEPTED"
+                    and order["quantity"] - order["filled"] > 0):
+                resting[order["scope"]][identity] = order["number"]
+            else:
+                resting[order["scope"]].pop(identity, None)
         for scope in sorted(touched):
-            open_ids = sorted(found for found, side in side_of.items() if side == scope and held_by[found] > 0)
+            open_ids = sorted(open_on[scope])
             quantity = sum((held_by[found] for found in open_ids), Decimal(0))
             held = quantity if scope[2] == "LONG" else -quantity
-            stops = {identity: covering for identity, order in orders.items() if order["scope"] == scope[:2]
-                     and (covering := stop_coverage.stop_quantity(held, [stop_coverage.Order(
-                         order["side"], order["type"], order["reduce_only"], order["status"],
-                         order["quantity"] - order["filled"])]))}
+            stops = {identity: covering for identity in sorted(resting[scope[:2]], key=resting[scope[:2]].__getitem__)
+                     if (order := orders[identity]) and (covering := stop_coverage.stop_quantity(held, [
+                         stop_coverage.Order(order["side"], order["type"], order["reduce_only"], order["status"],
+                                             order["quantity"] - order["filled"])]))}
             covered = sum(stops.values(), Decimal(0))
             if held and covered < abs(held):
                 if scope not in uncovered:
