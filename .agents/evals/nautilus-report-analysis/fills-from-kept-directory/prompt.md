@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线候选 `breakout-v@7`，运行 run 5120（已封存、通过、有经济证据资格），账本提交 `a1b2c3d`。这次运行是用 `replay run --candidate breakout-v@7 --hypothesis registration-bv7 --output /tmp/run-5120 -- ...` 跑的，`/tmp/run-5120` 目录还在。
+研究路线候选 `breakout-v@7`，运行 run 5120（已封存、通过、有经济证据资格），账本提交 `a1b2c3d`。这次运行是用 `replay run --candidate breakout-v@7 --registration 7 --output /tmp/run-5120 -- ...` 跑的，`/tmp/run-5120` 目录还在。
 
 我想看每笔成交的数量和价格，按品种汇总成交笔数与平均成交量，再看止损单从提交到成交的延迟（要订单事件）。
 
