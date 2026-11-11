@@ -200,7 +200,8 @@ path,domain,host=sys.argv[1:]
 with urllib.request.urlopen(urllib.request.Request("http://"+host+":8765"+path,headers={"Host":domain}),timeout=15) as r:
  d=json.load(r)
  if path=="/api/lines": out={"status":r.status,"lines":d["lines"]}
- elif path=="/api/paper/runs": out={"status":r.status,"runs":[{"id":x["paper_id"],"candidate":x["candidate"],"state":x["state"],"last":x.get("live",{}).get("last_bar_ns")} for x in d["runs"]]}
+ elif path=="/api/paper/runs": out={"status":r.status,"runs":[{"id":x["paper_id"],"candidate":x["candidate"],"state":x["state"],"last":x.get("live",{}).get("last_bar_ns"),"recovery":(x.get("recovery") or {}).get("code")} for x in d["runs"]]}
+ elif path=="/api/about": l=d.get("ledger"); out={"status":r.status,"ledger":l and {k:l.get(k) for k in ("unpublished","behind_seconds","diverged")}}
  elif path.startswith("/api/view"): out={"status":r.status,"ready":r.status==200 and bool(d.get("widgets")),"state":d.get("state")}
  elif path=="/api/agent/agents": out={"status":r.status,"valid":isinstance(d,list)}
  else: out={"status":r.status,"ok":d.get("ok",True)}

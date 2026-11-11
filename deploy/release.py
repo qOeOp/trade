@@ -34,6 +34,7 @@ from .release_host import (
     sync_directory,
 )
 from .runtime_inputs import DOCKERFILE, project
+from .telegram import Failure, settings, telegram
 
 
 # What a Live control never loads and what cannot change one already running: the browser's and the other
@@ -125,6 +126,103 @@ def report_failure(phase: str, error: Exception) -> None:
               file=sys.stderr, flush=True)
     except (OSError, ValueError):
         pass  # A closed diagnostic stream must not prevent transaction recovery.
+
+
+# What a notice may quote from a probe: a Paper run's candidate and its refusal code.
+NOTICE_TEXT = re.compile(r"[A-Za-z0-9_.@:-]{1,80}\Z")
+LEDGER_LAG_SECONDS = 1800  # the ledger service retries a publish every 5 minutes: six retries have failed
+
+
+class Notices:
+    """Failures outside Live, sent to the chat the Live page bound (deploy/telegram.py): a release tick that
+    failed, a Paper run that stopped and could not resume, and a research ledger whose publish has failed for
+    LEDGER_LAG_SECONDS or whose origin history changed elsewhere.
+
+    Each kind the tick observed replaces that kind's facts; one it could not observe keeps what was sent. A fact
+    is sent when it first appears and again only after it has cleared. Without Live or a saved token nothing
+    is sent and nothing is marked sent. Sending never raises into the tick.
+    """
+
+    def __init__(self, state: Path, call=telegram):
+        self.state, self.call = state, call
+        self.found: dict[str, dict[str, str]] = {}
+
+    def observe(self, kind: str, facts: dict[str, str]) -> None:
+        self.found[kind] = facts
+
+    def released(self, error: Exception | None) -> None:
+        summary = None if error is None else failure_summary(error)
+        self.observe("release", {} if summary is None else {
+            f"release:{summary}": f"Release tick failed on the host: {summary}. The current Web and Paper "
+                                  "controller stay; see journalctl -u trade-release.service."})
+
+    def watch(self, probe) -> None:
+        """Read Paper runs and the ledger's publication through the routed Web; `probe(path)` is its facts."""
+        try:
+            paper = {}
+            for run in probe("/api/paper/runs")["runs"]:
+                code = run.get("recovery")
+                if code is not None:
+                    code = code if isinstance(code, str) and NOTICE_TEXT.fullmatch(code) else "other"
+                    candidate = run.get("candidate")
+                    named = f" ({candidate})" if isinstance(candidate, str) and NOTICE_TEXT.fullmatch(candidate) else ""
+                    paper[f"paper:{int(run['id'])}:{code}"] = (
+                        f"Paper run {int(run['id'])}{named} stopped and could not resume: {code}. It stays stopped "
+                        "with its account and originals; see the Paper page.")
+            self.observe("paper", paper)
+        except Exception:
+            pass  # unknown this tick: what was sent stays sent
+        try:
+            ledger = probe("/api/about")["ledger"]
+            if isinstance(ledger, dict):
+                behind = ledger.get("behind_seconds")
+                if ledger.get("diverged") is True:
+                    facts = {"ledger:diverged": "The research ledger's origin history changed elsewhere; a "
+                                                "publish retry cannot settle it. New writes stay unpublished."}
+                elif ledger.get("unpublished") is True and type(behind) is int and behind >= LEDGER_LAG_SECONDS:
+                    facts = {"ledger:behind": f"The research ledger has not been published for {behind // 60} "
+                                              "minutes: its publish keeps failing (publish_failed)."}
+                else:
+                    facts = {}
+                self.observe("ledger", facts)
+        except Exception:
+            pass
+
+    def send(self) -> None:
+        try:
+            self._send()
+        except Exception as error:  # the type only: a payload could carry what a file held
+            print(f"Failure notices not sent: {type(error).__name__}", file=sys.stderr, flush=True)
+
+    def _token(self) -> tuple[str, int] | None:
+        from .live_configuration import declaration
+
+        path = self.state / "live/configuration.json"
+        if not os.path.lexists(path):
+            return None  # a host without Live has no Telegram chat
+        return settings(Path(declaration(path)["root"]) / "notify")
+
+    def _send(self) -> None:
+        path = self.state / "notices.json"
+        record = json.loads(path.read_text()) if path.exists() else {}
+        sent = {kind: set(keys) for kind, keys in record.items()}
+        for kind, facts in self.found.items():
+            sent[kind] = sent.get(kind, set()) & set(facts)  # a cleared fact may be sent again
+        new = [(kind, key, text) for kind, facts in self.found.items()
+               for key, text in facts.items() if key not in sent[kind]]
+        found = self._token() if new else None
+        if found is not None:
+            token, chat = found
+            for kind, key, text in new:
+                try:
+                    self.call(token, "sendMessage", {"chat_id": chat, "text": text[:4000]})
+                except Failure as error:
+                    print(f"Failure notice not sent: {error.code}", file=sys.stderr, flush=True)
+                    if error.status is None or not 400 <= error.status < 500 or error.status == 429:
+                        break  # the next tick retries, in order
+                sent[kind].add(key)  # delivered, or refused by Telegram: retrying cannot deliver it
+        if {kind: sorted(keys) for kind, keys in sent.items()} != record:
+            durable_json(path, {kind: sorted(keys) for kind, keys in sorted(sent.items())}, mode=0o600)
 
 
 class GitSource:
@@ -675,14 +773,29 @@ def main() -> None:
     config.state.mkdir(mode=0o700, parents=True, exist_ok=True)
     with (config.state / "lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if args.action == "tick":
+            tick(host, Notices(config.state))
+            return
         host.prepare()
         release = Release(host, GitSource(config.state))
         if args.action == "install":
             release.install()
-        elif args.action == "verify":
-            release.verify()
         else:
-            release.tick()
+            release.verify()
+
+
+def tick(host: DockerHost, notices: Notices) -> None:
+    """One timer tick, then the failure notices of what it and the routed Web saw."""
+    try:
+        host.prepare()
+        Release(host, GitSource(host.state)).tick()
+        notices.released(None)
+    except Exception as error:
+        notices.released(error)
+        raise
+    finally:
+        notices.watch(lambda path: host.probe(host.disk_route(), path))
+        notices.send()
 
 
 if __name__ == "__main__":

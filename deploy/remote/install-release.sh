@@ -9,7 +9,7 @@ source_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 }
 install -d -m 755 /opt/trade-release/deploy /opt/trade-release/deploy/remote
 install -d -m 700 /var/lib/trade-release
-for module in __init__ release release_host runtime_inputs live_host live_configuration paper_host paper_release; do
+for module in __init__ release release_host runtime_inputs live_host live_configuration paper_host paper_release telegram; do
   install -m 644 "$source_root/deploy/$module.py" /opt/trade-release/deploy/
 done
 install -m 644 "$source_root/deploy/remote/cd.compose.yaml" "$source_root/deploy/remote/paper-cd.compose.yaml" \
