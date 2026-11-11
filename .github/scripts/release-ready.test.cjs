@@ -135,6 +135,17 @@ test('missing quality, incomplete, failed or cancelled workflows, and external c
   }
 });
 
+test('the documentation site run and its jobs do not decide eligibility; another workflow job still does', async () => {
+  for (const [conclusion, suite, expected] of [['failure', 50, admitted], ['cancelled', 50, admitted],
+    [null, 50, admitted], ['failure', 51, withheld]]) {
+    const f = fixture();
+    f.runs.push(run('docs-pages', 5, { check_suite_id: 50, status: conclusion ? 'completed' : 'in_progress', conclusion }));
+    f.checks.push({ name: 'Deploy documentation site', app: { slug: 'github-actions' }, check_suite: { id: suite },
+      status: conclusion ? 'completed' : 'in_progress', conclusion });
+    await f.go(); assert.deepEqual(f.records, [expected], `${conclusion} ${suite}`);
+  }
+});
+
 test('later failed run supersedes an earlier pass, and future or foreign native artifacts fail closed', async () => {
   const f = fixture(); f.runs.push(run('quality', 9, { workflow_id: 1, conclusion: 'failure' }));
   await f.go(); assert.deepEqual(f.records, [withheld]);

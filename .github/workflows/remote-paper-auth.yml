@@ -1,15 +1,62 @@
 name: remote-paper-auth
 on:
-  pull_request:
-    branches: [main]
-    paths: [deploy/remote/**, deploy/compose.yaml, deploy/Dockerfile, deploy/images.py, deploy/live_host.py, deploy/live_configuration.py, deploy/paper_*.py, deploy/release*.py, deploy/runtime_inputs.py, tests/deploy/**, .github/scripts/check-remote-deploy.py, .github/workflows/remote-paper-auth.yml]
   push:
     branches: [main]
-    paths: [deploy/remote/**, deploy/compose.yaml, deploy/Dockerfile, deploy/images.py, deploy/live_host.py, deploy/live_configuration.py, deploy/paper_*.py, deploy/release*.py, deploy/runtime_inputs.py, tests/deploy/**, .github/scripts/check-remote-deploy.py, .github/workflows/remote-paper-auth.yml]
+    paths:
+      - deploy/remote/**
+      - deploy/compose.yaml
+      - deploy/Dockerfile
+      - deploy/images.py
+      - deploy/live_host.py
+      - deploy/live_configuration.py
+      - deploy/paper_*.py
+      - deploy/release*.py
+      - deploy/runtime_inputs.py
+      - tests/deploy/**
+      - .github/scripts/check-remote-deploy.py
+      - .github/workflows/remote-paper-auth.yml
+      - .github/actions/ci-paths/**
+      - .github/scripts/ci-paths.py
+  # Every pull request, so remote-paper-auth-gate always reports; the changes job decides whether the tests run.
+  pull_request:
+    branches: [main]
+
 permissions:
   contents: read
+
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/ci-paths
+        id: paths
+        with:
+          paths: |
+            deploy/remote/**
+            deploy/compose.yaml
+            deploy/Dockerfile
+            deploy/images.py
+            deploy/live_host.py
+            deploy/live_configuration.py
+            deploy/paper_*.py
+            deploy/release*.py
+            deploy/runtime_inputs.py
+            tests/deploy/**
+            .github/scripts/check-remote-deploy.py
+            .github/workflows/remote-paper-auth.yml
+            .github/actions/ci-paths/**
+            .github/scripts/ci-paths.py
+
   native-auth:
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -68,3 +115,18 @@ jobs:
             --mount type=bind,src="$PWD/deploy/remote/Caddyfile",dst=/etc/caddy/Caddyfile,readonly \
             caddy:2.11.9-alpine@sha256:71d41fe4b1ae92a058abc87afe614178b996d8a6b96d0f4c71ae30606e5927e3 \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+  gate:
+    name: remote-paper-auth-gate
+    if: always()
+    needs: [changes, native-auth]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/actions/gate
+      - uses: ./.github/actions/gate
+        with:
+          needs: ${{ toJSON(needs) }}
