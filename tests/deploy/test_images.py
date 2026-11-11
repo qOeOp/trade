@@ -126,6 +126,15 @@ class ResolveTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not on main"):
             resolve(Source(), built(), "arm64", None)
 
+    def test_versions_by_default_and_every_main_build_only_when_asked(self):
+        for arguments, branch in (((), "refs/heads/deploy-ready"), (("main-ready",), "refs/heads/main-ready")):
+            source = Mock()
+            source.ancestor.return_value = True
+            source.git.side_effect = lambda *args: {"log": "", "rev-parse": LATEST}[args[0]]
+            with self.subTest(branch), self.assertRaisesRegex(RuntimeError, "no admitted record"):
+                resolve(source, built(), "arm64", None, *arguments)
+            source.git.assert_called_once_with("log", "--format=%H", branch, "--", "release.json")
+
 
 class WriteEnvTests(unittest.TestCase):
     def test_replaces_its_keys_and_keeps_every_other_line(self):

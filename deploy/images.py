@@ -3,6 +3,8 @@
 The channel admits amd64 digests. This host may be arm64, so each admitted digest must sit in its
 build's published platform manifest, and the env file gets this CPU's image from that manifest.
 Everything read is public and read with no credential. Nothing is pulled or recreated.
+The default channel, deploy-ready, admits versions (production; a server runs this too); main-ready admits
+every checked main build (staging).
 """
 
 import argparse
@@ -23,6 +25,7 @@ FIELDS = (
     ("service", "TRADE_SERVICE_IMAGE", SERVICE_REF),
     ("runtime", "TRADE_RUNTIME_IMAGE", RUNTIME_REF),
 )
+CHANNELS = {"deploy": "deploy-ready", "main": "main-ready"}
 ARCHITECTURES = {"arm64": "arm64", "aarch64": "arm64", "amd64": "amd64", "x86_64": "amd64"}
 MANIFESTS = ", ".join(
     f"application/vnd.{kind}+json"
@@ -62,9 +65,9 @@ class Registry:
         return self.get(repository, f"blobs/{self.manifest(repository, digest)['config']['digest']}")
 
 
-def records(source: GitSource):
+def records(source: GitSource, branch: str = CHANNELS["deploy"]):
     """The channel's records, newest first."""
-    for commit in source.git("log", "--format=%H", "refs/heads/deploy-ready", "--", "release.json").splitlines():
+    for commit in source.git("log", "--format=%H", f"refs/heads/{branch}", "--", "release.json").splitlines():
         yield json.loads(source.git("show", f"{commit}:release.json"))
 
 
@@ -132,8 +135,9 @@ def write_env(path: Path, values: dict) -> None:
     sync_directory(path.parent)
 
 
-def resolve(source: GitSource, registry: Registry, architecture: str, revision: str | None) -> tuple[str, dict]:
-    record = admitted(records(source), revision)
+def resolve(source: GitSource, registry: Registry, architecture: str, revision: str | None,
+            branch: str = CHANNELS["deploy"]) -> tuple[str, dict]:
+    record = admitted(records(source, branch), revision)
     sha = record["revision"]
     main = source.git("rev-parse", "refs/heads/main")
     values = {}
@@ -152,6 +156,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env", required=True, type=Path, help="the compose env file these three keys are replaced in")
     parser.add_argument("--revision", help="an earlier admitted revision, to go back to it (default: the newest)")
+    parser.add_argument("--channel", choices=tuple(CHANNELS), default="deploy",
+                        help="deploy: the admitted versions (default); main: every checked main build, for staging")
     parser.add_argument("--arch", choices=("arm64", "amd64"), help="the Docker engine's CPU (default: this machine's)")
     args = parser.parse_args()
     architecture = args.arch or ARCHITECTURES.get(platform.machine().lower())
@@ -160,9 +166,12 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as state:
         source = GitSource(Path(state))
         source.refresh()
-        sha, values = resolve(source, Registry(), architecture, args.revision)
+        branch = CHANNELS[args.channel]
+        if branch != CHANNELS["deploy"]:  # refresh fetches only the host's refs, main and deploy-ready
+            source.git("fetch", "--filter=blob:none", "origin", f"refs/heads/{branch}:refs/heads/{branch}")
+        sha, values = resolve(source, Registry(), architecture, args.revision, branch)
     write_env(args.env, values)
-    print(json.dumps({"revision": sha, "architecture": architecture, **values}, indent=2))
+    print(json.dumps({"revision": sha, "channel": branch, "architecture": architecture, **values}, indent=2))
 
 
 if __name__ == "__main__":

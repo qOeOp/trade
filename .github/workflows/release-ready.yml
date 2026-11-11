@@ -10,8 +10,11 @@ on:
       - .github/scripts/release-ready.test.cjs
       - deploy/runtime_inputs.py
       - engine/runtime/Dockerfile
+  # A version tag wakes the publisher for deploy-ready. GitHub does not evaluate path filters for tag pushes, so
+  # `paths` below limits only main pushes.
   push:
     branches: [main]
+    tags: ['v*']
     paths:
       - .github/workflows/release-ready.yml
       - .github/scripts/release-ready.cjs
@@ -21,9 +24,10 @@ on:
   # zizmor flags every workflow_run trigger: it runs with the base repository's token on events a fork can cause.
   # Here it only wakes the publisher: both jobs check out main (never the triggering run's code or artifacts), and
   # release-ready.cjs admits only push runs on main of qoeop/trade, by head SHA and artifact identity.
-  # in_progress appends a withheld record once a newer main commit's ide-image run exists, or a rerun starts: the
-  # host's release tick (deploy/release.py choose, ensure; deploy/paper_release.py tick) then holds instead of
-  # switching to, or finishing a switch to, a commit that is no longer the channel's newest decision.
+  # in_progress appends a withheld record once a newer main commit's ide-image run exists (main-ready only), or a
+  # rerun starts (deploy-ready only for the version's commit or its ancestors): the host's release tick
+  # (deploy/release.py choose, ensure; deploy/paper_release.py tick) then holds instead of switching to, or
+  # finishing a switch to, a commit that is no longer the channel's newest decision.
   workflow_run:  # zizmor: ignore[dangerous-triggers]
     workflows: [quality, ide-web, ide-image, runtime-image, remote-paper-auth]  # docs-pages is not part of a release
     types: [in_progress, completed]
@@ -42,10 +46,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The tests run the production runtime input helper with system python3. A callback or scheduled run executes
-  # main's publisher, whose own pull request and push already ran them.
+  # The tests run the production runtime input helper with system python3. A callback, tag push or scheduled run
+  # executes main's publisher, whose own pull request and main push already ran them.
   eligibility-tests:
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name == 'pull_request' || github.event_name == 'push' && github.ref_type == 'branch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -55,13 +59,14 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24'
+          package-manager-cache: false  # no dependencies; a tag-triggered workflow restores no cache
       - run: node --test .github/scripts/release-ready.test.cjs
   release-ready:
-    # On a push the publisher waits for its tests; on any other main event they are skipped.
+    # On a main push the publisher waits for its tests; on a tag push or any other main event they are skipped.
     if: >-
       !cancelled() && github.event_name != 'pull_request' &&
       (needs.eligibility-tests.result == 'success' ||
-       github.event_name != 'push' && needs.eligibility-tests.result == 'skipped')
+       (github.event_name != 'push' || github.ref_type == 'tag') && needs.eligibility-tests.result == 'skipped')
     needs: eligibility-tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -69,8 +74,9 @@ jobs:
       contents: write
       actions: read
       checks: read
+      deployments: write  # a production deployment record when deploy-ready admits a version
     steps:
-      # The default branch owns the publisher; never execute a triggering PR's code or artifact.
+      # The default branch owns the publisher; never execute a triggering PR's or tag's code or artifact.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: main

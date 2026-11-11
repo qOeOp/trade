@@ -3,21 +3,26 @@
 **Who this is for.** The automatic release below (CD) serves the author's own deployment only. Its source
 repository (`qOeOp/trade`), image names (`ghcr.io/qoeop/trade-*`) and `deploy-ready` channel are written into
 `deploy/release_host.py` and `.github/scripts/release-ready.cjs` on purpose and are not settings: a host that
-installs it follows the author's `main`. Another operator runs the base deployment ([`deploy/README.md`](../README.md))
+installs it follows the author's versions. Another operator runs the base deployment ([`deploy/README.md`](../README.md))
 and updates it by hand, or forks the repository and changes those names in the fork.
 
 The [continuous Web release plane](../../docs/plans/remote-continuous-delivery.zh.md) runs the Web, its
-single Agent writer and the Paper controller, and publishes successful main builds without recreating Paper
-runs, the ledger or strategy containers. Install its reviewed control code once on a new host with
+single Agent writer and the Paper controller, and publishes admitted versions without recreating Paper
+runs, the ledger or strategy containers. A merge to `main` is not a release: only a version tag
+([`CHANGELOG.md`](../../CHANGELOG.md)) moves this host. Install its reviewed control code once on a new host with
 `sh deploy/remote/install-release.sh`, after the whole-project `up` below (step 6). It creates the first
-Paper controller, Web and Agent from the newest admitted main build, starts the internal Web and Paper
+Paper controller, Web and Agent from the newest admitted version, starts the internal Web and Paper
 routers and moves OAuth2 Proxy onto the Web router, waits until the first release is ready behind the OAuth
 allowlist, then enables `trade-release.timer`. Web switches reload the internal proxy.
 
 `release-ready` in GitHub Actions checks the same source's push workflows (except `docs-pages`: the
 documentation site is not part of a release) and third-party checks, downloads
 the native tested digest artifact for that run/attempt, and appends `{revision,image,service,runtime}`, the
-exact tested IDE, service and runtime digests, to the operational `deploy-ready` branch. A
+exact tested IDE, service and runtime digests, to two operational branches: `main-ready` for every `main`
+build (staging; no host reads it), and `deploy-ready`, which this host reads, only for the commit of the highest
+version tag from `v0.2.0` on that `main` contains. `deploy-ready` never moves back to an older version, and a newer
+untagged `main` build never touches it; each admission also records a GitHub deployment to `production`, which
+says only that the version was admitted, since the host does not report back. A
 runtime carries forward only when its complete build inputs match the service source and its source
 still has successful CI and a retained tested artifact. Each candidate resolves that qualification afresh;
 without a match, a null image withholds admission. The image resolver and Paper controller also check
@@ -96,10 +101,10 @@ Yes and no request is unresolved, pause
 the release timer and let any release service finish. Stage new source files beside the existing inputs
 (regular, root-owned, read-only) and keep the old ones while an old control is retained, since it mounts
 them. Then replace the declaration atomically (0600, written beside it and renamed over it) and resume
-the timer. From the swap on, the old control serves only reads and STOP. The next main release pairs a
+the timer. From the swap on, the old control serves only reads and STOP. The next release pairs a
 new control from the declaration, even if it touches only Web paths; nothing changes until one lands.
-A main release is a main commit that builds the service image (the paths in `.github/workflows/ide-image.yml`);
-a merge of docs, skills or host-side files outside the image (`deploy/remote/`, `deploy/compose.yaml`,
+A release is a version whose commit builds the service image (the paths in `.github/workflows/ide-image.yml`);
+a version on a commit of docs, skills or host-side files outside the image (`deploy/remote/`, `deploy/compose.yaml`,
 `deploy/README.md`) alone builds none and leaves the swap waiting; those reach the host through its
 `/opt/trade-app` checkout and `install-release.sh`.
 Restoring the previous declaration undoes a swap that has not paired yet. The custody `root` cannot
@@ -112,7 +117,7 @@ the Paper directories and Git, mode 0700, owned by the operator UID/GID the cont
 empty `account.lock` (mode 0600, the same owner): a release opens that existing lock and never creates it.
 Stage the declared strategy, universe and research files as regular, root-owned, read-only files. Then pause
 the timer, let any release service finish, write the declaration (0600, in a 0700
-`/var/lib/trade-release/live/`) and resume the timer. The next main release pairs
+`/var/lib/trade-release/live/`) and resume the timer. The next release pairs
 the first control. Do not save a credential or start a run as part of installing.
 
 When Live is busy or unresolved, the timer still releases a Web-only candidate beside the owner control
@@ -241,7 +246,10 @@ not a tested capacity result; do not change an existing deployment's cap without
    compose --profile local-research-import up -d --no-deps market-import
    ```
 
-6. Wait for at least one admitted main build in `deploy-ready`, then run `sh deploy/remote/install-release.sh`
+6. Wait until `deploy-ready` admits a version, `v0.2.0` or later: its newest record has a non-null image and names
+   that tag's commit (`git log -p origin/deploy-ready -- release.json`, `git tag --points-at <revision>`). Records
+   before it are main builds from before versions gated releases; if step 3 named images before the version was
+   admitted, run its `deploy.images` again. Then run `sh deploy/remote/install-release.sh`
    as root from `/opt/trade-app`. It stops at the first failure; remove the `trade-release-*` containers and
    the `router` and `paper-router` directories under `/var/lib/trade-release` it left, then run it again.
 
@@ -279,15 +287,17 @@ limits and 4-core/8-GB evaluation scope.
 
 ## Rolling back
 
-The release plane only moves forward along `main`, so a rollback is a new commit, not a reselection:
+The release plane only moves forward along `main` (CI ignores a version behind the one admitted), so a rollback
+is a new commit and a new version, not a reselection:
 
 1. Name what runs: the IDE's About (version and commit), or the Web container in
    `/var/lib/trade-release/router/active.json` (`trade-release-web-<commit>`).
 2. Stop further releases while you work: `sudo systemctl stop trade-release.timer`. A release already running
    finishes by itself; do not kill it.
 3. Revert the bad merge on a branch (`git revert -m 1 <merge-commit>`), or revert back to the last good tag
-   ([`CHANGELOG.md`](../../CHANGELOG.md)), and merge it through the usual checks. Then
-   `sudo systemctl start trade-release.timer`: the next tick releases that commit like any other.
+   ([`CHANGELOG.md`](../../CHANGELOG.md)), merge it through the usual checks and ship that merge commit as a new
+   version (`gh release create`, [`CHANGELOG.md`](../../CHANGELOG.md)). Then `sudo systemctl start trade-release.timer`:
+   once CI admits that version, the next tick releases it like any other.
 4. Check the About dialog names the new commit, and `journalctl -u trade-release.service` shows it routed.
 
 What a rollback does not undo: ledger records and the market directory only grow, and running Paper and Live runs

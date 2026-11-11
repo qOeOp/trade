@@ -104,8 +104,9 @@ reproduce`) are research records of exposure to data and go to the active ledger
   `.github/pull_request_template.md` and reports only checks actually run.
 - Base every PR on `main`; never stack one PR on another, since the quality checks run only for
   PRs into `main`.
-- A checked `main` build reaches the remote host by itself, so a merge is a release;
-  `deploy/remote/README.md` says what switches and what stays.
+- A merge is not a release: only a version tag (`v0.2.0` or later) on a checked `main` commit reaches the
+  remote host, and tagging one is the user's call each time (`CHANGELOG.md`). `deploy/remote/README.md` says
+  what switches and what stays.
 - A fix for a doctor finding starts from the diagnosis record and the index, never from the
   auditing session; one root cause per PR, the finding id in the body. The PR adds or changes only
   its own finding's eval case and leaves every other grader alone; a grader change is its own PR.
