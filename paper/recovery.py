@@ -96,7 +96,7 @@ def launched(directory: Path, action: str) -> None:
 def resume(profile: db.LedgerProfile, market: dict, paper_id: int) -> dict:
     """Restart the unsealed run `paper_id` from its native checkpoint, with every original input unchanged: the
     strategy source, the identity the checkpoint binds, the pinned container, and the contract terms, re-exported
-    from the market at the run's commit and compared with inputs/terms.json (CF-18: a terms file changed on the
+    from the market at the run's market day and compared with inputs/terms.json (CF-18: a terms file changed on the
     host would otherwise be read silently on restart). PAPER_RECOVERY_UNAVAILABLE otherwise."""
     from paper import runs
     with db.connect(profile, "reader") as conn:
@@ -117,11 +117,11 @@ def resume(profile: db.LedgerProfile, market: dict, paper_id: int) -> dict:
         held = json.loads((directory / "inputs" / "terms.json").read_bytes())
     except (OSError, ValueError):
         held = None
-    expected_terms = json.loads(json.dumps(runs._terms(market, row["market_commit"], list(row["symbols"])),
+    expected_terms = json.loads(json.dumps(runs._terms(market, str(row["market_day"]), list(row["symbols"])),
                                            sort_keys=True))
     if held != expected_terms:
         raise refuse("PAPER_RECOVERY_UNAVAILABLE", "the run's terms input no longer matches the contract terms at "
-                                                   f"its market commit {row['market_commit']}")
+                                                   f"its market day {row['market_day']}")
     try:
         checkpoint.read(directory / "out", expected)
     except RuntimeRefusal as exc:
