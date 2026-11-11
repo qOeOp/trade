@@ -376,8 +376,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         ("Publish the grid for the probed runtime contract. For validation, keep the original "
                          "registration's account terms; later research cannot replace that baseline. If terms "
                          "must change, stop and ask the user about a new future-window registration.",)),
-    "SOURCE_ALREADY_EXPOSED": ("A grid source already sealed an economic result the researcher could read, in "
-                               "a trial that is neither part of this registration's retry chain nor the cited "
+    "SOURCE_ALREADY_EXPOSED": ("A grid source already sealed an economic result the researcher could read on a "
+                               "contract this registration trades, in a trial that is neither part of this registration's retry chain nor the cited "
                                "short precheck, so registering it now would choose it after seeing its result.",
                                ("Preserve the exposure record. Use retry_of only for an earlier registration that "
                                 "actually consumed this source; such a rebuild on another image cites a new precheck "

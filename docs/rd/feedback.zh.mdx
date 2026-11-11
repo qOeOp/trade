@@ -84,7 +84,7 @@ Agent 读一个运行的反馈之前，先看它的经济证据资格，结果�
 2. 改过的源码当作新候选，重新预检，再交给没参与编写的 Agent 审查。
 3. 没有通过的预检审查件就登记，会被拒绝（SOURCE_PRECHECK_REQUIRED）；审查结论是失败或未定，也会被拒绝（SOURCE_PRECHECK_FAILED）。
 4. 已经消耗过的网格点不能在原登记下重跑，再次绑定会被拒绝（GRID_ALREADY_ATTEMPTED）；要另行登记，用 retry_of 指向实际消耗它的那次登记。
-5. 重用已经执行过的源码却不写 retry_of，会被拒绝（SOURCE_ALREADY_EXPOSED）。
+5. 在跑过它的合约上重用已经执行过的源码却不写 retry_of，会被拒绝（SOURCE_ALREADY_EXPOSED）。
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 

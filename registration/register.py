@@ -404,7 +404,8 @@ def _check_retry(conn: db.LedgerConnection, chain: list[dict], plan: Mapping, ex
 def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[dict], chain: list[dict],
                     exclude: int | None, transitions: list[dict]) -> None:
     """A grid source has already run, and cannot be registered as new, when a trial sealed an economic
-    result of it the researcher could read. Not counted: (1) the earlier trials of the registration being
+    result of it the researcher could read on a contract this registration trades (a trial with no recorded
+    contract counts on every one). Not counted: (1) the earlier trials of the registration being
     bound and of its retry chain; (2) a precheck that sealed no result (precheck.sealed_no_result); (3) the
     cited short precheck matching the registration's identity, and the one a linked runtime rebuild cited,
     matched against that rebuild's identity; (4) a verified reproduction (reproduction.matches) of a trial not
@@ -419,9 +420,13 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                 previous = {**prior["execution"], "symbols": execution["symbols"]}  # the same export content
                 cited.setdefault(precheck.require_precheck(conn, review, source, previous), []).append(previous)
         uncounted, counted = [], []
+        symbols = sorted(set(execution["symbols"]))
+        on_contracts = (" AND (NOT EXISTS (SELECT 1 FROM trial_instrument i WHERE i.trial_id = t.trial_id) OR "
+                        "EXISTS (SELECT 1 FROM trial_instrument i WHERE i.trial_id = t.trial_id AND i.instrument_id IN ("
+                        + ", ".join(["%s"] * len(symbols)) + ")))") if symbols else ""
         for trial_id, registration, purpose, trade_start, trade_end in conn.rows(
-                "SELECT trial_id, research_registration_id, purpose, trade_start, trade_end FROM trial "
-                "WHERE source_sha256 = %s ORDER BY trial_id", (source,)):
+                "SELECT t.trial_id, t.research_registration_id, t.purpose, t.trade_start, t.trade_end FROM trial t "
+                "WHERE t.source_sha256 = %s" + on_contracts + " ORDER BY t.trial_id", (source, *symbols)):
             if (registration in retried
                     or (purpose == "precheck" and precheck.sealed_no_result(conn, trial_id, source))
                     or any(precheck.exposure_exempt(conn, trial_id, source, identity)

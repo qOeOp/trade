@@ -198,6 +198,21 @@ class RegisterTests(unittest.TestCase):
         self.assertEqual(self.code(body), "SOURCE_ALREADY_EXPOSED")
         self.assertEqual(self.code({**body, "retry_of": self.root}), "SOURCE_ALREADY_EXPOSED")
 
+    def test_a_source_run_on_other_contracts_only_is_not_exposed_on_these(self):
+        """Exposure is per contract: a run on CCCUSDT says nothing about AAAUSDT and BBBUSDT."""
+        for symbol, exposed in (("CCCUSDT", False), ("BBBUSDT", True)):
+            with self.subTest(symbol=symbol):
+                elsewhere = self.world.publish(f"explored on {symbol}")
+                review = self.world.prechecked(elsewhere["source"])
+                trials.open_trial(self.world.conn, "explore", sha(elsewhere["source"]), RUNTIME,
+                                  coverage(effective_config=config(symbols=[symbol]), symbols=[symbol]), LINE_WINDOW,
+                                  self.world.start(elsewhere["source"]))
+                body = self.derived(grid=[elsewhere["candidate"]], prechecks={elsewhere["candidate"]: review})
+                if exposed:
+                    self.assertEqual(self.code(body), "SOURCE_ALREADY_EXPOSED")
+                else:
+                    self.world.register(body)
+
     def test_only_the_cited_precheck_of_at_most_seven_days_leaves_the_source_unexposed(self):
         """Condition (3): the cited precheck of at most PRECHECK_MAX_DAYS that matches the identity."""
         long = self.world.publish("prechecked for eight days")
