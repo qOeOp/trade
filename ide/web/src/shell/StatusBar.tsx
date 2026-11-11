@@ -38,7 +38,7 @@ function backtestSource(l: Loaded | null, market: string | null, contract: boole
 }
 
 /** Where the stage the Runs page shows comes from, after its name. */
-export function StageSource({ className }: { className: string }) {
+function StageSource({ className }: { className: string }) {
   const { line } = useView(), { stage, name } = useShown(), backtest = useBacktest();
   // The chart's view: the run's, else (a version with no paper run) a contract only while its backtest traded it.
   const tab = useAtom(paperTab), chart = useRunData()?.view ?? (backtest?.kind === "ready" && backtest.b.cycles.some((c) => c.symbol === tab) ? tab : null);
@@ -46,7 +46,7 @@ export function StageSource({ className }: { className: string }) {
   return stage && <span className={className}>{name}{SOURCE[stage]}<span className={tested.failed ? "text-fail" : ""}>{tested.text}</span></span>;
 }
 
-export const lineCounts = (s: SummaryWidget) => `${plural(s.versions, "version")} · ${plural(s.research_runs, "research run")} · ${s.masked_runs} ineligible`;
+const lineCounts = (s: SummaryWidget) => `${plural(s.versions, "version")} · ${plural(s.research_runs, "research run")} · ${s.masked_runs} ineligible`;
 
 /** The window's bottom row, on the frame, as IntelliJ's: the path to the selected version (line ›
  *  ancestors › version, each step clickable) at the left, then on the Runs page where the stage it shows

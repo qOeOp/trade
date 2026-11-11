@@ -69,7 +69,7 @@ function Tested({ targets }: { targets: Targets | null }) {
   </Eased>;
 }
 
-export function StageReadings({ targets }: { targets: Targets | null }) {
+function StageReadings({ targets }: { targets: Targets | null }) {
   const { stage, run, name } = useShown(), data = useRunData();
   if (stage === "backtest") return <><Name>{name}</Name><Tested targets={targets} /></>;
   if (stage !== "paper") return null;

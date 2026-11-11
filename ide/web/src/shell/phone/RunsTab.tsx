@@ -17,7 +17,7 @@ import { PhoneTop } from "./PhoneTop";
 const count = (n: number, what: string) => `${n} ${what}`;
 
 /** The Live runs a phone shows: those not ended, else the last one. */
-export function shownLive(runs: readonly LiveRun[]): LiveRun[] {
+function shownLive(runs: readonly LiveRun[]): LiveRun[] {
   const open = runs.filter((r) => !r.ended);
   return open.length ? open : runs.slice(-1);
 }

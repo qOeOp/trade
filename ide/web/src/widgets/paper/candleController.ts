@@ -22,7 +22,7 @@ import { TradeMarks } from "./tradeMarks";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 import type { VolumeBar } from "./volumeBars";
 
-export type { Trading };const at = (t: number) => t as UTCTimestamp;
+const at = (t: number) => t as UTCTimestamp;
 
 export class CandleController {
   /** The period in minutes, 0 until the first bars. */

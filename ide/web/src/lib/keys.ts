@@ -1,7 +1,7 @@
 import { tinykeys } from "tinykeys";
 
 /** A Mac, by tinykeys' own test: there `$mod` is ⌘, elsewhere Ctrl. */
-export const MAC = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+const MAC = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 const NAMES: Record<string, string> = { "⌘": "Ctrl+", "⌃": "Ctrl+", "⌥": "Alt+", "⇧": "Shift+" };
 /** A shortcut written with Mac symbols (⌘K, ⌥8, ⇧Esc) as this platform writes it: unchanged on a Mac,
  *  Ctrl+K, Alt+8, Shift+Esc elsewhere. */

@@ -8,7 +8,6 @@ import { canvasColor, canvasTint } from "../../theme/roles";
 /** Display formatting only: chart data and UTC candle boundaries keep their original epochs. */
 export const dayMonth = (d: Date, zone: TimeZone = "UTC") => timeFormatter(zone, { day: "numeric", month: "short" }).format(d);
 export const stamp = (ms: number, zone: TimeZone = "UTC") => dateTime(ms, zone, "minute");
-export const dated = stamp;
 /** The actual interval represented by a point, including UTC daily bars without rebucketing. */
 export function during(start: number, step: number, zone: TimeZone = "UTC"): string {
   const a = start * 1000, b = (start + step) * 1000, day = dayMonth(new Date(a), zone);
