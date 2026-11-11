@@ -125,7 +125,10 @@ def run(root: Path, data: Path, backups: Path, origin: str, port: int, readers: 
         threading.Thread(target=http.serve_forever, daemon=True).start()
         for signum in (signal.SIGTERM, signal.SIGINT):
             signal.signal(signum, lambda received, frame: server.send_signal(received))
+        stop = threading.Event()
+        threading.Thread(target=service.keep_backed_up, args=(stop, False), daemon=True).start()
         code = server.wait()
+        stop.set()
         return {"action": "mirror", "server_exit": code}, 0 if code in (0, -signal.SIGTERM, -signal.SIGINT) else 1
     finally:
         if http:

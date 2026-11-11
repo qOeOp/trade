@@ -34,7 +34,9 @@ With --setup, a first start that lacks or fails on the repository or the key wai
 exiting (`cli.first_run`); a later start is unchanged.
 
 While it serves, `run` publishes the ledger every PUBLISH_RETRY seconds when origin is behind it, so a publish that
-failed does not wait for the next write. What is still behind shows on the IDE's page.
+failed does not wait for the next write. What is still behind shows on the IDE's page. In the same rounds it syncs
+the Paper database's backup when Paper's head moved (`ledger mirror` too): Paper's containers hold no administrator,
+and dolt_backup needs one.
 """
 
 from __future__ import annotations
@@ -53,7 +55,7 @@ import pymysql
 
 from cli import first_run
 from cli.first_run import _log
-from ledger import db, publish
+from ledger import admin, db, publish
 from shared import paths, profiles
 from shared.errors import Refusal
 from ledger.publish import _rows
@@ -417,9 +419,36 @@ def _publish_if_behind() -> None:
         _log(f"publish retry failed: {type(exc).__name__}: {exc}")
 
 
-def _keep_published(stop: threading.Event) -> None:
+def _back_up_paper(synced: dict) -> None:
+    """Sync the Paper database's backup when its head moved since the last sync, so a stop or a seal has a copy
+    within PUBLISH_RETRY. `synced` keeps the head synced last. It never raises, as _publish_if_behind."""
+    try:
+        profile = db.profiles().get(PAPER)
+        target = None if profile is None or profile.holds != "paper" else admin.backup_path(profile)
+        if profile is None or target is None:
+            return
+        with db.read_as_of(profile) as conn:
+            head = db.head_commit(conn)
+        if synced.get(PAPER) == head:
+            return
+        if admin.backup_head(target) != head:
+            admin._sync_backup(profile, target, head)
+            _log(f"synced the Paper backup to {head}")
+        synced[PAPER] = head
+    except Refusal as exc:
+        _log(f"Paper backup refused: {exc}")
+    except Exception as exc:
+        _log(f"Paper backup failed: {type(exc).__name__}: {exc}")
+
+
+def keep_backed_up(stop: threading.Event, publishing: bool = True) -> None:
+    """Every PUBLISH_RETRY seconds until `stop`: publish the ledger when origin is behind (`publishing`), then the
+    Paper backup."""
+    synced: dict = {}
     while not stop.wait(PUBLISH_RETRY):
-        _publish_if_behind()
+        if publishing:
+            _publish_if_behind()
+        _back_up_paper(synced)
 
 
 def run(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
@@ -435,7 +464,7 @@ def run(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda received, frame: server.send_signal(received))
     stop = threading.Event()
-    threading.Thread(target=_keep_published, args=(stop,), daemon=True).start()
+    threading.Thread(target=keep_backed_up, args=(stop,), daemon=True).start()
     code = server.wait()
     stop.set()
     return {"action": "run", "server_exit": code}, 0 if code in (0, -signal.SIGTERM, -signal.SIGINT) else 1

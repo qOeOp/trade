@@ -242,7 +242,7 @@ class PublishTests(unittest.TestCase):
                 patch.object(ledger_service, "PUBLISH_RETRY", 0.05), \
                 patch.object(publish, "_push", wraps=publish._push) as pushed:
             pushed.side_effect = offline
-            keeper = threading.Thread(target=ledger_service._keep_published, args=(stop,), daemon=True)
+            keeper = threading.Thread(target=ledger_service.keep_backed_up, args=(stop,), daemon=True)
             keeper.start()
             self.addCleanup(keeper.join, 30)
             self.addCleanup(stop.set)

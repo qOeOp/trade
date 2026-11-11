@@ -287,6 +287,30 @@ class RunTests(unittest.TestCase):
         self.assertTrue(caught_up, "the service published it")
         self.assertEqual(answers[0][1], 0, "the retry does not hold up the service's exit")
 
+    def test_the_paper_backup_follows_paper_s_head(self):
+        """U2: Paper's containers hold no administrator, so the service syncs Paper's backup when its head moves."""
+        _, config = self.start()
+        execution = db.load_profile("paper")
+        target = admin.backup_path(execution)
+        synced: dict = {}
+
+        def head():
+            with db.read_as_of(execution) as conn:
+                return db.head_commit(conn)
+
+        service._back_up_paper(synced)
+        self.assertEqual(admin.backup_head(target), head())
+        conn = db._admin(config, database="paper")
+        with conn.cursor() as cursor:
+            cursor.execute("CALL DOLT_COMMIT('--allow-empty', '-m', 'a stop')")
+        conn.close()
+        self.assertNotEqual(admin.backup_head(target), head())
+        with patch.object(admin, "_sync_backup", wraps=admin._sync_backup) as syncing:
+            service._back_up_paper(synced)
+            self.assertEqual(admin.backup_head(target), head(), "the moved head is copied")
+            service._back_up_paper(synced)
+        self.assertEqual(syncing.call_count, 1, "an unchanged head is not synced again")
+
     def test_a_new_ledger_its_copy_refuses_leaves_nothing_it_made(self):
         origin = self.remotes / f"refusing-{self.port}"
         origin.mkdir()
