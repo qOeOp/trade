@@ -10,7 +10,7 @@ export function RunStages({ backtest, paper, loose = null }: { backtest: boolean
   const { stage } = useShown(), { lines } = useResearchLines();
   const away = loose?.candidate ? lineOf(lines, loose.candidate) : null;
   return <Tabs label="Stage" value={stage ?? "paper"} onChange={(next) => {
-    if (next === "backtest" && !backtest && away && loose) openBacktest(away.bundle, loose.candidate!, loose.paper_id);
+    if (next === "backtest" && !backtest && away && loose) openBacktest(away.name, loose.candidate!, loose.paper_id);
     else chooseStage(next);
   }} items={[
     { id: "backtest", label: "Backtest", disabled: !backtest && !away, hint: "No backtest" },

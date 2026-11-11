@@ -44,7 +44,7 @@ async function page(query = "?line=line-a") {
     },
   };
 }
-const lines = (bundle) => [{ bundle, start: "root@1", window_start: "2025-01-01", window_end: "2026-01-01", closed: false }];
+const lines = (name) => [{ name, start: "root@1", dev_start: "2025-01-01", dev_end: "2026-01-01", closed: false }];
 
 test("prefetch the index before the first graph request or any menu interaction", async () => {
   const p = await page();
@@ -53,7 +53,7 @@ test("prefetch the index before the first graph request or any menu interaction"
   assert.equal(p.requests[1].url, "/api/view?line=line-a");
   await p.answer("/api/lines", 200, { lines: lines("old-line") });
   assert.equal(p.state().loaded, true);
-  assert.equal(p.state().lines[0].bundle, "old-line");
+  assert.equal(p.state().lines[0].name, "old-line");
 });
 
 test("retain the visible choices throughout a background index refresh", async () => {
@@ -63,9 +63,9 @@ test("retain the visible choices throughout a background index refresh", async (
   void p.read("b");
   assert.equal(p.state().loaded, true);
   assert.equal(p.state().loading, true);
-  assert.equal(p.state().lines[0].bundle, "old-line");
+  assert.equal(p.state().lines[0].name, "old-line");
   await p.answer("/api/lines?at=b", 200, { lines: lines("new-line") });
-  assert.equal(p.state().lines[0].bundle, "new-line");
+  assert.equal(p.state().lines[0].name, "new-line");
   assert.equal(p.state().loading, false);
 });
 
@@ -74,11 +74,11 @@ test("complete an in-flight index and coalesce newer heads without aborting the 
   void p.read("a"); void p.read("b"); void p.read("c");
   assert.equal(p.requests.length, 1);
   await p.answer("/api/lines?at=a", 200, { lines: lines("first-choices") });
-  assert.equal(p.state().lines[0].bundle, "first-choices");
+  assert.equal(p.state().lines[0].name, "first-choices");
   assert.equal(p.requests.length, 2);
   assert.equal(p.requests[1].url, "/api/lines?at=c");
   await p.answer("/api/lines?at=c", 200, { lines: lines("latest-choices") });
-  assert.equal(p.state().lines[0].bundle, "latest-choices");
+  assert.equal(p.state().lines[0].name, "latest-choices");
 });
 
 test("reuse an already completed index and explicitly retry a failed refresh", async () => {
@@ -89,12 +89,12 @@ test("reuse an already completed index and explicitly retry a failed refresh", a
   assert.equal(p.requests.length, 1);
   void p.read("b");
   await p.answer("/api/lines?at=b", 503, { message: "temporarily offline" });
-  assert.equal(p.state().lines[0].bundle, "retained");
+  assert.equal(p.state().lines[0].name, "retained");
   assert.match(p.state().error, /offline/);
   void p.read("b", true);
   await p.answer("/api/lines?at=b", 200, { lines: lines("recovered") });
   assert.equal(p.state().error, null);
-  assert.equal(p.state().lines[0].bundle, "recovered");
+  assert.equal(p.state().lines[0].name, "recovered");
 });
 
 test("a pinned page keeps its index at the explicit snapshot", async () => {
@@ -113,17 +113,17 @@ test("live head notifications refresh navigation even while a completed graph is
   await p.answer("/api/lines", 200, { lines: lines("initial") });
   await p.answer("/api/view?line=line-a", 200, { scope: { ledger_commit: "a" } });
   p.event({ state: "computing", ledger_commit: "b" });
-  assert.equal(p.state().lines[0].bundle, "initial");
+  assert.equal(p.state().lines[0].name, "initial");
   await p.answer("/api/lines?at=b", 200, { lines: lines("latest-open-line") });
-  assert.equal(p.state().lines[0].bundle, "latest-open-line");
+  assert.equal(p.state().lines[0].name, "latest-open-line");
 });
 
 test("a run of another line's version opens that line with the version selected and the run named", async () => {
   const { lineOf, runHref } = await namespace("lib/lines.ts", { context: createContext({ URL, document: {} }), sources: [], packages: [] });
-  const line = (bundle, closed, versions) => ({ bundle, closed, versions, start: "", window_start: "", window_end: "" });
+  const line = (name, closed, versions) => ({ name, closed, versions, start: "", dev_start: "", dev_end: "" });
   const lines = [line("line-a", false, ["s@1", "s@2"]), line("line-b", true, ["s@2", "t@1"]), line("line-c", false, ["s@2"])];
-  assert.equal(lineOf(lines, "s@2").bundle, "line-c", "the newest open line that draws it");
-  assert.equal(lineOf(lines, "t@1").bundle, "line-b", "a closed line when no open one draws it");
+  assert.equal(lineOf(lines, "s@2").name, "line-c", "the newest open line that draws it");
+  assert.equal(lineOf(lines, "t@1").name, "line-b", "a closed line when no open one draws it");
   assert.equal(lineOf(lines, "u@1"), null);
   assert.equal(runHref("http://ide/?line=line-a&since=abc&at=def#s@1", "line-c", "s@2", 14), "/?line=line-c&at=def&run=14#s@2",
     "the snapshot is kept, the scope dropped");

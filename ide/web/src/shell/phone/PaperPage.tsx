@@ -49,7 +49,7 @@ export function PaperPage({ id }: { id: number }) {
   const bar = run.live?.last_bar_ns != null ? run.live.last_bar_ns / 1e6 : null, start = run.live?.started_ns != null ? run.live.started_ns / 1e6 : null;
   return (
     <>
-      <PhoneTop back={back} aside={`Paper ${run.paper_id}`} line={line?.bundle ?? null} />
+      <PhoneTop back={back} aside={`Paper ${run.paper_id}`} line={line?.name ?? null} />
       <PhonePage>
         <div className="space-y-1 px-3 pt-3">
           <p className="flex min-w-0 items-baseline gap-2 text-dense"><Version name={run.candidate} /><span className={`shrink-0 ${textClass(h.tone)}`}>{h.text}</span></p>

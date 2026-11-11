@@ -67,8 +67,8 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
           const entries = researchLines.get().lines;
           if (shown === null && entries.length) status("Choose a research line to draw:", false,
             [...entries].reverse().map((line) => ({
-              label: `${line.bundle.replace(/^research-line-/, "")} · ${line.closed ? "Closed" : "Open"}`,
-              href: lineHref(window.location.href, line.bundle),
+              label: `${line.name.replace(/^research-line-/, "")} · ${line.closed ? "Closed" : "Open"}`,
+              href: lineHref(window.location.href, line.name),
             })));
         }).catch(() => { /* Keep the product's refusal and any open-line choices. */ });
     }
