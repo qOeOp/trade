@@ -597,6 +597,20 @@ def _market_days(market: dict) -> tuple[date, date]:
     return first_day, latest + timedelta(days=1)
 
 
+def line_close(profile: db.LedgerProfile, line: str, summary: bytes, market: dict) -> dict:
+    """line close: end the line, then sync the profile's backup (`ledger export --kind backup`). The closing
+    stands whatever the sync does: a refused sync is reported as backup_failed, and `ledger review` reports the
+    backup as behind until a sync succeeds."""
+    closed = lines.close_line(profile, line, summary, _market_days(market))
+    if profile.backup_root is None:
+        return {**closed, "backup": None}
+    try:
+        synced = ledger_export(profile, "backup", None, None, None)
+    except Refusal as exc:
+        return {**closed, "backup": None, "backup_failed": refusal_json(exc)}
+    return {**closed, "backup": {"ledger_commit": synced["ledger_commit"], "backup_path": synced["backup_path"]}}
+
+
 def line_select(conn: db.LedgerConnection, market: dict, start: str, market_at: str | None, slug: str,
                 line_targets: tuple | None = None) -> dict:
     """line select: the user's research line (start candidate, pinned market commit; the development period is
@@ -1300,8 +1314,10 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("line", "close"): (
         "--summary (a regular UTF-8 file, at most 32 KB); the line, its history trials and its closing at the head "
         "(writer); the market's first and latest complete day at the newest day",
-        "one line_close row holding the summary, which ends the line; the same summary again is a replay; publishes",
-        "line, line_id, closed_at, ledger_commit, replayed",
+        "one line_close row holding the summary, which ends the line; the same summary again is a replay; then the "
+        "profile's backup is synced as `ledger export --kind backup` does; publishes",
+        "line, line_id, closed_at, ledger_commit, replayed, backup ({ledger_commit, backup_path}, null without a backup "
+        "directory or when the sync was refused), backup_failed (the sync's refusal; the closing stands)",
         "HISTORY_INCOMPLETE (a segment of the closing history test has no history run: `line history`); "
         "LINE_CLOSED (closed with another summary); LINE_UNKNOWN; LINE_SUMMARY_INVALID"),
     ("registration", "add"): (
@@ -2535,8 +2551,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         from replay import history
         return history.run_history(profile, profiles.market(args.market), args.market_at, args.line, args.limit), 0
     if key == ("line", "close"):
-        return lines.close_line(profile, args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID"),
-                                _market_days(profiles.market(args.market))), 0
+        return line_close(profile, args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID"),
+                          profiles.market(args.market)), 0
     if key == ("registration", "add"):
         return registration_add(profile, args.body, args.runtime, profiles.market(args.market),
                                 runner_argv, args.source, args.line), 0

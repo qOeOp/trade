@@ -3,10 +3,16 @@ the line-close requirement and the reading."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
+from pathlib import Path
+import shutil
+import tempfile
 import unittest
+from unittest.mock import patch
 
-from ledger import lines
+from cli import main
+from ledger import admin, lines
 from replay import entry, history
 from report import history as report_history
 from shared.errors import Refusal
@@ -78,8 +84,14 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(row["summary"]["whole_years"], 0)
         self.assertIsNone(row["summary"]["meets_targets"], "no whole year outside the period to judge by")
 
-        closed = lines.close_line(world.profile, line, b"summary", days)
+        backups = Path(tempfile.mkdtemp(prefix="backups-", dir="/tmp"))
+        self.addCleanup(shutil.rmtree, backups, True)
+        profile = replace(world.profile, backup_root=backups / "export")
+        with patch.object(main, "_market_days", return_value=days):
+            closed = main.line_close(profile, line, b"summary", {})
         self.assertFalse(closed["replayed"])
+        self.assertEqual(closed["backup"]["ledger_commit"], closed["ledger_commit"], "U2: closing syncs the backup")
+        self.assertEqual(admin.backup_head(admin.backup_path(profile)), closed["ledger_commit"])
         with self.assertRaises(Refusal) as ended:
             history.run_history(world.profile, world.market, MARKET_COMMIT, line)
         self.assertEqual(ended.exception.code, "LINE_ENDED")

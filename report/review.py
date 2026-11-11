@@ -27,6 +27,8 @@ FINDINGS = {
     "ROW_CHANGED": "A row of a commitment table was modified or removed in the ledger history.",
     "HISTORY_REWRITTEN": "The latest backup's head commit, or the commit the review continues from, is no ancestor of "
                          "the research head: a commit was rewritten (the writer account can amend its last commit).",
+    "BACKUP_BEHIND": "The latest backup's head is an earlier commit of the research branch: the commits after it "
+                     "have no copy (`line close` and `ledger export --kind backup` sync the backup).",
     "BACKUP_UNREADABLE": "The latest backup exists but its head commit cannot be read (restore failed, timed out or "
                          "returned no readable branch list); rewritten history was not checked.",
     "CONSTRAINT_VIOLATED": "A row matches no row of a table its foreign key names (the writer can turn foreign key "
@@ -69,11 +71,11 @@ def _primary_key(conn: db.LedgerConnection, table: str) -> list[str]:
         "AND constraint_name = 'PRIMARY' ORDER BY ordinal_position", (table,))]
 
 
-def _history(profile: db.LedgerProfile, head: str,
-             contains: Callable[[str], bool]) -> tuple[dict, list[dict], list[str]]:
+def _history(profile: db.LedgerProfile, head: str, contains: Callable[[str], bool],
+             behind: Callable[[str], int]) -> tuple[dict, list[dict], list[str]]:
     """(the backup check, its findings, its limitations): HISTORY_REWRITTEN when the latest backup's
     head commit is no ancestor of the head (`contains`: the commit is in the head's history),
-    BACKUP_UNREADABLE when the backup's head cannot be read, and without a backup the limitation that
+    BACKUP_BEHIND when it is an earlier one (`behind`: the head's commits after it), BACKUP_UNREADABLE when the backup's head cannot be read, and without a backup the limitation that
     rewritten history was not checked."""
     backup = admin.backup_path(profile)
     if backup is None or not backup.is_dir():
@@ -88,11 +90,25 @@ def _history(profile: db.LedgerProfile, head: str,
         return {"backup": str(backup), "head": None, "status": "no_branch"}, [_finding(
             "HISTORY_REWRITTEN", None, None, None,
             f"the backup at {backup} has no {db.BRANCH} branch")], []
+    if backed == head:
+        return {"backup": str(backup), "head": backed, "status": "current", "research_head": head}, [], []
     if contains(backed):
-        return {"backup": str(backup), "head": backed, "status": "ancestor", "research_head": head}, [], []
+        missing = behind(backed)
+        return {"backup": str(backup), "head": backed, "status": "behind", "research_head": head,
+                "commits_behind": missing}, [_finding(
+            "BACKUP_BEHIND", None, None, backed,
+            f"the backup head {backed} is {missing} commits behind the research head {head}")], []
     return {"backup": str(backup), "head": backed, "status": "not_ancestor", "research_head": head}, [_finding(
         "HISTORY_REWRITTEN", None, None, backed,
         f"the backup head {backed} is no ancestor of the research head {head}")], []
+
+
+def _after(profile: db.LedgerProfile, commit: str) -> int:
+    """The research branch's commits that `commit`'s history does not hold."""
+    with db.connect(profile, "reader") as branch:
+        (count,), = branch.rows("SELECT COUNT(*) FROM dolt_log WHERE commit_hash NOT IN "
+                                "(SELECT commit_hash FROM dolt_log(%s))", (commit,))
+    return int(count)
 
 
 def _in_branch(profile: db.LedgerProfile, commit: str) -> bool:
@@ -310,7 +326,8 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, since: str | No
         findings += _reading_findings(pinned, new, args)
         findings += _constraint_findings(pinned, new, args)
         head = db.resolve_commit(pinned, db.BRANCH)
-        history, found, unread = _history(conn.profile, head, lambda commit: _in_branch(conn.profile, commit))
+        history, found, unread = _history(conn.profile, head, lambda commit: _in_branch(conn.profile, commit),
+                                          lambda commit: _after(conn.profile, commit))
         findings += found
         limitations += unread
         wanted = None if trial_ids is None else {int(item) for item in trial_ids}

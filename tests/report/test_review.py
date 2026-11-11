@@ -112,10 +112,16 @@ class TamperTests(unittest.TestCase):
         self.assertTrue((self.profile.backup_root / "reproduce" / "candidates" / "rsi@1.py").is_file())
         with self.reader() as conn:
             backed = review.review_all(conn)
-        self.assertEqual((backed["history"]["status"], backed["limitations"]), ("ancestor", []))
+        self.assertEqual((backed["history"]["status"], backed["limitations"]), ("current", []))
+        self.assertNotIn("BACKUP_BEHIND", codes(backed))
         again = admin.export_history(self.profile, self.profile.backup_root, trial_ids=[self.fixture_run],
                                      with_backup=False)
         self.assertEqual(again["runs"], 1, "an earlier export of this ledger is refreshed")
+        self.admin_sql("CALL DOLT_COMMIT('--allow-empty', '-m', 'a later commit')")
+        with self.reader() as conn:
+            later = review.review_all(conn)
+        self.assertEqual((later["history"]["status"], later["history"]["commits_behind"]), ("behind", 1))
+        self.assertIn("BACKUP_BEHIND", codes(later), "U2: a backup behind the head is a finding")
 
     def test_2_an_export_goes_outside_checkouts_and_names_only_sealed_runs(self):
         inside = paths.REPOSITORY / "export-here"
