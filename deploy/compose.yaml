@@ -94,6 +94,9 @@ services:
       interval: 30s
       timeout: 30s
       retries: 3
+      # A first start waits on the IDE's first-run page until a person names a DoltHub repository and adds a key,
+      # then clones or publishes the ledger; `up -d` waits this long for it (README.md here, First start). The
+      # first passing check ends the period, so a later start is healthy within seconds.
       start_period: 6h
       start_interval: 10s
 
