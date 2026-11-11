@@ -45,7 +45,7 @@ def attempts_of(conn: db.LedgerConnection, checker: dict) -> list[dict]:
     rows = conn.dicts(f"SELECT t.research_registration_id, t.source_sha256, t.trial_id, {db.TRIAL_IMAGE_DIGEST}, "
                       "r.status FROM trial t LEFT JOIN run r ON r.trial_id = t.trial_id "
                       "WHERE t.research_registration_id IS NOT NULL ORDER BY t.trial_id")
-    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows if row["status"] is not None], series=False)
+    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows if row["status"] is not None], series=False, listing=True)
     for row in rows:
         if row["status"] is None:
             value = {"economic_evidence_available": False, "reasons": ["unfinished"], "checker": checker}

@@ -14,7 +14,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from ledger import db, lines, strategies, targets
+from ledger import db, execution, lines, metrics, strategies, targets
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import precheck
@@ -106,6 +106,19 @@ class ResearchGraphTests(unittest.TestCase):
             gates = [{"code": g["code"], "message": g["message"]} for g in status.research_state(conn, found["line"]["bundle"])["gates"]
                      if g["code"] in ("INTERPRETATION_REQUIRED", "REVIEW_DUE")]
         self.assertEqual(found["line"]["gates"], gates, "the line carries the registration gates `research state` reads")
+
+    def test_1b_the_graph_reads_its_runs_once_as_a_listing(self):
+        """E3: one batched read of the line's research runs, their captures without the bytes the graph never reads."""
+        with patch.object(metrics, "load_runs", wraps=metrics.load_runs) as read, \
+                patch.object(execution, "_bundles", wraps=execution._bundles) as bundles:
+            found = self.graph()
+        (call,) = read.call_args_list
+        self.assertEqual((sorted(call.args[1]), call.kwargs), (sorted(r["trial_id"] for r in self.runs.values()),
+                                                               {"listing": True}))
+        self.assertTrue(bundles.call_args_list)
+        for each in bundles.call_args_list:
+            self.assertEqual(each.args[2], (execution.COVERAGE, *execution.LISTING_FILES))
+        self.assertEqual(found, self.graph(), "the document is unchanged")
 
     def test_2_a_failed_review_masks_the_run_and_becomes_an_event(self):
         first, second = self.refs

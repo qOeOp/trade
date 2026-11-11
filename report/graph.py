@@ -12,13 +12,13 @@ from concurrent.futures import ProcessPoolExecutor
 import dataclasses
 import multiprocessing
 
-from ledger import db, lines
+from ledger import db, lines, metrics
 from ledger import targets as line_targets
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import availability, precheck, register
 from report import candidates as report_candidates
-from report import comparison, seams, status
+from report import comparison, measures, seams, status
 
 FORMAT = "research-graph@3"
 MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_drawdown", "sharpe_365": "sharpe",
@@ -358,21 +358,27 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
         trials_of: dict[str, list[dict]] = {key: [] for key in source_of}
         source_checks: dict[int, dict] = {}  # a research run's availability source_check, by trial
         owner = {sha: key for key, sha in source_of.items()}
+        drawn = []
         for row in conn.dicts("SELECT t.trial_id, t.purpose, t.source_sha256, t.created_at, r.status FROM trial t "
                               "LEFT JOIN run r ON r.trial_id = t.trial_id ORDER BY t.trial_id"):
             key = owner.get(row["source_sha256"])
             if key is None or (row["purpose"] == "research" and row["trial_id"] not in on_line):
                 continue  # a research run on another window or market commit belongs to another line
+            drawn.append((key, row))
+        loaded = metrics.load_runs(conn, [row["trial_id"] for _, row in drawn  # availability and the measures
+                                          if row["purpose"] == "research" and row["status"] is not None], listing=True)
+        for key, row in drawn:
             trial = {"trial_id": row["trial_id"], "purpose": row["purpose"], "status": row["status"],
                      "annual_return": None, "max_drawdown": None, "sharpe": None, "win_rate": None,
                      "eligible": None, "ineligible_reason": None, "at": _iso(row["created_at"])}
             if row["purpose"] == "research" and row["status"] is not None:
-                value = report_candidates.assess_listed(conn, row["trial_id"], checker, records)
+                run = loaded[row["trial_id"]]
+                value = report_candidates.assess_listed(conn, row["trial_id"], checker, records, run)
                 trial["eligible"] = bool(value["economic_evidence_available"])
                 if value.get("source_check") is not None:
                     source_checks[row["trial_id"]] = value["source_check"]
-                if trial["eligible"]:
-                    headline = status._headline(conn, row["trial_id"], status.TABLE_MEASURES)
+                if trial["eligible"] and not isinstance(run, Refusal):  # a run that refuses is never eligible
+                    headline = status._headline(measures.facts_of(run), status.TABLE_MEASURES)
                     for name, field in MEASURE_KEYS.items():
                         trial[field] = headline[name]["value"]
                 else:

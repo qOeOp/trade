@@ -217,7 +217,7 @@ def research_status(ledger, at: str | None = None, line: str | None = None) -> d
         def assess(trial_ids: list[int]) -> dict[int, dict]:
             """Each passed run's economic-evidence assessment, each run loaded and assessed once."""
             todo = [trial_id for trial_id in trial_ids if trial_id not in assessed]
-            loaded = metrics.load_runs(conn, todo, series=False) if todo else {}
+            loaded = metrics.load_runs(conn, todo, series=False, listing=True) if todo else {}
             for trial_id in todo:
                 assessed[trial_id] = report_candidates.assess_listed(conn, trial_id, checker, records, loaded[trial_id])
             return {trial_id: assessed[trial_id] for trial_id in trial_ids}
@@ -406,10 +406,10 @@ def _stamp(conn: db.LedgerConnection, registration_id: int):
 
 # The comparison table
 
-def _headline(conn: db.LedgerConnection, trial_id: int, names) -> dict:
-    """The named measures of one run as its single-run report gives them (report.derive_measures)."""
-    derived = measures.derive_measures(measures.run_facts(conn, trial_id),
-                                       market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for the state"})
+def _headline(facts: Mapping, names) -> dict:
+    """The named measures of one run (its measures.run_facts) as its single-run report gives them
+    (report.derive_measures)."""
+    derived = measures.derive_measures(facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for the state"})
     return {name: derived[name] for name in names}
 
 
@@ -427,7 +427,7 @@ def _passed_research_runs(conn: db.LedgerConnection, checker: Mapping, records: 
                           "t.source_sha256 WHERE t.purpose = 'research' AND r.status = 'passed' ORDER BY r.trial_id"):
         if window is None or ((row["trade_start"], row["trade_end"]) == window and row["universe_rule"] == universe_rule):
             rows.append(row)
-    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows], series=False)
+    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows], series=False, listing=True)
     for row in rows:
         assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
         item = {"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"],
@@ -468,7 +468,7 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     passed, without = _passed_research_runs(conn, checker, records, window, record["universe_rule"])
     found = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
               "execution_identity": identities.get(row["trial_id"]),
-              "measures": _headline(conn, row["trial_id"], TABLE_MEASURES)} for row in passed]
+              "measures": _headline(measures.run_facts(conn, row["trial_id"]), TABLE_MEASURES)} for row in passed]
     excluded = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
                  "execution_identity": identities.get(row["trial_id"]), "reasons": row["reasons"]} for row in without]
     for item in found:
@@ -655,7 +655,7 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
         value = report_candidates.assess_listed(conn, trial["trial_id"], checker, records)
         headline = None
         if trial["status"] == "passed" and value["economic_evidence_available"]:
-            headline = _headline(conn, trial["trial_id"], measures.HEADLINE)
+            headline = _headline(measures.run_facts(conn, trial["trial_id"]), measures.HEADLINE)
         return {"trial": trial, "availability": value, "headline": headline}
     return {"registration_id": subject.get("research_registration_id")}
 

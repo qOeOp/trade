@@ -268,10 +268,12 @@ def load_run(conn: db.LedgerConnection, trial_id: int):
     return found
 
 
-def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bool = True) -> dict[int, dict | Refusal]:
+def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bool = True,
+              listing: bool = False) -> dict[int, dict | Refusal]:
     """load_run of each trial, by trial ID, in one read of each table per execution.BATCH trials; a run load_run
-    refuses maps to its refusal. Without `series` the results leave out `returns` and `cycles`, the two
-    reads that grow with a run's days and positions, for a caller that reads neither."""
+    refuses maps to its refusal. Without `series` the results leave out `returns` and `cycles`, the two reads that
+    grow with a run's days and positions, for a caller that reads neither. A `listing` read reads the captures as a
+    listing (execution.read_captures): enough for availability and the derived measures, not for a run's report."""
     from ledger import execution
     ids = sorted(set(trial_ids))
     runs: dict[int, dict] = {}
@@ -303,7 +305,7 @@ def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bo
             for row in conn.dicts(f"SELECT {CYCLE_COLUMNS} FROM run_cycle WHERE trial_id IN ({marks}) "
                                   "ORDER BY trial_id, seq", chunk):
                 cycles[row["trial_id"]].append(row)
-    captures = execution.read_captures(conn, [trial_id for trial_id in ids if trial_id in runs])
+    captures = execution.read_captures(conn, [trial_id for trial_id in ids if trial_id in runs], listing=listing)
     found: dict[int, dict | Refusal] = {}
     for trial_id in ids:
         try:

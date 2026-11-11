@@ -107,7 +107,11 @@ def run_facts(conn: db.LedgerConnection, trial_id: int) -> dict:
     """What derive_measures reads for one run: the run and trial rows, the current reading, the daily
     series and position cycles as stored, the starting balance of the account terms, the final equity
     the daily series compound to, the trading window and the input identity."""
-    loaded = metrics.load_run(conn, trial_id)
+    return facts_of(metrics.load_run(conn, trial_id))
+
+
+def facts_of(loaded: Mapping) -> dict:
+    """run_facts of a metrics.load_runs entry read with its series (a listing read will do)."""
     capture = loaded["capture"]
     coverage = _mapping(capture.get("input_coverage"))
     config = _mapping(coverage.get("effective_config"))

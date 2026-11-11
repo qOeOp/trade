@@ -132,6 +132,33 @@ class CaptureTests(LedgerCase):
         self.assertEqual((read[broken_id].code, self.refused(lambda: execution.read_capture(self.conn, broken_id))),
                          ("LEDGER_CORRUPT", "LEDGER_CORRUPT"))
 
+    def test_a_listing_read_reads_only_the_bytes_an_availability_reading_needs(self):
+        """E3: the start receipt, the runtime failures and the audit result; every other captured file by its
+        stored hash. The bytes it reads are still hash checked."""
+        failures = json.dumps({"stage": "load", "code": "X"}).encode() + b"\n"
+        kept, broken = (self.workdir({"native.stdout.txt": b"ran\n", execution.RUNTIME_ERRORS: failures + extra})
+                        for extra in (b"", b"\n"))
+        kept_id, broken_id = self.trial(kept), self.trial(broken)
+        self.seal(kept_id, kept)
+        self.seal(broken_id, broken)
+        admin = self.service.admin(self.profile)
+        try:
+            with admin.cursor() as cursor:
+                cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+                cursor.execute("UPDATE evidence_content SET content = %s WHERE sha256 = %s",
+                               (b"tampered after the seal\n", sha(failures + b"\n")))
+                cursor.execute("CALL DOLT_COMMIT('-a', '-m', 'tamper: stored bytes')")
+        finally:
+            admin.close()
+        read = execution.read_captures(self.conn, [kept_id, broken_id], listing=True)
+        self.assertEqual((read[broken_id].code), "LEDGER_CORRUPT", "a file a listing reads is read with its bytes or refused")
+        full, listed = execution.read_capture(self.conn, kept_id), read[kept_id]
+        self.assertEqual(set(listed["files"]), {execution.RUNTIME_ERRORS})
+        self.assertEqual(listed["listed"]["native.stdout.txt"], {"status": "captured", "sha256": sha(b"ran\n")})
+        for key in ("status", "stages", "outcome", "statuses", "runtime_failures", "start", "input_coverage",
+                    "input_coverage_bytes", "table_hashes"):
+            self.assertEqual(listed[key], full[key], key)
+
     def test_the_source_and_the_coverage_receipt_are_stored_once_and_the_capture_hashes_them(self):
         workdir = self.workdir({"native.stdout.txt": b"ran\n"})
         trial_id = self.trial(workdir)
