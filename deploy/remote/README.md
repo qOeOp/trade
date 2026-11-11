@@ -278,11 +278,12 @@ No browser request can choose an origin or database. Paper captures the selected
 and required parent inputs into its own database before launch; research updates do not replace running
 inputs. Stop, native resume and logs use the execution records. No execution writes are pushed to research.
 
-The databases share a Dolt process to keep the deployment small. The existing privileged Paper CLI still
-requires the service administrator for sealed-run deletion and publication-status checks. It receives no
-DoltHub key; this is separation of business data paths, not containment of a compromised controller.
-Execution records and native originals need persistent disk and separate backup; their `isolated` profile
-prevents DoltHub publication and does not grant permission to delete data. See
+The databases share a Dolt process to keep the deployment small. The Paper controller sees only what the
+mirror writes for it (`--controllers`): the Paper database's writer and reader and the research reader, never
+the service administrator or a DoltHub key. Deleting a sealed run uses the Paper writer, which may delete in
+the Paper database only. This is separation of business data paths, not containment of a compromised
+controller. Execution records and native originals need persistent disk and separate backup; their `isolated`
+profile prevents DoltHub publication. See
 [`remote-paper-data-split.zh.md`](../../docs/plans/remote-paper-data-split.zh.md) for the storage decision,
 limits and 4-core/8-GB evaluation scope.
 

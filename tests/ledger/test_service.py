@@ -79,10 +79,12 @@ class RunTests(unittest.TestCase):
         self.log = open(self.root / "server.log", "ab")
         self.addCleanup(self.log.close)
 
-    def start(self, origin: str | None = None, credentials: Path | None = None, readers: Path | None = None):
+    def start(self, origin: str | None = None, credentials: Path | None = None, readers: Path | None = None,
+              controllers: Path | None = None):
         server, config = service.start(self.service_root, self.data, self.backups,
                                        self.credentials if credentials is None else credentials,
-                                       origin or self.origin, self.port, BINARY, "isolated", self.log, readers)
+                                       origin or self.origin, self.port, BINARY, "isolated", self.log, readers,
+                                       controllers=controllers)
         self.addCleanup(service._stop, server)
         return server, config
 
@@ -189,6 +191,29 @@ class RunTests(unittest.TestCase):
         self.start(readers=readers)
         self.assertEqual(json.loads((readers / "service.json").read_text(encoding="utf-8")), written,
                          "every later start writes it again")
+
+    def test_the_paper_controller_files_hold_paper_accounts_and_the_research_reader_only(self):
+        """Item 8: the paper container mounts this directory, never the service directory."""
+        controllers = self.root / "controllers"
+        server, config = self.start(controllers=controllers)
+        written = json.loads((controllers / "service.json").read_text(encoding="utf-8"))
+        self.assertEqual(written, {"port": self.port, "databases": {
+            "research": {"reader": config["databases"]["research"]["reader"]}, "paper": config["databases"]["paper"]}})
+        self.assertTrue((controllers / "paper").is_dir(), "the mountpoint of the writable run directory")
+        self.assertEqual(sorted(path.name for path in controllers.iterdir()),
+                         ["paper", "paper.json", "research.json", "service.json"])
+        research = db.LedgerProfile(name="research", database="research", service_root=controllers, kind=None)
+        with db.read_as_of(research) as conn:
+            self.assertEqual(conn.rows("SELECT tag_name FROM dolt_tags"), [("t1",)])
+        self.assertEqual(self.code(db.connect, research, "writer"), "LEDGER_UNKNOWN")
+        for administrator in (admin._admin, publish._admin):
+            self.assertEqual(self.code(administrator, research), "LEDGER_UNKNOWN", "nor the service administrator")
+        execution = db.LedgerProfile(name="paper", database="paper", service_root=controllers, kind="isolated",
+                                     holds="paper")
+        with db.connect(execution, "writer") as conn:
+            self.assertEqual(conn.role, "writer")
+        service._stop(server)
+        self.assertEqual(self.code(self.start, controllers=self.service_root), "USAGE_ERROR")
 
     def test_readers_never_replace_the_service_file(self):
         server, _ = self.start()

@@ -18,7 +18,8 @@ Five services on one Docker engine:
   is empty, makes a new ledger and publishes it there (First start, below). Everything the ledger records, complete
   strategy source included, is public in that repository, and its history cannot be withdrawn. Every start
   also writes a reader-only `service.json` (the port and the reader accounts, no root password or
-  writer) into the `trade-ledger-readers` volume, for a container that only reads. Its memory is capped at
+  writer) into the `trade-ledger-readers` volume, for a container that only reads, and Paper's accounts into the
+  `trade-paper-controller` volume. Its memory is capped at
   `TRADE_LEDGER_MEMORY` (default `40g`).
 - **market-import**: the unattended import of Binance data (`market follow`; `market/README.md`,
   "Unattended upkeep"): the bars of `--bar-symbols` daily, open interest and long/short ratios daily
@@ -33,7 +34,9 @@ Five services on one Docker engine:
 - **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. It writes its runs into
   the `paper` database (`ledger/paper.sql`), which ledger makes beside the research ledger at a start that lacks
   it; that database is never published, and the research ledger holds no Paper record. It reads candidates and
-  their last replays from the research ledger with the reader account. Its market profile
+  their last replays from the research ledger with the reader account. Its accounts and profiles are what ledger
+  writes at every start into the `trade-paper-controller` volume (`--controllers`): the Paper database's writer
+  and reader and the research reader, never the root password, the research writer or the DoltHub key. Its market profile
   is the compose config `market`: membership, stored bars and a reconciliation's replay inputs from
   the market directory, mounted read-only.
 - **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes, and of containers

@@ -17,7 +17,6 @@ from urllib.parse import urlsplit
 
 from cli import service
 from ledger import db, replica
-from shared import profiles
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -45,19 +44,7 @@ def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers
                 or "writer" not in config["databases"].get(service.PAPER, {})):
             raise refuse("REPLICA_REQUIRED", "the research mirror and separate Paper database are not intact")
         service.write_readers(readers, config)
-        # Paper mounts this controller directory read-only at its service root, with the
-        # host's writable run directory mounted beneath it. Docker must find that child
-        # mountpoint already present before it can attach the writable bind mount.
-        controllers.mkdir(parents=True, mode=0o700, exist_ok=True)
-        (controllers / "paper").mkdir(mode=0o700, exist_ok=True)
-        # The accounts Paper uses, never the service administrator or a DoltHub publishing credential.
-        profiles.private_write(controllers / "service.json", {
-            "port": config["port"], "databases": {
-                "research": config["databases"]["research"], "paper": config["databases"]["paper"]}})
-        profiles.private_write(controllers / "research.json", db.LedgerProfile(
-            "research", "research", root, kind=None).as_json())
-        profiles.private_write(controllers / "paper.json", db.LedgerProfile(
-            "paper", "paper", root, kind="isolated", backup_root=backups / "paper", holds="paper").as_json())
+        service.write_controllers(controllers, root, backups, config)
         return server, research
     except BaseException:
         service._stop(server)

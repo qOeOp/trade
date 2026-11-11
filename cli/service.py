@@ -24,7 +24,9 @@ so history stays whole while discarded working sets stop filling the disk. A lat
 `<data>/.dolt/tmp`, where an interrupted Dolt transfer leaves its buffer file (1.59 GB, measured); neither
 a restart nor a collection removes it, and before the server starts nothing holds it.
 With --readers, every start writes `<readers>/service.json` before serving: only the port and each
-database's reader account, for a container that only reads (the IDE), which never sees service.json.
+database's reader account, for a container that only reads (the IDE), which never sees service.json. With
+--controllers it also writes the Paper controller's directory (write_controllers): Paper's two accounts and the
+research reader, never the administrator.
 Every start of a writable service (not a mirror, which makes its own) also makes the Paper database `paper`
 (ledger/paper.sql, an isolated profile) when the service lacks it: Paper's execution records never enter the
 research ledger.
@@ -319,22 +321,43 @@ def write_readers(readers: Path, config: dict) -> None:
         "databases": {name: {"reader": accounts["reader"]} for name, accounts in config["databases"].items()}})
 
 
+def write_controllers(controllers: Path, service_root: Path, backup_root: Path, config: dict) -> None:
+    """`<controllers>/` for the Paper controller, which mounts it read-only at the service directory and as its
+    profile directory: service.json with the port, the Paper database's writer and reader and the research
+    reader (never the administrator, a research writer or a DoltHub key), the two profiles, and the empty
+    `paper/` mountpoint Docker needs for the writable run directory beneath the read-only mount."""
+    controllers.mkdir(parents=True, mode=0o700, exist_ok=True)
+    (controllers / "paper").mkdir(mode=0o700, exist_ok=True)
+    profiles.private_write(controllers / "service.json", {
+        "port": config["port"], "databases": {
+            LEDGER: {"reader": config["databases"][LEDGER]["reader"]}, PAPER: config["databases"][PAPER]}})
+    profiles.private_write(controllers / f"{LEDGER}.json", db.LedgerProfile(
+        LEDGER, LEDGER, service_root, kind=None).as_json())
+    profiles.private_write(controllers / f"{PAPER}.json", db.LedgerProfile(
+        PAPER, PAPER, service_root, kind="isolated", backup_root=backup_root / PAPER, holds="paper").as_json())
+
+
 def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
           port: int = PORT, binary: str | None = None, kind: str | None = "active", log=None,
-          readers: Path | None = None, say: Callable[[str], None] = _log) -> tuple[subprocess.Popen, dict]:
+          readers: Path | None = None, say: Callable[[str], None] = _log,
+          controllers: Path | None = None) -> tuple[subprocess.Popen, dict]:
     """Bootstrap or check the service and return its running server (the caller waits on it); with
-    `readers`, write the reader-only service file there before serving."""
+    `readers`, write the reader-only service file there before serving, and with `controllers` (a writable
+    service only) the Paper controller's (write_controllers)."""
     service_root, data_dir = Path(service_root).absolute(), Path(data_dir).absolute()
     backup_root = Path(backup_root).absolute()
-    if readers is not None and Path(readers).absolute().resolve() == service_root.resolve():
-        raise refuse("USAGE_ERROR", "--readers names the service directory: its service.json is not replaced")
+    for option, directory in (("--readers", readers), ("--controllers", controllers)):
+        if directory is not None and Path(directory).absolute().resolve() == service_root.resolve():
+            raise refuse("USAGE_ERROR", f"{option} names the service directory: its service.json is not replaced")
+    if controllers is not None and kind is None:
+        raise refuse("USAGE_ERROR", "--controllers needs a writable service, which holds the Paper database")
     binary = db._binary(binary)
     config = db._service(service_root)
     if config is None:
         server, config = bootstrap(service_root, data_dir, backup_root, credentials, origin, port, binary, kind, log,
                                    say)
-        return server, _serve_readers(server, readers, _with_paper(server, config, service_root, backup_root, binary,
-                                                                   kind))
+        return server, _serve_readers(server, readers, controllers, service_root, backup_root,
+                                      _with_paper(server, config, service_root, backup_root, binary, kind))
     if not db.managed(config) or int(config["port"]) != port:
         raise refuse("SERVICE_CHECK_FAILED", f"{service_root}/service.json names a socket or port "
                                              f"{config.get('port')}, not a service compose runs on port {port}",
@@ -351,7 +374,8 @@ def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Pa
         _stop(server)
         raise
     _log(f"serving on port {port}")
-    return server, _serve_readers(server, readers, _with_paper(server, config, service_root, backup_root, binary, kind))
+    return server, _serve_readers(server, readers, controllers, service_root, backup_root,
+                                  _with_paper(server, config, service_root, backup_root, binary, kind))
 
 
 def _with_paper(server: subprocess.Popen, config: dict, service_root: Path, backup_root: Path, binary: str,
@@ -366,18 +390,21 @@ def _with_paper(server: subprocess.Popen, config: dict, service_root: Path, back
         raise
 
 
-def _serve_readers(server: subprocess.Popen, readers: Path | None, config: dict) -> dict:
-    if readers is not None:
-        try:
+def _serve_readers(server: subprocess.Popen, readers: Path | None, controllers: Path | None, service_root: Path,
+                   backup_root: Path, config: dict) -> dict:
+    try:
+        if readers is not None:
             write_readers(Path(readers).absolute(), config)
-        except BaseException:
-            _stop(server)
-            raise
+        if controllers is not None:
+            write_controllers(Path(controllers).absolute(), service_root, backup_root, config)
+    except BaseException:
+        _stop(server)
+        raise
     return config
 
 
 def _first_start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
-                 port: int, readers: Path | None, setup: str) -> subprocess.Popen:
+                 port: int, readers: Path | None, setup: str, controllers: Path | None = None) -> subprocess.Popen:
     """The server of a first start the IDE's page finishes (`cli.first_run`)."""
     if credentials is None:
         raise refuse("USAGE_ERROR", "ledger service run --setup needs --credentials, the directory of the DoltHub key")
@@ -386,7 +413,7 @@ def _first_start(service_root: Path, data_dir: Path, backup_root: Path, credenti
         setup, origin or None, Path(credentials), binary, LISTEN,
         lambda: _refuse_unless_empty(Path(service_root).absolute(), Path(data_dir).absolute()),
         lambda chosen, say: start(service_root, data_dir, backup_root, credentials, chosen, port, binary,
-                                  readers=readers, say=say)[0])
+                                  readers=readers, say=say, controllers=controllers)[0])
 
 
 def _publish_if_behind() -> None:
@@ -408,12 +435,15 @@ def _keep_published(stop: threading.Event) -> None:
 
 
 def run(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
-        port: int = PORT, readers: Path | None = None, setup: str | None = None) -> tuple[dict, int]:
+        port: int = PORT, readers: Path | None = None, setup: str | None = None,
+        controllers: Path | None = None) -> tuple[dict, int]:
     """ledger service run: serve until the server exits; SIGTERM and SIGINT are passed to it."""
     if setup is not None and db._service(Path(service_root).absolute()) is None:
-        server = _first_start(service_root, data_dir, backup_root, credentials, origin, port, readers, setup)
+        server = _first_start(service_root, data_dir, backup_root, credentials, origin, port, readers, setup,
+                              controllers)
     else:
-        server, _ = start(service_root, data_dir, backup_root, credentials, origin, port, readers=readers)
+        server, _ = start(service_root, data_dir, backup_root, credentials, origin, port, readers=readers,
+                          controllers=controllers)
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda received, frame: server.send_signal(received))
     stop = threading.Event()
