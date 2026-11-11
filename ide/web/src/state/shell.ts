@@ -74,6 +74,10 @@ export const showMarketPage = () => update((s) => {
            last: { left: "market", right: right ?? s.last.right, bottom: bottom ?? s.last.bottom } };
 });
 
+/** The History page (the line-close heatmap) in place of the editor, with no left or bottom tool window. */
+export const showHistoryPage = () => update((s) => ({ ...s, open: { left: null, right: s.open.right, bottom: null },
+                                                      last: { ...s.last, left: "history" } }));
+
 /** Live inside Runs. */
 export const showLivePage = () => { chooseStage("live"); showRunsPage(); };
 

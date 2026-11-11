@@ -4,7 +4,7 @@ import { cycleTheme, theme, THEME_LABEL } from "../state/theme";
 import { requestFocus } from "../state/linking";
 import { showLineage } from "../state/editors";
 import { overviewService } from "../state/market";
-import { activeIsland, hideSide, paletteOpen, shell, showLivePage, showMarketPage, showRunsPage, SIDES, toggleSide, toggleToolWindow, type Side } from "../state/shell";
+import { activeIsland, hideSide, paletteOpen, shell, showHistoryPage, showLivePage, showMarketPage, showRunsPage, SIDES, toggleSide, toggleToolWindow, type Side } from "../state/shell";
 import type { ToolWindow } from "./toolWindows";
 import { openLiveCredentials, openLiveWizard } from "../state/liveWorkspace";
 
@@ -25,6 +25,8 @@ export function commands(windows: readonly ToolWindow[]): Action[] {
       run: () => (shell.get().last.left === "market" ? showLineage() : showMarketPage()) }]),
     { id: "runs", label: "Toggle Runs page", icon: "tool.runs", keys: "⌥8", binding: "Alt+Digit8",
       run: () => (shell.get().last.left === "runs" ? showLineage() : showRunsPage()) },
+    { id: "history", label: "Toggle Line-close history page", icon: "tool.history",
+      run: () => (shell.get().last.left === "history" ? showLineage() : showHistoryPage()) },
     { id: "live", label: "Open live runs", icon: "tool.runs", run: showLivePage },
     { id: "live:new", label: "New live run…", icon: "run", run: () => openLiveWizard() },
     { id: "live:credentials", label: "Live settings…", run: openLiveCredentials },

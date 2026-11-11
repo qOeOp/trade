@@ -15,7 +15,8 @@ older duplicates. A named live page can show that completion while a newer head 
 and when `research unchanged` says the new head gives that line the same graph, it is kept under the new commit
 instead of being drawn. A page may also name the graph its browser kept (`have`, with the `build` that drew it), and
 is then told `unchanged` instead of having one drawn; every other answer goes the same way as without it.
-Up to 16 trials' reports, 64 versions' comparisons and 16 contracts' daily bars stay in memory, keyed by what they were read for.
+Up to 16 trials' reports, 64 versions' comparisons and 16 contracts' daily bars stay in memory, keyed by what they were read for,
+and `research history` (`/api/history`, the closing history tests of every line, at the head or `at`) for the last 4 commits.
 Nothing is written anywhere.
 
 With an agent URL (the trade IDE's chat service, `ide/agent`), requests under `/api/agent/`
@@ -83,6 +84,7 @@ TRIALS = 16
 BARS = 16
 COMPARISONS = 64
 COUNTS = 16
+HISTORIES = 4
 BUNDLE = re.compile(r"[A-Za-z0-9._@-]{1,200}")  # a registration bundle
 LINE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")  # a research line's name (ledger.lines.SLUG)
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}")  # a Binance symbol such as BTCUSDT
@@ -164,6 +166,10 @@ class Product:
     def lines(self, commit: str) -> dict:
         return self.run("line", "list", "--all", f"--ledger={self.ledger}", f"--at={commit}")
 
+    def history(self, commit: str) -> dict:
+        """Every line's closing history test (the History page's heatmap), as `research history` reads it."""
+        return self.run("research", "history", f"--ledger={self.ledger}", f"--at={commit}")
+
     def graph(self, commit: str, line: str | None, since: str | None) -> dict:
         options = [f"--line={line}"] if line else []
         options += [f"--since={since}"] if since else []
@@ -227,6 +233,7 @@ class Hub:
                  version: str | None = None):
         self.product, self.build, self.poll, self.mirror, self.version = product, build, poll, mirror, version
         self.line_index = Pinned[str](product.lines)
+        self.history = Pinned[str](product.history, HISTORIES)
         self.trials = Pinned[tuple[int, str]](lambda key: product.trial(*key), TRIALS)
         self.bars = Pinned[tuple[str, str, str, str]](lambda key: product.bars(*key), BARS)
         self.comparisons = Pinned[tuple[str, int, str]](lambda key: product.comparison(*key), COMPARISONS)
@@ -759,7 +766,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             if url.path == "/api/market-import" and status is not None:
                 self.json(*market_import(status, datetime.now(UTC)))
                 return
-            if url.path not in ("/api/view", "/api/events", "/api/lines"):
+            if url.path not in ("/api/view", "/api/events", "/api/lines", "/api/history"):
                 self.json(404, _failure("NOT_FOUND", url.path))
                 return
             line = query.get("line")
@@ -768,10 +775,11 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             have = kept if COMMIT.fullmatch(kept) and query.get("build") == hub.build and line and not {"since", "at"} & query.keys() else None
             try:
                 since, at = hub.resolve(query.get("since"), query.get("at"))
-                if url.path == "/api/lines":
+                if url.path in ("/api/lines", "/api/history"):
                     with hub.lock:
                         commit = at or hub.head
-                    self.json(200, hub.line_index.get(commit or hub.product.commit()))
+                    pinned = hub.line_index if url.path == "/api/lines" else hub.history
+                    self.json(200, pinned.get(commit or hub.product.commit()))
                     return
             except ProductError as exc:
                 self.json(400, exc.body)
