@@ -1,0 +1,30 @@
+name: Gate component CI
+description: >-
+  Pass only when the `changes` job succeeded and every other needed job succeeded when its paths changed, or was
+  skipped when they did not. A job named in `always` runs on every event and must succeed whatever the selector says.
+inputs:
+  needs:
+    description: The calling job's `toJSON(needs)`; it must include the `changes` job of .github/actions/ci-paths.
+    required: true
+  always:
+    description: Whitespace-separated names of needed jobs that must succeed on every event.
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Require successful checks, or an explicitly unrelated change
+      shell: bash
+      env:
+        NEEDS: ${{ inputs.needs }}
+        ALWAYS: ${{ inputs.always }}
+      run: |
+        jq -e --arg always "$ALWAYS" '
+          [$always | splits("\\s+") | select(. != "")] as $always |
+          .changes.result == "success" and
+          ([.[$always[]].result] | all(. == "success")) and
+          (.changes.outputs.changed as $changed |
+           ($changed == "true" or $changed == "false") and
+           ([to_entries[] | select(.key != "changes" and (.key | IN($always[]) | not)) | .value.result]
+            | all(. == (if $changed == "true" then "success" else "skipped" end))))
+        ' <<< "$NEEDS"
