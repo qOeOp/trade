@@ -59,7 +59,7 @@ class StageCommandTests(unittest.TestCase):
         command = self.command([(self.root / "audit", "/reports", False)])
         self.assertEqual(command[:4], ["docker", "run", "--name", "replay-x-trial-1-audit"])
         memory = command.index("--memory")
-        self.assertEqual(command[memory:memory + 4], ["--memory", "24g", "--memory-swap", "24g"])
+        self.assertEqual(command[memory:memory + 4], ["--memory", "16g", "--memory-swap", "16g"])
         self.assertNotIn("--rm", command)
 
 
