@@ -669,7 +669,7 @@ class Release:
         routes written for the routers the installer starts next. Nothing ran before, so nothing rolls back;
         after a failure, remove the containers it created and install again."""
         paper = self.paper().host
-        if (self.state / "router/active.json").exists() or (paper.router / "active.json").exists():
+        if (self.host.routes / "active.json").exists() or (paper.routes / "active.json").exists():
             raise RuntimeError("release routing already exists; do not overwrite it")
         if self.live is not None:
             raise RuntimeError("install the Live declaration after the first release")
