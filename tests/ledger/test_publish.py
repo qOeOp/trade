@@ -63,9 +63,7 @@ class PublishTests(unittest.TestCase):
         home = Path(tempfile.mkdtemp(prefix="cl-", dir="/tmp"))
         self.addCleanup(shutil.rmtree, home, True)
         environment = {**os.environ, "DOLT_ROOT_PATH": str(home)}
-        for setting in (("user.name", "elsewhere"), ("user.email", "elsewhere@example.invalid")):
-            subprocess.run([BINARY, "config", "--global", "--add", *setting], env=environment, check=True,
-                           capture_output=True)
+        db.dolt_home(home, {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
         subprocess.run([BINARY, "clone", self.url, str(home / "c")], env=environment, check=True, capture_output=True)
         return home / "c", environment
 

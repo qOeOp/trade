@@ -32,6 +32,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Concatenate, Literal
 
@@ -163,19 +164,40 @@ def _known_service(root: Path) -> dict:
 
 # Service lifecycle
 
+IDENTITY = {"user.name": "Research Ledger", "user.email": "research-ledger@example.invalid"}
+# Dolt otherwise queries GitHub for a newer release and records the answer in its home at a start, and writes
+# usage events there from a detached process after a command exits.
+QUIET = {"versioncheck.disabled": "true", "metrics.disabled": "true"}
+
+
+def dolt_home(home: Path, settings: Mapping[str, str]) -> None:
+    """Give a new Dolt home (its DOLT_ROOT_PATH) its global configuration in one atomic write, the file
+    `dolt config --global --add` keeps, without starting Dolt once per setting."""
+    profile_directory.private_write(Path(home) / ".dolt" / "config_global.json", dict(settings))
+
+
 def _binary(given: Path | str | None) -> str:
+    expected = f"dolt version {DOLT_VERSION}"
     candidate = given or os.environ.get("RESEARCH_DOLT_BINARY") or shutil.which("dolt")
     if not candidate:
-        raise refuse("DOLT_BINARY", "no Dolt executable given, in RESEARCH_DOLT_BINARY or on PATH",
-                     expected=f"dolt version {DOLT_VERSION}")
+        raise refuse("DOLT_BINARY", "no Dolt executable given, in RESEARCH_DOLT_BINARY or on PATH", expected=expected)
     binary = Path(candidate).expanduser().resolve()
+    # Its own home and working directory: the caller's HOME and directory are shared with other processes.
+    work = Path(tempfile.mkdtemp(prefix="dolt-version-"))
     try:
-        checked = subprocess.run([str(binary), "version"], capture_output=True, text=True, check=False, timeout=30)
-    except OSError:
-        checked = None
-    if checked is None or checked.returncode or not checked.stdout.startswith(f"dolt version {DOLT_VERSION}"):
-        raise refuse("DOLT_BINARY", f"{binary} is not a Dolt {DOLT_VERSION} executable",
-                     expected=f"dolt version {DOLT_VERSION}")
+        dolt_home(work, QUIET)
+        checked = subprocess.run([str(binary), "version"], cwd=work, capture_output=True, text=True, check=False,
+                                 timeout=30, env={**os.environ, "DOLT_ROOT_PATH": str(work),
+                                                  "DOLT_DISABLE_EVENT_FLUSH": "true"})
+        output = " ".join(part.strip() for part in (checked.stdout, checked.stderr) if part.strip())
+        problem = None if checked.returncode == 0 and checked.stdout.startswith(expected) else \
+            f"exit {checked.returncode}: {output[-300:] or 'no output'}"
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        problem = f"{type(exc).__name__}: {exc}"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    if problem is not None:
+        raise refuse("DOLT_BINARY", f"{binary} is not a Dolt {DOLT_VERSION} executable ({problem})", expected=expected)
     return str(binary)
 
 
@@ -365,10 +387,7 @@ def _create_service(root: Path, binary: str) -> dict:
         f"data_dir: {root / 'data'}\ncfg_dir: {root / 'cfg'}\n"
         f"privilege_file: {root / 'cfg' / 'privileges.db'}\n"
         f"branch_control_file: {root / 'cfg' / 'branch_control.db'}\n" + NO_FILE_IO, encoding="utf-8")
-    environment = {**os.environ, "DOLT_ROOT_PATH": str(root / "home")}
-    for key, value in (("user.name", "Research Ledger"), ("user.email", "research-ledger@example.invalid")):
-        subprocess.run([binary, "config", "--global", "--add", key, value], env=environment, check=True,
-                       capture_output=True)
+    dolt_home(root / "home", {**QUIET, **IDENTITY})
     config = {"binary": binary, "socket": str(socket_path), "port": port,
               "root_password": secrets.token_urlsafe(24), "databases": {}, "secured": False}
     profile_directory.private_write(root / "service.json", {**config, "root_password": ""})
