@@ -494,6 +494,26 @@ class Hub:
                 return 200, self.views[available].view
             return 202, self.state(key, at is None, have)
 
+    def readings(self, line: str | None = None) -> dict:
+        """Each line's recommendation as its newest drawn graph says it, from the cached views only; `line`,
+        when named and not drawn at the head, is asked for, so a later read has it."""
+        if line is not None:
+            with self.lock:
+                if self.head is not None:
+                    key = self.key(self.head, line, None)
+                    self._want_for(key, False, None)
+                    self._notify()
+        found: dict[str, dict] = {}
+        with self.lock:
+            for key, cached in self.views.items():  # completion order: a newer graph of a line replaces an older
+                summary = next((w for w in cached.view.get("widgets", []) if w.get("type") == "summary@1"), None)
+                bundle = (cached.view.get("line") or {}).get("bundle")
+                if cached.live and key[4] is None and summary is not None and bundle:
+                    found[bundle] = {"ledger_commit": key[2]} | {name: summary.get(name) for name in (
+                        "recommended", "reading", "targets", "recommendations", "runs_since_recommendation_changed",
+                        "research_runs", "versions")}
+        return {"lines": found}
+
     def join(self, client: Client) -> None:
         with self.lock:
             self.clients.append(client)
@@ -726,6 +746,13 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return
             if url.path == "/api/about":
                 self.about()
+                return
+            if url.path == "/api/readings":
+                line = query.get("line")
+                if line is not None and not BUNDLE.fullmatch(line):
+                    self.json(400, _failure("BAD_REQUEST", "line is a registration bundle"))
+                    return
+                self.json(200, hub.readings(line))
                 return
             if url.path == "/api/market-import" and status is not None:
                 self.json(*market_import(status, datetime.now(UTC)))

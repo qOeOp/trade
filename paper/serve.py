@@ -124,10 +124,35 @@ def live_readings(row: dict, journal: Journal) -> dict:
         "equity": [[minute, float(equity)] for minute, equity in path]}
 
 
+OUTLINE = 120  # points of a listed run's equity: a phone's run page draws them, the stream has every minute
+
+
+def outline(path: list[list]) -> list[list]:
+    """At most OUTLINE points of `path`, evenly spaced over it, its first and last kept."""
+    if len(path) <= OUTLINE:
+        return path
+    step = (len(path) - 1) / (OUTLINE - 1)
+    return [path[round(index * step)] for index in range(OUTLINE)]
+
+
 def listing(found: dict) -> dict:
-    """The runs as the page polls them: a run's equity path, which only grows, is left to its stream."""
-    return found | {"runs": [run | {"live": {key: value for key, value in run["live"].items() if key != "equity"}}
+    """The runs as the page polls them: a run's equity path, which only grows, is left to its stream; the
+    listing has its outline."""
+    return found | {"runs": [run | {"live": {key: value for key, value in run["live"].items() if key != "equity"}
+                                    | {"outline": outline(run["live"]["equity"])}}
                              if "live" in run else run for run in found["runs"]]}
+
+
+def held(directory: Path) -> dict | None:
+    """The open positions and working orders of the runner's last state.json, or None before one is written."""
+    try:
+        state = json.loads((directory / "state.json").read_text())
+    except (FileNotFoundError, ValueError):
+        return None
+    if not isinstance(state, dict):
+        return None
+    return {"minute_ns": state.get("minute_ns"), "positions": state.get("positions") or [],
+            "orders": state.get("orders") or []}
 
 
 def failure_records(data: bytes | None) -> list[dict]:
@@ -497,7 +522,9 @@ class Daemon:
                 self.journals.pop(run["paper_id"], None)
             else:
                 run["live"] = live_readings(rows[run["paper_id"]], self.journal(run["paper_id"]))
-                failures = _read_bytes(runs.run_dir(self.profile, run["paper_id"]) / "out" / FAILURES)
+                directory = runs.run_dir(self.profile, run["paper_id"]) / "out"
+                failures = _read_bytes(directory / FAILURES)
+                run["live"]["held"] = held(directory)
                 # How often the strategy raised so far; the runner rewrites the file at each power of two.
                 run["live"]["exceptions"] = sum(item["count"] for item in failure_records(failures))
         found["starting"] = sorted(self.starting)

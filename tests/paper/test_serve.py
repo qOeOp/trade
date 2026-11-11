@@ -443,7 +443,24 @@ class StreamTests(unittest.TestCase):
         live = listed["runs"][0]["live"]
         self.assertNotIn("equity", live)
         self.assertEqual(live["fills"], 1)
+        self.assertEqual(len(live["outline"]), 3)
+        self.assertIsNone(live["held"], "no state.json yet")
         self.assertEqual(len(self.daemon.runs()["runs"][0]["live"]["equity"]), 3, "the stream still reads it")
+
+    def test_the_listing_carries_the_runners_open_positions(self):
+        write(self.out / "events.jsonl", journal())
+        position = {"position_id": "P-1", "instrument_id": "BTCUSDT-PERP.BINANCE", "signed_qty": "0.002",
+                    "avg_px_open": "100000", "mark": "100100", "unrealized_pnl": "0.2", "realized_pnl": "-0.04"}
+        (self.out / "state.json").write_text(json.dumps({"minute_ns": START, "positions": [position], "orders": []}),
+                                             encoding="utf-8")
+        _, listed = request(self.port, "GET", "/api/paper/runs")
+        self.assertEqual(listed["runs"][0]["live"]["held"], {"minute_ns": START, "positions": [position], "orders": []})
+
+    def test_an_outline_keeps_the_ends_and_at_most_its_points(self):
+        path = [[minute, float(minute)] for minute in range(1000)]
+        found = serve.outline(path)
+        self.assertEqual((len(found), found[0], found[-1]), (serve.OUTLINE, path[0], path[-1]))
+        self.assertEqual(serve.outline(path[:5]), path[:5])
 
     def test_the_strategys_exceptions_stream_while_it_runs_and_from_the_seal(self):
         write(self.out / "events.jsonl", journal())

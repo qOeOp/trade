@@ -1,6 +1,7 @@
-// Whether the page draws for a phone (the same bundle, another shell), which tab it shows and what it has to say
-// before a view. A phone in landscape stays a phone; "Desktop layout" asks for the IDE for as long as the browser tab
-// lasts, through the page loads its links make, so a phone opened later is a phone again.
+// Whether the page draws for a phone (the same bundle, another shell), which tab it shows, which run's page is
+// open and what it has to say before a view. A phone in landscape stays a phone; "Desktop layout" asks for the IDE
+// for as long as the browser tab lasts, through the page loads its links make, so a phone opened later is a phone
+// again. What a phone shows: docs/plans/ide-phone-scope-20261111.zh.md.
 import { useLayoutEffect } from "react";
 import { tabStorage } from "../lib/storage";
 import { atom, useAtom } from "./atom";
@@ -24,28 +25,50 @@ export const usePhone = () => {
 };
 export const phoneNow = () => narrow.get() && !desktopLayout.get();
 
-export type PhoneTab = "runs" | "research" | "market" | "live" | "agent";
+export type PhoneTab = "runs" | "market" | "research";
+/** A run's page over the Runs tab: a Live run by its id, a paper run by its number. */
+export type PhoneRun = { kind: "live"; id: string } | { kind: "paper"; id: number };
+
 const address = new URLSearchParams(window.location.search);
-const asked = address.has("line") || window.location.hash === "#lines";
+const linked = (): PhoneRun | null => {
+  const live = address.get("live"), paper = Number(address.get("paper"));
+  return live ? { kind: "live", id: live } : paper > 0 ? { kind: "paper", id: paper } : null;
+};
 /** Runs when it opens; Research when the address names a line or asks for the lines. */
-export const phoneTab = atom<PhoneTab>(asked ? "research" : "runs");
-/** A version's page open over its line's; the address opens it when it asks for a stage (state/stage.ts). */
-export const versionOpen = atom(address.has("stage"));
+export const phoneTab = atom<PhoneTab>(!linked() && (address.has("line") || window.location.hash === "#lines") ? "research" : "runs");
+/** The run page open, as the address names it (a Telegram message's link: ?live=<run id>). */
+export const phoneRun = atom<PhoneRun | null>(linked());
+export const usePhoneRun = () => useAtom(phoneRun);
+
 let pushed = false;
-/** Opens the version's page as a step the browser's back returns from. */
-export function openVersion(): void {
+/** Opens a run's page as a step the browser's back returns from. */
+export function openRun(run: PhoneRun): void {
   history.pushState(null, "");
   pushed = true;
-  versionOpen.set(true);
+  phoneTab.set("runs");
+  phoneRun.set(run);
 }
-export function closeVersion(): void {
-  if (pushed) history.back(); else versionOpen.set(false);
+export function closeRun(): void {
+  if (pushed) history.back();
+  else {
+    phoneRun.set(null);
+    // A link's run, closed: the address no longer names it, so a reload opens the Runs tab.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("live");
+    url.searchParams.delete("paper");
+    history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }
 }
-window.addEventListener("popstate", () => { pushed = false; versionOpen.set(false); });
+window.addEventListener("popstate", () => { pushed = false; phoneRun.set(null); });
 
-export type LineTab = "graph" | "versions" | "readings" | "table" | "gaps";
-/** What a line's page shows under its recommendation, as it was on coming back from a version. */
-export const lineTab = atom<LineTab>("graph");
+/** The address of what a phone shows, for the desktop: the run, else the line, else the page. */
+export function desktopHref(href: string, run: PhoneRun | null, line: string | null): string {
+  const url = new URL(href), keep = new URL(url.pathname, url.origin);
+  if (run?.kind === "live") keep.searchParams.set("live", run.id);
+  else if (run?.kind === "paper") keep.searchParams.set("run", String(run.id));
+  else if (line) keep.searchParams.set("line", line);
+  return keep.href;
+}
 
 type ViewStatus = { text: string; busy: boolean; choices?: { label: string; href: string }[]; next?: string[] };
 export const viewStatus = atom<ViewStatus>({ text: "", busy: true });

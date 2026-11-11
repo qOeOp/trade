@@ -1,55 +1,40 @@
-import { SettingsMenu } from "../toolbar/SettingsMenu";
 import { useEffect } from "react";
 import { PhoneTabs, type PhoneTabItem } from "../../components/PhoneTabs";
+import { ACTIVE } from "../../model/chain";
 import { useAtom } from "../../state/atom";
-import { useAgentService } from "../../state/agent";
-import { useOverviewService } from "../../state/market";
+import { useLiveTrading } from "../../state/liveTrading";
+import { pricesWanted, useOverviewService } from "../../state/market";
 import { usePaperRuns, usePaperService } from "../../state/paper";
 import { follow } from "../../state/paperStream";
-import { phoneTab, useKeyboard, useLandscape, usePhoneRoot, versionOpen, type PhoneTab } from "../../state/phone";
-import { showLivePage, showMarketPage, showRunsPage, showToolWindow } from "../../state/shell";
-import { ACTIVE } from "../../model/chain";
-import { AgentRuntime } from "../agent/AgentRuntime";
-import { RunDriver } from "../RunDriver";
-import { AgentTab } from "./AgentTab";
+import { phoneTab, usePhoneRoot, type PhoneTab } from "../../state/phone";
+import { showMarketPage } from "../../state/shell";
 import { MarketTab } from "./MarketTab";
 import { ResearchTab } from "./ResearchTab";
 import { RunsTab } from "./RunsTab";
-import { useShown } from "../../state/shown";
 
-/** The phone's window: a page at a time to the screen's edges over four tabs, no islands, panels or dividers. It
- *  mounts the desktop's own widgets and only arranges them; its tabs drive the same page state (state/shell.ts).
- *  A paper stream runs only on the tabs that read one; the listing keeps the run dot live on the others. */
+/** The phone's window (docs/plans/ide-phone-scope-20261111.zh.md): three tabs, a page at a time to the screen's
+ *  edges. Runs: the Live and paper runs going now, each opening its page, and Live's one action, a stop that asks
+ *  first. Market: a glance at prices. Research: each line's readings. No stream is followed: the listings carry what
+ *  a phone shows. The settings menu at the end of each page's bar has the way to the desktop. */
 export function PhoneShell() {
   usePhoneRoot();
-  const tab = useAtom(phoneTab), open = useAtom(versionOpen), agent = useAgentService() === "present", landscape = useLandscape(), typing = useKeyboard();
-  const overview = useOverviewService(), market = overview === "present" || overview === "offline";
-  const paper = usePaperService(), runs = usePaperRuns()?.runs ?? [];
-  const live = useShown().stage === "live";
-  const streaming = tab === "research" || tab === "runs" && !live;
-  useEffect(() => {
-    // A version's page shows the Runs page's chart, and Details describes the stage it shows.
-    if (tab === "runs" || (tab === "research" && open)) showRunsPage();
-    else if (tab === "market") showMarketPage();
-    else if (tab === "live") { showLivePage(); phoneTab.set("runs"); }
-    else if (tab === "research") showToolWindow("versions", "left");
-    if (!streaming) follow(null, null);
-  }, [tab, streaming, open]);
+  const tab = useAtom(phoneTab), overview = useOverviewService(), market = overview === "present" || overview === "offline";
+  const paper = usePaperService(), runs = usePaperRuns()?.runs ?? [], live = useLiveTrading().view.runs;
+  useEffect(() => { follow(null, null); pricesWanted.set(true); return () => pricesWanted.set(false); }, []);
+  useEffect(() => { if (tab === "market") showMarketPage(); }, [tab]);
+  const unresolved = live.some((r) => r.host.some((f) => f.label === "State" && f.value === "unresolved"));
+  const going = live.some((r) => r.running) || runs.some((r) => ACTIVE.has(r.state));
   const items: PhoneTabItem<PhoneTab>[] = [
-    { id: "runs", icon: "tool.runs", label: "Runs", dot: paper === "offline" ? "fail" : runs.some((r) => ACTIVE.has(r.state)) ? "meets" : undefined },
-    { id: "research", icon: "tool.versions", label: "Research" },
+    { id: "runs", icon: "tool.runs", label: "Runs", dot: unresolved || paper === "offline" ? "fail" : going ? "meets" : undefined },
     ...(market ? [{ id: "market" as const, icon: "tool.market" as const, label: "Market", dot: overview === "offline" ? "fail" as const : undefined }] : []),
-    ...(agent ? [{ id: "agent" as const, icon: "tool.agent" as const, label: "Agent" }] : []),
+    { id: "research", icon: "tool.versions", label: "Research" },
   ];
-  const page = (
+  return (
     <div className="fixed inset-x-0 top-(--page-top) flex h-(--page-h) min-h-0 flex-col overflow-hidden bg-island pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-      {streaming && <RunDriver />}
       <main className="flex min-h-0 flex-1 flex-col">
-        {tab === "runs" || tab === "live" ? <RunsTab /> : tab === "research" ? <ResearchTab /> : tab === "market" ? <MarketTab /> : <AgentTab />}
+        {tab === "market" ? <MarketTab /> : tab === "research" ? <ResearchTab /> : <RunsTab />}
       </main>
-      {!typing && !(landscape && !live && (tab === "runs" || (tab === "research" && open))) && <PhoneTabs items={items} value={tab} onChange={phoneTab.set} accessory={<SettingsMenu phone />} />}
+      <PhoneTabs items={items} value={tab} onChange={phoneTab.set} />
     </div>
   );
-  // The chat runtime sits above the tabs, so a thread keeps streaming on another one.
-  return agent ? <AgentRuntime>{page}</AgentRuntime> : page;
 }

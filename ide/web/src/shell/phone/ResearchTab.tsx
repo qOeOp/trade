@@ -1,145 +1,65 @@
 import { useEffect, useState } from "react";
-import { AboutSheet } from "../../components/About";
-import { NextSteps } from "../../components/NextSteps";
-import { PhoneBack, PhoneBar, PhoneBarIcon, PhonePage, PhoneRow } from "../../components/PhoneBar";
-import { Tabs } from "../../components/Tabs";
-import { Typing } from "../../components/Typing";
-import { UpdateStatus } from "../../components/UpdateStatus";
-import { lineHref } from "../../lib/lines";
-import { plural } from "../../lib/format";
-import type { DetailWidget, LineageWidget, NotesWidget, ProgressWidget, ScatterWidget, SummaryWidget, TableWidget } from "../../model/types";
-import { useView, useWidget } from "../../model/view";
-import { useAtom } from "../../state/atom";
-import { closeVersion, lineTab, openVersion, useLandscape, versionOpen, viewStatus, type LineTab } from "../../state/phone";
+import { PhonePage } from "../../components/PhoneBar";
+import { PhoneDisclosure } from "../../components/PhoneParts";
+import { ReadingBadge } from "../../components/ReadingBadge";
+import { Missing } from "../../components/Missing";
+import { pct } from "../../lib/format";
+import type { ResearchLine } from "../../lib/lines";
+import { meets } from "../../model/semantics";
+import { askReading, followReadings, useLineReadings, type LineReading } from "../../state/researchReadings";
 import { useResearchLines } from "../../state/researchLines";
-import { select, useSelection } from "../../state/selection";
-import { useShown } from "../../state/shown";
-import { SelectedDetail } from "../../widgets/detail/Detail";
-import { Lineage } from "../../widgets/lineage/Lineage";
-import { Notes } from "../../widgets/Notes";
-import { Progress } from "../../widgets/Progress";
-import { Recommendation } from "../../widgets/Recommendation";
-import { RunsPage } from "../../widgets/paper/RunsPage";
-import { Scatter } from "../../widgets/Scatter";
-import { VersionTable } from "../../widgets/VersionTable";
-import { VersionTree } from "../../widgets/VersionTree";
-import { lineCounts, StageSource } from "../StatusBar";
-import { VersionSource } from "./VersionSource";
+import { Track } from "../../widgets/detail/ReadingsBoard";
+import { PhoneTop } from "./PhoneTop";
 
 const short = (bundle: string) => bundle.replace(/^research-line-/, "");
+const Said = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => <span className={ok ? "text-meets" : "text-misses"}>{ok ? yes : no}</span>;
 
-/** Every line, open ones first, the newest first; each opens its own page. */
-function Lines() {
-  const { lines, loaded, error } = useResearchLines();
-  const status = useAtom(viewStatus);
-  const [about, setAbout] = useState(false);
-  const order = [...lines].reverse().sort((a, b) => Number(a.closed) - Number(b.closed));
+/** What a line recommends, opened in its row: the version, its max drawdown along the track to the limit, its annual
+ *  return against the minimum, and how long the recommendation has stood. */
+function Opened({ line, r }: { line: ResearchLine; r: LineReading | undefined }) {
+  if (!r) return <p className="text-dense text-fg-faint">Not drawn yet. The server is drawing this line's graph; its readings show here in about 20 s.</p>;
+  const limit = r.targets?.max_drawdown ?? null, minimum = r.targets?.annual_return ?? null, dd = r.reading?.max_drawdown ?? null, annual = r.reading?.annual_return ?? null;
   return (
-    <>
-      <PhoneBar>
-        <h1 className="min-w-0 flex-1 truncate px-2 text-dense font-semibold">Research lines</h1>
-        <PhoneBarIcon name="info" label="About this deployment" onClick={() => setAbout(true)} />
-      </PhoneBar>
-      <AboutSheet open={about} onClose={() => setAbout(false)} />
-      <PhonePage>
-        {!order.length && !status.busy && status.text
-          ? <div className="p-4 text-dense"><p className="break-words">{status.text}</p><NextSteps steps={status.next} className="mt-2" /></div>
-          : !loaded && <p className="p-4 text-dense text-fg-faint">{error ?? "Reading the research lines…"}</p>}
-        {order.map((line) => (
-          <PhoneRow key={line.bundle} href={lineHref(window.location.href, line.bundle)}>
-            <span className="block truncate font-mono text-dense">{short(line.bundle)}</span>
-            <span className="mt-0.5 block truncate text-small text-fg-faint">
-              {line.closed ? "Closed" : "Open"} · {plural(line.versions.length, "version")} · {line.window_start} to {line.window_end} · UTC window
-            </span>
-          </PhoneRow>
-        ))}
-      </PhonePage>
-    </>
+    <div className="space-y-2 text-dense">
+      <p className="flex min-w-0 gap-2"><span className="shrink-0 text-fg-faint">Recommended</span><span className="truncate font-mono">{r.recommended ?? "None yet"}</span></p>
+      {r.recommended && limit !== null && dd !== null && <div className="space-y-1.5 tabular-nums">
+        <p className="flex justify-between"><span>Max drawdown</span><span>{pct(dd)}</span></p>
+        <Track used={Math.min(1, dd / limit)} now={Math.min(1, dd / limit)} />
+        <p className="flex justify-between pl-3"><span><Said ok={meets(dd, limit, false) === true} yes="Within" no="Over" /> the limit</span><span>{pct(limit)}</span></p>
+      </div>}
+      {r.recommended && minimum !== null && <p className="flex justify-between tabular-nums"><span>Annual return <span className="text-fg-faint">· at least {pct(minimum)}</span></span>
+        <span>{annual === null ? <Missing /> : <Said ok={meets(annual, minimum, true) === true} yes={pct(annual)} no={pct(annual)} />}</span></p>}
+      <p className="text-fg-muted">{r.recommended ? (r.runs_since_recommendation_changed ? `Unchanged for the last ${r.runs_since_recommendation_changed} of ${r.research_runs} research runs` : `Changed at the latest of ${r.research_runs} research runs`) : `${r.research_runs} research runs`} · {line.closed ? "closed" : "open"} · {line.window_start} to {line.window_end}</p>
+    </div>
   );
 }
 
-/** The status bar's update, which a phone has no bar for: a graph kept from before says it is not the ledger's yet, or why it could not be redrawn. */
-const PhoneUpdate = () => <div className="shrink-0 border-b border-line bg-frame px-3 py-1.5 text-small text-fg-faint empty:hidden"><UpdateStatus spelled /></div>;
-
-const TABS: readonly { id: LineTab; label: string; widget: string }[] = [
-  { id: "graph", label: "Graph", widget: "lineage@2" }, { id: "versions", label: "Versions", widget: "lineage@2" },
-  { id: "readings", label: "Readings", widget: "scatter@1" }, { id: "table", label: "Table", widget: "table@1" }, { id: "gaps", label: "Gaps", widget: "notes@1" },
-];
-
-/** Opens a version's page, the version selected. */
-const openOne = (id: string) => { select(id); openVersion(); };
-
-/** A line's page: what it recommends and the line's counts, then the desktop's windows a tab at a time: the canvas
- *  over the progress chart on its axis, the Versions tree, the scatter, the table and the gaps. A version anywhere
- *  opens its page. */
-function Line() {
-  const view = useView(), tab = useAtom(lineTab), summary = useWidget<SummaryWidget>("summary@1"), lineage = useWidget<LineageWidget>("lineage@2");
-  const progress = useWidget<ProgressWidget>("progress@1"), scatter = useWidget<ScatterWidget>("scatter@1"), table = useWidget<TableWidget>("table@1"), notes = useWidget<NotesWidget>("notes@1");
-  const tabs = TABS.filter((t) => view.widgets.some((w) => w.type === t.widget));
-  return (
-    <>
-      <PhoneBar><PhoneBack href={`${window.location.pathname}#lines`}>{short(view.line.bundle)}</PhoneBack></PhoneBar>
-      <PhoneUpdate />
-      <PhonePage>
-        {summary && (
-          <div className="px-3 pt-3">
-            <Recommendation widget={summary} />
-            <p className="mt-1.5 text-small text-fg-faint">{lineCounts(summary)}</p>
-          </div>
-        )}
-        <div className="mt-1 flex h-(--header-h) items-center px-1 text-dense"><Tabs label="Line" value={tab} onChange={lineTab.set} items={tabs} /></div>
-        {tab === "graph" && (
-          <>
-            {lineage && <div className="h-[36dvh] min-h-56 border-t border-line"><Lineage widget={lineage} onOpen={openOne} /></div>}
-            {progress && <div className="h-48 border-t border-line"><Progress widget={progress} /></div>}
-          </>
-        )}
-        {tab === "versions" && lineage && <div className="overflow-x-auto border-t border-line"><VersionTree widget={lineage} onOpen={openOne} /></div>}
-        {tab === "readings" && scatter && <div className="h-[62dvh] min-h-96 border-t border-line"><Scatter widget={scatter} onOpen={openOne} /></div>}
-        {tab === "table" && table && <div data-page-table="sticky" className="overflow-x-auto border-t border-line"><VersionTable widget={table} onOpen={openOne} /></div>}
-        {tab === "gaps" && notes && <div className="border-t border-line"><Notes widget={notes} /></div>}
-      </PhonePage>
-    </>
-  );
-}
-
-/** A version's page: the Runs page's chart of its stages and where they come from, then Details as the inspector
- *  shows it, and its source. Turned sideways, the chart alone. */
-function Version() {
-  const view = useView(), detail = useWidget<DetailWidget>("candidate-detail@1"), selected = useSelection(), { stage } = useShown(), landscape = useLandscape();
-  if (landscape && stage !== null) return <RunsPage />;
-  return (
-    <>
-      <PhoneBar><PhoneBack onClick={closeVersion}>{short(view.line.bundle)}</PhoneBack></PhoneBar>
-      <PhoneUpdate />
-      <PhonePage>
-        {stage !== null && <div key={selected} className="h-[72dvh] min-h-96 overflow-hidden"><RunsPage /></div>}
-        <div className="px-3 pb-1 pt-1.5 leading-tight"><StageSource className="text-small text-fg-faint" /></div>
-        {detail && <div className="pt-1"><SelectedDetail widget={detail} /></div>}
-        {selected && <VersionSource id={selected} />}
-      </PhonePage>
-    </>
-  );
-}
-
-/** The Research tab: the lines, a line (a page of its own, by its address, so its graph is read only when asked
- *  for), or a version. While a line is drawn, or refused, the desktop's one line says so. */
+/** The Research tab: every line, open ones first and the newest first, each its recommended version's readings as
+ *  the desktop's badge, opening in place. The graph, versions and sources are the desktop's. */
 export function ResearchTab() {
-  const view = useView(), status = useAtom(viewStatus), open = useAtom(versionOpen), detail = useWidget<DetailWidget>("candidate-detail@1"), selected = useSelection();
-  const asked = new URLSearchParams(window.location.search).get("line");
-  // Back from the Runs tab, which shows a run with no version selected.
-  useEffect(() => { if (view.line.bundle && selected === null && detail?.default) select(detail.default); }, [view.line.bundle, selected, detail?.default]);
-  if (view.line.bundle) return open ? <Version /> : <Line />;
-  if (asked) return (
+  const { lines, loaded, error } = useResearchLines(), readings = useLineReadings().lines;
+  const asked = new URLSearchParams(window.location.search).get("line"), [open, setOpen] = useState<string | null>(asked);
+  useEffect(() => { followReadings(true); return () => followReadings(false); }, []);
+  useEffect(() => { if (open) askReading(open); }, [open]);
+  const order = [...lines].reverse().sort((a, b) => Number(a.closed) - Number(b.closed)), closed = lines.filter((l) => l.closed).length;
+  return (
     <>
-      <PhoneBar><PhoneBack href={`${window.location.pathname}#lines`}>{short(asked)}</PhoneBack></PhoneBar>
-      <div className="grid min-h-0 flex-1 place-items-center p-6">
-        <div>
-          <Typing text={status.text} busy={status.busy} className="text-dense text-fg-muted" />
-          <NextSteps steps={status.next} className="mt-2 text-dense" />
-        </div>
-      </div>
+      <PhoneTop title="Research" aside={loaded ? `${lines.length - closed} open · ${closed} closed` : undefined} line={open} />
+      <PhonePage>
+        {!loaded && <p className="p-4 text-dense text-fg-faint">{error ?? "Reading the research lines…"}</p>}
+        {loaded && <p className="flex justify-between border-b border-line px-3 py-1.5 text-small text-fg-faint"><span>Annual | max drawdown, recommended</span><span>Versions</span></p>}
+        {order.map((line) => {
+          const r = readings[line.bundle];
+          return (
+            <PhoneDisclosure key={line.bundle} open={open === line.bundle} onToggle={() => setOpen(open === line.bundle ? null : line.bundle)}
+              head={<><ReadingBadge reading={r?.recommended ? r.reading : null} targets={r?.targets ?? line.targets ?? null} />
+                <span className={`min-w-0 flex-1 truncate font-mono text-dense ${line.closed ? "text-fg-muted" : ""}`}>{short(line.bundle)}</span>
+                <span className="shrink-0 text-dense tabular-nums text-fg-faint">{line.versions.length}</span></>}>
+              <Opened line={line} r={r} />
+            </PhoneDisclosure>
+          );
+        })}
+      </PhonePage>
     </>
   );
-  return <Lines />;
 }
