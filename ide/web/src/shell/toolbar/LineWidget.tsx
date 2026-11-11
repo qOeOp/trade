@@ -1,18 +1,50 @@
-import { useView } from "../../model/view";
+import type { SummaryWidget } from "../../model/types";
+import { useView, useWidget } from "../../model/view";
 import { marketDay, shortSha } from "../../lib/format";
 import { copyText } from "../../lib/clipboard";
 import { requestFocus } from "../../state/linking";
-import { Dropdown, DropdownFacts, DropdownItem, DropdownSeparator } from "../../components/Dropdown";
+import { Dropdown, DropdownFacts, DropdownItem, DropdownLabel, DropdownSeparator } from "../../components/Dropdown";
 import { ResearchLines } from "./ResearchLines";
 import { useResearchLines } from "../../state/researchLines";
 
-/** The research line, as IntelliJ's project widget: its name, and in the menu what defines it. */
+// The gates `research state` reads before the line's next registration, in words; the message keeps the detail.
+const GATES: Record<string, string> = { INTERPRETATION_REQUIRED: "Runs await interpretation", REVIEW_DUE: "Recommendation review due" };
+
+/** The research line, as IntelliJ's project widget: its name, and in the menu first the gates its next
+ *  registration meets (a dot on the name while any holds) and the direction research takes next, then the
+ *  lines to switch to and what defines this one. */
 export function LineWidget() {
   const { line, scope } = useView();
-  const index = useResearchLines(), day = marketDay(line.market_commit);
+  const priority = useWidget<SummaryWidget>("summary@1")?.priority;
+  const index = useResearchLines(), day = marketDay(line.market_commit), gates = line.gates ?? [];
   if (!line.bundle) return <Dropdown label="Research line" trigger={<span className="text-fg-muted">No line</span>}><ResearchLines index={index} /></Dropdown>;
   return (
-    <Dropdown label="Research line" trigger={<span className="truncate font-mono font-semibold">{line.bundle.replace(/^research-line-/, "")}</span>}>
+    <Dropdown label="Research line" trigger={<>
+      <span className="truncate font-mono font-semibold">{line.bundle.replace(/^research-line-/, "")}</span>
+      {gates.length > 0 && <i role="img" aria-label={`${gates.length} ${gates.length === 1 ? "gate" : "gates"} before the next registration`} className="size-1.5 shrink-0 rounded-full bg-misses" />}
+    </>}>
+      {gates.length > 0 && <>
+        <DropdownLabel>Before the next registration · {gates.length}</DropdownLabel>
+        {/* As wide as the menu the line list sets, never wider; text lines up with the items' after their icon column. */}
+        <ul className="flex w-0 min-w-full flex-col gap-1 px-2 pb-1.5">
+          {gates.map((g) => (
+            <li key={g.code} className="flex gap-2">
+              <span className="grid h-[1lh] w-4 shrink-0 place-items-center"><i className="size-1.5 rounded-full bg-misses" /></span>
+              <span className="min-w-0"><span className="text-fg">{GATES[g.code] ?? g.code}</span>
+                <span className="block wrap-anywhere text-small text-fg-muted">{g.message}</span></span>
+            </li>
+          ))}
+        </ul>
+        <DropdownSeparator />
+      </>}
+      {priority && <>
+        <DropdownLabel>Next direction{priority.at && ` · ${priority.at.slice(0, 10)}`}</DropdownLabel>
+        <div className="flex w-0 min-w-full gap-2 px-2 pb-1.5">
+          <span className="w-4 shrink-0" />
+          <p title={priority.text} className="line-clamp-3 min-w-0 text-fg-muted">{priority.text}</p>
+        </div>
+        <DropdownSeparator />
+      </>}
       <ResearchLines index={index} />
       <DropdownFacts items={[
         ["Research line", line.bundle],

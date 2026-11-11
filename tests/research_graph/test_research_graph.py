@@ -112,6 +112,15 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual((summary["research_runs"], summary["trial_counts"]["research_trials"]), (3, 546))
         self.assertIsNone(next(w for w in layout.build_view(GRAPH)["widgets"] if w["id"] == "summary")["trial_counts"])
 
+    def test_the_summary_names_the_latest_priority_the_axis_leaves_out(self):
+        graph = copy.deepcopy(GRAPH)
+        graph["events"][1:1] = [{"at": "2026-01-01T11:50:00Z", "kind": "priority", "ref": "judgment 8", "text": "first", "recommends": None},
+                                {"at": "2026-01-01T12:05:00Z", "kind": "priority", "ref": "judgment 9", "text": "next: widen the stop", "recommends": None}]
+        self.assertEqual(contract.check_graph(graph), [])
+        summary = next(w for w in layout.build_view(graph)["widgets"] if w["id"] == "summary")
+        self.assertEqual(summary["priority"], {"at": "2026-01-01T12:05:00Z", "ref": "judgment 9", "text": "next: widen the stop"})
+        self.assertIsNone(next(w for w in layout.build_view(GRAPH)["widgets"] if w["id"] == "summary")["priority"])
+
     def test_a_fix_published_as_a_new_root_links_to_the_revision_it_fixes(self):
         graph = copy.deepcopy(GRAPH)
         graph["candidates"] += [
