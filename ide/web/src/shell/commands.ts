@@ -13,6 +13,9 @@ export type Action = { id: string; label: string; icon?: IconName; keys?: string
 export function commands(windows: readonly ToolWindow[]): Action[] {
   return [
     { id: "palette", label: "Go to a version or run a command", keys: "⌘K", binding: "$mod+KeyK", whileTyping: true, run: () => paletteOpen.set(!paletteOpen.get()) },
+    // From anywhere, without tabbing through every island first.
+    { id: "toolbar", label: "Focus the main toolbar", keys: "⌥T", binding: "Alt+KeyT", whileTyping: true,
+      run: () => document.querySelector<HTMLElement>("#main-toolbar button:not([disabled])")?.focus() },
     { id: "axis-start", label: "Back to the axis start", keys: "Home", binding: "Home", run: () => requestFocus("") },
     ...windows.map((w): Action => ({
       id: `tool:${w.id}`, label: `Toggle ${w.renderer.title}`, icon: w.icon, keys: w.shortcut?.keys, binding: w.shortcut?.binding,
