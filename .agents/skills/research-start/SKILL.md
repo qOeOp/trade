@@ -12,13 +12,14 @@ select`); its development period follows from the date and the start's contracts
 
 ## Read the ledger first
 
-- At every start or return from an interruption, check the checkout first: after `git fetch origin
-  main`, `HEAD` is the current `origin/main` (`git rev-parse HEAD` equals `git rev-parse
-  origin/main`) and the working tree is clean (`git status --porcelain` prints nothing). Fixes reach
+- At every start, return from an interruption and `registration add`, check the checkout first:
+  after `git fetch origin main`, `HEAD` is the current `origin/main` (`git rev-parse HEAD` equals
+  `git rev-parse origin/main`) and the working tree is clean (`git status --porcelain` prints nothing). Fixes reach
   a session only through its checkout, and sealing records the checkout's commit as the revision of
   its readings. If `HEAD` is an older commit on `origin/main` and the tree is clean, move it there
   (`git merge --ff-only origin/main` on `main`, `git checkout --detach origin/main` on a detached
-  `HEAD`) and say so in one line; otherwise do not register or replay, and tell the user the branch
+  `HEAD`) and say so in one line, then read again each skill file the move changed before using it
+  (the session holds the old text); otherwise do not register or replay, and tell the user the branch
   or commit and any uncommitted paths.
 - Then read the ledger before anything else: whether
   the service is up (`ledger service status`), the candidates (`candidate list`), the counts
