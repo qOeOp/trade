@@ -577,16 +577,17 @@ cache, connection, STOP, persistence, native source Running state and cash budge
 The order's strategy/trader identity must match the registered native source, so a foreign OrderFactory
 cannot bypass the source's history or recovery identity. It never retries,
 fabricates an order event or persists a dispatch queue. An entry rejected before native submission ends
-the run. Native order history prevents a second entry after a submitted attempt.
+the run. A run may enter any number of times; each entry passes its own admission.
 Besides the native portfolio equity of the order rules, Live also measures the 3-times limit
 (`engine.order_rules.ENTRY_EQUITY_MULTIPLE`, user 2026-11-09 and 2026-11-10) against the lower of USDT wallet and
-available balance in the account observation the entry's own admission read, on a flat account. That admission still
+available balance in the account observation the entry's own admission read, which may hold the run's own positions
+and orders on its contract (no other symbol's). That admission still
 requires USDT wallet and available cash of at least the budget, so the budget is a cash floor, not a size limit:
 a source sizing from equity at up to 3 times stays admitted however its equity grows. The venue leverage is observed, never set; an entry above the
 cash needs it set high enough on the venue. It is not a realized execution amount or loss guarantee, including for a SELL filled higher
 than its limit. The native global notional cap is omitted because it also rejects necessary reductions;
 all other native risk checks remain enabled. Reductions also require the position to be the run's account and
-instrument. A declared source review flag does not establish hostile-code isolation.
+instrument. Live does not claim hostile-code isolation for the source.
 
 Before a `preflight` or `start` takes the account, the operator's process reads the key's own permissions once from
 `api.binance.com`, which the runner's egress deliberately cannot reach: a key that can withdraw is refused
