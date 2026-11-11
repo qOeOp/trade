@@ -15,6 +15,7 @@ run's native reports (kept, and printed, when anything fails after a container s
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import date
 import hashlib
 import json
 import os
@@ -369,11 +370,19 @@ def replay_unrecorded(market, at: str | None, source: bytes, entry_class: str, r
 
 def _check_window(ledger: db.LedgerProfile, market, at: str | None, line: str | None, runner_argv: list[str]) -> None:
     """ledger.lines.check_replay_window for an explore or precheck replay, before anything is exported or written."""
-    window = registration_seams.runner_inputs(list(runner_argv))["window"]
+    inputs = registration_seams.runner_inputs(list(runner_argv))
     source = registration_seams.current.market(market)
-    latest = source.latest_complete_day(source.resolve_commit(at))
+    commit = source.resolve_commit(at)
+    first_day, latest = source.days(commit)
+    covered = None
+    if line is None:
+        first_months: dict = {}
+        for month, symbol in source.universe_month(commit):
+            first_months.setdefault(symbol, date.fromisoformat(f"{month}-01"))
+        covered = lines.covered_from(inputs["selection"].get("symbols"), first_day, first_months)
     with db.connect(ledger, "reader") as conn:
-        lines.check_replay_window(conn, line, window["trade_start"], window["end"], latest)
+        lines.check_replay_window(conn, line, inputs["window"]["trade_start"], inputs["window"]["end"], latest,
+                                  covered)
 
 
 def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Path, strategy_class: str, output: Path,

@@ -59,7 +59,7 @@ class ResearchLineTests(unittest.TestCase):
         read = lines.open_line(self.conn, "ema-trend-wider")
         self.assertEqual((read["line_id"], read["dev_start"], read["dev_end"], read["start"], read["start_sha256"],
                           read["universe_rule"], read["closed"]),
-                         (second["line_id"], "2025-04-01", "2026-04-01", "start@1", sha(source("start")), "pool-v1",
+                         (second["line_id"], "2021-04-01", "2024-04-01", "start@1", sha(source("start")), "pool-v1",
                           False))
         self.assertEqual(lines.read_line(self.conn, second["line_id"])["name"], "ema-trend-wider")
         with db.read_as_of(self.profile, self.first_commit(first["line_id"])) as pinned:
@@ -87,7 +87,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(found["ledger_commit"], head)
         self.assertEqual([(item["name"], item["closed"]) for item in found["lines"]],
                          [(first["line"], True), (second["line"], False)])
-        self.assertEqual(found["lines"][0]["dev_start"], "2025-04-01")
+        self.assertEqual(found["lines"][0]["dev_start"], "2021-04-01")
         self.assertEqual(set(found["lines"][0]), {*lines.LISTED, "targets"}, "deploy.release_host reads these entries")
         self.assertEqual(set(test_release.LINE_KEYS), {*lines.LISTED, "targets"}, "and its test writes them out")
         self.assertEqual([item["targets"] for item in found["lines"]], [None, None])
@@ -109,27 +109,49 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual([item["closed"] for item in lines.list_lines(self.profile, every=True)["lines"]], [True, True, True])
         self.assertEqual(lines.list_lines(self.profile)["lines"], [])
 
-    def test_the_development_period_is_the_last_four_complete_quarters_the_market_covers(self):
-        for today, latest, period in ((date(2026, 11, 10), date(2026, 11, 9), (date(2025, 10, 1), date(2026, 10, 1))),
-                                      (date(2026, 8, 15), date(2026, 8, 14), (date(2025, 7, 1), date(2026, 7, 1))),
-                                      (date(2026, 10, 1), date(2026, 9, 30), (date(2025, 10, 1), date(2026, 10, 1))),
-                                      (date(2026, 10, 1), date(2026, 9, 29), (date(2025, 7, 1), date(2026, 7, 1))),
-                                      (date(2026, 9, 30), date(2026, 9, 30), (date(2025, 7, 1), date(2026, 7, 1))),
-                                      (date(2027, 1, 5), date(2026, 12, 31), (date(2026, 1, 1), date(2027, 1, 1)))):
+    def test_the_development_period_is_the_twelve_quarters_before_the_two_year_holdout(self):
+        """3.1 (user 2026-11-11, "改成三段切分"): Q is the last quarter end before today the market covers; the
+        holdout the 8 quarters ending at Q, the period the 12 before it, or 4 with less than 24 quarters of
+        coverage before Q, and no line with less than 12."""
+        covered = date(2019, 9, 1)
+        for today, latest, period in ((date(2026, 11, 10), date(2026, 11, 9), (date(2021, 10, 1), date(2024, 10, 1))),
+                                      (date(2026, 8, 15), date(2026, 8, 14), (date(2021, 7, 1), date(2024, 7, 1))),
+                                      (date(2026, 10, 1), date(2026, 9, 30), (date(2021, 10, 1), date(2024, 10, 1))),
+                                      (date(2026, 10, 1), date(2026, 9, 29), (date(2021, 7, 1), date(2024, 7, 1))),
+                                      (date(2026, 9, 30), date(2026, 9, 30), (date(2021, 7, 1), date(2024, 7, 1))),
+                                      (date(2027, 1, 5), date(2026, 12, 31), (date(2022, 1, 1), date(2025, 1, 1)))):
             with self.subTest(today=today, latest=latest):
-                self.assertEqual(lines.development_period(today, latest), period)
+                self.assertEqual(lines.development_period(today, latest, covered), period)
+        self.assertEqual(lines.holdout_end(date(2024, 10, 1)), date(2026, 10, 1))
+        today, latest = date(2026, 11, 11), date(2026, 11, 10)  # Q = 2026-09-30
+        for covered, period in ((date(2020, 10, 1), (date(2021, 10, 1), date(2024, 10, 1))),  # 24 quarters
+                                (date(2020, 10, 2), (date(2023, 10, 1), date(2024, 10, 1))),  # 23: one year
+                                (date(2023, 10, 1), (date(2023, 10, 1), date(2024, 10, 1)))):  # 12
+            with self.subTest(covered=covered):
+                self.assertEqual(lines.development_period(today, latest, covered), period)
+        for covered in (date(2023, 10, 2), None):  # 11 quarters; an instrument the market never covered
+            with self.subTest(covered=covered), self.assertRaises(Refusal) as caught:
+                lines.development_period(today, latest, covered)
+            self.assertEqual(caught.exception.code, "LINE_HISTORY_SHORT")
+        months = {"BTCUSDT": date(2020, 2, 1), "OPUSDT": date(2022, 7, 1)}
+        self.assertEqual([lines.covered_from(found, date(2020, 2, 1), months) for found in
+                          (None, ["BTCUSDT"], ["BTCUSDT", "OPUSDT"], ["BTCUSDT", "WIFUSDT"])],
+                         [date(2020, 2, 1), date(2020, 2, 1), date(2022, 7, 1), None])
+        self.assertEqual([lines.selection(argv) for argv in ('["--symbols", "BTCUSDT", "ETHUSDT", "--start", "x"]',
+                                                              ["--universe", "pool", "--start", "x"])],
+                         [["BTCUSDT", "ETHUSDT"], None])
         line = self.select()
         self.assertEqual((line["line"], lines.read_line(self.conn, line["line_id"])["dev_start"]),
-                         ("ema-trend", "2025-04-01"))
+                         ("ema-trend", "2021-04-01"))
 
     def test_explore_and_precheck_trade_only_inside_a_development_period(self):
         """B5 (line-close-history-test 3.2, user 2026-11-11): a replay with a line trades inside that line's period;
-        one without (a start candidate's precheck) inside today's period and before any open line's forward segment."""
+        one without (a start candidate's precheck) inside today's period and before any open line's holdout."""
         def ns(day: date) -> int:
             return int(datetime.combine(day, time(), UTC).timestamp()) * 10**9
 
-        def check(line, first, end, today=date(2026, 11, 11)):
-            lines.check_replay_window(self.conn, line, ns(first), ns(end), date(2026, 11, 10), today=today)
+        def check(line, first, end, today=date(2026, 11, 11), covered=date(2019, 9, 1)):
+            lines.check_replay_window(self.conn, line, ns(first), ns(end), date(2026, 11, 10), covered, today=today)
 
         def refused(*args, **kwargs) -> str:
             with self.assertRaises(Refusal) as caught:
@@ -137,19 +159,21 @@ class ResearchLineTests(unittest.TestCase):
             return caught.exception.code
 
         august = self.select(today=date(2026, 8, 15), market=market(latest_complete_day=date(2026, 8, 14)))
-        self.assertEqual(lines.read_line(self.conn, august["line_id"])["dev_end"], "2026-07-01")
-        check("ema-trend", date(2025, 7, 1), date(2026, 7, 1))
-        self.assertEqual(refused("ema-trend", date(2026, 6, 1), date(2026, 7, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
-        # without a line: today's period is 2025-10-01 to 2026-10-01, but the open August line's forward segment
-        # starts at 2026-07-01 and inside it is refused
-        check(None, date(2026, 5, 1), date(2026, 7, 1))
-        self.assertEqual(refused(None, date(2026, 8, 1), date(2026, 9, 1)), "WINDOW_OUTSIDE_DEVELOPMENT")
-        self.assertEqual(refused(None, date(2025, 9, 1), date(2025, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
-        lines.close_line(self.profile, "ema-trend", b"forward segment replayed at close", MARKET_DAYS)
-        check(None, date(2026, 8, 1), date(2026, 9, 1))  # a closed line's forward segment was replayed at its close
-        self.assertEqual(refused(None, date(2026, 9, 1), date(2026, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
-        self.assertEqual(refused("ema-trend", date(2025, 8, 1), date(2025, 9, 1)), "LINE_ENDED")
-        self.assertEqual(refused("none", date(2025, 8, 1), date(2025, 9, 1)), "LINE_UNKNOWN")
+        self.assertEqual(lines.read_line(self.conn, august["line_id"])["dev_end"], "2024-07-01")
+        check("ema-trend", date(2021, 7, 1), date(2024, 7, 1))
+        self.assertEqual(refused("ema-trend", date(2024, 6, 1), date(2024, 7, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        # without a line: today's period is 2021-10-01 to 2024-10-01, but the open August line's holdout starts at
+        # 2024-07-01 and inside it is refused
+        check(None, date(2024, 5, 1), date(2024, 7, 1))
+        self.assertEqual(refused(None, date(2024, 8, 1), date(2024, 9, 1)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        self.assertEqual(refused(None, date(2021, 9, 1), date(2021, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        self.assertEqual(refused(None, date(2024, 5, 1), date(2024, 6, 1), covered=date(2024, 1, 1)),
+                         "LINE_HISTORY_SHORT", "no line could open on instruments covered for under 12 quarters")
+        lines.close_line(self.profile, "ema-trend", b"holdout and forward segment replayed at close", MARKET_DAYS)
+        check(None, date(2024, 8, 1), date(2024, 9, 1))  # a closed line's holdout was replayed at its close
+        self.assertEqual(refused(None, date(2024, 9, 1), date(2024, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        self.assertEqual(refused("ema-trend", date(2022, 8, 1), date(2022, 9, 1)), "LINE_ENDED")
+        self.assertEqual(refused("none", date(2022, 8, 1), date(2022, 9, 1)), "LINE_UNKNOWN")
 
     def test_selection_refusals(self):
         self.assertEqual(self.code(start="start@9"), "START_NOT_FOUND")
@@ -160,6 +184,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.code(market=unresolved), "MARKET_COMMIT_UNRESOLVED")
         self.assertEqual(self.code(market=market(universe_rule=None)), "MARKET_COMMIT_UNRESOLVED")
         self.assertEqual(self.code(reviews=reviewed()), "START_REVIEW_REQUIRED")
+        self.assertEqual(self.code(market=market(first_day=date(2024, 1, 1))), "LINE_HISTORY_SHORT")
         for slug in ("", "EMA", "ema_trend", "ema--trend", "-ema", "ema-", "趋势", "a" * 49, None):
             with self.subTest(slug=slug):
                 self.assertEqual(self.code(slug=slug), "LINE_SLUG_INVALID")

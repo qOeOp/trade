@@ -162,9 +162,14 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         "start no later than the trading start).",)),
     "WINDOW_OUTSIDE_DEVELOPMENT": ("An explore or precheck replay trades outside the development period it may use: "
                                    "its line's, or without a line (a start candidate's precheck) the period a line "
-                                   "opened today would get, ending where an open line's forward segment begins.",
-                                   ("Trade inside that period; history outside development periods is replayed only "
-                                    "when a line closes.",)),
+                                   "opened today on its instruments would get, ending where an open line's holdout "
+                                   "begins.",
+                                   ("Trade inside that period; the holdout, the history before the period and the "
+                                    "forward segment are replayed only when a line closes.",)),
+    "LINE_HISTORY_SHORT": ("The instruments have fewer than 12 complete calendar quarters of market coverage before "
+                           "the last quarter end: too little for a development year and the two-year holdout.",
+                           ("Start the line from instruments the market has covered for at least three years before "
+                            "the last quarter end, or from the pool.",)),
     "LINE_CONFLICT": ("A research line of that date and slug already exists with another choice.",
                       ("Name the direction more precisely with another `--slug`, then select again.",)),
     "LINE_SLUG_INVALID": ("The line slug is not lowercase ASCII words joined by hyphens of at most 48 characters.",

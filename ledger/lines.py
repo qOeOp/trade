@@ -3,8 +3,9 @@
 
 A research line is the user's choice of start candidate (a revision whose source review passed) and
 pinned market commit, one research_line row named by a slug for the line's direction. Its development
-period is the product's rule, not a choice (`development_period`): the last four complete calendar
-quarters before the day the line opens that the market covers, so lines opened in one quarter share it.
+period is the product's rule, not a choice (`development_period`, line-close-history-test-20261110.zh.md 3.1):
+the calendar quarters before the last two years the market covers, followed by those two years as the
+holdout and the forward segment, so lines opened in one quarter on the same coverage share it.
 A new choice is a new line, never an edit.
 
 A line is open from its selection until its line_close row, and several lines may be open at once, on the
@@ -16,6 +17,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
+import itertools
+import json
 import re
 
 from ledger import db, review_activity, strategies
@@ -95,15 +98,65 @@ def list_lines(profile: db.LedgerProfile, at: str | None = None, *, every: bool 
 
 
 QUARTER_STARTS = (1, 4, 7, 10)
+HOLDOUT_QUARTERS = 8  # the two years before Q, replayed once when the line closes (user 2026-11-11)
+DEVELOPMENT_QUARTERS = (12, 4)  # standard, and with less coverage than STANDARD_COVERAGE (user 2026-11-11)
+STANDARD_COVERAGE, MINIMUM_COVERAGE = 24, 12  # complete quarters of coverage before Q (user 2026-11-11)
 
 
-def development_period(today: date, latest_complete_day: date) -> tuple[date, date]:
-    """[first day, day after the last) of the last four complete calendar quarters that end before `today` and
-    within `latest_complete_day` (line-close-history-test-20261110.zh.md 3.1)."""
+def _quarters_after(day: date, count: int) -> date:
+    """The quarter start `count` quarters after the quarter start `day` (before it when negative)."""
+    months = day.year * 12 + day.month - 1 + 3 * count
+    return date(months // 12, months % 12 + 1, 1)
+
+
+def _quarters_between(first: date, end: date) -> int:
+    return ((end.year - first.year) * 12 + end.month - first.month) // 3
+
+
+def holdout_end(dev_end: date) -> date:
+    """The day after the holdout: it follows the development period for HOLDOUT_QUARTERS quarters and ends at Q,
+    where the forward segment begins."""
+    return _quarters_after(dev_end, HOLDOUT_QUARTERS)
+
+
+def selection(runner_argv) -> list[str] | None:
+    """The symbols a replay's runner arguments name after --symbols, or None for the pool (`--universe pool`)."""
+    argv = json.loads(runner_argv) if isinstance(runner_argv, (str, bytes)) else list(runner_argv)
+    if "--symbols" not in argv:
+        return None
+    rest = argv[argv.index("--symbols") + 1:]
+    return [item for item in itertools.takewhile(lambda item: not item.startswith("--"), rest)]
+
+
+def covered_from(selection: list[str] | None, first_day: date | None, first_months: dict[str, date]) -> date | None:
+    """The first day every instrument of a replay selection has market coverage: the market's first day for the
+    pool (`selection` None), otherwise the latest first universe month among the symbols (`first_months`); None
+    when one of them is never a universe member."""
+    if selection is None:
+        return first_day
+    found = [first_months[symbol] for symbol in selection if symbol in first_months]
+    return max(found) if found and len(found) == len(selection) else None
+
+
+def development_period(today: date, latest_complete_day: date, covered: date | None) -> tuple[date, date]:
+    """[first day, day after the last) of a line's development period (line-close-history-test-20261110.zh.md
+    3.1). Q is the last calendar quarter end before `today` and within `latest_complete_day`; the holdout is the
+    HOLDOUT_QUARTERS quarters ending at Q and the development period the quarters right before it: 12 when the
+    instruments are covered (from `covered`, covered_from) for at least STANDARD_COVERAGE complete quarters
+    before Q, 4 when for at least MINIMUM_COVERAGE, LINE_HISTORY_SHORT otherwise."""
     last = min(today - timedelta(days=1), latest_complete_day)
     after = last + timedelta(days=1)
     end = after if after.day == 1 and after.month in QUARTER_STARTS else date(last.year, 3 * ((last.month - 1) // 3) + 1, 1)
-    return date(end.year - 1, end.month, 1), end
+    first = None if covered is None else (covered if covered.day == 1 and covered.month in QUARTER_STARTS
+                                          else _quarters_after(date(covered.year, 3 * ((covered.month - 1) // 3) + 1, 1), 1))
+    quarters = 0 if first is None else max(_quarters_between(first, end), 0)
+    if quarters < MINIMUM_COVERAGE:
+        raise refuse("LINE_HISTORY_SHORT", f"the instruments have {quarters} complete quarters of market coverage "
+                                           f"before {end}; a line needs at least {MINIMUM_COVERAGE}",
+                     expected=f"coverage from {_quarters_after(end, -MINIMUM_COVERAGE)} or earlier")
+    dev_end = _quarters_after(end, -HOLDOUT_QUARTERS)
+    length = DEVELOPMENT_QUARTERS[0] if quarters >= STANDARD_COVERAGE else DEVELOPMENT_QUARTERS[1]
+    return _quarters_after(dev_end, -length), dev_end
 
 
 def _ns(day: date) -> int:
@@ -111,12 +164,14 @@ def _ns(day: date) -> int:
 
 
 def check_replay_window(conn: db.LedgerConnection, line: str | None, trade_start_ns: int, end_ns: int,
-                        latest_complete_day: date, today: date | None = None) -> None:
+                        latest_complete_day: date, covered: date | None = None, today: date | None = None) -> None:
     """Where an explore or precheck replay may trade (line-close-history-test-20261110.zh.md 3.2, B5): with `line`,
     inside that open line's development period; without one (only a start candidate's precheck), inside the period
-    a line opened today would get and before the forward segment of every open line, which begins at its period's
-    end. History outside development periods is replayed only when a line closes. WINDOW_OUTSIDE_DEVELOPMENT
-    otherwise; LINE_UNKNOWN or LINE_ENDED for a named line that is no open line."""
+    a line opened today on its instruments would get (`covered`: covered_from of the replay's selection) and before
+    the holdout of every open line, which begins at its period's end. The holdout, the history before the period
+    and the forward segment are replayed only when a line closes. WINDOW_OUTSIDE_DEVELOPMENT otherwise;
+    LINE_HISTORY_SHORT when no line could open on the instruments; LINE_UNKNOWN or LINE_ENDED for a named line
+    that is no open line."""
     if line is not None:
         record = open_line(conn, line)
         first, end = date.fromisoformat(record["dev_start"]), date.fromisoformat(record["dev_end"])
@@ -124,13 +179,13 @@ def check_replay_window(conn: db.LedgerConnection, line: str | None, trade_start
     else:
         if today is None:
             (today,), = conn.rows("SELECT DATE(UTC_TIMESTAMP())")
-        first, end = development_period(today, latest_complete_day)
+        first, end = development_period(today, latest_complete_day, covered)
         allowed = "the development period a line opened today would get"
-        forward = [item for item in lines(conn, open_only=True) if date.fromisoformat(item["dev_end"]) < end]
-        if forward:
-            earliest = min(forward, key=lambda item: item["dev_end"])
+        held = [item for item in lines(conn, open_only=True) if date.fromisoformat(item["dev_end"]) < end]
+        if held:
+            earliest = min(held, key=lambda item: item["dev_end"])
             end = date.fromisoformat(earliest["dev_end"])
-            allowed += f", before the forward segment of the open line {earliest['name']}"
+            allowed += f", before the holdout of the open line {earliest['name']}"
     if not _ns(first) <= trade_start_ns < end_ns <= _ns(end):
         raise refuse("WINDOW_OUTSIDE_DEVELOPMENT", f"the trading window must lie inside {allowed}: from {first} to "
                                                    f"{end} (exclusive)", expected=f"{first} <= trade window <= {end}")
@@ -144,8 +199,10 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
     `targets` (maximum drawdown, minimum annual return) are the user's for this line, written in the same commit;
     without them the line reads the ledger default.
 
-    `market(market_at)` returns {commit, universe_rule, latest_complete_day} (the market's resolve_commit and
-    freshness); the development period follows from that day and `today` (default the ledger server's UTC date). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
+    `market(market_at)` returns {commit, universe_rule, latest_complete_day, first_day, first_months} (the
+    market's resolve_commit and freshness, its first day and each symbol's first universe month); the development
+    period follows from that day, `today` (default the ledger server's UTC date) and the coverage of the
+    instruments of the start's latest passed precheck (covered_from; LINE_HISTORY_SHORT when too short). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
     source review of its source hash and none failed, read at the head this connection sees; a review that failed
     only on the activity of a precheck that did not trade is not counted once a later precheck traded and passed
     (`review_activity.resolved`).
@@ -175,12 +232,16 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
                      missing=(str(market_at),))
     if today is None:
         (today,), = conn.rows("SELECT DATE(UTC_TIMESTAMP())")
-    window_start, window_end = development_period(today, latest_day)
     reviewed = reviews(conn, candidate["source_sha256"])
     verdicts = {record["verdict"] for record in reviewed if not review_activity.resolved(conn, record, reviewed)}
     if "failed" in verdicts or "passed" not in verdicts:
         raise refuse("START_REVIEW_REQUIRED", f"{start} has {'a failed' if 'failed' in verdicts else 'no passed'} "
                                               "source review", missing=(start,))
+    passed = max((record for record in reviewed if record["verdict"] == "passed"), key=lambda record: record["review_id"])
+    argv = conn.rows("SELECT runner_argv FROM trial WHERE trial_id = %s", (passed["trial_id"],))
+    covered = covered_from(selection(argv[0][0]) if argv else None, facts.get("first_day"),
+                           facts.get("first_months") or {})
+    window_start, window_end = development_period(today, latest_day, covered)
     choice = {"name": slug, "start_source_sha256": candidate["source_sha256"], "market_day": facts["commit"],
               "universe_rule": facts["universe_rule"], "dev_start": window_start.isoformat(),
               "dev_end": window_end.isoformat()}

@@ -106,15 +106,22 @@ def _market_refusal(exc) -> Refusal:
 # Profiles
 
 def _market_facts(profile: dict) -> Callable[[str], dict]:
-    """market.resolve_commit and market.freshness for ledger.select_line."""
+    """market.resolve_commit and market.freshness for ledger.select_line, with the market's first day and each
+    symbol's first universe month (ledger.lines.covered_from)."""
     from market import store
     from market.sources import MarketError
 
     def facts(market_at: str) -> dict:
+        from market import files, universe
         try:
-            return store.freshness(profile, market_at)
+            found = store.freshness(profile, market_at)
+            members = universe.months_of(files.open_market(profile, "reader"), found["commit"])
         except MarketError as exc:
             raise _market_refusal(exc) from exc
+        first_months: dict[str, date] = {}
+        for month, symbol in members:
+            first_months.setdefault(symbol, month)
+        return {**found, "first_day": min(first_months.values()), "first_months": first_months}
     return facts
 
 
@@ -1291,9 +1298,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "candidate, its source reviews, the open lines and targets (writer, head)",
         "one research_line row named <slug> and, when given, the line's targets in the same commit; the same "
         "choice under that name again writes no line (created false); publishes",
-        "line, line_id, start, window {start, end} (the development period: the last four complete calendar "
-        "quarters before today that the market covers), market_day, universe_rule, created, targets",
+        "line, line_id, start, window {start, end} (the development period: the 12 calendar quarters before the "
+        "holdout, the 8 quarters ending at the last quarter end before today that the market covers; 4 quarters "
+        "when the start's precheck instruments have fewer than 24 quarters of coverage before it), market_day, "
+        "universe_rule, created, targets",
         "START_REVIEW_REQUIRED (the start has no passed source review, or a failed one); START_NOT_FOUND; "
+        "LINE_HISTORY_SHORT (those instruments have fewer than 12 quarters of coverage before it); "
         "MARKET_COMMIT_UNRESOLVED (no commit, universe rule or complete day); LINE_CONFLICT (the name holds another choice); LINE_SLUG_INVALID; "
         "TARGETS_INVALID"),
     ("line", "targets"): (
@@ -1509,7 +1519,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "BAD_REF, UNKNOWN_CANDIDATE; RUNTIME_NOT_CI_BUILT (no revision label); RUNTIME_CONTRACT_MISMATCH (the "
         "candidate's contract is not the image's); NOT_TEMPORARY_PATH, PATH_EXISTS; UNIVERSE_EMPTY; "
         "WINDOW_OUTSIDE_DEVELOPMENT (outside --line's development period, or without --line outside the period a "
-        "line opened today would get or inside an open line's forward segment); LINE_UNKNOWN, LINE_ENDED; "
+        "line opened today would get or inside an open line's holdout); LINE_HISTORY_SHORT (without --line: no line "
+        "could open on the instruments); LINE_UNKNOWN, LINE_ENDED; "
         "OUT_OF_SAMPLE_RESERVED"),
     ("replay", "run"): (
         "the candidate and the registration (writer, head); the market at --at, exported fresh; the runtime image; "
@@ -1931,9 +1942,12 @@ def _parser() -> Parser:
     _at(command)
     command = verb(line, "select", "record the user's research line")
     command.epilog = ("One record per choice: a later change of start or market commit is a new line record, never "
-                      "an edit. --slug names the line. The development period is not a choice: the last four complete "
-                      "calendar quarters before today that the market covers, the same for every line opened in "
-                      "one quarter.")
+                      "an edit. --slug names the line. The development period is not a choice: Q is the last "
+                      "calendar quarter end before today that the market covers, the holdout the 8 quarters ending "
+                      "at Q and the development period the 12 quarters before the holdout (4 when the instruments of "
+                      "the start's precheck have fewer than 24 quarters of coverage before Q; under 12, no line). "
+                      "Lines opened in one quarter share it; the holdout, the history before the period and the "
+                      "forward segment after Q are replayed only when the line closes.")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--start", required=True,
@@ -2129,7 +2143,7 @@ def _parser() -> Parser:
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--line", help="the open research line whose development period the trading window lies "
                                         "in; without it (a start candidate's precheck), the period a line opened "
-                                        "today would get, before any open line's forward segment")
+                                        "today on its instruments would get, before any open line's holdout")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command = runner(replay, "run", "a sealed research or validation replay (runner arguments as registered)")
     command.epilog = textwrap.fill(

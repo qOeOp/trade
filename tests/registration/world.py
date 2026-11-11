@@ -190,10 +190,13 @@ class World:
             self.profile = self.service.ledger(name)
             self.conn = db.connect(self.profile, "writer")
             strategies.publish_candidate(self.profile, source("root"), "rsi", "Fixture", "the line's start")
-            with january():
-                self.line = lines.select_line(self.conn, MARKET_COMMIT, "rsi@1", slug="rsi-root",
-                                              market=line_market(latest_complete_day=date(2026, 3, 31)),
-                                              reviews=reviewed(source("root")))
+            # January 2026 is the development period for the world's life: a line's and a precheck's (whose
+            # rule's three-year period lies before the fixtures' market)
+            self._period = january()
+            self._period.start()
+            self.line = lines.select_line(self.conn, MARKET_COMMIT, "rsi@1", slug="rsi-root",
+                                          market=line_market(latest_complete_day=date(2026, 3, 31)),
+                                          reviews=reviewed(source("root")))
             self.counter = 0
         except BaseException:
             self.close()
@@ -207,6 +210,8 @@ class World:
                 self._seams.__exit__(None, None, None)
             if getattr(self, "_tempdir", None) is not None:
                 self._tempdir.stop()
+            if getattr(self, "_period", None) is not None:
+                self._period.stop()
         finally:
             self.service.close()
 

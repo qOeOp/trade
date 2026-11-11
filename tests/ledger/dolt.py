@@ -122,13 +122,14 @@ class Service:
             shutil.rmtree(self.root, ignore_errors=True)
 
 
-def market(commit: str = MARKET_COMMIT, latest_complete_day=None, universe_rule: str | None = "pool-v1"):
-    """A stand-in for the market's resolve_commit and freshness."""
-    from datetime import date
+def market(commit: str = MARKET_COMMIT, latest_complete_day=None, universe_rule: str | None = "pool-v1",
+           first_day=date(2019, 9, 1)):
+    """A stand-in for the market's resolve_commit and freshness, covered from `first_day`."""
 
     def facts(market_at: str) -> dict:
         return {"commit": commit, "universe_rule": universe_rule,
-                "latest_complete_day": latest_complete_day or date(2026, 3, 31)}
+                "latest_complete_day": latest_complete_day or date(2026, 3, 31),
+                "first_day": first_day, "first_months": {"BTCUSDT": first_day}}
     return facts
 
 
@@ -148,7 +149,7 @@ def pinned(start=None, end=None):
     from datetime import date
     from ledger import lines
     period = (start or date(2026, 1, 1), end or date(2026, 2, 1))
-    return patch.object(lines, "development_period", lambda today, latest: period)
+    return patch.object(lines, "development_period", lambda today, latest, covered: period)
 
 
 # The market days line close reads (first day, day after the latest complete day): January 2026, the pinned period.

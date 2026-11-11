@@ -170,7 +170,7 @@
 | `start_source_sha256 CHAR(64) NOT NULL FK candidate` | `research-start`、状态 | `research-line.json` 的 `start` 和 `start_sha256`（后者是前者的副本） | 开线时声明的起点 |
 | `market_day DATE NOT NULL` | 这条线里登记的默认市场版本（`cli/main.py:612`） | `market_commit`（N1 改名为市场日） | 开线时固定的数据版本 |
 | `universe_rule VARCHAR(60) NOT NULL` | 同上 | 同 | 开线时声明 |
-| `dev_start DATE NOT NULL`、`dev_end DATE NOT NULL`，CHECK `dev_start < dev_end` | 回放入口的窗口隔离、关线历史回测、热力图 | `window_start`、`window_end`，由 Agent 选 | 由规则从开线日和当时的市场覆盖算出（[关线历史回测](line-close-history-test-20261110.zh.md) 3.1），但规则以后可能变，而开发期是开线时的承诺（L10），所以存下来，不在读时重算 |
+| `dev_start DATE NOT NULL`、`dev_end DATE NOT NULL`，CHECK `dev_start < dev_end` | 回放入口的窗口隔离、关线历史回测、热力图 | `window_start`、`window_end`，由 Agent 选 | 由规则从开线日和当时的市场覆盖算出（[关线历史回测](line-close-history-test-20261110.zh.md) 3.1，用户 2026-11-11 改为三段切分：开发期是留出期之前的 12 个季度，覆盖不足时 4 个季度；留出期和前瞻段由 `dev_end` 推出，不另存），但规则以后可能变，而开发期是开线时的承诺（L10），所以存下来，不在读时重算 |
 
 删掉：`format`、`market_database`（市场曾是 Dolt 库的遗留）、`start_sha256`（`start` 的副本）、`note`（只有测试读）。
 
