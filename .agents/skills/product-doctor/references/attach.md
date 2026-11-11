@@ -8,9 +8,8 @@ Scope: focused diagnosis) and tell the user while the session runs.
 
 ## Who attaches
 
-A session on the other host from the research session (SKILL.md), never the research session or
-one of its sub-agents. It need not be fresh, because it is not the audit; for the same reason it
-never runs the full audit afterwards.
+Any session on either host except the research session and its sub-agents. It need not be fresh,
+because it is not the audit; for the same reason it never runs the full audit afterwards.
 
 ## Evidence
 
