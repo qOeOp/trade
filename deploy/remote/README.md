@@ -169,7 +169,9 @@ fetches the public channel with it); no `uv`. Ubuntu 26.04's Docker 29.1, Compos
 and Python 3.14 packages qualify. Live is enabled only by the declaration above.
 Paper runs are admitted by memory, not by count
 ([paper-admission-by-memory](../../docs/plans/paper-admission-by-memory.zh.md)), one per source, within a 3.5 GiB
-budget: `TRADE_PAPER_MEMORY` would change it, but the release plane does not pass it to the Paper controller. The example's 2 GiB ledger cap is a candidate deployment budget,
+budget, or `TRADE_PAPER_MEMORY` (a size such as `4g`) in `/etc/trade/remote.env`. The release plane passes it to each
+Paper controller it creates, so a change applies from the next admitted version's controller (on a host installed
+before this setting, after its control code is updated as below). The example's 2 GiB ledger cap is a candidate deployment budget,
 not a tested capacity result; do not change an existing deployment's cap without evaluating its load.
 
 1. Choose the server, retain its public IPv4, and point your `TRADE_DOMAIN` to it, and any

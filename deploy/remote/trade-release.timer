@@ -1,5 +1,5 @@
 [Unit]
-Description=Check public main build results every two minutes
+Description=Check the public deploy-ready channel for a newer admitted version every two minutes
 
 [Timer]
 OnBootSec=30s

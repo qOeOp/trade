@@ -183,15 +183,20 @@ class Config:
     warm_seconds: int = 1800
     observe_seconds: int = 90
     probe_seconds: int = 5
+    paper_memory: str = ""  # TRADE_PAPER_MEMORY for the Paper controllers it creates; empty: paper/runs.py's default
 
     @classmethod
     def installed(cls, path: Path = ENV_FILE, run=subprocess.run) -> "Config":
-        """The host's TRADE_DOMAIN and TRADE_DATA, from the env file compose and the installer read."""
+        """The host's TRADE_DOMAIN, TRADE_DATA and optional TRADE_PAPER_MEMORY, from the env file compose and the
+        installer read."""
         values = deployment_env(path, run)
         domain, data = values.get("TRADE_DOMAIN", ""), Path(values.get("TRADE_DATA", ""))
         if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?", domain) or not data.is_absolute():
             raise RuntimeError(f"{path} must set TRADE_DOMAIN to a host name and TRADE_DATA to an absolute path")
-        return cls(data=data, domain=domain)
+        memory = values.get("TRADE_PAPER_MEMORY", "")
+        if memory and not re.fullmatch(r"[1-9][0-9]{0,5}[mg]", memory):  # what paper/runs.py mib() accepts
+            raise RuntimeError(f"{path} must leave TRADE_PAPER_MEMORY empty or set it to a size such as 3584m or 4g")
+        return cls(data=data, domain=domain, paper_memory=memory)
 
 
 # Only selected public response facts cross the probe boundary. Never print a nonce, cookie or key.

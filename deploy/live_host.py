@@ -165,7 +165,7 @@ class LiveHost:
     def create(self, name: str, service: str) -> None:
         control = self.name(name)
         if self.web.exists(control):
-            raise RuntimeError("Live release identity is retained; use a corrected main commit")
+            raise RuntimeError("Live release identity is retained; ship a corrected version")
         self.web.docker("create", "--name", control, "--init", *contained("768m", "0.75"), *self.common(name), service, "python", "-m", "cli.main", "live", "serve",
                         "--configuration", str(self.configuration(name)),
                         "--release-state", str(self.state), "--release-web", name)

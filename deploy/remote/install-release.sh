@@ -1,6 +1,7 @@
 #!/bin/sh
 # Install the reviewed release plane on a new host, after the whole-project `up` of README.md: the first
-# Paper controller, Web and Agent come from the newest admitted main build, then the timer releases newer ones.
+# Paper controller, Web and Agent come from the newest admitted version (`deploy-ready`, which CI moves only for
+# a version tag), then the timer releases each newer admitted version.
 set -eu
 [ "$(id -u)" = 0 ] || { echo 'Install the release plane as the deployment administrator'; exit 1; }
 source_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -33,4 +34,4 @@ install -m 644 "$source_root/deploy/remote/trade-release.service" "$source_root/
   /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now trade-release.timer
-echo 'Release plane installed; the timer publishes newer checked main builds.'
+echo 'Release plane installed; the timer publishes each newer admitted version (deploy-ready).'

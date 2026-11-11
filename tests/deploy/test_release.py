@@ -663,8 +663,14 @@ class SelectionTests(unittest.TestCase):
         env = Path("/etc/trade/remote.env")
         run = compose("HOME=/root\nTRADE_DOMAIN=www.trade.test\nTRADE_DATA=/data/trade\nX=a=b\n")
         config = Config.installed(env, run)
-        self.assertEqual((config.domain, config.data), ("www.trade.test", Path("/data/trade")))
+        self.assertEqual((config.domain, config.data, config.paper_memory), ("www.trade.test", Path("/data/trade"), ""))
         self.assertEqual(run.call_args.args[0][:4], ["docker", "compose", "--env-file", str(env)])
+        base = "TRADE_DOMAIN=x.test\nTRADE_DATA=/data\n"
+        for memory in ("", "3584m", "4g"):
+            self.assertEqual(Config.installed(env, compose(f"{base}TRADE_PAPER_MEMORY={memory}\n")).paper_memory, memory)
+        for memory in ("4G", "0m", "4gb", "4 g"):
+            with self.assertRaisesRegex(RuntimeError, "TRADE_PAPER_MEMORY"):
+                Config.installed(env, compose(f"{base}TRADE_PAPER_MEMORY={memory}\n"))
         for stdout in ("TRADE_DATA=/data/trade\n", "TRADE_DOMAIN=x.test\nTRADE_DATA=relative\n",
                        "TRADE_DOMAIN=a.test/evil\nTRADE_DATA=/data\n"):
             with self.assertRaisesRegex(RuntimeError, "must set TRADE_DOMAIN"):
