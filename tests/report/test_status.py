@@ -354,6 +354,12 @@ class ComparisonTableTests(unittest.TestCase):
         sharpes = [item["measures"]["sharpe_365"]["value"] / math.sqrt(365) for item in table["runs"]]
         self.assertAlmostEqual(found["daily_sharpe_variance"], statistics.variance(sharpes),
                                msg="the report's Sharpe ratios, per day")
+        for item, days in zip(table["runs"], series, strict=True):
+            returns = [days[day] for day in sorted(days)]
+            self.assertEqual(item["deflated_sharpe"], {
+                name: measures.deflated_sharpe(returns, found[name], found["daily_sharpe_variance"])
+                for name in ("effective_trials", "all_purpose_trials")}, "each end at one count, over the trade window")
+            self.assertIsNotNone(item["deflated_sharpe"]["effective_trials"])
 
     def test_the_table_lists_every_available_run_with_its_report_measures_and_dominance(self):
         table = status.research_status(self.world.profile)["comparison"]

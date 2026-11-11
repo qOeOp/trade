@@ -383,6 +383,40 @@ class SerialCorrelationTests(unittest.TestCase):
         self.assertIsNone(measures.sharpe_lo([0.01, 0.03, 0.01, 0.03]))
 
 
+class DeflatedSharpeTests(unittest.TestCase):
+    def test_the_published_example(self):
+        """Bailey & López de Prado (2014), section 6: annual Sharpe 2.5 over five years of daily returns
+        (T = 1250, 250 a year), skewness -3, kurtosis 10, N = 100 and an annual variance of 0.5 give 0.9004."""
+        found = measures.deflated_sharpe_of(2.5 / math.sqrt(250), -3, 10, 1250, 100, 0.5 / 250)
+        self.assertAlmostEqual(found, 0.9004, places=3)
+
+    def test_a_series_reads_its_own_moments(self):
+        rng = np.random.default_rng(7)
+        returns = (rng.standard_t(4, 400) * 0.01 + 0.001).tolist()
+        r = np.asarray(returns)
+        m, s = r.mean(), r.std()
+        expected = measures.deflated_sharpe_of(m / r.std(ddof=1), ((r - m) ** 3).mean() / s ** 3,
+                                               ((r - m) ** 4).mean() / s ** 4, 400, 37.0, 0.004)
+        self.assertEqual(measures.deflated_sharpe(returns, 37.0, 0.004), expected)
+
+    def test_more_trials_deflate_more_and_one_trial_tests_against_zero(self):
+        returns = [0.01, -0.004, 0.006, 0.002, -0.001, 0.008, -0.003, 0.004]
+        one, few, many = (measures.deflated_sharpe(returns, n, 0.01) for n in (1, 37, 1833))
+        self.assertGreater(one, few)
+        self.assertGreater(few, many)
+        r = np.asarray(returns)
+        sharpe = r.mean() / r.std(ddof=1)
+        z = sharpe * math.sqrt(len(r) - 1) / math.sqrt(1 - ((r - r.mean()) ** 3).mean() / r.std() ** 3 * sharpe
+                                                      + (((r - r.mean()) ** 4).mean() / r.std() ** 4 - 1) / 4 * sharpe ** 2)
+        self.assertAlmostEqual(one, NormalDist().cdf(z), msg="N = 1 leaves the probability that SR exceeds 0")
+
+    def test_nothing_without_counts_days_or_variation(self):
+        self.assertIsNone(measures.deflated_sharpe([0.01, 0.02, 0.0], None, 0.01))
+        self.assertIsNone(measures.deflated_sharpe([0.01, 0.02, 0.0], 10, None))
+        self.assertIsNone(measures.deflated_sharpe([0.01, 0.02], 10, 0.01), "two days")
+        self.assertIsNone(measures.deflated_sharpe([0.01] * 5, 10, 0.01), "a constant series")
+
+
 class RegimeTests(unittest.TestCase):
     def test_a_day_is_high_when_the_prior_days_absolute_basket_return_tops_the_trailing_median(self):
         days = [(date(2026, 1, 1) + timedelta(days=k)).isoformat() for k in range(32)]

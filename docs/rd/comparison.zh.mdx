@@ -514,11 +514,11 @@ Agent 自己数，最容易漏掉失败和中断的那些，把结果看得比�
 
 <div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `report.research_status` <Ref id="table:trial">trial</Ref> `ledger.read_as_of`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-#### 折扣夏普由 Agent 用账本计数自己算，只报两端范围 [#V-4-4-2]
+#### 折扣夏普由研究计数读时给出，只报两端范围 [#V-4-4-2]
 
-Agent 按 skill 自己算折扣夏普（按试验次数扣掉运气成分后的夏普）。试验数与方差都取研究计数里这条路线的多重检验读数：下端是有效试验数，即同合约、窗口重叠的研究试验数，按这些运行日收益的平均两两相关折算成的独立试验数（Bailey & López de Prado 2014 式 9）；上端是全部用途（含预检）的重叠试验数；试验间夏普的方差取同一批研究运行的日夏普方差，试验数和方差出自同一批运行。日夏普都按每日算、不年化，窗口长短只经被检验运行自己的天数进入。该运行交易窗口内的账户日收益取自账本里的逐日序列，算出日夏普、偏度、原始峰度和天数。两个试验数各算一端，报出范围，原始次数、平均相关、方差和天数一起列出。
+研究计数的比较表给每个运行附上折扣夏普（按试验次数扣掉运气成分后的夏普）。试验数与方差都取研究计数里这条路线的多重检验读数：下端是有效试验数，即同合约、窗口重叠的研究试验数，按这些运行日收益的平均两两相关折算成的独立试验数（Bailey & López de Prado 2014 式 9）；上端是全部用途（含预检）的重叠试验数；试验间夏普的方差取同一批研究运行的日夏普方差，试验数和方差出自同一批运行。日夏普都按每日算、不年化，窗口长短只经被检验运行自己的天数进入。该运行交易窗口内的账户日收益取自账本里的逐日序列，算出日夏普、偏度、原始峰度和天数。两个试验数各算一端，Agent 报出范围，原始次数、平均相关、方差和天数一起列出。
 
-真正独立试了多少次说不准，所以用两个数各算一端，不报单个值；范围也不当资格或门槛。产品不计算、不存储折扣夏普，计数只从代码读。它能从已存的逐日序列和计数随时重算，所以只在判断里引用它的输入和账本版本，不另存。这条由评测用例检查，代码没有对应的拒绝码。
+真正独立试了多少次说不准，所以用两个数各算一端，不报单个值；范围也不当资格或门槛。折扣夏普是对 Agent 自己搜索强度的评分，所以由产品读时算出，不由 Agent 自算；它能从已存的逐日序列和计数随时重算，所以不存储，判断里只引用账本版本。关线历史回测按参与候选数挑候选时，用同一个公式（`measures.deflated_sharpe`），只把试验数换成参与候选数。只报范围、不当门槛由评测用例检查，代码没有对应的拒绝码。
 
 <div className="rd-example">
 
@@ -526,7 +526,7 @@ Agent 按 skill 自己算折扣夏普（按试验次数扣掉运气成分后的�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · references/ratios.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.status.deflated_range` `report.measures.deflated_sharpe` · nautilus-report-analysis · references/ratios.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 待定事项 [#V-pending]
 
