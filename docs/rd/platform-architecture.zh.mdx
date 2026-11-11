@@ -50,7 +50,7 @@ IDE 用只读账户直接读活动 Dolt SQL 服务里的研究账本，经市场
 
 ## 远程主机与发布
 
-`deploy/remote/` 叠加在基础部署上，提供 HTTPS 和 GitHub 登录，研究库是只读镜像，执行记录放在隔离的 `paper` 库。`ledger mirror` 从公开副本引导只读研究库并新建空的 `paper` 库，不持有 DoltHub 发布密钥，拒绝接管已有的研究写入服务；`ledger sync` 只拉取并校验公开副本的不可变提交后快进，从不发布。主机只跟随版本标签（`v0.2.0` 起的 `v*`）自动发布，main 的构建只进 `main-ready`，发版由用户决定；发布不打断运行中的策略。步骤、边界和发布范围以 [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md) 为准。
+`deploy/remote/` 叠加在基础部署上，提供 HTTPS 和 GitHub 登录，研究库是只读镜像，执行记录放在隔离的 `paper` 库。`ledger mirror` 从公开副本引导只读研究库并新建空的 `paper` 库，不持有 DoltHub 发布密钥，拒绝接管已有的研究写入服务；`ledger sync` 只拉取并校验公开副本的不可变提交后快进，从不发布；镜像每 60 秒自动执行一次。主机只跟随版本标签（`v0.2.0` 起的 `v*`）自动发布，main 的构建只进 `main-ready`，发版由用户决定；发布不打断运行中的策略。步骤、边界和发布范围以 [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md) 为准。
 
 <a id="live" />
 

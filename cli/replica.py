@@ -51,6 +51,9 @@ def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers
         raise
 
 
+SYNC_EVERY = 60  # seconds between the mirror's own syncs from its origin; the page's Sync DoltHub starts one at once
+
+
 class Sync:
     def __init__(self, profile: db.LedgerProfile):
         self.profile = profile
@@ -81,6 +84,15 @@ class Sync:
 
         threading.Thread(target=work, daemon=True).start()
         return {"state": "syncing"}
+
+
+def keep_synced(sync: Sync, stop: threading.Event, every: float = SYNC_EVERY) -> None:
+    """Start a sync now and every `every` seconds until `stop`, so the mirror follows its origin with no page
+    open; a sync still running is not started again (Sync.request), and a failed one shows in the status."""
+    while True:
+        sync.request()
+        if stop.wait(every):
+            return
 
 
 def handler(sync: Sync, hosts: frozenset[str]):
@@ -119,7 +131,8 @@ def run(root: Path, data: Path, backups: Path, origin: str, port: int, readers: 
     server, profile = start(root, data, backups, origin, port, readers, controllers)
     http = None
     try:
-        http = ThreadingHTTPServer((http_host, http_port), handler(Sync(profile), frozenset(hosts or [
+        sync = Sync(profile)
+        http = ThreadingHTTPServer((http_host, http_port), handler(sync, frozenset(hosts or [
             f"127.0.0.1:{http_port}", f"localhost:{http_port}"])))
         http.daemon_threads = True
         threading.Thread(target=http.serve_forever, daemon=True).start()
@@ -127,6 +140,7 @@ def run(root: Path, data: Path, backups: Path, origin: str, port: int, readers: 
             signal.signal(signum, lambda received, frame: server.send_signal(received))
         stop = threading.Event()
         threading.Thread(target=service.keep_backed_up, args=(stop, False), daemon=True).start()
+        threading.Thread(target=keep_synced, args=(sync, stop), daemon=True).start()
         code = server.wait()
         stop.set()
         return {"action": "mirror", "server_exit": code}, 0 if code in (0, -signal.SIGTERM, -signal.SIGINT) else 1
