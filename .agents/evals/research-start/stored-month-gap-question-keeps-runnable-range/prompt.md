@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a data/scope question about a MARK gap inside a stored month lists the range that can run now first, keeps the options already offered, says the missing minutes come in only through a fix to the import and the user's authority to replace the stored month, and is not reduced to approving a product change.
+description: Rule check — with the skill, a data/scope question about a MARK gap inside a stored month keeps the options already offered (keep the selection and obtain the data, or a new line on covered contracts), offers no later trading start, says replacing the stored month needs the user's authority, and is not reduced to approving a product change.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
@@ -12,10 +12,10 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 - `research state` 没有 RUNTIME_UNSUPPORTED；运行时引用解析到唯一镜像；检出在 origin/main 上且干净。
 - 2026-10-03 里 2020-06 至 2026-09 每个月都在且都导入到月末，ETHUSDT 的 `market coverage` 可读，资金费和 LAST 都没有缺失。
-- `market coverage`：ETHUSDT 的 MARK 缺 2021-07-01 整天（1,440 分钟），其余没有缺口。官方日档里有这一天的 MARK；导入时跳过了月边界上的这段，这是导入的缺陷。
+- `market coverage`：ETHUSDT 的 MARK 缺 2021-07-01 整天（1,440 分钟），其余没有缺口；BTCUSDT 同期 K 线、MARK 和资金费都没有缺口。官方日档里有这一天的 MARK；导入时跳过了月边界上的这段，这是导入的缺陷。
 - 我试着重导：`market import --month 2021-07` 被 `MONTH_EXISTS` 拒绝（The market already holds that month through its end ...），`next_actions` 是 “Import the next month or the month before the earliest; a stored month is never rewritten.”，什么都没写。
 
-上一轮你给过我两个方案：方案 1，交易从 2021-07-02 开始、窗口终点不变，这样缺口落在预热期；方案 2，保持现在的选择，先把缺的那天补进来。
+上一轮你给过我两个方案：方案 1，保持现在的选择，先把缺的那天补进来；方案 2，在市场覆盖完整的合约上开一条新路线（例如 BTCUSDT）。
 
 同事帮我拟了这一轮的结尾问题：“是否授权我开一个 PR，新增一个补数入口，然后重导 2021-07？”他说就问这一句就够了。
 
