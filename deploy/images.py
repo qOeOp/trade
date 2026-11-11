@@ -20,10 +20,12 @@ from .release import GitSource
 from .release_host import IMAGE_REF, REVISION, RUNTIME_REF, SERVICE_REF, SOURCE, sync_directory
 
 
+# Field, env key, pattern and the tag prefix of the build's platform index. The release's runtime is the execution
+# image for Paper and Live (`exec-sha-REV` in ghcr.io/qoeop/trade-runtime, beside the replay image's `sha-REV`).
 FIELDS = (
-    ("image", "TRADE_IDE_IMAGE", IMAGE_REF),
-    ("service", "TRADE_SERVICE_IMAGE", SERVICE_REF),
-    ("runtime", "TRADE_RUNTIME_IMAGE", RUNTIME_REF),
+    ("image", "TRADE_IDE_IMAGE", IMAGE_REF, ""),
+    ("service", "TRADE_SERVICE_IMAGE", SERVICE_REF, ""),
+    ("runtime", "TRADE_RUNTIME_IMAGE", RUNTIME_REF, "exec-"),
 )
 CHANNELS = {"deploy": "deploy-ready", "main": "main-ready"}
 ARCHITECTURES = {"arm64": "arm64", "aarch64": "arm64", "amd64": "amd64", "x86_64": "amd64"}
@@ -83,7 +85,8 @@ def admitted(history, revision: str | None = None) -> dict:
     raise RuntimeError(f"no admitted record for {revision or 'any revision'} names all three images")
 
 
-def native(registry: Registry, reference: str, pattern, architecture: str, revision: str | None) -> tuple[str, str]:
+def native(registry: Registry, reference: str, pattern, architecture: str, revision: str | None,
+           prefix: str = "") -> tuple[str, str]:
     """This CPU's image of an admitted digest's build, and the revision it was built from."""
     if not isinstance(reference, str) or not pattern.fullmatch(reference):
         raise RuntimeError(f"not an admitted image reference: {reference!r}")
@@ -105,7 +108,7 @@ def native(registry: Registry, reference: str, pattern, architecture: str, revis
     source = built(digest, "amd64")
     if revision is not None and source != revision:
         raise RuntimeError(f"{reference} was built from {source}, not the admitted {revision}")
-    index = registry.manifest(repository, f"sha-{source}")
+    index = registry.manifest(repository, f"{prefix}sha-{source}")
     children = {
         item.get("platform", {}).get("architecture"): item["digest"]
         for item in index.get("manifests", [])
@@ -141,9 +144,10 @@ def resolve(source: GitSource, registry: Registry, architecture: str, revision: 
     sha = record["revision"]
     main = source.git("rev-parse", "refs/heads/main")
     values = {}
-    for field, key, pattern in FIELDS:
+    for field, key, pattern, prefix in FIELDS:
         # A runtime carries forward from an earlier build; the IDE and service are built from the record's revision.
-        reference, built = native(registry, record[field], pattern, architecture, None if field == "runtime" else sha)
+        reference, built = native(registry, record[field], pattern, architecture,
+                                  None if field == "runtime" else sha, prefix)
         if not source.ancestor(built, main):
             raise RuntimeError(f"{reference} was built from {built}, which is not on main")
         if field == "runtime":

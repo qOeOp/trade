@@ -141,14 +141,15 @@ refuses it (`docker compose stop ledger`).
 A deployment runs images by digest, so a pull cannot change what it runs. A tag only finds an image.
 
 - **ide, ledger, paper, market-import**: `TRADE_IDE_IMAGE` and `TRADE_SERVICE_IMAGE` in `.env`, and `TRADE_RUNTIME_IMAGE`
-  for paper's new runs. Compose refuses to run without them. `deploy/images.py` writes them from a channel branch
+  for paper's new runs: the execution image (`trade-runtime:exec-sha-COMMIT`, engine/README.md, Runtime image).
+  Compose refuses to run without them. `deploy/images.py` writes them from a channel branch
   where CI records a commit once every check of it has passed: by default `deploy-ready`, which holds only versions
   ([`CHANGELOG.md`](../CHANGELOG.md)) and is what the author's host releases; with `--channel main`, `main-ready`,
   which holds every checked `main` build. The author's Mac compose follows `main-ready` as staging. It needs
   Python 3.12 or newer (`python3 -m deploy.images` on a server, always the default channel). It reads public data
   with no credential and pulls nothing.
 - **docker-api**: the digest in `compose.yaml`, moved only by a pull request.
-- **Replays**: `trade-runtime:main` still finds the current runtime, and the ledger records the digest it resolved to.
+- **Replays**: `trade-runtime:main` finds the current replay image, and the ledger records the digest it resolved to.
 
 Going back is the same command with an earlier revision of the same channel; `git log -p origin/deploy-ready --
 release.json` (or `origin/main-ready`) lists them:

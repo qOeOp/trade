@@ -33,9 +33,8 @@ REQUIRED = ("image_ref", "image_digest", "platform", "runtime_contract")
 LAYOUTS = {
     "replay-contract@v8": {"runner_module": "engine.run", "audit_module": "engine.audit",
                            "fingerprint_module": "engine.compare",
-                           "paper_module": "engine.paper", "egress_module": "engine.egress",
-                           "live_module": "engine.live",
                            "source_paths": {
+                               "package_source_sha256": "engine/__init__.py",
                                "config_source_sha256": "engine/config.py",
                                "runner_source_sha256": "engine/run.py",
                                "load_source_sha256": "engine/load.py",
@@ -46,12 +45,23 @@ LAYOUTS = {
                                "order_rules_source_sha256": "engine/order_rules.py",
                                "protection_source_sha256": "engine/protection.py",
                                "warmup_source_sha256": "engine/warmup.py",
-                               "history_source_sha256": "engine/history.py"},
+                               "history_source_sha256": "engine/history.py",
+                               "klines_source_sha256": "engine/klines.py",
+                               "native_csv_source_sha256": "engine/native_csv.py",
+                               "live_errors_source_sha256": "engine/live_errors.py"},
                            "audit_path": "engine/audit.py", "lock_path": "uv.lock"},
 }
-# CI pushes every runtime image here; `main` is the current runtime (.github/workflows/runtime-image.yml).
+# The modules Paper and Live run. They are only in the execution image, which adds the rest of engine/ and Redis to
+# the replay image's files (engine/runtime/Dockerfile); the replay image holds only LAYOUTS' files.
+EXECUTION_MODULES = {
+    "replay-contract@v8": {"paper_module": "engine.paper", "egress_module": "engine.egress",
+                           "live_module": "engine.live"},
+}
+# CI pushes both images here (.github/workflows/runtime-image.yml). `main` is the current replay image, rebuilt only
+# when a replay input changes; `exec-main` is the current execution image, for Paper and Live.
 REPOSITORY = "ghcr.io/qoeop/trade-runtime"
 CURRENT = REPOSITORY + ":main"
+EXECUTION = REPOSITORY + ":exec-main"
 REVISION_LABEL = "org.opencontainers.image.revision"
 CONTRACT_LABEL = "trade.runtime.contract"
 CHECKOUT = Path(__file__).resolve().parents[1]
@@ -69,6 +79,15 @@ def layout(runtime_contract: str | None) -> dict:
         raise refuse("RUNTIME_UNSUPPORTED", f"runtime contract {runtime_contract!r} has no image layout",
                      missing=(str(runtime_contract),), expected=", ".join(sorted(LAYOUTS)))
     return _copy(found)
+
+
+def execution_modules(runtime_contract: str) -> dict:
+    """The Paper and Live module names of one runtime contract (the execution image's)."""
+    found = EXECUTION_MODULES.get(runtime_contract) if isinstance(runtime_contract, str) else None
+    if found is None:
+        raise refuse("RUNTIME_UNSUPPORTED", f"runtime contract {runtime_contract!r} has no execution modules",
+                     missing=(str(runtime_contract),), expected=", ".join(sorted(EXECUTION_MODULES)))
+    return dict(found)
 
 
 def _copy(value: dict) -> dict:

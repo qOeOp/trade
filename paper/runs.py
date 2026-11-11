@@ -294,7 +294,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         with db.read_as_of(research, research_at) as source:
             research_commit = source.resolved_commit
             found = strategies.read_candidate(source, candidate)
-    identity = image.resolve(runtime)
+    identity = image.resolve(runtime or image.EXECUTION)
     present = containers(profile)
     if any(item["source_sha256"] == found["source_sha256"] for item in present
            if item["role"] == "runner" and item["running"]):

@@ -30,6 +30,10 @@ function fixture() {
     ['pyproject.toml', '[project]\nname = "fixture"\n'], ['uv.lock', 'version = 1\n'],
     ['service/web.py', '# service only\n'],
   ];
+  // The execution Dockerfile copies the replay closure by name, then engine/*.py.
+  for (const name of new Set(dockerfile.match(/engine\/[a-z_]+\.py/g))) {
+    if (!base.some(([existing]) => existing === name)) base.push([name, `# ${name}\n`]);
+  }
   // Actual Dockerfile bytes and real Git blob identities exercise the production Python helper.
   for (const name of ['.github/workflows/runtime-image.yml', '.github/scripts/publish-platform-image.sh',
     '.github/scripts/check-native-runtime.py', '.github/scripts/ci-paths.py', '.github/actions/ci-paths/action.yml', 'deploy/runtime_inputs.py']) {

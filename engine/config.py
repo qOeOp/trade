@@ -37,9 +37,12 @@ EXECUTIONS = ("bars", "quotes")
 EXECUTION_BAR_MINUTES = 1  # design constant: one-minute bars, matched as such
 MINUTE_NS = 60_000_000_000
 
-# The runtime source files hashed into the identity (runtime.image.LAYOUTS names the same paths).
+# The runtime source files hashed into the identity: with AUDIT_PATH, the import closure of engine.run,
+# engine.audit and engine.compare, which is all the replay image holds (runtime.image.LAYOUTS and
+# engine/runtime/replay.Dockerfile name the same paths; tests/runtime/test_replay_closure.py keeps them equal).
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_SOURCE_PATHS = {
+    "package_source_sha256": "engine/__init__.py",
     "config_source_sha256": "engine/config.py",
     "runner_source_sha256": "engine/run.py",
     "load_source_sha256": "engine/load.py",
@@ -51,6 +54,9 @@ RUNTIME_SOURCE_PATHS = {
     "protection_source_sha256": "engine/protection.py",
     "warmup_source_sha256": "engine/warmup.py",
     "history_source_sha256": "engine/history.py",
+    "klines_source_sha256": "engine/klines.py",
+    "native_csv_source_sha256": "engine/native_csv.py",
+    "live_errors_source_sha256": "engine/live_errors.py",
 }
 AUDIT_PATH = "engine/audit.py"
 

@@ -247,21 +247,31 @@ denied/rejected order fails the run.
 
 ## Runtime image
 
-The image holds Python, Nautilus, the locked dependencies and `engine` (runner, auditor and fingerprint); strategy
-bodies, Dolt configuration and research records are excluded. The
-[`runtime-image`](../.github/workflows/runtime-image.yml) workflow builds it on separate native arm64
-and amd64 runners for `linux/arm64` and `linux/amd64`, and pushes it to `ghcr.io/qoeop/trade-runtime`, labelled with the
-commit it was built from (`org.opencontainers.image.revision`), when a runtime input changes
-(`engine/**/*.py`, the Dockerfile, `uv.lock`, the workflow or its publish script). A main build
-moves the `main` tag, the current runtime; a pull request build is tagged `pr-N`, and also runs for
-changes to `pyproject.toml` or the path and image check scripts, which do not rebuild main; every
-build is tagged `sha-COMMIT`. Images are not built on a workstation, and there is no local registry or
-hand-written runtime identity.
+The [`runtime-image`](../.github/workflows/runtime-image.yml) workflow builds two images on separate native arm64
+and amd64 runners for `linux/arm64` and `linux/amd64`, and pushes both to `ghcr.io/qoeop/trade-runtime`, labelled with
+the commit each was built from (`org.opencontainers.image.revision`). Neither holds strategy bodies, Dolt
+configuration or research records, and neither is built on a workstation; there is no local registry or hand-written
+runtime identity.
 
-The shared tags are published after both native image checks pass and their small bracket reports
-compare successfully. Per-platform tags append `-arm64` or `-amd64`. These packaging checks exercise
-the pinned Redis snapshot/reload, engine tests, partial fills, protection and fees. They do not replace
-the paired CLI acceptance below, including nonzero funding and the intended strategy and market inputs.
+- **Replay image** ([`runtime/replay.Dockerfile`](runtime/replay.Dockerfile)): Python, Nautilus, the locked
+  dependencies and only the replay closure, the import closure of `engine.run`, `engine.audit` and `engine.compare`
+  (`RUNTIME_SOURCE_PATHS` and `AUDIT_PATH` in `config.py`). Research identifies a run by this image's digest, so a
+  main build runs only when a replay input (a closure file, `pyproject.toml`, `uv.lock`, the Dockerfile or the
+  workflow) differs from the commit the current `main` image was built from. A Paper, Live or tooling change leaves
+  `main` on its digest, and earlier runs stay comparable. Tags: `main`, `pr-N`, `sha-COMMIT`.
+  `tests/runtime/test_replay_closure.py` keeps the closure, both source lists, the Dockerfile's copies and the
+  workflow's replay paths equal.
+- **Execution image** ([`runtime/Dockerfile`](runtime/Dockerfile)) for Paper and Live: the replay image's steps
+  unchanged, then the pinned Redis and the rest of `engine/`. It is built whenever an `engine/` file or another image
+  input changes. Tags: `exec-main`, `exec-pr-N`, `exec-sha-COMMIT`. Its tested digest is the release's runtime
+  (`TRADE_RUNTIME_IMAGE`, deploy/README.md), and `paper start`, `paper serve` and `live preflight` default to
+  `exec-main`.
+
+Each image's shared tags are published after both native checks pass and their small bracket reports compare
+successfully. Per-platform tags append `-arm64` or `-amd64`. The replay image's check proves it holds only its closure
+and replays a bracket; the execution image's also exercises the pinned Redis snapshot/reload and the engine tests.
+They do not replace the paired CLI acceptance below, including nonzero funding and the intended strategy and market
+inputs.
 
 A replay command without `--runtime` pulls `main` and records the manifest digest it resolved;
 `--runtime` takes another CI tag or digest reference. The identity (`image_ref` with its
@@ -272,11 +282,9 @@ configuration. Replay and audit run with no network, a read-only root, read-only
 mounts and one writable report mount. A freeze or confirmation accepts only a run on an image
 whose revision is on origin/main and whose observed code equals that commit's bytes.
 
-The v7 source proof accepts exactly the historical five-file map or the current seven-file map,
-which also covers `engine/strategy.py` and `engine/fill.py`. For main-build validation, the required
+The v8 source proof covers every file of the replay closure. For main-build validation, the required
 map comes from the unique literal `RUNTIME_SOURCE_PATHS` declaration in the trusted Git revision,
-read without executing it. A new revision cannot use an old five-file probe to omit the extracted
-code. Historical inspections keep their original map and are not rewritten.
+read without executing it, and must equal the contract's layout.
 
 The project is an installable package: `uv run --frozen --project REPO python SCRIPT` imports
 the product packages (`engine`, `market`, `ledger`, `report` and the rest) from a script anywhere, and the image imports `engine` from any

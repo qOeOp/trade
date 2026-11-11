@@ -93,6 +93,15 @@ class ResolveTests(unittest.TestCase):
                     value["config"]["Labels"]["org.opencontainers.image.revision"] = OLD
                 return value
 
+            def manifest(self, repository, reference):
+                # The release's runtime is the execution image, whose index is exec-sha-REV; sha-REV is the replay
+                # image's, which holds other digests.
+                if repository.endswith("/trade-runtime"):
+                    if not reference.startswith("exec-"):
+                        raise KeyError(reference)
+                    reference = reference.removeprefix("exec-")
+                return super().manifest(repository, reference)
+
         registry = OlderRuntime({AMD: ("amd64", NEW, SOURCE), ARM: ("arm64", NEW, SOURCE)},
                                 {f"sha-{sha}": {"amd64": AMD, "arm64": ARM} for sha in (OLD, NEW)})
         source = Mock()

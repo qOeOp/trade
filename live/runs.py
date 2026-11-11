@@ -352,7 +352,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
         read_universe(universe, symbols)
     except EngineRefusal as exc:
         raise state.fail("LIVE_UNIVERSE", str(exc)) from None
-    identity = image.resolve(runtime)
+    identity = image.resolve(runtime or image.EXECUTION)
     inspection = image.inspect_runtime(identity, ["--market-root", "/unused", "--market-commit", "live",
                                                    "--symbols", *symbols, "--start", "2026-01-01T00:00:00Z",
                                                    "--end", "2026-01-02T00:00:00Z"])

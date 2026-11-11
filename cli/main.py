@@ -986,6 +986,7 @@ LIVE_CONFIGURATION_HELP = ("the paired control's fixed deployment configuration,
                            "/var/lib/trade-release/live/<revision>/configuration.json")
 RUNTIME_HELP = "runtime image tag or digest; a tag resolves to its digest"
 RUNTIME_DEFAULT_HELP = RUNTIME_HELP + " (default: the main tag)"
+EXECUTION_DEFAULT_HELP = RUNTIME_HELP + " (default: the exec-main tag, the execution image Paper and Live run)"
 RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
   --symbols SYMBOL ... | --universe pool   Binance symbols such as BTCUSDT, or every universe member among the
                                            contracts this deployment's market holds (not every listed contract)
@@ -2191,7 +2192,7 @@ def _parser() -> Parser:
     scope = command.add_mutually_exclusive_group(required=True)
     scope.add_argument("--symbols", nargs="+", help="Binance symbols such as BTCUSDT")
     scope.add_argument("--universe", choices=("pool",), help="every member of the current month among the contracts this deployment's market holds")
-    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
+    command.add_argument("--runtime", help=EXECUTION_DEFAULT_HELP)
     command.add_argument("--memory", help="the runner container's memory limit and reservation (default: sized by its contracts)")
     command.add_argument("--research-ledger", help="read published strategy inputs from this separate research replica")
     command.add_argument("--research-at", help="read strategy inputs at this exact research commit")
@@ -2245,7 +2246,7 @@ def _parser() -> Parser:
     command.add_argument("--allow-host", action="append", default=[], dest="hosts",
                          help="Host header a request may carry (default: 127.0.0.1, localhost and "
                               "host.docker.internal at PORT); repeatable")
-    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP + " for the runs it starts")
+    command.add_argument("--runtime", help=EXECUTION_DEFAULT_HELP + " for the runs it starts")
     command.add_argument("--research-ledger", help="read research defaults and strategy inputs from this separate replica")
     command.add_argument("--release-route", type=Path, help="internal release router configuration; unselected controllers are read-only")
     command.add_argument("--release-name", help="this controller's identity in the internal release router")
@@ -2282,7 +2283,7 @@ def _parser() -> Parser:
                          help="universe JSON file (each symbol's membership intervals); its bytes are frozen "
                               "with the run")
     command.add_argument("--credentials-file", type=Path, required=True, help="private JSON file, mounted only into Live")
-    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
+    command.add_argument("--runtime", help=EXECUTION_DEFAULT_HELP)
     command.add_argument("--budget-usdt", required=True, help="declared test allocation, not whole-account collateral")
     command.add_argument("--max-loss-usdt", required=True,
                          help="closes the position when this run's result at the mark price reaches this loss, at most the budget")

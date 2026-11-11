@@ -84,8 +84,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "title": "CI / OCI registry",
     "kind": "component",
     "description": {
-      "zh": ".github/workflows/runtime-image.yml 构建策略镜像；runtime/image.py 从镜像核对 digest、平台、契约与源码身份。trade-service 服务镜像与策略 runtime 镜像分开。",
-      "en": ".github/workflows/runtime-image.yml builds strategy images; runtime/image.py verifies digest, platform, contract and source identity from the image. The trade-service service image is distinct from the strategy runtime image."
+      "zh": ".github/workflows/runtime-image.yml 构建回放镜像（只含回放闭包，研究按其 digest 识别运行）和 Paper、Live 用的执行镜像；runtime/image.py 从镜像核对 digest、平台、契约与源码身份。trade-service 服务镜像与策略 runtime 镜像分开。",
+      "en": ".github/workflows/runtime-image.yml builds the replay image (only the replay closure; research identifies runs by its digest) and the execution image Paper and Live run; runtime/image.py verifies digest, platform, contract and source identity from the image. The trade-service service image is distinct from the strategy runtime image."
     },
     "docsRoute": "ledger-runtime"
   },
