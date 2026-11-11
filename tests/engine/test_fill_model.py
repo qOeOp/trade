@@ -2,9 +2,16 @@
 one fills at its limit, no fill lies beyond its limit or trigger price, and each bar visits the extreme
 nearer its open first."""
 
+import contextlib
+import importlib.metadata
+import io
+import json
+import tempfile
 import unittest
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
+from types import SimpleNamespace
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
@@ -15,7 +22,12 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.trading import Strategy, StrategyConfig
 
-from engine.run import ACCOUNT_CONTRACT, add_venue
+from engine.audit import audit
+from engine.compare_reports import compare_reports
+from engine.config import parse_window, utc_text
+from engine.report import write_native_reports
+from engine.run import ACCOUNT_CONTRACT, Replay, add_venue
+from market.instrument import ASSUMED
 
 
 BAR_NS = 60_000_000_000
@@ -86,6 +98,70 @@ def replay(case: str, ohlc=FLAT) -> list[dict]:
         engine.dispose()
 
 
+class ProtectedEntry(Strategy):
+    """A market entry with its reduce-only stop, held to the end."""
+
+    def __init__(self):
+        super().__init__(StrategyConfig(strategy_id=StrategyId("R1-AAA")))
+        self.count = 0
+
+    def on_start(self):
+        self.subscribe_bars(BAR_TYPE)
+
+    def on_bar(self, bar):
+        self.count += 1
+        if self.count == 2:
+            factory, qty = self.order_factory, Quantity.from_str("0.500")
+            self.submit_order(factory.market(INSTRUMENT_ID, OrderSide.BUY, qty))
+            self.submit_order(factory.stop_market(INSTRUMENT_ID, OrderSide.SELL, qty, Price.from_str("90.00"),
+                                                  reduce_only=True))
+
+    def replay_diagnostics(self):
+        return {}
+
+    def replay_integrity_findings(self, failed=False):
+        return []
+
+
+def audited_replay(output: Path, count: int = 12) -> dict:
+    """A native replay whose reports the product writes and audits: the packaged-runtime check in
+    .github/scripts/check-native-runtime.py runs it in the image and compares its reports across CPUs."""
+    engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(ACCOUNT_CONTRACT["trader_id"]),
+                                                 logging=LoggerConfig(stdout_level=LogLevel.ERROR)))
+    try:
+        add_venue(engine, fees())
+        engine.add_instrument(INSTRUMENT)
+        source = ProtectedEntry()
+        engine.add_strategy(source)
+        data = []
+        for index in range(count):
+            ts = START + (index + 1) * BAR_NS - 1_000_000
+            prices = [Price.from_str(value) for value in FLAT]
+            data += [Bar(BAR_TYPE, *prices, Quantity.from_str("40.000"), ts, ts),
+                     MarkPriceUpdate(INSTRUMENT_ID, prices[3], ts, ts)]
+        engine.add_data(data)
+        engine.run()
+        end = START + count * BAR_NS
+        window = parse_window(utc_text(START), None, utc_text(end))
+        observer = SimpleNamespace(timestamps=count, findings=[], lifecycle={})
+        with contextlib.redirect_stdout(io.StringIO()):
+            write_native_reports(output, Replay(engine, engine.get_result(), observer, {"R1-AAA": START}),
+                                 {"AAA": source}, [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "counts": {},
+                                                    "catalog_path": output.parent}],
+                                 {"strategy_uses_stop_loss": True, "market_commit": "c" * 32,
+                                  "engine_version": importlib.metadata.version("nautilus_trader")},
+                                 window, ACCOUNT_CONTRACT, [], count)
+        (output.parent / "input-coverage.json").write_text(json.dumps({
+            "format": "execution-input-coverage-v1", "input_identity": {"market_commit": "c" * 32},
+            "effective_config": {"start": window.start, "trade_start": window.trade_start, "end": window.end},
+            "membership": {"commit": "c" * 32, "membership": {"AAAUSDT": [[START, end]]}},
+            "export_receipts": {"AAAUSDT": {"assumed": ASSUMED, "pieces": [
+                {"index": None, "instrument_id": str(INSTRUMENT_ID), "last_bar_ns": end - 1_000_000}]}}}))
+    finally:
+        engine.dispose()
+    return audit(output)
+
+
 class FillModelTests(unittest.TestCase):
     def test_a_touched_only_limit_does_not_fill_and_a_traded_through_one_fills_at_its_limit(self):
         self.assertEqual(replay("touch"), [])
@@ -111,6 +187,16 @@ class FillModelTests(unittest.TestCase):
         self.assertEqual(exit_type("long", HIGH_NEARER), ["LIMIT"])
         self.assertEqual(exit_type("short", LOW_NEARER), ["LIMIT"])
         self.assertEqual(exit_type("short", HIGH_NEARER), ["STOP_MARKET"])
+
+
+class AuditedReplayTests(unittest.TestCase):
+    def test_the_packaged_runtime_replay_passes_its_audit_and_compares_with_itself(self):
+        with tempfile.TemporaryDirectory() as temp:
+            runs = [Path(temp) / name / "reports" for name in ("a", "b")]
+            for output in runs:
+                result = audited_replay(output)
+                self.assertTrue(result["passed"], result["findings"])
+            self.assertTrue(compare_reports(*runs)["passed"])
 
 
 if __name__ == "__main__":

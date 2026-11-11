@@ -83,6 +83,8 @@ print(json.dumps([window.start_ns, window.trade_start_ns, window.end_ns, window.
         self.assertEqual(self.code(without_output), "REPLAY_ARGUMENT_MISSING")
         self.assertEqual(self.code(ARGV + ["--symbols", "BTCUSDT", "BTCUSDT"]), "SYMBOL_DUPLICATE")
         self.assertEqual(self.code(ARGV + ["--risk-budget-bps", "25"]), "UNKNOWN_OPTION")
+        # an abbreviation of an option the replay entry writes itself
+        self.assertEqual(self.code(ARGV + ["--exec", "/x.json"]), "UNKNOWN_OPTION")
 
     def test_default_trade_start_and_nanoseconds_use_the_same_parser(self):
         config = parse_configuration([value for index, value in enumerate(ARGV) if index not in (10, 11)])

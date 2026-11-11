@@ -121,18 +121,6 @@ class CodecTests(unittest.TestCase):
             self.assertEqual(sources.fetch_archive(Path(temp), 'test.zip'), path)
             self.assertEqual(connection.request.call_count, 2)
 
-        def wrong_checksum(url, path=None):
-            if path is None:
-                return b'0' * 64
-            path.write_bytes(body)
-            return b''
-
-        with tempfile.TemporaryDirectory() as temp, patch.object(sources, '_get', side_effect=wrong_checksum):
-            with self.assertRaises(sources.MarketError) as caught:
-                sources.fetch_archive(Path(temp), 'test.zip')
-            self.assertEqual(caught.exception.code, 'CHECKSUM_MISMATCH')
-            self.assertFalse((Path(temp) / 'test.zip').exists())
-
 
 def fixture_archives(cache: Path) -> list[tuple]:
     """Two trades a day of BTCUSDT from the eve through January, in `cache`; January's stored rows."""

@@ -439,9 +439,10 @@ class LiveCustodyTests(LiveFixture):
 
     def test_live_cli_does_not_load_active_research_or_publish(self):
         with patch.object(cli.db, "profile", side_effect=AssertionError("active ledger")), \
-                patch.object(runs, "status", return_value={"state": "prepared"}), \
+                patch.object(runs, "observe", wraps=runs.observe) as observe, \
                 patch("sys.stdout", new_callable=io.StringIO) as output:
             self.assertEqual(cli.main(["live", "status", "--root", str(self.root), "--run-id", self.run_id]), 0)
+        observe.assert_called_once_with(self.root, self.run_id)
         self.assertEqual(json.loads(output.getvalue())["state"], "prepared")
 
     def live_command(self, *arguments):

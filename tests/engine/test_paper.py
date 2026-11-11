@@ -61,36 +61,26 @@ class HoldTests(unittest.TestCase):
 
 
 class TradeSubscriptionTests(unittest.TestCase):
-    def test_a_trade_subscription_stops_the_run_since_paper_streams_no_trades(self):
+    def test_a_trade_or_metrics_subscription_stops_the_run_since_paper_streams_neither(self):
         self.assertTrue(issubclass(paper._PaperConfigured, paper.strategy_runtime.Subscriptions))
-        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], False, {}))
-        self.addCleanup(paper.STOP.clear)
-        self.addCleanup(paper.STOP_REASON.clear)
-        self.addCleanup(paper.FINDINGS.clear)
-        self.addCleanup(paper.strategy_runtime.BREACHES.clear)
-        with mock.patch.object(paper, "journal") as journal:
-            recorder.on_stop_timer(None)
-            self.assertFalse(paper.STOP.is_set())
-            paper.strategy_runtime.BREACHES.append(("TRADES_NOT_SERVED", "R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE"))
-            recorder.on_stop_timer(None)
-        self.assertEqual(paper.STOP_REASON, ["TRADES_NOT_SERVED"])
-        self.assertEqual(recorder.findings, ["TRADES_NOT_SERVED: R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE"])
-        journal.assert_called_once_with("refusal", code="TRADES_NOT_SERVED",
-                                        subscriptions=["R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE"])
-
-    def test_a_metrics_subscription_stops_the_run_since_paper_streams_no_metrics(self):
-        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], False, {}))
-        self.addCleanup(paper.STOP.clear)
-        self.addCleanup(paper.STOP_REASON.clear)
-        self.addCleanup(paper.FINDINGS.clear)
-        self.addCleanup(paper.strategy_runtime.BREACHES.clear)
-        subscription = "R1-BTCUSDT: subscribe_data Metrics for BTCUSDT-PERP.BINANCE, which this run does not stream"
-        with mock.patch.object(paper, "journal") as journal:
-            paper.strategy_runtime.BREACHES.append(("METRICS_NOT_SERVED", subscription))
-            recorder.on_stop_timer(None)
-        self.assertEqual(paper.STOP_REASON, ["METRICS_NOT_SERVED"])
-        self.assertEqual(recorder.findings, [f"METRICS_NOT_SERVED: {subscription}"])
-        journal.assert_called_once_with("refusal", code="METRICS_NOT_SERVED", subscriptions=[subscription])
+        held = (paper.STOP, paper.STOP_REASON, paper.FINDINGS, paper.strategy_runtime.BREACHES)
+        for value in held:
+            self.addCleanup(value.clear)
+        for code, subscription in (
+                ("TRADES_NOT_SERVED", "R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE"),
+                ("METRICS_NOT_SERVED",
+                 "R1-BTCUSDT: subscribe_data Metrics for BTCUSDT-PERP.BINANCE, which this run does not stream")):
+            for value in held:
+                value.clear()
+            recorder = paper.Recorder(paper.RecorderConfig([str(IID)], False, {}))
+            with self.subTest(code=code), mock.patch.object(paper, "journal") as journal:
+                recorder.on_stop_timer(None)
+                self.assertFalse(paper.STOP.is_set())
+                paper.strategy_runtime.BREACHES.append((code, subscription))
+                recorder.on_stop_timer(None)
+                self.assertEqual(paper.STOP_REASON, [code])
+                self.assertEqual(recorder.findings, [f"{code}: {subscription}"])
+                journal.assert_called_once_with("refusal", code=code, subscriptions=[subscription])
 
 
 class CredentialTests(unittest.TestCase):

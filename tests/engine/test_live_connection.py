@@ -24,7 +24,7 @@ from engine import live_commands as commands, live_lifecycle, live_source as liv
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 from tests.engine.test_live import SOURCE
-from tests.engine.test_partial_entry_protection import INSTRUMENT
+from tests.engine.test_fill_model import INSTRUMENT
 
 
 class FixtureReader:
