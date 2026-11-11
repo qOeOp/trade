@@ -536,12 +536,7 @@ class Daemon:
 
     def sealed_lines(self, paper_id: int, files: dict[str, bytes] | None = None) -> list[dict]:
         """The sealed run's whole journal, every contract's bars included."""
-        import gzip
-        files = self.files(paper_id, "events/") if files is None else files
-        lines: list[dict] = []
-        for name in sorted(name for name in files if name.startswith("events/")):
-            lines += records.journal_lines(gzip.decompress(files[name]))[0]
-        return lines
+        return records.sealed_journal(self.files(paper_id, "events/") if files is None else files)
 
 
 def _epoch(value) -> float:

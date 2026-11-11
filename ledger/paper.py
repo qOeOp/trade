@@ -17,6 +17,7 @@ database's writer removes its declaration, seal and files in one commit.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 import gzip
@@ -175,6 +176,15 @@ def _decimal(value) -> Decimal | None:
 
 def _day(ns: int) -> str:
     return datetime.fromtimestamp(ns // 10**9, UTC).date().isoformat()
+
+
+def sealed_journal(files: Mapping[str, bytes]) -> list[dict]:
+    """A sealed run's journal from its files (paper_files with "events/"): each day's gzip file in path order,
+    parsed by journal_lines. The one decoder of the sealed stream and the reconciliation (CF-24)."""
+    lines: list[dict] = []
+    for name in sorted(name for name in files if name.startswith("events/")):
+        lines += journal_lines(gzip.decompress(files[name]))[0]
+    return lines
 
 
 def journal_lines(data: bytes) -> tuple[list[dict], int]:
