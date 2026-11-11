@@ -258,7 +258,10 @@ runtime identity.
   (`RUNTIME_SOURCE_PATHS` and `AUDIT_PATH` in `config.py`). Research identifies a run by this image's digest, so a
   main build runs only when a replay input (a closure file, `pyproject.toml`, `uv.lock`, the Dockerfile or the
   workflow) differs from the commit the current `main` image was built from. A Paper, Live or tooling change leaves
-  `main` on its digest, and earlier runs stay comparable. Tags: `main`, `pr-N`, `sha-COMMIT`.
+  `main` on its digest, and earlier runs stay comparable. CI scripts and tool configuration are not replay inputs:
+  ruff and mypy read `ruff.toml` and `mypy.ini`, and `pyproject.toml` holds only the project and its dependencies.
+  `uv.lock` also pins the dev group, so a ruff or mypy version change still rebuilds it. Tags: `main`, `pr-N`,
+  `sha-COMMIT`.
   `tests/runtime/test_replay_closure.py` keeps the closure, both source lists, the Dockerfile's copies and the
   workflow's replay paths equal.
 - **Execution image** ([`runtime/Dockerfile`](runtime/Dockerfile)) for Paper and Live: the replay image's steps

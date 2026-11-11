@@ -102,6 +102,13 @@ class ReplayClosureTests(unittest.TestCase):
         self.assertEqual(others, {".github/workflows/runtime-image.yml", "engine/runtime/replay.Dockerfile",
                                   "engine/runtime/replay.Dockerfile.dockerignore", "pyproject.toml", "uv.lock"})
 
+    def test_pyproject_holds_only_the_project_and_its_dependencies(self):
+        # pyproject.toml is copied into the replay image, so its bytes are research's identity: tool configuration
+        # (ruff.toml, mypy.ini) stays out of it, and a change to it means a change to the project or its dependencies.
+        tables = {line.strip("[] ") for line in (ROOT / "pyproject.toml").read_text().splitlines()
+                  if line.startswith("[")}
+        self.assertEqual(tables, {"project", "dependency-groups", "build-system", "tool.uv.build-backend"})
+
     def test_the_execution_image_repeats_the_replay_image_steps_before_its_own(self):
         replay = [line for line in instructions(REPLAY_DOCKERFILE) if not line.startswith(("LABEL", "CMD"))]
         execution = [line for line in instructions(EXECUTION_DOCKERFILE) if " AS paper-cache" not in line]
