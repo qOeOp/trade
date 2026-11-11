@@ -88,7 +88,9 @@ _fill_market(json.load(open(sys.argv[1])))
 cli market coverage --symbols BTCUSDT --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z
 done_
 
-window=(--symbols BTCUSDT --start 2026-01-05T00:00:00Z --trade-start 2026-01-06T00:00:00Z --end 2026-01-08T00:00:00Z)
+# The development period is the last four complete quarters the market covers: 2025 for this fixture (bars from
+# 2025-12-24 to 2026-01-31), so the replay trades in its last days.
+window=(--symbols BTCUSDT --start 2025-12-26T00:00:00Z --trade-start 2025-12-27T00:00:00Z --end 2025-12-30T00:00:00Z)
 step "A research line, as research-start opens one: the candidate template published, prechecked, reviewed"
 cli candidate new --output "$work/candidate" --strategy-id fresh-install >/dev/null
 cli candidate publish --file "$work/candidate/strategy.py" --strategy-id fresh-install --entry-class Strategy1 \
