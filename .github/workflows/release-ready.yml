@@ -1,8 +1,15 @@
 name: release-ready
 
 on:
+  # The eligibility tests run only when the publisher, its tests or the runtime inputs they parse change.
   pull_request:
     branches: [main]
+    paths:
+      - .github/workflows/release-ready.yml
+      - .github/scripts/release-ready.cjs
+      - .github/scripts/release-ready.test.cjs
+      - deploy/runtime_inputs.py
+      - engine/runtime/Dockerfile
   push:
     branches: [main]
     paths:
@@ -10,9 +17,13 @@ on:
       - .github/scripts/release-ready.cjs
       - .github/scripts/release-ready.test.cjs
       - deploy/runtime_inputs.py
+      - engine/runtime/Dockerfile
   # zizmor flags every workflow_run trigger: it runs with the base repository's token on events a fork can cause.
   # Here it only wakes the publisher: both jobs check out main (never the triggering run's code or artifacts), and
   # release-ready.cjs admits only push runs on main of qoeop/trade, by head SHA and artifact identity.
+  # in_progress appends a withheld record once a newer main commit's ide-image run exists, or a rerun starts: the
+  # host's release tick (deploy/release.py choose, ensure; deploy/paper_release.py tick) then holds instead of
+  # switching to, or finishing a switch to, a commit that is no longer the channel's newest decision.
   workflow_run:  # zizmor: ignore[dangerous-triggers]
     workflows: [quality, ide-web, ide-image, runtime-image, docs-pages, remote-paper-auth]
     types: [in_progress, completed]
@@ -31,7 +42,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The tests run the production runtime input helper with system python3. A callback or scheduled run executes
+  # main's publisher, whose own pull request and push already ran them.
   eligibility-tests:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -41,11 +55,13 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24'
-      - name: Verify the trusted runtime input helper
-        run: python3 -c 'import runpy; runpy.run_path("deploy/runtime_inputs.py")'
       - run: node --test .github/scripts/release-ready.test.cjs
   release-ready:
-    if: github.event_name != 'pull_request'
+    # On a push the publisher waits for its tests; on any other main event they are skipped.
+    if: >-
+      !cancelled() && github.event_name != 'pull_request' &&
+      (needs.eligibility-tests.result == 'success' ||
+       github.event_name != 'push' && needs.eligibility-tests.result == 'skipped')
     needs: eligibility-tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
