@@ -1,22 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { SourceTextModule } from "node:vm";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src"), modules = new Map();
-function load(path) {
-  if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-  }).outputText, { identifier: path }));
-  return modules.get(path);
-}
-const mod = load(resolve(src, "model/liveChart.ts"));
-await mod.link(async (specifier, from) => { const stem = resolve(dirname(from.identifier), specifier); return load([`${stem}.ts`, `${stem}.tsx`].find(existsSync)); });
-await mod.evaluate();
-const { liveChart } = mod.namespace;
+const { liveChart } = await namespace("model/liveChart.ts");
 
 const MIN = 60_000, T = Date.UTC(2026, 10, 6, 20, 3), ns = (ms) => String(BigInt(ms) * 1_000_000n);
 const order = (type, ms, extra = {}) => ({ event_type: type, ts_event: ns(ms), observed_ns: ns(ms + 40), event_ref: { source: "native", cursor: `${type}:${ms}` },

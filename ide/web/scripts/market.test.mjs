@@ -1,35 +1,14 @@
 // The Market page's heatmap: its levels and their "+N more" tail (model/market.ts), the colour steps
 // (model/heat.ts), the area weights and layout (model/treemap.ts) and the hover expansion (model/ripple/).
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { SourceTextModule, SyntheticModule } from "node:vm";
-import ts from "typescript";
+import { loader } from "./load.mjs";
 
-const modules = new Map();
-function load(path) {
-  if (!modules.has(path)) {
-    const source = ts.transpileModule(readFileSync(path, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-    modules.set(path, new SourceTextModule(source, { identifier: path }));
-  }
-  return modules.get(path);
-}
-async function namespace(relative) {
-  const root = load(resolve(dirname(fileURLToPath(import.meta.url)), relative));
-  if (root.status === "unlinked") await root.link(async (specifier, from) => {
-    if (specifier.startsWith(".")) return load(`${resolve(dirname(from.identifier), specifier)}.ts`);
-    const found = await import(specifier);
-    return new SyntheticModule(Object.keys(found), function () { for (const [k, v] of Object.entries(found)) this.setExport(k, v); });
-  });
-  if (root.status !== "evaluated") await root.evaluate();
-  return root.namespace;
-}
-const market = await namespace("../src/model/market.ts");
-const { ranges, step } = await namespace("../src/model/heat.ts");
-const { layout, weights, MAX_SHARE } = await namespace("../src/model/treemap.ts");
-const { hoverAt, ripple, targetSize } = await namespace("../src/model/ripple/layout.ts");
+const { namespace } = loader();
+const market = await namespace("model/market.ts");
+const { ranges, step } = await namespace("model/heat.ts");
+const { layout, weights, MAX_SHARE } = await namespace("model/treemap.ts");
+const { hoverAt, ripple, targetSize } = await namespace("model/ripple/layout.ts");
 
 const coin = (base, sector, marketCap, change24h = 0, extra = {}) => ({
   symbol: `${base}USDT`, base, name: base, sector, subsector: null, price: 1, change24h, volume24h: marketCap / 10, funding: 0.0001, marketCap, fdv: null,

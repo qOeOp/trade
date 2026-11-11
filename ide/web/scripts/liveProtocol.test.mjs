@@ -5,18 +5,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { SourceTextModule } from "node:vm";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
 const root = new URL("../../../", import.meta.url);
 const protocol = Number(/^PROTOCOL = ([1-9][0-9]*)$/m.exec(readFileSync(new URL("live/protocol.py", root), "utf8"))[1]);
 const baseline = () => JSON.parse(readFileSync(new URL(`tests/live/protocol-${protocol}.json`, root), "utf8"));
-const mod = new SourceTextModule(ts.transpileModule(readFileSync(new URL("../src/model/liveTradingMap.ts", import.meta.url), "utf8"), {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-}).outputText);
-await mod.link(() => { throw new Error("the projection needs no runtime dependency"); });
-await mod.evaluate();
-const { liveHomePresentation } = mod.namespace;
+const { liveHomePresentation } = await namespace("model/liveTradingMap.ts", { sources: [], packages: [] });
 
 test("the oldest answers of this protocol show their run with Request stop available", () => {
   const view = liveHomePresentation(baseline(), new Map());

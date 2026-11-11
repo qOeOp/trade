@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule, createContext } from "node:vm";
-import ts from "typescript";
+import { createContext } from "node:vm";
+import { loader } from "./load.mjs";
 
-const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const paper = { paper_id: 777, candidate: "fixture-retest@1", symbols: ["BTCUSDT"] };
 async function phone() {
   const effects = [];
@@ -14,30 +10,16 @@ async function phone() {
   const context = createContext({ URL, URLSearchParams, window,
     history: { replaceState: (_state, _title, path) => { window.location = new URL(path, window.location.href); } },
   });
-  const modules = new Map();
-  const fake = (id, exports) => {
-    if (!modules.has(id)) modules.set(id, new SyntheticModule(Object.keys(exports), function () {
-      for (const [key, value] of Object.entries(exports)) this.setExport(key, value);
-    }, { context }));
-    return modules.get(id);
-  };
-  const load = (path) => {
-    if (path === resolve(src, "state/paper.ts")) return fake(path, { usePaperRuns: () => ({ runs: [paper] }) });
-    if (path === resolve(src, "widgets/paper/RunPicker.ts")) return fake(path, { runOrder: (runs) => runs });
-    if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-    }).outputText, { context, identifier: path }));
-    return modules.get(path);
-  };
-  const hook = load(resolve(src, "shell/phone/useTabRun.ts"));
-  await hook.link((name, from) => name.startsWith(".") ? load(`${resolve(dirname(from.identifier), name)}.ts`) : fake(name, {
-    useEffect: (effect) => effects.push(effect), useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
-  }));
-  await hook.evaluate();
-  const stage = modules.get(resolve(src, "state/stage.ts")).namespace;
-  const selection = modules.get(resolve(src, "state/selection.ts")).namespace;
+  const graph = loader({ context, packages: [], stubs: {
+    "state/paper": { usePaperRuns: () => ({ runs: [paper] }) },
+    "widgets/paper/RunPicker": { runOrder: (runs) => runs },
+    react: { useEffect: (effect) => effects.push(effect), useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
+  } });
+  const { useTabRun } = await graph.namespace("shell/phone/useTabRun.ts");
+  const stage = graph.loaded("state/stage.ts");
+  const selection = graph.loaded("state/selection.ts");
   const choice = () => stage.choiceOf(stage.choices.get(), selection.selection.get());
-  const render = () => { hook.namespace.useTabRun(); for (const effect of effects.splice(0)) effect(); };
+  const render = () => { useTabRun(); for (const effect of effects.splice(0)) effect(); };
   return { stage, selection, choice, render };
 }
 

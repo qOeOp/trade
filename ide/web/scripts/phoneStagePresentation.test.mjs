@@ -1,16 +1,11 @@
 // Render the real phone Runs component. State is controlled and child slots are marked so these
 // tests exercise its stage dispatch and visibility, independently of chart/report rendering.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule } from "node:vm";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const run = { paper_id: 777, candidate: "fixture-retest@1", symbols: ["BTCUSDT"], live: { final_equity_usdt: "9876.54" }, state: "running" };
 let shown, stream, listing;
 const box = ({ children }) => createElement("div", null, children), empty = () => null;
@@ -40,34 +35,13 @@ const fixtures = {
   "shell/StatusBar": { StageSource: () => createElement("span", null, shown.name) },
   "shell/phone/useTabRun": { useTabRun: empty },
 };
-const modules = new Map();
-const fake = (id, exports) => {
-  if (!modules.has(id)) modules.set(id, new SyntheticModule(Object.keys(exports), function () {
-    for (const [key, value] of Object.entries(exports)) this.setExport(key, value);
-  }));
-  return modules.get(id);
-};
-const load = (path) => {
-  if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText, { identifier: path }));
-  return modules.get(path);
-};
-const component = load(resolve(src, "shell/phone/RunsTab.tsx"));
-await component.link(async (name, from) => {
-  if (!name.startsWith(".")) return fake(name, await import(name));
-  const target = resolve(dirname(from.identifier), name), relative = target.slice(src.length + 1);
-  if (relative === "widgets/paper/EquityReading") return load(`${target}.tsx`);
-  assert.ok(fixtures[relative], `Unexpected RunsTab dependency: ${relative}`);
-  return fake(target, fixtures[relative]);
-});
-await component.evaluate();
+const { RunsTab } = await namespace("shell/phone/RunsTab.tsx", { stubs: fixtures, sources: ["widgets/paper/EquityReading"] });
 const render = (stage, { paper = true, staleStream = false } = {}) => {
   listing = paper ? [run] : [];
   stream = staleStream ? { paperId: 777, readings: { final_equity_usdt: "8765.43" } } : null;
   shown = { stage, run: paper ? run : null, chain: paper ? [run] : [], version: run.candidate,
     trial: { trial_id: 321 }, liveRun: { id: "fixture-live-run" }, name: stage === "backtest" ? "Backtest · trial 321" : "Paper · BTCUSDT" };
-  return renderToStaticMarkup(createElement(component.namespace.RunsTab));
+  return renderToStaticMarkup(createElement(RunsTab));
 };
 const hasSlot = (html, slot, stage) => assert.match(html, new RegExp(`data-slot="${slot}" data-stage="${stage}"`));
 const noPaperHero = (html) => assert.doesNotMatch(html, /9876|8765|42%|data-paper-health|Paper running|Paper · BTCUSDT/);

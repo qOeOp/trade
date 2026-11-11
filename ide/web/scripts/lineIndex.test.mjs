@@ -1,9 +1,8 @@
 // Execute the actual preloader and live entry point without a DOM or active research ledger.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule, createContext } from "node:vm";
-import ts from "typescript";
+import { createContext } from "node:vm";
+import { loader, namespace } from "./load.mjs";
 
 async function page(query = "?line=line-a") {
   const requests = [], timers = [];
@@ -14,34 +13,17 @@ async function page(query = "?line=line-a") {
     fetch: (url) => new Promise((resolve) => requests.push({ url, resolve, done: false })),
     EventSource: class { constructor() { events = this; } },
   });
-  const source = (path) => new SourceTextModule(ts.transpileModule(
-    readFileSync(new URL(path, import.meta.url), "utf8"),
-    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } },
-  ).outputText, { context });
-  const index = source("../src/state/researchLines.ts");
-  await index.link((name) => {
-    assert.equal(name, "./atom");
-    return new SyntheticModule(["atom", "useAtom"], function () {
-      this.setExport("atom", (initial) => {
-        let value = initial;
-        return { get: () => value, set: (next) => { value = next; } };
-      });
-      this.setExport("useAtom", (a) => a.get());
-    }, { context });
-  });
-  await index.evaluate();
-  const live = source("../src/live.ts");
-  await live.link((name) => {
-    if (name === "./state/researchLines") return index;
-    if (name === "./lib/lines") return source("../src/lib/lines.ts");
-    if (name === "./lib/storage") return new SyntheticModule(["keep", "readKept"], function () {
-      this.setExport("keep", () => Promise.resolve());
-      this.setExport("readKept", () => Promise.resolve(null));
-    }, { context });
-    assert.equal(name, "./state/update");
-    return new SyntheticModule(["update"], function () { this.setExport("update", { set() {} }); }, { context });
-  });
-  await live.evaluate();
+  const atom = (initial) => {
+    let value = initial;
+    return { get: () => value, set: (next) => { value = next; } };
+  };
+  const graph = loader({ context, sources: ["state/researchLines", "lib/lines"], packages: [], stubs: {
+    "state/atom": { atom, useAtom: (a) => a.get() },
+    "lib/storage": { keep: () => Promise.resolve(), readKept: () => Promise.resolve(null) },
+    "state/update": { update: { set() {} } },
+  } });
+  const index = await graph.namespace("state/researchLines.ts");
+  const live = await graph.namespace("live.ts");
   const flush = async () => {
     for (let n = 0; n < 16; n++) {
       await Promise.resolve();
@@ -49,9 +31,9 @@ async function page(query = "?line=line-a") {
     }
   };
   return { requests, flush,
-    read: index.namespace.readResearchLines,
-    state: () => index.namespace.researchLines.get(),
-    start: async () => { live.namespace.follow(() => {}, () => {}); await flush(); },
+    read: index.readResearchLines,
+    state: () => index.researchLines.get(),
+    start: async () => { live.follow(() => {}, () => {}); await flush(); },
     event: (message) => events.onmessage({ data: JSON.stringify(message) }),
     answer: async (url, status, body) => {
       const request = requests.find((r) => !r.done && r.url === url);
@@ -137,11 +119,7 @@ test("live head notifications refresh navigation even while a completed graph is
 });
 
 test("a run of another line's version opens that line with the version selected and the run named", async () => {
-  const module = new SourceTextModule(ts.transpileModule(readFileSync(new URL("../src/lib/lines.ts", import.meta.url), "utf8"),
-    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText, { context: createContext({ URL, document: {} }) });
-  await module.link(() => { throw new Error("no imports"); });
-  await module.evaluate();
-  const { lineOf, runHref } = module.namespace;
+  const { lineOf, runHref } = await namespace("lib/lines.ts", { context: createContext({ URL, document: {} }), sources: [], packages: [] });
   const line = (bundle, closed, versions) => ({ bundle, closed, versions, start: "", window_start: "", window_end: "" });
   const lines = [line("line-a", false, ["s@1", "s@2"]), line("line-b", true, ["s@2", "t@1"]), line("line-c", false, ["s@2"])];
   assert.equal(lineOf(lines, "s@2").bundle, "line-c", "the newest open line that draws it");

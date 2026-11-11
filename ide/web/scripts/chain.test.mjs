@@ -5,44 +5,22 @@
 // a backtest's stretch on a contract chart (widgets/paper/backtestCandles.ts, candleView.ts) and a strategy's
 // runs read as one history (model/paperHistory.ts).
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { SourceTextModule, SyntheticModule } from "node:vm";
-import ts from "typescript";
+import { loader } from "./load.mjs";
 
-// The modules as the page has them: each TypeScript file transpiled, its relative imports linked to theirs,
-// in this realm so their values compare as ours; a package as Node imports it.
-const modules = new Map();
-function load(path) {
-  if (!modules.has(path)) {
-    const source = ts.transpileModule(readFileSync(path, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-    modules.set(path, new SourceTextModule(source, { identifier: path }));
-  }
-  return modules.get(path);
-}
-async function namespace(relative) {
-  const root = load(resolve(dirname(fileURLToPath(import.meta.url)), relative));
-  if (root.status === "unlinked") await root.link(async (specifier, from) => {
-    if (specifier.startsWith(".")) return load(`${resolve(dirname(from.identifier), specifier)}.ts`);
-    const found = await import(specifier);
-    return new SyntheticModule(Object.keys(found), function () { for (const [k, v] of Object.entries(found)) this.setExport(k, v); });
-  });
-  if (root.status !== "evaluated") await root.evaluate();
-  return root.namespace;
-}
-const chain = await namespace("../src/model/chain.ts");
-const { ending } = await namespace("../src/model/ending.ts");
-const { joined, namespaced } = await namespace("../src/model/joined.ts");
-const paper = await namespace("../src/model/paper.ts");
-const { stoppedPositions, observedCloses } = await namespace("../src/model/stoppedPositions.ts");
-const { waitingUntil, waitingText, observedThrough } = await namespace("../src/model/observation.ts");
-const { trades, holdings } = await namespace("../src/model/trades.ts");
-const { tradeBoxes } = await namespace("../src/widgets/paper/tradeBoxes.ts");
-const stage = await namespace("../src/model/stage.ts");
-const { resolveRunSelection } = await namespace("../src/model/runSelection.ts");
-const history = await namespace("../src/model/paperHistory.ts");
+// One module map for every file below, in this realm, so values that cross files compare as ours.
+const { namespace } = loader();
+const chain = await namespace("model/chain.ts");
+const { ending } = await namespace("model/ending.ts");
+const { joined, namespaced } = await namespace("model/joined.ts");
+const paper = await namespace("model/paper.ts");
+const { stoppedPositions, observedCloses } = await namespace("model/stoppedPositions.ts");
+const { waitingUntil, waitingText, observedThrough } = await namespace("model/observation.ts");
+const { trades, holdings } = await namespace("model/trades.ts");
+const { tradeBoxes } = await namespace("widgets/paper/tradeBoxes.ts");
+const stage = await namespace("model/stage.ts");
+const { resolveRunSelection } = await namespace("model/runSelection.ts");
+const history = await namespace("model/paperHistory.ts");
 test("Runs selection keeps private Live identity out of the Paper stream and retains both choices", () => {
   const paper = { paper_id: 7, candidate: "a@1", state: "running", created_at: "2026-01-01T00:00:00Z", symbols: [] };
   const live = { id: "7", candidate: "a@1", evidence: [] };
@@ -74,10 +52,10 @@ test("Runs selection preserves empty Live and the existing backtest fallback", (
   assert.equal(switched.trial, trial);
   assert.equal(resolveRunSelection({ ...inputs, version: null, choice: {} }).stage, null);
 });
-const stretches = await namespace("../src/widgets/paper/equityStretches.ts");
-const { stretchesOf } = await namespace("../src/model/stretches.ts");
-const { downsOf, downSlots } = await namespace("../src/widgets/paper/downLook.ts");
-const { withDowns, resample, STEPS } = await namespace("../src/widgets/paper/equityResolution.ts");
+const stretches = await namespace("widgets/paper/equityStretches.ts");
+const { stretchesOf } = await namespace("model/stretches.ts");
+const { downsOf, downSlots } = await namespace("widgets/paper/downLook.ts");
+const { withDowns, resample, STEPS } = await namespace("widgets/paper/equityResolution.ts");
 
 test("20261106-04: an empty middle run cannot duplicate or reverse downtime slots", () => {
   const t = Date.UTC(2026, 9, 31, 10) / 1000;
@@ -107,10 +85,10 @@ test("a minute inside a downtime takes no slot of its own", () => {
   const minutes = withDowns(times.map((time) => ({ time, value: 100000, peak: 100000, pace: null })), restarts);
   assert.ok(minutes.every((p, i) => !i || p.time > minutes[i - 1].time), "strict time order");
 });
-const { backtest, cyclesHeld } = await namespace("../src/model/backtest.ts");
-const { leadOf } = await namespace("../src/widgets/paper/backtestCandles.ts");
-const { dayFloor, periodFor, respaced } = await namespace("../src/widgets/paper/candleView.ts");
-const { EquityExtras } = await namespace("../src/widgets/paper/equityExtras.ts");
+const { backtest, cyclesHeld } = await namespace("model/backtest.ts");
+const { leadOf } = await namespace("widgets/paper/backtestCandles.ts");
+const { dayFloor, periodFor, respaced } = await namespace("widgets/paper/candleView.ts");
+const { EquityExtras } = await namespace("widgets/paper/equityExtras.ts");
 
 test("20261106-03: exposure autoscale accepts an empty visible price range", () => {
   let provider;
@@ -623,7 +601,7 @@ test("a day's candle settles no narrower than 4 px, so what does not fit scrolls
 });
 
 test("the drawdown floor's close steps run together into one slope; a lone step and one in from off the plot stay square", async () => {
-  const { stepVertices } = await namespace("../src/widgets/paper/stepLine.ts");
+  const { stepVertices } = await namespace("widgets/paper/stepLine.ts");
   assert.deepEqual(stepVertices([[0, 50], [10, 50], [20, 40], [40, 40]], 8), [[0, 50], [20, 50], [20, 40], [40, 40]], "a lone step");
   assert.deepEqual(stepVertices([[0, 50], [20, 48], [24, 45], [27, 41], [60, 41], [80, 30], [90, 30]], 8),
     [[0, 50], [20, 50], [27, 41], [80, 41], [80, 30], [90, 30]], "three steps 4 and 3 px apart are one slope from the first's foot to the last's top");

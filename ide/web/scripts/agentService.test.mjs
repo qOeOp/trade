@@ -1,12 +1,9 @@
 // Whether the page has an Agent window (state/agent.ts): only a 404 says the server has no chat service.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
-import ts from "typescript";
+import { createContext } from "node:vm";
+import { namespace } from "./load.mjs";
 
-const source = ts.transpileModule(readFileSync(new URL("../src/state/agent.ts", import.meta.url), "utf8"),
-  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const atom = (initial) => { let value = initial; return { get: () => value, set: (next) => { value = next; } }; };
 
 /** The page with its server's replies: a status for `/health`, and for `/agents` a list or an Error. */
@@ -18,26 +15,22 @@ async function page(health, agents = []) {
     if (reply instanceof Error) throw reply;
     return { status: reply, ok: reply < 300 };
   } });
-  const values = {
-    "../lib/agentApi": { agentApi: async (path) => {
+  const stubs = {
+    "lib/agentApi": { agentApi: async (path) => {
       assert.equal(path, "/agents");
       const reply = agents.shift();
       if (reply instanceof Error) throw reply;
       return reply;
     } },
-    "../lib/whileVisible": { whileVisible: (tick, ms) => ticks.push({ tick, ms }) },
-    "./atom": { atom, persistedAtom: (_key, fallback) => atom(fallback), useAtom: (a) => a.get() },
+    "lib/whileVisible": { whileVisible: (tick, ms) => ticks.push({ tick, ms }) },
+    "state/atom": { atom, persistedAtom: (_key, fallback) => atom(fallback), useAtom: (a) => a.get() },
   };
-  const module = new SourceTextModule(source, { context });
-  await module.link(async (name) => new SyntheticModule(Object.keys(values[name]), function () {
-    for (const [key, value] of Object.entries(values[name])) this.setExport(key, value);
-  }, { context }));
-  await module.evaluate();
+  const module = await namespace("state/agent.ts", { context, stubs, sources: [], packages: [] });
   const tick = async () => {
     ticks[0].tick();
     await new Promise((done) => setImmediate(done));
   };
-  return { ...module.namespace, ticks, asked, tick };
+  return { ...module, ticks, asked, tick };
 }
 
 test("a service that answers is present with its agents, and nothing asks again", async () => {

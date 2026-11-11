@@ -1,16 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { SourceTextModule } from "node:vm";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const source = readFileSync(new URL("../src/model/liveEventSide.ts", import.meta.url), "utf8");
-const module = new SourceTextModule(ts.transpileModule(source, {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-}).outputText);
-await module.link(() => { throw new Error("presentation helper has no runtime dependencies"); });
-await module.evaluate();
-const { eventSideReader } = module.namespace;
+const { eventSideReader } = await namespace("model/liveEventSide.ts", { sources: [], packages: [] });
 const row = (event_type, fields = {}) => ({ event_type, client_order_id: "same-order", instrument_id: "BTCUSDT-PERP.BINANCE",
   observed_ns: "1", event_ref: { source: "native", cursor: event_type }, ...fields });
 

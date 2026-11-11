@@ -1,15 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { SourceTextModule } from "node:vm";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const mod = new SourceTextModule(ts.transpileModule(readFileSync(new URL("../src/model/liveTradingMap.ts", import.meta.url), "utf8"), {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-}).outputText);
-await mod.link(() => { throw new Error("the projection needs no runtime dependency"); });
-await mod.evaluate();
-const { liveRunPresentation, liveHomePresentation } = mod.namespace;
+const { liveRunPresentation, liveHomePresentation } = await namespace("model/liveTradingMap.ts", { sources: [], packages: [] });
 const run = () => ({
   run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, origin_candidate: { strategy_id: "retest", revision: "1", source_sha256: "origin" },
   runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: null,

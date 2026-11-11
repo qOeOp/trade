@@ -1,17 +1,9 @@
 // Whether another paper run fits the memory the listing reports (model/paperMemory.ts).
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { SourceTextModule } from "node:vm";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const module = new SourceTextModule(ts.transpileModule(
-  readFileSync(new URL("../src/model/paperMemory.ts", import.meta.url), "utf8"),
-  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } },
-).outputText);
-await module.link(() => { throw new Error("model/paperMemory.ts imports only a type"); });
-await module.evaluate();
-const { full } = module.namespace;
+const { full } = await namespace("model/paperMemory.ts", { sources: [], packages: [] });
 
 test("a run fits while the free memory holds the smallest one", () => {
   assert.equal(full(undefined), null);

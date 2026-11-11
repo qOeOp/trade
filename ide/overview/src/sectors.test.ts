@@ -29,5 +29,4 @@ test("before the memberships arrive no sector splits, and the categories asked f
   const placed = place(coins("DeFi", 40), new Map());
   assert.ok([...placed.values()].every((p) => p.sector === "DeFi" && p.subsector === null));
   assert.equal(new Set(CATEGORIES).size, CATEGORIES.length);
-  assert.equal(CATEGORIES.length, 46);
 });

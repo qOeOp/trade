@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule, createContext } from "node:vm";
-import ts from "typescript";
+import { createContext } from "node:vm";
+import { loader } from "./load.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "../src/lib");
 const ok = (data, status = 200) => new Response(JSON.stringify({ ok: true, data }), { status, headers: { "content-type": "application/json" } });
 const refused = (code, status = 400) => new Response(JSON.stringify({ ok: false, error: { code, message: "Safe service message" } }), { status });
 const result = (request, outcome = "effect_recorded") => ({ ...request, outcome });
@@ -21,28 +17,13 @@ async function harness(saved = new Map(), stateMode = false) {
     window: { setInterval: (callback) => intervals.push(callback), sessionStorage: { getItem: (key) => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, value), removeItem: (key) => saved.delete(key) } },
     fetch: async (url, init) => { const call = { url, method: init.method, token: init.headers?.get?.("x-trade-paper-token"), body: init.body === undefined ? null : JSON.parse(init.body) }; calls.push(call); return handler(call); },
   });
-  const modules = new Map();
-  const load = (path) => {
-    if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-    }).outputText, { identifier: path, context }));
-    return modules.get(path);
-  };
-  const commands = load(resolve(root, stateMode ? "../state/liveTrading.ts" : "liveTradingCommands.ts"));
-  await commands.link(async (name, from) => {
-    if (name.startsWith(".")) return load(`${resolve(dirname(from.identifier), name)}.ts`);
-    if (!modules.has(name)) {
-      const values = await import(name);
-      modules.set(name, new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context }));
-    }
-    return modules.get(name);
-  });
-  await commands.evaluate();
-  const client = stateMode ? null : commands.namespace.createLiveCommands({ onRequest: (v) => observations.push(v), onError: (e) => errors.push(e), refresh: async () => {} });
+  const graph = loader({ context });
+  const commands = await graph.namespace(stateMode ? "state/liveTrading.ts" : "lib/liveTradingCommands.ts");
+  const client = stateMode ? null : commands.createLiveCommands({ onRequest: (v) => observations.push(v), onError: (e) => errors.push(e), refresh: async () => {} });
   return {
-    client, state: stateMode ? commands.namespace : null, intervals, calls, observations, errors, saved, meta, handle: (next) => { handler = next; },
-    pending: modules.get(resolve(root, "liveTradingPending.ts")).namespace,
-    api: modules.get(resolve(root, "liveTradingApi.ts")).namespace,
+    client, state: stateMode ? commands : null, intervals, calls, observations, errors, saved, meta, handle: (next) => { handler = next; },
+    pending: graph.loaded("lib/liveTradingPending.ts"),
+    api: graph.loaded("lib/liveTradingApi.ts"),
   };
 }
 

@@ -1,20 +1,13 @@
 // Which question the first-start page asks, given what the service knows and what it refused.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule, createContext } from "node:vm";
-import ts from "typescript";
+import { createContext } from "node:vm";
+import { namespace } from "./load.mjs";
 
-async function setupApi(fetch = () => { throw new Error("no fetch"); }) {
-  const context = createContext({ fetch });
-  const api = new SourceTextModule(ts.transpileModule(
-    readFileSync(new URL("../src/lib/setupApi.ts", import.meta.url), "utf8"),
-    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } },
-  ).outputText, { context });
-  await api.link(() => new SyntheticModule(["pageFetch"], function () { this.setExport("pageFetch", () => { throw new Error("no post"); }); }, { context }));
-  await api.evaluate();
-  return api.namespace;
-}
+const setupApi = (fetch = () => { throw new Error("no fetch"); }) => namespace("lib/setupApi.ts", {
+  context: createContext({ fetch }), sources: [], packages: [],
+  stubs: { "lib/paperApi": { pageFetch: () => { throw new Error("no post"); } } },
+});
 
 const waiting = (repository = null) => ({ state: "waiting", repository, public_key: "k", step: null, refusal: null });
 

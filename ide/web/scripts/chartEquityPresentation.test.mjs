@@ -1,16 +1,11 @@
 // Real chart switch composition and shared equity reader, with controlled observations and layout.
 // These fixtures do not connect to services or invoke any run commands.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule } from "node:vm";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const run = { paper_id: 777, live: { final_equity_usdt: "9876.54" } };
 let shown, stream, phone, landscape, layoutReads, moved = true;
 const empty = () => null;
@@ -33,33 +28,13 @@ const fixtures = {
   "components/RunTile": { signedPct: (value) => `${value * 100}%` },
   "theme/roles": { pnlClass: () => "" },
 };
-const modules = new Map();
-const fake = (id, exports) => {
-  if (!modules.has(id)) modules.set(id, new SyntheticModule(Object.keys(exports), function () {
-    for (const [key, value] of Object.entries(exports)) this.setExport(key, value);
-  }));
-  return modules.get(id);
-};
-const load = (path) => {
-  if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText, { identifier: path }));
-  return modules.get(path);
-};
-const component = load(resolve(src, "widgets/paper/ChartSwitches.tsx"));
-await component.link(async (name, from) => {
-  if (!name.startsWith(".")) return fake(name, await import(name));
-  const target = resolve(dirname(from.identifier), name), relative = target.slice(src.length + 1);
-  if (relative === "widgets/paper/EquityReading") return load(`${target}.tsx`);
-  assert.ok(fixtures[relative], `Unexpected chart dependency: ${relative}`);
-  return fake(target, fixtures[relative]);
-});
-await component.evaluate();
+// Only the reading the switch shows is real; every other import is a fixture.
+const { ChartSwitches } = await namespace("widgets/paper/ChartSwitches.tsx", { stubs: fixtures, sources: ["widgets/paper/EquityReading"] });
 const render = (stage, { mobile = false, sideways = false, paper = true, streamId = 777, testing = stage === "backtest" } = {}) => {
   shown = { stage, run: paper ? run : null, chain: paper ? [run] : [] };
   stream = { paperId: streamId, readings: { final_equity_usdt: "8765.43" } };
   phone = mobile; landscape = sideways; layoutReads = [];
-  return renderToStaticMarkup(createElement(component.namespace.ChartSwitches, {
+  return renderToStaticMarkup(createElement(ChartSwitches, {
     testing, backtest: true, paper, view: "equity", symbols: ["BTCUSDT"], sides: new Map(), traded: new Set(), loose: null,
   }));
 };

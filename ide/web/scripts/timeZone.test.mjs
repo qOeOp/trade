@@ -1,37 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule } from "node:vm";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 async function graph(entry, initial) {
-  const kept = new Map(initial == null ? [] : [["rg-time-zone", initial]]), modules = new Map();
+  const kept = new Map(initial == null ? [] : [["rg-time-zone", initial]]);
   globalThis.window = { localStorage: { getItem: (k) => kept.get(k) ?? null, setItem: (k, v) => kept.set(k, v) } };
-  function load(path) {
-    if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-    }).outputText, { identifier: path }));
-    return modules.get(path);
-  }
-  const root = load(resolve(src, entry));
-  await root.link(async (specifier, from) => {
-    if (specifier.startsWith(".")) {
-      const stem = resolve(dirname(from.identifier), specifier);
-      return load([`${stem}.ts`, `${stem}.tsx`].find(existsSync));
-    }
-    if (!modules.has(specifier)) {
-      const exports = await import(specifier);
-      modules.set(specifier, new SyntheticModule(Object.keys(exports), function () {
-        for (const [k, v] of Object.entries(exports)) this.setExport(k, v);
-      }));
-    }
-    return modules.get(specifier);
-  });
-  await root.evaluate();
-  return { value: root.namespace, kept };
+  return { value: await namespace(entry), kept };
 }
 const { value: t } = await graph("lib/time.ts");
 const at = (s) => Date.parse(s), ny = "America/New_York";

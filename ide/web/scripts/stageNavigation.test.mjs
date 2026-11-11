@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { SourceTextModule, SyntheticModule, createContext } from "node:vm";
-import ts from "typescript";
+import { createContext } from "node:vm";
+import { loader } from "./load.mjs";
 
-const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const paper = { paper_id: 7, candidate: "paper@1", symbols: ["BTCUSDT"] };
 async function navigation({ backtest = false } = {}) {
   const location = new URL(`https://fixture.invalid/?line=line-a&at=snapshot&run=7${backtest ? "&stage=backtest" : ""}#paper@1`);
@@ -16,24 +12,12 @@ async function navigation({ backtest = false } = {}) {
     history: { replaceState: (_state, _title, path) => { window.location = new URL(path, window.location.href); } },
     fetch: () => { throw new Error("Navigation cannot submit or read a service"); },
   });
-  const modules = new Map();
-  const load = (path) => {
-    if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-    }).outputText, { context, identifier: path }));
-    return modules.get(path);
-  };
-  const shell = load(resolve(src, "state/shell.ts"));
-  await shell.link((name, from) => {
-    if (name.startsWith(".")) return load(`${resolve(dirname(from.identifier), name)}.ts`);
-    assert.equal(name, "react");
-    return new SyntheticModule(["useSyncExternalStore"], function () {
-      this.setExport("useSyncExternalStore", () => { throw new Error("State navigation uses no hooks"); });
-    }, { context });
-  });
-  await shell.evaluate();
-  const stage = modules.get(resolve(src, "state/stage.ts")).namespace;
-  const selected = modules.get(resolve(src, "state/selection.ts")).namespace;
+  const graph = loader({ context, packages: [], stubs: {
+    react: { useSyncExternalStore: () => { throw new Error("State navigation uses no hooks"); } },
+  } });
+  const shell = await graph.namespace("state/shell.ts");
+  const stage = graph.loaded("state/stage.ts");
+  const selected = graph.loaded("state/selection.ts");
   const choice = () => stage.choiceOf(stage.choices.get(), selected.selection.get());
   const arriveResearch = () => {
     // main.show restores the selection across a new public research view, without creating user intent.
@@ -44,7 +28,7 @@ async function navigation({ backtest = false } = {}) {
       else stage.restoreStage("live");
     }
   };
-  return { stage, shell: shell.namespace, choice, arriveResearch, url: () => window.location };
+  return { stage, shell, choice, arriveResearch, url: () => window.location };
 }
 
 for (const order of ["research-late", "paper-list-late"]) {

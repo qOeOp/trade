@@ -1,27 +1,17 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
+import { createContext } from "node:vm";
 import { test } from "node:test";
-import ts from "typescript";
+import { namespace } from "./load.mjs";
 
-const source = ts.transpileModule(readFileSync(new URL("../src/lib/paperApi.ts", import.meta.url), "utf8"), {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-}).outputText;
 async function page(replies) {
   const meta = { content: "old" }, requests = [];
   const context = createContext({ Headers, document: { querySelector: () => meta }, fetch: async (url, init) => {
     requests.push({ url, init, token: init.headers.get("x-trade-paper-token") });
     return replies.shift();
   } });
-  const module = new SourceTextModule(source, { context });
-  await module.link(async (name) => {
-    const values = name === "./agentApi" ? { ApiError: Error } : { MISSING: "–" };
-    return new SyntheticModule(Object.keys(values), function () {
-      for (const [key, value] of Object.entries(values)) this.setExport(key, value);
-    }, { context });
-  });
-  await module.evaluate();
-  return { ...module.namespace, requests, meta };
+  const module = await namespace("lib/paperApi.ts", { context, sources: [], packages: [],
+    stubs: { "lib/agentApi": { ApiError: Error }, "lib/format": { MISSING: "–" } } });
+  return { ...module, requests, meta };
 }
 const reply = (status, nonce) => new Response("{}", { status, headers: nonce ? { "x-trade-paper-token": nonce } : {} });
 
