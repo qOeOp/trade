@@ -1,5 +1,11 @@
 # Remote Paper
 
+**Who this is for.** The automatic release below (CD) serves the author's own deployment only. Its source
+repository (`qOeOp/trade`), image names (`ghcr.io/qoeop/trade-*`) and `deploy-ready` channel are written into
+`deploy/release_host.py` and `.github/scripts/release-ready.cjs` on purpose and are not settings: a host that
+installs it follows the author's `main`. Another operator runs the base deployment ([`deploy/README.md`](../README.md))
+and updates it by hand, or forks the repository and changes those names in the fork.
+
 The [continuous Web release plane](../../docs/plans/remote-continuous-delivery.zh.md) runs the Web, its
 single Agent writer and the Paper controller, and publishes successful main builds without recreating Paper
 runs, the ledger or strategy containers. Install its reviewed control code once on a new host with

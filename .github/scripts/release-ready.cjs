@@ -4,6 +4,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const SHA = /^[0-9a-f]{40}$/;
+// Admission serves the author's own deployment only: these are the author's GHCR image names, deliberately not
+// settings (deploy/remote/README.md, Who this is for).
 const IMAGE = /^ghcr\.io\/qoeop\/trade-ide@sha256:[0-9a-f]{64}$/;
 const SERVICE = /^ghcr\.io\/qoeop\/trade-service@sha256:[0-9a-f]{64}$/;
 const RUNTIME = /^ghcr\.io\/qoeop\/trade-runtime@sha256:[0-9a-f]{64}$/;

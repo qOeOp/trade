@@ -16,6 +16,8 @@ WEB = "trade-release-web-"
 AGENT = "trade-release-agent-"
 LEDGER = "trade-ide-ledger-1"
 ROUTER = "trade-ide-ide-router-1"
+# CD serves the author's own deployment only: the source, image names and digest patterns below are the
+# author's repository and GHCR namespace, deliberately not settings (deploy/remote/README.md, Who this is for).
 SOURCE = "https://github.com/qOeOp/trade"
 IMAGE = "ghcr.io/qoeop/trade-ide"
 IMAGE_REF = re.compile(re.escape(IMAGE) + r"@sha256:[0-9a-f]{64}\Z")
