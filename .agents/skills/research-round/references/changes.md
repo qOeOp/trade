@@ -1,7 +1,7 @@
 # Identity changes
 
-Read after the runtime image, the engine, the market data, the runtime contract or the line's
-execution environment (`--execution`), its trade ticks (`--trade-ticks`) or its metrics
+Read after the replay image (it changes only with the replay code or its locked dependencies, not
+with Paper or Live), the market data, the runtime contract or the line's execution environment (`--execution`), its trade ticks (`--trade-ticks`) or its metrics
 (`--metrics`) change, so that earlier runs no longer share the execution identity of new ones.
 
 For an ongoing out-of-sample validation, follow [validation.md](validation.md); the rebuild
