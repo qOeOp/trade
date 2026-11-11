@@ -98,7 +98,7 @@
 
 #### 预测写成某个切面标量的升或降，登记时核对并锁定 [#P-2-1-1]
 
-机制预测是登记内容里的结构化条目。每项写切面、标量、方向（升或降）、职责编号和一句理由；某项职责没有对应的切面，就写空切面并写理由。登记时代码核对，不符就拒绝（PREDICTION_INVALID）。预测随登记的证据包一起锁定，回放后不能改。
+机制预测是登记内容里的结构化条目。每项写切面、标量、方向（升或降）、职责编号和一句理由；某项职责没有对应的切面，就写空切面并写理由。登记时代码分两层核对：字段缺失、方向不是 up 或 down，由登记字段说明拒绝（REGISTRATION_INVALID）；职责不在本次改动的清单里、切面或标量不在目录里、空切面没写理由、改动到的职责没有预测，拒绝为 PREDICTION_INVALID。预测随登记的证据包一起锁定，回放后不能改。
 
 预测要写在能量出来的数上，事后才能判断它落没落空。登记时不核对，预测就可能写成谁也核不了的空话，或者漏掉某个改动到的职责。
 
@@ -115,7 +115,7 @@
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validate` `registration.plan_schema`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">已实现并有测试：登记核对职责、切面和标量，不符时拒绝（`PREDICTION_INVALID`，`tests/registration/test_register.py`，2026-11-11 通过）。方向只能是 up 或 down，由登记字段说明校验，不符时是 `REGISTRATION_INVALID`，不是正文写的 `PREDICTION_INVALID`。</p>
+<p className="rd-note">已实现并有测试：登记核对职责、切面和标量，不符时拒绝（`PREDICTION_INVALID`，`tests/registration/test_register.py`，2026-11-11 通过）；方向和字段由登记字段说明校验（`REGISTRATION_INVALID`）。</p>
 
 #### 报告把预测和实测并排，只标方向对不对 [#P-2-1-2]
 
