@@ -303,7 +303,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-foot"><span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺：第 1 代账本上尚未重新实测；切换前的旧账本上做过一次[核心准入边界隔离实测](https://github.com/qOeOp/trade/blob/main/docs/plans/validation-main-boundary-verification.zh.md)，真实行情回放、样本外封存与完整报告交付当时也未验证。</p>
+<p className="rd-note">第 1 代账本的隔离测试覆盖绑定时的两项核对：镜像是 main 的自动构建（`RUNTIME_NOT_MAIN`），执行代码含 main 最新提交（`STALE_CHECKOUT`）（`tests/registration/test_validation.py`、`tests/runtime/test_image.py`，2026-11-11 通过）。正文说研究、预检和探索都只用自动构建的镜像，代码只在预检检查构建标签（`replay/entry.py:449`，研究回放经登记引用的预检绑定同一镜像），`replay explore` 不检查。真实行情回放、样本外封存、完整报告、公共时间戳服务与真实远端竞态仍缺。</p>
 
 ### 读取入口 [#J-2-9]
 
@@ -1046,7 +1046,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺：research-start 的 references/readiness.md 仍让用户选市场提交和开发窗口，和代码按规则固定开发期不符，待 skill 改。</p>
+<p className="rd-note">research-start 已随 [#2707](https://github.com/qOeOp/trade/pull/2707) 改为开发期按规则算出、不是选项（`.agents/skills/research-start/SKILL.md:10`），规则有测试（`tests/ledger/test_lines.py`）；评测 `line-select-period-not-chosen` 本次未运行；缺新月份到达后旧线不扩展、在新季度另开线的执行记录。</p>
 
 ## 待定事项 [#J-pending]
 
