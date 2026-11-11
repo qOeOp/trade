@@ -6,8 +6,9 @@ market day and compute their identity, probe the image for its effective configu
 coverage receipt, then write the trial, its binding and its start receipt in one transaction; only
 after that commit does the runner start, followed by the independent auditor and the semantic
 fingerprint in the same image (each its own named container), and the execution capture is sealed
-whatever the outcome. Explorations and prechecks keep their reports in a new temporary directory;
-research and validation replays are stored as runs, invalid whenever the runner's output cannot be
+whatever the outcome. Explorations and prechecks take only a CI image of this repository, from any
+branch (runtime.require_ci_build, checked after the probe), and keep their reports in a new temporary
+directory; a research run binds the image of its cited precheck. Research and validation replays are stored as runs, invalid whenever the runner's output cannot be
 read, and their working directory deleted unless given as `output`, which keeps it as a cache of the
 run's native reports (kept, and printed, when anything fails after a container started).
 """
@@ -418,6 +419,7 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
     try:
         runner, exported = _export(market, at, runner_argv, False, ledger)
         inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), exported)
+        registration_seams.current.require_ci_build(dict(identity), dict(inspection))
         coverage = _prepare(output, source, inspection, exported)
         argv, mounts = _mounts(output, exported, runner_argv)
         argv += _strategy_argv(output, identity, inspection, strategy_class, source_sha256)
@@ -446,9 +448,6 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
     _reserved(runner_argv)
     _check_window(ledger, market, at, line, runner_argv)
     identity = _resolve(runtime)
-    if not identity.get("build_revision"):
-        raise refuse("RUNTIME_NOT_CI_BUILT", f"{identity['image_ref']} carries no build source revision label",
-                     missing=("org.opencontainers.image.revision",))
     if revision["runtime_contract"] != identity["runtime_contract"]:
         raise refuse("RUNTIME_CONTRACT_MISMATCH", f"{candidate} needs contract {revision['runtime_contract']}, the "
                                                   f"image is {identity['runtime_contract']}",
@@ -470,6 +469,7 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
         print(f"Precheck trading window: {trading_days:g} days; exposure exemption permits at most "
               f"{source_precheck.PRECHECK_MAX_DAYS} trading days. {exposure['note']}", file=sys.stderr, flush=True)
         inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), exported)
+        registration_seams.current.require_ci_build(dict(identity), dict(inspection))
         config_sha256 = trials.comparable_config_sha256(inspection.get("effective_config"))
         coverage = _prepare(output, revision["source"], inspection, exported)
         argv, mounts = _mounts(output, exported, runner_argv)

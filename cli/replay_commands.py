@@ -86,15 +86,17 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "ENTRY_CLASS_INVALID; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); RUNTIME_UNAVAILABLE; UNIVERSE_EMPTY; "
         "WINDOW_OUTSIDE_DEVELOPMENT (the trading window leaves --line's development period); LINE_UNKNOWN, "
         "LINE_ENDED; OUT_OF_SAMPLE_RESERVED (the window overlaps an unbound validation registration of this source); "
-        "RUNNER_OPTION_RESERVED"),
+        "RUNNER_OPTION_RESERVED; RUNTIME_NOT_CI_BUILT (the image is no CI build of this repository; any branch's "
+        "passes)"),
     ("replay", "precheck"): (
         "the candidate (reader); the market at --at, exported fresh; the runtime image",
         "a precheck trial with its start receipt and execution capture; the new --output directory; publishes",
         "purpose, trial_id, source_sha256, image_ref, export_sha256, comparable_config_sha256, status (passed or "
         "failed), problems, path, metrics, scope, exposure_exemption {trading_days, maximum_exempt_days, "
         "within_window_limit, note}; exit 1 unless passed",
-        "BAD_REF, UNKNOWN_CANDIDATE; RUNTIME_NOT_CI_BUILT (no revision label); RUNTIME_CONTRACT_MISMATCH (the "
-        "candidate's contract is not the image's); NOT_TEMPORARY_PATH, PATH_EXISTS; UNIVERSE_EMPTY; "
+        "BAD_REF, UNKNOWN_CANDIDATE; RUNTIME_NOT_CI_BUILT (the image is no CI build of this repository; any "
+        "branch's passes); RUNTIME_CONTRACT_MISMATCH (the candidate's contract is not the image's); "
+        "NOT_TEMPORARY_PATH, PATH_EXISTS; UNIVERSE_EMPTY; "
         "WINDOW_OUTSIDE_DEVELOPMENT (outside --line's development period, or without --line outside the period a "
         "line opened today would get or inside an open line's holdout); LINE_HISTORY_SHORT (without --line: no line "
         "could open on the instruments); LINE_UNKNOWN, LINE_ENDED; "

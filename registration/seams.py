@@ -19,7 +19,7 @@ from shared import paths
 from shared.refusals import refuse
 
 
-# Runtime (runtime.resolve, runtime.inspect_runtime, runtime.require_main_build)
+# Runtime (runtime.resolve, runtime.inspect_runtime, runtime.require_ci_build, runtime.require_main_build)
 
 RUNTIME_IDENTITY = ("image_ref", "image_digest", "platform", "runtime_contract")
 
@@ -83,10 +83,19 @@ def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) ->
     return image.inspect_runtime({key: identity[key] for key in RUNTIME_IDENTITY}, argv, mounts)
 
 
+def _build_identity(identity: dict) -> dict:
+    fields = (*RUNTIME_IDENTITY, *(("build_revision",) if identity.get("build_revision") else ()))
+    return {key: identity[key] for key in fields}
+
+
+def _require_ci_build(identity: dict, inspection: dict) -> str:
+    from runtime import image
+    return image.require_ci_build(_build_identity(identity), inspection)
+
+
 def _require_main_build(identity: dict, inspection: dict) -> str:
     from runtime import image
-    fields = (*RUNTIME_IDENTITY, *(("build_revision",) if identity.get("build_revision") else ()))
-    return image.require_main_build({key: identity[key] for key in fields}, inspection)
+    return image.require_main_build(_build_identity(identity), inspection)
 
 
 def _checkout() -> Path:
@@ -237,6 +246,7 @@ def _qualification_assess(conn, run: Mapping, **options) -> dict:
 class Seams:
     resolve_runtime: Callable[[str | None], dict]
     inspect_runtime: Callable[[dict, list[str], Mapping], dict]
+    require_ci_build: Callable[[dict, dict], str]
     require_main_build: Callable[[dict, dict], str]
     checkout: Callable[[], Path]
     market: Callable[[dict], Market]
@@ -245,7 +255,7 @@ class Seams:
 
 
 DEFAULT = Seams(resolve_runtime=_resolve_runtime, inspect_runtime=_inspect_runtime,
-                require_main_build=_require_main_build, checkout=_checkout,
+                require_ci_build=_require_ci_build, require_main_build=_require_main_build, checkout=_checkout,
                 market=Market, qualification_require=_qualification_require,
                 qualification_assess=_qualification_assess)
 current = DEFAULT
