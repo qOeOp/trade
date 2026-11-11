@@ -382,12 +382,13 @@ def annual_return_interval(conn: db.LedgerConnection, trial_id: int) -> dict | N
             "limitations": list(SINGLE_LIMITATIONS)}
 
 
-def gather(conn: db.LedgerConnection, registration_id: int, trial_id: int, *, checker: Mapping | None = None,
+def gather(conn: db.LedgerConnection, plan: Mapping, trial_id: int, *, checker: Mapping | None = None,
            reviews: list | None = None) -> dict:
-    """Every check of report.compare and both sides' stored facts (read only). `checker` and `reviews`
+    """Every check of report.compare and both sides' stored facts (read only), for the registration `plan`
+    (register.load_registration, read once by the caller: CF-26). `checker` and `reviews`
     (availability.check_identity and precheck.review_records at this connection's commit) are what a caller
     comparing many runs reads once."""
-    plan = register.load_registration(conn, registration_id)
+    registration_id = plan["registration_id"]
     body, registered_at = plan["body"], plan["created_at"]
     if plan["control_trial_id"] is None:
         raise refuse("NO_CONTROL", f"research registration {registration_id} declares no control run",
@@ -425,14 +426,15 @@ def compare(profile, registration_id: int, trial_id: int, at: str | None = None,
     `checker` and `reviews` are gather's, for a caller comparing many runs at the commit `at`."""
     revision = checker["product_commit"] if checker is not None else availability.report_revision()
     with db.read_as_of(db.profile(profile), at) as conn:
-        if register.load_registration(conn, registration_id)["control_trial_id"] is None:
+        plan = register.load_registration(conn, registration_id)
+        if plan["control_trial_id"] is None:
             candidate = _grid_run(conn, registration_id, trial_id)
             return {"registration_id": registration_id, "trial_id": candidate["trial_id"], "control_trial_id": None,
                     "ledger_commit": db.head_commit(conn), "evidence": None, "attribution": None,
                     "reason": f"research registration {registration_id} declares no control run, so there is nothing "
                               f"to compare run {candidate['trial_id']} with",
                     "next_actions": [f"Read the run alone with `replay report --trial-id {candidate['trial_id']}`."]}
-        found = gather(conn, registration_id, trial_id, checker=checker, reviews=reviews)
+        found = gather(conn, plan, trial_id, checker=checker, reviews=reviews)
         interaction = interaction_of(conn, found) if bootstrap else None
     body, facts, plan = found["body"], found["facts"], found["plan"]
     identity = {"registration_id": registration_id, "trial_id": found["candidate"]["trial_id"],
@@ -462,10 +464,11 @@ def crossing(profile, registration_id: int, trial_id: int, at: str | None = None
     same refusals, computing only the paired test's intervals: no attribution, declared interaction or block
     sensitivity, which nothing reading the intervals uses (CF-10)."""
     with db.read_as_of(db.profile(profile), at) as conn:
-        if register.load_registration(conn, registration_id)["control_trial_id"] is None:
+        plan = register.load_registration(conn, registration_id)
+        if plan["control_trial_id"] is None:
             _grid_run(conn, registration_id, trial_id)
             return None
-        found = gather(conn, registration_id, trial_id, checker=checker, reviews=reviews)
+        found = gather(conn, plan, trial_id, checker=checker, reviews=reviews)
     left, right = ([value for _, value, _ in found["series"][side]] for side in ("control", "candidate"))
     plan = found["plan"]
     return intervals_cross_zero(paired(left, right, plan["comparison"], len(plan["grid"]), sensitivity=False))
