@@ -3,7 +3,7 @@ import { useTimeZone } from "../../state/timeZone";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CrosshairMode, LineStyle, type UTCTimestamp } from "lightweight-charts";
 import { useAtom } from "../../state/atom";
-import { pickedDay, pickedTrade, tradesTab } from "../../state/paperStream";
+import { holdShown, pickedDay, pickedTrade, tradesTab } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
 import { afterFonts, chartLook, priceFormat, seriesColors } from "./chartTheme";
 import type { Down } from "./downLook";
@@ -30,7 +30,8 @@ const views = new Map<string, { step: number; from: number; to: number }>();  //
  *  return target); behind them which way a position was held along the top, the drawdown an entry at each moment would take hanging
  *  under it and, of the shown stretch, each day's return from the bottom and the stretches no position was held (equityLayers), any stretch
  *  a chain of runs was offline over all of them; on the line the drawdown limit's floor and the shown stretch's deepest drawdowns (equityNotes) and an arrow at each of its closes (equityCloses), whose click
- *  picks the trade; the balance, the costs' band, a buy and hold, and the exposure (equityExtras); a
+ *  picks the trade; the balance, the costs' band, a buy and hold as a fading area (shown as the viewer last chose for
+ *  a backtest or a paper run, offered when the shown stretch has one), and the exposure (equityExtras); a
  *  reconciled run's replay dotted. Each stretch is named at its start (stretchCaptions), a click on the
  *  name shows it and fits the view to it.
  *  The line is drawn at the finest step that keeps the points in view at least a pixel and a half apart
@@ -45,17 +46,16 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
 }) {
   const { minutes, placed, restarts, readings, days, drops, sealed } = line;
   const host = useRef<HTMLDivElement>(null), api = useRef<Api | null>(null);
-  const [step, setStep] = useState<number>(STEPS[0]);
-  const stepRef = useRef<number>(STEPS[0]);
+  const [step, setStep] = useState<number>(STEPS[0]), stepRef = useRef<number>(STEPS[0]);
   const keep = useRef<{ t: number; x: number; w: number } | null>(null);
   const refit = useRef(false), theme = useResolvedTheme();
   const day = useAtom(pickedDay), zone = useTimeZone();
   const [hover, setHover] = useState<number | null>(null), [off, setOff] = useState<Down | null>(null), [named, setNamed] = useState<number | null>(null);
-  const [hold, setHold] = useState(false);
   const points = useMemo(() => resample(minutes, step), [minutes, step]);
   const worst = useMemo(() => minutes.reduce((w, p) => Math.max(w, 1 - p.value / p.peak), sealed), [minutes, sealed]);
   const shown = placed.findIndex((p) => p.selected), own = placed[shown], starting = placed[0]?.starting ?? 100_000;
-  const many = !!own && own.to - own.from >= FEW;
+  const many = !!own && own.to - own.from >= FEW, holds = useAtom(holdShown), kind = own?.tested ? "backtest" : "paper", hold = holds[kind];
+  const holdable = useMemo(() => [...readings.values()].some((r) => r.hold != null), [readings]);
   // The backtest's as sealed, at bar closes; a paper stretch's from its minutes.
   const worstShown = useMemo(() => (own?.tested ? sealed : own ? minutes.slice(own.first, own.last + 1).reduce((w, p) => Math.max(w, 1 - p.value / p.peak), 0) : worst), [minutes, own, worst, sealed]);
   const flat = Math.round(minutes.at(-1)?.value ?? NaN) === Math.round(starting);
@@ -187,7 +187,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     <div className="flex h-full min-h-0 w-full flex-col gap-3 pb-1">
       {/* On a phone's width under the chart, so the chart opens the page and a finger on it leaves its readout in view. */}
       <div className="@max-md/page:order-last"><EquityLegend name={placed.length === 1 ? placed[0]!.label : null} point={p} stretch={p ? placed[p.stretch ?? -1] ?? null : null} named={named === null ? null : placed[named] ?? null} minutes={minutes} offline={off}
-                    reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={readings.values().next().value?.hold != null ? hold : null} onHold={() => setHold(!hold)}
+                    reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={holdable ? hold : null} onHold={() => holdShown.set({ ...holds, [kind]: !hold })}
                     starting={starting} replayed={replayed} worst={worstShown} step={step} many={many && mine} ret={today?.ret} basis={own?.tested ? "bar-close mark" : null} aside={aside} /></div>
       <div className="relative min-h-0 flex-1 outline-none" tabIndex={0} onKeyDown={onKey}>
         <div ref={host} className="h-full w-full" />

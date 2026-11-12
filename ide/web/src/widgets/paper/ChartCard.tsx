@@ -7,7 +7,7 @@ import { heldSides, type Leaning } from "../../model/held";
 import { heldOf, priceLines, restartsOf, spans as spansOf, warmupAt, type Fill, type Restart } from "../../model/paper";
 import { useView } from "../../model/view";
 import { backtestNote, type Loaded } from "../../state/backtest";
-import { barsNote, useBacktestBars } from "../../state/backtestBars";
+import { barsNote, useBacktestBars, useBacktestCloses } from "../../state/backtestBars";
 import type { Stretch } from "../../model/stretches";
 import { leadOf } from "./backtestCandles";
 import { eventsOf } from "./candleEvents";
@@ -50,7 +50,10 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   const note = [!testing || trial === null ? null : said, paper].filter(Boolean).join(" · ") || null;
   const reading = !testing && run && !stretches.some((x) => x.chain.some((r) => r.paper_id === run.paper_id)) ? "Reading the paper runs…"
     : testing && trial !== null && backtest?.kind === "reading" ? backtestNote(backtest, trial) : daily?.kind === "reading" ? barsNote(daily) : null;
-  const line = useMemo(() => continuous(equity ? stretches : [], targets.annual, true, drawn, testing), [stretches, targets.annual, equity, drawn, testing]);
+  // The backtest's buy and hold: the closes of the contracts its cycles traded, read while its equity is shown.
+  const contracts = useMemo(() => [...new Set(drawn?.cycles.map((c) => c.symbol))].sort(), [drawn]);
+  const holdCloses = useBacktestCloses(testing && equity ? contracts : [], drawn, market);
+  const line = useMemo(() => continuous(equity ? stretches : [], targets.annual, true, drawn, testing, holdCloses), [stretches, targets.annual, equity, drawn, testing, holdCloses]);
   const remembers = `${testing ? "backtest" : "paper"}:${version ?? ""}:${symbol}:${(drawn && equity) || lead ? `trial ${trial},` : ""}${stretches.map((x) => x.chain[0]!.paper_id).join()}`;
   // The contract's candles over every stretch, and the offline stretches inside each chain.
   const bars = useMemo(() => (ours ? stretches.flatMap((x) => x.piece.bars) : []), [ours, stretches]);

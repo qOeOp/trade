@@ -1,6 +1,6 @@
 // What the Account chart shows beside equity and its layers (equityReadings.ts): what fees and funding
 // took as a raised band over the line and the open profit and loss as a filled block between the balance
-// and the line, and on request an equal-weight buy and hold of the run's contracts (equityFills.ts), the
+// and the line, and on request an equal-weight buy and hold of the run's contracts as an area (equityFills.ts), the
 // band in the value axis's fit as far as `reach` lets it, the buy and hold kept out of it (so a market
 // move cannot flatten the equity line); and the gross exposure as an indicator in a band of its own along the
 // pane's foot (below the day bars), a faint indigo step area on a scale of its own from none to all of
@@ -8,11 +8,11 @@
 // they are in Events, and on each contract's chart.
 import { BaselineSeries, LineType, type AutoscaleInfo, type IChartApi, type ISeriesApi, type LogicalRange, type UTCTimestamp } from "lightweight-charts";
 import type { Reading } from "../../model/equityReadings";
-import { EquityFills, type FillsLook } from "./equityFills";
+import { EquityFills, type FillsLook, type HoldLook } from "./equityFills";
 import type { EquityPoint } from "./equityLayers";
 import type { Plot } from "./equityZones";
 
-type ExtrasLook = { fills: FillsLook; hold: string; exposure: string; exposureFill: string };
+type ExtrasLook = { fills: FillsLook; hold: HoldLook; exposure: string; exposureFill: string };
 type Shown = { points: readonly EquityPoint[]; readings: ReadonlyMap<number, Reading>; hold: boolean; look: ExtrasLook };
 const BAND = 30;  // px: the exposure's band
 const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
