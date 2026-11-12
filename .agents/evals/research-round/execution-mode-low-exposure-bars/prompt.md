@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, when the source's largest position stays at or below account equity (a short needs roughly +99% or more to reach liquidation) and the market commit lacks inferred quotes for most of the window, the Agent runs the line under `bars`, reports liquidation as unmodelled with that smallest distance to liquidation, and neither demands quotes nor starts gathering quote evidence before the first precheck.
+description: Rule check — with the skill, when the source's largest position stays at or below account equity (a short needs roughly +99% or more to reach liquidation) and the market day lacks inferred quotes for most of the window, the Agent runs the line under `bars`, reports liquidation as unmodelled with that smallest distance to liquidation, and neither demands quotes nor starts gathering quote evidence before the first precheck.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12

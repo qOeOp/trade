@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, when the user asks to change line and no existing candidate can start a new line (every source already ran), the agent designs complete new starts itself, each a never-run source with the development period `line select` gives it (never a window it picks), market commit, execution environment, readiness result and Goal objective, so one choice approves the line and the Goal; it offers no direction to study first, does not ask the user to design the strategy, and waits for the choice.
+description: Rule check — with the skill, when the user asks to change line and no existing candidate can start a new line (every source already ran), the agent designs complete new starts itself, each a never-run source with the development period `line select` gives it (never a window it picks), market day, execution environment, readiness result and Goal objective, so one choice approves the line and the Goal; it offers no direction to study first, does not ask the user to design the strategy, and waits for the choice.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
