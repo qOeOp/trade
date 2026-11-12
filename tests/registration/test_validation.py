@@ -81,6 +81,52 @@ class FreshCheckoutTests(unittest.TestCase):
         self.assertEqual(stale(plain), "STALE_CHECKOUT")
 
 
+def current(checkout_root) -> str:
+    with patch.dict(os.environ, GIT_ENV):
+        try:
+            validation.require_current(checkout_root)
+        except Refusal as exc:
+            return exc.code
+    return "current"
+
+
+class CurrentCheckoutTests(unittest.TestCase):
+    """Research registers and replays only from the fetched origin/main with a clean work tree, no network."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="current-", dir="/tmp"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.remote, self.clone = checkout(self.root)
+
+    def test_only_the_fetched_main_with_a_clean_work_tree_is_current(self):
+        self.assertEqual(current(self.clone), "current")
+        (self.clone / "draft.py").write_text("x = 1\n")
+        self.assertEqual(current(self.clone), "STALE_CHECKOUT", "an untracked file")
+        (self.clone / "draft.py").unlink()
+        (self.clone / "README").write_text("edited\n")
+        self.assertEqual(current(self.clone), "STALE_CHECKOUT", "an uncommitted change")
+        git(self.clone, "checkout", "-q", "README")
+        git(self.clone, "commit", "-q", "--allow-empty", "-m", "ahead")
+        self.assertEqual(current(self.clone), "STALE_CHECKOUT", "a commit ahead of origin/main")
+        git(self.clone, "reset", "-q", "--hard", "origin/main")
+        self.assertEqual(current(self.clone), "current")
+
+    def test_a_checkout_behind_its_fetched_main_or_without_one_is_stale(self):
+        other = self.root / "other"
+        git(self.root, "clone", "-q", str(self.remote), str(other))
+        git(other, "commit", "-q", "--allow-empty", "-m", "second")
+        git(other, "push", "-q", "origin", "HEAD:main")
+        self.assertEqual(current(self.clone), "current", "no network: an unfetched main commit is not seen")
+        git(self.clone, "fetch", "-q", "origin")
+        self.assertEqual(current(self.clone), "STALE_CHECKOUT", "behind the fetched origin/main")
+        plain = self.root / "plain"
+        plain.mkdir()
+        self.assertEqual(current(plain), "STALE_CHECKOUT")
+        git(plain, "init", "-q")
+        git(plain, "commit", "-q", "--allow-empty", "-m", "alone")
+        self.assertEqual(current(plain), "STALE_CHECKOUT", "no fetched origin/main")
+
+
 class MembershipTests(unittest.TestCase):
     months = ["2026-08", "2026-09", "2026-10", "2026-11"]
 

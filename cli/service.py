@@ -33,8 +33,9 @@ research ledger.
 With --setup, a first start that lacks or fails on the repository or the key waits on the IDE's page instead of
 exiting (`cli.first_run`); a later start is unchanged.
 
-While it serves, `run` publishes the ledger every PUBLISH_RETRY seconds when origin is behind it, so a publish that
-failed does not wait for the next write. What is still behind shows on the IDE's page. In the same rounds it syncs
+While it serves, `run` publishes the ledger every PUBLISH_RETRY seconds when origin is behind it: commands that
+change the ledger only commit locally, so these rounds (and `ledger publish`) are what publishes, and the public copy
+lags the ledger by up to one round and a push. What is still behind shows on the IDE's page. In the same rounds it syncs
 the Paper database's backup when Paper's head moved (`ledger mirror` too): Paper's containers hold no administrator,
 and dolt_backup needs one.
 """
@@ -65,7 +66,7 @@ PORT = 13330
 LISTEN = "0.0.0.0"  # inside its container; compose publishes the port on the host's loopback only
 LEDGER = "research"  # the profile and database name
 PAPER = "paper"  # the Paper database's profile and database name, on the same service
-PUBLISH_RETRY = 300  # seconds between checks that origin holds the ledger; the check reads locally, a retry pushes
+PUBLISH_RETRY = 300  # seconds between checks that origin holds the ledger; the check reads locally, a push follows
 EMPTY_COPY = "remote at that url contains no Dolt data"  # Dolt's clone of a repository with no data (2.4.2 and 2.7.2)
 
 

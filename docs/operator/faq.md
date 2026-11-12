@@ -3,8 +3,8 @@
 Back to the [operator manual](README.md).
 
 **Is my research private?**
-No. The ledger publishes complete strategy source, results and judgments to your public DoltHub repository on every
-change, and that history cannot be withdrawn. There is no private mode.
+No. The ledger publishes complete strategy source, results and judgments to your public DoltHub repository within
+5 minutes of every change, and that history cannot be withdrawn. There is no private mode.
 
 **Can several people use one deployment?**
 It is built for one operator. The IDE on a workstation listens on 127.0.0.1 only; a server admits the members of one

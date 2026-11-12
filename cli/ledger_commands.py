@@ -243,7 +243,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the profile directory; a Dolt 2.7.2 binary (RESEARCH_DOLT_BINARY or PATH); ledger/schema.sql, or "
         "ledger/paper.sql with --holds paper",
         "the database (--name with - as _), its writer and reader accounts and the schema commit; the Dolt "
-        "service under --service-root, started and left running when new; the profile file; never publishes",
+        "service under --service-root, started and left running when new; the profile file",
         "profile, name, database, kind, holds, service_root, accounts, branch_grant, schema_version, ledger_commit",
         "LEDGER_EXISTS (profile, active ledger or database exists); ISOLATION_BREACH (--kind active without "
         "--backup-root, or its service or backup in the checkout or a temporary root); LEDGER_KIND (--kind active "
@@ -274,12 +274,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("ledger", "temp"): (
         "the temporary root",
         "a new directory (--root, default <tmp>/ledger-<hex>) holding a temporary ledger's profile file and its "
-        "running service, as ledger init; never publishes",
+        "running service, as ledger init",
         "profile (pass it as --ledger to later commands), root, address, accounts, ledger_commit",
         "NOT_TEMPORARY_PATH (--root outside the temporary root); PATH_EXISTS; DOLT_BINARY; LEDGER_START"),
     ("ledger", "sql"): (
         "the ledger at --at (default: the research branch head) with the reader account",
-        "nothing; never publishes",
+        "nothing",
         "at, ledger_commit, columns, rows (binary values as {bytes: N})",
         "WRITE_VIA_SQL (not exactly one statement starting with a read keyword, a /*! or /*+ comment, or "
         "INTO OUTFILE, INTO DUMPFILE or LOAD_FILE); "
@@ -287,7 +287,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("ledger", "witness"): (
         "out-of-sample registration commits and witness rows (writer); the pinned TSA roots",
         "sends each unwitnessed registration commit's hash to the RFC 3161 authority and records the verified "
-        "token as one ledger commit each; publishes",
+        "token as one ledger commit each",
         "checked, already, witnessed [{commit, registration_ids, stamped_at}], failed [{commit, reason, "
         "registration_ids}]; exit 1 when any failed (an unreachable authority is a failure, not a refusal)",
         "WITNESS_INVALID (a token does not verify or its time is out of range; earlier tokens stay)"),
@@ -295,7 +295,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the ledger at --at (reader, which must hold no write privilege): the commits after --since (every commit "
         "without it), their row changes, constraint checks, readings, witnesses, runs and captures; the backup's "
         "head, read through linked table files",
-        "nothing; never publishes",
+        "nothing",
         "at, since, commit, tables_checked, *_checked counts, history, ok, findings [{code, table, record_id, commit, "
         "detail}] (a changed or removed commitment row, a reading replaced outside a reseal commit, a witness "
         "commit that adds no registration of its own, a run whose stored facts differ from its capture; "
@@ -309,7 +309,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "their candidates",
         "<target>/backup (dolt_backup of the full history, synced to the head regardless of --at) and "
         "<target>/reproduce/ (manifest.json, candidates, runs, one <table>.json per declaration table); target is "
-        "the new --output (reproduce) or the profile's backup directory (backup); no ledger write; never publishes",
+        "the new --output (reproduce) or the profile's backup directory (backup); no ledger write",
         "kind, ledger_commit, target, backup_path, manifest_path, content_hash, runs, candidates (counts)",
         "PATH_EXISTS (--output exists); BACKUP_TARGET_UNSET; EXPORT_PATH_INVALID (target in the service "
         "directory, the checkout or a Git work tree, or not an export of this ledger); UNKNOWN_RUN; "
@@ -396,7 +396,8 @@ def register(verbs, verb, runner) -> None:
     command = verb(ledger, "publish", "push the ledger to its public DoltHub copy (administrator)")
     command.epilog = ("Pushes the research branch and checks the remote head by a fetch. Never "
                       "forces: a remote changed elsewhere is PUBLISH_REJECTED. Commands that change the ledger "
-                      "publish it themselves; this reruns a failed publish. --remote names origin once and installs "
+                      "only commit locally; the ledger service under compose publishes every 5 minutes, and this "
+                      "publishes at once. --remote names origin once and installs "
                       "the `dolt login` key in the service's Dolt home.")
     _ledger_option(command)
     command.add_argument("--remote", help="the DoltHub repository URL, set once "

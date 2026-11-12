@@ -266,6 +266,11 @@ class PrecheckTests(unittest.TestCase):
                 self.assertTrue(precheck.sealed_no_result(self.conn, trial_id, sha(self.data)))
                 self.assertFalse(precheck.sealed_no_result(self.conn, trial_id,
                                                            sha(self.world.publish("other")["source"])))
+        for code in sorted(problems.PRE_STRATEGY_REPLAY_CODES):
+            with self.subTest(code=code):
+                planned = json.dumps({"stage": "replay", "exception_type": "Refusal", "code": code}).encode() + b"\n"
+                self.assertTrue(precheck.sealed_no_result(self.conn, self.sealed(
+                    runtime=OTHER_RUNTIME, native_exit=1, audit_exit=None, runtime_errors=planned), sha(self.data)))
         cases = {"replay stage": {"native_exit": 1, "runtime_errors": failures("replay")},
                  "a later stage beside it": {"native_exit": 1, "runtime_errors": failures("inputs", "replay")},
                  "no failure receipt": {"native_exit": 1},

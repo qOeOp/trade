@@ -84,6 +84,15 @@ class RegisterTests(unittest.TestCase):
         self.assertEqual((again["registration_id"], again["replayed"], again["ledger_commit"]),
                          (self.root, True, registered["ledger_commit"]))
 
+    def test_a_registration_needs_the_fetched_main_with_a_clean_work_tree(self):
+        body = self.world.body(["rsi@1"], {"rsi@1": self.root_review}, comparison=None)
+        draft = self.world.checkout / "draft.py"
+        draft.write_text("x = 1\n")
+        try:
+            self.assertEqual(self.code(body), "STALE_CHECKOUT")
+        finally:
+            draft.unlink()
+
     def test_the_change_is_the_published_difference_and_the_body_does_not_write_it(self):
         """A body states no parent or change; the registration reads the grid candidates' difference byte for
         byte (none for a root), so a retyped copy that differs, say by a trailing newline, cannot arise."""

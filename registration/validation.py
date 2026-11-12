@@ -1,5 +1,5 @@
 """Out-of-sample validation (`registration.validation_register`, `registration.validation_bind`,
-`registration.membership_unchanged`, `registration.require_fresh`).
+`registration.membership_unchanged`, `registration.require_fresh`; `registration.require_current` for research).
 
 The user starts a validation: one candidate, a window that begins after the registration is both
 recorded and witnessed by an RFC 3161 token, a universe rule and a declared design. The one replay
@@ -65,6 +65,27 @@ def require_fresh(checkout: Path | None = None, remote: str = "origin") -> None:
         raise stale(f"the main commit of {remote} cannot be queried")
     if _git(root, "merge-base", "--is-ancestor", heads[0], "HEAD").returncode:
         raise stale(f"HEAD does not contain {remote} main {heads[0]}")
+
+
+def require_current(checkout: Path | None = None, remote: str = "origin") -> None:
+    """Research registration and replay: refuse unless the product checkout's HEAD is the locally fetched
+    `<remote>/main` and its work tree has no uncommitted or untracked file, so a run records the commit it ran
+    from. No network: the checkout fetches first."""
+    root = Path(checkout) if checkout is not None else seams.current.checkout()
+
+    def stale(why: str):
+        return refuse("STALE_CHECKOUT", why, missing=(str(root),), expected=f"HEAD = {remote}/main, clean work tree")
+    head = _git(root, "rev-parse", "HEAD")
+    main = _git(root, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/main")
+    if head.returncode:
+        raise stale(f"{root} is not a git work tree")
+    if main.returncode:
+        raise stale(f"{root} has no fetched {remote}/main")
+    if head.stdout.strip() != main.stdout.strip():
+        raise stale(f"HEAD {head.stdout.strip()[:9]} is not {remote}/main {main.stdout.strip()[:9]}")
+    changed = _git(root, "status", "--porcelain")
+    if changed.returncode or changed.stdout.strip():
+        raise stale(f"the work tree has uncommitted or untracked files: {' '.join(changed.stdout.split()[:6])}")
 
 
 def _by_month(rows) -> dict[str, list[tuple]]:

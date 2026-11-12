@@ -56,7 +56,9 @@ activity this precheck's; each guards one risk. The api item covers every native
 against the pinned image, whether or not the precheck ran it. Nautilus is compiled: `__doc__` and
 `inspect.getsource` give nothing; its signatures are in the `.pyi` stubs of the installed
 `nautilus_trader` package, which `rg` searches only with `-uu`. Causal: inputs precede submission
-(below). Activity: the precheck filled orders, so its order path ran. Readiness: no decision before
+(below). Activity: the precheck filled orders on every order path the change adds or
+alters; while one never ran, activity is `unresolved` until a precheck on a window where it runs, or
+a probe on a `ledger temp` ledger, shows it. Readiness: no decision before
 each indicator has converged on its warm-up history, not research-start's input-coverage check.
 Native `initialized` is not convergence for a recursive indicator (strategy-authoring.md). `replay
 explore` is never economic evidence.

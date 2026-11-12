@@ -14,6 +14,7 @@ from cli import main as cli
 from deploy.live_configuration import OPERATOR_FIELDS
 from deploy.release_host import durable_json, route_config
 from engine.live_errors import LiveRefusal
+from ledger import db
 from live import host as host_runtime
 from live import authority, control, release, runs, serve, state
 from tests.live.authority_fixture import WEB, inject_cli, install
@@ -226,7 +227,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         with patch.object(runs, "_credentials", side_effect=AssertionError("key read")), \
                 patch.object(runs, "prepare_locked", side_effect=AssertionError("preparation effect")), \
                 patch.object(runs, "launch_locked", side_effect=AssertionError("launch effect")), \
-                patch.object(cli.db, "profile", side_effect=AssertionError("reader lookup")):
+                patch.object(db, "profile", side_effect=AssertionError("reader lookup")):
             for action in ("preflight", "start", "reconcile"):
                 self.refused(lambda: cli._dispatch(self.operator_args(action), []))
         self.assertEqual(self.files(), before)
@@ -235,7 +236,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         def reader(_):
             self.commit_other()
             return object()
-        with patch.object(cli.db, "profile", side_effect=reader), \
+        with patch.object(db, "profile", side_effect=reader), \
                 patch.object(authority, "operator", wraps=authority.operator) as selected, \
                 patch.object(runs, "prepare_locked", side_effect=AssertionError("preparation effect")):
             self.refused(lambda: cli._dispatch(self.operator_args("preflight"), []))
@@ -246,7 +247,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         def review(*_):
             self.commit_other()
             return {}
-        with patch.object(cli.db, "profile", return_value=object()), \
+        with patch.object(db, "profile", return_value=object()), \
                 patch.object(authority, "operator", wraps=authority.operator) as selected, \
                 patch.object(runs, "prepare_locked", return_value={}) as prepare, \
                 patch.object(runs, "review", side_effect=review), \
