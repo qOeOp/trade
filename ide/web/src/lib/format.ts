@@ -40,3 +40,7 @@ export const change = (v?: number | null, digits = 2) => {
 };
 /** A funding rate (a fraction per period) in percent to four places: 0.0100%. */
 export const funding = (v?: number | null) => (v == null ? MISSING : minus(`${(+(v * 100).toFixed(4) || 0).toFixed(4)}%`));
+/** Whether a run of text without spaces is an identifier shown as a copyable chip: a path or URL, or a hash or
+ *  ID (16 or more letters and digits with a digit among them). Code - a call, a list - stays text. */
+export const isToken = (run: string) => !/[(),]/.test(run)
+  && (/^(?:\/|~\/|\.{1,2}\/|[a-z][a-z0-9+.-]*:\/\/)/i.test(run) || /(?=[0-9a-z]*\d)[0-9a-z]{16,}/i.test(run));

@@ -35,7 +35,7 @@ export type Candidate = {
     intervals_cross_zero?: boolean | null;
     summary?: string | null;
   } | null;
-  reviews?: { verdict?: string | null; failed_items?: string[] | null; at?: string | null; note?: string | null }[] | null;
+  reviews?: { verdict?: string | null; at?: string | null; checks?: { name: string; status?: string | null; note?: string | null }[] }[] | null;
   interpretation?: string | null;
   status?: Role | null;
   status_class: Status;

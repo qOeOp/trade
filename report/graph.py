@@ -470,14 +470,11 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
         for rec in records:
             if rec["source_sha256"] != source_of[key]:
                 continue
-            failed = [name for name in precheck.ITEMS
-                      if isinstance(rec.get(name), Mapping) and rec[name].get("status") == "failed"]
+            checks = [{"name": name, "status": rec[name].get("status"), "note": rec[name].get("note")}
+                      for name in precheck.ITEMS if isinstance(rec.get(name), Mapping)]
             # research-graph@3 names a review by `bundle`; it now holds the review's ID.
-            reviews.append({"bundle": str(rec["review_id"]), "verdict": rec["verdict"], "failed_items": failed,
-                            "at": _iso(rec["created_at"]),
-                            "note": "\n\n".join(
-                                f"{'API' if name == 'api' else name.title()} ({rec[name]['status']})\n{rec[name]['note']}"
-                                for name in precheck.ITEMS if isinstance(rec.get(name), Mapping)) or None})
+            reviews.append({"bundle": str(rec["review_id"]), "verdict": rec["verdict"], "at": _iso(rec["created_at"]),
+                            "checks": checks})
             if rec["verdict"] == "failed":
                 # The consequence is availability's, not re-derived here: the runs it counts this review against,
                 # and the runs it names the review ignored for (a resolved zero-activity failure) with its reason.
@@ -489,7 +486,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
                     for skipped in check["ignored"]:
                         if skipped["review_id"] == rec["review_id"]:
                             kept.setdefault(skipped["reason"], []).append(trial_id)
-                text = (f"failed source review of {key} ({', '.join(failed) or 'unspecified'}); "
+                text = (f"failed source review of {key} ({', '.join(c['name'] for c in checks if c['status'] == 'failed') or 'unspecified'}); "
                         f"runs of this source without economic evidence by it: {masked or 'none'}")
                 text += "".join(f"; not counted for {ids}: {reason}" for reason, ids in kept.items())
                 events.append({"at": _iso(rec["created_at"]), "kind": "eligibility_change",

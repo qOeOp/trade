@@ -101,8 +101,9 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertIsNotNone(by_id[second]["interpretation"])
         review = by_id[first]["reviews"][0]
         self.assertEqual(review["verdict"], "passed")
-        for item in precheck.ITEMS:
-            self.assertIn(f"{item} checked against the capture", review["note"],
+        self.assertEqual([c["name"] for c in review["checks"]], list(precheck.ITEMS))
+        for check in review["checks"]:
+            self.assertIn(f"{check['name']} checked against the capture", check["note"],
                           "passed reviews retain every check's explanation in the graph")
         recommendation = [e for e in found["events"] if e["kind"] == "recommendation"]
         self.assertEqual(recommendation[-1]["recommends"], first)
@@ -146,11 +147,12 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertEqual((masked["status"], run["eligible"], run["annual_return"]), ("masked", False, None),
                          "a run without economic evidence shows no measures")
         self.assertIn("SOURCE_REVIEW_FAILED", run["ineligible_reason"])
-        self.assertIn("causal", next(r for r in masked["reviews"] if r["verdict"] == "failed")["failed_items"])
         review = next(r for r in masked["reviews"] if r["verdict"] == "failed")
+        checks = {c["name"]: c for c in review["checks"]}
+        self.assertEqual(checks["causal"]["status"], "failed")
         for item in precheck.ITEMS:
-            self.assertIn(body[item]["note"], review["note"],
-                          "every item's original paragraphs and lists reach the detail renderer")
+            self.assertEqual(checks[item]["note"], body[item]["note"],
+                             "every item's original paragraphs and lists reach the detail renderer")
         self.assertTrue(any(e["kind"] == "eligibility_change" and second in e["text"] for e in found["events"]))
 
     def test_2b_a_failed_review_availability_ignores_is_no_lost_evidence(self):

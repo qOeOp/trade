@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isToken } from "../lib/format";
 import { Missing } from "./Missing";
 import { TextButton } from "./TextButton";
 import { Token } from "./Token";
@@ -6,15 +7,15 @@ import { Token } from "./Token";
 // The first sentence: up to a Chinese stop, or a Latin one followed by a space or the end (so the
 // point in "8.47%" or "self.price" does not end it).
 const FIRST = /^[\s\S]*?(?:[。！？；]|[.;!?](?=\s|$))/;
-// A hash, path or registration inside the text: a run of 24 or more printable ASCII characters without a space.
+// A run of 24 or more printable ASCII characters without a space: a chip when it is a hash, ID or path (isToken).
 const LONG = /([\x21-\x7e]{24,})/;
 // A list item: a line starting with "- ", "* " or "• ".
 const ITEM = /^\s*[-*•]\s+/;
 // Text with any Chinese in it, set at the taller Chinese line height.
 const ZH = /[\u3400-\u9fff\uf900-\ufaff]/;
 
-/** `text` with each long run as a Token chip (split with a capture group, so the runs sit at odd indexes). */
-const withTokens = (text: string) => text.split(LONG).map((part, i) => (i % 2 ? <Token key={i} value={part} /> : part));
+/** `text` with each long identifier as a Token chip (split with a capture group, so the runs sit at odd indexes). */
+const withTokens = (text: string) => text.split(LONG).map((part, i) => (i % 2 && isToken(part) ? <Token key={i} value={part} /> : part));
 
 /** One paragraph: its lines as text, consecutive list lines as a list, closer to each other than paragraphs are. */
 function Block({ text }: { text: string }) {
@@ -30,7 +31,7 @@ function Block({ text }: { text: string }) {
 }
 
 /** Long text as paragraphs (split on blank lines) and lists, folded to its first paragraph, or to the first
- *  sentence of a single one, with the rest behind Show more; hashes and paths in it as chips. */
+ *  sentence of a single one, with the rest behind Show more; hashes, IDs and paths in it as chips. */
 export function Prose({ text }: { text?: string | null }) {
   const [open, setOpen] = useState(false);
   if (!text) return <p><Missing /></p>;

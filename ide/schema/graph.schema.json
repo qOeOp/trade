@@ -365,26 +365,38 @@
                     null
                   ]
                 },
-                "failed_items": {
-                  "type": [
-                    "array",
-                    "null"
-                  ],
-                  "items": {
-                    "type": "string"
-                  }
-                },
                 "at": {
                   "type": [
                     "string",
                     "null"
                   ]
                 },
-                "note": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
+                "checks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "name",
+                      "status"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
                 }
               }
             }

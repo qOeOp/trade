@@ -26,6 +26,8 @@ const OUTCOME: Record<string, [string, string]> = {
   held: ["Held", "text-meets"], failed: ["Failed", "text-misses"], untestable: ["Untestable", "text-fg-faint"],
 };
 const VERDICT: Record<string, [string, string]> = { passed: ["Passed", "text-meets"], failed: ["Failed", "text-fail"] };
+/** A review check's status; any other (no opportunity, unresolved) reads faint, as written. */
+const CHECK: Record<string, [string, string]> = { passed: ["passed", "text-meets"], failed: ["failed", "text-fail"] };
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 /** A mean daily log difference as the daily percent it compounds to, signed: +0.012%. */
 const daily = (log: number) => Math.expm1(log).toLocaleString("en-US", { style: "percent", minimumFractionDigits: 3, maximumFractionDigits: 3, signDisplay: "exceptZero" }).replace("-", "\u2212");
@@ -100,10 +102,17 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
               return (
                 <div key={i} className="grid grid-cols-[4.5rem_1fr] gap-x-2">
                   <span className={cls}>{label}</span>
-                  <div className="min-w-0 space-y-1"><div className="text-fg-faint">{when(r.at, zone)}
-                    {!!r.failed_items?.length && <span className="ml-2">Failed items {r.failed_items.join(", ")}</span>}
-                    </div>
-                    {r.note && <div className="text-fg-muted"><Prose text={r.note} /></div>}</div>
+                  <div className="min-w-0 space-y-2"><div className="text-fg-faint">{when(r.at, zone)}</div>
+                    {(r.checks ?? []).map((ch) => {
+                      const [status, tone] = CHECK[ch.status ?? ""] ?? [(ch.status ?? "-").replaceAll("_", " "), "text-fg-faint"];
+                      return (
+                        <div key={ch.name} className="space-y-0.5">
+                          <div><span className="text-fg">{ch.name === "api" ? "API" : ch.name[0]!.toUpperCase() + ch.name.slice(1)}</span>
+                            <span className={`ml-2 ${tone}`}>{status}</span></div>
+                          {ch.note && <div className="text-fg-muted"><Prose text={ch.note} /></div>}
+                        </div>
+                      );
+                    })}</div>
                 </div>
               );
             })}
