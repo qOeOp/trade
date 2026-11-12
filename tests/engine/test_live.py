@@ -260,9 +260,9 @@ class LiveTests(unittest.TestCase):
             session.node, session.source = None, None
         self.addCleanup(cleanup)
         source = session.source
-        source.on_bar(SimpleNamespace(ts_event=9999999999999999999))
+        source.on_bar(SimpleNamespace(ts_event=9999999999999999999, bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
         session.begin_stop("test")
-        source.on_bar(SimpleNamespace(ts_event=9999999999999999999))
+        source.on_bar(SimpleNamespace(ts_event=9999999999999999999, bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
         source.on_order_event(SimpleNamespace(to_dict=lambda: {"type": "OrderFilled"}))
         self.assertEqual(source.observed, ["bar", "order"])
         order = source.order_factory.market(InstrumentId.from_str("BTCUSDT-PERP.BINANCE"),
@@ -284,7 +284,7 @@ class LiveTests(unittest.TestCase):
             with self.assertRaisesRegex(LiveRefusal, "LIVE_ENTRY_STOPPED"):
                 source.submit_order(order)
             self.assertTrue(session.stopping)
-            source.on_bar(SimpleNamespace(ts_event=9999999999999999999))
+            source.on_bar(SimpleNamespace(ts_event=9999999999999999999, bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
             self.assertEqual(source.observed, [])
         finally:
             node.dispose()
@@ -299,8 +299,8 @@ class LiveTests(unittest.TestCase):
         try:
             at = start + 60_000_000_000  # the first whole minute at least 30 s after the start (engine.history)
             self.assertEqual(session.source._replay_input_start_ns, at)
-            session.source.on_bar(SimpleNamespace(ts_event=at - 1_000_000))
-            session.source.on_bar(SimpleNamespace(ts_event=at + 60_000_000_000 - 1_000_000))
+            session.source.on_bar(SimpleNamespace(ts_event=at - 1_000_000, bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
+            session.source.on_bar(SimpleNamespace(ts_event=at + 60_000_000_000 - 1_000_000, bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
             self.assertEqual(session.source.observed, ["bar"])
         finally:
             node.dispose()

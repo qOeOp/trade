@@ -227,7 +227,7 @@ def _minute_results(rows):
 
 
 GATE_EVENTS = frozenset({"entries_closed", "entries_checking", "entries_opened", "entries_held", "connection_lost",
-                         "connection_renewed", "entry_refused"})
+                         "connection_renewed", "entry_held", "entry_released", "entry_refused"})
 GATE_REASONS = frozenset({"disconnected", "unverified", "unknown_orders", "bars_missing", "account_mode", "foreign",
                           "open"})
 

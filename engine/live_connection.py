@@ -1,11 +1,13 @@
 """A lost Binance connection closes entries; it no longer ends the run.
 
 docs/plans/live-continuous-operation-design-20261110.zh.md §3.2. While any Binance socket is down, and until the venue
-and the native cache agree again, entries are closed: working entries are withdrawn, and an entry the source submits
-(or one still waiting for its account check) is refused with LIVE_CONNECTION_UNVERIFIED, which ends the run as any
-refused entry does (design §3.5: the source cannot see a product refusal, and rc7's Python Strategy has no native
-deny_order). Reductions, cancels and closes travel over REST and stay allowed, so the source keeps protecting and
-exiting its positions and the Observer can still stop.
+and the native cache agree again, entries are closed: working entries are withdrawn. An entry the source submits, or
+one still waiting for its account check, is held unsent (docs/plans/live-entry-hold-20261113.zh.md): it is sent once,
+unchanged, when the gate reopens within HOLD_NS of its decision and before the source receives another bar of the
+type it decided on; otherwise the run ends as for any refused entry (rc7's Python Strategy has no native deny_order,
+and the source cannot see a product refusal). A gate closed for a reason a check cannot clear refuses at once.
+Reductions, cancels and closes travel over REST and stay allowed, so the source keeps protecting and exiting its
+positions and the Observer can still stop.
 
 Entries reopen only when every socket is connected again and two comparisons of the venue (REST) with the native cache,
 COMPARE_SPACING_SECONDS apart, both agree: the strategy's positions and open orders, the account modes, nothing foreign,
@@ -24,13 +26,14 @@ from decimal import Decimal
 import time
 from typing import Any
 
-from nautilus_trader.model import ClientId, InstrumentId, OrderStatus, PositionSide
+from nautilus_trader.model import ClientId, InstrumentId, OrderStatus, PositionSide, TimeInForce
 from nautilus_trader.common import SocketState
 from nautilus_trader.trading import Strategy
 
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_records import source_strategy_id, write_json
 from engine.live_venue import require_account_mode, require_own_symbol
+from engine.order_rules import GTD_MINIMUM_NS
 
 COMPARE_SPACING_SECONDS = 31  # one native position check (30 s) and open-order check (10 s) between the two reads
 COMPARE_RETRY_SECONDS = 10
@@ -41,6 +44,8 @@ RENEW_AFTER_SECONDS = 23 * 3600  # Binance closes a connection after 24 h (desig
 RENEW_SECONDS = range(20, 41)  # seconds of the minute, away from the bar boundary
 # Reasons a check can clear; any other reason holds entries closed until the run ends.
 RECOVERABLE = frozenset({"disconnected", "unverified"})
+HOLD_NS = 60_000_000_000  # an entry is held unsent at most this long after its decision
+SEND_MARGIN_NS = 5_000_000_000  # a GTD entry is sent with at least GTD_MINIMUM_NS plus this left
 # Native order states whose venue state may still be changing; a comparison seeing one is not yet consistent.
 IN_FLIGHT = frozenset({OrderStatus.SUBMITTED, OrderStatus.PENDING_UPDATE, OrderStatus.PENDING_CANCEL})
 
@@ -76,7 +81,10 @@ def close_entries(session, reason: str, *, withdraw: bool = True, **fields) -> N
     state.closed[reason] = time.monotonic()
     state.agreed = None
     session.event("entries_closed", reason=reason, strict=False, **fields)
-    deny_queued(session, reason)
+    if holdable(session):
+        hold_queued(session)
+    else:
+        deny_queued(session, reason)
     if withdraw:
         session.cancel_entries(reason)
 
@@ -88,6 +96,9 @@ def open_entries(session) -> None:
     state.agreed = None
     state.notified -= {"held"}
     session.event("entries_opened", strict=False, reasons=reasons)
+    if session.pending_entries and session.account_observation is None:
+        from engine import live_commands as commands  # engine.live_commands imports this module
+        commands.start_observation(session, "entry")  # the held entries, in order, as any queued entry
 
 
 def refuse(session, reason: str) -> None:
@@ -96,14 +107,81 @@ def refuse(session, reason: str) -> None:
                                                 "agree again")
 
 
-def deny_queued(session, reason: str) -> None:
-    """Entries still waiting for their account check never left: refused like a new one, so the run ends."""
+def holdable(session) -> bool:
+    """The gate is closed only for reasons a check can clear: an entry may wait for it."""
+    closed = session.connection.closed
+    return bool(closed) and set(closed) <= RECOVERABLE
+
+
+def deadline(order) -> int:
+    """The latest send time of a held entry: HOLD_NS after its decision, and early enough for a GTD order's
+    send-time rule."""
+    found = order.ts_init + HOLD_NS
+    if order.time_in_force == TimeInForce.GTD:
+        found = min(found, order.expire_time_ns - GTD_MINIMUM_NS - SEND_MARGIN_NS)
+    return found
+
+
+def entry_fields(pending) -> dict:
+    order = pending.order
+    return {"client_order_id": str(order.client_order_id), "ts_init": order.ts_init, "side": order.side.name,
+            "type": order.order_type.name, "price": str(order.price) if getattr(order, "has_price", False) else None,
+            "trigger_price": str(order.trigger_price) if getattr(order, "has_trigger_price", False) else None,
+            "quantity": str(order.quantity),
+            "expire_time_ns": order.expire_time_ns if order.time_in_force == TimeInForce.GTD else None}
+
+
+def hold(session, pending) -> None:
+    """Hold an admitted entry unsent while the gate is closed for recoverable reasons; no account observation runs."""
+    if pending.deadline_ns is None:
+        pending.deadline_ns = deadline(pending.order)
+        session.event("entry_held", strict=False, reasons=sorted(session.connection.closed),
+                      deadline_ns=pending.deadline_ns, **entry_fields(pending))
+    if pending not in session.pending_entries:
+        session.pending_entries.append(pending)
+
+
+def hold_queued(session) -> None:
+    """The gate closed while entries waited for their account check: drop the check, hold the entries."""
+    observation, session.account_observation = session.account_observation, None
+    if observation is not None:
+        observation.result.cancel()
+    for pending in session.pending_entries:
+        hold(session, pending)
+
+
+def require_send_time(pending) -> None:
+    """Every entry is sent with time left on a GTD order, and a held one by its deadline."""
+    order, now = pending.order, time.time_ns()
+    if order.time_in_force == TimeInForce.GTD and order.expire_time_ns - now < GTD_MINIMUM_NS + SEND_MARGIN_NS:
+        raise Refusal("LIVE_ORDER_UNSUPPORTED", "a GTD entry is sent with at least 605 seconds left")
+    if pending.deadline_ns is not None and now > pending.deadline_ns:
+        raise Refusal("LIVE_CONNECTION_UNVERIFIED", "entry_hold_expired: the gate did not reopen in time")
+
+
+def refused(session, pending, code: str, detail: str | None) -> None:
+    held = time.time_ns() - pending.order.ts_init if pending.deadline_ns is not None else None
+    session.event("entry_refused", strict=False, code=code, detail=detail, reasons=sorted(session.connection.closed),
+                  held_ns=held, **entry_fields(pending))
+
+
+def deny_queued(session, reason: str, detail: str | None = None) -> None:
+    """Entries still waiting to be sent are refused like a new one, so the run ends."""
     if session.pending_entries:
         from engine import live_commands as commands  # engine.live_commands imports this module
-        commands.discard_observation(session)
+        commands.discard_observation(session, "LIVE_CONNECTION_UNVERIFIED", detail or reason)
         session.failed = True
-        session.event("entry_refused", strict=False, reason=reason, code="LIVE_CONNECTION_UNVERIFIED")
         session.begin_stop("entry_admission_failed")
+
+
+def held_bar(session, bar) -> bool:
+    """A bar of the type a held entry was decided on, while it is unsent, ends the run before the source sees it:
+    the source never decides again on an entry the native cache does not hold yet."""
+    if any(pending.deadline_ns is not None and pending.bar_type in (None, bar.bar_type)
+           for pending in session.pending_entries):
+        deny_queued(session, gate_reason(session), "entry_hold_bar")
+        return True
+    return False
 
 
 def gate_reason(session) -> str:
@@ -200,6 +278,10 @@ def tick(session, observer, now: float) -> None:
     """Drive the comparisons from the Observer's 1 s timer, after the run's start was verified."""
     from engine import live_commands as commands
     state = session.connection
+    if any(pending.deadline_ns is not None and time.time_ns() > pending.deadline_ns
+           for pending in session.pending_entries):
+        deny_queued(session, gate_reason(session), "entry_hold_expired")
+        return
     for key, since in list(state.disconnected.items()):
         if now - since >= LOST_SECONDS and "lost:" + key not in state.notified:
             state.notified.add("lost:" + key)

@@ -129,6 +129,19 @@ def journal(pack: Mapping, start: int) -> list[dict]:
     return [{"kind": "started", "input_start_ns": start}] + [line for _, line in sorted(rows, key=lambda item: item[0])]
 
 
+GATE_REASONS = frozenset({"disconnected", "unverified", "unknown_orders", "account_mode", "foreign", "bars_missing"})
+
+
+def gate(events: list[dict]) -> dict:
+    """The entries Live's entry gate changed (engine.live_connection), as replay.reconcile attributes them: those sent
+    after a hold, those withdrawn when the gate closed, and the decision times of those refused after a hold."""
+    return {"released": [row["client_order_id"] for row in events if row.get("event") == "entry_released"],
+            "withdrawn": [row["client_order_id"] for row in events if row.get("event") == "entry_cancel_requested"
+                          and row.get("reason") in GATE_REASONS],
+            "refused": [row["ts_init"] for row in events if row.get("event") == "entry_refused"
+                        and row.get("held_ns") is not None and isinstance(row.get("ts_init"), int)]}
+
+
 def run_record(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dict]) -> dict:
     """The pack as replay.reconcile.compare reads a run."""
     symbol = pack["manifest"]["symbols"][0]
@@ -141,7 +154,7 @@ def run_record(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dic
             paid += funding[applied][1]
             applied += 1
         equity.append((row["minute_ns"], Decimal(balance) + Decimal(row["result"]) + paid))
-    return {"bars": [row for row in pack["market"] if row.get("kind") == "bar"],
+    return {"bars": [row for row in pack["market"] if row.get("kind") == "bar"], "gate": gate(pack["events"]),
             "warmup": shared.received_warmup(row for row in pack["market"] if row.get("kind") == "historical_bar"),
             "events": pack["orders"], "settlements": settled, "equity": equity,
             "terms": dict((pack["manifest"].get("market") or {}).get("terms") or {}), "fees": _fees(snapshot, symbol)}

@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -69,6 +70,70 @@ def venue_snapshot(base: dict, cache, *, unknown: bool = False, observed_ns: int
 
 
 class NativeConnectionTests(unittest.TestCase):
+    def native(self, root: Path, gtd: bool = True):
+        """A Live session whose source sends one LIMIT entry (GTD 600.075 s, or GTC) on its first mark price, on the
+        native backtest engine; the venue fills it only against a crossing quote. Startup is covered separately: the
+        entry still performs the real require_entry -> asynchronous observation -> require_admission -> dispatch."""
+        live.strategy_runtime.clear_failures()
+        text = SOURCE.replace("from nautilus_trader.trading import Strategy",
+            "from nautilus_trader.trading import Strategy\n"
+            "from nautilus_trader.model import OrderSide, Price, Quantity, TimeInForce")
+        text = text.replace("self.observed = []", "self.observed = []\n        self.iid = instrument_id\n        self.sent = False")
+        text += '''
+    def on_start(self):
+        self.subscribe_mark_prices(self.iid)  # quotes reach the venue's book, not the source
+    def on_mark_price(self, quote):
+        if self.sent:
+            return
+        self.sent = True
+        self.pending = self.order_factory.limit(self.iid, OrderSide.BUY, Quantity.from_str('0.003'),
+            Price.from_str('90.00'), time_in_force=TimeInForce.GTD, expire_time=quote.ts_event + 600_075_000_000)
+        self.submit_order(self.pending)
+'''
+        if not gtd:
+            text = text.replace("time_in_force=TimeInForce.GTD, expire_time=quote.ts_event + 600_075_000_000",
+                                "time_in_force=TimeInForce.GTC")
+        path, universe = root / "source.py", root / "universe.json"
+        path.write_text(text)
+        universe.write_text('{"membership":{"AAAUSDT":[[0,9999999999999999999]]}}')
+        credentials = Credentials("offline-connection-key", "offline-connection-secret")
+        manifest = dict(run_id="native-window", symbols=["AAAUSDT"], strategy_file=str(path),
+            account_id="BINANCE-001", credential_binding=credentials.binding,
+            universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
+            source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
+            config=dict(duration_seconds=60, budget_usdt="100", max_loss_usdt="10", leverage="50"),
+            market=dict(market_day="2026-11-09", terms={"AAAUSDT": dict(
+                price_increment="0.01", size_increment="0.001", min_notional="0.1")}))
+        reader = FixtureReader(credentials.binding)
+        session = live.Session(manifest, root, "run", account_verified=True, account_reader=reader)
+        session.node = Mock()  # Record asynchronous stop without advancing native time.
+        source = live_source_runtime.live_source(live.source_for_run(manifest), session)
+        session.source = source
+        engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
+        usdt = Currency.from_str("USDT")
+        engine.add_venue(Venue("BINANCE"), OmsType.HEDGING, AccountType.MARGIN,
+            [Money(100, usdt)], base_currency=usdt, default_leverage=Decimal(1), book_type=BookType.L1_MBP,
+            fee_model=MakerTakerFeeModel(Decimal(0), Decimal(0)), support_gtd_orders=True, liquidity_consumption=True)
+        engine.add_instrument(INSTRUMENT)
+        engine.add_strategy(source)
+        start = history.STATES[str(source.strategy_id)]["at"] + 1_000_000_000  # after its T
+
+        def advance(ts, bid="100.00", ask="101.00", size="0.001"):
+            quote = QuoteTick(INSTRUMENT.id, Price.from_str(bid), Price.from_str(ask),
+                              Quantity.from_str(size), Quantity.from_str(size), ts, ts)
+            engine.add_data([quote, MarkPriceUpdate(INSTRUMENT.id, Price.from_str(bid), ts, ts)], None, False, True)
+            engine.run(None, ts, None, True)
+            engine.clear_data()
+        return session, source, engine, reader, advance, start
+
+    @staticmethod
+    def close_native(session, engine):
+        engine.end()
+        engine.dispose()
+        session.source = session.node = None
+        gc.collect()
+        live.strategy_runtime.clear_failures()
+
     def assert_reopens_and_cancels_unknown(self, session, engine, protection):
         base = session.account_reader.snapshot(["AAAUSDT"])
         now = base["observed_ns"]
@@ -96,71 +161,60 @@ class NativeConnectionTests(unittest.TestCase):
         self.assertEqual([row["event"] for row in events if row["event"].startswith("entries_")],
                          ["entries_closed", "entries_checking", "entries_opened", "entries_closed"])
 
+    def test_an_entry_at_a_closed_gate_is_held_unsent_and_sent_once_when_it_reopens(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session, source, engine, reader, advance, start = self.native(root, gtd=False)
+            self.addCleanup(self.close_native, session, engine)
+            observer = SimpleNamespace(session=session, cache=engine.cache)
+            socket = SimpleNamespace(client_id="BINANCE", endpoint="binance-futures-user-streams",
+                                     state=SocketState.DISCONNECTED)
+            live_lifecycle.Observer.on_socket_state(observer, socket)
+            advance(start)  # the source decides while the gate is closed
+            self.assertFalse(session.stopping or session.failed)
+            [held] = session.pending_entries
+            self.assertEqual(held.deadline_ns, start + 60_000_000_000)
+            self.assertIsNone(session.account_observation)
+            self.assertEqual(reader.calls, [])
+            # Not in the native cache: nothing counts it, nothing can cancel or fill it.
+            self.assertEqual((engine.cache.orders(), engine.cache.orders_open()), ([], []))
+            commands.dispatch_entry(session)
+            self.assertEqual(engine.cache.orders(), [])
+            socket.state = SocketState.CONNECTED
+            live_lifecycle.Observer.on_socket_state(observer, socket)
+            session.connection.bar_since_reconnect = True
+            base = reader.snapshot(["AAAUSDT"])
+            for offset in (0, 31 * 10**9):
+                clock = Mock(wraps=time)  # live_venue's clock only: the observation the reopening starts reads now
+                clock.time_ns.return_value = base["observed_ns"] + offset
+                with patch("engine.live_venue.time", clock):
+                    live_connection.judge(session, engine.cache, venue_snapshot(
+                        base, engine.cache, observed_ns=base["observed_ns"] + offset))
+            self.assertTrue(live_connection.entries_open(session))
+            session.account_observation.result.result(timeout=2)  # the reopened gate checks the held entry
+            commands.dispatch_entry(session)
+            self.assertEqual(session.pending_entries, [])
+            advance(start + 1_000_000)
+            self.assertEqual([order.client_order_id for order in engine.cache.orders()], [source.pending.client_order_id])
+            self.assertEqual(engine.cache.order(source.pending.client_order_id).status, OrderStatus.ACCEPTED)
+            events = [json.loads(row) for row in (root / "events.jsonl").read_text().splitlines()]
+            names = [row["event"] for row in events]
+            self.assertLess(names.index("entry_held"), names.index("entries_opened"))
+            self.assertLess(names.index("entries_opened"), names.index("entry_released"))
+            released = next(row for row in events if row["event"] == "entry_released")
+            self.assertEqual(released["client_order_id"], str(source.pending.client_order_id))
+            self.assertNotIn("entry_refused", names)
+            self.assertEqual(live.strategy_runtime.FAILURES, [])
+
     def test_disconnect_withdraws_the_entry_and_the_venue_expires_gtd(self):
         # cancel_reaches_venue=False: the withdrawal is lost, so only the venue's GTD expiry or a fill ends the entry.
         for disconnected, gtd, cancel_reaches_venue in (
                 (False, True, True), (True, True, True), (True, False, True), (True, True, False), (True, False, False)):
             with self.subTest(disconnected=disconnected, gtd=gtd, cancel_reaches_venue=cancel_reaches_venue), \
                     tempfile.TemporaryDirectory() as directory:
-                live.strategy_runtime.clear_failures()
                 root = Path(directory)
-                text = SOURCE.replace("from nautilus_trader.trading import Strategy",
-                    "from nautilus_trader.trading import Strategy\n"
-                    "from nautilus_trader.model import OrderSide, Price, Quantity, TimeInForce")
-                text = text.replace("self.observed = []", "self.observed = []\n        self.iid = instrument_id\n        self.sent = False")
-                text += '''
-    def on_start(self):
-        self.subscribe_mark_prices(self.iid)  # quotes reach the venue's book, not the source
-    def on_mark_price(self, quote):
-        if self.sent:
-            return
-        self.sent = True
-        self.pending = self.order_factory.limit(self.iid, OrderSide.BUY, Quantity.from_str('0.003'),
-            Price.from_str('90.00'), time_in_force=TimeInForce.GTD, expire_time=quote.ts_event + 600_075_000_000)
-        self.submit_order(self.pending)
-'''
-                if not gtd:
-                    text = text.replace("time_in_force=TimeInForce.GTD, expire_time=quote.ts_event + 600_075_000_000",
-                                        "time_in_force=TimeInForce.GTC")
-                path, universe = root / "source.py", root / "universe.json"
-                path.write_text(text)
-                universe.write_text('{"membership":{"AAAUSDT":[[0,9999999999999999999]]}}')
-                credentials = Credentials("offline-connection-key", "offline-connection-secret")
-                manifest = dict(run_id="native-window", symbols=["AAAUSDT"], strategy_file=str(path),
-                    account_id="BINANCE-001", credential_binding=credentials.binding,
-                    universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
-                    source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
-                    config=dict(duration_seconds=60,
-                                budget_usdt="100", max_loss_usdt="10", leverage="50"),
-                    market=dict(market_day="2026-11-09", terms={"AAAUSDT": dict(
-                        price_increment="0.01", size_increment="0.001", min_notional="0.1")}))
-                # Startup is covered separately. The new entry still performs the real
-                # require_entry -> asynchronous observation -> require_admission -> dispatch.
-                reader = FixtureReader(credentials.binding)
-                session = live.Session(manifest, root, "run", account_verified=True, account_reader=reader)
-                session.node = Mock()  # Record asynchronous stop without advancing native time.
-                source = live_source_runtime.live_source(live.source_for_run(manifest), session)
-                session.source = source
-                engine = BacktestEngine(BacktestEngineConfig(
-                    logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
+                session, source, engine, reader, advance, start = self.native(root, gtd)
                 try:
-                    usdt = Currency.from_str("USDT")
-                    engine.add_venue(Venue("BINANCE"), OmsType.HEDGING, AccountType.MARGIN,
-                        [Money(100, usdt)], base_currency=usdt, default_leverage=Decimal(1), book_type=BookType.L1_MBP,
-                        fee_model=MakerTakerFeeModel(Decimal(0), Decimal(0)), support_gtd_orders=True,
-                        liquidity_consumption=True)
-                    engine.add_instrument(INSTRUMENT)
-                    engine.add_strategy(source)
-                    start = history.STATES[str(source.strategy_id)]["at"] + 1_000_000_000  # after its T
-
-                    def advance(ts, bid="100.00", ask="101.00", size="0.001"):
-                        quote = QuoteTick(INSTRUMENT.id, Price.from_str(bid), Price.from_str(ask),
-                                          Quantity.from_str(size), Quantity.from_str(size), ts, ts)
-                        engine.add_data([quote, MarkPriceUpdate(INSTRUMENT.id, Price.from_str(bid), ts, ts)], None, False,
-                                        True)
-                        engine.run(None, ts, None, True)
-                        engine.clear_data()
-
                     advance(start)  # A non-crossing quote creates one unsubmitted LIMIT intent.
                     self.assertNotEqual(session.pending_entries, [])
                     self.assertEqual(len(engine.cache.orders()), 0)
@@ -226,12 +280,7 @@ class NativeConnectionTests(unittest.TestCase):
                                              OrderStatus.CANCELED)
                     self.assertEqual(live.strategy_runtime.FAILURES, [])
                 finally:
-                    engine.end()
-                    engine.dispose()
-                    session.source = session.node = None
-                    source = engine = None
-                    gc.collect()
-                    live.strategy_runtime.clear_failures()
+                    self.close_native(session, engine)
 
     def test_a_source_that_stops_itself_enters_the_stop_path_and_is_closed(self):
         for action in ("stop", "fault", "degrade"):
@@ -307,9 +356,4 @@ class NativeConnectionTests(unittest.TestCase):
                                if row["event"] == "stopping"]
                     self.assertEqual(reasons, ["source_not_running"])
                 finally:
-                    engine.end()
-                    engine.dispose()
-                    session.source = session.node = None
-                    source = engine = None
-                    gc.collect()
-                    live.strategy_runtime.clear_failures()
+                    self.close_native(session, engine)

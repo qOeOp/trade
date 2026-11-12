@@ -4,14 +4,15 @@ from decimal import Decimal
 import json
 from pathlib import Path
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
 
 from nautilus_trader.common import SocketState
-from nautilus_trader.model import BarType, OrderStatus, PositionSide
+from nautilus_trader.model import BarType, OrderSide, OrderStatus, OrderType, PositionSide, TimeInForce
 
-from engine import live, live_commands as commands, live_connection
+from engine import live, live_commands as commands, live_connection, live_source
 from engine.live_errors import LiveRefusal
 from engine.live_records import source_strategy_id
 from tests.engine.test_live_venue import fixture
@@ -90,19 +91,110 @@ class GateTests(unittest.TestCase):
         self.assertEqual(slow, {"observation": ["LIVE_OBSERVATION_STALE"]})  # read again; not a held reason
         self.assertEqual(foreign, {"foreign": ["LIVE_ACCOUNT_NOT_FLAT"]})
 
-    def test_disconnect_closes_entries_and_a_new_or_queued_entry_ends_the_run(self):
+    def pending(self, ts_init, gtd_seconds=None, bar_type=None):
+        tif = TimeInForce.GTD if gtd_seconds is not None else TimeInForce.GTC
+        entry = SimpleNamespace(client_order_id="O-1", ts_init=ts_init, side=OrderSide.BUY, order_type=OrderType.LIMIT,
+                                has_price=True, price="90.00", has_trigger_price=False, quantity="0.003",
+                                time_in_force=tif, expire_time_ns=ts_init + (gtd_seconds or 0) * 10**9)
+        return commands.PendingEntry(entry, mock.Mock(), None, bar_type)
+
+    def test_a_closed_gate_holds_entries_only_for_recoverable_reasons(self):
         self.socket(SocketState.DISCONNECTED)
         self.assertFalse(live_connection.entries_open(self.session))
+        self.assertTrue(live_connection.holdable(self.session))
         self.assertFalse(self.session.stopping)
-        with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
-            live_connection.refuse(self.session, live_connection.gate_reason(self.session))
-        # An entry already waiting for its account check when the gate closes never left: the run ends.
+        # An entry waiting for its account check when the gate closes is held: its check is dropped, it stays queued.
         session = live.Session(manifest(self.binding), self.session.output, "run", account_verified=True)
         session.node = mock.Mock()
-        session.pending_entries.append(commands.PendingEntry(SimpleNamespace(), mock.Mock(), None))
+        now = time.time_ns()
+        queued = self.pending(now, gtd_seconds=660)
+        session.pending_entries.append(queued)
+        session.account_observation = observation = mock.Mock()
         live_connection.close_entries(session, "disconnected")
+        observation.result.cancel.assert_called_once()
+        self.assertIsNone(session.account_observation)
+        self.assertEqual(session.pending_entries, [queued])
+        self.assertEqual(queued.deadline_ns, now + 55 * 10**9)  # GTD 660 s: sent with 605 s left at the latest
+        self.assertFalse(session.stopping)
+        commands.dispatch_entry(session)  # nothing is sent and nothing ends while the gate is closed
+        queued.submit.assert_not_called()
+        self.assertFalse(session.stopping)
+        held = [row for row in self.events() if row["event"] == "entry_held"]
+        self.assertEqual((held[0]["client_order_id"], held[0]["reasons"], held[0]["side"], held[0]["type"]),
+                         ("O-1", ["disconnected"], "BUY", "LIMIT"))
+        # A reason no check clears refuses the held entries: the run ends, and the refusal is journaled.
+        live_connection.close_entries(session, "unknown_orders")
         self.assertEqual(session.pending_entries, [])
         self.assertTrue(session.failed and session.stopping)
+        refused = [row for row in self.events() if row["event"] == "entry_refused"][-1]
+        self.assertEqual((refused["code"], refused["detail"]), ("LIVE_CONNECTION_UNVERIFIED", "unknown_orders"))
+        self.assertIsNotNone(refused["held_ns"])
+        # A new entry at a gate closed for such a reason is refused at once (engine.live_source).
+        self.assertFalse(live_connection.holdable(session))
+        with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
+            live_connection.refuse(session, live_connection.gate_reason(session))
+
+    def test_a_held_entry_ends_the_run_at_its_deadline_or_at_the_next_bar_of_its_type(self):
+        self.socket(SocketState.DISCONNECTED)
+        now = time.time_ns()
+        entry = self.pending(now, bar_type=BAR)
+        live_connection.hold(self.session, entry)
+        self.assertEqual(entry.deadline_ns, now + 60 * 10**9)
+        self.assertIsNone(self.session.account_observation)  # no observation while the gate is closed
+        other = BarType.from_str(f"{SYMBOL}-PERP.BINANCE-1-HOUR-LAST-EXTERNAL")
+        self.assertFalse(live_connection.held_bar(self.session, SimpleNamespace(bar_type=other)))
+        self.assertTrue(live_connection.held_bar(self.session, SimpleNamespace(bar_type=BAR)))
+        self.assertTrue(self.session.stopping and self.session.failed)
+        self.assertEqual([row["detail"] for row in self.events() if row["event"] == "entry_refused"], ["entry_hold_bar"])
+
+        session = live.Session(manifest(self.binding), self.session.output, "run", account_verified=True)
+        session.node = mock.Mock()
+        session.connection.closed["disconnected"] = 0.0
+        live_connection.hold(session, self.pending(now))
+        observer = SimpleNamespace(cache=Cache())
+        with mock.patch("engine.live_connection.time.time_ns", return_value=now + 60 * 10**9):
+            live_connection.tick(session, observer, 1.0)
+        self.assertFalse(session.stopping)
+        with mock.patch("engine.live_connection.time.time_ns", return_value=now + 60 * 10**9 + 1):
+            live_connection.tick(session, observer, 2.0)
+        self.assertTrue(session.stopping and session.failed)
+        self.assertEqual([row["detail"] for row in self.events() if row["event"] == "entry_refused"][-1],
+                         "entry_hold_expired")
+
+    def test_the_bar_bound_ends_the_run_before_the_source_sees_the_bar(self):
+        seen = []
+        on_bar = live_source._gated("on_bar", lambda source, bar: seen.append((bar, self.session.deciding)))
+        source = SimpleNamespace(_live=self.session)
+        self.session.evidence = mock.Mock()
+        bar = SimpleNamespace(bar_type=BAR)
+        with mock.patch.object(live_connection, "bar"):
+            on_bar(source, bar)  # the source decides on this bar: an entry it submits now carries its type
+            self.assertEqual(seen, [(bar, BAR)])
+            self.assertIsNone(self.session.deciding)
+            self.socket(SocketState.DISCONNECTED)
+            live_connection.hold(self.session, self.pending(time.time_ns(), bar_type=BAR))
+            on_bar(source, bar)
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(self.session.stopping and self.session.failed)
+
+    def test_reopening_checks_held_entries_in_order_and_sends_by_the_deadline(self):
+        session = self.session
+        now = time.time_ns()
+        session.connection.closed["unverified"] = 0.0
+        first, second = self.pending(now), self.pending(now)
+        live_connection.hold(session, first)
+        live_connection.hold(session, second)
+        with mock.patch.object(commands, "start_observation") as start:
+            live_connection.open_entries(session)
+        start.assert_called_once_with(session, "entry")  # one at a time, the head first
+        live_connection.require_send_time(first)
+        with mock.patch("engine.live_connection.time.time_ns", return_value=first.deadline_ns + 1):
+            with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED.*entry_hold_expired"):
+                live_connection.require_send_time(first)
+        # Every GTD entry, held or not, leaves with at least 605 s before it expires.
+        with self.assertRaisesRegex(LiveRefusal, "LIVE_ORDER_UNSUPPORTED"):
+            live_connection.require_send_time(self.pending(now - 56 * 10**9, gtd_seconds=660))
+        live_connection.require_send_time(self.pending(now - 54 * 10**9, gtd_seconds=660))
 
     def test_reconnect_starts_a_check_and_a_long_outage_is_noticed(self):
         self.socket(SocketState.DISCONNECTED, "market")

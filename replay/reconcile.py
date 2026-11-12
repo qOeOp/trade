@@ -55,7 +55,8 @@ BAR_FIELDS = ("open", "high", "low", "close", "volume")
 MINUTE_BAR = "1-MINUTE-LAST-EXTERNAL"
 PERIODS = {"1-MINUTE": 1, "3-MINUTE": 3, "5-MINUTE": 5, "15-MINUTE": 15, "30-MINUTE": 30, "1-HOUR": 60,
            "2-HOUR": 120, "4-HOUR": 240, "6-HOUR": 360, "8-HOUR": 480, "12-HOUR": 720, "1-DAY": 1440}  # engine.warmup
-CAUSES = ("missing_bar", "late_bar", "bar_mismatch", "warmup", "contract_terms", "window_end")  # in this order
+CAUSES = ("missing_bar", "late_bar", "bar_mismatch", "warmup", "contract_terms", "window_end",
+          "entry_gate")  # in this order
 STAGES = ("decision", "fill", "fee", "funding")  # a group's first difference is looked for in this order
 FINAL = {"OrderFilled": "filled", "OrderCanceled": "canceled", "OrderExpired": "expired",
          "OrderRejected": "rejected", "OrderDenied": "denied"}
@@ -480,8 +481,21 @@ def _within(closes: Iterable[int], since: int, until: int) -> list[int]:
     return [close for close in closes if since < close <= until]
 
 
+def _gated(group: Mapping, gate: Mapping) -> bool:
+    """Live's entry gate (engine.live_connection) changed this group: its run entry was sent after a hold or withdrawn
+    at a closed gate, decided as the replay's and filled otherwise, or the replay alone decided an entry Live refused after
+    holding it (gate: {released, withdrawn: run client order IDs; refused: the decision times of those entries})."""
+    gated = {*gate.get("released", ()), *gate.get("withdrawn", ())}
+    entry = next((row for row in group["orders"] if row["run"] and row["run"]["order"] in gated), None)
+    if entry is not None:
+        return entry["stage"] == "fill"  # decided as the replay did, filled otherwise; what follows is its consequence
+    return group["class"] == "replay_only" and any(
+        abs(decided - row["replay"]["init_ns"]) <= ON_TIME_NS
+        for row in group["orders"] if row["replay"] for decided in gate.get("refused", ()))
+
+
 def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[str, dict],
-              contract: Mapping[str, dict], start: int, end: int) -> list[dict]:
+              contract: Mapping[str, dict], start: int, end: int, gate: Mapping | None = None) -> list[dict]:
     """Each group pair with its cause when it differs (CAUSES, in order; else unexplained), whether it is a
     look-ahead suspect, or the earlier difference it follows."""
     agreed: dict[str, int] = {}  # the decision of the contract's latest agreeing group
@@ -515,7 +529,7 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
         known = {"missing_bar": evidence["missing_bars"] > 0, "late_bar": evidence["late_bars"] > 0,
                  "bar_mismatch": evidence["differing_bars"] > 0, "warmup": evidence["warmup"],
                  "contract_terms": bool(evidence["terms"]),
-                 "window_end": _lone(group) and last >= end - MINUTE_NS}
+                 "window_end": _lone(group) and last >= end - MINUTE_NS, "entry_gate": _gated(group, gate or {})}
         cause = next((name for name in CAUSES if known[name]), "unexplained")
         group |= {"cause": cause, "evidence": evidence,
                   "look_ahead_suspect": cause == "unexplained" and _replay_alone(group)}
@@ -614,7 +628,7 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
         replay_orders = orders(replay_events)
         mine, theirs = run_funding(run.get("settlements") or []), replay_funding(reports)
         compared = attribute([compare_group(a, b, mine, theirs) for a, b in pair(groups(run_orders), groups(replay_orders))],
-                             found, warmed, contract, start, end)
+                             found, warmed, contract, start, end, run.get("gate"))
         summary |= {"replay_orders": len(replay_orders),
                     "replay_fills": sum(bool(item["filled"]) for item in replay_orders),
                     "groups": len(compared),

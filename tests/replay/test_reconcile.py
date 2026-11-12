@@ -1,7 +1,7 @@
 """If this fails, a run reconciled against its replay (Paper or Live) is misjudged: an order filled in pieces counts
 as several, an exit lands in another position's group, concurrent positions or a scale-out's exits are paired across
 each other and read as differences or a look-ahead suspect, a difference is called unexplained while a known product
-cause (a missing, late or differing live bar, the warm-up, the contract terms or fee rates, the window's end) applies,
+cause (a missing, late or differing live bar, the warm-up, the contract terms or fee rates, the window's end, Live's entry gate) applies,
 the causes are not tried in their order, a difference the replay did not make alone is a look-ahead suspect, a later
 difference is taken for a cause of its own, or a warm-up the archive repeats exactly reads as different."""
 
@@ -50,7 +50,7 @@ def compared(run_events: list[dict], replay_events: list[dict], minutes: int = 4
     bars = [bar(i, (closes or {}).get(i, "100.0"), close_of(i) + 5 * 10**9 if i in late else None)
             for i in range(minutes) if i not in skip]
     run = {"bars": bars, "events": run_events, **{key: context.pop(key) for key in ("warmup", "terms", "fees",
-                                                                                   "settlements") if key in context}}
+                                                                                   "settlements", "gate") if key in context}}
     return reconcile.compare(run, replay_events, {"BTCUSDT": archived(minutes)}, None, START, START + minutes * MINUTE,
                              **context)
 
@@ -224,6 +224,25 @@ class Attribution(unittest.TestCase):
     def test_a_lone_group_in_the_windows_last_minute_is_at_its_end(self):
         group = compared([], bracket("r", close_of(39), close_of(39), "R"))["groups"][0]
         self.assertEqual((group["cause"], group["look_ahead_suspect"]), ("window_end", False))
+
+    def test_live_entry_gate_explains_a_held_or_withdrawn_fill_and_a_refused_held_decision(self):
+        # Sent after a hold: decided on time, filled later than the replay's.
+        late = bracket("p", close_of(1), close_of(3), "P")
+        replay = bracket("r", close_of(1), close_of(1), "R")
+        group = compared(late, replay, gate={"released": ["p-E"]})["groups"][0]
+        self.assertEqual((group["orders"][0]["stage"], group["cause"]), ("fill", "entry_gate"))
+        self.assertEqual(compared(late, replay)["groups"][0]["cause"], "unexplained")
+        withdrawn = bracket("p", close_of(1), close_of(1), "P")[:1] + [
+            {"type": "OrderCanceled", "client_order_id": "p-E", "instrument_id": BTC, "ts_event": close_of(2)}]
+        group = compared(withdrawn, replay, gate={"withdrawn": ["p-E"]})["groups"][0]
+        self.assertEqual((group["orders"][0]["class"], group["cause"]), ("replay_only", "entry_gate"))
+        # The decision itself differs: the gate does not explain it.
+        early = bracket("p", close_of(1) - 2 * MINUTE, close_of(1) - 2 * MINUTE, "P")
+        self.assertNotEqual(compared(early, replay, gate={"released": ["p-E"]})["groups"][0]["cause"], "entry_gate")
+        # Refused after a hold: Live made no order; the replay's decision is not a look-ahead suspect.
+        group = self.replay_only(gate={"refused": [close_of(5) + 2 * 10**9]})
+        self.assertEqual((group["cause"], group["look_ahead_suspect"]), ("entry_gate", False))
+        self.assertEqual(self.replay_only(gate={"refused": [close_of(9)]})["cause"], "unexplained")
 
     def test_a_fill_only_the_replay_made_is_a_suspect_and_what_follows_is_its_consequence(self):
         run = bracket("p", close_of(1), close_of(1), "P") + bracket("p2", close_of(20), close_of(20), "P2")
