@@ -11,7 +11,8 @@ export function LiveReview({ run, inspect }: { run: LiveRun; inspect: LiveTradin
   return <Section title="Research review">
     <div className="space-y-3">
       {run.reviewError ? <p className="text-dense text-fail">Review could not be read · {run.reviewError}. Registration status is unknown.</p> : review ? <>
-        <KeyValues items={[["Research commit", <span className="break-all">{review.research_at}</span>]]} />
+        <KeyValues items={[["Research commit", <span className="break-all">{review.research_at}</span>],
+          ["Replay evidence", review.evidence.map((row) => `trial ${row.trial_id} · ${row.starting_balance_usdt} USDT`).join(", ")]]} />
         {review.validations.length === 0 ? <p className="text-dense text-fg-muted">No registrations at this exact research commit.</p>
           : <ul className="space-y-2">{review.validations.map((row, index) => <li key={index} className="rounded-control border border-line p-2 text-small">
             <p>Registration {known(row.registration_id)} · {known(row.status)}</p>

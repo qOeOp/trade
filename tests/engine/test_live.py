@@ -48,6 +48,10 @@ class LiveTests(unittest.TestCase):
         clock = mock.patch.object(live.BinanceReadOnly, "clock", side_effect=self.good_clock)  # Never the venue.
         clock.start()
         self.addCleanup(clock.stop)
+        # The wallet comparison is tests/live/test_replay_evidence.py's; here every run is backed.
+        evidence = mock.patch.object(live, "require_evidence", side_effect=lambda _, manifest: manifest["evidence"][0])
+        evidence.start()
+        self.addCleanup(evidence.stop)
         self.output = Path(self.temp.name)
         self.strategy = self.output / "source.py"
         self.strategy.write_text(SOURCE)
@@ -55,7 +59,7 @@ class LiveTests(unittest.TestCase):
         self.universe.write_text('{"membership":{"BTCUSDT":[[0,9999999999999999999]]}}')
         self.credentials = Credentials("offline-placeholder", "offline-placeholder")
         self.manifest = {
-            "format": "live-run-2", "run_id": "native-test", "trader_id": "LIVE-001",
+            "format": live.MANIFEST_FORMAT, "run_id": "native-test", "trader_id": "LIVE-001",
             "account_id": "BINANCE-LIVE-001", "credential_binding": self.credentials.binding,
             "symbols": ["BTCUSDT"], "candidate": {"strategy_id": "example", "revision": 1}, "source": {
                 "entry_class": "Source",
@@ -68,6 +72,8 @@ class LiveTests(unittest.TestCase):
                 "price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}},
             "strategy_file": str(self.strategy), "universe_file": str(self.universe),
             "universe_sha256": hashlib.sha256(self.universe.read_bytes()).hexdigest(),
+            "evidence": [{"trial_id": 7, "starting_balance_usdt": "100",
+                          "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "c" * 64}],
         }
 
     def test_manifest_cannot_rebind_account_source_or_runtime(self):

@@ -30,7 +30,7 @@ from engine import strategy as strategy_runtime
 from engine.config import RUNTIME_CONTRACT, is_leverage
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_cache import LiveCache
-from engine.live_venue import MANIFEST_FORMAT, BinanceReadOnly, read_credentials, require_clock, require_account_mode, require_admission, require_flat
+from engine.live_venue import MANIFEST_FORMAT, BinanceReadOnly, read_credentials, require_clock, require_account_mode, require_admission, require_evidence, require_flat
 from engine.load import read_regular_file
 from engine.live_records import write_json
 from engine.live_commands import pending_orders
@@ -77,6 +77,11 @@ def read_manifest(path: Path) -> dict:
         if not isinstance(market["market_day"], str) or not isinstance(market["terms"][symbols[0]], dict):
             raise ValueError
         if not isinstance(value["strategy_file"], str) or not isinstance(value["universe_file"], str):
+            raise ValueError
+        evidence = value["evidence"]
+        if not isinstance(evidence, list) or not evidence or any(
+                type(item["trial_id"]) is not int or not Decimal(item["starting_balance_usdt"]).is_finite()
+                or not re.fullmatch(r".+@sha256:[0-9a-f]{64}", item["image_ref"]) for item in evidence):
             raise ValueError
         return value
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
@@ -145,6 +150,8 @@ def execute(args) -> int:
         if args.mode in ("preflight", "run"):
             require_clock(snapshot)
             require_admission(snapshot, manifest)  # flat by default: the run starts on a flat account
+            backing = require_evidence(snapshot, manifest)
+            session.event("replay_evidence", trial_id=backing["trial_id"], starting_balance_usdt=backing["starting_balance_usdt"])
             loaded = source_for_run(manifest)
         if args.mode == "preflight":
             return 0
