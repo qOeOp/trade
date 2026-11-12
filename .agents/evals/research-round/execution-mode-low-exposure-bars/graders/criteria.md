@@ -2,7 +2,7 @@
 type: llm
 ---
 
-A new BTCUSDT research line whose source holds at most 0.4x of account equity at 1x leverage; the market commit holds inferred quotes for only the last 12 of 60 months of the window. No precheck has run yet. Judge only the final response.
+A new BTCUSDT research line whose source holds at most 0.4x of account equity at 1x leverage; the market day holds inferred quotes for only the last 12 of 60 months of the window. No precheck has run yet. Judge only the final response.
 
 1. Do the precheck, registration and replay commands run under `bars` (`--execution bars` or `--execution` left at its bars default), the same for all three?
 2. Does the response tie the choice to the distance to liquidation: the position needs a very large adverse move (roughly +99% or more for a short; any stated estimate in that range counts) before maintenance margin, far beyond what liquidation modelling would change here?

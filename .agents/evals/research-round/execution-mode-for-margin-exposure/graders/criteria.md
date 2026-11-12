@@ -2,7 +2,7 @@
 type: llm
 ---
 
-A new research line on BTCUSDT; the market commit holds inferred quotes for every month of the window and readiness for that liquidation use is recorded. The root candidate can hold notional up to three times account equity. No precheck has run yet. Judge only the final response.
+A new research line on BTCUSDT; the market day holds inferred quotes for every month of the window and readiness for that liquidation use is recorded. The root candidate can hold notional up to three times account equity. No precheck has run yet. Judge only the final response.
 
 1. Do the precheck, registration and replay commands pass `--execution quotes` together with both `--initial-margin` and `--maintenance-margin` (values, placeholders or a stated lookup all count) as runner arguments after `--`?
 2. Does the response say the same execution environment holds for this line's later runs, so a later control and candidate share it (or equivalently that the environment is part of the comparable identity / effective configuration)?
