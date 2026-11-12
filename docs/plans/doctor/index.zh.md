@@ -19,7 +19,7 @@
 | 20261112-14 | `line list --readings`（手机研究页）只看未被取代的推荐，推荐维持次数总从最新一次重复推荐算起：手机 3 次、桌面 9 次 | fix | doctor | wrong output | in PR [#2781](https://github.com/qOeOp/trade/pull/2781) | 2026-11-12 | 2026-11-12 |
 | 20261112-15 | 换思路的计数规则在这条线上分不出所比效应：可检测年化差中位 0.30，目标 20%/15%，40 个网格运行只分出 3 个；没有回撤比较 | measure；改规则由用户定 | doctor | hours | open [b5788262 审计](2026-11-12-dow-theory-b5788262-full-audit.zh.md) | 2026-11-12 | 2026-11-12 |
 | 20261112-16 | 有效试验数不含 `search_exposure` 记的离线参数扫描 | authority（研究方法） | doctor | unknown | open [b5788262 审计](2026-11-12-dow-theory-b5788262-full-audit.zh.md) | 2026-11-12 | 2026-11-12 |
-| 20261112-17 | 同季度开的线共享留出期，关闭的线公开留出结果；潜在 | authority（研究方法） | doctor | none | open [b5788262 审计](2026-11-12-dow-theory-b5788262-full-audit.zh.md) | 2026-11-12 | 2026-11-12 |
+| 20261112-17 | 同季度开的线共享留出期，关闭的线公开留出结果；潜在 | authority（用户 2026-11-12 定：推迟，新账本第一条线关闭前再定） | doctor | none | open [b5788262 审计](2026-11-12-dow-theory-b5788262-full-audit.zh.md) | 2026-11-12 | 2026-11-12 |
 | 20261112-18 | 两段 skill 重复别处已说的规则（`research-round/SKILL.md` 运行参数段、`readiness.md` 首次回放前查检出） | remove | doctor | none | in PR [#2782](https://github.com/qOeOp/trade/pull/2782) | 2026-11-12 | 2026-11-12 |
 | 20261112-19 | 判断正文该不该写读数产品自相矛盾：`ledger/judgments.py` 与设计站说只引用，`review.md`、`recommendation.md` 要写读数 | 用户定 | doctor | none | in PR [#2801](https://github.com/qOeOp/trade/pull/2801) | 2026-11-12 | 2026-11-12 |
 | 20261112-20 | 操作手册把 Paper 写成没有副本，服务其实每 300 s 同步其本地备份 | fix | doctor | none | fixed 0506df238 [#2783](https://github.com/qOeOp/trade/pull/2783) | 2026-11-12 | 2026-11-12 |
