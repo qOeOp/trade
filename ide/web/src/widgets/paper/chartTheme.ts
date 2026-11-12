@@ -119,7 +119,7 @@ export function seriesColors(dark = false) {
       ceiling: canvasColor("fg-faint", dark ? 0.8 : 0.75), flat: canvasColor("fg", dark ? 0.035 : 0.04), column: canvasColor("fg", dark ? 0.05 : 0.035),
       up: canvasColor("pnl-up", dark ? 0.42 : 0.4), down: canvasColor("pnl-down", dark ? 0.42 : 0.4), upStrong: canvasColor("pnl-up", 0.9), downStrong: canvasColor("pnl-down", 0.9),
       grid: canvasColor("grid", 0.45), restart,
-      rows: { font, label: canvasColor("fg-muted"), quiet: canvasColor("fg-faint"), meets: canvasColor("meets"), misses: canvasColor("misses"), halo: canvasColor("island"), grid: canvasColor("grid", 0.45) },
+      rows: { font, label: canvasColor("fg-muted"), quiet: canvasColor("fg-faint"), meets: canvasColor("meets"), misses: canvasColor("misses-fg"), halo: canvasColor("island"), grid: canvasColor("grid", 0.45) },
       shares: { series: (["series-1", "series-2", "series-3", "series-4", "series-5"] as const).map((r) => canvasColor(r)), other: canvasColor("fg-faint", 0.7), ink: canvasColor("fg"), paper: canvasColor("island"), track: canvasColor("grid", 0.3), font },
     },
     notes: {

@@ -11,7 +11,7 @@ export function LiveRequestsDialog({ view, actions, close, selectRun }: {
   return <LiveDialogFrame open close={close} title="Live request status" description="Review earlier actions without submitting them again."
     footer={<FormButton disabled={!actions.refresh || reading.busy} onClick={() => { if (actions.refresh) void reading.submit(actions.refresh); }}>{reading.busy ? "Reading…" : "Refresh status"}</FormButton>}>
     <div className="space-y-3">
-      {view.notice && <p role="status" className="text-small text-misses">{view.notice}</p>}
+      {view.notice && <p role="status" className="text-small text-misses-fg">{view.notice}</p>}
       {requests.length ? [...requests].reverse().map((request) => <LiveRequestStatus key={request.request_id} request={request}
         run={view.runs.find((item) => item.id === request.target.run_id)} viewRun={selectRun} resolve={actions.resolveRequest} />)
         : <p className="text-fg-muted">No requests to review in this session.</p>}

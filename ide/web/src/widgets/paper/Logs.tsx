@@ -35,7 +35,7 @@ export function Logs({ paperId }: { paperId: number }) {
         <TextButton onClick={() => setSource("egress")} active={source === "egress"}>Network</TextButton>
         <span className="ml-auto text-small text-fg-faint">{log?.sealed ? "Sealed capture" : "Refreshes every 5 seconds"} · latest 300 lines</span>
       </div>
-      {error && <p role="status" className="text-misses">Logs unavailable · {error}. Last received text is retained.</p>}
+      {error && <p role="status" className="text-misses-fg">Logs unavailable · {error}. Last received text is retained.</p>}
       <pre className="whitespace-pre-wrap break-words font-mono text-small text-fg-muted">{log?.text || (log ? "No log output yet" : "Reading logs…")}</pre>
     </div>
   );

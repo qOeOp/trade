@@ -45,10 +45,10 @@ export const signedPct = (n: number | null) => (n == null ? "—" : n > 0 ? `+${
  *  whether the strategy raised (`errors`, the count where it is known): Stopped 31 Oct · 3 errors. */
 export function Ended({ run, errors }: { run: PaperRun; errors?: ReactNode }) {
   const zone = useTimeZone();
-  const end = ending(run), invalid = end.kind === "invalid", raised = errors ?? (end.exceptions && <span className="text-misses">errors</span>);
+  const end = ending(run), invalid = end.kind === "invalid", raised = errors ?? (end.exceptions && <span className="text-misses-fg">errors</span>);
   return (
-    <span><span className={invalid ? "text-misses" : ""}>{end.word} {sealedOn(run, zone)}</span>
-      {end.detail && <span className={invalid ? "text-misses" : ""}> · {end.detail}</span>}{raised && <> · {raised}</>}</span>
+    <span><span className={invalid ? "text-misses-fg" : ""}>{end.word} {sealedOn(run, zone)}</span>
+      {end.detail && <span className={invalid ? "text-misses-fg" : ""}> · {end.detail}</span>}{raised && <> · {raised}</>}</span>
   );
 }
 

@@ -13,7 +13,7 @@ import { Track } from "../../widgets/detail/ReadingsBoard";
 import { PhoneTop } from "./PhoneTop";
 
 const short = (bundle: string) => bundle.replace(/^research-line-/, "");
-const Said = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => <span className={ok ? "text-meets" : "text-misses"}>{ok ? yes : no}</span>;
+const Said = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => <span className={ok ? "text-meets" : "text-misses-fg"}>{ok ? yes : no}</span>;
 
 /** What a line recommends, opened in its row: the version, its max drawdown along the track to the limit, its annual
  *  return against the minimum, and how long the recommendation has stood; or that its latest research run is no
@@ -26,7 +26,7 @@ function Opened({ line, r, read }: { line: ResearchLine; r: LineReading | null |
   return (
     <div className="space-y-2 text-dense">
       <p className="flex min-w-0 gap-2"><span className="shrink-0 text-fg-faint">Recommended</span><span className="truncate font-mono">{r.recommended}</span>
-        {r.eligible === false && <span className="shrink-0 text-misses">Ineligible now</span>}</p>
+        {r.eligible === false && <span className="shrink-0 text-misses-fg">Ineligible now</span>}</p>
       {r.eligible === false && <p className="text-fg-muted">Its latest research run{r.trial_id ? ` (trial ${r.trial_id})` : ""} no longer carries economic evidence.</p>}
       {limit !== null && dd !== null && <div className="space-y-1.5 tabular-nums">
         <p className="flex justify-between"><span>Max drawdown</span><span>{pct(dd)}</span></p>

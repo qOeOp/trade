@@ -72,7 +72,7 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
             contract(o.symbol, true), side(o.long), [fixed(o.quantity, p.size), DETAIL], fixed(o.average, p.price) ?? MISSING,
             [<><Faint>mark </Faint>{fixed(o.mark, p.price) ?? MISSING}</>, ""],
             [<>{stop && <><Faint>stop </Faint>{fixed(stop.price, p.price)}</>}{stop && target && <Faint> · </Faint>}{target && <><Faint>target </Faint>{fixed(target.price, p.price)}</>}
-              {!stop && !target && <span className="text-misses">no protection</span>}</>, `text-left ${DETAIL}`],
+              {!stop && !target && <span className="text-misses-fg">no protection</span>}</>, `text-left ${DETAIL}`],
             o.since ? span(end - o.since) : MISSING, [signed(o.pnl), pnlClass(o.pnl)], ["holding", "text-fg-muted"],
           ]} />;
         })}

@@ -15,7 +15,7 @@ const DOT: Record<DataRole, string> = { recommended: "bg-recommended", meets: "b
  *  or failing in amber, or how and when it ended. */
 function Status({ run, chain, now }: { run: PaperRun; chain: readonly PaperRun[]; now: number }) {
   const zone = useTimeZone(), state = health(run, now, zone), started = chainStart(chain) ?? run.live?.started_ns ?? null;
-  if (state.late || (run.state !== "sealed" && state.tone === "fail")) return <span className="truncate text-misses">{state.text}</span>;
+  if (state.late || (run.state !== "sealed" && state.tone === "fail")) return <span className="truncate text-misses-fg">{state.text}</span>;
   if (run.state === "sealed") return <span className="truncate"><Ended run={run} /></span>;
   if (run.state !== "running" || started === null || run.live?.last_bar_ns == null) return <span className="truncate">{state.text}</span>;
   return <span className="truncate">Running {duration(now - started / 1e6)}</span>;

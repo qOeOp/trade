@@ -72,7 +72,7 @@ function Row({ g, row, i, only, p }: { g: Group; row: OrderRow; i: number; only:
       <td className={`${CELL} text-left`}>
         {same || (!lead && row.class === "same") ? <span className="text-fg-faint">Same</span> : !lead ? <span className="text-fg-muted">{STAGE[row.stage ?? "decision"]} {KIND[row.class]}</span> : <>
           <Dot tone={suspect ? "bg-fail" : follows ? "bg-fg-muted" : "bg-misses"} />
-          <span className={suspect ? "text-fail" : follows ? "text-fg-muted" : "text-misses"}>{differs(g)}</span>
+          <span className={suspect ? "text-fail" : follows ? "text-fg-muted" : "text-misses-fg"}>{differs(g)}</span>
           {row.class === "quantity" && <span className="text-fg-muted"> {fixed(row.run?.fill?.qty ?? row.run?.qty, p.size) ?? MISSING} vs {fixed(row.replay?.fill?.qty ?? row.replay?.qty, p.size) ?? MISSING}</span>}
           {g.cause && <span className="text-fg-muted"> · {suspect ? "look-ahead suspect"
             : g.cause === "consequence" ? `after the difference at ${g.follows ? dateTime(utcInstant(g.follows), zone) : MISSING}` : CAUSE[g.cause]}</span>}
@@ -138,9 +138,9 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
       <p className="flex flex-wrap gap-x-2 gap-y-1 px-3 py-2 text-dense tabular-nums text-fg-muted">
         {[
           <span key="same"><span className="text-fg">{same.length}</span> of {plural(mine.length, "trade")} the same</span>,
-          <Count key="differ" n={count("differs")} one="differs" many="differ" tone="text-misses" />,
-          <Count key="paper" n={count("run_only")} one="only on paper" many="only on paper" tone="text-misses" />,
-          <Count key="replay" n={count("replay_only")} one="only in the replay" many="only in the replay" tone="text-misses" />,
+          <Count key="differ" n={count("differs")} one="differs" many="differ" tone="text-misses-fg" />,
+          <Count key="paper" n={count("run_only")} one="only on paper" many="only on paper" tone="text-misses-fg" />,
+          <Count key="replay" n={count("replay_only")} one="only in the replay" many="only in the replay" tone="text-misses-fg" />,
           <Count key="suspects" n={suspects} one="look-ahead suspect" tone="text-fail" />,
           ...(following ? [<span key="following" className="text-fg-faint">{following} after an earlier difference</span>] : []),
           <span key="bars">{barCounts}</span>,

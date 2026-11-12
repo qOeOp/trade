@@ -2,7 +2,7 @@
 // v()/wash() are the only way a colour reaches TSX or SVG.
 const SURFACE = ["frame", "island", "island-alt", "popup", "tooltip", "card-border", "hover", "pressed", "row-hover",
   "selection", "selection-inactive", "line", "line-strong", "guide", "scrim", "focus"] as const;
-const TEXT = ["fg", "fg-muted", "fg-faint", "fg-ghost", "icon"] as const;
+const TEXT = ["fg", "fg-muted", "fg-faint", "fg-ghost", "icon", "misses-fg"] as const;
 const DATA = ["recommended", "meets", "misses", "fail", "masked"] as const;
 const CHART = ["edge", "bar", "grid", "axis", "scope", "crosshair", "selected-mark",
   "candle-up", "candle-down", "pnl-up", "pnl-down", "equity", "event", "line-shadow", "series-1", "series-2", "series-3", "series-4", "series-5",
@@ -28,8 +28,8 @@ export const wash = (role: DataRole, pct: number) => `color-mix(in srgb, var(--$
 
 /** The Tailwind text-colour class of a text or data role (literal, so Tailwind finds every class). */
 const TEXT_CLASS: Record<TextRole | DataRole, string> = {
-  fg: "text-fg", "fg-muted": "text-fg-muted", "fg-faint": "text-fg-faint", "fg-ghost": "text-fg-ghost", icon: "text-icon",
-  recommended: "text-recommended", meets: "text-meets", misses: "text-misses", fail: "text-fail", masked: "text-masked",
+  fg: "text-fg", "fg-muted": "text-fg-muted", "fg-faint": "text-fg-faint", "fg-ghost": "text-fg-ghost", icon: "text-icon", "misses-fg": "text-misses-fg",
+  recommended: "text-recommended", meets: "text-meets", misses: "text-misses-fg", fail: "text-fail", masked: "text-masked",
 };
 export const textClass = (role: TextRole | DataRole) => TEXT_CLASS[role];
 /** The class of a signed amount's text: profit, loss, or the secondary colour at zero or unknown. */

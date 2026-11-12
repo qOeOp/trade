@@ -29,7 +29,7 @@ const monthly = (lines: readonly ResearchLine[]) => lines.every((l) => {
 function Value({ value, target, higher, name }: { value: number | null; target: number | null | undefined; higher: boolean; name: string }) {
   if (value === null) return <span className={NUMBER}><Missing /></span>;
   const missed = meets(value, target, higher) === false;
-  return <span className={`${NUMBER} ${missed ? "text-misses" : ""}`}
+  return <span className={`${NUMBER} ${missed ? "text-misses-fg" : ""}`}
                title={`${name} ${pct(value)}${target == null ? "" : ` · ${higher ? "at least" : "limit"} ${pct(target)}`}`}>{pct(value)}</span>;
 }
 
@@ -39,7 +39,7 @@ function Recommendation({ r, targets }: { r: LineReading | null | undefined; tar
   if (r === null) return <span className={`${VERSION} col-span-3 text-fg-faint`}>No recommendation yet</span>;
   const [name, revision] = r.recommended.split("@");
   const version = <span className={`${VERSION} font-mono text-fg-muted`}>{name}{revision !== undefined && <span className="text-fg-faint">@{revision}</span>}</span>;
-  if (r.eligible === false) return <>{version}<span className={`${NUMBER} col-span-2 text-misses`}
+  if (r.eligible === false) return <>{version}<span className={`${NUMBER} col-span-2 text-misses-fg`}
     title={`Its latest research run${r.trial_id ? ` (trial ${r.trial_id})` : ""} no longer carries economic evidence.`}>Ineligible now</span></>;
   return <>{version}
     <Value value={r.annual_return} target={targets?.annual_return} higher name="Annual return" />

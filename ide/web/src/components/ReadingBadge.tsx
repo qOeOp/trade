@@ -1,7 +1,7 @@
 import type { Targets } from "../model/types";
 import { tone, verdict, type Reading } from "../model/semantics";
 import { pct } from "../lib/format";
-import { v } from "../theme/roles";
+import { textClass } from "../theme/roles";
 import { Missing } from "./Missing";
 
 // A version's two readings as one badge: annual return and max drawdown, each with the same fixed
@@ -18,8 +18,8 @@ export function ReadingBadge({ reading, targets, status, hint }: { reading: Read
   const ok = verdict(reading, targets);
   return (
     <span data-part="badge" className={`${ROOT} border-line-strong bg-island`}>
-      <span data-part="ret" className={CELL} style={{ color: v(tone(ok.ret)) }}>{pct(reading.annual_return)}</span>
-      <span data-part="dd" className={`${CELL} self-stretch border-l border-line-strong leading-4`} style={{ color: v(tone(ok.dd)) }}>
+      <span data-part="ret" className={`${CELL} ${textClass(tone(ok.ret))}`}>{pct(reading.annual_return)}</span>
+      <span data-part="dd" className={`${CELL} self-stretch border-l border-line-strong leading-4 ${textClass(tone(ok.dd))}`}>
         {reading.max_drawdown == null ? <Missing /> : pct(reading.max_drawdown)}
       </span>
     </span>

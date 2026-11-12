@@ -19,7 +19,7 @@ export function LiveRunReviewDialog({ run, open, close, view, actions, requests 
       <FormButton icon="stop" disabled={!actions.stop || run.ended || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
     </>}>
     <div className="space-y-4">
-      {view.notice && <p role="status" className="text-small text-misses">{view.notice}</p>}
+      {view.notice && <p role="status" className="text-small text-misses-fg">{view.notice}</p>}
       <header className="space-y-3">
         <div><p className="mb-1 text-small text-fg-faint">{livePurposeLabel(run.purpose)}</p><h2 className="break-words font-semibold">{run.candidate}</h2></div>
         <LiveRunIdentity run={run} />

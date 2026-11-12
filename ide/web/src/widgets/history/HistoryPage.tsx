@@ -69,7 +69,7 @@ function Cell({ cell, row, column, line, metric, shortDays }: { cell: HistoryCel
 }
 
 const Verdict = ({ ok, tip: why }: { ok: boolean | null | undefined; tip?: ReactNode }) => {
-  const body = <span className={ok === true ? "text-meets" : ok === false ? "text-misses" : "text-fg-faint"}>{ok === true ? "Meets" : ok === false ? "Misses" : "–"}</span>;
+  const body = <span className={ok === true ? "text-meets" : ok === false ? "text-misses-fg" : "text-fg-faint"}>{ok === true ? "Meets" : ok === false ? "Misses" : "–"}</span>;
   return why ? <Tip content={why}>{body}</Tip> : body;
 };
 
@@ -77,7 +77,7 @@ const Verdict = ({ ok, tip: why }: { ok: boolean | null | undefined; tip?: React
  *  and, on a row meeting the targets, its holdout's Sharpe deflated at the line's participant count. */
 function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
   const s = row.summary, td = "px-2 text-right tabular-nums whitespace-nowrap";
-  if (!s) return <td colSpan={9} className="px-2 text-misses">Control replay differs from the research run: no verdict</td>;
+  if (!s) return <td colSpan={9} className="px-2 text-misses-fg">Control replay differs from the research run: no verdict</td>;
   const veto = s.veto, dsr = s.holdout.deflated_sharpe;
   return (
     <>

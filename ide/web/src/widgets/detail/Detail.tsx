@@ -23,7 +23,7 @@ import { MarketDetails } from "../market/MarketDetails";
 import { LiveRunDetails } from "../live/LiveRunDetails";
 
 const OUTCOME: Record<string, [string, string]> = {
-  held: ["Held", "text-meets"], failed: ["Failed", "text-misses"], untestable: ["Untestable", "text-fg-faint"],
+  held: ["Held", "text-meets"], failed: ["Failed", "text-misses-fg"], untestable: ["Untestable", "text-fg-faint"],
 };
 const VERDICT: Record<string, [string, string]> = { passed: ["Passed", "text-meets"], failed: ["Failed", "text-fail"] };
 /** A review check's status; any other (no opportunity, unresolved) reads faint, as written. */
