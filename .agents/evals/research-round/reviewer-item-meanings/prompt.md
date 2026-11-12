@@ -1,12 +1,12 @@
 ---
-description: Rule check — a source reviewer judges readiness from the source's indicator warm-up (not from research-start's input-coverage check) and activity from whether this precheck filled orders, keeping the source-property items apart from the per-run one.
+description: Rule check — a source reviewer judges readiness from the source's indicator warm-up (not from research-start's input-coverage check) and activity from whether this precheck filled orders on the order path the change alters, keeping the source-property items apart from the per-run one.
 tags: [method, source-review]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我是候选 `rsi-pullback@5` 的独立源码审查者，按本仓库的研究流程审。预检 trial 433 通过，封存执行包 `trial-433-execution`，窗口 `2025-03-01` 到 `2025-03-08`，合约 ETHUSDT，`replay report --trial-id 433 --directory /tmp/pre433` 已核对报告缓存。api 和 causal 我已经查完，都通过。还剩 activity 和 readiness 两项。
+我是候选 `rsi-pullback@5` 的独立源码审查者，按本仓库的研究流程审。它由 `rsi-pullback@4` 派生，唯一的改动是入场条件里的 RSI 阈值从 0.25 改成 0.2，止损和出场逻辑逐字相同。预检 trial 433 通过，封存执行包 `trial-433-execution`，窗口 `2025-03-01` 到 `2025-03-08`，合约 ETHUSDT，`replay report --trial-id 433 --directory /tmp/pre433` 已核对报告缓存。api 和 causal 我已经查完，都通过。还剩 activity 和 readiness 两项。
 
 材料：
 
