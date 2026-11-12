@@ -86,7 +86,7 @@ test("a minute inside a downtime takes no slot of its own", () => {
   const minutes = withDowns(times.map((time) => ({ time, value: 100000, peak: 100000, pace: null })), restarts);
   assert.ok(minutes.every((p, i) => !i || p.time > minutes[i - 1].time), "strict time order");
 });
-const { backtest, cyclesHeld } = await namespace("model/backtest.ts");
+const { backtest, cycleHoldings } = await namespace("model/backtest.ts");
 const readings = await namespace("model/equityReadings.ts");
 const { leadOf } = await namespace("widgets/paper/backtestCandles.ts");
 const { dayFloor, periodFor, respaced } = await namespace("widgets/paper/candleView.ts");
@@ -532,7 +532,7 @@ test("a backtest is its account a day from the stored returns and its cycles as 
   const bare = backtest(report({ slices: null }));
   assert.deepEqual([bare.account.gross, bare.account.fees, bare.account.funding, bare.account.open, bare.stats.winRate], [null, null, null, null, null],
                    "no profit bridge or trade structure without the report's slices: nothing is summed from the cycles in their place");
-  assert.deepEqual(cyclesHeld([...b.cycles, { ...b.cycles[0], opened: 0, closed: 5 }]), [[0, 5, true], [(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000, true]]);
+  assert.deepEqual(held.lanesOf(cycleHoldings([...b.cycles, { ...b.cycles[0], opened: 0, closed: 5 }])), [{ symbol: "BTCUSDT", held: [[0, 5, true], [(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000, true]] }]);
   const unknown = backtest(report({ cost_basis: null }));
   assert.deepEqual([unknown.starting, unknown.days.length, unknown.account, unknown.cycles.length], [null, 0, null, 1], "no equity without a recorded starting balance");
 });
@@ -545,7 +545,7 @@ test("a cycle still open at the window's end is held until that end, not closed 
   assert.deepEqual([b.cycles[0].open, b.cycles[1].open, b.account.holding, b.account.trades.map((t) => t.id)], [true, false, 1, ["9:1"]], "its trades are the closed cycles");
   assert.deepEqual(b.cycles.map((c) => [c.id, c.closed]), [["9:2", (D0 + 3 * DAY) * 1000], ["9:1", (D0 + DAY + 3600) * 1000]], "newest first, open at the window's end");
   assert.deepEqual(b.days.map((d) => d.held), [1, 1, 1]);
-  assert.deepEqual(cyclesHeld(b.cycles), [[(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000, true], [(D0 + 2 * DAY + 3600) * 1000, (D0 + 3 * DAY) * 1000, false]]);
+  assert.deepEqual(held.lanesOf(cycleHoldings(b.cycles)), [{ symbol: "BTCUSDT", held: [[(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000, true], [(D0 + 2 * DAY + 3600) * 1000, (D0 + 3 * DAY) * 1000, false]] }]);
   assert.ok(b.stats.hold > 0, "no negative holding time");
 });
 

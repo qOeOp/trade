@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import { precisions, symbolOf, type PaperRun } from "../../lib/paperApi";
 import type { Account } from "../../model/account";
 import { chartHistory } from "../../model/stage";
-import { cyclesHeld } from "../../model/backtest";
-import { heldSides, type Leaning } from "../../model/held";
+import { cycleHoldings } from "../../model/backtest";
+import { holdings, lanesOf, sidesHeld } from "../../model/held";
 import { heldOf, priceLines, restartsOf, spans as spansOf, warmupAt, type Fill, type Restart } from "../../model/paper";
 import { useView } from "../../model/view";
 import { backtestNote, type Loaded } from "../../state/backtest";
@@ -21,6 +21,7 @@ import { ChartSwitches } from "./ChartSwitches";
 import { EquityChart } from "./EquityChart";
 import { Observation } from "./Observation";
 import { continuous, stretchName } from "./equityStretches";
+import { yearsOf } from "./equityYears";
 
 /** The chart card follows the selected stage: the backtest's equity, daily bars and cycles, or the
  *  paper account's equity, candles and fills. Contracts come from that stage only. The switches above
@@ -54,6 +55,9 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   const contracts = useMemo(() => [...new Set(drawn?.cycles.map((c) => c.symbol))].sort(), [drawn]);
   const holdCloses = useBacktestCloses(testing && equity ? contracts : [], drawn, market);
   const line = useMemo(() => continuous(equity ? stretches : [], targets.annual, true, drawn, testing, holdCloses), [stretches, targets.annual, equity, drawn, testing, holdCloses]);
+  // The shown backtest's years from its days, with its buy and hold's, on the names' line, free while it is the one stretch; a paper run's minutes have none to score.
+  const years = useMemo(() => { const own = line.placed.find((p) => p.selected), days = own?.tested && line.placed.length === 1 ? line.minutes.slice(own.first, own.last + 1) : [];
+    return own && days.length ? yearsOf(days, own.starting * own.scale, (t) => line.readings.get(t)?.hold ?? null) : []; }, [line]);
   const remembers = `${testing ? "backtest" : "paper"}:${version ?? ""}:${symbol}:${(drawn && equity) || lead ? `trial ${trial},` : ""}${stretches.map((x) => x.chain[0]!.paper_id).join()}`;
   // The contract's candles over every stretch, and the offline stretches inside each chain.
   const bars = useMemo(() => (ours ? stretches.flatMap((x) => x.piece.bars) : []), [ours, stretches]);
@@ -83,8 +87,12 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   // stretch's, the backtest's cycles or the paper run's fills.
   const trades = testing ? drawn?.cycles : a?.trades;
   const closes = useMemo(() => (trades ?? []).map((t) => ({ id: t.id, time: t.closed / 1000, pnl: t.pnl ?? 0 })), [trades]);
-  const holding = useMemo(() => (testing ? cyclesHeld(drawn?.cycles ?? []) : a?.start == null ? [] : heldSides(fills, a.start, a.end, restarts))
-    .map(([x, y, long]): Leaning => [x / 1000, y / 1000, long]), [testing, drawn, fills, a?.start, a?.end, restarts]);
+  // Each contract's own lane too, from the same positions.
+  const { holding, lanes } = useMemo(() => {
+    const found = (testing ? cycleHoldings(drawn?.cycles ?? []) : a?.start == null ? [] : holdings(fills, a.start, a.end, restarts))
+      .map(([symbol, x, y, long]) => [symbol, x / 1000, y / 1000, long] as const);
+    return { holding: sidesHeld(found.map(([, x, y, long]) => [x, y, long] as const)), lanes: lanesOf(found) };
+  }, [testing, drawn, fills, a?.start, a?.end, restarts]);
 
   return (
     <section aria-label="Chart" className="flex min-h-0 min-w-0 flex-col rounded-island bg-island">
@@ -101,7 +109,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
         {/* Until the shown run's chain is read whole, so its stretch never shows in part and then grows. */}
         {reading ? <div className="grid h-full place-items-center"><Typing text={reading} busy className="text-dense text-fg-faint" /></div>
           : equity ? (
-          <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} warmup={warmup}
+          <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} lanes={lanes} years={years} warmup={warmup}
                        aside={(note || (!testing && run && s)) && <>{note && <span title={note}>{note}</span>}{!testing && run && s && <Observation run={run} s={s} part="facts" />}</>} />
         ) : (
           <CandleChart key={remembers} remembers={remembers} symbol={symbol} bars={bars} lead={lead} note={note} stretches={parts}

@@ -1,11 +1,11 @@
-// The equity chart's bands, behind the line as vibe-trading's: at the top which way the run held a position, as
-// a track (sideTrack), and the drawdown an entry at each moment would take, from equity then to the lowest it
+// The equity chart's bands, behind the line as vibe-trading's: at the top which way each contract held a position,
+// a lane each (lane), and the drawdown an entry at each moment would take, from equity then to the lowest it
 // reaches later in its stretch, hanging under it as a fine dot matrix (scaled so the band's foot is the deeper
 // of the run's worst drawdown, the deepest any entry takes, and 1%, which a short run's small dip never makes look like a crash); at the bottom each day's return as a slim bar on a baseline, the picked or hovered day
 // stronger, while three days or more are in view. All drawn in device pixels with snapped edges, from
 // the visible points thinned to each pixel column's first, lowest, highest and last (frameOf).
 import type { IChartApi, IPrimitivePaneRenderer, Logical } from "lightweight-charts";
-import type { Leaning } from "../../model/held";
+import type { Breadth, Leaning } from "../../model/held";
 import type { EquityLook, EquityPoint } from "./equityLayers";
 
 export type Frame = { c: CanvasRenderingContext2D; hr: number; vr: number; w: number; h: number; keep: number[]; xs: Map<number, number>; x: (t: number) => number };
@@ -19,7 +19,7 @@ const PITCH = 3, DOT = 1;                  // px: the drawdown dots' pitch (both
 const FEWEST_DAYS = 3, DAY_PX = 3;         // day bars only while this many days are in view, each this wide (px)
 const FLOOR = 0.01;                        // the band's foot is at least this deep a drawdown
 const BAR_W = 0.3, BAR_MAX = 4;            // a day's bar, as a share of the day's width, and at most this wide (px): slim, as vibe-trading's
-const TRACK_UP = 7, TRACK_H = 3;           // px: the side track's top above the drawdown dots' first row, and its bars' height
+const TRACK_H = 3;                         // px: a lane's bars' height
 export const span = (a: number, b: number) => { const p = Math.round(a), q = Math.round(b); return { at: Math.min(p, q), len: Math.max(1, Math.abs(q - p)) }; };
 
 /** The visible points of `chart`, one to four per pixel column, and where times fall (in device pixels). */
@@ -56,12 +56,12 @@ export function frameOf({ context: c, horizontalPixelRatio: hr, verticalPixelRat
 }
 
 /** A dot matrix, as vibe-trading's: each column of dots (PITCH apart, counted from the pane's left so a
- *  dot keeps its place as the view moves) reaches down from `top` (px) as far as the deepest drawdown an
+ *  dot keeps its place as the view moves) reaches down from `top` towards `bottom` (px) as far as the deepest drawdown an
  *  entry under it would take, scaled to the band, one row for any drawdown at all; a point holds until the next. Filled
  *  once with a pattern of one dot a cell. */
-export function drawdownRows({ c, hr, vr, w, h, keep, xs }: Frame, points: readonly EquityPoint[], worst: number, look: EquityLook, top = 0): void {
+export function drawdownRows({ c, hr, vr, w, keep, xs }: Frame, points: readonly EquityPoint[], worst: number, look: EquityLook, top: number, bottom: number): void {
   if (!(worst > 0) || keep.length < 2) return;
-  const px = Math.max(2, Math.round(PITCH * hr)), py = Math.max(2, Math.round(PITCH * vr)), band = h * CEILING, scale = Math.max(worst, FLOOR), y0 = Math.ceil((top * vr) / py) * py;
+  const px = Math.max(2, Math.round(PITCH * hr)), py = Math.max(2, Math.round(PITCH * vr)), band = (bottom - top) * vr, scale = Math.max(worst, FLOOR), y0 = Math.ceil((top * vr) / py) * py;
   const cols = Math.ceil(w / px), depth = new Float32Array(cols);
   keep.forEach((i, k) => {
     const d = ((1 - points[i]!.low / points[i]!.value) / scale) * band, x0 = xs.get(i)!, next = keep[k + 1];
@@ -75,15 +75,16 @@ export function drawdownRows({ c, hr, vr, w, h, keep, xs }: Frame, points: reado
   if (fill) { c.fillStyle = fill; c.fill(area); }
 }
 
-/** Which way the run held, as a track in the strip between the stretches' names and the drawdown dots
- *  (which start `top` px down), over the time the points span: a flat bar where it held a position, in the
- *  profit colour long and the loss colour short (as the trades' sides elsewhere), in the dots' grey with
- *  both at once, 1 px short where the next starts so a change of side shows; where it held none, only the track's hairline, as the day bars' baseline. Every stretch
- *  drawn however crowded: a busy run's barcode here is its rhythm, and the strip leaves the plot clear. */
-export function sideTrack({ c, hr, vr, w, x }: Frame, points: readonly EquityPoint[], held: readonly Leaning[], look: EquityLook, top: number): void {
+/** Which way a contract held, as a lane centred `middle` px down the pane, over the time the points span: a
+ *  flat bar where it held a position, in the profit colour long and the loss colour short (as the trades'
+ *  sides elsewhere), in the dots' grey with both at once (a hedge inside the contract), 1 px short where the
+ *  next starts so a change of side shows; where it held none, only the lane's hairline, as the day bars'
+ *  baseline. Every stretch drawn however crowded: a busy contract's barcode here is its rhythm, and its row
+ *  leaves the plot clear. */
+export function lane({ c, hr, vr, w, x }: Frame, points: readonly EquityPoint[], held: readonly Leaning[], look: EquityLook, middle: number): void {
   const first = points[0], last = points.at(-1);
   if (!first || !last) return;
-  const y = Math.round((top - TRACK_UP) * vr), h = Math.max(1, Math.round(TRACK_H * vr)), line = Math.max(1, Math.round(vr)), all = span(x(first.time), x(last.time));
+  const h = Math.max(1, Math.round(TRACK_H * vr)), y = Math.round(middle * vr - h / 2), line = Math.max(1, Math.round(vr)), all = span(x(first.time), x(last.time));
   c.fillStyle = look.grid;
   c.fillRect(all.at, y + Math.floor((h - line) / 2), all.len, line);
   held.forEach(([from, to, long], k) => {
@@ -93,6 +94,25 @@ export function sideTrack({ c, hr, vr, w, x }: Frame, points: readonly EquityPoi
     c.fillStyle = long === null ? look.ceiling : long ? look.up : look.down;
     c.fillRect(s.at, y, Math.max(1, s.len - gap), h);
   });
+}
+
+/** How many contracts held a position at once, for more contracts than take a lane each: a column standing on
+ *  the hairline at `bottom` px down the pane (the drawdown dots hang from under it), as high as the share of
+ *  `most` held, those held long at its foot in the profit colour and those held short over them in the loss
+ *  colour, as the lanes. */
+export function breadth({ c, vr, w, x }: Frame, points: readonly EquityPoint[], held: readonly Breadth[], most: number, look: EquityLook, bottom: number, high: number): void {
+  const first = points[0], last = points.at(-1);
+  if (!first || !last || !(most > 0)) return;
+  const line = Math.max(1, Math.round(vr)), y = Math.round(bottom * vr) - line, reach = high * vr - line, all = span(x(first.time), x(last.time));
+  c.fillStyle = look.grid;
+  c.fillRect(all.at, y, all.len, line);
+  for (const [from, to, longs, shorts] of held) {
+    const a = x(from), b = x(to);
+    if (b < 0 || a > w) continue;
+    const s = span(a, b), up = Math.round((longs / most) * reach), down = Math.round(((longs + shorts) / most) * reach) - up;
+    if (up) { c.fillStyle = look.up; c.fillRect(s.at, y - up, s.len, up); }
+    if (down) { c.fillStyle = look.down; c.fillRect(s.at, y - up - down, s.len, down); }
+  }
 }
 
 /** A pattern of one `dot` square at the top left of each `px` by `py` cell, kept per size and colour. */

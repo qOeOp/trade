@@ -12,11 +12,11 @@ import { EquityExtras } from "./equityExtras";
 import { EquityLegend } from "./EquityLegend";
 import { FEW } from "./equityLayers";
 import type { Close } from "./equityCloses";
-import type { Leaning } from "../../model/held";
+import type { Lane, Leaning } from "../../model/held";
 import { resample, STEPS } from "./equityResolution";
 import { covered, firstView, lastWhere, stepOver, type Line } from "./equityStretches";
 import { glide } from "./glide";
-import { BELOW } from "./stretchCaptions";
+import type { Year } from "./equityYears";
 import { showStretch, stretchKey } from "./stretchKeys";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 
@@ -27,7 +27,7 @@ const views = new Map<string, { step: number; from: number; to: number }>();  //
 /** The account over the version's stretches (equityStretches.ts: its backtest a point a day, its paper
  *  runs a point a minute) as one line, after vibe-trading's daily-returns chart: equity as its indigo hero line; the pace the line's minimum annual
  *  return asks for as a dashed line, the gap filled green ahead and red behind (against the start with no
- *  return target); behind them which way a position was held along the top, the drawdown an entry at each moment would take hanging
+ *  return target); behind them the shown backtest's years against the targets along the top (equityYears), which way each contract held a position under them, the drawdown an entry at each moment would take hanging
  *  under it and, of the shown stretch, each day's return from the bottom and the stretches no position was held (equityLayers), any stretch
  *  a chain of runs was offline over all of them; on the line the drawdown limit's floor and the shown stretch's deepest drawdowns (equityNotes) and an arrow at each of its closes (equityCloses), whose click
  *  picks the trade; the balance, the costs' band, a buy and hold as a fading area (shown as the viewer last chose for
@@ -40,9 +40,9 @@ const views = new Map<string, { step: number; from: number; to: number }>();  //
  *  shown stretch with the end of the one before it (firstView), or the view these stretches last had.
  *  Wheel or drag the time axis to zoom, drag to pan, double-click for all of it; the keys are
  *  stretchKeys'. The readout row gives the layers' values under the pointer, `aside` at its right end. */
-export function EquityChart({ line, remembers, replay = null, annual, limit = null, closes = [], held = [], warmup = null, aside = null }: {
+export function EquityChart({ line, remembers, replay = null, annual, limit = null, closes = [], held = [], lanes = [], years = [], warmup = null, aside = null }: {
   line: Line; remembers: string; replay?: readonly [number, number][] | null; annual: number | null;
-  limit?: number | null; closes?: readonly Close[]; held?: readonly Leaning[]; warmup?: number | null; aside?: ReactNode;
+  limit?: number | null; closes?: readonly Close[]; held?: readonly Leaning[]; lanes?: readonly Lane[]; years?: readonly Year[]; warmup?: number | null; aside?: ReactNode;
 }) {
   const { minutes, placed, restarts, readings, days, drops, sealed } = line;
   const host = useRef<HTMLDivElement>(null), api = useRef<Api | null>(null);
@@ -157,14 +157,14 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
 
   useEffect(() => {
     const c = seriesColors(theme === "dark");
-    api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers, restarts, own ? [own.from, own.to] : null, BELOW);
+    api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers, restarts, own ? [own.from, own.to] : null, { years, annual, limit, hold: hold && holdable, lanes });
     api.current?.notes.set(points, minutes, limit, c.notes, priceFormat(0).formatter, starting, shown >= 0 ? shown : null, drops);
     api.current?.closes.set(points, closes, c.closes);
     // A lone stretch is named at the legend's head instead, so it takes no line of its own.
     api.current?.captions.set(placed.length > 1 ? placed.map((p) => ({ label: p.label, selected: p.selected, from: p.from })) : [], c.captions);
     extras.set({ points, readings, hold, look: c.extras });
     api.current?.layers.lift(extras.foot());
-  }, [points, minutes, days, day, starting, worst, held, limit, closes, readings, hold, theme, restarts, placed, drops]);
+  }, [points, minutes, days, day, starting, worst, held, lanes, years, annual, limit, closes, readings, hold, holdable, theme, restarts, placed, drops]);
 
   const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]);
   useEffect(() => {

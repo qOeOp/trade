@@ -9,8 +9,7 @@ import { createChart, LineSeries, LineStyle, MismatchDirection, type AutoscaleIn
 import { AxisTicks } from "./axisTicks";
 import { fence } from "./candleView";
 import { chartOptions, priceFormat } from "./chartTheme";
-import { CEILING } from "./equityBands";
-import { plotOf, type Plot } from "./equityZones";
+import { dotsEnd, plotOf, type Plot } from "./equityZones";
 import { EquityCloses } from "./equityCloses";
 import type { EquityExtras } from "./equityExtras";
 import { EquityLayers, HALO, type EquityPoint } from "./equityLayers";
@@ -57,11 +56,11 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
   equity.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 }, entireTextOnly: true });
   // The notes first, so the line draws over their floor and brackets; the closes' arrows and the notes'
   // names above it, the depths over the arrows; the stretches' names over all.
-  const plot = (): Plot => plotOf(chart.paneSize(0).height, extras.foot(), layers.days());
+  const plot = (): Plot => plotOf(chart.paneSize(0).height, extras.foot(), layers.days(), layers.head());
   const layers = new EquityLayers(plot), notes = new EquityNotes(plot), closes = new EquityCloses(plot);
   // The rule before a stretch half a point before its first: the two stretches' points abut.
   const xOf = (t: number) => xAt(now().points, chart.timeScale(), t), seam = (t: number) => { const x = xOf(t); return x === null ? null : x - spacing(chart.timeScale()) / 2; };
-  const captions = new StretchCaptions(xOf, undefined, seam, CEILING);
+  const captions = new StretchCaptions(xOf, undefined, seam, (h) => dotsEnd(h, layers.head()));
   equity.attachPrimitive(closes);
   equity.attachPrimitive(notes);
   equity.attachPrimitive(layers);
