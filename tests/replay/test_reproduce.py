@@ -146,7 +146,7 @@ class ResealTests(unittest.TestCase):
             done = self.reseal("new-code")
         self.assertTrue(done["resealed"])
         self.assertEqual(self.reading()[1:], ("f" * 40, done["op_id"]))
-        sql = lambda query: self.world.service.sql(self.world.profile, query)  # noqa: E731
+        sql = lambda query: self.world.service.sql(self.world.profile, query)
         self.assertEqual(sql(f"SELECT message FROM dolt_log WHERE commit_hash = '{done['ledger_commit']}'"),
                          [(f"reseal:{done['op_id']}",)])
         self.assertEqual(sorted(name for (name,) in sql(f"SELECT table_name FROM dolt_diff WHERE commit_hash = "
