@@ -25,8 +25,11 @@ corrects where it can:
   subscription stops it with ``METRICS_NOT_SERVED``.
 - The Sandbox matches a bar before the strategy sees it, as a replay's exchange does, but its fills reach the
   cache on the live runner's execution channel, after the bar's dispatch. The strategy's data callbacks
-  therefore run HOLD_NS later, in the order they came, once the fills the bar caused are applied: a stop or
-  target filled on a bar is closed when the strategy's ``on_bar`` for it runs, as in the replay.
+  therefore wait, in the order they came, until the next data event is dispatched: rc7's live runner dispatches
+  data only once every queued time event, execution event and execution command is processed (its biased
+  select), so the fills the held data caused, and the orders and fills those caused, are then applied. A stop or
+  target filled on a bar is closed when the strategy's ``on_bar`` for it runs, as in the replay. A fill stamped
+  before a dispatch whose callbacks already ran is journaled as ``release_late`` (PAPER_RELEASE_LATE).
 
 The Sandbox matches with the replay's terms: its fill model, book type and bar ordering, and the maker and
 taker rates the run is given (``--maker-fee``, ``--taker-fee``: the market's assumed rates, which a replay
@@ -59,6 +62,7 @@ from contextlib import nullcontext
 import functools
 import hashlib
 import importlib.metadata
+import itertools
 import json
 import os
 import re
@@ -72,6 +76,7 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any, cast
 
 from nautilus_trader.adapters.binance import (
     BinanceDataClientConfig, BinanceDataClientFactory, BinanceEnvironment, BinanceInstrumentProviderConfig,
@@ -112,9 +117,8 @@ VENUE = ACCOUNT_CONTRACT["venue"]
 LOADER_MARGIN = Decimal("0.1")
 LATE_BAR_NS = 2_000_000_000  # a bar arriving later than this after its close is a late-bar event
 STOP_CANCEL_SECONDS = 10
-# How long the strategy's data callbacks wait for the execution events their data caused. Those are queued
-# before the data's dispatch returns and the live runner polls them ahead of data; they take milliseconds.
-HOLD_NS = 100_000_000
+# The order in which data callbacks were held, across strategies (release_before).
+SEQUENCE = itertools.count()
 LIMITATIONS = (
     "paper-bars: Sandbox settles no funding; the sealing step settles each settlement Binance published for the "
     "positions events.jsonl held then",
@@ -255,7 +259,8 @@ class _PaperConfigured(history.Warming, OrderRules, strategy_runtime.Subscriptio
         self._paper_instrument_id = inputs.instrument_id
         self._paper_membership = inputs.universe_membership
         self._paper_cadence = Cadence()
-        self._paper_held: list = []  # data callbacks waiting for the fills their data caused
+        self._paper_held: list = []  # data callbacks waiting for the execution their data caused (release_before)
+        self._paper_released_ns = 0  # the clock at the latest dispatch whose held callbacks ran
         self._paper_subscriptions: set[str] = set()
         self._paper_subscription_changes = False
         strategy_runtime.STRATEGIES[inputs.instrument_id] = self  # type: ignore[assignment]
@@ -340,24 +345,48 @@ def _event_fields(event) -> dict:
             "ts_event": getattr(event, "ts_event", None), "event": repr(event)}
 
 
-@mutation
-def _release(self, _event=None) -> None:
-    """Run the held data callbacks in the order they came. One that raises was recorded by its guard and
-    does not stop the rest, as each ran on its own before."""
-    held, self._paper_held = self._paper_held, []
-    for callback, value in held:
+def dispatch_of(value) -> tuple:
+    """The data event a callback came with, the same for every subscriber of one dispatch."""
+    return (type(value).__name__, str(getattr(value, "bar_type", None) or getattr(value, "instrument_id", None)),
+            getattr(value, "ts_init", None))
+
+
+def release_before(value) -> None:
+    """A data event is being dispatched, so the live runner has processed every execution event and command queued
+    before it (the module docstring): run every strategy's held data callbacks but those of this same dispatch, in
+    the order they came. One that raises was recorded by its guard and does not stop the rest."""
+    dispatch, due = dispatch_of(value), []
+    for strategy in list(strategy_runtime.STRATEGIES.values()):
+        strategy = cast(Any, strategy)
+        held = getattr(strategy, "_paper_held", None)
+        if held and any(item[1] != dispatch for item in held):
+            due += [(item, strategy) for item in held if item[1] != dispatch]
+            strategy._paper_held = [item for item in held if item[1] == dispatch]
+    for (_, _, held_ns, callback, data), strategy in sorted(due, key=lambda pair: pair[0][0]):
+        strategy._paper_released_ns = max(strategy._paper_released_ns, held_ns)
         try:
-            callback(self, value)
+            callback(strategy, data)
         except Exception:  # engine.strategy.execution_failure recorded it
             pass
 
 
-def _hold(self, callback, value) -> None:
-    """Queue a data callback until HOLD_NS from now (see the module docstring)."""
-    self._paper_held.append((callback, value))
-    if len(self._paper_held) == 1:
-        clock = Strategy.clock.__get__(self, type(self))
-        clock.set_time_alert_ns(f"paper-hold-{id(self)}", clock.timestamp_ns() + HOLD_NS, self._paper_release)
+def _hold(self, callback, value, dispatched) -> None:
+    """Queue a data callback until the next data dispatch (release_before); `dispatched` is the data that came."""
+    release_before(dispatched)
+    clock = Strategy.clock.__get__(self, type(self))
+    self._paper_held.append((next(SEQUENCE), dispatch_of(dispatched), clock.timestamp_ns(), callback, value))
+
+
+def _late(self, event) -> None:
+    """PAPER_RELEASE_LATE: a fill stamped before a dispatch whose held callbacks already ran reached the cache after
+    them, so they ran without it."""
+    if type(event).__name__ == "OrderFilled" and event.ts_event <= self._paper_released_ns:
+        message = (f"{event.client_order_id} filled at {event.ts_event}, after the callbacks held until "
+                   f"{self._paper_released_ns} ran")
+        if f"PAPER_RELEASE_LATE: {message}" not in FINDINGS:
+            FINDINGS.append(f"PAPER_RELEASE_LATE: {message}")
+        journal("release_late", code="PAPER_RELEASE_LATE", client_order_id=str(event.client_order_id),
+                ts_event=event.ts_event, released_ns=self._paper_released_ns)
 
 
 def paper_callbacks(strategy_class: type) -> dict:
@@ -367,20 +396,25 @@ def paper_callbacks(strategy_class: type) -> dict:
     found = strategy_runtime.deferred_start(strategy_runtime.guarded_callbacks(strategy_class))
     source = {name: found.get(name) for name in ("on_mark_price", "on_funding_rate", "on_order_event",
                                                  "on_position_event")}
-    held = {name: (lambda callback: lambda self, value: _hold(self, callback, value))(found[name])
+    held = {name: (lambda callback: lambda self, value: _hold(self, callback, value, value))(found[name])
             for name in strategy_runtime.DATA_CALLBACKS if found.get(name) and name not in ("on_mark_price", "on_funding_rate")}
 
     def on_mark_price(self, update):
         if self._paper_cadence.mark(update) and source["on_mark_price"]:
-            _hold(self, source["on_mark_price"], update)
+            _hold(self, source["on_mark_price"], update, update)
+        else:
+            release_before(update)
 
     def on_funding_rate(self, update):
         settled = self._paper_cadence.funding(update)
         if settled is not None and source["on_funding_rate"]:
-            _hold(self, source["on_funding_rate"], settled)
+            _hold(self, source["on_funding_rate"], settled, update)
+        else:
+            release_before(update)
 
     def on_order_event(self, event):
         journal("order", strategy_id=str(event.strategy_id), **_event_fields(event))
+        _late(self, event)
         if source["on_order_event"]:
             return source["on_order_event"](self, event)
 
@@ -392,7 +426,7 @@ def paper_callbacks(strategy_class: type) -> dict:
     callbacks = {**found, **held, "on_mark_price": on_mark_price, "on_funding_rate": on_funding_rate,
                  "on_order_event": on_order_event, "on_position_event": on_position_event}
     return {**{name: mutation(value) if callable(value) else value for name, value in callbacks.items()},
-            "clock": property(_paper_clock), "_paper_release": _release}
+            "clock": property(_paper_clock)}
 
 
 FINDINGS: list[str] = []
@@ -476,10 +510,12 @@ class Recorder(DataActor):
 
     @mutation
     def on_instrument_status(self, status):
+        release_before(status)
         journal("instrument_status", instrument_id=str(status.instrument_id), status=repr(status))
 
     @mutation
     def on_bar(self, bar):
+        release_before(bar)
         iid = str(bar.bar_type.instrument_id)
         missing = bar_gap(self.last_bar.get(iid), bar.ts_event)
         if missing:
@@ -496,6 +532,7 @@ class Recorder(DataActor):
 
     @mutation
     def on_mark_price(self, update):
+        release_before(update)
         iid = str(update.instrument_id)
         self.marks[iid] = (update.ts_event, update.value)
         minute = update.ts_event // MINUTE_NS
@@ -506,6 +543,7 @@ class Recorder(DataActor):
 
     @mutation
     def on_funding_rate(self, update):
+        release_before(update)
         iid = str(update.instrument_id)
         settled = self.cadence.setdefault(iid, Cadence()).funding(update)
         if settled is None:
