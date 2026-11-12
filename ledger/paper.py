@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 import gzip
 import hashlib
 import json
@@ -31,7 +31,7 @@ from ledger import db, strategies
 from shared.refusals import refuse
 
 
-READINGS = "paper-readings@2026-11-11"
+READINGS = "paper-readings@2026-11-12"
 LOG_TAIL_BYTES = 1024 * 1024
 # How a run may end without a reason recorded: the user's stop, the engineering duration.
 CLEAN_STOPS = frozenset({"STOP_FILE", "SIGTERM", "SIGINT", "DURATION"})
@@ -213,22 +213,108 @@ def journal_lines(data: bytes) -> tuple[list[dict], int]:
     return lines, unreadable
 
 
-def _funding(settlement: dict) -> Decimal:
-    """The account's funding cash flow of one settlement: a positive rate moves money from longs to shorts."""
-    rate, mark = _decimal(settlement.get("stream_rate")), _decimal(settlement.get("mark"))
-    if rate is None or mark is None:
-        return Decimal(0)
-    held_qty = sum((_decimal(item.get("signed_qty")) or Decimal(0) for item in settlement.get("positions") or ()),
-                   Decimal(0))
-    return -held_qty * mark * rate
+CENT = Decimal("0.00000001")  # USDT's precision, to which Nautilus rounds a notional and a funding amount
+MARK_LOOKBACK_MS = 10 * 60_000  # how far before a settlement its MARK minute is looked for
 
 
-def equity_path(lines: list[dict]) -> tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]]:
+def _money(value: Decimal) -> Decimal:
+    return value.quantize(CENT, ROUND_HALF_EVEN)
+
+
+def held_at(lines: list[dict], due: dict[str, list[int]]) -> dict[tuple[str, int], dict[str, Decimal]]:
+    """The positions (position ID -> signed quantity) each contract held at each settlement in `due` (contract ->
+    settlement times). A replay settles once the bars closing before a settlement and every fill they caused are
+    applied, and before the bar closing after it; so are the position events journaled before that contract's first
+    bar stamped after the settlement."""
+    pending = {iid: sorted(times) for iid, times in due.items()}
+    open_: dict[str, dict[str, Decimal]] = {iid: {} for iid in pending}
+    found: dict[tuple[str, int], dict[str, Decimal]] = {}
+    for line in lines:
+        iid = line.get("instrument_id")
+        if iid not in pending:
+            continue
+        if line["kind"] == "bar":
+            while pending[iid] and pending[iid][0] < (line.get("ts_event") or 0):
+                found[(iid, pending[iid].pop(0))] = dict(open_[iid])
+        elif line["kind"] == "position" and line.get("position_id"):
+            quantity = _decimal(line.get("signed_qty")) or Decimal(0)
+            if line.get("type") == "PositionClosed" or not quantity:
+                open_[iid].pop(line["position_id"], None)
+            else:
+                open_[iid][line["position_id"]] = quantity
+    for iid, times in pending.items():
+        for at in times:
+            found[(iid, at)] = dict(open_[iid])
+    return found
+
+
+def settle(positions: dict[str, Decimal], rate: Decimal, mark: Decimal) -> Decimal:
+    """The account's funding cash flow of one settlement, as Nautilus's simulated exchange settles it: each position's
+    notional at the MARK, rounded to USDT's precision, times the rate, a long paying a positive rate (rc7
+    crates/backtest/src/exchange.rs settle_funding_rate)."""
+    return sum((_money(-(_money(abs(quantity) * mark)) * rate * (1 if quantity > 0 else -1))
+                for quantity in positions.values()), Decimal(0))
+
+
+def settlements(lines: list[dict],
+                published: dict[str, list[tuple[int, Decimal | None, Decimal | None]]] | None = None) -> list[dict]:
+    """Each settlement's funding by time: {instrument_id, settlement_ns, rate, mark, positions, funding}. Sandbox
+    settles none (it takes no funding or MARK data, rc7 crates/adapters/sandbox), so these are the settlements a replay
+    of the same journal would make. `published` gives each contract's settlements as the exchange published them
+    (published_settlements: the rate, and the MARK a replay settles at), which a seal uses; without it they are the
+    journal's estimate of a running run: the rate and latest MARK the stream gave right after each settlement."""
+    if published is None:
+        published = {}
+        for line in lines:
+            if line["kind"] == "funding_settlement" and line.get("settlement_ns"):
+                published.setdefault(line["instrument_id"], []).append(
+                    (line["settlement_ns"], _decimal(line.get("stream_rate")), _decimal(line.get("mark"))))
+    held = held_at(lines, {iid: [at for at, _, _ in rows] for iid, rows in published.items()})
+    found = []
+    for iid, rows in published.items():
+        for at, rate, mark in rows:
+            positions = held[(iid, at)]
+            funding = settle(positions, rate, mark) if positions and rate is not None and mark is not None else Decimal(0)
+            found.append({"instrument_id": iid, "settlement_ns": at, "rate": rate, "mark": mark,
+                          "positions": positions, "funding": funding})
+    return sorted(found, key=lambda item: (item["settlement_ns"], item["instrument_id"]))
+
+
+def published_settlements(lines: list[dict], stopped_ns: int | None,
+                          ) -> dict[str, list[tuple[int, Decimal | None, Decimal | None]]]:
+    """The settlements Binance published for each contract the run held a position on, from its input start to its
+    stop: (settlement_ns, rate, mark), the mark the close of the last MARK minute ending at or before the settlement,
+    the one a replay settles at (market.write_marks stamps a minute at its close). The rates are those the market
+    imports (market.rest_funding); a mark is read only where a position was held. A source that does not answer
+    refuses the seal, which the next round retries."""
+    from market import sources
+    started = next((line for line in lines if line["kind"] == "started"), None)
+    held = {line["instrument_id"] for line in lines if line["kind"] == "position" and line.get("instrument_id")}
+    if not held or started is None or not isinstance(started.get("input_start_ns"), int) or not stopped_ns:
+        return {}
+    start_ms, end_ms = started["input_start_ns"] // 10**6, stopped_ns // 10**6 + 1
+    rates = {iid: [(at * 10**6, Decimal(rate)) for at, rate in sources.rest_funding(iid.split("-", 1)[0], start_ms, end_ms)]
+             for iid in sorted(held)}
+    positions = held_at(lines, {iid: [at for at, _ in rows] for iid, rows in rates.items()})
+    found: dict[str, list[tuple[int, Decimal | None, Decimal | None]]] = {}
+    for iid, rows in rates.items():
+        for at, rate in rows:
+            mark = None
+            if positions[(iid, at)]:
+                minute = (at // 10**6 - 59_999) // 60_000 * 60_000  # the last minute closing at or before it
+                closes = [(int(row[0]) + 59_999, Decimal(row[4])) for row in sources.rest_klines(
+                    "MARK", iid.split("-", 1)[0], "1m", minute - MARK_LOOKBACK_MS, minute + 60_000)]
+                mark = next((close for closed, close in reversed(closes) if closed * 10**6 <= at), None)
+            found.setdefault(iid, []).append((at, rate, mark))
+    return found
+
+
+def equity_path(lines: list[dict], settled: list[dict] | None = None,
+                ) -> tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]]:
     """The account's equity at each journalled minute (balance, open profit and the funding Sandbox does not
-    settle) and each settlement's funding cash flow, by time."""
-    settlements = sorted((line for line in lines if line["kind"] == "funding_settlement"),
-                         key=lambda line: line.get("settlement_ns") or 0)
-    funding_by_ns = [(line.get("settlement_ns") or 0, _funding(line)) for line in settlements]
+    settle: `settled`, settlements(lines) when not given) and each settlement's funding cash flow, by time."""
+    funding_by_ns = [(item["settlement_ns"], item["funding"])
+                     for item in (settlements(lines) if settled is None else settled)]
     path: list[tuple[int, Decimal]] = []
     applied, funding = 0, Decimal(0)
     for line in sorted((line for line in lines if line["kind"] == "snapshot"), key=lambda line: line.get("minute_ns") or 0):
@@ -343,9 +429,9 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
              audited: dict | None = None) -> dict:
     """seal.json: the run's status with its reasons, and the readings computed once at sealing. A runner killed
     from outside (killed()) ends the run as a stop does: what it journaled stands, its stop reason is KILLED.
-    `failures` counts the records of the run's runtime_failures.jsonl; `path_and_funding` is equity_path(lines)
-    when the caller already has it; `audited` is audit()'s result: findings add AUDIT_FINDINGS, reports
-    it could not audit AUDIT_NOT_RUN."""
+    `failures` counts the records of the run's runtime_failures.jsonl; `path_and_funding` is equity_path(lines, ...)
+    with the settlements to account (a seal's are the published ones), else the journal's estimate; `audited` is
+    audit()'s result: findings add AUDIT_FINDINGS, reports it could not audit AUDIT_NOT_RUN."""
     reasons: list[str] = ["START_FAILED"] if start_failed else []
     ended_by_kill = killed(lines, summary, exit_code, oom_killed)
     if not lines:
@@ -432,8 +518,8 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         "late_bars": kinds.get("late_bar", 0), "protection_gaps": kinds.get("protection_gap", 0),
         "socket_events": kinds.get("socket", 0), "egress_denied": denied, "unreadable_journal_lines": unreadable,
         "audit": audited,
-        "limitations": ["Sandbox settles no funding: equity adds each settlement's funding at the stream rate and "
-                        "the latest MARK, from the positions the journal records",
+        "limitations": ["Sandbox settles no funding: equity adds each settlement Binance published, at its rate and "
+                        "the MARK a replay settles at, for the positions the journal held then",
                         *((summary or {}).get("limitations") or []),
                         *(["Killed from outside: no summary; the equity at the stop is the journal's last, and "
                            "runtime failures are those the runner wrote up to a second before the kill"]
@@ -454,7 +540,8 @@ def _tail(data: bytes | None) -> bytes | None:
 def capture(row: dict, output: Path, egress_log: Path, runner_log: bytes | None, exit_code: int | None,
             start_failed: bool = False, oom_killed: bool = False) -> dict[str, bytes]:
     """The capture bundle's files from a run's directories: the journal by UTC day (gzip without a
-    timestamp, so the same journal always gives the same bytes), the summary, the logs and seal.json."""
+    timestamp, so the same journal always gives the same bytes), the summary, the logs and seal.json, whose funding
+    is the settlements Binance published (published_settlements)."""
     raw = _read(output / "events.jsonl") or b""
     lines, unreadable = journal_lines(raw)
     summary_bytes = _read(output / "summary.json")
@@ -499,8 +586,10 @@ def capture(row: dict, output: Path, egress_log: Path, runner_log: bytes | None,
         for path in sorted(reports.iterdir()):
             if path.is_file() and not path.is_symlink():
                 files[f"reports/{path.name}"] = path.read_bytes()
+    stopped = (summary or {}).get("stopped_ns") or (lines[-1]["wall_ns"] if lines else None)
+    path_and_funding = equity_path(lines, settlements(lines, published_settlements(lines, stopped)))
     seal = readings(row, lines, unreadable, summary, exit_code, egress, start_failed, oom_killed,
-                    len((failures or b"").splitlines()), audited=audit(row, output, lines, summary))
+                    len((failures or b"").splitlines()), path_and_funding, audited=audit(row, output, lines, summary))
     files["seal.json"] = json.dumps(seal, indent=2, sort_keys=True).encode()
     return files
 

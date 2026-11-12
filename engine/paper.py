@@ -37,8 +37,9 @@ settlements, the account totals once a minute and protection gaps. ``<output>/st
 totals with the open positions and orders, ``<output>/runtime_failures.jsonl`` is rewritten within a second of
 each runtime failure, and ``<output>/summary.json`` and ``<output>/reports/`` (the native cache's reports and order
 events as a replay writes them, which the sealing step audits) are written at the end. Sandbox
-settles no funding (native probe, 2026-10-25), so the journal records each settlement with the positions it
-applies to, and the sealing step accounts for it.
+settles no funding (it takes no funding or MARK data), so the journal records each settlement the stream announced,
+and the sealing step settles each one Binance published, at its rate and the MARK a replay settles at, for the
+positions the journal held then (ledger.paper.settlements).
 
 Explicit STOP/duration cancels working orders and stops the node. For a recovery-capable source, SIGTERM/
 SIGINT instead pauses without calling the source terminal stop hook. Only terminal-order, timer-free,
@@ -115,8 +116,8 @@ STOP_CANCEL_SECONDS = 10
 # before the data's dispatch returns and the live runner polls them ahead of data; they take milliseconds.
 HOLD_NS = 100_000_000
 LIMITATIONS = (
-    "paper-bars: Sandbox settles no funding; events.jsonl records each settlement with the positions it applies "
-    "to, for the sealing step",
+    "paper-bars: Sandbox settles no funding; the sealing step settles each settlement Binance published for the "
+    "positions events.jsonl held then",
 )
 # Names of variables that may hold an exchange credential. Matching is on names only: values are never read.
 CREDENTIAL_NAME = re.compile(
