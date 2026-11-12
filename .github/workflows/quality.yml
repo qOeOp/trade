@@ -49,9 +49,9 @@ jobs:
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
       - run: uv python install 3.14
       - run: uv sync --frozen
-      - name: Lint with ruff (pyproject configuration)
+      - name: Lint with ruff (ruff.toml)
         run: uv run --frozen ruff check .
-      - name: Type-check the product packages with mypy (pyproject configuration)
+      - name: Type-check the product packages with mypy (mypy.ini)
         run: uv run --frozen mypy
       # The pinned tool archives below are kept in the Actions cache, keyed by their checksums, so a run downloads
       # them only when a pin changes: GitHub's release downloads answered 504 for minutes at a time (2026-11-08).
