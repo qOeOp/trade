@@ -15,6 +15,7 @@
 
 ## 没做 / 和设计的差别
 
+- 用户决定（2026-11-13，"接受，加通知"）：设计里的"带持仓的重启等用户"按"等账户空仓"实现，保留：带持仓或挂单重启时不建源码；账户空仓后，下一次启动正常交易，不需要用户再点。新增通知：重启一发现继承来的持仓或挂单，就发 Telegram 并在 Live 页面提示，说明三件事：该持仓现在只由币安上的止损保护；策略不再管理它的出场；账户空仓后运行会自己恢复交易。用户想提前结束，可以在币安手动平仓。Telegram 的消息键沿用 `<run>:restart:resuming:<observed_ns>`，跨版本不变，不会重发（`live/notify.py HELD_TEXT`）。页面提示见 `ide/web/src/model/liveTradingMap.ts HELD_NOTICE`，手机上的状态词为 Holding。
 - 第一阶段：带持仓的重启只观察、不交易，等账户空仓。源码在持仓上重建状态（让同一个源码接管已有持仓继续管理）是之后的事，需要源码侧接口。
 - 重启由 control 发起，没有用 Docker 的 restart policy：control 能判断"是不是中断"、能限次、能通知。
 - 页面上"时长"变成可选停止时间、亏损上限变成回撤刹车，在 Live 页面那个 PR 里做。
@@ -31,6 +32,6 @@
 1. 空仓中断：Live 页面小预算启动、不填时长。空仓时在主机上 `docker stop <runner 容器>`（SIGTERM）。
    期望：`events.jsonl` 有 `interrupted`；10 秒内 control 起一个新的 runner 容器（`lifecycle.jsonl` 新的 `launch_requested`），`events.jsonl` 有 `resuming`（held=false），之后预热、正常交易；Telegram 两条（中断、重启）。
 2. 带持仓中断：等源码开仓（交易所上有止损）后同样 `docker stop`。
-   期望：交易所持仓和止损不动；重启后 `resuming`（held=true），不入场；用户在币安手动平仓并撤止损后 30 秒内 `venue_flat_while_held`，再一次重启后正常交易。
+   期望：交易所持仓和止损不动；重启后 `resuming`（held=true），不入场；Telegram 立即收到持仓只由交易所止损保护的通知，Live 页面显示同样的提示（手机为 Holding）；用户在币安手动平仓并撤止损后 30 秒内 `venue_flat_while_held`，再一次重启后正常交易。
 3. 被杀：`docker kill <runner 容器>`（SIGKILL）。期望与 1 相同，只是没有 `interrupted` 事件。
 4. 限次：一小时内连续中断 4 次。期望：第 4 次后不再重启，`restart_limited` 和 Telegram；用户在页面上停止或对账。

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { namespace } from "./load.mjs";
 
-const { liveRunPresentation, liveHomePresentation } = await namespace("model/liveTradingMap.ts", { sources: [], packages: [] });
+const { liveRunPresentation, liveHomePresentation, HELD_NOTICE } = await namespace("model/liveTradingMap.ts", { sources: [], packages: [] });
 const run = () => ({
   run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, candidate: { strategy_id: "retest", revision: "1" },
   runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: null,
@@ -112,4 +112,16 @@ test("notification status maps without any secret and is null from a control tha
   const notify = { configured: true, last_sent_ns: "1794000000000000000", last_error: { code: "http_4xx", at_ns: "1794000060000000000" }, dropped: 1 };
   assert.deepEqual(liveHomePresentation({ ...home, notify }, new Map()).notify,
     { configured: true, lastSentNs: "1794000000000000000", lastError: { code: "http_4xx", atNs: "1794000060000000000" }, dropped: 1 });
+});
+
+test("a start holding around an inherited position says so until a later start or the account flat", () => {
+  const held = (restarts, state = "running") => liveRunPresentation({ ...run(), host: { ...run().host, state }, restarts }, []).heldNotice;
+  const resuming = (ns, isHeld) => ({ event: "resuming", observed_ns: ns, held: isHeld });
+  assert.equal(held([resuming("1", true)]), HELD_NOTICE);
+  assert.match(HELD_NOTICE, /protected only by its stop at Binance: the strategy no longer manages its exits/);
+  assert.equal(held([resuming("1", true), { event: "held", observed_ns: "2", held: null }]), HELD_NOTICE);
+  assert.equal(held([resuming("1", true), { event: "venue_flat_while_held", observed_ns: "2", held: null }]), null);
+  assert.equal(held([resuming("1", true), resuming("3", false)]), null);
+  assert.equal(held([resuming("1", true)], "clean_stopped"), null);
+  assert.equal(held(undefined), null, "an older service sends no restarts");
 });

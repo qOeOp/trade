@@ -11,6 +11,7 @@ import { useLiveCanvas, type LiveCanvasView } from "../../state/liveRun";
 import { openLiveRequests } from "../../state/liveWorkspace";
 import { LiveLaunch } from "./LiveLaunch";
 import { RunStages } from "../runs/RunStages";
+import { textClass } from "../../theme/roles";
 
 /** Observed execution inside Runs. A selected run shows its identity over its chart, switched as the paper
  *  chart's: Equity, its account a minute apart (LiveSwitches), or Coins, its contract's public candles with
@@ -43,6 +44,7 @@ function LiveRunCanvasView({ run, version, view, actions, first, backtestAvailab
         {view.preview && <p className="text-small text-fg-faint">Fictional observations for layout review. No venue actions are available.</p>}
         {view.notice && <p role="status" className="text-dense text-fg-muted">{view.notice}</p>}
         <LiveRunIdentity run={run} />
+        {run.heldNotice && <p role="status" className={`text-dense ${textClass("misses")}`}>{run.heldNotice}</p>}
         <LiveActionFailure failed={action.failed} />
         {run.accountCheck && <LiveAccountCheck check={run.accountCheck} compact />}
       </div>
