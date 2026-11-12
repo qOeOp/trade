@@ -1,5 +1,5 @@
 ---
-description: Rule check — five consecutive undistinguished research runs make a change of approach due even though the recommendation moved among them; the Agent stops registering and offers approaches inside the line, waiting for the user.
+description: Rule check — five consecutive undistinguished research runs make a change of approach due even though the recommendation moved among them; the Agent stops registering the queued tuning and chooses an approach inside the line itself, without waiting for the user.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
