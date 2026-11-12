@@ -146,8 +146,8 @@ counts and budgets do not reject a research direction;
   evidence (`research status` lists it under `without_economic_evidence`), the next message to the
   user names that run, the measures shown and the reason they no longer count.
 - Export candidate source into /tmp before editing and publish the change as a new candidate.
-  Read its duty header, edit only affected duty lines, preserve the others byte for byte and
-  register those ids in `changed_duties`.
+  Read its duty header, edit only the lines of duties whose own rule changes, preserve the others
+  byte for byte and register those ids in `changed_duties`.
 
 ## Conditional workflows
 
