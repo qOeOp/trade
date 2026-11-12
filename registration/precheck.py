@@ -84,7 +84,7 @@ def exposure_exempt(conn: db.LedgerConnection, trial_id: int, source_sha256: str
 def sealed_no_result(conn: db.LedgerConnection, trial_id: int, source_sha256: str) -> bool:
     """True when the trial is a declared precheck of this source that sealed no economic result to
     choose from (on any image, inputs or window): its runner stopped before market data reached the
-    strategy (every runtime failure in a stage of problems.PRE_STRATEGY_STAGES), or it traded at most
+    strategy (every runtime failure problems.before_strategy), or it traded at most
     PRECHECK_MAX_DAYS and its complete capture fingerprints 0 fills and 0 positions. Such a precheck
     does not expose the source."""
     trial = trial_identity(conn, trial_id)
@@ -103,8 +103,7 @@ def sealed_no_result(conn: db.LedgerConnection, trial_id: int, source_sha256: st
     native = native if isinstance(native, Mapping) else {}
     failures = capture["runtime_failures"]
     if (native.get("state") == "exited" and native.get("exit_code") not in (0, None) and failures
-            and all(isinstance(failure, Mapping) and failure.get("stage") in problems.PRE_STRATEGY_STAGES
-                    for failure in failures)):
+            and all(problems.before_strategy(failure) for failure in failures)):
         return True
     if trial["trade_end"] - trial["trade_start"] > timedelta(days=PRECHECK_MAX_DAYS):
         return False

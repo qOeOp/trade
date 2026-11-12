@@ -112,7 +112,10 @@ class StoppedBeforeStrategyTests(unittest.TestCase):
     def test_only_a_completed_nonzero_exit_without_summary_or_strategy_failures_is_stopped(self):
         load = json.dumps({"stage": "load", "exception_type": "Refusal", "code": "BINDING_MISMATCH", "count": 1})
         bar = json.dumps({"stage": "on_bar", "exception_type": "AttributeError"})
-        cases = [(capture(), None, True), (capture(), load.encode(), True),
+        warmup = json.dumps({"stage": "replay", "exception_type": "Refusal", "code": "WARMUP_INSUFFICIENT"})
+        replayed = json.dumps({"stage": "replay", "exception_type": "KeyError", "code": None})
+        cases = [(capture(), None, True), (capture(), load.encode(), True), (capture(), warmup.encode(), True),
+                 (capture(), replayed.encode(), False), (capture(), (warmup + "\n" + bar).encode(), False),
                  (capture(), (load + "\n" + bar).encode(), False), (capture(), b"not json", False),
                  (capture(summary="captured"), None, False), (capture(native_exit=0), None, False),
                  (capture(outcome="interrupted"), None, False), (None, None, False)]
