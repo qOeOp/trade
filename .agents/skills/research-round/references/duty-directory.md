@@ -34,7 +34,7 @@ Apply the boundary of each duty when one action affects several responsibilities
 
 #### A3 Market-structure / condition filter for the mechanism: does the current market suit this kind of return mechanism?
 
-**Boundary** An economic filter is different from a network not being connected or an indicator not yet warmed up. State whether existing positions are handled separately.
+**Boundary** An economic filter is different from a network not being connected or an indicator not yet warmed up.
 
 ### B Forecasting and learning
 
@@ -106,9 +106,9 @@ Apply the boundary of each duty when one action affects several responsibilities
 
 **Boundary** Exiting all units, exiting on portfolio convergence and exiting on delisting are different methods; cleaning up leftover orders after a native close cannot pass for economic coverage.
 
-#### F5 Handling existing holdings on membership / model change (hard contract): after a new contract selection or loss of model eligibility, are old positions/orders kept, reduced or exited?
+#### F5 Handling existing holdings on membership / model change (hard contract): when a contract leaves the universe, or the conditions that admitted an entry stop holding, are old positions/orders kept, reduced or exited?
 
-**Boundary** An A selection only decides the future set and cannot silently remove existing holdings.
+**Boundary** An A selection only decides the future set and cannot silently remove existing holdings. Answer both cases.
 
 ### G Implementation
 
