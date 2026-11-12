@@ -1,6 +1,7 @@
-// The equity chart's two bands, behind the line as vibe-trading's: at the top how far equity is below its
-// running peak, hanging from the pane's top as a fine dot matrix (scaled so the band's foot is the deeper
-// of the run's worst drawdown and 1%, which a short run's small dip never makes look like a crash); at the bottom each day's return as a slim bar on a baseline, the picked or hovered day
+// The equity chart's two bands, behind the line as vibe-trading's: at the top the drawdown an entry at each
+// moment would take, from equity then to the lowest it reaches later in its stretch, hanging from the pane's
+// top as a fine dot matrix (scaled so the band's foot is the deeper of the run's worst drawdown, the deepest
+// any entry takes, and 1%, which a short run's small dip never makes look like a crash); at the bottom each day's return as a slim bar on a baseline, the picked or hovered day
 // stronger, while three days or more are in view. Both drawn in device pixels with snapped edges, from
 // the visible points thinned to each pixel column's first, lowest, highest and last (frameOf).
 import type { IChartApi, IPrimitivePaneRenderer, Logical } from "lightweight-charts";
@@ -53,15 +54,15 @@ export function frameOf({ context: c, horizontalPixelRatio: hr, verticalPixelRat
 }
 
 /** A dot matrix, as vibe-trading's: each column of dots (PITCH apart, counted from the pane's left so a
- *  dot keeps its place as the view moves) reaches down from `top` (px) as far as the deepest drawdown
- *  under it, scaled to the band, one row for any drawdown at all; a point holds until the next. Filled
+ *  dot keeps its place as the view moves) reaches down from `top` (px) as far as the deepest drawdown an
+ *  entry under it would take, scaled to the band, one row for any drawdown at all; a point holds until the next. Filled
  *  once with a pattern of one dot a cell. */
 export function drawdownRows({ c, hr, vr, w, h, keep, xs }: Frame, points: readonly EquityPoint[], worst: number, look: EquityLook, top = 0): void {
   if (!(worst > 0) || keep.length < 2) return;
   const px = Math.max(2, Math.round(PITCH * hr)), py = Math.max(2, Math.round(PITCH * vr)), band = h * CEILING, scale = Math.max(worst, FLOOR), y0 = Math.ceil((top * vr) / py) * py;
   const cols = Math.ceil(w / px), depth = new Float32Array(cols);
   keep.forEach((i, k) => {
-    const d = ((1 - points[i]!.value / points[i]!.peak) / scale) * band, x0 = xs.get(i)!, next = keep[k + 1];
+    const d = ((1 - points[i]!.low / points[i]!.value) / scale) * band, x0 = xs.get(i)!, next = keep[k + 1];
     if (!(d > 0)) return;
     const last = Math.min(cols - 1, Math.floor(((next === undefined ? x0 + px : xs.get(next)!) - 1) / px));
     for (let col = Math.max(0, Math.floor(x0 / px)); col <= last; col++) depth[col] = Math.max(depth[col]!, d);

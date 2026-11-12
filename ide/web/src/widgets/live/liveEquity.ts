@@ -5,7 +5,7 @@
 import type { Equity } from "../paper/EquityReading";
 import type { EquityPoint } from "../paper/equityLayers";
 import { withDowns } from "../paper/equityResolution";
-import type { Line } from "../paper/equityStretches";
+import { entryLows, type Line } from "../paper/equityStretches";
 import { fixed } from "../../lib/paperApi";
 import type { LiveRun } from "../../model/liveTrading";
 
@@ -19,10 +19,11 @@ export function liveLine(equity: NonNullable<LiveRun["equity"]>, annual: number 
   let peak = budget;
   for (const [time, value] of known) {
     peak = Math.max(peak, value);
-    const p: EquityPoint = { time, value, peak, pace: annual === null ? null : budget * (1 + annual) ** ((time - t0) / YEAR_S), stretch: 0 };
+    const p: EquityPoint = { time, value, peak, low: value, pace: annual === null ? null : budget * (1 + annual) ** ((time - t0) / YEAR_S), stretch: 0 };
     // A run's last row is the minute it stopped in, after that minute's first mark: the later one stands.
     if (own.at(-1)?.time === time) own[own.length - 1] = p; else own.push(p);
   }
+  entryLows(own);
   const minutes = withDowns(own, []);
   return {
     minutes, restarts: [], readings: new Map(), days: [], drops: null, sealed: 0,
