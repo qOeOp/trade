@@ -115,7 +115,9 @@ jq -c '{status, problems, trial_id, image_ref, market}' "$work/explore.json"
 jq -e '.status == "passed" and .problems == [] and (.trial_id | type == "number")' "$work/explore.json" >/dev/null
 done_
 
-step "Backup and review in the ledger container (it has Dolt; the host needs none), and the page reading the ledger"
+step "Publish, backup and review in the ledger container (it has Dolt; the host needs none), and the page reading the ledger"
+# Writes only commit locally; the service publishes every 5 minutes, `ledger publish` at once.
+"${compose[@]}" exec -T ledger python -m cli.main ledger publish > "$work/publish.json"
 "${compose[@]}" exec -T ledger python -m cli.main ledger export --kind backup > "$work/backup.json"
 "${compose[@]}" exec -T ledger python -m cli.main ledger review > "$work/review.json"
 jq -c '{ok, findings, limitations}' "$work/review.json"

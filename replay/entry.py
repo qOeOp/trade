@@ -501,6 +501,8 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
         output = paths.temporary_path(output)
     if validation is not None:
         registration_validation.require_fresh(registration_seams.current.checkout())
+    else:
+        registration_validation.require_current(registration_seams.current.checkout())
     with db.connect(ledger, "writer") as conn:
         revision = strategies.read_candidate(conn, strategy)
     exported = None

@@ -24,7 +24,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the candidate's source copied into the Paper database (once per source) and one paper_run row; the run "
         "directory <service>/paper/<database>/<paper_id> (source, membership); an internal Docker network with "
         "the runner and the egress proxy, left running (the command returns at once); the same --op-id again "
-        "is a replay; never publishes",
+        "is a replay",
         "paper_id, candidate, source_sha256, image_ref, symbols, market_day, directory, containers, "
         "ledger_commit, write_status (a replay gives paper_id, write_status, directory)",
         "PAPER_RUN_ACTIVE (this source already runs); PAPER_MEMORY_FULL (its reservation exceeds the free paper memory); EMPTY_SYMBOLS; "
@@ -81,7 +81,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the sealed paper run, its source and its files (reader); the market at --at (default main), exported "
         "into a reused cache under the temporary directory; the run's own runtime image",
         "nothing in any database (no trial, no exposure); the new --output directory (replay/ with the native "
-        "reports and audit, reconcile.json); never publishes",
+        "reports and audit, reconcile.json)",
         "path, summary {paper_fills, replay_fills, same, price, quantity, time, paper_only, replay_only, "
         "look_ahead_suspects, missing_bars, differing_bars, late_bars, equity_max_difference}, replay {status, "
         "problems, path}",

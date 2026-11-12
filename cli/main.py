@@ -11,11 +11,9 @@ market profile in the profile directory. Runner arguments (window and instrument
 A result is one JSON object on stdout. A refusal is one JSON object on stderr with exit 1: code,
 message, missing, expected, write_status (not_written, written or unknown; rerun with operation_id
 when unknown) and next_actions, the commands that supply what is missing. A command that changes the
-ledger then publishes it when origin is behind it, adding
-`published` or `publish_failed` (the write stays; the ledger service under compose retries within 5 minutes, and
-the next write or publish retries too); read
-commands never publish. Each command's --help lists what it reads, writes and returns and its main
-refusals.
+ledger commits it locally and returns without publishing: the ledger service under compose publishes what
+origin lacks every 5 minutes, and `ledger publish` publishes at once. Each command's --help lists what it
+reads, writes and returns and its main refusals.
 """
 
 from __future__ import annotations
@@ -30,8 +28,6 @@ from cli import (ledger_commands, live_commands, market_commands, paper_commands
                  research_commands)
 from cli.common import RUNNER_EPILOG, Parser, UsageError, _market_refusal, _print, refusal_json
 from engine.live_errors import LiveRefusal
-from ledger import db
-from ledger import publish as publication
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -41,33 +37,6 @@ GROUPS = (ledger_commands, research_commands, replay_commands, market_commands, 
 BY_NOUN = {noun: group for group in GROUPS for noun in group.NOUNS}
 
 
-# Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
-READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
-         ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
-         ("research", "state"), ("research", "runs"), ("research", "graph"), ("research", "unchanged"), ("research", "counts"), ("research", "comparison"), ("validation", "report"), ("replay", "report"),
-         ("market", "coverage"), ("market", "bars"), ("paper", "reconcile")}
-
-
-def _publish_after(args, result: dict) -> dict:
-    """After a command that may write, publish the ledger it used once when origin is behind it. Read commands (READS)
-    never publish. A failure leaves the write in place and is reported as publish_failed; the next
-    ledger write or `ledger publish` publishes it. Profiles without a kind (a read-only copy) and the Paper
-    database never publish."""
-    key = (args.noun, args.verb)
-    if (key in READS or key in {("ledger", "publish"), ("ledger", "service")}
-            or not isinstance(result, dict)):
-        return result
-    if not hasattr(args, "ledger") or args.noun == "paper":
-        return result
-    try:
-        profile = db.profile(args.ledger)
-        if profile.kind is None or not publication.unpublished(profile):
-            return result
-        return {**result, "published": publication.publish(profile)}
-    except Refusal as exc:
-        return {**result, "publish_failed": refusal_json(exc)}
-
-
 def _contract(reads: str, writes: str, returns: str, refuses: str) -> str:
     """A command's contract in its --help: what it reads, writes and returns, and its main refusals."""
     return "\n".join(textwrap.fill(text, 100, initial_indent=f"{label:<9}", subsequent_indent=" " * 9)
@@ -75,8 +44,7 @@ def _contract(reads: str, writes: str, returns: str, refuses: str) -> str:
                                          ("refuses", refuses)))
 
 
-# (reads, writes, returns, main refusals) of each command, shown in its --help. Writes that change a
-# database publish it afterwards unless stated (_publish_after).
+# (reads, writes, returns, main refusals) of each command, shown in its --help.
 CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     key: value for group in GROUPS for key, value in group.CONTRACTS.items()}
 
@@ -138,7 +106,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = _parser().parse_args(argv)
         result, code = _dispatch(args, runner_argv)
-        result = _publish_after(args, result)
     except UsageError as exc:
         found = refuse("USAGE_ERROR", str(exc))
         _print(sys.stderr, refusal_json(found))

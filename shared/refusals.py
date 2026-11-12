@@ -481,8 +481,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                              ("List validation registrations with `research status`.",)),
     "REGISTRATION_CONSUMED": ("The validation registration was already bound.",
                               ("Register a new validation; a bound registration stays consumed.",)),
-    "STALE_CHECKOUT": ("The product checkout's HEAD lacks the latest main commit, or this cannot be proved.",
-                       ("Update the checkout to origin/main, then rerun.",)),
+    "STALE_CHECKOUT": ("The product checkout's HEAD lacks the latest main commit, or this cannot be proved; for a "
+                       "research registration or replay, HEAD is not the fetched origin/main or the work tree has "
+                       "uncommitted or untracked files.",
+                       ("Fetch, move the checkout to origin/main with a clean work tree, then rerun.",)),
     "RUNTIME_NOT_MAIN": ("The runtime image is not a main build of the product image source, or its code differs "
                          "from that revision, or the trial ran another image.",
                          ("Merge first, then rerun with the main runtime image.",)),

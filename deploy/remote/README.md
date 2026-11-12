@@ -278,7 +278,8 @@ organization outside the team included), a team member admitted, expired login d
 checkpoint resume using the same run. Config validation alone is not an actual GitHub callback/HTTPS test.
 
 The mirror's controller syncs the configured read-only research mirror from DoltHub at start and every
-60 s; the toolbar's **Sync DoltHub** starts one at once. Fetch is validated at an immutable commit, then
+60 s; the toolbar's **Sync DoltHub** starts one at once. DoltHub itself trails the writing ledger by up to its
+service's 5-minute publish round, unless that host runs `ledger publish`. Fetch is validated at an immutable commit, then
 fast-forwarded; errors keep the previously displayed version and show in the sync status.
 No browser request can choose an origin or database. Paper captures the selected strategy's exact source
 and required parent inputs into its own database before launch; research updates do not replace running
