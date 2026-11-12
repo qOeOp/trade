@@ -253,7 +253,8 @@ def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> t
     window runs from the input start (a recovery keeps its run's, so the first started line holds it) to the minute
     after the last stop was asked (the stop's own cancels are no gap), every instance trading from it. Entry membership
     is the declaration's (inputs/universe.json, from the input start to that month's end) and each later month the
-    journal says the runner read with the contract a member (engine.paper.Membership); the fees are the declared
+    journal says the runner read with the contract a member (engine.paper.Membership); each contract's data ends at
+    the last bar the journal took (stamped at its close, as the export's last_bar_ns); the fees are the declared
     ones. The counts the audit holds the reports to come from the journal and the runner's summary, not from the
     reports (both from the one native event stream)."""
     from engine.config import utc_text
@@ -290,10 +291,15 @@ def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> t
         "final_equity_usdt": str(_decimal(summary.get("balance_total"))),
     }
     fees = row["config"].get("fees") or {}
+    last_bar: dict[str, int] = {}
+    for line in lines:
+        if line["kind"] == "bar" and isinstance(line.get("ts_event"), int):
+            last_bar[line["instrument_id"]] = max(line["ts_event"], last_bar.get(line["instrument_id"], 0))
     coverage = {"format": COVERAGE_FORMAT, "effective_config": window, "input_identity": {"market_day": row["market_day"]},
                 "membership": {"market_day": row["market_day"], "membership": membership},
                 "export_receipts": {symbol: {"pieces": [{"instrument_id": f"{symbol}-PERP.BINANCE",
-                                                         "strategy_id": strategy_id(symbol)}],
+                                                         "strategy_id": strategy_id(symbol),
+                                                         "last_bar_ns": last_bar.get(f"{symbol}-PERP.BINANCE")}],
                                              "assumed": {"maker_fee": fees.get("maker"), "taker_fee": fees.get("taker")}}
                                     for symbol in row["symbols"]}}
     return audited, coverage

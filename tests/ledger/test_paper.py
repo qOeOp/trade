@@ -163,6 +163,8 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual((audited["closed_trades"], audited["winning_trades"], audited["denied_orders"],
                           audited["integrity_passed"], audited["final_equity_usdt"]), (1, 1, 1, True, "99990.00000000"))
         self.assertEqual(coverage["export_receipts"]["ETHUSDT"]["assumed"], {"maker_fee": "0.0002", "taker_fee": "0.0005"})
+        self.assertEqual([coverage["export_receipts"][symbol]["pieces"][0]["last_bar_ns"] for symbol in ("BTCUSDT", "ETHUSDT")],
+                         [START + MINUTE - 10**6, None], "the data ends at the last bar the journal took")
         self.assertEqual(audited["trade_start_by_strategy"], {"R1-BTC": START})
         for result, reason in (({"passed": False}, "AUDIT_FINDINGS"), ({"passed": None}, "AUDIT_NOT_RUN")):
             with self.subTest(reason):
