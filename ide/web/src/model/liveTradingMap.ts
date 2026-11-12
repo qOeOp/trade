@@ -44,6 +44,9 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
       fact("Recorded venue-flat check", account.venue_flat === true ? "Flat at this observation" : null)] : [],
     ending: [fact("Stop requested", yesNo(run.stop_requested)), fact("Custody released", yesNo(run.custody.released)), fact("Release reason", run.custody.release_reason), fact("Archived", yesNo(run.custody.archived))],
     evidence: run.evidence.map((item) => ({ source: item.source, cursor: item.cursor, observedNs: item.observed_ns, readNs: item.read_ns, complete: item.complete, state: item.state })),
+    venue: account ? { canTrade: account.can_trade, hedgeMode: account.hedge_mode, multiAssets: account.multi_assets,
+      wallet: account.usdt_wallet, available: account.usdt_available } : null,
+    hostState: run.host.state, accountOwned: run.host.account_owned,
     orders: run.orders, positions: run.positions, equity: equityOf(run), review: review?.review ?? run.review ?? null, reviewError: review?.review_error?.code ?? run.review_error?.code ?? null,
   };
 }
@@ -54,8 +57,11 @@ export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<str
     : home.write_reason ?? "Live actions are unavailable in this deployment.";
   return {
     availability: "ready", preview: false, notice: home.write_enabled ? null : unavailable,
+    reason: home.write_enabled ? null : home.write_reason ?? "LIVE_WRITE_DISABLED", symbols: home.symbols ?? null,
     credentials: home.credentials.map((item) => ({ ref: item.credential_ref, savedAt: item.observed_ns, selected: item.selected, available: item.available, removed: item.removed, runIds: item.referenced_runs })),
-    sources: home.sources.map((item) => ({ id: item.source_id, candidate: item.candidate, sourceHash: item.source_sha256, entryClass: item.entry_class, purpose: item.purpose })),
+    sources: home.sources.map((item) => ({ id: item.source_id, candidate: item.candidate, sourceHash: item.source_sha256, entryClass: item.entry_class, purpose: item.purpose,
+      ...item.evidence ? { evidence: { state: item.evidence.state, tolerance: item.evidence.tolerance,
+        replays: item.evidence.replays.map((row) => ({ trialId: row.trial_id, balance: row.starting_balance_usdt })) } } : {} })),
     planFields: [
       { id: "budget_usdt", label: "Budget (USDT)", value: home.defaults.budget_usdt },
       { id: "max_loss_usdt", label: "Loss threshold (USDT)", value: home.defaults.max_loss_usdt },
