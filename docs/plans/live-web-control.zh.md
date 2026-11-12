@@ -89,6 +89,6 @@ GET 纯读，不能调用有释放/归档/回收副作用的原 status。共享�
 
 独立并发评审否决了“子进程持账户锁、回复 held、宿主再写事务”的初稿：子进程回复后死亡会释放锁，宿主却可能继续写；增加心跳不能使两步原子。最终由实际写 metadata 的宿主进程以 `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` 打开原 0600 regular account.lock，并持 `flock(LOCK_EX)`，覆盖一次只读 `live release-inspect` 与原 transaction/route/clear 写入。缺失锁不新建，symlink 或 inode 改变不接受。检查子进程不再取锁或写 metadata，宿主死亡时两个锁和 metadata writer 一起终止，遗留 inspector 只读。此设计要求同一本地文件系统 inode；安装时核实 systemd sandbox 中的路径、UID 和本地 flock 语义，不能通过另建锁或放宽 custody 权限绕过。
 
-初次 busy/unknown 只是延后本次发布，不建立失败标记。事务开始时必须 idle；提交前再次在同一原锁内检查。事务中的新增 prepare/preflight/start/reconcile/凭据变更及实际 resolve 修复被暂停，精确 request 查回与 STOP 保留。后台/显式 maintenance 仅由已提交 owner 或合法事务 previous 执行。若途中发现独立 CLI 或未知状态，恢复旧 pair 不要求重新 idle，不终止真实 runner。candidate 未提交时不能开始新 runtime 的运行，旧 control 等锁后也必须重新核对归属。
+初次 busy/unknown 只是延后本次发布，不建立失败标记。事务开始时必须 idle，或者忙的 run 都能交给候选控制接管（声明未变、候选声明 `ADOPT_INSPECT`、每个忙 run 的运行镜像构建版本与候选声明同一个 `RUNNER_CONTRACT`，见 `live-continuous-step6-adopt-20261113.zh.md`）；提交前再次在同一原锁内检查。事务中的新增 prepare/preflight/start/reconcile/凭据变更及实际 resolve 修复被暂停，精确 request 查回与 STOP 保留。后台/显式 maintenance 仅由已提交 owner 或合法事务 previous 执行。若途中发现独立 CLI 或未知状态，恢复旧 pair 不要求重新 idle，不终止真实 runner。candidate 未提交时不能开始新 runtime 的运行，旧 control 等锁后也必须重新核对归属。
 
 成功提交后才退任旧 control：核对容器完整 Id 与当前 selector，先取消其自动重启，再仅发送协作 SIGTERM；handler、已接受的 CLI 和当前维护完成前进程与原件保留。没有 20 秒后 SIGKILL、自动删除或持久 draining 字段。Web/Agent/Paper 现有收尾规则不因此扩展到 Live runner。

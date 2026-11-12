@@ -48,6 +48,13 @@ CONTROL_UNCHANGED_FILES = frozenset({"deploy/README.md", "deploy/compose.yaml"})
 # let a Web serve beside an older control while Live is busy (docs/plans/live-web-first-release-20261108.zh.md).
 PROTOCOL_FILE = "live/protocol.py"
 PROTOCOL = re.compile(r"^PROTOCOL = ([1-9][0-9]*)$", re.MULTILINE)
+# A new control takes over running Live runners only where it can inspect for that (ADOPT) and reads them as their
+# runner was built to be read: the same runner contract at the candidate and at each busy run's runtime build revision
+# (docs/plans/live-continuous-step6-adopt-20261113.zh.md).
+ADOPT_FILE = "live/release.py"
+ADOPT = re.compile(r"^ADOPT_INSPECT = ([1-9][0-9]*)$", re.MULTILINE)
+RUNNER_CONTRACT_FILE = "engine/live.py"
+RUNNER_CONTRACT = re.compile(r"^RUNNER_CONTRACT = ([1-9][0-9]*)$", re.MULTILINE)
 
 
 def owners(transaction: dict) -> tuple[str, str]:
@@ -336,18 +343,30 @@ class GitSource:
             raise RuntimeError("admitted Web release has no admitted execution images")
         return value
 
-    def protocol(self, sha: str) -> int | None:
-        """The revision's declared browser-control protocol, or None when it has no declaration.
+    def declared(self, sha: str, path: str, pattern: re.Pattern, what: str) -> int | None:
+        """A number the revision declares as one plain line of `path`, or None when it has no declaration.
 
         A declaration that is not one plain line is a ValueError; a failed read raises as any Git failure."""
         if not REVISION.fullmatch(sha):
-            raise RuntimeError("invalid protocol revision")
-        if not self.git("ls-tree", "--name-only", sha, "--", PROTOCOL_FILE).strip():
+            raise RuntimeError(f"invalid {what} revision")
+        if not self.git("ls-tree", "--name-only", sha, "--", path).strip():
             return None
-        found = PROTOCOL.findall(self.git("show", f"{sha}:{PROTOCOL_FILE}", raw=True))
-        if len(found) != 1:
-            raise ValueError("the browser protocol declaration is not one plain line")
-        return int(found[0])
+        found = pattern.findall(self.git("show", f"{sha}:{path}", raw=True))
+        if len(found) > 1 or not found and what == "protocol":
+            raise ValueError(f"the {what} declaration is not one plain line")
+        return int(found[0]) if found else None
+
+    def protocol(self, sha: str) -> int | None:
+        """The revision's declared browser-control protocol, or None when it has no declaration."""
+        return self.declared(sha, PROTOCOL_FILE, PROTOCOL, "protocol")
+
+    def adopts(self, sha: str) -> bool:
+        """Whether the revision's control can list the runtimes of busy runs (live.release.ADOPT_INSPECT)."""
+        return self.declared(sha, ADOPT_FILE, ADOPT, "adoption") == 1
+
+    def runner_contract(self, sha: str) -> int | None:
+        """The runner contract the revision's Live runner speaks and its control reads (engine/live.py)."""
+        return self.declared(sha, RUNNER_CONTRACT_FILE, RUNNER_CONTRACT, "runner contract")
 
     def choose(self, active: str, failed: Path, again: bool = False) -> dict | None:
         """The admitted record newer than `active`; with `again` (its Web runs ahead of its control) also
@@ -520,6 +539,19 @@ class Release:
             return f"the owner's browser protocol {theirs} differs from {mine}"
         return None
 
+    def adoptable(self, sha: str):
+        """Whether a busy account's runners may pass to the candidate's control: each busy run's runtime build
+        revision declares the candidate's runner contract. Anything unreadable keeps the current pair."""
+        def check(runtimes: list) -> bool:
+            try:
+                mine = self.github.runner_contract(sha)
+                return isinstance(mine, int) and all(
+                    isinstance(found, str) and REVISION.fullmatch(found) is not None
+                    and self.github.runner_contract(found) == mine for found in runtimes)
+            except (RuntimeError, ValueError, subprocess.SubprocessError):
+                return False
+        return check
+
     def apply(self, target: dict) -> None:
         sha = target["revision"]
         candidate = f"{WEB}{sha}"
@@ -552,6 +584,26 @@ class Release:
             return
         from .live_host import AccountLockBusy, LiveBusy
 
+        # A busy account still pairs where the candidate's control takes over its running runners: same
+        # declaration (a changed one keeps requiring idle) and the candidate can list them for its inspection.
+        try:
+            adopting = paired and owner is not None and current and self.github.adopts(sha) is True
+        except (RuntimeError, ValueError, subprocess.SubprocessError):
+            adopting = False  # an unreadable declaration: idle only, as before
+        adopt = self.adoptable(sha) if adopting else None
+
+        def web_first() -> bool:
+            """Web first: the candidate's Web serves beside the owner's control, which keeps the account; its own
+            control pairs once Live is idle or its runners can be taken over. Only where both declare one browser
+            protocol. False keeps the current pair."""
+            nonlocal candidate, web_only, paired
+            kept = self.kept_ahead(owner, sha, previous)
+            if kept:
+                print(f"Live is active or unresolved; keeping the current Web/control pair ({kept})", flush=True)
+                return False
+            candidate, web_only, paired = f"{WEB}{sha}{AHEAD}", True, False
+            return self.cleared(previous, True)
+
         if paired and owner is not None and current:
             # Ask the owner's control whether Live is busy before preparing anything for the candidate, so
             # a revision waiting to pair costs one inspection per tick. A held account lock is no answer.
@@ -563,41 +615,41 @@ class Release:
                 print("A Live operation holds the account lock; keeping the current Web/control pair", flush=True)
                 return
             except LiveBusy:
-                # Web first: the candidate's Web serves beside the owner's control, which keeps the account;
-                # its own control pairs once Live is idle. Only where both declare one browser protocol.
-                kept = self.kept_ahead(owner, sha, previous)
-                if kept:
-                    print(f"Live is active or unresolved; keeping the current Web/control pair ({kept})", flush=True)
-                    return
-                candidate, web_only, paired = f"{WEB}{sha}{AHEAD}", True, False
-                if not self.cleared(previous, True):
+                if not adopting and not web_first():
                     return
         image = self.host.pull(sha, target["image"])
         self.github.ensure(target)
         agent_before = agent if change_agent else None
+        transaction = None
+        if paired:
+            # From a Web-only state the previous control is the owner's, not the previous Web's.
+            self.live.prepare(owner, target)
+            moved = {} if owner is None or owner == revision(previous) else {"previous_owner": owner}
+            try:
+                with self.live.barrier(candidate, target["service"], idle=True, adopt=adopt) as held:
+                    held()
+                    self.github.ensure(target)
+                    transaction = self.journal(candidate, previous, agent_before, moved)
+            except LiveBusy as busy:
+                if not adopting:
+                    print(f"{busy}; the next tick asks again", flush=True)  # it became busy since the owner was asked
+                    return
+                # Busy runners this control cannot take over: as before adoption, the Web may go first.
+                print(f"{busy}; the candidate control cannot take over its runners", flush=True)
+                if not web_first():
+                    return
         if web_only:
             control = WEB + owner
             self.live.health(control)
             identity = self.live.checked(control)["id"]
             transaction = self.journal(candidate, previous, agent_before, {"candidate_owner": owner})
-        elif paired:
-            # From a Web-only state the previous control is the owner's, not the previous Web's.
-            self.live.prepare(owner, target)
-            moved = {} if owner is None or owner == revision(previous) else {"previous_owner": owner}
-            try:
-                with self.live.barrier(candidate, target["service"], idle=True) as held:
-                    held()
-                    self.github.ensure(target)
-                    transaction = self.journal(candidate, previous, agent_before, moved)
-            except LiveBusy as busy:
-                print(f"{busy}; the next tick asks again", flush=True)  # it became busy since the owner was asked
-                return
-        else:
+        elif transaction is None:
             transaction = self.journal(candidate, previous, agent_before)
         after = owner if web_only else sha
         print(f"Preparing main Web release {sha}" + (
             f" ahead of Live control {owner}" if ahead(candidate) else
-            " beside the unchanged Live control" if web_only else ""), flush=True)
+            " beside the unchanged Live control" if web_only else
+            " with a control that can take over running Live runners" if adopting else ""), flush=True)
         try:
             if paired:
                 for name in self.host.managed(WEB, running_only=True):
@@ -644,7 +696,7 @@ class Release:
                 self.host.ensure_protected(protected)
 
             unchanged(False)
-            barrier = (self.live.barrier(candidate, idle=True, wait_for_lock=True)
+            barrier = (self.live.barrier(candidate, idle=True, adopt=adopt, wait_for_lock=True)
                        if paired else nullcontext(lambda: None))
             with barrier as held:
                 held()
