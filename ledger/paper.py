@@ -24,6 +24,8 @@ import gzip
 import hashlib
 import json
 from pathlib import Path
+import shutil
+import tempfile
 
 from ledger import db, strategies
 from shared.refusals import refuse
@@ -174,6 +176,14 @@ def _decimal(value) -> Decimal | None:
         return None
 
 
+MINUTE_NS = 60 * 10**9
+
+
+def _month_end(ns: int) -> int:
+    moment = datetime.fromtimestamp(ns // 10**9, UTC)
+    return int(datetime(moment.year + moment.month // 12, moment.month % 12 + 1, 1, tzinfo=UTC).timestamp()) * 10**9
+
+
 def _day(ns: int) -> str:
     return datetime.fromtimestamp(ns // 10**9, UTC).date().isoformat()
 
@@ -234,6 +244,91 @@ def equity_path(lines: list[dict]) -> tuple[list[tuple[int, Decimal]], list[tupl
     return path, funding_by_ns
 
 
+def _ceil_minute(ns: int) -> int:
+    return -(-ns // MINUTE_NS) * MINUTE_NS
+
+
+def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> tuple[dict, dict]:
+    """(summary.json, input-coverage.json) for engine.audit over a run's native reports, in a replay's shape. The
+    window runs from the input start (a recovery keeps its run's, so the first started line holds it) to the minute
+    after the last stop was asked (the stop's own cancels are no gap), every instance trading from it. Entry membership
+    is the declaration's (inputs/universe.json, from the input start to that month's end) and each later month the
+    journal says the runner read with the contract a member (engine.paper.Membership); each contract's data ends at
+    the last bar the journal took (stamped at its close, as the export's last_bar_ns); the fees are the declared
+    ones; the clock is live (Sandbox stamps a fill's account update after the fill). The counts the audit holds the reports to come from the journal and the runner's summary, not from the
+    reports (both from the one native event stream)."""
+    from engine.config import utc_text
+    from engine.load import COVERAGE_FORMAT, strategy_id
+    started = next(line for line in lines if line["kind"] == "started")
+    start = started["input_start_ns"]
+    asked = max((line["wall_ns"] for line in lines if line["kind"] == "stop_requested"), default=None)
+    end = max(_ceil_minute(asked or summary["stopped_ns"]), start + MINUTE_NS)
+    universe = json.loads((inputs / "universe.json").read_bytes())["membership"]
+    first_month_end = _month_end(start)
+    membership = {symbol: [[max(low, start), min(high, first_month_end)] for low, high in universe.get(symbol, [])
+                           if high > start and low < first_month_end] for symbol in row["symbols"]}
+    for line in lines:
+        if line["kind"] == "membership" and line.get("member") is True and line.get("symbol") in membership:
+            month = int(datetime.strptime(line["month"], "%Y-%m").replace(tzinfo=UTC).timestamp()) * 10**9
+            if [month, _month_end(month)] not in membership[line["symbol"]]:
+                membership[line["symbol"]].append([month, _month_end(month)])
+    closed = [line for line in lines if line["kind"] == "position" and line.get("type") == "PositionClosed"]
+    ended = {line.get("client_order_id"): line.get("type") for line in lines if line["kind"] == "order"
+             and line.get("type") in ("OrderDenied", "OrderRejected")}
+    instances = (summary.get("instances") or {}).values()
+    window = {"start": utc_text(start), "trade_start": utc_text(start), "end": utc_text(end)}
+    audited = {
+        "input_start_utc": window["start"], "period_start_utc": window["trade_start"], "period_end_utc": window["end"],
+        "market_day": row["market_day"], "per_coin": [], "clock": "live",
+        "trade_start_by_strategy": {item["strategy_id"]: item["input_start_ns"] for item in instances},
+        "integrity_passed": not summary.get("orders_denied_or_rejected")
+                            and not any(item.get("integrity_findings") for item in instances),
+        "denied_orders": sum(kind == "OrderDenied" for kind in ended.values()),
+        "rejected_orders": sum(kind == "OrderRejected" for kind in ended.values()),
+        "strategy_uses_stop_loss": started.get("strategy_uses_stop_loss"),
+        "closed_trades": len(closed), "winning_trades": sum((_decimal(line.get("realized_pnl")) or 0) > 0 for line in closed),
+        "starting_balance_usdt": (summary.get("account") or {}).get("starting_balance_usdt"),
+        "final_equity_usdt": str(_decimal(summary.get("balance_total"))),
+    }
+    fees = row["config"].get("fees") or {}
+    last_bar: dict[str, int] = {}
+    for line in lines:
+        if line["kind"] == "bar" and isinstance(line.get("ts_event"), int):
+            last_bar[line["instrument_id"]] = max(line["ts_event"], last_bar.get(line["instrument_id"], 0))
+    coverage = {"format": COVERAGE_FORMAT, "effective_config": window, "input_identity": {"market_day": row["market_day"]},
+                "membership": {"market_day": row["market_day"], "membership": membership},
+                "export_receipts": {symbol: {"pieces": [{"instrument_id": f"{symbol}-PERP.BINANCE",
+                                                         "strategy_id": strategy_id(symbol),
+                                                         "last_bar_ns": last_bar.get(f"{symbol}-PERP.BINANCE")}],
+                                             "assumed": {"maker_fee": fees.get("maker"), "taker_fee": fees.get("taker")}}
+                                    for symbol in row["symbols"]}}
+    return audited, coverage
+
+
+def audit(row: dict, output: Path, lines: list[dict], summary: dict | None) -> dict | None:
+    """engine.audit over the native reports the runner left in ``<output>/reports/`` (engine.paper.write_native_reports),
+    the replay's audit, with its inputs from audit_inputs (on a live clock: engine.live_fill_changes):
+    {passed, findings, scope, fill_account_lag_ns_max, the longest a fill's account update followed it}; passed is None
+    when a runner that wrote its summary left no reports to audit. None without a summary (a runner killed or never
+    started, which its other reasons say)."""
+    from engine import audit as native
+    reports = output / "reports"
+    if summary is None:
+        return None
+    if not (reports / "orders.csv").is_file() or \
+            not any(line["kind"] == "started" and isinstance(line.get("input_start_ns"), int) for line in lines):
+        return {"passed": None, "findings": [], "scope": "the runner left no native reports or no input start"}
+    audited, coverage = audit_inputs(row, output.parent / "inputs", lines, summary)
+    with tempfile.TemporaryDirectory(prefix="paper-audit-") as name:
+        run = Path(name) / "reports"
+        shutil.copytree(reports, run)
+        (run / "summary.json").write_text(json.dumps(audited), encoding="utf-8")
+        (Path(name) / native.COVERAGE).write_text(json.dumps(coverage), encoding="utf-8")
+        result = native.audit(run)
+    return {**{key: result[key] for key in ("passed", "findings", "scope")},
+            "fill_account_lag_ns_max": (result.get("native_economics") or {}).get("fill_account_lag_ns_max")}
+
+
 def killed(lines: list[dict], summary: dict | None, exit_code: int | None, oom_killed: bool) -> bool:
     """Whether the runner was killed from outside: SIGKILL, not at its memory limit, before it wrote its summary,
     and not after `paper stop` asked it through the STOP file (that kill is the stop's own fallback for a runner
@@ -244,11 +339,13 @@ def killed(lines: list[dict], summary: dict | None, exit_code: int | None, oom_k
 
 def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None, exit_code: int | None,
              egress: bytes | None, start_failed: bool = False, oom_killed: bool = False, failures: int = 0,
-             path_and_funding: tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]] | None = None) -> dict:
+             path_and_funding: tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]] | None = None,
+             audited: dict | None = None) -> dict:
     """seal.json: the run's status with its reasons, and the readings computed once at sealing. A runner killed
     from outside (killed()) ends the run as a stop does: what it journaled stands, its stop reason is KILLED.
     `failures` counts the records of the run's runtime_failures.jsonl; `path_and_funding` is equity_path(lines)
-    when the caller already has it."""
+    when the caller already has it; `audited` is audit()'s result: findings add AUDIT_FINDINGS, reports
+    it could not audit AUDIT_NOT_RUN."""
     reasons: list[str] = ["START_FAILED"] if start_failed else []
     ended_by_kill = killed(lines, summary, exit_code, oom_killed)
     if not lines:
@@ -263,6 +360,10 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         reasons.append("STOPPED_BEFORE_START")
     if failures:
         reasons.append("RUNTIME_FAILURES")
+    if audited is not None and audited["passed"] is False:
+        reasons.append("AUDIT_FINDINGS")
+    elif audited is not None and audited["passed"] is None:
+        reasons.append("AUDIT_NOT_RUN")
     kinds = Counter(line["kind"] for line in lines)
     for line in lines:
         if line["kind"] == "refusal":
@@ -330,6 +431,7 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         "missing_bars": sum(int(line.get("missing_bars") or 0) for line in lines if line["kind"] == "data_gap"),
         "late_bars": kinds.get("late_bar", 0), "protection_gaps": kinds.get("protection_gap", 0),
         "socket_events": kinds.get("socket", 0), "egress_denied": denied, "unreadable_journal_lines": unreadable,
+        "audit": audited,
         "limitations": ["Sandbox settles no funding: equity adds each settlement's funding at the stream rate and "
                         "the latest MARK, from the positions the journal records",
                         *((summary or {}).get("limitations") or []),
@@ -392,8 +494,13 @@ def capture(row: dict, output: Path, egress_log: Path, runner_log: bytes | None,
         for path in originals:
             if path.is_file() and not path.is_symlink():
                 files[f"recovery/{path.relative_to(recovery).as_posix()}"] = path.read_bytes()
+    reports = output / "reports"
+    if reports.is_dir() and not reports.is_symlink():
+        for path in sorted(reports.iterdir()):
+            if path.is_file() and not path.is_symlink():
+                files[f"reports/{path.name}"] = path.read_bytes()
     seal = readings(row, lines, unreadable, summary, exit_code, egress, start_failed, oom_killed,
-                    len((failures or b"").splitlines()))
+                    len((failures or b"").splitlines()), audited=audit(row, output, lines, summary))
     files["seal.json"] = json.dumps(seal, indent=2, sort_keys=True).encode()
     return files
 

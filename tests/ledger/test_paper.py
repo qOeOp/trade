@@ -131,6 +131,46 @@ class ReadingTests(unittest.TestCase):
                 found = paper.readings(ROW, lines, 0, None, 137, None, oom_killed=oom, failures=failures)
                 self.assertEqual((found["status"], set(found["reasons"])), ("complete", reasons))
 
+    def test_the_seal_audits_the_native_reports_against_the_declaration_and_the_journal(self):
+        """engine.audit runs on the reports the runner left, with the window to the minute after the last stop was
+        asked, membership as the runner read it (a month file it never read counts for nothing), the declared fees,
+        and counts from the journal, not the reports."""
+        month = int(datetime(2026, 11, 1, tzinfo=UTC).timestamp()) * 10**9
+        row = {**ROW, "symbols": ["BTCUSDT", "ETHUSDT"], "market_day": "2026-10-24",
+               "config": {"leverage": "3", "fees": {"maker": "0.0002", "taker": "0.0005"}}}
+        lines = [line("started", START, source_sha256=SOURCE, input_start_ns=START, strategy_uses_stop_loss=True),
+                 *journal()[1:],
+                 line("position", START + 3 * MINUTE, type="PositionClosed", instrument_id="BTCUSDT-PERP.BINANCE",
+                      position_id="P-1", realized_pnl="2.5 USDT"),
+                 line("order", START + 3 * MINUTE, type="OrderDenied", client_order_id="O-9"),
+                 line("membership", START + 3 * MINUTE, symbol="ETHUSDT", month="2026-11", member=True, sha256="0"),
+                 line("membership", START + 3 * MINUTE, symbol="BTCUSDT", month="2026-11", member=False, sha256="0"),
+                 line("stop_requested", START + 2 * MINUTE, reason="SIGTERM"),
+                 line("stop_requested", START + 3 * MINUTE + 10**9, reason="STOP_FILE")]
+        found = summary(instances={"BTCUSDT-PERP.BINANCE": {"strategy_id": "R1-BTC", "input_start_ns": START,
+                                                             "integrity_findings": []}})
+        with tempfile.TemporaryDirectory() as name:
+            inputs = Path(name, "inputs")
+            (inputs / "membership").mkdir(parents=True)
+            (inputs / "universe.json").write_text(json.dumps({"membership": {"BTCUSDT": [[START - DAY, START + 9 * DAY]]}}))
+            (inputs / "membership" / "2026-11.json").write_text(json.dumps({"market_day": "x", "members": ["BTCUSDT"]}))
+            audited, coverage = paper.audit_inputs(row, inputs, lines, found)
+            self.assertEqual(paper.audit(row, Path(name, "out"), lines, found)["passed"], None)
+        self.assertEqual((audited["input_start_utc"], audited["period_end_utc"]),
+                         ("2026-10-25T23:58:00Z", "2026-10-26T00:02:00Z"))  # asked at 00:01:01
+        self.assertEqual(coverage["membership"]["membership"],
+                         {"BTCUSDT": [[START, month]], "ETHUSDT": [[month, paper._month_end(month)]]})
+        self.assertEqual((audited["closed_trades"], audited["winning_trades"], audited["denied_orders"],
+                          audited["integrity_passed"], audited["final_equity_usdt"]), (1, 1, 1, True, "99990.00000000"))
+        self.assertEqual(coverage["export_receipts"]["ETHUSDT"]["assumed"], {"maker_fee": "0.0002", "taker_fee": "0.0005"})
+        self.assertEqual([coverage["export_receipts"][symbol]["pieces"][0]["last_bar_ns"] for symbol in ("BTCUSDT", "ETHUSDT")],
+                         [START + MINUTE - 10**6, None], "the data ends at the last bar the journal took")
+        self.assertEqual(audited["trade_start_by_strategy"], {"R1-BTC": START})
+        for result, reason in (({"passed": False}, "AUDIT_FINDINGS"), ({"passed": None}, "AUDIT_NOT_RUN")):
+            with self.subTest(reason):
+                read = paper.readings(ROW, journal(), 0, summary(), 0, b"", audited=result)
+                self.assertEqual((read["status"], read["reasons"], read["audit"]), ("complete", [reason], result))
+
     def test_native_capture_keeps_the_exact_cut_and_interrupted_tail_without_a_second_copy(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)

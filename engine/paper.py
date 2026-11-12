@@ -35,7 +35,8 @@ reads from its export receipts).
 Its own record is ``<output>/events.jsonl``: bars, data gaps, socket state, orders, positions, funding
 settlements, the account totals once a minute and protection gaps. ``<output>/state.json`` holds the latest
 totals with the open positions and orders, ``<output>/runtime_failures.jsonl`` is rewritten within a second of
-each runtime failure, and ``<output>/summary.json`` is written at the end. Sandbox
+each runtime failure, and ``<output>/summary.json`` and ``<output>/reports/`` (the native cache's reports and order
+events as a replay writes them, which the sealing step audits) are written at the end. Sandbox
 settles no funding (native probe, 2026-10-25), so the journal records each settlement with the positions it
 applies to, and the sealing step accounts for it.
 
@@ -832,6 +833,30 @@ def summary(args, loaded: LoadedStrategy, planned: list[PaperInputs], recorder: 
     }
 
 
+REPORTS = "reports"
+
+
+def write_native_reports(output: Path, cache) -> None:
+    """``<output>/reports/``: the native cache's orders, fills, positions and account reports and its order events,
+    as a replay writes them (engine.write_reports, engine.write_order_events), replaced whole: an earlier end's are
+    removed first, so a failed write leaves none. A recovered run's cache holds the whole run, so the latest end's
+    reports do."""
+    import pandas as pd
+    from nautilus_trader.analysis import ReportProvider
+    from engine.report import ORDER_EVENTS, write_order_events, write_reports
+    partial = output / f".{REPORTS}.partial"
+    shutil.rmtree(output / REPORTS, ignore_errors=True)
+    shutil.rmtree(partial, ignore_errors=True)
+    partial.mkdir()
+    orders, account = cache.orders(), cache.account_for_venue(Venue(VENUE))
+    write_reports(partial, cache, ReportProvider.generate_orders_report(orders),
+                  ReportProvider.generate_fills_report(orders),
+                  ReportProvider.generate_positions_report(cache.positions(), cache.position_snapshots()),
+                  ReportProvider.generate_account_report(account) if account is not None else pd.DataFrame())
+    write_order_events(orders, partial / ORDER_EVENTS)
+    os.replace(partial, output / REPORTS)
+
+
 def main(argv: list[str] | None = None) -> None:
     found = credential_names(os.environ)
     if found:
@@ -934,6 +959,10 @@ def _main(args) -> None:
             checkpoint.atomic(args.output / "summary.json",
                               json.dumps(result, default=str, indent=2, sort_keys=True).encode())
             journal("summary_written", stop_reason=result["stop_reason"])
+            try:
+                write_native_reports(args.output, node.cache)
+            except Exception as exc:  # the seal then audits nothing and says so
+                journal("reports_failed", error=f"{type(exc).__name__}: {exc}")
             if SESSION and pausing():
                 SESSION.try_cut(node.cache)
             node.dispose()
