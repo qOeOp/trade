@@ -134,7 +134,7 @@ empty ratios read in `replay_diagnostics`.
   last, before that bar can fill: through bars at an unchanged price the order keeps resting and
   counting toward the exposure limit, so cancel on a timer where the lifetime must end on time;
   stamps sit 1 ms before the minute, so a whole-minute deadline reports one bar late. Never add a
-  stop or target the source lacks.
+  target the source lacks.
 - The audit refuses a run in which a position is larger than its resting stops (reduce-only, closing
   side, accepted and neither triggered nor filled) for longer than one one-minute bar. Every source
   has a stop loss: `USES_STOP_LOSS = False` is refused.
