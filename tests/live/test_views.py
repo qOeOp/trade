@@ -19,7 +19,7 @@ class LiveViewTests(LiveFixture):
         docker = patch.object(host_runtime, "docker", side_effect=self.docker_view({}, self.calls))
         docker.start()
         self.addCleanup(docker.stop)
-        for name in ("status", "stop", "launch", "_credentials", "_release_if_resolved", "_recycle"):
+        for name in ("status", "stop", "launch_locked", "_credentials", "_release_if_resolved", "_recycle"):
             guarded = patch.object(runs, name, side_effect=AssertionError("projection invoked " + name))
             guarded.start()
             self.addCleanup(guarded.stop)

@@ -10,7 +10,6 @@ from pathlib import Path
 import stat
 
 from deploy import live_configuration as installed
-from engine.live_errors import LiveRefusal
 from live import configuration, release, state
 
 STATE = Path("/var/lib/trade-release")
@@ -104,23 +103,6 @@ def from_file(file: Path, binding: release.Binding | None) -> Authority:
     if binding is None or file != path(binding):
         raise unavailable()
     return retained(configuration.load(file), binding)
-
-
-def operator(root: Path, web_name: str) -> Authority:
-    """Assert the root and selected service release; the current route never assigns caller identity."""
-    try:
-        declared = installed.declaration(STATE / "live/configuration.json")
-        if root != Path(declared["root"]):
-            raise state.fail("LIVE_IDENTITY_CHANGED", "use the installed canonical Live custody root")
-        binding = release.Binding(STATE, web_name)
-        result = from_file(path(binding), binding)
-        # Initial proof precedes profile/credential reads; the locked effect repeats it.
-        result.admit_locked(root, inventory=False)
-        return result
-    except LiveRefusal:
-        raise
-    except (OSError, ValueError, RuntimeError, KeyError, TypeError):
-        raise unavailable() from None
 
 
 def inspection(file: Path) -> Authority:

@@ -210,7 +210,7 @@ project is not affiliated with, sponsored or endorsed by Binance.
 - [`shared/`](shared/): the profile directory (`profiles.py`), the coded refusals (`refusals.py`) and the temporary and checkout paths (`paths.py`) the packages share.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
 - [`paper/`](paper/): the paper-run controller and the daemon behind the IDE's Paper panel.
-- [`live/`](live/): the operator-only `live` command.
+- [`live/`](live/): the Live control behind the IDE's Live page, and `live status|logs|stop`.
 - [`market/`](market/): the Binance market directory (plain Parquet files), its monthly universe, lifecycle manifests, coverage facts and the per-day Catalog export.
 - [`deploy/`](deploy/): the base deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its three images; [`deploy/remote/`](deploy/remote/README.md) adds what a server needs, automatic release of version tags included ([`CHANGELOG.md`](CHANGELOG.md)).
 - [`ide/`](ide/): the trade IDE, a page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, the web renderer and the ledger-versus-session comparison.

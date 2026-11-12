@@ -22,7 +22,7 @@ MESSAGES = {
     "LIVE_CREDENTIAL_CHANGED": "The selected credential changed. Prepare a new run.",
     "LIVE_CREDENTIAL_BUSY": "An active or unresolved execution still requires its credential version.",
     "LIVE_CREDENTIAL_UNAVAILABLE": "The required local credential version is unavailable.",
-    "LIVE_CREDENTIAL_UNMANAGED": "This historical run retains its original operator credential path.",
+    "LIVE_CREDENTIAL_UNMANAGED": "This run has no managed credential version and cannot launch.",
     "LIVE_ACCOUNT_OWNED": "Another Live execution is active or cannot yet be verified as resolved.",
     "LIVE_ACCOUNT_NOT_FLAT": "The account has existing positions or orders.",
     "LIVE_ACCOUNT_MODE": "The observed account settings do not match this Live configuration.",
@@ -125,33 +125,6 @@ def listing(config: configuration.Configuration, *, binding: release.Binding | N
     return result
 
 
-def operator_preflight(root: Path, run_id: str, research: db.LedgerProfile, research_at: str,
-                       candidate: str, symbols: list[str], universe_file: Path, credentials_file: Path,
-                       runtime: str, *, scope: authority.Authority, **prepare_options) -> dict:
-    """Original CLI preparation/review/launch sequence with one retained authority.
-
-    Each existing mutation keeps its own admission and lock; review stays between
-    them. No web request ID or receipt is fabricated for the operator protocol.
-    """
-    manifest = runs.prepare(root, run_id, research, research_at, candidate, symbols, universe_file,
-                            credentials_file, runtime, scope=scope, **prepare_options)
-    review = runs.review(research, research_at, manifest)
-    result = runs.launch(root, run_id, credentials_file, "preflight", scope=scope)
-    return {**result, "review": review}
-
-
-def operator_start(root: Path, run_id: str, credentials_file: Path, confirm_real_orders: str, *,
-                   scope: authority.Authority) -> dict:
-    """Confirm and launch through the shared locked core, retaining both admissions."""
-    runs.require_confirmed(root, run_id, confirm_real_orders, scope=scope)
-    return runs.launch(root, run_id, credentials_file, "run", scope=scope)
-
-
-def operator_reconcile(root: Path, run_id: str, credentials_file: Path, *,
-                       scope: authority.Authority) -> dict:
-    return runs.launch(root, run_id, credentials_file, "reconcile", scope=scope)
-
-
 def _fixed_prepare(config: configuration.Configuration, body: dict, scope: authority.Authority) -> dict:
     target = {"run_id": body["run_id"], "credential_ref": body["credential_ref"]}
     parameters = configuration.run_config(body["config"])
@@ -202,7 +175,7 @@ def _operation(config, action, command, body, root, request_id):
     run_id = target["run_id"]
     if action == "prepare":
         manifest = _prepare(config, root, run_id, target["credential_ref"], inputs, request_id)
-        # Same review as the original CLI; a failed review cannot open a venue connection.
+        # A failed review cannot open a venue connection.
         return runs.review(_profile(config), inputs["research_at"], manifest)
     if action == "stop":
         return runs.stop_locked(root, run_id)
@@ -250,7 +223,7 @@ def resolve(config: configuration.Configuration, request_id: str, *, binding: re
 
 def execute(config: configuration.Configuration, action: str, target: str | None, body: dict, *,
             binding: release.Binding | None = None) -> tuple[int, dict]:
-    """Called only by the fixed operator CLI, never a general command-line proxy."""
+    """Called only by `live web-command` for the paired Web, never a general command-line proxy."""
     if action in notify.ACTIONS:
         # Notification settings are not account operations: no request ID, journal or account lock.
         try:

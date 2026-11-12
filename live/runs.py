@@ -13,7 +13,6 @@ import hashlib
 import os
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING
 
 from engine.config import Refusal as EngineRefusal, is_leverage
 from engine.live_errors import LiveRefusal
@@ -22,9 +21,6 @@ from ledger import db, strategies
 from runtime import image
 from live import host as host_runtime
 from live import key, requests, state
-
-if TYPE_CHECKING:
-    from live.authority import Authority
 
 
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
@@ -240,10 +236,10 @@ def _positive(value: str, name: str) -> str:
 
 def _bound_credential(root: Path, run_id: str, directory: Path, path: Path, mode: str,
                       request_id: str | None) -> dict | None:
-    """Managed versions are the same boundary for the web and the legacy operator CLI."""
+    """A prepared run launches only with its own managed credential version (credentials.run_path_locked)."""
     prepared = next((row for row in _host_events(directory) if row.get("event") == "prepared"), None)
-    if prepared is None or prepared.get("credential_ref") is None:
-        return None  # Retained pre-management runs keep their original operator path.
+    if prepared is None:
+        return None
     from live import credentials as credential_store
     expected = credential_store.run_path_locked(root, run_id, mode, request_id=request_id)
     if path.resolve() != expected.resolve():
@@ -261,18 +257,6 @@ def _candidate(research: db.LedgerProfile, research_at: str, candidate: str, sou
         raise state.fail("LIVE_IDENTITY_CHANGED", f"{candidate} at research_at is source {found['source_sha256']}, "
                                                   f"not the declared {source_sha256}")
     return found
-
-
-def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
-            symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
-            budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str, leverage: str,
-            market_root: Path, scope: Authority) -> dict:
-    """Capture immutable source inputs using the installed account authority."""
-    with scope.serialized(root) as root:
-        scope.admit_locked(root)
-        return prepare_locked(root, run_id, research, research_at, candidate, symbols, universe, credentials, runtime,
-                               budget_usdt=budget_usdt, max_loss_usdt=max_loss_usdt, duration_seconds=duration_seconds, memory=memory,
-                               leverage=leverage, market_root=market_root)
 
 
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
@@ -433,17 +417,10 @@ def review(research: db.LedgerProfile, research_at: str, manifest: dict) -> dict
             "validations": registrations, "validation_note": VALIDATION_NOTE}
 
 
-def require_confirmed(root: Path, run_id: str, source_sha256: str, *, scope: Authority) -> None:
-    """Start names the source that will place real orders, so no default can start one. Not a secret: it asks for intent."""
-    with state.reading(root) as root:
-        scope.admit_locked(root, inventory=False)
-        require_confirmed_locked(root, run_id, source_sha256)
-
-
 def require_confirmed_locked(root: Path, run_id: str, source_sha256: str) -> None:
     _, manifest = _manifest(root, run_id)
     if source_sha256 != manifest["source"]["source_sha256"]:
-        raise state.fail("LIVE_IDENTITY_CHANGED", "--confirm-real-orders must be the source_sha256 this run's "
+        raise state.fail("LIVE_IDENTITY_CHANGED", "the confirmation must be the source_sha256 this run's "
                                                   "preflight or status shows; nothing was started")
 
 
@@ -478,12 +455,6 @@ def _network(root: Path, run_id: str, directory: Path, manifest: dict) -> dict:
     elif not actual["State"].get("Running"):
         host_runtime.checked("start", actual["Id"])
     return names
-
-
-def launch(root: Path, run_id: str, credentials: Path, mode: str, *, scope: Authority) -> dict:
-    with scope.serialized(root) as root:
-        scope.admit_locked(root)
-        return launch_locked(root, run_id, credentials, mode)
 
 
 def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, request_id: str | None = None) -> dict:

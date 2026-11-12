@@ -244,7 +244,7 @@ def view(root: Path, request_id: str) -> dict:
 
 
 def require_clear(root: Path, request_id: str | None = None) -> None:
-    """All effect-expanding entrances, including legacy CLI, share this conflict check."""
+    """Every effect-expanding entrance shares this conflict check."""
     directory = root / "requests"
     if not os.path.lexists(directory):
         return

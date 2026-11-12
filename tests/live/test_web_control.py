@@ -315,7 +315,7 @@ class LiveWebControlTests(unittest.TestCase):
         with state.serialized(self.root):
             state.private_directory(self.root / "runs" / "retained")
         with patch.object(serve.runs, "_status_view", return_value={"state": "running"}) as status, \
-                patch.object(serve.runs, "launch", side_effect=AssertionError("maintenance relaunched")), \
+                patch.object(serve.runs, "launch_locked", side_effect=AssertionError("maintenance relaunched")), \
                 patch.object(serve.runs, "_credentials", side_effect=AssertionError("maintenance read credentials")):
             serve.maintain_existing(self.config, binding=self.binding)
         status.assert_called_once_with(self.root.resolve(), "retained", maintain=False)
