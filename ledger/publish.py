@@ -1,11 +1,12 @@
 """The public copy of a database on its `origin` remote (`ledger.publish`, `ledger.set_remote`).
 
-The research ledger is public: it is pushed to its DoltHub repository by the service administrator
-after it changes. A publish pushes the branch without force and then
+The research ledger is public: it is pushed to its DoltHub repository by the service administrator,
+in the compose ledger service's rounds (`cli/service.py`) or by `ledger publish`; commands that change it only
+commit locally. A publish pushes the branch without force and then
 fetches to check that the remote's head contains the local one read before the push: it is that head,
 or descends from it when another writer on the same service committed between the head read and the
 push (the push names the branch, so it carried both commits). Publishes of one database are serialized
-on its service by a named lock (`<database>/publish`), so concurrent commands do not race their pushes;
+on its service by a named lock (`<database>/publish`), so concurrent publishers do not race their pushes;
 one that finds the head already published by another skips the branch push after the fetch confirms
 it. A rejected push is judged by that fetch too, before the rejection: a remote containing the local
 head is published, a remote whose history neither contains the local head nor is an ancestor of it is

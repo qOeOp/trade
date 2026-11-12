@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 import sys
 from unittest.mock import patch
 
@@ -181,9 +180,8 @@ class ReplayWorld(World):
             self.fingerprint = DEFAULT_FINGERPRINT  # None: the fingerprint stage fails
             self.commands: list[dict] = []
             self.stopped: list[str] = []
-            self.checkout = clean_checkout(self.service.root / "checkout")
             # A stand-in CI build: tests/replay/test_entry.py checks explorations and prechecks with the real check.
-            self._inspect = registration_seams.use(inspect_runtime=inspect, checkout=lambda: self.checkout,
+            self._inspect = registration_seams.use(inspect_runtime=inspect,
                                                    require_ci_build=lambda identity, inspection: BUILD_REVISION)
             self._inspect.__enter__()
             self._replay = seams.use(container_command=self.command, build_revision=lambda identity: BUILD_REVISION,
@@ -222,18 +220,6 @@ class ReplayWorld(World):
         path = self.tmp / name
         path.write_bytes(data)
         return path
-
-
-def clean_checkout(root: Path) -> Path:
-    """A Git work tree with one commit and nothing uncommitted: the product checkout of a sealed run."""
-    root.mkdir()
-    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
-           "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": "/dev/null",
-           "GIT_CONFIG_SYSTEM": "/dev/null",
-           "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
-    for argv in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "product"]):
-        subprocess.run(["git", *argv], cwd=root, env=env, check=True, capture_output=True)
-    return root
 
 
 def registered_grid(world: World, tags: list[str]) -> tuple[int, list[str]]:

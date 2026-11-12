@@ -183,7 +183,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("market", "init"): (
         "the profile directory",
         "the market directory at --root with its lock alone (the first import writes the first file) and the profile "
-        "file {name, holds: market, kind, root}; never publishes",
+        "file {name, holds: market, kind, root}",
         "name, holds, kind, root, profile",
         "MARKET_EXISTS (the profile or an active market exists, or --root is not an empty directory); "
         "ISOLATION_BREACH (an active market in the checkout or a temporary root, or another market in the active "
@@ -281,7 +281,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the market day --at (reader); --manifest and each --notice, validated against that market day before "
         "anything is written",
         "the ledger bundle lifecycle-<market day> (lifecycle.json and the notices); the same content again is "
-        "a replay; publishes the ledger",
+        "a replay",
         "bundle, market_day, files {path: sha256}, episodes (count per contract), write_status, ledger_commit",
         "LIFECYCLE_INPUT (a file missing, not regular or not JSON, or the manifest does not fit the market day); "
         "BUNDLE_EXISTS (a different manifest; a correction belongs to a new market day); "
@@ -290,7 +290,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "bars, mark prices, funding, quotes, trades, metrics, instruments and universe members at --at "
         "(reader); without --symbols, every member of the months [--start, --end) touches; with --lifecycle-bundle, "
         "that ledger bundle",
-        "nothing; never publishes",
+        "nothing",
         "market_day, scope {symbols, start, end, expanded}, input_interval_ms, coverage [per contract], lifecycle, "
         "lifecycle_missing, interpretation",
         "INTERVAL_INVALID (not UTC whole minutes, or start not before end); EMPTY_SYMBOLS; UNKNOWN_SYMBOL; "
@@ -298,7 +298,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("market", "bars"): (
         "bar, funding and instrument at --at (reader), through the exporter's own reads "
         "(market.read_bars, market.daily_bars, market.read_funding)",
-        "nothing in any database; with --output, one new file under the temporary root; never publishes",
+        "nothing in any database; with --output, one new file under the temporary root",
         "market_day, symbol, price_type, timeframe, interval {start, end, ms}, next_start, bars {columns, count, rows}, "
         "funding {columns, count, rows}, output",
         "INTERVAL_INVALID (not UTC whole minutes, start not before end; 1d: not whole UTC days); NO_TERMS (no such "

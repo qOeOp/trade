@@ -5,8 +5,8 @@ rejected push judged by the remote's head after a fetch, a remote that descends 
 before the push (another writer committed in between) published; an isolated database kept off public
 remotes; the `dolt login` key
 installed in the service's own Dolt home, with a restart named while the service runs without it;
-a write command publishing what origin lacks, a read command publishing nothing; and the ledger service
-publishing what a failed publish left behind with no further write, and saying how long and why it could not.
+no command publishing (a write only commits locally) while `ledger publish` publishes at once; and the ledger
+service publishing what writes left behind, through failed rounds, and saying how long and why it could not.
 Local file remotes only, never DoltHub or the active ledger."""
 
 from __future__ import annotations
@@ -219,23 +219,25 @@ class PublishTests(unittest.TestCase):
         publish.set_remote(self.profile, self.url)
         self.assertEqual((status()["remote"], status()["unpublished"]), (self.url, True), "nothing is on it yet")
         self.write("first")
-        self.assertFalse(status()["unpublished"])
+        self.assertTrue(status()["unpublished"], "a write leaves origin behind")
         with patch.object(publish, "_push", side_effect=publish.refuse("PUBLISH_FAILED", "offline")):
-            self.assertIn("publish_failed", self.write("second"))
+            self.assertEqual(self.code(publish.publish, self.profile), "PUBLISH_FAILED")
         self.assertTrue(status()["unpublished"], "a failed publish stays visible")
-        self.write("third")
-        self.assertFalse(status()["unpublished"], "the next write publishes it")
+        self.command("ledger", "publish")
+        self.assertFalse(status()["unpublished"])
 
-    def test_the_service_publishes_what_a_failed_publish_left_with_no_further_write(self):
+    def test_the_service_publishes_what_writes_left_through_failed_rounds(self):
         publish.set_remote(self.profile, self.url)
         self.write("first")
-        offline = publish.refuse("PUBLISH_FAILED", "offline")
-        with patch.object(publish, "_push", side_effect=offline):
-            self.assertIn("publish_failed", self.write("second"))
+        self.assertIsNone(publish.state(self.profile)["behind_seconds"], "origin holds no branch yet")
+        publish.publish(self.profile)
+        self.write("second")
+        self.write("third")
         behind = publish.state(self.profile)
         self.assertEqual((behind["unpublished"], behind["diverged"]), (True, False))
-        self.assertLess(behind["behind_seconds"], 300, "the age of the commit origin lacks")
+        self.assertLess(behind["behind_seconds"], 300, "the age of the oldest commit origin lacks")
         self.assertNotEqual(self.remote_head(), self.head())
+        offline = publish.refuse("PUBLISH_FAILED", "offline")
 
         stop = threading.Event()
         with patch.object(db, "load_profile", return_value=self.profile), \
@@ -255,7 +257,7 @@ class PublishTests(unittest.TestCase):
                 time.sleep(0.05)
             stop.set()
             keeper.join(30)
-        self.assertEqual(self.remote_head(), self.head(), "published by no write at all")
+        self.assertEqual(self.remote_head(), self.head(), "published by no command at all")
         current = publish.state(self.profile)
         self.assertEqual((current["unpublished"], current["behind_seconds"], current["diverged"]), (False, None, False))
 
@@ -269,34 +271,29 @@ class PublishTests(unittest.TestCase):
     def test_a_remote_changed_elsewhere_is_diverged_not_merely_behind(self):
         publish.set_remote(self.profile, self.url)
         self.write("first")
+        publish.publish(self.profile)
         copy, environment = self.clone()
         for arguments in (("sql", "-q", "CREATE TABLE elsewhere (a INT PRIMARY KEY)"), ("commit", "-Am", "elsewhere"),
                           ("push", "origin", "main")):
             subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True, capture_output=True)
-        self.assertEqual(self.write("second")["publish_failed"]["code"], "PUBLISH_REJECTED")
+        self.write("second")
+        self.assertEqual(self.code(publish.publish, self.profile), "PUBLISH_REJECTED")
         found = publish.state(self.profile)
         self.assertEqual((found["unpublished"], found["behind_seconds"], found["diverged"]), (True, None, True))
 
-    def test_a_write_publishes_what_origin_lacks_once_and_a_read_never_publishes(self):
+    def test_no_command_but_ledger_publish_publishes(self):
         publish.set_remote(self.profile, self.url)
         for read in (("ledger", "sql", "SELECT 1"), ("candidate", "list"), ("research", "status")):
             found = self.command(*read)
             self.assertFalse({"published", "publish_failed"} & set(found), f"{read[:2]} only reads")
-        self.assertTrue(publish.unpublished(self.profile), "a read leaves origin behind")
-        self.assertEqual(self.write("first")["published"]["previous_head"], None,
-                         "a new origin lacks the whole history")
+        written = self.write("first")
+        self.assertFalse({"published", "publish_failed"} & set(written), "a write only commits locally")
+        self.assertTrue(publish.unpublished(self.profile), "neither a read nor a write publishes")
+        self.write("second")
+        published = self.command("ledger", "publish")
+        self.assertEqual((published["previous_head"], published["head"]), (None, self.head()),
+                         "a new origin lacks the whole history; one publish carries every write")
         self.assertEqual(self.remote_head(), self.head())
-        strategies.publish_candidate(self.profile, source("second"), "second", "Fixture", "a write")
-        self.assertNotIn("published", self.command("ledger", "sql", "SELECT 1"), "a read never publishes")
-        with patch.object(publish, "_push", side_effect=publish.refuse("PUBLISH_FAILED", "offline")):
-            failed = self.write("third")
-        self.assertEqual(failed["publish_failed"]["code"], "PUBLISH_FAILED", "the command itself still succeeds")
-        self.assertTrue(publish.unpublished(self.profile))
-        caught_up = self.write("fourth")
-        self.assertEqual(caught_up["published"]["head"], self.head(), "the next write publishes earlier writes")
-        self.assertEqual(self.remote_head(), self.head())
-        strategies.publish_candidate(self.profile, source("fifth"), "fifth", "Fixture", "a write")
-        self.assertEqual(self.command("ledger", "publish")["head"], self.head())
 
     def test_the_dolt_login_key_is_installed_in_the_service_home(self):
         user = Path(tempfile.mkdtemp(prefix="u-", dir="/tmp"))

@@ -12,6 +12,7 @@ from datetime import date
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 from unittest.mock import patch
 
@@ -183,7 +184,9 @@ class World:
             self._tempdir.start()
             self.market = FakeMarket({MARKET_DAY: months_rows(), OTHER_DAY: months_rows()})
             self.qualification = Qualification()
+            self.checkout = clean_checkout(self.service.root / "checkout")
             self._seams = seams.use(resolve_runtime=lambda ref: dict(IDENTITY), inspect_runtime=inspect_stand_in,
+                                    checkout=lambda: self.checkout,
                                     market=lambda profile: profile, qualification_require=self.qualification.require,
                                     qualification_assess=self.qualification.assess)
             self._seams.__enter__()
@@ -322,3 +325,17 @@ class World:
 
     def seq(self) -> int:
         return self.service.sql(self.profile, "SELECT seq FROM ledger_head")[0][0]
+
+
+def clean_checkout(root: Path) -> Path:
+    """A Git work tree with one commit, that commit as its fetched origin/main and nothing uncommitted: the
+    product checkout research registers and replays from."""
+    root.mkdir()
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": "/dev/null",
+           "GIT_CONFIG_SYSTEM": "/dev/null",
+           "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
+    for argv in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "product"],
+                 ["update-ref", "refs/remotes/origin/main", "HEAD"]):
+        subprocess.run(["git", *argv], cwd=root, env=env, check=True, capture_output=True)
+    return root

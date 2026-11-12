@@ -79,9 +79,9 @@ def _same(identity: Mapping | None, other: Mapping | None) -> bool:
     return identity is not None and other is not None and bool(set(identity["keys"]) & set(other["keys"]))
 
 
-def failure_stages(data: bytes) -> set[str] | None:
-    """The stages of runtime failure receipt bytes; None when a line is no structured receipt."""
-    stages = set()
+def failure_receipts(data: bytes) -> list[dict] | None:
+    """The runtime failure receipts in receipt bytes; None when a line is no structured receipt."""
+    receipts = []
     for line in data.decode("utf-8", errors="replace").splitlines():
         if not line.strip():
             continue
@@ -91,15 +91,15 @@ def failure_stages(data: bytes) -> set[str] | None:
             return None
         if not isinstance(item, dict) or not isinstance(item.get("stage"), str):
             return None
-        stages.add(item["stage"])
-    return stages
+        receipts.append(item)
+    return receipts
 
 
 def stopped_before_strategy(capture: Mapping | None, failures: bytes | None) -> bool:
     """Whether a sealed capture (execution.read_capture's `stages`, `outcome` and `statuses`) shows the runner
     stopped before any strategy result existed: the replay completed on the host, the native runner exited
-    nonzero without writing its summary, and every runtime failure it recorded (if any) is of a stage before
-    the strategy trades (binding, load, inputs: problems.PRE_STRATEGY_STAGES)."""
+    nonzero without writing its summary, and every runtime failure it recorded (if any) ended the run before
+    market data reached a strategy (problems.before_strategy)."""
     if not isinstance(capture, Mapping):
         return False
     statuses = capture.get("statuses")
@@ -112,8 +112,8 @@ def stopped_before_strategy(capture: Mapping | None, failures: bytes | None) -> 
     if (not exited or (capture.get("outcome") or {}).get("kind") != "completed"
             or statuses.get(problems.SUMMARY) in ("captured", "hashed")):
         return False
-    stages = failure_stages(failures) if failures else set()
-    return stages is not None and stages <= problems.PRE_STRATEGY_STAGES
+    receipts = failure_receipts(failures) if failures else []
+    return receipts is not None and all(problems.before_strategy(item) for item in receipts)
 
 
 def _stopped(conn: db.LedgerConnection) -> set[int]:
