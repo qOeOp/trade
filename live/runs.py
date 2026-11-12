@@ -393,7 +393,8 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
                 or prior["credential_binding"] != binding
                 or universe.is_symlink()
                 or hashlib.sha256(universe.read_bytes()).hexdigest() != prior["universe_sha256"]
-                or runtime is not None and "@" in runtime and runtime != prior["runtime"]["image_ref"]
+                # A repeat names the pinned digest or no runtime; a tag can move, so it is refused.
+                or runtime is not None and runtime != prior["runtime"]["image_ref"]
                 # Last, so the candidate is read only when everything else matches.
                 or prior["source"]["source_sha256"]
                 != _candidate(research, research_at, candidate, source_sha256)["source_sha256"]):

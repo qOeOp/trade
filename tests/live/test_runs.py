@@ -703,7 +703,8 @@ class LiveCustodyTests(LiveFixture):
                             {"memory": "3g"},
                             {"credentials": other_key},
                             {"universe": files["other-universe"]}, {"universe": linked},
-                            {"runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64}):
+                            {"runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64},
+                            {"runtime": "ghcr.io/qoeop/trade-runtime:exec-main"}):
                 with self.subTest(changes=changes):
                     with self.assertRaises(LiveRefusal) as caught:
                         again(**changes)
