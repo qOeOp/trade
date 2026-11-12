@@ -333,16 +333,23 @@ def effective_trials(correlation: float | None, trials: int) -> float | None:
     return rho + (1 - rho) * trials
 
 
+def line_instruments(conn: db.LedgerConnection, line_id: int) -> set[str] | None:
+    """The instruments of a line's research trials; None before its first one."""
+    own = lines.line_trials(conn, line_id)["trials"]
+    if not own:
+        return None
+    return {symbol for (symbol,) in conn.rows(
+        "SELECT DISTINCT instrument_id FROM trial_instrument WHERE trial_id IN (" + ",".join(["%s"] * len(own)) + ")",
+        tuple(own))}
+
+
 def _overlapping_line(conn: db.LedgerConnection, line: str | int, counted: Iterable[Mapping]) -> tuple | None:
     """A line's record, the instruments of its research trials and the counted trials that traded one
     of them in a window overlapping its development window; None before its first research trial."""
     record = lines.read_line(conn, line)
-    own = lines.line_trials(conn, record["line_id"])["trials"]
-    if not own:
+    instruments = line_instruments(conn, record["line_id"])
+    if instruments is None:
         return None
-    instruments = {symbol for (symbol,) in conn.rows(
-        "SELECT DISTINCT instrument_id FROM trial_instrument WHERE trial_id IN (" + ",".join(["%s"] * len(own)) + ")",
-        tuple(own))}
     start, end = _window(record)
     return record, instruments, overlapping_trials(counted, instruments, start, end)
 

@@ -19,6 +19,7 @@ from replay import entry, history
 from report import history as report_history, measures, status
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP
+from tests.registration.test_register import second_line
 from tests.registration.world import RUNNER_ARGV
 from tests.replay.world import ReplayWorld, registered_grid
 
@@ -191,6 +192,36 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(refused.exception.code, "LINE_ENDED")
         self.assertIn("a research run now would be a result the test leaves out", refused.exception.message)
         self.assertEqual(world.conn.rows("SELECT COUNT(*) FROM trial"), trials, "no trial was written")
+
+    def test_a_holdout_counts_the_earlier_searches_of_a_line_sharing_it(self):
+        """20261112-17: lines opened in one quarter share a holdout, so one line's closing replays are earlier
+        searches of the other's holdout; a line's own history trials are not."""
+        world = self.world
+        mine = world.line["line"]
+        registration, (ref,) = registered_grid(world, ["mine"])
+        entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
+        other = second_line(world, "rsi-twin")  # the same development period and holdout
+        self.assertEqual((lines.read_line(world.conn, other)["dev_end"], lines.read_line(world.conn, mine)["dev_end"]),
+                         ("2026-02-01", "2026-02-01"))
+        theirs = world.publish("theirs", parent=None)
+        body = world.body([theirs["candidate"]], {theirs["candidate"]: world.prechecked(theirs["source"])})
+        entry.run(world.profile, world.market, MARKET_DAY, theirs["candidate"], None, RUNNER_ARGV,
+                  registration=world.register(body, line=other)["registration_id"])
+
+        def prior(line):
+            return report_history.research_history(world.profile, line=line)["lines"][0]["holdout_prior_trials"]
+
+        history.run_history(world.profile, world.market, MARKET_DAY, mine)
+        self.assertEqual((prior(mine)["trials"], prior(mine)["by_line"]), (0, []),
+                         "the line's own holdout replay is not an earlier search of it")
+        self.assertEqual(prior(mine)["instruments"], ["AAAUSDT", "BBBUSDT"], "those of its research trials")
+        self.assertEqual(prior(other)["by_line"], [{"line": mine, "purpose": "history", "trials": 1}],
+                         "the other line's holdout replay; its veto year and control end before the holdout")
+        history.run_history(world.profile, world.market, MARKET_DAY, other)
+        self.assertEqual(prior(mine)["by_line"], [{"line": other, "purpose": "history", "trials": 1}])
+        self.assertEqual(prior(other)["trials"], 1, "unchanged by its own closing")
+        by_line = report_history.research_history(world.profile)["lines"]
+        self.assertEqual([item["holdout_prior_trials"]["trials"] for item in by_line], [1, 1])
 
     def test_a_control_that_does_not_reproduce_the_run_voids_its_row(self):
         world = self.world

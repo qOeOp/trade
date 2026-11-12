@@ -53,7 +53,7 @@
 - **保留期通过**：回撤不超过目标，且年化不低于目标；
 - **达标**（`meets_targets`）：两者都通过；没有可计的完整否决年时只看保留期（`judged_on` 写明读了什么）。
 
-这是证伪检验，不是样本外验证：按它挑候选，是在 `participants` 这些候选之中做选择，选择效应要算进去。样本外验证是用户另行发起的一次性检验（[样本外登记](/zh/docs/design-database-validation/)）。
+这是证伪检验，不是样本外验证：按它挑候选，是在 `participants` 这些候选之中做选择，选择效应要算进去。保留期只是这条线没用过：同季度开的线共享同一段保留期，`holdout_prior_trials` 读出本账本里先前搜过它的计数试验（这条线的合约上、交易窗口与保留期重叠，任何用途与线，不含本线自己的历史试验），按线与用途分组；账本外的搜索读不到，由关线总结写明。样本外验证是用户另行发起的一次性检验（[样本外登记](/zh/docs/design-database-validation/)）。
 
 **写入方**　`line history`（`ledger.lines.history_plan`、`ledger.trials.open_trial`，用途 history）；`line close`（`ledger.lines.close_line`）
 
