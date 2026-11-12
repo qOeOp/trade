@@ -28,6 +28,7 @@ export type LiveEventRow = {
 type Candidate = { strategy_id: string | null; revision: string | null };
 export type LiveReviewDto = {
   research_at: string; candidate: Omit<Candidate, "revision"> & { revision: string | number | null }; source_sha256: string; entry_class: string;
+  evidence: readonly { trial_id: number; starting_balance_usdt: string; image_ref: string }[];
   validations: readonly Record<string, unknown>[]; validation_note: string;
 };
 export type LiveRunDto = {

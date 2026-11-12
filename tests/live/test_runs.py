@@ -24,12 +24,19 @@ from tests.live.authority_fixture import install, launch, prepare
 
 MARKET_TERMS = runs._market_terms  # LiveFixture replaces it; test_market_terms_* reads it
 MARKET = {"market_day": "2026-11-09", "terms": {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}}
+EVIDENCE = [{"trial_id": 7, "starting_balance_usdt": "100", "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "c" * 64}]
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
             "platform": "linux/amd64", "runtime_contract": "replay-contract@v8"}
 
 
 class LiveFixture(unittest.TestCase):
+    PATCH_EVIDENCE = True  # tests/live/test_replay_evidence.py reads the ledger instead
+
     def setUp(self):
+        if self.PATCH_EVIDENCE:
+            evidence = patch.object(runs, "_evidence", return_value=EVIDENCE)
+            evidence.start()
+            self.addCleanup(evidence.stop)
         patcher = patch.object(runs.key, "require_limits", return_value=[])  # tests/live/test_key.py covers the read.
         self.key_limits = patcher.start()
         self.addCleanup(patcher.stop)
@@ -53,6 +60,7 @@ class LiveFixture(unittest.TestCase):
             "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
             "universe_sha256": hashlib.sha256(b"{}").hexdigest(),
             "config": {"memory": "2g"}, "credential_binding": hashlib.sha256(b"example-key").hexdigest(),
+            "evidence": EVIDENCE,
         }
         state.write_new(self.directory / "inputs" / "strategy.py", b"source")
         state.write_new(self.directory / "inputs" / "universe.json", b"{}")
@@ -494,7 +502,7 @@ class LiveCustodyTests(LiveFixture):
         origin = hashlib.sha256(b"original").hexdigest()
         manifest = {"candidate": {"strategy_id": "original", "revision": 2},
                     "source": {"source_sha256": hashlib.sha256(source).hexdigest(), "entry_class": "Original"},
-                    "runtime": IDENTITY}
+                    "runtime": IDENTITY, "evidence": EVIDENCE}
         reader = unittest.mock.MagicMock()
         reader.__enter__.return_value.one.return_value = candidate and {
             "source": b"original", "source_sha256": origin, "entry_class": "Original"}

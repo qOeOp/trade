@@ -530,6 +530,17 @@ says `preflight_failed` and `logs` gives the refusal before any account slot is 
 candidate's own source, read from the ledger at that commit; there is no adapted file, and a declared source hash
 that is not the candidate's is refused (`LIVE_IDENTITY_CHANGED`). The result shows the candidate and its
 out-of-sample registrations at that commit. They inform the operator and no validation is required.
+Preparation also needs replay evidence at research_at: a passed sealed run, or a completed `replay explore` whose
+audit passed and whose trading window lies inside a research trial's window of the same source (a window it already
+saw, so no new exposure and no holdout spent), of that exact source on exactly the run's symbols in `bars`, on a
+replay image whose `--describe`
+reports the execution image's `source_files_sha256`, `audit_source_sha256` and `dependency_lock_sha256` (the same
+replay code). A sealed run on other replay code counts through an explore that reproduces it on matching code
+(`replay reproduce`). Without one it refuses `LIVE_EVIDENCE_MISSING`; the manifest lists each (`evidence`) and the
+review shows them. In `preflight` and `run` the runner then needs one that started within 10% of the USDT wallet it
+observes, or refuses `LIVE_EVIDENCE_BALANCE`. To back a run, replay the candidate at the wallet: `candidate export`,
+then `replay explore` of that file with `--starting-balance` the wallet and the run's `--symbols`, inside the
+window of one of its research trials.
 `start` takes the prepared run ID, the same saved credential version and the run's `source_sha256` as the
 confirmation, then repeats
 account admission. The initial trial admits one symbol and requires a flat account, Hedge/Multi-assets
@@ -637,7 +648,7 @@ never reused; this run's native records may lack the close, and the account snap
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-2`) binds the checks to the runner: an older image refuses it before arming,
+A manifest's format (`live-run-3`) binds the checks to the runner: an older image refuses it before arming,
 and a run prepared under an earlier format is refused for every operation (`LIVE_RUN_FORMAT`).
 An ended run (`clean_stopped`, `reconciled_flat`, `venue_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network when the paired controller maintains it or another run starts: their logs go to `containers/` in the run directory,

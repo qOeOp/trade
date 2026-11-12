@@ -203,6 +203,12 @@ and its validations cover it. Write a candidate that may go to Live this way whe
 candidate version replayed like any other; Live accepts no other file. What Live enforces during a run
 is in `engine/README.md`.
 
+- Before the user starts it, replay the candidate at the account's USDT wallet the user names:
+  `candidate export`, then `replay explore` of that file with `--starting-balance` the wallet and
+  Live's symbols in `bars`, inside one of its research trials' windows (never a holdout year), on
+  a replay image whose `--describe` replay code matches the execution image. Live refuses without
+  such a replay within 10% of the wallet (`LIVE_EVIDENCE_MISSING`, `LIVE_EVIDENCE_BALANCE`).
+
 - Live needs the account flat when the run starts; entries arriving together each wait, in order,
   for their own account check. Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:
   handle the end as a cancel.

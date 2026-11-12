@@ -26,7 +26,7 @@ from engine.order_rules import ENTRY_EQUITY_MULTIPLE
 
 CLOCK_AHEAD_MS = 1000  # The venue's own limit.
 CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests use, leaving the rest for transit.
-MANIFEST_FORMAT = "live-run-2"  # one definition: the host writes it, the runner's image refuses any other
+MANIFEST_FORMAT = "live-run-3"  # one definition: the host writes it, the runner's image refuses any other
 
 
 @dataclass(frozen=True)
@@ -272,3 +272,26 @@ def require_admission(snapshot: dict, manifest: dict, *, flat: bool = True) -> D
         raise
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
         raise Refusal("LIVE_ACCOUNT_RESPONSE", "complete account, mode and instrument observations are required") from exc
+
+
+# A replay backs a Live run when its starting balance is within this share of the USDT wallet (R2, user 2026-11-12).
+EVIDENCE_TOLERANCE = Decimal("0.1")
+
+
+def require_evidence(snapshot: dict, manifest: dict) -> dict:
+    """The replay (live.runs.prepare_locked recorded each one of this source, on these instruments, on bars, by the
+    same replay code as this image) that started nearest the USDT wallet the venue reports now, within
+    EVIDENCE_TOLERANCE of it."""
+    try:
+        wallet = Decimal(next(row["walletBalance"] for row in snapshot["account"]["assets"] if row["asset"] == "USDT"))
+        if not wallet.is_finite() or wallet <= 0:
+            raise ValueError
+        found = min(manifest["evidence"], key=lambda item: abs(Decimal(item["starting_balance_usdt"]) - wallet),
+                    default=None)
+    except (StopIteration, KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        raise Refusal("LIVE_ACCOUNT_RESPONSE", "a complete USDT wallet observation is required") from exc
+    if found is None or abs(Decimal(found["starting_balance_usdt"]) - wallet) > EVIDENCE_TOLERANCE * wallet:
+        nearest = "none" if found is None else found["starting_balance_usdt"]
+        raise Refusal("LIVE_EVIDENCE_BALANCE", f"no replay of this source started within {EVIDENCE_TOLERANCE:%} of "
+                                               f"the USDT wallet {wallet} (nearest: {nearest}); replay it at the wallet")
+    return found

@@ -18,6 +18,7 @@ from engine.config import Refusal as EngineRefusal, is_leverage
 from engine.live_errors import LiveRefusal
 from engine.live_venue import MANIFEST_FORMAT, read_credentials
 from ledger import db, strategies
+from shared.errors import Refusal
 from runtime import image
 from live import host as host_runtime
 from live import key, requests, state
@@ -259,6 +260,67 @@ def _candidate(research: db.LedgerProfile, research_at: str, candidate: str, sou
     return found
 
 
+# What --describe reports of the replay closure: equal values mean the same replay code (R2, user 2026-11-12).
+REPLAY_CODE = ("source_files_sha256", "audit_source_sha256", "dependency_lock_sha256")
+
+
+def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, symbols: list[str],
+              inspection: dict, runner_args: list[str]) -> list[dict]:
+    """The replays at research_at that back running this source live: on exactly Live's instruments, in the bars
+    environment, either a passed sealed run or a completed explore whose audit passed (`replay explore` of the
+    candidate at the wallet's balance) trading only inside a research trial's window of this source (a window it
+    already saw: no new exposure, no holdout spent), on an image whose replay code (REPLAY_CODE) equals this
+    execution image's. A sealed run on other replay code still counts through an explore that reproduces it on
+    matching code."""
+    from ledger import execution
+    from registration import reproduction
+    with db.read_as_of(research, research_at) as reader:
+        rows = reader.dicts("SELECT t.trial_id, t.purpose, t.image_ref, t.starting_balance, t.trade_start, "
+                            "t.trade_end, r.status FROM trial t "
+                            "LEFT JOIN run r ON r.trial_id = t.trial_id "
+                            "WHERE t.source_sha256 = %s AND t.execution = 'bars' ORDER BY t.trial_id",
+                            (source_sha256,))
+        instruments: dict[int, set] = {}
+        for trial_id, symbol in reader.rows("SELECT i.trial_id, i.instrument_id FROM trial_instrument i "
+                                            "JOIN trial t ON t.trial_id = i.trial_id WHERE t.source_sha256 = %s",
+                                            (source_sha256,)):
+            instruments.setdefault(trial_id, set()).add(symbol)
+        seen = [(row["trade_start"], row["trade_end"]) for row in rows if row["purpose"] == "research"]
+        backing = []
+        for row in rows:
+            if instruments.get(row["trial_id"]) != set(symbols):
+                continue
+            if row["status"] == "passed":
+                images = [row["image_ref"], *(item["image_ref"]
+                                              for item in reproduction.reproductions(reader, row["trial_id"]))]
+            elif (row["purpose"] == "explore"
+                  and any(start <= row["trade_start"] and row["trade_end"] <= end for start, end in seen)
+                  and reproduction.fingerprint_hash(execution.read_capture(reader, row["trial_id"])) is not None):
+                images = [row["image_ref"]]
+            else:
+                continue
+            backing.append((row, images))
+    described: dict[str, bool] = {}
+
+    def same_code(image_ref: str) -> bool:
+        if image_ref not in described:
+            try:
+                found = image.inspect_runtime(image.resolve(image_ref), runner_args)
+                described[image_ref] = all(found[name] == inspection[name] for name in REPLAY_CODE)
+            except Refusal:
+                described[image_ref] = False  # an image that cannot be read now backs nothing
+        return described[image_ref]
+
+    result = []
+    for row, images in backing:
+        matching = next((ref for ref in dict.fromkeys(images) if same_code(ref)), None)
+        if matching is not None:
+            balance = Decimal(row["starting_balance"]).normalize()
+            result.append({"trial_id": row["trial_id"], "starting_balance_usdt": format(balance, "f"),
+                           "image_ref": matching})
+    return result
+
+
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
                     budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str, leverage: str,
@@ -328,12 +390,18 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     except EngineRefusal as exc:
         raise state.fail("LIVE_UNIVERSE", str(exc)) from None
     identity = image.resolve(runtime or image.EXECUTION)
-    inspection = image.inspect_runtime(identity, ["--market-root", "/unused", "--market-day", "live",
-                                                   "--symbols", *symbols, "--start", "2026-01-01T00:00:00Z",
-                                                   "--end", "2026-01-02T00:00:00Z"])
+    describe = ["--market-root", "/unused", "--market-day", "live", "--symbols", *symbols,
+                "--start", "2026-01-01T00:00:00Z", "--end", "2026-01-02T00:00:00Z"]
+    inspection = image.inspect_runtime(identity, describe)
     image.require_main_build(identity, inspection)
     if found["runtime_contract"] != identity["runtime_contract"]:
         raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
+    evidence = _evidence(research, research_at, found["source_sha256"], symbols, inspection, describe)
+    if not evidence:
+        raise state.fail("LIVE_EVIDENCE_MISSING", "no passed run, or audited explore inside a research window, of this "
+                                                  "source on these instruments in bars runs the replay code of this "
+                                                  "execution image; replay it at the wallet's balance on a matching "
+                                                  "replay image (engine/README.md)")
     market = _market_terms(market_root, symbols)
     source_bytes = found["source"]
     key = hashlib.sha256(run_id.encode()).hexdigest()[:12]
@@ -343,7 +411,8 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
                 "runtime": identity, "symbols": symbols, "config": config, "credential_binding": binding,
                 "trader_id": f"LIVE-{key}", "account_id": f"BINANCE-LIVE-{key}",
                 "strategy_file": "/inputs/strategy.py", "universe_file": "/inputs/universe.json",
-                "universe_sha256": hashlib.sha256(universe_bytes).hexdigest(), "market": market}
+                "universe_sha256": hashlib.sha256(universe_bytes).hexdigest(), "market": market,
+                "evidence": evidence}
     if request_id is not None:
         _require_frozen_prepare(root, request_id, manifest, research_at, candidate, credential_ref)
     elif recover_partial:
@@ -414,6 +483,7 @@ def review(research: db.LedgerProfile, research_at: str, manifest: dict) -> dict
         registrations = validation.candidate_registrations(reader, found["source_sha256"])
     return {"research_at": research_at, "candidate": candidate, "source_sha256": source["source_sha256"],
             "entry_class": source["entry_class"], "image_ref": manifest["runtime"]["image_ref"],
+            "evidence": manifest["evidence"],
             "validations": registrations, "validation_note": VALIDATION_NOTE}
 
 
