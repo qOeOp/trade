@@ -270,8 +270,8 @@ strings, is the same in every process that runs a replay.
 - **Execution image** ([`runtime/Dockerfile`](runtime/Dockerfile)) for Paper and Live: the replay image's steps
   unchanged, then the pinned Redis and the rest of `engine/`. It is built whenever an `engine/` file or another image
   input changes. Tags: `exec-main`, `exec-pr-N`, `exec-sha-COMMIT`. Its tested digest is the release's runtime
-  (`TRADE_RUNTIME_IMAGE`, deploy/README.md), and `paper start`, `paper serve` and `live preflight` default to
-  `exec-main`.
+  (`TRADE_RUNTIME_IMAGE`, deploy/README.md), and `paper start` and `paper serve` default to `exec-main`;
+  Live runs the digest its declaration names.
 
 Each image's shared tags are published after both native checks pass and the reports of their protected-entry replay
 (`tests.engine.test_fill_model.audited_replay`: a market entry with its reduce-only stop, written and audited by the
@@ -516,16 +516,13 @@ storage review and bounded native evidence are in `docs/plans/paper-native-recov
 
 `python -m engine.live` is a separate, credential-bearing Binance USD-M entry point. It does not use
 the Paper Sandbox account, delayed callbacks, fee model, funding adjustments or checkpoint protocol.
-The operator CLI is `python -m cli.main live preflight|start|status|logs|stop|reconcile`; it uses a private
-execution directory and never writes an execution into the research ledger or Paper database. Supported new
-operations require the installed declaration and current release authority; `--root` must match its canonical
-root. `preflight`, `start` and `reconcile` also require `--release-web` for the selected service image, captured
-by the host recipe before invocation and retained through every effect; it is never inferred from a later route.
-All installed keys share one durable run/reconcile slot. Missing installation metadata does not enable
-standalone execution. The [host CLI recipe](../deploy/remote/README.md#live-on-this-host) supplies the read-only
-metadata mount and admitted service image. `status` and `logs` only observe; the paired controller performs
-host cleanup. Original-root STOP remains available through retained identity, while legacy-root reconciliation
-requires a separately reviewed exclusive recovery installation. Native account/order/position ownership is unchanged.
+A run is prepared, started and reconciled only from the Live page, through the paired control
+([Live on this host](../deploy/remote/README.md#live-on-this-host)), with a credential saved there. It uses a private
+execution directory and never writes an execution into the research ledger or Paper database. Every effect requires
+the installed declaration and current release authority. All installed keys share one durable run/reconcile slot.
+Missing installation metadata does not enable standalone execution. `python -m cli.main live status|logs|stop` takes
+the canonical `--root` and a run ID: `status` and `logs` only observe, `stop` only requests STOP; the paired
+controller performs host cleanup. Native account/order/position ownership is unchanged.
 
 `preflight` captures immutable source inputs from an explicit research reader and commit, pins a main-CI
 runtime digest, queries the account and applies the account and source checks `start` will repeat, so `status`
@@ -533,8 +530,8 @@ says `preflight_failed` and `logs` gives the refusal before any account slot is 
 candidate's own source, read from the ledger at that commit; there is no adapted file, and a declared source hash
 that is not the candidate's is refused (`LIVE_IDENTITY_CHANGED`). The result shows the candidate and its
 out-of-sample registrations at that commit. They inform the operator and no validation is required.
-`start` takes the prepared run ID, the same private credential file and `--confirm-real-orders` with the run's
-`source_sha256`, then repeats
+`start` takes the prepared run ID, the same saved credential version and the run's `source_sha256` as the
+confirmation, then repeats
 account admission. The initial trial admits one symbol and requires a flat account, Hedge/Multi-assets
 mode, CROSS margin and no automatic margin addition. The venue's leverage is observed, never changed or
 copied into a simulated account. A complete v2 account response must show finite nonnegative wallets
@@ -593,7 +590,7 @@ than its limit. The native global notional cap is omitted because it also reject
 all other native risk checks remain enabled. Reductions also require the position to be the run's account and
 instrument. Live does not claim hostile-code isolation for the source.
 
-Before a `preflight` or `start` takes the account, the operator's process reads the key's own permissions once from
+Before a `preflight` or `start` takes the account, the control's process reads the key's own permissions once from
 `api.binance.com`, which the runner's egress deliberately cannot reach: a key that can withdraw is refused
 (`LIVE_KEY_WITHDRAWAL`), an unclear answer or failed read is refused (`LIVE_KEY_UNVERIFIED`), and a key with no IP
 restriction is a warning in the result. The runner then bounds its own clock against the venue's time, because native
@@ -678,13 +675,13 @@ the paired control sends a message within about ten seconds of seeing the run un
 retained records and with no delivery guarantee: someone must still watch `status` for the whole of a real run and
 act at once. `stop_reason` and `live logs` say what happened.
 
-1. If `status` says `running`, run `live stop` and wait until it no longer does.
+1. If `status` says `running`, stop it (Stop on the Live page, or `live stop`) and wait until it no longer does.
 2. At Binance, on the same account, close the position and cancel every open and conditional order, including the
    run's stops. Release needs the whole account flat: any other position or order keeps the slot.
-3. Run `live reconcile` with the run's credential file. On a flat account it ends at once and `status` says
+3. Reconcile the account on the Live page (Reconcile account…). On a flat account it ends at once and `status` says
    `venue_flat`, with the slot released. If it finds anything open it observes without trading until the run's
    duration or a `live stop` (after any `live stop` of this run, at once), checks the account again and ends
-   `unresolved`: act at Binance and run it again.
+   `unresolved`: act at Binance and reconcile again.
 
 A run that is flat but failed (exit code 1) takes step 3 alone.
 

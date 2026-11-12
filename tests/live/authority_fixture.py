@@ -73,3 +73,19 @@ def inject_cli(test, home):
     change = patch.object(subprocess, "run", side_effect=run)
     change.start()
     test.addCleanup(change.stop)
+
+
+def prepare(*args, scope, **kwargs):
+    """The locked preparation the paired control runs, with the installed admission."""
+    from live import runs
+    with scope.serialized(args[0]) as root:
+        scope.admit_locked(root)
+        return runs.prepare_locked(root, *args[1:], **kwargs)
+
+
+def launch(root, run_id, credentials, mode, *, scope):
+    """The locked launch the paired control runs, with the installed admission."""
+    from live import runs
+    with scope.serialized(root) as root:
+        scope.admit_locked(root)
+        return runs.launch_locked(root, run_id, credentials, mode)

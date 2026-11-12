@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
 from live import credentials, requests, runs, state
+from tests.live.authority_fixture import launch, prepare
 from tests.live.test_runs import IDENTITY, LiveFixture
 
 
@@ -138,7 +139,7 @@ class LiveRequestTests(LiveFixture):
         self.assertEqual(runs._active(self.root), self.run_id)
         self.key_limits.reset_mock()
         with self.assertRaises(LiveRefusal) as caught:
-            runs.launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
+            launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
         self.assertEqual(caught.exception.code, "LIVE_REQUEST_UNRESOLVED")
         self.key_limits.assert_not_called()
         runs.stop(self.root, self.run_id)  # the unknown start must not block STOP
@@ -492,28 +493,28 @@ class PartialPrepareTests(LiveFixture):
         original = requests.read_locked(self.root, "prepare-request")
         self.assertEqual(original["command"]["inputs"]["research_at"], "a" * 32)
 
-    def test_legacy_start_cannot_replace_managed_file_with_a_same_key_copy(self):
+    def test_a_launch_cannot_replace_the_managed_file_with_a_same_key_copy(self):
         requests.dispatch(self.root, "prepare-request", self.command, self.prepare)
         duplicate = self.root / "same-key-copy.json"
         state.write_new(duplicate, self.credentials.read_bytes())
         with patch.object(runs, "_network", side_effect=AssertionError("credential guard bypassed")), \
                 self.assertRaises(LiveRefusal) as caught:
-            runs.launch(self.root, self.new_id, duplicate, "run", scope=self.scope)
+            launch(self.root, self.new_id, duplicate, "run", scope=self.scope)
         self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_CHANGED")
 
-    def test_legacy_start_cannot_ignore_a_managed_version_change(self):
+    def test_a_launch_cannot_ignore_a_managed_version_change(self):
         requests.dispatch(self.root, "prepare-request", self.command, self.prepare)
         with state.serialized(self.root) as root:
             credentials.save_locked(root, "b" * 32, "example-key", "example-secret")
         with patch.object(runs, "_network", side_effect=AssertionError("changed version launched")), \
                 self.assertRaises(LiveRefusal) as caught:
-            runs.launch(self.root, self.new_id, self.credentials, "run", scope=self.scope)
+            launch(self.root, self.new_id, self.credentials, "run", scope=self.scope)
         self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_CHANGED")
 
     def test_legacy_prepare_uses_the_managed_original_research_snapshot(self):
         requests.dispatch(self.root, "prepare-request", self.command, self.prepare)
         def legacy(commit):
-            return runs.prepare(self.root, self.new_id, object(), commit, "original@1", ["BTCUSDT"], self.universe,
+            return prepare(self.root, self.new_id, object(), commit, "original@1", ["BTCUSDT"], self.universe,
                                 self.credentials, IDENTITY["image_ref"], scope=self.scope, **self.config,
                                 market_root=Path("unused"))
         self.assertEqual(legacy("a" * 32)["run_id"], self.new_id)

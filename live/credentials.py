@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
-import secrets
 import stat
 import time
 
@@ -20,11 +19,6 @@ from live import runs, state
 
 
 REF = re.compile(r"[0-9a-f]{32}\Z")
-
-
-def new_ref() -> str:
-    """Allocate before the request claim; duplicate requests reuse their original ref."""
-    return secrets.token_hex(16)
 
 
 def _ref(value: str) -> str:
@@ -336,7 +330,7 @@ def run_path_locked(root: Path, run_id: str, mode: str, *, request_id: str | Non
         raise state.fail("LIVE_MODE", "unknown Live operation")
     matches = [item for item in _runs(root) if item[0] == run_id]
     if len(matches) != 1 or matches[0][4] is None:
-        raise state.fail("LIVE_CREDENTIAL_UNMANAGED", "this run retains its original operator credential path")
+        raise state.fail("LIVE_CREDENTIAL_UNMANAGED", "this run has no managed credential version")
     credential_ref = matches[0][4]
     assert credential_ref is not None
     rows = events_locked(root)
