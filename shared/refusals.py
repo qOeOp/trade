@@ -815,6 +815,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PAPER_RECONCILE_UNCOVERED": ("The market day does not hold every minute of the run's interval yet.",
                                   ("Import the run's month with `market import --month YYYY-MM` over the market's "
                                    "contract scope once its days are archived, then reconcile at the new market day.",)),
+    # Live comparison (live/compare.py)
+    "LIVE_COMPARE_EMPTY": ("The Live run's journal names no warm-up start or no account observation it started from, "
+                           "or its source received no whole minute: there is no window or balance to replay.",
+                           ("Compare a run whose source started and received at least one minute.",)),
+    "LIVE_COMPARE_UNCOVERED": ("The market day does not hold every minute the Live run's source received yet.",
+                               ("Import the run's month with `market import --month YYYY-MM` over the market's "
+                                "contract scope once its days are archived, then compare at the new market day.",)),
 }
 
 

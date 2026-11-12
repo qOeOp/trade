@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-from cli.common import UsageError
+from cli.common import UsageError, _market_at, _market_option
 from engine.live_errors import LiveRefusal
+from shared import profiles
 
 
 NOUNS = ("live",)
@@ -58,6 +59,17 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "an idempotent STOP request; the native runner owns cancellation, flattening and reconciliation; never kills",
         "run_id and stop_requested; unresolved exposure continues to own the account slot",
         "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID"),
+    ("live", "compare"): (
+        "one run's private inputs, journal and evidence pack; the market at --at (default main), exported into a "
+        "reused cache under the temporary directory; Binance's published funding rates; the run's own runtime image",
+        "nothing in any database and nothing in the private root; the new --output directory (replay/ with the "
+        "native reports and audit, reconcile.json); never a credential, order or venue connection",
+        "path, summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, differs, run_only, "
+        "replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, differing_bars, warmup_differs, "
+        "terms_differ, equity_max_difference}, replay {status, problems, path}",
+        "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_COMPARE_EMPTY (no warm-up, start observation or whole "
+        "minute); LIVE_COMPARE_UNCOVERED (the market lacks the run's minutes); LIVE_RUN_ID; NOT_TEMPORARY_PATH, "
+        "PATH_EXISTS (--output); RUNTIME_UNAVAILABLE"),
 }
 
 
@@ -90,6 +102,16 @@ def register(verbs, verb, runner) -> None:
         command.add_argument("--run-id", required=True, help="the run ID the Live page prepared")
         if action == "logs":
             command.add_argument("--tail", default=200, type=int, help="1–2000 lines")
+    command = verb(live, "compare", "replay a Live run's minutes on the archive and compare it group by group")
+    command.epilog = ("The replay takes the run's source, runtime image, contract, leverage, starting wallet and the "
+                      "minutes its source received, warmed at the same start; only the market day is chosen here. "
+                      "Nothing reaches a ledger (live.compare, replay.reconcile).")
+    command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
+    command.add_argument("--run-id", required=True, help="the run ID the Live page prepared")
+    _market_option(command)
+    _market_at(command)
+    command.add_argument("--output", required=True, help="new directory under the temporary root")
+    command.add_argument("--timeout-seconds", type=float, help="stop the replay after this long")
 
 
 def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
@@ -125,4 +147,8 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return live_runs.stop(args.root, args.run_id), 0
     if args.verb == "logs":
         return live_runs.logs(args.root, args.run_id, args.tail), 0
+    if args.verb == "compare":
+        from live import compare
+        return compare.compare(args.root, args.run_id, profiles.market(args.market), args.at, Path(args.output),
+                               args.timeout_seconds), 0
     raise UsageError(f"unknown command {args.noun} {args.verb}")

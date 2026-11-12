@@ -1,9 +1,8 @@
-"""If this fails, a paper reconciliation misreports a run: a market order filled in pieces counts as several
-trades or at the wrong price, a fill the replay also made shows as a difference, a replay-only fill with no
-live-data cause is not flagged as a look-ahead suspect, a live gap or a live bar that differs from the archive
-is not named as the cause, a difference that follows from an earlier one on the same contract is taken for a
-cause of its own, the replay interval is not the one the runner received bars for, or the replay's
-equity is read at another moment than the paper snapshot it is set against."""
+"""If this fails, a paper reconciliation misreports a run: a trade the replay also made shows as a difference, a
+replay-only entry with no live-data cause is not flagged as a look-ahead suspect, a live gap or a live bar that
+differs from the archive is not named as the cause, the journal's warm-up is not the run's, the replay is not the
+run's own (interval, warm-up start, leverage, starting balance), or the replay's equity is read at another moment
+than the paper snapshot it is set against. The comparison itself is replay.reconcile's (tests/replay)."""
 
 from __future__ import annotations
 
@@ -15,6 +14,7 @@ import unittest
 
 from shared.errors import Refusal
 from paper import reconcile
+from replay import reconcile as shared
 
 
 MINUTE = reconcile.MINUTE_NS
@@ -54,51 +54,27 @@ def journal(events: list[dict], minutes: int, skip: tuple[int, ...] = (), closes
 
 
 class Reconcile(unittest.TestCase):
-    def test_an_order_filled_in_pieces_is_one_fill_at_its_weighted_price(self):
-        found = reconcile.orders([initialized("A", "ENTRY"), filled("A", close_of(2), "100.0", "1"),
-                                  filled("A", close_of(2), "100.4", "3")])
-        self.assertEqual(len(found), 1)
-        self.assertEqual((found[0]["qty"], found[0]["px"], found[0]["role"]), (4, reconcile.Decimal("100.3"), "entry"))
-        self.assertEqual(found[0]["commission"], reconcile.Decimal("0.20"))
-
     def test_the_same_trade_a_bar_later_on_live_data_is_the_same(self):
         paper = [initialized("P1", "ENTRY"), filled("P1", close_of(2) + 25 * 10**6, "100.0", "1")]
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(2), "100.0", "1")]
         found = reconcile.compare(journal(paper, 5), replay, {"BTCUSDT": archived(5)}, None, START, START + 5 * MINUTE)
         self.assertEqual(found["summary"]["same"], 1)
-        self.assertEqual(found["fills"][0]["delay_ms"], 25)
-        self.assertNotIn("cause", found["fills"][0])
+        self.assertEqual(found["groups"][0]["orders"][0]["delay_ms"], 25)
+        self.assertNotIn("cause", found["groups"][0])
 
-    def test_a_replay_only_fill_without_a_live_cause_is_a_look_ahead_suspect(self):
+    def test_a_replay_only_entry_without_a_live_cause_is_a_look_ahead_suspect(self):
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(2), "100.0", "1")]
         found = reconcile.compare(journal([], 5), replay, {"BTCUSDT": archived(5)}, None, START, START + 5 * MINUTE)
-        item = found["fills"][0]
-        self.assertEqual((item["class"], item["cause"], item["look_ahead_suspect"]), ("replay_only", "unexplained", True))
-        self.assertEqual(found["summary"]["look_ahead_suspects"], 1)
-
-    def test_differences_after_the_paths_part_follow_the_first_until_a_fill_agrees_again(self):
-        paper = [initialized("P1", "ENTRY"), filled("P1", close_of(5), "100.0", "1"),
-                 initialized("P2", "TAKE_PROFIT", "SELL"), filled("P2", close_of(7), "101.0", "1", "SELL")]
-        replay = [initialized("R1", "ENTRY"), filled("R1", close_of(2), "100.0", "1"),
-                  initialized("R2", "STOP_LOSS", "SELL"), filled("R2", close_of(4), "99.0", "1", "SELL"),
-                  initialized("R3", "TAKE_PROFIT", "SELL"), filled("R3", close_of(7), "101.0", "1", "SELL"),
-                  initialized("R4", "ENTRY"), filled("R4", close_of(9), "100.0", "1")]
-        found = reconcile.compare(journal(paper, 12), replay, {"BTCUSDT": archived(12)}, None, START,
-                                  START + 12 * MINUTE)
-        self.assertEqual([(item["class"], item.get("cause"), item.get("follows"), item.get("look_ahead_suspect"))
-                          for item in found["fills"]],
-                         [("time", "unexplained", None, False),
-                          ("replay_only", "consequence", reconcile._utc(close_of(2)), False),
-                          ("same", None, None, None),
-                          ("replay_only", "unexplained", None, True)])
+        group = found["groups"][0]
+        self.assertEqual((group["class"], group["cause"], group["look_ahead_suspect"]), ("replay_only", "unexplained", True))
         self.assertEqual(found["summary"]["look_ahead_suspects"], 1)
 
     def test_a_missing_live_bar_before_a_difference_is_its_cause(self):
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(3), "100.0", "1")]
         found = reconcile.compare(journal([], 5, skip=(2,)), replay, {"BTCUSDT": archived(5)}, None, START,
                                   START + 5 * MINUTE)
-        item = found["fills"][0]
-        self.assertEqual((item["cause"], item["look_ahead_suspect"]), ("live_gap", False))
+        group = found["groups"][0]
+        self.assertEqual((group["cause"], group["look_ahead_suspect"]), ("missing_bar", False))
         self.assertEqual(found["summary"]["missing_bars"], 1)
 
     def test_a_live_bar_unlike_the_archive_explains_a_price_difference(self):
@@ -106,16 +82,15 @@ class Reconcile(unittest.TestCase):
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(2), "100.0", "1")]
         found = reconcile.compare(journal(paper, 5, closes={2: "100.5"}), replay, {"BTCUSDT": archived(5)}, None,
                                   START, START + 5 * MINUTE)
-        item = found["fills"][0]
-        self.assertEqual((item["class"], item["cause"]), ("price", "bar_mismatch"))
-        self.assertEqual(found["bars"]["BTCUSDT"]["differing"][0]["fields"], {"close": ["100.5", "100.0"]})
+        group = found["groups"][0]
+        self.assertEqual((group["stage"], group["orders"][0]["class"], group["cause"]), ("fill", "price", "bar_mismatch"))
+        self.assertEqual(found["inputs"]["BTCUSDT"]["bars"]["differing"][0]["fields"], {"close": ["100.5", "100.0"]})
 
-    def test_fills_of_another_role_or_too_far_apart_do_not_pair(self):
-        paper = [initialized("P1", "STOP_LOSS", "SELL"), filled("P1", close_of(1), "99.0", "1", "SELL")]
-        replay = [initialized("R1", "TAKE_PROFIT", "SELL"), filled("R1", close_of(1), "101.0", "1", "SELL"),
-                  initialized("R2", "STOP_LOSS", "SELL"), filled("R2", close_of(1) + reconcile.PAIR_NS + MINUTE, "99.0", "1", "SELL")]
-        pairs = reconcile.pair(reconcile.orders(paper), reconcile.orders(replay))
-        self.assertEqual([(a and a["order"], b and b["order"]) for a, b in pairs], [("P1", None), (None, "R1"), (None, "R2")])
+    def test_the_journals_warm_up_is_the_runs(self):
+        lines = journal([], 2) + [{"kind": "warmup", "instrument_id": BTC, "period": "1-HOUR", "fetched_ns": 1,
+                                   "bars": 4, "first_ts_event": 1, "last_ts_event": 2, "sha256": "h"}]
+        self.assertEqual(reconcile.run_record(lines, [])["warmup"],
+                         {BTC: {"1-HOUR": {"bars": 4, "first_ts_event": 1, "last_ts_event": 2, "sha256": "h"}}})
 
     def test_the_interval_runs_from_the_input_start_to_the_minute_the_run_stopped(self):
         lines = journal([], 0)
@@ -138,7 +113,7 @@ class Reconcile(unittest.TestCase):
                 writer.writerow(["ts_event_ns", "position_id", "notional_value", "unrealized_pnl", "realized_pnl"])
                 writer.writerow([close_of(1), "P", "1000 USDT", "2.25 USDT", "0 USDT"])
                 writer.writerow([close_of(1), "Q", "1000 USDT", "-0.25 USDT", "0 USDT"])
-            found = reconcile.replay_equity(reports, [START, START + MINUTE])
+            found = shared.replay_equity(reports, [START, START + MINUTE])
         self.assertEqual(found, [[START, "100000.00"], [START + MINUTE, "100001.50"]])
 
 
@@ -154,7 +129,7 @@ class InputTests(unittest.TestCase):
         from unittest import mock
         from replay import entry
 
-        row = {"config": {"candidate": "example@1", "leverage": "5", "fees": {}}, "symbols": ["BTCUSDT"],
+        row = {"config": {"candidate": "example@1", "leverage": "5", "fees": {}}, "symbols": ["BTCUSDT"], "market_day": "2026-10-25",
                "source_sha256": "s" * 64, "image_ref": "image"}
         lines = journal([initialized("P-1", "ENTRY"), filled("P-1", START + 30 * 10**9, "100.0", "1")], 3)
         argv: list[str] = []
@@ -177,29 +152,33 @@ class InputTests(unittest.TestCase):
                 mock.patch.object(reconcile, "_journal", return_value=lines), \
                 mock.patch.object(reconcile, "window", return_value=(START, START + 3 * MINUTE)), \
                 mock.patch.object(reconcile, "_archive", return_value=("c" * 32, {"BTCUSDT": archived(3)})), \
+                mock.patch.object(reconcile, "_context", return_value=({}, {})), \
+                mock.patch.object(reconcile.records, "published_settlements", return_value={}), \
                 mock.patch.object(entry, "replay_unrecorded", side_effect=replayed), \
                 mock.patch("paper.runs.ledger_key", return_value="k"):
             found = reconcile.reconcile(object(), {}, None, 7, Path(name) / "out")
             result = json.loads(Path(found["path"]).read_text(encoding="utf-8"))
         return argv, result
 
-    def test_the_replay_runs_at_the_runs_leverage(self):
+    def test_the_replay_runs_at_the_runs_leverage_balance_and_start(self):
         argv, result = self.reconciled(True)
         self.assertEqual(argv[argv.index("--leverage") + 1], "5")
-        self.assertEqual((result["summary"]["same"], len(result["fills"])), (1, 1))
+        self.assertEqual(argv[argv.index("--starting-balance") + 1], reconcile.ACCOUNT_CONTRACT["starting_balance_usdt"])
+        self.assertEqual(argv[argv.index("--trade-start") + 1], argv[argv.index("--start") + 1])
+        self.assertEqual((result["summary"]["same"], len(result["groups"])), (1, 1))
 
-    def test_a_replay_without_order_events_has_no_fill_comparison(self):
+    def test_a_replay_without_order_events_has_no_order_comparison(self):
         _, result = self.reconciled(False)
-        self.assertIsNone(result["fills"])
-        self.assertEqual({key: result["summary"][key] for key in ("paper_fills", "replay_fills", "same", "paper_only")},
-                         {"paper_fills": 1, "replay_fills": None, "same": None, "paper_only": None})
+        self.assertIsNone(result["groups"])
+        self.assertEqual({key: result["summary"][key] for key in ("run_fills", "replay_fills", "same", "run_only")},
+                         {"run_fills": 1, "replay_fills": None, "same": None, "run_only": None})
 
     def test_each_contract_counts_every_bar_its_list_leaves_out(self):
-        minutes = reconcile.LISTED + 10
+        minutes = shared.LISTED + 10
         found = reconcile.compare(journal([], minutes, skip=tuple(range(minutes))), [],
                                   {"BTCUSDT": archived(minutes, {0: "99.0"})}, None, START, START + minutes * MINUTE)
-        listed = found["bars"]["BTCUSDT"]
-        self.assertEqual((len(listed["missing"]), listed["missing_bars"]), (reconcile.LISTED, minutes))
+        listed = found["inputs"]["BTCUSDT"]["bars"]
+        self.assertEqual((len(listed["missing"]), listed["missing_bars"]), (shared.LISTED, minutes))
         self.assertEqual(listed["differing_bars"], 0)
 
     def test_the_archive_reads_the_bars_alone(self):
