@@ -6,10 +6,13 @@ import { marketThrough, MISSING, plural } from "../../lib/format";
 import { TextButton } from "../../components/TextButton";
 import { Tip } from "../../components/Tip";
 import { FormButton } from "../../components/chat/Field";
-import { reconcile, type Cause, type FillClass, type Matched, type Reconciliation } from "../../state/reconcile";
+import { reconcile, type Cause, type Group, type OrderRow, type Reconciliation, type RowClass, type Stage } from "../../state/reconcile";
 
-const RESULT: Record<FillClass, string> = { same: "Same", price: "Price", quantity: "Size", time: "Time", paper_only: "Paper only", replay_only: "Replay only" };
-const CAUSE: Record<Exclude<Cause, "consequence">, string> = { live_gap: "a live bar was missing", bar_mismatch: "a live bar differed from the archive", window_end: "at the stop", unexplained: "unexplained" };
+const STAGE: Record<Stage, string> = { decision: "Order", fill: "Fill", fee: "Fee", funding: "Funding" };
+const KIND: Record<RowClass, string> = { same: "same", time: "time", type: "type", quantity: "size", price: "price", amount: "amount", run_only: "only on paper", replay_only: "only in the replay" };
+const CAUSE: Record<Exclude<Cause, "consequence">, string> = {
+  missing_bar: "a live bar was missing", late_bar: "a live bar arrived late", bar_mismatch: "a live bar differed from the archive",
+  warmup: "the warm-up differed from the archive", contract_terms: "the contract terms or fee rates differed", window_end: "at the stop", unexplained: "unexplained" };
 const ROLE: Record<string, string> = { entry: "entry", stop: "stop", target: "target" };
 const CELL = "h-(--form-h) whitespace-nowrap px-3 border-t border-line";
 const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint";
@@ -35,28 +38,44 @@ const Count = ({ n, one, many = `${one}s`, tone }: { n: number; one: string; man
 );
 const Dot = ({ tone }: { tone: string }) => <i className={`mr-1.5 inline-block size-1.5 rounded-full align-middle ${tone}`} />;
 
-function Row({ m, only, p }: { m: Matched; only: boolean; p: Precision }) {
+/** What a group's first difference is: one side alone, or the stage and kind of its first differing order. */
+function differs(g: Group): string {
+  if (g.class === "run_only") return "Paper only";
+  if (g.class === "replay_only") return "Replay only";
+  if (g.stage === "funding") return "Funding";
+  const row = g.first == null ? null : g.orders[g.first];
+  return row && g.stage ? `${STAGE[g.stage]} ${KIND[row.class]}` : "Differs";
+}
+
+/** One order of a group: its fill (or its order when it never filled) on each side. The group's result stands on its
+ *  first difference's row (its first row when that is funding); its other rows are grey. */
+function Row({ g, row, i, only, p }: { g: Group; row: OrderRow; i: number; only: boolean; p: Precision }) {
   const zone = useTimeZone();
-  const same = m.class === "same", suspect = !!m.look_ahead_suspect, follows = m.cause === "consequence";
-  const price = (fill: Matched["paper"]) => (fill ? fixed(fill.px, p.price) ?? fill.px : <span className="text-fg-ghost">{MISSING}</span>);
-  // The earlier side, as the rows are ordered and a later difference names the one it follows.
-  const bps = m.price_bps ?? null, at = [m.paper, m.replay].filter((f) => f).sort((x, y) => x!.ts_ns - y!.ts_ns)[0]!;
+  const same = g.class === "same", suspect = !!g.look_ahead_suspect, follows = g.cause === "consequence";
+  const lead = i === (g.first ?? 0);
+  const price = (side: OrderRow["run"]) => {
+    const value = side?.fill?.px ?? side?.price ?? side?.trigger;
+    return value ? <span className={side?.fill ? "" : "text-fg-faint"}>{fixed(value, p.price) ?? value}</span> : <span className="text-fg-ghost">{MISSING}</span>;
+  };
+  const sides = [row.run, row.replay].filter((s) => s);
+  const at = sides.map((s) => s!.fill?.ts_ns ?? s!.init_ns).sort((x, y) => x - y)[0]!;
+  const bps = row.price_bps ?? null, delay = row.delay_ms ?? row.decision_delay_ms ?? null;
   return (
-    <tr className={`transition-colors hover:bg-row-hover ${same || follows ? "text-fg-muted" : ""}`}>
-      {!only && <td className={`${CELL} text-left`}>{symbolOf(m.instrument)}</td>}
-      <td className={`${CELL} text-left text-fg-muted`}>{m.side === "BUY" ? "Buy" : "Sell"} {ROLE[m.role] ?? m.role}</td>
-      <td className={`${CELL} text-left text-fg-muted`}>{dateTime(utcInstant(at.ts), zone)}</td>
-      <td className={`${CELL} text-right`}>{price(m.paper)}</td>
-      <td className={`${CELL} text-right`}>{price(m.replay)}</td>
-      <td className={`${CELL} text-right text-fg-muted`}>{m.delay_ms == null ? "" : `${m.delay_ms >= 0 ? "+" : "−"}${Math.abs(m.delay_ms) < 1000 ? `${Math.abs(m.delay_ms)} ms` : `${(Math.abs(m.delay_ms) / 1000).toFixed(1)} s`}`}</td>
+    <tr className={`transition-colors hover:bg-row-hover ${same || follows || !lead ? "text-fg-muted" : ""}`}>
+      {!only && <td className={`${CELL} text-left`}>{lead ? symbolOf(g.instrument) : ""}</td>}
+      <td className={`${CELL} text-left text-fg-muted`}>{row.side === "BUY" ? "Buy" : "Sell"} {ROLE[row.role] ?? row.role}</td>
+      <td className={`${CELL} text-left text-fg-muted`}>{dateTime(Math.floor(at / 1e6), zone)}</td>
+      <td className={`${CELL} text-right`}>{price(row.run)}</td>
+      <td className={`${CELL} text-right`}>{price(row.replay)}</td>
+      <td className={`${CELL} text-right text-fg-muted`}>{delay == null ? "" : `${delay >= 0 ? "+" : "−"}${Math.abs(delay) < 1000 ? `${Math.abs(delay)} ms` : `${(Math.abs(delay) / 1000).toFixed(1)} s`}`}</td>
       <td className={`${CELL} text-right ${bps ? "" : "text-fg-faint"}`}>{bps == null ? "" : bps === 0 ? "0" : `${bps > 0 ? "+" : "−"}${Math.abs(bps).toFixed(1)}`}</td>
       <td className={`${CELL} text-left`}>
-        {same ? <span className="text-fg-faint">Same</span> : <>
+        {same || (!lead && row.class === "same") ? <span className="text-fg-faint">Same</span> : !lead ? <span className="text-fg-muted">{STAGE[row.stage ?? "decision"]} {KIND[row.class]}</span> : <>
           <Dot tone={suspect ? "bg-fail" : follows ? "bg-fg-muted" : "bg-misses"} />
-          <span className={suspect ? "text-fail" : follows ? "text-fg-muted" : "text-misses"}>{RESULT[m.class]}</span>
-          {m.class === "quantity" && <span className="text-fg-muted"> {fixed(m.paper?.qty, p.size) ?? MISSING} vs {fixed(m.replay?.qty, p.size) ?? MISSING}</span>}
-          {m.cause && <span className="text-fg-muted"> · {suspect ? "look-ahead suspect"
-            : m.cause === "consequence" ? `after the difference at ${m.follows ? dateTime(utcInstant(m.follows), zone) : MISSING}` : CAUSE[m.cause]}</span>}
+          <span className={suspect ? "text-fail" : follows ? "text-fg-muted" : "text-misses"}>{differs(g)}</span>
+          {row.class === "quantity" && <span className="text-fg-muted"> {fixed(row.run?.fill?.qty ?? row.run?.qty, p.size) ?? MISSING} vs {fixed(row.replay?.fill?.qty ?? row.replay?.qty, p.size) ?? MISSING}</span>}
+          {g.cause && <span className="text-fg-muted"> · {suspect ? "look-ahead suspect"
+            : g.cause === "consequence" ? `after the difference at ${g.follows ? dateTime(utcInstant(g.follows), zone) : MISSING}` : CAUSE[g.cause]}</span>}
         </>}
       </td>
     </tr>
@@ -72,19 +91,19 @@ function Prompt({ children, action, label }: { children: ReactNode; action?: () 
   );
 }
 
-/** A sealed run against its replay on the archive, in one line of counts and then each order filled on
- *  either side: what differs first (price in basis points of the replay's, delay of the paper fill)
- *  with why: a live bar missing or unlike the archive's before it, or neither, which for a fill only
- *  the replay made marks a look-ahead suspect. Once a contract's paths part, its later differences follow
- *  from the first and are grey. Differences are amber, suspects red. When nothing
- *  differs, the matching fills fold into one row. */
+/** A sealed run against its replay on the archive, in one line of counts and then each group: an entry order with
+ *  its position's stops and exits, paired with the replay's. A group's first difference (an order, its fill, its fee
+ *  or the position's funding) stands on its row with why: a live bar missing, late or unlike the archive's, the
+ *  warm-up, the contract terms or fee rates, the stop, or none of these, which for something only the replay did
+ *  marks a look-ahead suspect. Once a contract's paths part, its later differences follow from the first and are
+ *  grey. Differences are amber, suspects red. When nothing differs, the matching groups fold into one row. */
 export function Reconcile({ r, paperId, sealed, only, digits }: {
   r: Reconciliation | null; paperId: number; sealed: boolean; only: string | null; digits: ReadonlyMap<string, Precision>;
 }) {
   const [open, setOpen] = useState(false);
   if (!sealed) return <Prompt>A run is compared with its replay once it is sealed: stop it, then replay it here.</Prompt>;
   if (!r || r.paper_id !== paperId) return <Prompt>Reading the run's reconciliation…</Prompt>;
-  if (r.state === "none") return <Prompt action={() => void reconcile(paperId)} label="Replay and compare">Replay this run on the archived bars of the same interval, with the same source and image, and compare every fill. Nothing is recorded.</Prompt>;
+  if (r.state === "none") return <Prompt action={() => void reconcile(paperId)} label="Replay and compare">Replay this run on the archived bars of the same interval, with the same source, image and warm-up, and compare every order. Nothing is recorded.</Prompt>;
   if (r.state === "reconciling") return <Prompt>Replaying on the archive… a run of an hour takes about half a minute.</Prompt>;
   if (r.state === "failed" || !r.result) {
     const uncovered = r.error?.code === "PAPER_RECONCILE_UNCOVERED";
@@ -92,34 +111,35 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
       <span className={uncovered ? "" : "text-fail"}>{uncovered ? "The market does not hold this run's minutes yet. " : `${r.error?.code ?? "Failed"}: `}</span>{r.error?.message}
     </Prompt>;
   }
-  const { fills, bars, replay } = r.result;
-  const barsOf = only ? [bars[only]].filter(Boolean) : Object.values(bars);
-  const missing = barsOf.reduce((n, b) => n + b!.missing_bars, 0), unlike = barsOf.reduce((n, b) => n + b!.differing_bars, 0);
-  const barCounts = <span className="text-fg-faint">{plural(missing, "live bar")} missing, {unlike} unlike the archive</span>;
+  const { groups, inputs, replay } = r.result;
+  const barsOf = (only ? [inputs[only]].filter(Boolean) : Object.values(inputs)).map((c) => c!.bars);
+  const missing = barsOf.reduce((n, b) => n + b.missing_bars, 0), late = barsOf.reduce((n, b) => n + b.late_bars, 0);
+  const unlike = barsOf.reduce((n, b) => n + b.differing_bars, 0);
+  const barCounts = <span className="text-fg-faint">{plural(missing, "live bar")} missing, {late} late, {unlike} unlike the archive</span>;
   const invalid = replay.status === "invalid" && <p className="px-3 pb-2 text-dense text-fail">The replay is invalid: {replay.problems.map((p) => p.code ?? p.message).join(", ")}</p>;
-  if (!fills) return (
+  if (!groups) return (
     <div className="flex flex-col">
       <p className="flex flex-wrap gap-x-2 gap-y-1 px-3 py-2 text-dense tabular-nums text-fg-muted">
-        <span className="text-fail">The replay wrote no order events, so its fills cannot be compared</span>
+        <span className="text-fail">The replay wrote no order events, so its orders cannot be compared</span>
         <span className="text-fg-faint">·</span>{barCounts}
       </p>
       {invalid}
     </div>
   );
   // Newest first, what differs above what is the same.
-  const mine = (only ? fills.filter((m) => symbolOf(m.instrument) === only) : fills).slice().reverse();
-  const differ = mine.filter((m) => m.class !== "same"), same = mine.filter((m) => m.class === "same");
-  const count = (k: Matched["class"]) => mine.filter((m) => m.class === k).length;
-  const suspects = mine.filter((m) => m.look_ahead_suspect).length;
-  const following = mine.filter((m) => m.cause === "consequence").length;
+  const mine = (only ? groups.filter((g) => symbolOf(g.instrument) === only) : groups).slice().reverse();
+  const differ = mine.filter((g) => g.class !== "same"), same = mine.filter((g) => g.class === "same");
+  const count = (k: Group["class"]) => mine.filter((g) => g.class === k).length;
+  const suspects = mine.filter((g) => g.look_ahead_suspect).length;
+  const following = mine.filter((g) => g.cause === "consequence").length;
   const shown = differ.length || open ? [...differ, ...same] : differ;
   return (
     <div className="flex flex-col">
       <p className="flex flex-wrap gap-x-2 gap-y-1 px-3 py-2 text-dense tabular-nums text-fg-muted">
         {[
-          <span key="same"><span className="text-fg">{same.length}</span> of {mine.length} the same</span>,
-          <Count key="differ" n={count("price") + count("quantity") + count("time")} one="differs" many="differ" tone="text-misses" />,
-          <Count key="paper" n={count("paper_only")} one="only on paper" many="only on paper" tone="text-misses" />,
+          <span key="same"><span className="text-fg">{same.length}</span> of {plural(mine.length, "trade")} the same</span>,
+          <Count key="differ" n={count("differs")} one="differs" many="differ" tone="text-misses" />,
+          <Count key="paper" n={count("run_only")} one="only on paper" many="only on paper" tone="text-misses" />,
           <Count key="replay" n={count("replay_only")} one="only in the replay" many="only in the replay" tone="text-misses" />,
           <Count key="suspects" n={suspects} one="look-ahead suspect" tone="text-fail" />,
           ...(following ? [<span key="following" className="text-fg-faint">{following} after an earlier difference</span>] : []),
@@ -130,20 +150,20 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
       {mine.length ? (
         <table className="w-full border-collapse text-dense tabular-nums">
           {shown.length > 0 && <thead><tr>
-            {!only && <th className={`${HEAD} text-left`}>Contract</th>}<th className={`${HEAD} text-left`}>Order</th><th className={`${HEAD} text-left`}>Filled</th>
+            {!only && <th className={`${HEAD} text-left`}>Contract</th>}<th className={`${HEAD} text-left`}>Order</th><th className={`${HEAD} text-left`}>Time</th>
             <th className={`${HEAD} text-right`}>Paper</th><th className={`${HEAD} text-right`}>Replay</th>
             <th className={`${HEAD} text-right`}>Delay</th><th className={`${HEAD} text-right`}>Price, bp</th><th className={`${HEAD} text-left`}>Result</th>
           </tr></thead>}
           <tbody>
-            {shown.map((m, i) => <Row key={`${m.paper?.order ?? ""}-${m.replay?.order ?? ""}-${i}`} m={m} only={!!only} p={digits.get(symbolOf(m.instrument)) ?? { price: -1, size: -1 }} />)}
+            {shown.flatMap((g, k) => g.orders.map((row, i) => <Row key={`${k}-${row.run?.order ?? ""}-${row.replay?.order ?? ""}-${i}`} g={g} row={row} i={i} only={!!only} p={digits.get(symbolOf(g.instrument)) ?? { price: -1, size: -1 }} />))}
             {!differ.length && (
               <tr><td colSpan={only ? 7 : 8} className={`${CELL} bg-island-alt text-left text-fg-faint`}>
-                <TextButton className="-ml-1 text-small" onClick={() => setOpen(!open)}>{open ? "Hide the matching fills" : `Show the ${plural(same.length, "matching fill")}`}</TextButton>
+                <TextButton className="-ml-1 text-small" onClick={() => setOpen(!open)}>{open ? "Hide the matching trades" : `Show the ${plural(same.length, "matching trade")}`}</TextButton>
               </td></tr>
             )}
           </tbody>
         </table>
-      ) : <p className="px-3 py-3 text-dense text-fg-faint">Neither side filled an order{only ? ` on ${only}` : ""}</p>}
+      ) : <p className="px-3 py-3 text-dense text-fg-faint">Neither side sent an order{only ? ` on ${only}` : ""}</p>}
     </div>
   );
 }
