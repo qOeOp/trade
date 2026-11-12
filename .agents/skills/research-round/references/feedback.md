@@ -42,7 +42,7 @@ labels and registrations on the same development data are not independent eviden
 When a change of approach is due (SKILL.md), first state in one line how many research runs the
 line has made on its development window (`research status`) and how far the recommended version's
 annual return moved over the counted runs, beside their detectable annual difference; it is a
-reading for the user, not an option to close the line. Then offer two or three approaches inside
+reading for the user, not an option to close the line. Then weigh two or three approaches inside
 this line. Each
 changes a part of the strategy the counted runs left alone, aims above their detectable annual
 difference (`hypothesis compare`'s `detectable_annual_return_difference_80pct_normal_approx`;
@@ -57,5 +57,10 @@ toward its targets. When the bottleneck is unclear (opportunities,
 signal quality, costs or capital use), the first step tells the leading explanations apart. Each
 approach names its first experiment and control, the outcome that would change the next step,
 and what its source states apart from your own design.
-Give each the readings research-start's recommendation.md lists, mark one and ask; until the user
-chooses, do not register, replay or publish.
+Choose the one you rank first and, before its first registration, record the change as a priority
+judgment whose body begins `Change of approach.`, ranks the approaches with the reason for the
+choice and names each counted run as a subject (`--subject trial=N`): that restarts the count
+(SKILL.md). Tell the user once, in that round's message and asking nothing: the reading above, the
+recommended version's readings research-start's recommendation.md lists, the approaches, the one
+chosen and why, and the judgment. Then carry out its first experiment; an approach the user names
+later replaces yours.
