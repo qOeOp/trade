@@ -4,7 +4,7 @@ Holm's correction, the regressions, the read-time measures and the one trade pai
 from __future__ import annotations
 
 from decimal import Decimal
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 import math
 from statistics import NormalDist
 import unittest
@@ -381,6 +381,55 @@ class MeasureTests(unittest.TestCase):
         multiple, reason = measures.breakeven_multiple(Decimal(100), Decimal(-500))
         self.assertIsNone(multiple, "raising both fees only widens the lead of the cheaper winner")
         self.assertTrue(reason.startswith("NEVER_ZERO"))
+
+
+class DevYearTests(unittest.TestCase):
+    """A 2021-10-01 to 2024-10-01 window: one return a day, cut at the trade start's anniversaries."""
+
+    def setUp(self):
+        self.start = date(2021, 10, 1)
+        self.days = (date(2024, 10, 1) - self.start).days
+        def ns(day: date) -> int:
+            return int(datetime(day.year, day.month, day.day, tzinfo=timezone.utc).timestamp()) * 10**9
+        self.ns = ns
+        daily = {2021: -0.0003, 2022: -0.0001, 2023: 0.002}  # by the year the development year starts in
+
+        def value(day: date) -> float:
+            return daily[day.year if (day.month, day.day) >= (10, 1) else day.year - 1]
+        self.returns = [(ns(self.start + timedelta(days=k)), value(self.start + timedelta(days=k)), None)
+                        for k in range(self.days)]
+        self.run = {"returns": self.returns, "trade_start_ns": ns(self.start), "trade_end_ns": ns(date(2024, 10, 1))}
+
+    def test_each_year_compounds_its_own_days_and_reads_against_the_target(self):
+        found = measures.dev_years(self.run, 0.2)
+        assert found is not None
+        lengths = [365, 365, 366]
+        expected = [(1 + rate) ** n - 1 for rate, n in zip((-0.0003, -0.0001, 0.002), lengths, strict=True)]
+        self.assertEqual([(item["start"], item["end"]) for item in found["years"]],
+                         [("2021-10-01", "2022-10-01"), ("2022-10-01", "2023-10-01"), ("2023-10-01", "2024-10-01")])
+        for item, value in zip(found["years"], expected, strict=True):
+            self.assertAlmostEqual(item["return"], value, places=12)
+            self.assertEqual(item["at_target"], value >= 0.2)
+            self.assertAlmostEqual(item["short_by"], max(0.2 - value, 0.0), places=12)
+        self.assertEqual(found["years_at_target"], 1)
+        self.assertAlmostEqual(found["worst_year_return"], expected[0], places=12)
+        growth = (1 + expected[0]) * (1 + expected[1])
+        self.assertAlmostEqual(found["return_without_best_year"], growth ** (365 / 730) - 1, places=12)
+        whole = math.prod(1 + value for _, value, _ in self.returns)
+        self.assertAlmostEqual(math.prod(1 + item["return"] for item in found["years"]), whole, places=9,
+                               msg="the years compound to the window")
+
+    def test_without_a_target_the_years_carry_no_mark(self):
+        found = measures.dev_years(self.run)
+        assert found is not None
+        self.assertIsNone(found["years_at_target"])
+        self.assertNotIn("at_target", found["years"][0])
+
+    def test_any_other_window_has_none(self):
+        one_year = {**self.run, "trade_end_ns": self.ns(date(2022, 10, 1))}
+        self.assertIsNone(measures.dev_years(one_year, 0.2), "a 4-quarter window is one year: the window itself")
+        short = {**self.run, "trade_end_ns": self.ns(date(2024, 9, 30))}
+        self.assertIsNone(measures.dev_years(short, 0.2))
 
 
 class SerialCorrelationTests(unittest.TestCase):

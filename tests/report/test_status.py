@@ -375,6 +375,8 @@ class ComparisonTableTests(unittest.TestCase):
             self.assertEqual({name: item["measures"][name]["value"] for name in table["measures"]},
                              {name: report["headline"][name]["value"] for name in table["measures"]},
                              "the single-run report's measures, not a recomputation")
+            self.assertEqual((item["worst_dev_year_return"], item["return_without_best_year"]), (None, None),
+                             "a one-month window has no development years")
         first, second = table["runs"]
         for item, other in ((first, second), (second, first)):
             dominated = status._dominates(other["measures"], item["measures"])

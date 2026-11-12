@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import functools
+import itertools
 import math
 import statistics
 
@@ -668,6 +669,41 @@ def closed_by_year(cycles: list[dict]) -> dict:
     return {year: {"closed_trades": item["closed_trades"], "price_pnl_usdt": metrics.money(item["price"]),
                    "fill_commissions_usdt": metrics.money(item["commissions"]), "reported_funding_usdt": metrics.money(item["funding"])}
             for year, item in sorted(years.items())}
+
+
+DEV_YEARS = 3  # the years of a 12-quarter development window (ledger.lines.DEVELOPMENT_QUARTERS)
+
+
+def dev_years(run: Mapping, annual_target: float | None = None) -> dict | None:
+    """The development years of a run whose trading window is DEV_YEARS whole years, cut at its trade start's
+    anniversaries: each year's compound return over the stored daily returns dated in it, and with
+    `annual_target` whether it reaches the target or by how much it falls short, how many years reach it, the
+    worst year's return and the window's annual return without the best year's days. A slice of one continuous
+    run: positions and the equity peak carry across years. None for any other window."""
+    start = datetime.fromtimestamp(run["trade_start_ns"] // 10**9, timezone.utc)
+    try:
+        cuts = [start.replace(year=start.year + k) for k in range(DEV_YEARS + 1)]
+    except ValueError:  # a 29 February start has no anniversaries
+        return None
+    bounds = [int(moment.timestamp()) * 10**9 for moment in cuts]
+    if (bounds[0], bounds[-1]) != (run["trade_start_ns"], run["trade_end_ns"]):
+        return None
+    returns = [math.prod(1 + value for ts, value, _ in run["returns"] if low <= ts < high) - 1
+               for low, high in itertools.pairwise(bounds)]
+    days = [(end - begin).days for begin, end in itertools.pairwise(cuts)]
+    years = []
+    for (begin, end), value in zip(itertools.pairwise(cuts), returns, strict=True):
+        item: dict[str, object] = {"start": begin.date().isoformat(), "end": end.date().isoformat(), "return": value}
+        if annual_target is not None:
+            item.update(at_target=value >= annual_target, short_by=max(annual_target - value, 0.0))
+        years.append(item)
+    best = returns.index(max(returns))
+    rest = [k for k in range(DEV_YEARS) if k != best]
+    return {"years": years, "annual_target": annual_target,
+            "years_at_target": None if annual_target is None else sum(value >= annual_target for value in returns),
+            "worst_year_return": min(returns),
+            "return_without_best_year": annual_return(math.prod(1 + returns[k] for k in rest),
+                                                      sum(days[k] for k in rest))}
 
 
 def market_for(run: Mapping) -> dict | None:
