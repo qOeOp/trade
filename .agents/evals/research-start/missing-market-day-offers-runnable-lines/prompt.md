@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a new session whose research state shows a MARKET_DAY_UNRESOLVED gate tells the user plainly which market day is missing and that the line runs again only once the market reaches that day; it offers no research option that keeps the line while obtaining, recovering or verifying that day, proposes no market write or resolver change itself, establishes no Goal for the gated line, presents the lines that can run and writes nothing before the user answers.
+description: Rule check — with the skill, a new session whose research state shows a MARKET_DAY_UNRESOLVED gate tells the user plainly which market day is missing and that the line runs again only once the market reaches that day; obtaining that day is the Agent's import, never the user's market decision or a reason to keep the line waiting; it proposes no resolver or market-day change, establishes no Goal for the gated line, presents the lines that can run and writes no research record before the user answers.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12

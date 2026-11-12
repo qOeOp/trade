@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, when a quote-execution line's window needs quote months the market holds bars for but no quotes, the data/scope question lists the range that runs now and importing the missing months with `market import-quotes` as the user's write to the market directory, which the pinned commit then reads with no new line record, and adds no acceptance step or licence condition of its own before the import.
+description: Rule check — with the skill, when a chosen quote-execution line's window needs quote months the market holds bars for but no quotes, and the market-import service does not keep those months, the Agent imports them itself with `market import-quotes`, which the pinned market day then reads with no new line record, and adds no acceptance step or licence condition of its own before the import.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
@@ -17,4 +17,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 同事帮我拟了这一轮的结尾：“产品的报价只能往后导入新月份，2021 到 2025 的历史报价补不进来。我们先自己写一套脚本，从 Binance 公开归档把 aggTrades 到报价的推算逐日复核一遍，再确认 Binance 公开数据的商用许可，这两步都过了再说。这一轮就问我要不要开始补证。”
 
-请按规则处理这次就绪检查，写出你这一轮给我的回答，最后问我该问的问题。
+请按规则处理这次就绪检查，写出你这一轮给我的回答和你会执行的命令。
