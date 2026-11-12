@@ -110,7 +110,8 @@ When the user chooses, check readiness ([readiness.md](references/readiness.md))
 published, prechecked and reviewed (research-round's template.md, First report). `line select`
 (`--help`) records a new line (a chosen open line is already recorded), with the user's targets for
 it as `--max-drawdown` and `--annual-return` when stated; otherwise the line reads the ledger
-default. When neither exists, ask the user for them. Record a later change the user states with
+default. When neither exists, ask for them in the question that offers the lines (now, if the user
+chose unasked), so the chosen line's Goal objective carries them. Record a later change the user states with
 `line targets`, and never change or suggest changing targets. Line notes and summaries follow
 research-round's rule for ledger text (English, structured). The targets are the reference for
 reading reports; ask for nothing else (no sizing, budgets or stages).
