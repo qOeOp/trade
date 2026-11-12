@@ -147,7 +147,9 @@ test("the first click arms the start in place; the second starts the checked run
   await settle();
   assert.deepEqual(calls, [["prepare", "3600"], ["start", "web-new", HASH]]);
   assert.deepEqual(state.shown, []);
-  assert.match(JSON.stringify(all(render(props)).map((node) => node.props?.children)), /Another Live run still holds the account/);
+  const after = named(render(props), "LiveLaunchStart").props;
+  assert.match(after.refused, /Another Live run still holds the account/, "a refused start is said at Start, not in a banner");
+  assert.equal(after.armed, false);
 });
 
 test("check account reuses the run it prepared and asks for its account check, never a start", async () => {
@@ -161,5 +163,7 @@ test("check account reuses the run it prepared and asks for its account check, n
   await settle();
   assert.deepEqual(calls, ["prepare", "preflight web-check"]);
   assert.equal(state.draft.preparedId, "web-check");
-  assert.equal(named(render(props), "LiveLaunchStart").props.ready, false, "start waits for the check's answer");
+  const waiting = named(render(props), "LiveLaunchStart").props;
+  assert.equal(waiting.ready, false, "start waits for the check's answer");
+  assert.deepEqual(waiting.waiting, ["Account"], "the line names the column still waiting, not each row");
 });

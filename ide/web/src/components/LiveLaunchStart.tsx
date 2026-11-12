@@ -1,26 +1,36 @@
 import { FormButton } from "./chat/Field";
 import { TextButton } from "./TextButton";
 
-/** The start control at the foot of the launch page. Greyed until every condition passes, naming what it waits
- *  on. The first click only arms it: it then reads "Confirm: real orders, source <hash>", in place, and the
- *  second click starts the run. Cancel, or any change on the page, disarms it. */
-export function LiveLaunchStart({ ready, waiting, armed, busy, sourceHash, arm, disarm, start }: {
-  ready: boolean; waiting: readonly string[]; armed: boolean; busy: boolean; sourceHash: string | null;
-  arm: () => void; disarm: () => void; start: () => void;
+/** The start control at the foot of the launch page: one row of controls and at most one short line under it.
+ *  Greyed until every condition passes, the line naming the columns still waiting (their rows say why; no line
+ *  where Live is closed, which the page says above). The first
+ *  click only arms it ("Confirm start · <source>"), the second starts; Cancel, or any change, disarms it. A refused
+ *  start is said here, in place. Reset limits sits beside Start while a value differs from the Live settings. */
+export function LiveLaunchStart({ ready, waiting, armed, busy, sourceHash, refused, reset, arm, disarm, start }: {
+  ready: boolean; waiting: readonly string[] | null; armed: boolean; busy: boolean; sourceHash: string | null;
+  refused: string | null; reset: (() => void) | null; arm: () => void; disarm: () => void; start: () => void;
 }) {
-  const short = sourceHash?.slice(0, 8) ?? "";
-  return <div className="space-y-2">
+  const confirm = armed && ready;
+  const line = busy ? { text: "Checking the account, then starting.", tone: "text-fg-faint" }
+    : refused ? { text: refused, tone: "text-fail" }
+    : confirm ? { text: "Places real orders on Binance.", tone: "text-fg-muted" }
+    : ready || waiting === null ? null
+    : { text: waiting.length ? `Waiting on ${listed(waiting)}` : "Live takes no new runs right now.", tone: "text-fg-faint" };
+  return <>
     <div className="flex flex-wrap items-center gap-2">
-      {armed && ready ? <>
-        {/* Short enough for a narrow column: the full source is in the note under it. */}
-        <FormButton primary disabled={busy} onClick={start} aria-describedby="live-launch-confirm"
-          title={sourceHash ?? undefined}>{busy ? "Starting…" : <>Confirm: real orders, source {short}</>}</FormButton>
-        <TextButton size="form" disabled={busy} onClick={disarm}>Cancel</TextButton>
-      </> : <FormButton primary icon="run" disabled={!ready || busy} onClick={arm}>Start live run</FormButton>}
+      {busy ? <FormButton primary disabled>Starting…</FormButton>
+        : confirm ? <>
+          <FormButton primary onClick={start} aria-describedby="live-launch-line" title={sourceHash ?? undefined}>
+            Confirm start · <span className="tabular-nums">{sourceHash?.slice(0, 8)}</span></FormButton>
+          <TextButton size="form" onClick={disarm}>Cancel</TextButton>
+        </> : <>
+          <FormButton primary icon="run" disabled={!ready} onClick={arm}>Start live run</FormButton>
+          {reset && <TextButton size="form" onClick={reset}>Reset limits</TextButton>}
+        </>}
     </div>
-    {armed && ready ? <p id="live-launch-confirm" className="text-small text-fg-muted">
-      The strategy will place real orders on your Binance account. Live checks the account again first. Closing this page does not stop the run.
-      <span className="mt-1 block break-all text-fg-faint">Source {sourceHash}</span>
-    </p> : !ready && <p className="text-small text-fg-faint">{waiting.length ? `Waiting on: ${waiting.join(", ")}.` : "Live takes no new runs right now."}</p>}
-  </div>;
+    {line && <p id="live-launch-line" role={refused ? "alert" : undefined} className={`text-small ${line.tone}`}>{line.text}</p>}
+  </>;
 }
+
+/** "Account", "Strategy and Account", "Strategy, Account and Limits & start". */
+const listed = (names: readonly string[]) => names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;

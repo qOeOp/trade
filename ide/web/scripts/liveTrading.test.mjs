@@ -216,7 +216,7 @@ test("with no live run selected the Live canvas is the three-column launch page,
     assert.doesNotMatch(first, /\[dialog\]|New live run…|Choose a retained run/);
     for (const title of ["Strategy", "Account", "Limits &amp; start"]) assert.match(first, new RegExp(`<section aria-label="${title}"`));
     assert.match(first, /<button[^>]* disabled=""[^>]*>Start live run<\/button>/, "start waits for every row");
-    assert.match(first, /Waiting on: [^<]*Account check/);
+    assert.match(first, /Waiting on Strategy, Account and Limits &amp; start</, "the line names the columns still waiting");
     canvasView = { ...ready, runs: [run] };
     assert.match(render("LiveRunCanvas", {}), /aria-label="New live run"/, "retained runs, none selected, still show the page");
     canvasRun = run;

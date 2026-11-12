@@ -66,6 +66,7 @@ export function LiveLaunchColumn({ column, index, closed, edit, busy = false, ch
     <ul className="min-h-0 flex-1 px-3 @3xl:overflow-y-auto">
       {column.rows.map((row) => <Row key={row.id} row={row} closed={closed} edit={edit} busy={busy} />)}
     </ul>
-    {children && <footer className="shrink-0 space-y-2 border-t border-line px-3 py-2">{children}</footer>}
+    {/* One row of controls and one short line, its height kept so the footers' top rules line up across columns. */}
+    {children && <footer className="flex min-h-[calc(var(--form-h)+var(--size-small)*1.4+var(--spacing)*5)] shrink-0 flex-col gap-1 border-t border-line px-3 py-2">{children}</footer>}
   </section>;
 }

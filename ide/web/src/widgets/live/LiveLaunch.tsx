@@ -31,42 +31,45 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
   const columns = launchColumns(input), values = launchValues(view, edits);
   const closed = unavailableReason(view) !== null;
   const canStart = ready(columns) && Boolean(actions.prepare && actions.start);
-  const waiting = columns.flatMap((column) => column.rows).filter((row) => row.required && !(row.value !== null && (row.mark === "pass" || row.mark === "shown"))).map((row) => row.label);
+  const unmet = (row: (typeof columns)[number]["rows"][number]) => row.required && !(row.value !== null && (row.mark === "pass" || row.mark === "shown"));
+  const waiting = columns.filter((column) => column.rows.some(unmet)).map((column) => column.title);
   const checking = useLiveAction(), starting = useLiveAction();
-  const [armed, setArmed] = useState(false), [said, say] = useState<string | null>(null), [unknown, setUnknown] = useState<LiveRequest | null>(null);
+  // A refusal is said at the control that met it: the account check's under Check account, the start's under Start.
+  const [armed, setArmed] = useState(false), [said, say] = useState<{ text: string; at: "check" | "start" } | null>(null);
+  const [unknown, setUnknown] = useState<LiveRequest | null>(null);
   const shape = JSON.stringify([source?.id, values]);
-  useEffect(() => setArmed(false), [shape]);
+  useEffect(() => { setArmed(false); say(null); }, [shape]);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
-  const answer = (receipt: LiveRequest | null | void) => {
+  const answer = (receipt: LiveRequest | null | void, at: "check" | "start") => {
     if (!mounted.current) return;
-    if (!receipt) say("No answer was received. Requests shows whether Live recorded it.");
-    else if (receipt.outcome === "refused") say(refusalText(receipt.code));
+    if (!receipt) say({ text: "No answer came back. Requests shows whether Live recorded it.", at });
+    else if (receipt.outcome === "refused") say({ text: refusalText(receipt.code), at });
     else if (receipt.outcome !== "effect_recorded") setUnknown(receipt);
   };
   /** The run to check or start: the one this page prepared, while it has not traded and holds these settings, or a
    *  new one prepared now (local only: it freezes the source, key and settings and connects to nothing). */
-  const prepared = async (): Promise<string | null> => {
+  const prepared = async (at: "check" | "start"): Promise<string | null> => {
     if (!source || !actions.prepare) return null;
     if (checked && STARTABLE.has(checked.hostState ?? "") && preparedWith(checked, values)) return checked.id;
     const receipt = await actions.prepare({ sourceId: source.id, values });
     const id = receipt?.outcome === "effect_recorded" ? receipt.target.run_id ?? null : null;
-    if (id) update(() => ({ preparedId: id })); else answer(receipt);
+    if (id) update(() => ({ preparedId: id })); else answer(receipt, at);
     return id;
   };
   const begin = () => { say(null); setUnknown(null); };
   const check = () => void checking.submit(async () => {
     begin();
-    const id = await prepared();
-    if (id && actions.preflight) { const receipt = await actions.preflight(id); if (receipt && receipt.outcome !== "effect_recorded") answer(receipt); }
+    const id = await prepared("check");
+    if (id && actions.preflight) { const receipt = await actions.preflight(id); if (receipt && receipt.outcome !== "effect_recorded") answer(receipt, "check"); }
   });
   const start = () => void starting.submit(async () => {
     begin();
-    const id = await prepared();
+    const id = await prepared("start");
     if (!id || !source || !actions.start) return;
     const receipt = await actions.start(id, source.sourceHash);
-    if (receipt && receipt.outcome === "refused") { answer(receipt); if (mounted.current) setArmed(false); return; }
+    if (receipt && receipt.outcome === "refused") { answer(receipt, "start"); if (mounted.current) setArmed(false); return; }
     showLiveRun(id);
   });
 
@@ -74,9 +77,8 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
   const running = checked?.accountCheck?.state === "running";
   const busy = checking.busy || starting.busy;
   return <section aria-label="New live run" className="@container flex h-full min-h-0 flex-col text-dense">
-    {(closed || said || unknown || checking.failed || starting.failed) && <div role="status" className="shrink-0 space-y-2 border-b border-line px-3 py-2">
+    {(closed || unknown || checking.failed || starting.failed) && <div role="status" className="shrink-0 space-y-2 border-b border-line px-3 py-2">
       {closed && <p className="text-fg-muted">{unavailableReason(view)} Each row below says what it needs.</p>}
-      {said && <p className="text-fail">{said}</p>}
       <LiveActionFailure failed={checking.failed || starting.failed} />
       {unknown && <LiveRequestStatus request={unknown} resolve={actions.resolveRequest} />}
     </div>}
@@ -93,16 +95,17 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
             {checking.busy ? "Checking…" : running ? "Checking the account…" : checked?.accountCheck ? "Check again" : "Check account"}</FormButton>
           <TextButton size="form" onClick={openLiveCredentials}>Manage keys…</TextButton>
         </div>
-        {blocker && !closed && <p className="text-small text-fg-faint">{blocker}</p>}
+        {said?.at === "check" ? <p role="alert" className="text-small text-fail">{said.text}</p>
+          : blocker && !closed && <p className="text-small text-fg-faint">{blocker}</p>}
       </LiveLaunchColumn>
       <LiveLaunchColumn column={columns[2]!} index={2} closed={closed} edit={(id, value) => update((base) => {
         // A value back at the Live setting is no edit, so Reset shows only while something differs from it.
         const { [id]: _was, ...rest } = base.edits;
         return { edits: value === view.planFields.find((field) => field.id === id)?.value ? rest : { ...rest, [id]: value } };
       })}>
-        <LiveLaunchStart ready={canStart} waiting={closed ? [] : waiting} armed={armed} busy={starting.busy} sourceHash={source?.sourceHash ?? null}
-          arm={() => setArmed(true)} disarm={() => setArmed(false)} start={start} />
-        {Object.keys(edits).length > 0 && <TextButton size="form" disabled={busy} onClick={() => update(() => ({ edits: {} }))}>Reset to the Live settings</TextButton>}
+        <LiveLaunchStart ready={canStart} waiting={closed ? null : waiting} armed={armed} busy={starting.busy} sourceHash={source?.sourceHash ?? null}
+          refused={said?.at === "start" ? said.text : null} reset={Object.keys(edits).length > 0 && !busy ? () => update(() => ({ edits: {} })) : null}
+          arm={() => { say(null); setArmed(true); }} disarm={() => setArmed(false)} start={start} />
       </LiveLaunchColumn>
     </div>
   </section>;
