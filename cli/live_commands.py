@@ -62,17 +62,25 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "run_id and stop_requested; unresolved exposure continues to own the account slot",
         "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID"),
     ("live", "compare"): (
-        "one run's private inputs, journal and evidence pack; the market at --at (default main), exported into a "
-        "reused cache under the temporary directory; Binance's published funding rates; the run's own runtime image",
+        "one run's private inputs, journal and evidence pack (one trading start: --segment, default the latest); "
+        "the market at --at (default main), exported into a reused cache under the temporary directory; Binance's "
+        "published funding rates; the run's own runtime image",
         "nothing in any database and nothing in the private root; the new --output directory (replay/ with the "
         "native reports and audit, reconcile.json); never a credential, order or venue connection",
-        "path, summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, differs, run_only, "
-        "replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, differing_bars, warmup_differs, "
-        "terms_differ, equity_max_difference}, replay {status, problems, path}",
-        "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_COMPARE_EMPTY (no warm-up, start observation or whole "
-        "minute); LIVE_COMPARE_UNCOVERED (the market lacks the run's minutes); LIVE_RUN_ID; NOT_TEMPORARY_PATH, "
-        "PATH_EXISTS (--output); RUNTIME_UNAVAILABLE"),
+        "path, segment {number, of}, summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, "
+        "differs, run_only, replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, differing_bars, "
+        "warmup_differs, terms_differ, equity_max_difference}, measures {from, to (--from, --to), groups, "
+        "entries_unfilled, partial_fills, fills_paired, adverse_slippage_bps, fees, equity_change, holds}, "
+        "replay {status, problems, path}",
+        "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_COMPARE_EMPTY (no warm-up, no such trading start, no "
+        "start observation or whole minute); LIVE_COMPARE_UNCOVERED (the market lacks the run's minutes); "
+        "LIVE_RUN_ID; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); RUNTIME_UNAVAILABLE"),
 }
+
+
+def compare_instant(text: str) -> int:
+    from live.compare import instant  # its imports are a replay's
+    return instant(text)
 
 
 def register(verbs, verb, runner) -> None:
@@ -116,6 +124,9 @@ def register(verbs, verb, runner) -> None:
     _market_at(command)
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command.add_argument("--timeout-seconds", type=float, help="stop the replay after this long")
+    command.add_argument("--segment", type=int, help="the run's Nth trading start (1 is the first; default the latest)")
+    command.add_argument("--from", dest="since", type=compare_instant, help="sum the measures from this time (UTC)")
+    command.add_argument("--to", dest="until", type=compare_instant, help="sum the measures before this time (UTC)")
 
 
 def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
@@ -155,5 +166,5 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if args.verb == "compare":
         from live import compare
         return compare.compare(args.root, args.run_id, profiles.market(args.market), args.at, Path(args.output),
-                               args.timeout_seconds), 0
+                               args.timeout_seconds, args.segment, args.since, args.until), 0
     raise UsageError(f"unknown command {args.noun} {args.verb}")
