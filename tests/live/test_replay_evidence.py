@@ -4,6 +4,7 @@ already saw, by the replay code of the execution image, and records it; the runn
 the USDT wallet. Throwaway Dolt only."""
 
 from decimal import Decimal
+import hashlib
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -11,9 +12,9 @@ from unittest.mock import patch
 from engine.live_errors import LiveRefusal
 from engine.live_venue import EVIDENCE_TOLERANCE, require_evidence
 from ledger import db
-from live import runs, state
+from live import control, runs, state
 from tests.ledger.dolt import BINARY, RUNTIME, SKIP
-from tests.live.authority_fixture import prepare
+from tests.live.authority_fixture import install, prepare
 from tests.live.test_runs import IDENTITY, LiveFixture
 from tests.ledger.dolt import source
 from tests.registration.world import World, capture
@@ -54,6 +55,14 @@ class ReplayEvidenceTests(LiveFixture):
                            scope=self.scope, budget_usdt="100", max_loss_usdt="10", duration_seconds=60,
                            memory="2g", leverage="3", market_root=Path("unused"))
 
+    def read_ahead(self) -> list[dict]:
+        """runs.replay_evidence, which the page shows before preparing, on the same images as prepare."""
+        with patch.object(runs.image, "resolve",
+                          side_effect=lambda ref: IDENTITY if ref == runs.image.EXECUTION else {"image_ref": ref}), \
+                patch.object(runs.image, "inspect_runtime", side_effect=lambda identity, _: CODE):
+            return runs.replay_evidence(self.world.profile, db.head_commit(self.world.conn),
+                                        hashlib.sha256(self.candidate["source"]).hexdigest(), ["AAAUSDT"], None)
+
     def refused(self, run_id: str, **options) -> str:
         with self.assertRaises(LiveRefusal) as caught:
             self.prepare(run_id, **options)
@@ -70,6 +79,7 @@ class ReplayEvidenceTests(LiveFixture):
 
     def test_preflight_is_refused_without_evidence_and_accepted_with_it(self):
         self.assertEqual(self.refused("no-replay"), "LIVE_EVIDENCE_MISSING")
+        self.assertEqual(self.read_ahead(), [])
         self.explore(audit_exit=1)  # its audit did not pass
         self.explore(symbols=("BBBUSDT",))  # not Live's instruments
         self.explore(days=40)  # runs past the research window's end: a window research never saw
@@ -81,6 +91,7 @@ class ReplayEvidenceTests(LiveFixture):
         manifest = self.prepare("backed")
         found = {"trial_id": backing, "starting_balance_usdt": "100000", "image_ref": RUNTIME["image_ref"]}
         self.assertEqual(manifest["evidence"], [found])
+        self.assertEqual(self.read_ahead(), [found], "the page shows what preparation records")
         review = runs.review(self.world.profile, db.head_commit(self.world.conn), manifest)
         self.assertEqual(review["evidence"], [found])
 
@@ -90,6 +101,35 @@ class ReplayEvidenceTests(LiveFixture):
         with self.assertRaises(LiveRefusal) as caught:
             require_evidence(wallet("90"), manifest)
         self.assertEqual(caught.exception.code, "LIVE_EVIDENCE_BALANCE")
+
+
+class EvidenceReadAheadTests(unittest.TestCase):
+    """control.Evidence: the listing's replay evidence, read in the background, display only."""
+
+    def setUp(self):
+        self.root = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        self.config = install(self, self.root).config
+
+    def test_listing_reports_checking_then_the_answer_and_rereads_only_an_unknown_one(self):
+        self.assertNotIn("evidence", control.listing(self.config)["sources"][0])  # no reader: as an older control
+        self.assertEqual(control.listing(self.config)["symbols"], ["BTCUSDT"])
+        evidence = control.Evidence()
+        self.assertEqual(control.listing(self.config, evidence=evidence)["sources"][0]["evidence"],
+                         {"state": "checking", "replays": [], "tolerance": str(EVIDENCE_TOLERANCE)})
+        with patch.object(control, "_profile"), \
+                patch.object(runs, "replay_evidence", side_effect=RuntimeError("image unreadable")) as read:
+            evidence.check(self.config)
+            evidence.check(self.config)  # an unknown answer waits before it is read again
+        self.assertEqual(read.call_count, 1)
+        self.assertEqual(evidence.view("example")["state"], "unknown")
+        found = [{"trial_id": 7, "starting_balance_usdt": "1000", "image_ref": "ignored"}]
+        with patch.object(control, "_profile"), patch.object(control.Evidence, "RETRY_NS", 0), \
+                patch.object(runs, "replay_evidence", return_value=found) as read:
+            evidence.check(self.config)
+            evidence.check(self.config)  # found stays: the research commit and image are fixed
+        self.assertEqual(read.call_count, 1)
+        self.assertEqual(evidence.view("example"), {"state": "found", "tolerance": str(EVIDENCE_TOLERANCE),
+                                                    "replays": [{"trial_id": 7, "starting_balance_usdt": "1000"}]})
 
 
 if __name__ == "__main__":

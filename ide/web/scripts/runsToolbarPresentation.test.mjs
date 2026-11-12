@@ -28,7 +28,7 @@ const fixtures = {
   "components/TextButton": { TextButton: button },
   "widgets/runs/RunMenuList": { RunMenuList: empty },
   "state/liveWorkspace": { openLiveCredentials: () => opened.push("credentials"), openLiveRequests: () => opened.push("requests"),
-    openLiveWizard: (id) => opened.push({ wizard: id }) },
+    openLiveReview: (id) => opened.push({ review: id }) },
   "state/liveTrading": { useLiveTrading: () => ({ view: { runs: liveRuns } }) },
   "components/RunTile": {
     DeleteButton: action("Delete paper"), RunButton: action("Stop paper"), StartButton: action("Run paper"),
@@ -144,6 +144,6 @@ test("Live actions keep the exact selected run target and never dispatch a tradi
     for (const child of [element.props?.children].flat()) click(child);
   };
   click(useRunActions());
-  assert.deepEqual(opened, [{ wizard: "fixture-live-run" }, "credentials", "requests"]);
+  assert.deepEqual(opened, [{ review: "fixture-live-run" }, "credentials", "requests"]);
   assert.doesNotMatch(render("live", { live: false }), /Review run/);
 });

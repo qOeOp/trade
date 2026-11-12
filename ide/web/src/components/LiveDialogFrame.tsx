@@ -3,9 +3,9 @@ import { Dialog } from "radix-ui";
 import { FormButton } from "./chat/Field";
 
 /** One scroll body; the same dialog becomes a full-screen form on a phone. */
-export function LiveDialogFrame({ open, close, title, description, children, footer, steps, narrow = false, focusKey }: {
+export function LiveDialogFrame({ open, close, title, description, children, footer, narrow = false, focusKey }: {
   open: boolean; close: () => void; title: string; description: string; children: ReactNode; footer: ReactNode;
-  steps?: ReactNode; narrow?: boolean; focusKey?: string | number;
+  narrow?: boolean; focusKey?: string | number;
 }) {
   const heading = useRef<HTMLHeadingElement>(null), body = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -24,22 +24,10 @@ export function LiveDialogFrame({ open, close, title, description, children, foo
             </div>
             <FormButton aria-label="Close dialog" onClick={close} className="min-w-0">Close</FormButton>
           </div>
-          {steps}
         </header>
         <div ref={body} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">{children}</div>
         <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</footer>
       </Dialog.Content>
     </Dialog.Portal>
   </Dialog.Root>;
-}
-
-const STEPS = ["Strategy", "Account & limits", "Review"];
-export function LiveLaunchSteps({ step }: { step: number }) {
-  return <ol aria-label="New live run steps" className="flex items-center gap-3 text-small">
-    {STEPS.map((name, index) => <li key={name} aria-current={index === step ? "step" : undefined}
-      className={`${index === step ? "flex text-fg" : "hidden text-fg-faint sm:flex"} min-w-0 items-center gap-2`}>
-      <span className={`grid size-5 shrink-0 place-items-center rounded-full border ${index === step ? "border-primary bg-primary text-primary-fg" : "border-line"}`}>{index + 1}</span>
-      <span><span className="sm:hidden">Step {index + 1} of 3 · </span>{name}</span>
-    </li>)}
-  </ol>;
 }

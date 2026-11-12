@@ -10,7 +10,7 @@ import type { LiveHomeDto, LiveRequest, LiveRunDto } from "../lib/liveTradingDto
 
 export const liveTrading = atom<{ view: LiveTradingView; actions: LiveTradingActions }>({ view: LIVE_UNAVAILABLE, actions: {} });
 export const useLiveTrading = () => useAtom(liveTrading);
-let home: LiveHomeDto | null = null, readError: string | null = null, commandNotice: string | null = null;
+let home: LiveHomeDto | null = null, readError: string | null = null, readCode: string | null = null, commandNotice: string | null = null;
 let reading: Promise<void> | null = null, started = false;
 const reviews = new Map<string, LiveRunDto>(), requests = new Map<string, LiveRequest>(), inspecting = new Map<string, Promise<void>>();
 const safeError = (error: unknown) => error instanceof LiveApiError ? error : new LiveApiError("LIVE_UNAVAILABLE", "Live observations are unavailable. Previously received facts may be stale.");
@@ -28,9 +28,8 @@ const client = createLiveCommands({
   }, onError: recordError, onNotice: (text) => { commandNotice = text; publish(); }, refresh: () => readLiveHome(),
 });
 
-const perRun = async (action: "preflight" | "start" | "stop" | "reconcile" | "maintain", id: string, extra = {}) => {
-  await client.invoke(action, `/runs/${encodeURIComponent(id)}/${action}`, { run_id: id }, () => extra);
-};
+const perRun = (action: "preflight" | "start" | "stop" | "reconcile" | "maintain", id: string, extra = {}) =>
+  client.invoke(action, `/runs/${encodeURIComponent(id)}/${action}`, { run_id: id }, () => extra);
 const writes: LiveTradingActions = {
   saveCredentials: async (input) => { await client.invoke("credential_save", "/credentials", {}, () => input); },
   removeCredential: async (ref) => { await client.invoke("credential_remove", `/credentials/${encodeURIComponent(ref)}/remove`, { credential_ref: ref }, () => ({})); },
@@ -44,7 +43,7 @@ const writes: LiveTradingActions = {
     }));
   },
   preflight: (id) => perRun("preflight", id), start: (id, source) => perRun("start", id, { confirm_real_orders: source }),
-  stop: (id) => perRun("stop", id), reconcile: (id) => perRun("reconcile", id), maintain: (id) => perRun("maintain", id),
+  stop: async (id) => { await perRun("stop", id); }, reconcile: async (id) => { await perRun("reconcile", id); }, maintain: async (id) => { await perRun("maintain", id); },
   resolveRequest: (id) => client.resolve(id),
 };
 // Notification settings are not account operations: no request ID, so a plain call and a fresh read.
@@ -60,7 +59,7 @@ const notifyWrites: LiveTradingActions = {
 
 function publish(): void {
   const view = home ? liveHomePresentation(home, reviews) : { ...LIVE_UNAVAILABLE };
-  if (readError) view.availability = "unavailable";
+  if (readError) { view.availability = "unavailable"; view.reason = readCode; }
   view.notice = readError ?? commandNotice ?? view.notice;
   view.requests = [...requests.values()];
   view.request = view.requests.at(-1) ?? null;
@@ -75,9 +74,10 @@ function publish(): void {
 async function readLiveHome(): Promise<void> {
   if (reading) return reading;
   reading = (async () => {
-    try { home = await liveApi<LiveHomeDto>(""); readError = null; }
+    try { home = await liveApi<LiveHomeDto>(""); readError = null; readCode = null; }
     catch (error) {
       const failed = safeError(error);
+      readCode = failed.code;
       if (failed.code === "AUTH_REQUIRED") sessionRequired.set(true);
       readError = `${failed.code} · ${failed.message}${home ? " Showing previously received facts." : ""}`;
     }
