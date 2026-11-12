@@ -156,6 +156,28 @@ class NativeAuditTests(unittest.TestCase):
             self.assertEqual(value["native_economics"]["fill_commissions_usdt"], "2")
             self.assertIn("native report identity", value["scope"])
 
+    def test_a_live_clock_counts_an_account_update_as_the_fill_it_follows_within_a_second(self):
+        """Paper's Sandbox stamps the account update a fill causes after the fill (user 2026-11-12, option A): on a
+        live clock it counts as that fill's when it equals the fill's effect and lags at most a second; a replay's
+        clock keeps the exact-time rule."""
+        def lagged(lag_ns, clock="live", **position):
+            values = reports()
+            values["positions"][0].update(position)
+            for row in values["account"]:
+                if row["ts_event"] in (ENTRY, EXIT):
+                    row["ts_event"] = str(pd.Timestamp(row["ts_event"]) + pd.Timedelta(lag_ns, "ns"))
+            if clock:
+                values["summary"]["clock"] = clock
+            return self.check(values)
+        result = lagged(700_000)
+        self.assertTrue(result["passed"], result["findings"])
+        self.assertEqual((result["native_economics"]["fill_account_updates"],
+                          result["native_economics"]["fill_account_lag_ns_max"]), (2, 700_000))
+        self.assertEqual(codes(lagged(700_000, clock=None)), {"FUNDING_BALANCE_MISMATCH"})
+        self.assertEqual(codes(lagged(1_000_000_001)), {"FUNDING_BALANCE_MISMATCH"})
+        self.assertIn("FUNDING_BALANCE_MISMATCH", codes(lagged(700_000, realized_pnl="8 USDT")),
+                      "the closing fill's change must match the position's PnL")
+
     def test_audit_refuses_warmup_submissions_despite_passing_strategy_self_check(self):
         values = reports()
         values["summary"].update(period_start_utc=ENTRY,

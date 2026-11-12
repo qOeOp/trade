@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import bisect
 from collections import Counter, defaultdict
 import gzip
 import hashlib
@@ -649,6 +650,51 @@ def lifecycle_findings(lifecycle, fills: list[dict], positions: list[dict], even
 
 
 DATA_END_TOLERANCE_NS = 60 * 60 * 10**9  # engine.run.MARK_CARRY_MAX_MINUTES: a shorter trailing hole is a hole
+# A live clock's account update may follow its fill by at most this (user 2026-11-12, Paper seal audit option A).
+FILL_ACCOUNT_LAG_MAX_NS = 10**9
+
+
+def live_fill_changes(fills: list[dict], positions: list[dict], balance_changes: dict[int, Decimal],
+                      ) -> tuple[set[int], list[int], list[str]]:
+    """engine.live_fill_changes: on a live clock (Paper's Sandbox, summary clock "live") the account update a fill
+    causes is stamped after the fill, not at its nanosecond as in a replay. A balance change counts as the fill it
+    follows when no other fill or balance change lies between them, it lags the fill by at most
+    FILL_ACCOUNT_LAG_MAX_NS and it equals the fill's effect: minus the commission for a fill that opens or adds;
+    a position whose fills include a reducing one has its fills' changes and its funding together equal its
+    realized PnL (which holds both). Returns (the attributed change times, their lags in ns, findings)."""
+    reducing, owner = set(), {}
+    for position in positions:
+        held = Decimal(0)
+        for event in _list(position["events"]):
+            quantity = _quantity(event["last_qty"]) * (1 if event["order_side"] == "BUY" else -1)
+            if held and (held > 0) != (quantity > 0):
+                reducing.add(event["event_id"])
+            held += quantity
+            owner[event["event_id"]] = position["position_id"]
+    stamped = sorted((pd.Timestamp(fill["ts_event"]).value, fill["event_id"], fill) for fill in fills)
+    changes = sorted(time for time, change in balance_changes.items() if change)  # a margin-only update moves no cash
+    attributed: set[int] = set()
+    lags: list[int] = []
+    summed: defaultdict[str, Decimal] = defaultdict(Decimal)
+    for index, (fill_ns, event_id, fill) in enumerate(stamped):
+        following = stamped[index + 1][0] if index + 1 < len(stamped) else None
+        at = bisect.bisect_left(changes, fill_ns)
+        change = changes[at] if at < len(changes) else None
+        if (change is None or change in attributed or (following is not None and following <= change)
+                or change - fill_ns > FILL_ACCOUNT_LAG_MAX_NS):
+            continue
+        if event_id not in reducing and balance_changes[change] != -_money(fill["commission"]):
+            continue
+        attributed.add(change)
+        lags.append(change - fill_ns)
+        summed[owner.get(event_id, "")] += balance_changes[change]
+    found = [finding("FUNDING_BALANCE_MISMATCH", f"the account changes after the fills of position "
+                                                 f"{position['position_id']} differ from its realized PnL")
+             for position in positions
+             if any(event["event_id"] in reducing for event in _list(position["events"]))
+             and summed[position["position_id"]] + sum((_money(item["pnl_change"]) for item in _list(position["adjustments"])),
+                                                       Decimal(0)) != _money(position["realized_pnl"])]
+    return attributed, lags, found
 
 
 def commission_findings(fills: list[dict], coverage: dict) -> list[str]:
@@ -903,8 +949,13 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:
             for left, right in pairwise(accounts):
                 balance_changes[pd.Timestamp(right["ts_event"]).value] += (
                     _decimal(right["total"]) - _decimal(left["total"]))
+            attributed: set[int] = set()
+            if summary.get("clock") == "live":
+                attributed, lags, found = live_fill_changes(fills, positions, balance_changes)
+                findings += found
+                economics_live = {"fill_account_updates": len(lags), "fill_account_lag_ns_max": max(lags, default=None)}
             for timestamp in set(balance_changes) | set(funding_by_time):
-                if timestamp not in fill_times and (
+                if timestamp not in fill_times and timestamp not in attributed and (
                     timestamp not in balance_changes
                     or abs(balance_changes[timestamp] - funding_by_time[timestamp]) > Decimal("0.00000001")
                 ):
@@ -925,6 +976,8 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:
                          "funding_adjustments": len(seen_adjustments),
                          "reported_funding_usdt": str(funding),
                          "funding_timestamps_with_concurrent_fills": len(set(funding_by_time) & fill_times)}
+            if summary.get("clock") == "live":
+                economics.update(economics_live)
     except (KeyError, TypeError, ValueError, ArithmeticError, OSError, EOFError) as error:
         findings.append(finding("REPORT_PAYLOAD_INVALID", f"{type(error).__name__}: {error}"))
     return generic_result(run_dir, orders, fills, positions, findings, economics, protection_info)

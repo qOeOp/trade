@@ -255,7 +255,7 @@ def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> t
     is the declaration's (inputs/universe.json, from the input start to that month's end) and each later month the
     journal says the runner read with the contract a member (engine.paper.Membership); each contract's data ends at
     the last bar the journal took (stamped at its close, as the export's last_bar_ns); the fees are the declared
-    ones. The counts the audit holds the reports to come from the journal and the runner's summary, not from the
+    ones; the clock is live (Sandbox stamps a fill's account update after the fill). The counts the audit holds the reports to come from the journal and the runner's summary, not from the
     reports (both from the one native event stream)."""
     from engine.config import utc_text
     from engine.load import COVERAGE_FORMAT, strategy_id
@@ -279,7 +279,7 @@ def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> t
     window = {"start": utc_text(start), "trade_start": utc_text(start), "end": utc_text(end)}
     audited = {
         "input_start_utc": window["start"], "period_start_utc": window["trade_start"], "period_end_utc": window["end"],
-        "market_day": row["market_day"], "per_coin": [],
+        "market_day": row["market_day"], "per_coin": [], "clock": "live",
         "trade_start_by_strategy": {item["strategy_id"]: item["input_start_ns"] for item in instances},
         "integrity_passed": not summary.get("orders_denied_or_rejected")
                             and not any(item.get("integrity_findings") for item in instances),
@@ -307,7 +307,8 @@ def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> t
 
 def audit(row: dict, output: Path, lines: list[dict], summary: dict | None) -> dict | None:
     """engine.audit over the native reports the runner left in ``<output>/reports/`` (engine.paper.write_native_reports),
-    the replay's audit, with its inputs from audit_inputs: {passed, findings, scope}; passed is None
+    the replay's audit, with its inputs from audit_inputs (on a live clock: engine.live_fill_changes):
+    {passed, findings, scope, fill_account_lag_ns_max, the longest a fill's account update followed it}; passed is None
     when a runner that wrote its summary left no reports to audit. None without a summary (a runner killed or never
     started, which its other reasons say)."""
     from engine import audit as native
@@ -324,7 +325,8 @@ def audit(row: dict, output: Path, lines: list[dict], summary: dict | None) -> d
         (run / "summary.json").write_text(json.dumps(audited), encoding="utf-8")
         (Path(name) / native.COVERAGE).write_text(json.dumps(coverage), encoding="utf-8")
         result = native.audit(run)
-    return {key: result[key] for key in ("passed", "findings", "scope")}
+    return {**{key: result[key] for key in ("passed", "findings", "scope")},
+            "fill_account_lag_ns_max": (result.get("native_economics") or {}).get("fill_account_lag_ns_max")}
 
 
 def killed(lines: list[dict], summary: dict | None, exit_code: int | None, oom_killed: bool) -> bool:
