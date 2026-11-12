@@ -286,7 +286,7 @@ def resolve_prepare_path_locked(root: Path, run_id: str, credential_ref: str, re
         if (not required <= inputs.keys() or not isinstance(inputs["config"], dict)
                 or not config_fields <= inputs["config"].keys()
                 or any(inputs[key] is None for key in required)
-                or any(inputs["config"][key] is None for key in config_fields)):
+                or any(inputs["config"][key] is None for key in config_fields - {"duration_seconds"})):
             raise ValueError
         if os.path.lexists(directory):
             mode = directory.lstat()

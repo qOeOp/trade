@@ -237,6 +237,20 @@ def _operation(config, action, command, body, root, request_id):
     return runs.launch_locked(root, run_id, path, mode, request_id=request_id)
 
 
+def restart_interrupted_locked(root: Path, run_id: str, now_ns: int) -> dict | None:
+    """Start an interrupted run again as itself (design §3.4), with the credential it was started with; past
+    runs.RESTARTS_PER_HOUR the control records restart_limited once and leaves the run to the user."""
+    directory = state.directory(root, run_id)
+    if not runs.restarts_due(directory, now_ns):
+        rows = state.events(directory / "lifecycle.jsonl")
+        launched = max((index for index, row in enumerate(rows) if row["event"] == "launch_requested"), default=-1)
+        if not any(row["event"] == "restart_limited" for row in rows[launched + 1:]):
+            state.append(directory / "lifecycle.jsonl", "restart_limited", run_id)
+        return None
+    path = credentials.run_path_locked(root, run_id, "run")
+    return runs.launch_locked(root, run_id, path, "run")
+
+
 def resolve(config: configuration.Configuration, request_id: str, *, binding: release.Binding | None = None) -> dict:
     """Explicit local recovery of the original intent; never repeat a venue/runner command."""
     scope = authority.retained(config, binding)

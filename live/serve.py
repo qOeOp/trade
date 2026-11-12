@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 from urllib.parse import urlsplit
 
 from engine.live_errors import LiveRefusal
@@ -224,7 +225,8 @@ def listener(config: configuration.Configuration, config_file: Path, *, binding:
 
 
 def maintain_existing(config: configuration.Configuration, *, binding: release.Binding | None = None) -> None:
-    """Only inspect/finish existing host runs; no credentials, venue calls, or relaunches."""
+    """Inspect and finish existing host runs, and start an interrupted one again (control.restart_interrupted_locked:
+    the runner reads the venue; the control reads no credential, only passes the run's own credential file)."""
     directory = config.root / "runs"
     if not directory.is_dir() or directory.is_symlink():
         return
@@ -235,7 +237,9 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
             scope = authority.retained(config, binding)
             with scope.mutation(maintenance=True) as root:
                 observed = runs._status_view(root, path.name, maintain=False)
-                if observed["state"] != "running":
+                if observed["state"] == "interrupted":
+                    control.restart_interrupted_locked(root, path.name, time.time_ns())
+                elif observed["state"] != "running":
                     runs._status_view(root, path.name, maintain=True)
         except Exception:
             pass  # Unknown remains retained; the page can request explicit maintenance.

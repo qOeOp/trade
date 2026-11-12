@@ -32,12 +32,13 @@ ORDER_EVENTS = frozenset({"OrderInitialized", "OrderDenied", "OrderEmulated", "O
 POSITION_EVENTS = frozenset({"PositionOpened", "PositionChanged", "PositionClosed"})
 TERMINALS = frozenset({"clean_stop", "reconciled_flat", "venue_flat", "reconcile_stopped", "unresolved"})
 OBSERVATION_PREFIXES = {"preflight": ("preflight",), "started": ("connected-account",),
-                        "reconciled": ("connected-account",), "entry_verified": ("entry-account",),
+                        "reconciled": ("connected-account",), "held": ("connected-account",), "entry_verified": ("entry-account",),
                         "clean_stop": ("final-account",), "reconciled_flat": ("final-account",),
                         "venue_flat": ("preflight", "final-account")}
 OBSERVATION_EVENTS = frozenset(OBSERVATION_PREFIXES)
 HOST_STATES = frozenset({"prepared", "running", "clean_stopped", "not_armed", "unresolved", "reconciled_flat",
-                         "venue_flat", "preflight_complete", "preflight_failed"})
+                         "venue_flat", "preflight_complete", "preflight_failed", "interrupted"})
+RESTART_EVENTS = frozenset({"interrupted", "resuming", "held", "venue_flat_while_held", "held_flat"})
 
 
 def _text(value, pattern=IDENTIFIER):
@@ -246,6 +247,18 @@ def _gate(rows):
     return result[-MAX_ROWS:]
 
 
+def _restarts(native, lifecycle):
+    """Interruptions and starts again of the same run (engine.live), and the control's restart_limited."""
+    if native is None or lifecycle is None:
+        return None
+    rows = [{"event": row["event"], "observed_ns": str(row["observed_ns"]),
+             "held": row.get("held") if isinstance(row.get("held"), bool) else None}
+            for row in native if row.get("event") in RESTART_EVENTS and type(row.get("observed_ns")) is int]
+    rows += [{"event": "restart_limited", "observed_ns": str(row["observed_ns"]), "held": None}
+             for row in lifecycle if row.get("event") == "restart_limited" and type(row.get("observed_ns")) is int]
+    return sorted(rows, key=lambda row: int(row["observed_ns"]))[-MAX_ROWS:]
+
+
 def _account(sample: _Sample | None, reference, native_rows, latest_launch_ns):
     if sample is None or sample.status != "complete" or not isinstance(sample.data, dict):
         return None
@@ -377,6 +390,7 @@ def run_view(root: Path, run_id: str) -> dict:
                   "positions": _native_rows(native, samples["native"], "position"),
                   "minute_results": _minute_results(native),
                   "gate": _gate(native),
+                  "restarts": _restarts(native, lifecycle),
                   "event_limit": MAX_ROWS}
         evidence = [sample.evidence() for sample in (*samples.values(), stop)]
         if observation is not None:

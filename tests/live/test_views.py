@@ -89,6 +89,16 @@ class LiveViewTests(LiveFixture):
         self.assertEqual(result["gate"][0]["socket"], "BINANCE wss://fstream.binance.com/ws")
         self.assertNotIn("SECRET", json.dumps(result))
 
+    def test_restarts_show_interruptions_starts_again_and_the_control_limit(self):
+        self.native("interrupted")
+        self.native("resuming", held=True)
+        self.native("venue_flat_while_held", observation="held-account-1.json")
+        state.append(self.directory / "lifecycle.jsonl", "restart_limited", self.run_id)
+        result = views.run_view(self.root, self.run_id)
+        self.assertEqual([(row["event"], row["held"]) for row in result["restarts"]],
+                         [("interrupted", None), ("resuming", True), ("venue_flat_while_held", None),
+                          ("restart_limited", None)])
+
     def test_missing_native_and_account_are_unknown_not_zero_or_flat(self):
         (self.directory / "out" / "events.jsonl").unlink()
         result = views.run_view(self.root, self.run_id)

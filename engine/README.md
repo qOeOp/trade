@@ -638,6 +638,20 @@ an older mark never prices a position. The limit
 does not bound a gap, a lost connection or a rejected close; a trigger makes one close attempt. Do not transfer or
 trade by hand during a run. Set the limit beyond the stop's loss plus slippage, or the close can collide with the stop.
 
+A run has an optional duration (none: it runs until stopped), counted from its first arming. SIGTERM or SIGINT (a
+host restart, a release, `docker stop`) interrupts it instead of stopping it (design
+`docs/plans/live-continuous-operation-design-20261110.zh.md` §3.4): working entries get their cancels, positions and
+their exchange stops stay, and the runner records `interrupted` and exits 3. An armed run whose latest start ended
+with no ending event (`clean_stop`, `reconciled_flat`, `venue_flat`, `reconcile_stopped`, `unresolved`) and no
+`STOP` file, so also a killed runner, is started again as itself by the paired control, with the credential it was
+started with, from the same native cache; at most three run launches an hour, then the control records
+`restart_limited` once and the user decides. Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
+start again checks the clock and account modes: on a flat account it builds the source, warms up and trades (event
+`resuming`); with anything open it holds (`resuming` with `held`): no source, no entries, the account read every 30
+seconds, until the account is flat (its stops, or a close at Binance), when `venue_flat_while_held` ends that start
+with exit 3 and the next one trades. A source cannot yet rebuild its state around an open position, so a held run
+waits for that. STOP during a held start ends it as `reconcile` does. Each step is a Telegram notice.
+
 STOP disables opening decisions, cancels owned opening orders, repeating the cancel every 5 seconds while one
 stays open (after a request with an unknown outcome, as a native cancel-all scoped to the order's side, because
 native `cancel_order` sends nothing for a PENDING_CANCEL order; withheld while that side holds a reduce-only order
@@ -690,7 +704,8 @@ write journals `evidence_unavailable` once per part and the run goes on.
 ### Unresolved Live runs
 
 `status` says `unresolved` when a run ended without proof that the account is flat: a failed check, a
-rejected or failed close, a crashed runner, or a `reconcile` stopped before flat. A position may remain at Binance,
+rejected or failed close, a runner that failed, or a `reconcile` stopped before flat. A killed or interrupted
+runner is not unresolved: the control starts it again. A position may remain at Binance,
 with or without its stop, and nothing will close it. When Telegram notifications are set up on the Live page,
 the paired control sends a message within about ten seconds of seeing the run unresolved, but only from its
 retained records and with no delivery guarantee: someone must still watch `status` for the whole of a real run and

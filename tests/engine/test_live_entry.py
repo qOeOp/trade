@@ -436,6 +436,33 @@ class NativeEntryTests(unittest.TestCase):
         self.assertEqual(self.read_events("stopping")[0]["reason"], "max_loss")
         self.assertEqual(self.engine.cache.position(position.id).side, PositionSide.LONG)
 
+    def test_an_interruption_withdraws_entries_and_keeps_the_position_and_its_stop(self):
+        position = self.owned_position()
+        stop = self.stop()
+        self.reader.release.clear()
+        self.reader.started.clear()
+        entry = self.limit(price="95.00")
+        self.source.submit_order(entry)
+        self.assertTrue(self.reader.started.wait(2))
+        self.finish_read(self.session.account_observation)
+        commands.dispatch_entry(self.session)
+        self.advance("99.00", "100.00")
+        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.ACCEPTED)
+        self.session.node = Mock()
+        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
+        self.session.interrupt_requested.set()
+        live_lifecycle.Observer.observe(observer)
+        self.assertTrue(self.session.interrupting)
+        self.assertEqual(self.read_events("stopping")[0]["reason"], "interrupted")
+        self.session.node.handle().stop.assert_not_called()  # until the entry is gone
+        self.advance("99.00", "100.00")
+        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.CANCELED)
+        live_lifecycle.Observer.observe(observer)
+        self.session.node.handle().stop.assert_called_once()
+        self.assertEqual(self.engine.cache.order(stop.client_order_id).status, OrderStatus.ACCEPTED)
+        self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [position])
+        self.assertFalse(self.session.failed)
+
     def test_accepted_stop_for_the_whole_position_keeps_the_run_going(self):
         self.owned_position()
         self.assertEqual(self.stop().status, OrderStatus.ACCEPTED)

@@ -270,6 +270,7 @@ def _messages(run: dict) -> list[tuple[str, str]]:
         result.append((f"{run_id}:running:{mode}",
                        f"{name} started." if mode == "run" else f"{name} is reconciling with Binance."))
     result.extend(_gate_messages(run, name))
+    result.extend(_restart_messages(run, name))
     for row in _fills(run):
         result.append((_fill_key(run, row), f"{name} fill: {row.get('order_side') or 'side unknown'} "
                        f"{row.get('last_qty') or '?'} {row.get('instrument_id') or ''} at {row.get('last_px') or '?'}."))
@@ -318,6 +319,30 @@ def _gate_messages(run: dict, name: str) -> list[tuple[str, str]]:
         elif event == "entries_opened" and noticed:
             noticed = False
             result.append((key, f"{name}: Binance and the run agree again; entries are open."))
+    return result
+
+
+def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
+    """An interruption, each start again of the same run (trading, or holding around an open position), the account
+    flat while held, and the control's limit on automatic starts (engine.live, design §3.4)."""
+    texts = {"interrupted": "was interrupted without closing: open positions keep their exchange stops, and the "
+                            "control starts the run again.",
+             "venue_flat_while_held": "is flat at Binance again; the next start trades.",
+             "restart_limited": "was interrupted more than 3 times within an hour and is no longer started again "
+                                "automatically: open positions keep their exchange stops. Look at the run, then start "
+                                "or stop it."}
+    result = []
+    for row in run.get("restarts") or []:
+        key, event = f"{run['run_id']}:restart:{row['event']}:{row['observed_ns']}", row["event"]
+        text: str | None
+        if event == "resuming":
+            text = ("started again around an open position and only observes: entries are closed and the exchange "
+                    "stops stay. It trades again once the account is flat (its stops, or a close at Binance)."
+                    if row.get("held") else "started again on a flat account; it warms up and trades.")
+        else:
+            text = texts.get(event)
+        if text:
+            result.append((key, f"{name} {text}"))
     return result
 
 

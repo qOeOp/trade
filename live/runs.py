@@ -33,6 +33,11 @@ ENDED = {*FLAT.values(), "not_armed", "preflight_complete", "preflight_failed"}
 UNRESOLVED_NOTE = ("Exposure may remain at Binance and nothing will close it: follow 'Unresolved Live runs' in "
                    "engine/README.md now (live stop, close and cancel at Binance, then live reconcile).")
 REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
+# The runner's events that end a run (engine.live.ENDED_EVENTS). An armed run whose latest start ended in none of them,
+# with no stop asked for, was interrupted: it keeps its slot, positions and exchange stops, and starts again as itself.
+RUN_ENDED = frozenset({"clean_stop", "reconciled_flat", "venue_flat", "reconcile_stopped", "unresolved"})
+RESTARTS_PER_HOUR = 3  # automatic starts of an interrupted run; beyond them the user is told and decides (design §3.4)
+HOUR_NS = 3600 * 10**9
 
 
 def _runner(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict) -> dict | None:
@@ -75,6 +80,24 @@ def _flat(directory: Path, run_id: str) -> str | None:
     return next((FLAT[row["event"]] for row in state.events(directory / "out" / "events.jsonl")
                  if row.get("event") in FLAT and row.get("run_id") == run_id
                  and row.get("observed_ns", row.get("ts_ns", 0)) >= launch["observed_ns"]), None)
+
+
+def _interrupted(directory: Path, launch: dict | None) -> bool:
+    """The latest start was a run that armed and ended in no ending event, and no stop was asked for."""
+    if launch is None or launch["mode"] != "run" or not os.path.lexists(directory / "out" / "armed.json") \
+            or os.path.lexists(directory / "out" / "STOP"):
+        return False
+    rows = [row for row in state.events(directory / "out" / "events.jsonl")
+            if row.get("observed_ns", 0) >= launch["observed_ns"]]
+    return not any(row.get("event") in RUN_ENDED for row in rows)
+
+
+def restarts_due(directory: Path, now_ns: int) -> bool:
+    """Whether the control may start an interrupted run again: at most RESTARTS_PER_HOUR restarts (the first start
+    and its restarts are all run launches) in the last hour."""
+    recent = [row for row in _host_events(directory) if row["event"] == "launch_requested" and row.get("mode") == "run"
+              and now_ns - row.get("observed_ns", 0) < HOUR_NS]
+    return len(recent) <= RESTARTS_PER_HOUR
 
 
 def _active(root: Path) -> str | None:
@@ -338,7 +361,7 @@ def replay_evidence(research: db.LedgerProfile, research_at: str, source_sha256:
 
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
-                    budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str, leverage: str,
+                    budget_usdt: str, max_loss_usdt: str, duration_seconds: int | None, memory: str, leverage: str,
                     market_root: Path, source_sha256: str | None = None, request_id: str | None = None,
                     credential_ref: str | None = None, recover_partial: bool = False) -> dict:
     """Capture immutable source inputs using the reader, before any account effect. The source is the candidate's
@@ -352,8 +375,9 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     if (not symbols or len(set(symbols)) != len(symbols)
             or any(not re.fullmatch(r"[A-Z0-9]+USDT", symbol) for symbol in symbols)):
         raise state.fail("LIVE_SYMBOLS", "Live requires distinct explicit USD-M symbols")
-    if isinstance(duration_seconds, bool) or not isinstance(duration_seconds, int) or duration_seconds < 1:
-        raise state.fail("LIVE_CONFIG", "duration-seconds must be a positive integer")
+    if duration_seconds is not None and (isinstance(duration_seconds, bool) or not isinstance(duration_seconds, int)
+                                         or duration_seconds < 1):
+        raise state.fail("LIVE_CONFIG", "duration-seconds must be a positive integer, or absent to run until stopped")
     budget, max_loss = _positive(budget_usdt, "budget-usdt"), _positive(max_loss_usdt, "max-loss-usdt")
     if Decimal(max_loss) > Decimal(budget):
         raise state.fail("LIVE_CONFIG", "max-loss-usdt cannot exceed budget-usdt")
@@ -568,9 +592,10 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, requ
             if latest["mode"] == mode:
                 return {"run_id": run_id, "mode": mode, "state": "running", "write_status": "replayed", "warnings": []}
             raise state.fail("LIVE_RUNNING", "the previous Live process must end before another mode starts")
-        if mode == "run" and any(row.get("mode") == "run" for row in _host_events(directory)):
+        if mode == "run" and any(row.get("mode") == "run" for row in _host_events(directory)) \
+                and not _interrupted(directory, latest):
             raise state.fail("LIVE_RESTART_REQUIRES_RECONCILIATION",
-                             "an attempted Live run cannot cold restart; after not_armed, prepare a new run-id")
+                             "only an interrupted Live run starts again; after not_armed, prepare a new run-id")
     if mode == "reconcile" and not os.path.lexists(directory / "out" / "armed.json"):
         # Checked here too: a released run must not take the slot back only to be refused by its runner.
         raise state.fail("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
@@ -611,6 +636,7 @@ def _outcome(root: Path, run_id: str, directory: Path, manifest: dict, launch: d
     running = bool(actual and actual["State"].get("Running"))
     result = ("running" if running else flat if flat
               else "not_armed" if launch and _released_unarmed(root, run_id)
+              else "interrupted" if actual and _interrupted(directory, launch)
               else "unresolved" if launch else "prepared")
     if launch and launch["mode"] == "preflight" and actual and not running:
         result = "preflight_complete" if actual["State"].get("ExitCode") == 0 else "preflight_failed"
