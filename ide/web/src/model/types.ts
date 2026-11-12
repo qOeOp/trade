@@ -116,7 +116,7 @@ export type View = {
   source: "ledger" | "session";
   scope?: { ledger_commit?: string | null; start?: string | null; end?: string | null; build?: string | null; drawn_commit?: string | null; market_unread?: string | null } | null;
   line: { bundle: string; start?: string | null; window?: string[] | null; market_day?: string | null;
-          /** The gates the next registration of the line would meet, as `research state` gives them. */
+          /** The gates the next registration of the line would meet: its line-record gates only; `research state` gives the runtime and market-day gates. */
           gates?: { code: string; message: string }[] };
   targets: Targets | null;
   counts: { candidates: number; research_runs: number };

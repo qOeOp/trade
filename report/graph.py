@@ -405,7 +405,9 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
             f"SELECT source_sha256, source FROM candidate WHERE source_sha256 IN ({', '.join(['%s'] * len(wanted))})",
             tuple(wanted))} if wanted else {}
         trial_counts = status.trial_counts(conn, line, status.counted_trials(conn)["counted"]) if counts else None
-        try:  # the gates the next registration of the line would meet, as `research state` reads them
+        # the line-record gates the next registration would meet (register.require_line_records) only;
+        # `research state` also gives RUNTIME_UNSUPPORTED and MARKET_DAY_UNRESOLVED
+        try:
             register.require_line_records(conn, record["line_id"])
             gates: list[dict] = []
         except Refusal as exc:
