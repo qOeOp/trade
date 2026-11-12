@@ -22,6 +22,10 @@ from shared.refusals import refuse
 
 
 VARIANTS_LINE = re.compile(r"Evaluated variants: (0|[1-9][0-9]*)")
+# A priority body opening with one of these records a decision made for the user (research-round feedback.md,
+# research-start): readers match them exactly, so `judgment add` refuses near misses.
+DECISION_OPENINGS = ("Change of approach.", "Line decision.")
+CHOOSERS = ("chosen by the Agent", "chosen by the user")
 CANDIDATE_ROLES = ("recommended", "parent", "control")  # with `about`, the judgment_subject.role ENUM
 TARGETS = ("candidate", "trial_id", "registration_id")
 
@@ -71,6 +75,21 @@ def declared_variants(body: str) -> int | None:
     return int(found.group(1)) if found else None
 
 
+def check_decision_opening(kind: str, body: str) -> None:
+    """Refuse a first line that reads as a decision opening but is not one exactly on a priority judgment, and
+    a change of approach that does not say who chose it."""
+    first = body.split("\n", 1)[0]
+    near = " ".join(first.split()).casefold()
+    if not any(near.startswith(opening.rstrip(".").casefold()) for opening in DECISION_OPENINGS):
+        return
+    if kind != "priority" or not first.startswith(DECISION_OPENINGS):
+        raise refuse("DECISION_OPENING_INVALID", f"{first[:60]!r} is no exact decision opening on a priority judgment",
+                     expected=" or ".join(f"`{opening}`" for opening in DECISION_OPENINGS) + " on kind priority")
+    if first.startswith(DECISION_OPENINGS[0]) and not any(chooser in body for chooser in CHOOSERS):
+        raise refuse("APPROACH_CHOOSER_MISSING", "a change of approach does not say who chose it",
+                     expected=" or ".join(f"`{chooser}`" for chooser in CHOOSERS))
+
+
 def _is_ancestor(conn: db.LedgerConnection, ancestor: str, descendant: str) -> bool:
     (base,), = conn.rows("SELECT DOLT_MERGE_BASE(%s, %s)", (ancestor, descendant))
     return base == ancestor
@@ -88,6 +107,7 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line: str, based_on_commi
     if kind == "search_exposure" and declared_variants(body) is None:
         raise refuse("SEARCH_EXPOSURE_VARIANTS_MISSING", "the body's first line is not `Evaluated variants: K`",
                      expected="Evaluated variants: K")
+    check_decision_opening(kind, body)
     normalized = _subjects(subjects)
     with db.connect(profile, "writer") as conn:
         try:
