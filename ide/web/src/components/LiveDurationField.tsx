@@ -3,13 +3,14 @@ import { restText, SPAN_UNITS } from "../model/liveLaunch";
 
 type Parts = { fields: string[]; carry: number };
 const LAST = SPAN_UNITS.length - 1;
-/** Whole seconds as years, months, days and hours, largest first, and the seconds below an hour. */
+/** Whole seconds as years, months, days and hours, largest first, each two digits ("00" for none), and the seconds
+ *  below an hour. */
 const split = (seconds: string): Parts => {
   let rest = /^\d+$/.test(seconds) ? Number(seconds) : 0;
   const fields = SPAN_UNITS.map((unit) => {
     const n = Math.floor(rest / unit.seconds);
     rest -= n * unit.seconds;
-    return String(n);
+    return String(n).padStart(2, "0");
   });
   return { fields, carry: rest };
 };
@@ -17,8 +18,8 @@ const total = (parts: Parts) => SPAN_UNITS.reduce((sum, unit, at) => sum + Numbe
 const FIELD = "w-[2ch] border-0 border-b border-link bg-transparent px-0 pb-px text-right tabular-nums outline-none hover:bg-hover focus:border-b-2 focus:pb-0 focus:text-fg aria-invalid:border-fail";
 
 /** A duration typed as years, months, days and hours, each its own two-digit field on a blue underline, sent as the
- *  whole seconds the server takes (a month 30 days, a year 365). A zero part is faint, so the parts in use read
- *  first. Typing moves to the next part once no further digit fits; ↑/↓ step the part by one; Backspace in an empty
+ *  whole seconds the server takes (a month 30 days, a year 365). Every part shows two digits ("00 y 00 mo 01 d 00 h");
+ *  a zero part is faint, so the parts in use read first. Typing moves to the next part once no further digit fits; ↑/↓ step the part by one; Backspace in an empty
  *  part goes back one. Leaving the field writes the value in its largest units ("45 d" becomes "1 mo 15 d"). Time
  *  below an hour in a server default shows faint after it until the first edit. */
 export function LiveDurationField({ label, value, invalid, onValue }: { label: string; value: string; invalid: boolean; onValue: (seconds: string) => void }) {
