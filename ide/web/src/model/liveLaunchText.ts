@@ -32,9 +32,19 @@ export function refusalText(code: string | undefined): string {
   }[code]) || "Live refused this step. Requests shows what it recorded.";
 }
 
-/** A whole, positive number of seconds as hours, minutes and seconds ("2 h 15 min", "1 h 30 s"), exactly, or null. */
+/** The units a duration is typed in, largest first: a month is 30 days and a year 365; `max` is the largest the part
+ *  holds before the next unit up takes it. */
+export const SPAN_UNITS = [{ label: "y", name: "years", seconds: 31_536_000, max: 99 }, { label: "mo", name: "months", seconds: 2_592_000, max: 11 },
+  { label: "d", name: "days", seconds: 86_400, max: 29 }, { label: "h", name: "hours", seconds: 3600, max: 23 }] as const;
+
+/** Seconds below an hour, as minutes and seconds ("30 min", "15 min 5 s"); empty for none. */
+export const restText = (seconds: number) => [Math.floor(seconds / 60) && `${Math.floor(seconds / 60)} min`, seconds % 60 && `${seconds % 60} s`].filter(Boolean).join(" ");
+
+/** A whole, positive number of seconds in those units, largest first, then what is left below an hour ("1 mo 2 d",
+ *  "2 h 15 min"): exactly the value sent. Null for anything else. */
 export function spanText(seconds: string): string | null {
   if (!/^[1-9][0-9]*$/.test(seconds.trim())) return null;
-  const total = Number(seconds), h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
-  return [h && `${h} h`, m && `${m} min`, s && `${s} s`].filter(Boolean).join(" ") || null;
+  let rest = Number(seconds);
+  const parts = SPAN_UNITS.map((unit) => { const n = Math.floor(rest / unit.seconds); rest -= n * unit.seconds; return n ? `${n} ${unit.label}` : ""; });
+  return [...parts, restText(rest)].filter(Boolean).join(" ");
 }

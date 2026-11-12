@@ -18,7 +18,7 @@ function RowMark({ mark, required, busy }: { mark: Mark; required: boolean; busy
 const SAID: Record<Mark, string> = { pass: "met", fail: "not met", wait: "not answered yet", shown: "" };
 
 /** One row: its label and value on a line (an editable value on a blue underline, the rest greyed), then where the value
- *  comes from, its one-click values when it has them, and, when it fails or waits, why and who can change that. */
+ *  comes from (nothing for a value typed here) and, when it fails or waits, why and who can change that. */
 function Row({ row, closed, edit, busy }: { row: LaunchRow; closed: boolean; edit?: (id: string, value: string) => void; busy: boolean }) {
   const open = row.editable && !closed && edit;
   const tone = closed ? "text-fg-faint" : row.value === null ? "text-fg-faint" : "text-fg-muted";
@@ -44,10 +44,8 @@ function Row({ row, closed, edit, busy }: { row: LaunchRow; closed: boolean; edi
             {shown ?? "—"}{row.value !== null && row.unit && <span className="text-fg-faint"> {row.unit}</span>}
           </span>}
       </div>
-      <p className="text-small text-fg-faint">{row.source}
-        {open && row.presets?.map((preset) => <span key={preset.value}>{" · "}<button type="button" aria-pressed={preset.value === row.value}
-          onClick={() => edit(row.id, preset.value)} className={preset.value === row.value ? "text-fg" : "text-link hover:text-fg"}>{preset.label}</button></span>)}
-        {row.reason && <> · <span className={invalid && row.required && !closed ? "text-fail" : "text-fg-muted"}>{row.reason}</span></>}</p>
+      {(row.source || row.reason) && <p className="text-small text-fg-faint">{row.source}
+        {row.reason && <>{row.source && " · "}<span className={invalid && row.required && !closed ? "text-fail" : "text-fg-muted"}>{row.reason}</span></>}</p>}
     </div>
   </li>;
 }
