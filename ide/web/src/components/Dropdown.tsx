@@ -117,7 +117,8 @@ export function DropdownFacts({ items }: { items: readonly (readonly [string, Re
 
 // Menu rows that line up as columns: the grid (`cols`, a grid-template-columns class) sets the columns, its first
 // one the check column; a label row and each link row span all of them as a subgrid, so every cell of a column
-// starts at the same x whatever the other rows hold.
+// starts at the same x whatever the other rows hold. A row's px-2 is absorbed by the grid's edge tracks, so the first
+// track is the 8px padding plus the 16px check column.
 const GRID_ROW = "col-span-full grid grid-cols-subgrid rounded-control px-2";
 export const DropdownGrid = ({ cols, children }: { cols: string; children: ReactNode }) => <div className={`grid ${cols}`}>{children}</div>;
 /** A row of column headers, not a menu item; its first cell sits over the check column. `sticky` keeps it in view

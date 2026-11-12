@@ -10,7 +10,7 @@ import { DropdownGrid, DropdownGridLabel, DropdownGridLink, DropdownGridSeparato
 import { Missing } from "../../components/Missing";
 
 // Check, name, development, recommended version, annual return, max drawdown; the two numbers share one width.
-const COLS = "grid-cols-[1rem_repeat(3,max-content)_repeat(2,minmax(5rem,max-content))]";
+const COLS = "grid-cols-[1.5rem_repeat(3,max-content)_repeat(2,minmax(5rem,max-content))]";
 const NAME = "pl-2", DEV = "pl-4 tabular-nums", VERSION = "pl-4", NUMBER = "pl-3 text-right tabular-nums";
 
 /** The targets every line shares, or null when they differ. */
