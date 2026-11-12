@@ -41,10 +41,29 @@ D6 其余停点：未提交的研究工作树不动它，另起一个新的继�
 - 诚信和自主席：两次换思路都没推动推荐时发一次平台期通知。没采纳：这是没测过的新阈值，20261112-15 还开着；这些事实每次换思路的消息里都有。
 - 诚信和产品席：D3 先作为否决问题交给用户。没采纳：不是 AGENTS.md 授权项，用户把决定交给了圆桌；写明推翻、用户可撤回。
 
-## 需要用户授权的事项（不在本次改动里）
+## 两个待授权事项：第二次圆桌（2026-11-13）
 
-1. 研究会话在项目自己的 compose 服务（账本服务、market-import）退出后把它启动起来的常设许可（只启动，不停止、不重启、不改配置）。现在：AGENTS.md 把结束宿主进程或改宿主配置列为授权项，服务挂了只能以 blocked 结束回合，11-05 一次停了 6.7 小时。不授权也可以：故障时通知一次并 blocked，由用户重启。
-2. 可选：把 `Change of approach.` 和 `Line decision.` 约定做成代码拒绝。现在只靠 skill 文本和评测，拼错开头会悄悄破坏计数。不做也可以：评测和 doctor 事后审计。
+用户被问到这两项时，只重复了“你自己参考开源和论文还有项目情况和新旧历史聊天记录账本记录开多agent圆桌会议来决定最终方案”。我们把这理解为把这两项决定交给圆桌。第二次圆桌的组成和第一次一样：三份调研（项目、旧聊天记录、开源与论文），三个席位立场一轮、反驳一轮，主持人裁决。
+
+1. **常设启动许可：不采纳，换成别的做法。**
+   - 依据：
+     - `deploy/compose.yaml` 里每个服务都是 `restart: unless-stopped`，崩溃、OOM、守护进程重启都由 Docker 自己拉起（11-02 那次 OOM 没人动就恢复了）。
+     - 一直停在 Exited 的服务都是有人特意停的。记录里只有两次：11-04 parquet 换目录时停了 market-import，11-11 gen-1 切换时停了账本服务。这两次如果无人值守地启动，就会在换目录期间多出第二个写入者，或者对已经挪走的目录做首次启动。
+     - 产品自己写的 `docker compose up -d ledger`（LEDGER_START）并不只是“启动”：它会按新 digest 重建容器；目录为空又配了 TRADE_RESEARCH_ORIGIN 时，它会不经询问地建出 active 账本，gen-1 就是这样建出来的。
+     - 记录里没有一次故障能靠“启动”缩短。前一版写的 11-05“停了 6.7 小时”不准：时间戳显示故障本身约 30 分钟，之后宿主恢复了，研究又空等了约 2–2.5 小时。
+   - 改动：
+     - AGENTS.md 授权清单写明：启停或重启 Docker Desktop 和部署自己的服务（`trade-ide` compose 服务、远程主机的服务）由用户做。这是把已有做法写下来，记录里每次启动、重启、重建都有用户的话。
+     - research-start 的故障处理改成：读状态后告诉用户一次；如果服务是 Exited，给出用户要运行的 `docker compose ... start`（不用 `up`）；然后用宿主的等待工具退避等待，最长 6 小时，期间什么都不写；账本恢复后，确认还是同一个账本、本线历史没变，就自己继续，变了就说一次然后停下。
+     - 新增评测 ledger-outage-waits-then-resumes。
+   - 只提议、不做：在 harness 里给 `docker desktop` 和 trade-ide 服务的 `docker compose up/start/restart/stop/down` 加 ask/deny 规则。这是唯一 Agent 自己绕不过去的限制，但改 harness 属于宿主配置，由用户决定。
+   - 怎么撤回：回退这次的 AGENTS.md、skill 和评测改动即可。用户以后如果想要启动许可，用自己的话说，只写成 `docker start <已有容器>` 或 `docker compose ... start`，不包括 `up`、已删除的容器、换目录期间、Docker Desktop 本身或远程主机。
+2. **判断开头约定：采纳，作为写入时的格式拒绝。**
+   - 规则：`judgment add` 发现正文首行像这两个开头、但不是准确写法，或者写对了却用在 priority 以外的 kind 上，就拒绝 `DECISION_OPENING_INVALID`；`Change of approach.` 的正文没写 `chosen by the Agent` 或 `chosen by the user`，就拒绝 `APPROACH_CHOOSER_MISSING`。
+   - 不加 kind、字段或 schema 版本，不改 REVIEW_DUE 或计数（20261112-15 还开着），已有判断不重新检查。
+   - 它不是信任边界：什么时候换思路仍由 Agent 决定。理由是防缺陷：一旦 IDE 研究图按这两个开头读判断，拼错的开头就会悄悄从图上消失，也会被“以前的换思路”读数漏掉。所以这个 PR 只和 IDE 读取方一起合；IDE PR 放弃了，它就关掉。
+   - 更正：代码里的 REVIEW_DUE（registration/register.py，REVIEW_EVERY=5）只从 recommendation 判断起算，`Change of approach.` 从来不会重置它；重置的只是 Agent 自己按 skill 数的那个计数。
+   - 怎么撤回：回退那个拒绝的 PR。检查只在写入时做，存储的判断不受影响。
+   - 一次性的研究工作（不在任何 PR 里）：下一次在 dow-theory-btc-eth 上的研究会话，给 J68 里用户已经做过的那次选择补一条 `Change of approach.` priority 判断，写明 `chosen by the user`。subject 只写那次选择之前登记的 trial。
 
 ## 改动
 
