@@ -47,6 +47,26 @@ class PairedTests(unittest.TestCase):
         self.assertAlmostEqual(swapped["mean_log_basic_interval"][0], -high, places=12, msg="shared block starts")
         self.assertAlmostEqual(swapped["mean_log_basic_interval"][1], -low, places=12)
 
+    def test_the_drawdown_difference_is_the_candidate_minus_the_control_on_shared_resamples(self):
+        self.assertAlmostEqual(float(comparison.max_drawdown(np.asarray([0.1, -0.2, 0.05, -0.1, 0.3]))),
+                               1 - 1.1 * 0.8 * 1.05 * 0.9 / 1.1, places=12, msg="from the running peak")
+        self.assertEqual(float(comparison.max_drawdown(np.asarray([0.01, 0.02]))), 0.0)
+        self.assertAlmostEqual(float(comparison.max_drawdown(np.asarray([-0.1, 0.05]))), 0.1, places=12,
+                               msg="a loss from the starting equity counts")
+        left = [0.01, -0.02, 0.005, 0.0, 0.015, -0.01]
+        right = [0.012, -0.01, 0.0, 0.004, 0.02, -0.012]
+        found = comparison.paired(left, right, DESIGN, 1)
+        expected = float(comparison.max_drawdown(np.asarray(right)) - comparison.max_drawdown(np.asarray(left)))
+        self.assertAlmostEqual(found["max_drawdown_difference"], expected, places=15)
+        low, high = found["max_drawdown_difference_interval"]
+        self.assertLessEqual(low, high)
+        swapped = comparison.paired(right, left, DESIGN, 1)
+        self.assertAlmostEqual(swapped["max_drawdown_difference"], -expected, places=15)
+        self.assertAlmostEqual(swapped["max_drawdown_difference_interval"][0], -high, places=12, msg="shared block starts")
+        weighted = comparison.paired([left, right], [right, left], DESIGN, 1, weights=(1.0, -1.0, -1.0, 1.0))
+        self.assertIsNone(weighted["max_drawdown_difference"])
+        self.assertIsNone(weighted["max_drawdown_difference_interval"])
+
     def test_the_block_indices_keep_the_stream_of_drawing_each_row_alone(self):
         # Published comparisons are recomputed from a locked seed, so the draws must never change.
         def one_row_at_a_time(rng, days, block, resamples):

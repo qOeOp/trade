@@ -38,6 +38,9 @@ PAIRED_LIMITATIONS = (
     "A development-window comparison after an adaptive search is no independent validation",
     "The block bootstrap assumes the daily differences are roughly stationary and weakly dependent",
     "The annual difference interval does not test the minimum effect",
+    "The drawdown difference reads close-to-close daily account equity, not the reports' MARK maximum drawdown; its "
+    "interval rebuilds each side's path from resampled blocks, so it is rough for a path-dependent measure and is "
+    "no part of the change-of-approach count",
     "The test design values are uncalibrated method examples")
 SINGLE_LIMITATIONS = (
     "p is a tail probability under the null model, not the probability that the strategy works",
@@ -158,6 +161,14 @@ def _sensitivity(values: np.ndarray, block: int, resamples: int, seed: int, alph
     return found
 
 
+def max_drawdown(returns: np.ndarray) -> np.ndarray:
+    """The maximum drawdown, a fraction of the running peak, of compounded daily returns along the last axis,
+    from a starting equity of 1."""
+    equity = np.cumprod(1 + returns, axis=-1)
+    peak = np.maximum.accumulate(np.maximum(equity, 1.0), axis=-1)
+    return (1 - equity / peak).max(axis=-1)
+
+
 def _paired_inputs(left: Sequence, right: Sequence, design: dict, grid_points: int,
                    weights: Sequence[float] | None) -> tuple[list[np.ndarray], Sequence[float]]:
     """The series and weights `paired` tests, or its refusal: everything it can refuse before the bootstrap."""
@@ -210,7 +221,11 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
     normal = NormalDist()
     detectable = se * (normal.inv_cdf(1 - alpha) + normal.inv_cdf(POWER))
     annual, annual_interval, detectable_annual = None, None, None
+    drawdown, drawdown_interval = None, None
     if len(sides) == 2:
+        drawdown = float(max_drawdown(sides[1]) - max_drawdown(sides[0]))
+        drawdowns = max_drawdown(sides[1][indices]) - max_drawdown(sides[0][indices])
+        drawdown_interval = [float(value) for value in np.quantile(drawdowns, [alpha / 2, 1 - alpha / 2])]
         control = 365 * float(logs[0].mean())
         annual = math.exp(365 * float(logs[1].mean())) - math.exp(control)
         spread = np.exp(365 * logs[1][indices].mean(axis=1)) - np.exp(365 * logs[0][indices].mean(axis=1))
@@ -220,12 +235,13 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
         # control's by the difference the test detects with POWER.
         detectable_annual = math.exp(control + 365 * detectable) - math.exp(control)
     else:
-        limitations.append("A weighted contrast has no annual return difference")
+        limitations.append("A weighted contrast has no annual return or drawdown difference")
     absolute = np.sort(np.abs(values))[::-1]
     return {"method": design["method"], "days": days, "mean_daily_log_difference": observed,
             "mean_log_basic_interval": [2 * observed - float(high), 2 * observed - float(low)],
             "mean_log_studentized_interval": studentized, "annual_return_difference": annual,
-            "annual_return_difference_interval": annual_interval, "interval_coverage_grid_adjusted": 1 - alpha,
+            "annual_return_difference_interval": annual_interval, "max_drawdown_difference": drawdown,
+            "max_drawdown_difference_interval": drawdown_interval, "interval_coverage_grid_adjusted": 1 - alpha,
             "p_one_sided": p, "p_bonferroni": None if p is None else min(1.0, p * grid_points),
             "predeclared_alpha": design["alpha"], "predeclared_minimum_effect": design["minimum_effect"],
             "detectable_annual_return_difference_80pct_normal_approx": detectable_annual,
