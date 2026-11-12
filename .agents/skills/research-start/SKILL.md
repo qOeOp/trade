@@ -60,7 +60,9 @@ select`); its development period follows from the date and the start's contracts
   line takes no research registration or run (`LINE_ENDED`). Then read `research history --line
   LINE` and `research state --line LINE --full`, write the summary as `line close --help`
   describes, giving each candidate's veto and holdout verdicts apart as a falsification test, never
-  validation, and run `line close`.
+  validation, stating the holdout's earlier searches (`holdout_prior_trials` and any outside this
+  ledger) and the date of the forward read, after which only Paper and later data are unseen, and
+  run `line close`.
 
 ## Offer lines and wait
 

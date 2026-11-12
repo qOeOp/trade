@@ -26,6 +26,9 @@ export type HistoryLine = {
   targets: { max_drawdown: number | null; annual_return: number | null } | null;
   participants: number; research_trials: number;
   discount?: { trials: number; holdouts_with_returns: number; daily_sharpe_variance: number | null };
+  /** The earlier searches of the holdout in this ledger (counted trials on the line's instruments overlapping it, the
+   *  line's own history trials left out); null before the line's first research trial. */
+  holdout_prior_trials?: { trials: number; instruments: string[]; by_line: { line: string | null; purpose: string; trials: number }[] } | null;
   rows: HistoryRow[];
 };
 export type History = { ledger_commit: string; short_days: number; lines: HistoryLine[] };
