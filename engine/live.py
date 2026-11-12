@@ -1,13 +1,15 @@
 """Separate Binance USD-M native Live entry point with explicit private inputs.
 
-Paper retains its credential-free Sandbox contract. This entry point never
-changes account settings and never resumes source callbacks after interruption.
+Paper retains its credential-free Sandbox contract. This entry point never changes account settings. An
+interrupted run (SIGTERM, a killed runner) starts again as the same run: on a flat account its source warms up and
+trades again; otherwise it holds, observing only, until the account is flat (design §3.4, first stage: the source
+cannot yet rebuild its state around an open position).
 """
 
 from __future__ import annotations
 
 # Native network/worker threads must inherit the blocked mask. The dedicated
-# sigwait thread turns process signals into the same owned-position STOP path.
+# sigwait thread turns process signals into an interruption that keeps positions and their stops.
 if __name__ == "__main__":
     import signal
     signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
@@ -40,6 +42,7 @@ from engine.live_lifecycle import source_outcome
 from engine.live_node import build_node
 
 
+INTERRUPTED = 3  # the exit status of a run that starts again as itself
 IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}\Z")
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -69,7 +72,8 @@ def read_manifest(path: Path) -> dict:
                 raise ValueError
         if Decimal(config["max_loss_usdt"]) > Decimal(config["budget_usdt"]):
             raise ValueError
-        if type(config["duration_seconds"]) is not int or not 1 <= config["duration_seconds"] <= 86400:
+        duration = config["duration_seconds"]  # None: the run goes on until it is stopped
+        if duration is not None and (type(duration) is not int or duration < 1):
             raise ValueError
         if not is_leverage(config["leverage"]):
             raise ValueError
@@ -87,6 +91,23 @@ def read_manifest(path: Path) -> dict:
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
         raise Refusal("LIVE_MANIFEST_INVALID", "Live needs a complete immutable single-symbol manifest") from exc
 
+
+
+# The runner's events after which the run is over; a run whose latest start ended in none of them (interrupted,
+# held until flat, or killed without a word) starts again as itself.
+ENDED_EVENTS = frozenset({"clean_stop", "reconciled_flat", "venue_flat", "reconcile_stopped", "unresolved"})
+
+
+def resumable(output: Path) -> bool:
+    """Whether this armed run may start again: its latest start did not end it, and no stop was asked for."""
+    if (output / "STOP").exists():
+        return False
+    try:
+        rows = [json.loads(line) for line in read_regular_file(output / "events.jsonl").decode().splitlines() if line]
+    except (OSError, ValueError, Refusal):
+        return False
+    starts = [index for index, row in enumerate(rows) if row.get("event") == "preflight" and row.get("mode") == "run"]
+    return not any(row.get("event") in ENDED_EVENTS for row in rows[starts[-1] if starts else 0:])
 
 
 def bind_manifest(output: Path, manifest: dict) -> None:
@@ -136,6 +157,9 @@ def execute(args) -> int:
         raise Refusal("LIVE_ALREADY_RUNNING", "this execution already has a runner") from None
     with lock:
         bind_manifest(args.output, manifest)
+        resuming = args.mode == "run" and (args.output / "armed.json").is_file()
+        if resuming and not resumable(args.output):  # judged before this start writes its own events
+            raise Refusal("LIVE_COLD_RESTART", "this run ended or was asked to stop; it can only reconcile")
         session = Session(manifest, args.output, args.mode)
         observer = BinanceReadOnly(credentials, proxy_url=manifest["config"].get("proxy_url"))
         session.account_reader = observer
@@ -147,7 +171,20 @@ def execute(args) -> int:
         write_json(args.output / observation, snapshot)
         session.event("preflight", mode=args.mode, observation=observation)
         loaded = None
-        if args.mode in ("preflight", "run"):
+        if resuming:
+            require_clock(snapshot)
+            require_account_mode(snapshot, manifest)
+            try:
+                require_flat(snapshot)
+            except Refusal as exc:
+                if exc.code != "LIVE_ACCOUNT_NOT_FLAT":
+                    raise
+                session.mode = "held"  # observe only until the account is flat; the user is told
+            session.armed_ns = json.loads(read_regular_file(args.output / "armed.json"))["observed_ns"]
+            session.event("resuming", held=session.mode == "held", observation=observation)
+            if session.mode == "run":
+                loaded = source_for_run(manifest)
+        elif args.mode in ("preflight", "run"):
             require_clock(snapshot)
             require_admission(snapshot, manifest)  # flat by default: the run starts on a flat account
             backing = require_evidence(snapshot, manifest)
@@ -155,7 +192,9 @@ def execute(args) -> int:
             loaded = source_for_run(manifest)
         if args.mode == "preflight":
             return 0
-        if args.mode == "run":
+        if resuming:
+            pass  # armed already; the account slot is still this run's
+        elif args.mode == "run":
             try:
                 with (args.output / "armed.json").open("x") as stream:
                     json.dump({"run_id": manifest["run_id"], "observed_ns": time.time_ns()}, stream)
@@ -181,9 +220,9 @@ def execute(args) -> int:
         signal.pthread_sigmask(signal.SIG_BLOCK, signals)
         def await_signal():
             signal.sigwait(signals)
-            session.stop_requested.set()
+            session.interrupt_requested.set()
         threading.Thread(target=await_signal, daemon=True).start()
-        cache = LiveCache(args.output, resume=args.mode == "reconcile")
+        cache = LiveCache(args.output, resume=args.mode == "reconcile" or resuming)
         session.cache_guard = cache
         node = None
         try:
@@ -196,7 +235,8 @@ def execute(args) -> int:
             # Recheck the whole cache at the completed boundary, never a stale timer cut.
             observed_flat = not (pending_orders(node.cache) or node.cache.positions_open())
             session.native_flat = observed_flat and (session.native_flat or args.mode == "reconcile") \
-                and not (session.persistence_failed or session.journal_failed or session.connection_failed)
+                and not (session.persistence_failed or session.journal_failed or session.connection_failed
+                         or session.interrupting or session.held_flat)
         except BaseException as exc:
             session.event("unresolved", failure_type=type(exc).__name__, strict=False,
                           code=exc.code if isinstance(exc, Refusal) else None)
@@ -224,7 +264,11 @@ def execute(args) -> int:
             session.event("clean_stop" if args.mode == "run" else "reconciled_flat",
                           source_failed=session.failed, observation=observation)
             return 1 if session.failed else 0
-        if args.mode == "run":
+        if (session.interrupting or session.held_flat) and not session.failed:
+            # Positions and their exchange stops stay; the control starts this run again (live.runs).
+            session.event("held_flat" if session.held_flat else "interrupted", mode=session.mode)
+            return INTERRUPTED
+        if session.mode == "run":
             session.event("unresolved", mode=args.mode)
             return 1
         final_snapshot = observer.snapshot(manifest["symbols"])

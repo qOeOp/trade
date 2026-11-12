@@ -222,6 +222,21 @@ class Sending(Base):
         self.assertIn("entries are open", texts[1])
         self.assertIn("closed for the rest of the run: a bar is missing", texts[2])
 
+    def test_an_interruption_each_start_again_and_the_restart_limit_are_noticed(self):
+        restarts = [{"event": "interrupted", "observed_ns": "1", "held": None},
+                    {"event": "resuming", "observed_ns": "2", "held": True},
+                    {"event": "venue_flat_while_held", "observed_ns": "3", "held": None},
+                    {"event": "resuming", "observed_ns": "4", "held": False},
+                    {"event": "held_flat", "observed_ns": "5", "held": None},
+                    {"event": "restart_limited", "observed_ns": "6", "held": None}]
+        texts = [text for key, text in notify.messages(run(restarts=restarts)) if ":restart:" in key]
+        self.assertEqual(len(texts), 5)  # held_flat only ends a start; venue_flat_while_held already said so
+        self.assertIn("interrupted without closing", texts[0])
+        self.assertIn("only observes", texts[1])
+        self.assertIn("flat at Binance again", texts[2])
+        self.assertIn("flat account", texts[3])
+        self.assertIn("no longer started again automatically", texts[4])
+
     def test_a_closed_run_stays_read_until_the_summary_after_its_last_fill_and_while_it_holds_the_newest_wallet(self):
         self.tick(DAY)
         ended = {"host": {"state": "clean_stopped", "mode": "run", "exit_code": 0}, "custody": {"archived": True},

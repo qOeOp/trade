@@ -144,6 +144,34 @@ class GateTests(unittest.TestCase):
             live_connection.tick(self.session, SimpleNamespace(cache=Cache()), 10)
             observe.assert_called_once()
 
+    def test_a_held_start_reads_the_account_every_30_seconds_and_ends_once_it_is_flat(self):
+        self.session.mode = "held"
+        flat = [LiveRefusal("LIVE_ACCOUNT_NOT_FLAT", "open"), None]
+        with mock.patch.object(commands, "observe_account", return_value=object()) as observe, \
+                mock.patch.object(commands, "observed_account", return_value=dict(self.snapshot)), \
+                mock.patch("engine.live_venue.require_flat", side_effect=flat):
+            for now in (0, 1, 10, 30, 31):
+                live_connection.held_tick(self.session, now)
+        self.assertEqual(observe.call_count, 2)  # at 0 and at 30; each read is judged on the next tick
+        self.assertTrue(self.session.held_flat)
+        self.assertTrue(self.session.stopping)
+        self.assertEqual([row["reason"] for row in self.events() if row["event"] == "stopping"], ["held_flat"])
+        flat_event = next(row for row in self.events() if row["event"] == "venue_flat_while_held")
+        self.assertTrue((self.session.output / flat_event["observation"]).exists())
+
+    def test_a_resumed_run_counts_its_duration_from_its_first_arming(self):
+        import time
+        self.session.started = time.monotonic()  # this start began just now
+        self.session.armed_ns = time.time_ns() - 3599 * 10**9
+        self.assertFalse(self.session.observe_stop_intent())
+        self.session.armed_ns -= 2 * 10**9
+        self.assertTrue(self.session.observe_stop_intent())
+        self.assertEqual([row["reason"] for row in self.events() if row["event"] == "stopping"], ["duration"])
+        self.session.manifest["config"]["duration_seconds"] = None  # until stopped
+        fresh = live.Session(self.session.manifest, self.session.output, "run", account_verified=True)
+        fresh.armed_ns = 0
+        self.assertFalse(fresh.observe_stop_intent())
+
     def test_a_missing_bar_holds_entries_closed_without_withdrawing_working_ones(self):
         self.session.cancel_entries = mock.Mock()
         minute = 60_000_000_000

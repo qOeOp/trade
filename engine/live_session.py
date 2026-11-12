@@ -33,6 +33,12 @@ class Session:
     output: Path
     mode: str
     stop_requested: threading.Event = field(default_factory=threading.Event)
+    # SIGTERM or SIGINT (Docker stop, a host shutdown): entries are withdrawn, positions and their exchange stops stay,
+    # and the same run resumes when its runner starts again (design §3.4).
+    interrupt_requested: threading.Event = field(default_factory=threading.Event)
+    interrupting: bool = False
+    held_flat: bool = False  # a held resume saw the venue flat: the next start trades again
+    armed_ns: int | None = None  # a resumed run's first arming: its duration counts from there, across starts
     node: Any = None
     source: Any = None
     started: float | None = None
@@ -115,7 +121,12 @@ class Session:
             self.begin_stop("source_failure")
         elif self.stop_requested.is_set() or (self.output / "STOP").exists():
             self.begin_stop("requested")
-        elif self.started is not None and time.monotonic() - self.started >= self.manifest["config"]["duration_seconds"]:
+        elif self.interrupt_requested.is_set() and not self.stopping:
+            self.interrupting = True
+            self.begin_stop("interrupted")
+        elif (duration := self.manifest["config"]["duration_seconds"]) is not None and (
+                time.time_ns() - self.armed_ns >= duration * 10**9 if self.armed_ns is not None
+                else self.started is not None and time.monotonic() - self.started >= duration):
             self.begin_stop("duration")
         return self.stopping
 

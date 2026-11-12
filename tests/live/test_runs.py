@@ -365,7 +365,13 @@ class LiveCustodyTests(LiveFixture):
             self.assertEqual(runs._active(self.root), self.run_id)
             (self.directory / "out" / "events.jsonl").unlink()
             state.write_new(self.directory / "out" / "armed.json", b"{}")
+            # Armed, and no ending event: interrupted (killed, or SIGTERM), the run starts again as itself.
+            self.assertEqual(runs.status(self.root, self.run_id)["state"], "interrupted")
+            state.append(self.directory / "out" / "events.jsonl", "unresolved", self.run_id)
             self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
+            state.write_new(self.directory / "out" / "STOP", b"operator stop\n")
+            (self.directory / "out" / "events.jsonl").unlink()
+            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")  # a stop was asked for
         self.assertEqual(runs._active(self.root), self.run_id)
 
     def test_earlier_timed_out_runner_still_alive_keeps_the_slot(self):
@@ -417,6 +423,39 @@ class LiveCustodyTests(LiveFixture):
             with self.assertRaises(LiveRefusal) as caught:
                 launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
         self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
+
+    def test_an_interrupted_run_starts_again_unless_it_ended_or_a_stop_was_asked(self):
+        class Reached(Exception):
+            """The launch got past the restart check."""
+
+        self.launch_record()
+        state.write_new(self.directory / "out" / "armed.json", b"{}")
+        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 137}}), \
+                patch.object(runs.key, "require_limits", side_effect=Reached):
+            with self.assertRaises(Reached):
+                launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
+            state.append(self.directory / "out" / "events.jsonl", "unresolved", self.run_id)
+            with self.assertRaises(LiveRefusal) as caught:
+                launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
+        self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
+
+    def test_at_most_three_restarts_an_hour(self):
+        for _ in range(4):  # the first start and three restarts
+            state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id, mode="run")
+        now = max(row["observed_ns"] for row in state.events(self.directory / "lifecycle.jsonl"))
+        self.assertFalse(runs.restarts_due(self.directory, now))
+        self.assertTrue(runs.restarts_due(self.directory, now + runs.HOUR_NS))
+
+    def test_past_the_limit_the_control_tells_the_user_once_and_starts_nothing(self):
+        from live import control
+        self.launch_record()
+        with patch.object(runs, "restarts_due", return_value=False), \
+                patch.object(runs, "launch_locked") as launched:
+            self.assertIsNone(control.restart_interrupted_locked(self.root, self.run_id, 0))
+            self.assertIsNone(control.restart_interrupted_locked(self.root, self.run_id, 0))
+        launched.assert_not_called()
+        rows = state.events(self.directory / "lifecycle.jsonl")
+        self.assertEqual([row["event"] for row in rows].count("restart_limited"), 1)
 
     def test_another_run_is_refused_in_every_mode_while_the_slot_holder_may_hold_exposure(self):
         self.launch_record()
@@ -896,6 +935,10 @@ class LiveRecycleTests(LiveFixture):
 
     def test_an_unresolved_run_keeps_everything(self):
         host = self.host_for(exit_code=137, clean=False)
+        found = self.status(host)
+        self.assertEqual((found["state"], found["account_owned"]), ("interrupted", True))  # killed: it starts again
+        self.assertEqual(self.removals(host), [])
+        state.append(self.directory / "out" / "events.jsonl", "unresolved", self.run_id)
         found = self.status(host)
         self.assertEqual((found["state"], found["account_owned"]), ("unresolved", True))
         self.assertEqual(self.removals(host), [])

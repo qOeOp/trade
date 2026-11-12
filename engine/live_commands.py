@@ -96,8 +96,8 @@ def verify_connected_account(session: Session, snapshot: dict) -> None:
         require_admission(snapshot, session.manifest)
     else:
         require_account_mode(snapshot, session.manifest)
-    session.event("started" if session.mode == "run" else "reconciled", mode=session.mode,
-               source_callbacks=session.mode == "run", observation=observation)
+    session.event({"run": "started", "reconcile": "reconciled", "held": "held"}[session.mode], mode=session.mode,
+                  source_callbacks=session.mode == "run", observation=observation)
     session.account_verified = True
     session.account_observation = None
 

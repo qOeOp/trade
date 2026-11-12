@@ -276,6 +276,40 @@ def judge(session, cache, snapshot: dict) -> None:
         state.suspect = True
 
 
+HELD_READ_SECONDS = 30
+
+
+def held_tick(session, now: float) -> None:
+    """A resumed run holding around an open position reads the account until it is flat (its exchange stops, or the
+    user at Binance); then it ends this start so the next one trades again (engine.live, design §3.4)."""
+    from engine import live_commands as commands
+    from engine.live_venue import require_flat
+    state = session.connection
+    if state.observation is None:
+        if state.last_compare is None or now - state.last_compare >= HELD_READ_SECONDS:
+            state.last_compare = now
+            state.observation = commands.observe_account(session.account_reader, tuple(session.manifest["symbols"]),
+                                                         "held")
+        return
+    try:
+        snapshot = commands.observed_account(session, "held", state.observation)
+    except Refusal:
+        state.observation = None
+        return
+    if snapshot is None:
+        return
+    state.observation = None
+    try:
+        require_flat(snapshot)
+    except Refusal:
+        return
+    observation = "held-account-" + str(snapshot["observed_ns"]) + ".json"
+    write_json(session.output / observation, snapshot)
+    session.held_flat = True
+    session.event("venue_flat_while_held", strict=False, observation=observation)
+    session.begin_stop("held_flat")
+
+
 def renew(session, observer, now: float) -> None:
     """Move Binance's 24 h disconnect into a flat moment: renew an old connection natively while nothing is open."""
     state = session.connection

@@ -548,24 +548,43 @@ class LiveTests(unittest.TestCase):
             self.assertEqual(live.execute(args), 0)  # With the first runner gone the same execution proceeds.
             read.assert_called_once()
 
-    def test_an_armed_run_cannot_start_its_source_again(self):
+    def test_an_interrupted_armed_run_resumes_as_itself_and_an_ended_one_cannot(self):
         class Armed(Exception):
-            """Stops the first start after it armed, before it blocks this process's signals."""
+            """Stops a start after it armed (or resumed), before it blocks this process's signals."""
 
         args = self.runner_args("run")
-        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
-                mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_flat"), \
-                mock.patch.object(live, "build_node") as build, \
+        held = dict(self.flat_snapshot(), positions=[{"symbol": "BTCUSDT", "positionAmt": "0.001"}])
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()) as snapshot, \
+                mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_account_mode"), \
+                mock.patch.object(live, "source_for_run") as source, mock.patch.object(live, "build_node") as build, \
                 mock.patch.object(live.strategy_runtime, "clear_failures", side_effect=Armed):
             with self.assertRaises(Armed):
                 live.execute(args)
             armed = (self.output / "armed.json").read_bytes()
+            with self.assertRaises(Armed):  # killed without a word: the same run starts again on a flat account
+                live.execute(args)
+            snapshot.return_value = held
+            with self.assertRaises(Armed):  # around an open position it only observes until the account is flat
+                live.execute(args)
+            self.assertEqual(source.call_count, 2)  # a held start constructs no source
+            build.assert_not_called()
+            resumes = [row for row in map(json.loads, (self.output / "events.jsonl").read_text().splitlines())
+                       if row["event"] == "resuming"]
+            self.assertEqual([row["held"] for row in resumes], [False, True])
+            for ending in ("unresolved", "clean_stop"):
+                with self.subTest(ending):
+                    events = (self.output / "events.jsonl").read_text()
+                    with (self.output / "events.jsonl").open("a") as stream:
+                        stream.write(json.dumps({"event": ending, "run_id": "r"}) + "\n")
+                    with self.assertRaises(LiveRefusal) as caught:
+                        live.execute(args)
+                    self.assertEqual(caught.exception.code, "LIVE_COLD_RESTART")
+                    (self.output / "events.jsonl").write_text(events)
+            (self.output / "STOP").write_text("operator stop\n")
             with self.assertRaises(LiveRefusal) as caught:
                 live.execute(args)
             self.assertEqual(caught.exception.code, "LIVE_COLD_RESTART")
-            build.assert_not_called()
         self.assertEqual((self.output / "armed.json").read_bytes(), armed)
-        self.assertNotIn("connecting", (self.output / "events.jsonl").read_text())
 
     def test_stop_exits_before_canceling_protection_and_waits_for_native_events(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)

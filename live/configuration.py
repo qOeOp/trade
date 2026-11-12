@@ -53,8 +53,8 @@ def run_config(value) -> dict:
         except (InvalidOperation, ValueError):
             raise fail() from None
         result[name] = str(number)
-    duration = value["duration_seconds"]
-    if type(duration) is not int or duration < 1:
+    duration = value["duration_seconds"]  # None: the run goes on until it is stopped
+    if duration is not None and (type(duration) is not int or duration < 1):
         raise fail()
     result["duration_seconds"] = duration
     # The account's Binance leverage: the venue's symbol leverage must equal it (engine.live_venue).

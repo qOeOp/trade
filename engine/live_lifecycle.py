@@ -138,10 +138,12 @@ class Observer(Strategy):
                 live_connection.tick(session, self, now)
                 session.check_protection(self.cache, now)
                 session.check_loss(self.cache, now)
+            elif session.mode == "held":
+                live_connection.held_tick(session, now)
             if not session.observe_stop_intent():
                 return
         commands.discard_observation(session)
-        if session.mode == "reconcile":
+        if session.mode in ("reconcile", "held") or session.source is None:
             session.node.handle().stop()
             return
         source = session.source
@@ -149,6 +151,15 @@ class Observer(Strategy):
         pending = pending_orders(self.cache, source.strategy_id)
         entries = [order for order in pending if not order.is_reduce_only]
         session.cancel_open(self.cache, entries, now)
+        if session.interrupting:
+            # Positions and their reduce-only exchange orders stay; only entries, which nothing would protect, go.
+            if not entries:
+                session.node.handle().stop()
+            elif session.stop_at is not None and now - session.stop_at > STOP_GRACE_SECONDS:
+                session.failed = True
+                session.event("unresolved", reason="interrupt_entry_timeout", strict=False)
+                session.node.handle().stop()
+            return
         closing = [order for order in pending if order.is_reduce_only and order.order_type == OrderType.MARKET]
         if not entries and not closing:
             for position in positions:
