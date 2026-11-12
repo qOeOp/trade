@@ -9,6 +9,7 @@
 import { amount, symbolOf } from "../lib/paperApi";
 import type { TrialReport } from "../lib/trialApi";
 import { tradeStats, type Account, type TradeStats } from "./account";
+import { sidesHeld, type Leaning } from "./held";
 import type { Closed } from "./trades";
 
 /** A cycle as a closed trade: `pnl` after fees and funding, `gross` its price move alone; `open` when it was
@@ -80,12 +81,5 @@ function accountOf(r: TrialReport, starting: number, days: readonly Day[], cycle
   };
 }
 
-/** When any cycle was open (ms), overlapping ones joined, oldest first. */
-export function cyclesHeld(cycles: readonly Cycle[]): [number, number][] {
-  const out: [number, number][] = [];
-  for (const c of [...cycles].sort((a, b) => a.opened - b.opened)) {
-    const top = out.at(-1);
-    if (top && c.opened <= top[1]) top[1] = Math.max(top[1], c.closed); else out.push([c.opened, c.closed]);
-  }
-  return out;
-}
+/** When any cycle was open (ms) and which way, overlapping ones joined, oldest first (sidesHeld). */
+export const cyclesHeld = (cycles: readonly Cycle[]): Leaning[] => sidesHeld(cycles.map((c) => [c.opened, c.closed, c.long] as const));
