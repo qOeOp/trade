@@ -14,7 +14,7 @@
 // close, as a coarser step's point is (equityResolution.ts).
 import { amount, type PaperRun } from "../../lib/paperApi";
 import type { Backtest } from "../../model/backtest";
-import { equityReadings, type Reading } from "../../model/equityReadings";
+import { dailyHold, equityReadings, type Reading } from "../../model/equityReadings";
 import { days as daysOf, fills as fillsOf, restartsOf, type Restart } from "../../model/paper";
 import type { Stretch } from "../../model/stretches";
 import type { DayBar, EquityPoint } from "./equityLayers";
@@ -57,11 +57,15 @@ function paper({ chain, piece, selected, run }: Stretch): Segment {
   };
 }
 
-function tested(b: Backtest, selected: boolean): Segment {
+/** Each contract's daily closes ([day start s, close]), by symbol: the backtest's buy and hold's. */
+export type DailyCloses = Readonly<Record<string, readonly (readonly [number, number])[]>>;
+
+function tested(b: Backtest, selected: boolean, closes: DailyCloses | null): Segment {
+  const hold = closes && dailyHold(b.days.map((d) => d.time), closes, b.starting!);
   return {
     label: `${selected ? "" : "Backtest · "}trial ${b.trial}`, run: null, selected, path: b.days.map((d) => [d.time, d.equity]), starting: b.starting!,
     t0: b.window[0] / 1000, lead: DAY_S, invalid: false, restarts: [], idle: () => 0, days: () => b.days.map((d) => ({ from: d.time, ret: d.ret })),
-    readings: () => new Map(b.days.map((d) => [d.time, { balance: null, before: null, margin: null, exposure: d.exposure, hold: null, positions: d.held }])),
+    readings: () => new Map(b.days.map((d) => [d.time, { balance: null, before: null, margin: null, exposure: d.exposure, hold: hold?.get(d.time) ?? null, positions: d.held }])),
   };
 }
 
@@ -71,12 +75,13 @@ export function entryLows(points: EquityPoint[]): void {
   for (let i = points.length - 2; i >= 0; i--) points[i]!.low = Math.min(points[i]!.value, points[i + 1]!.low);
 }
 
-/** The backtest (`backtest`, with a starting balance, shown when `testing`) and the paper stretches as one
- *  line, a pace for `annual` a year (none when null); `readings` whether to read beside equity at all.
+/** The backtest (`backtest`, with a starting balance, shown when `testing`, its contracts' daily closes
+ *  `closes` for its buy and hold) and the paper stretches as one line, a pace for `annual` a year (none
+ *  when null); `readings` whether to read beside equity at all.
  *  A stretch that would start before the last one ends is left out. */
-export function continuous(stretches: readonly Stretch[], annual: number | null, readings: boolean, backtest: Backtest | null = null, testing = false): Line {
+export function continuous(stretches: readonly Stretch[], annual: number | null, readings: boolean, backtest: Backtest | null = null, testing = false, closes: DailyCloses | null = null): Line {
   const line: Line = { minutes: [], placed: [], restarts: [], readings: new Map(), days: [], drops: null, sealed: 0 }, { minutes, placed } = line;
-  const segments = [...(backtest?.starting != null && backtest.days.length ? [tested(backtest, testing)] : []), ...stretches.map(paper)];
+  const segments = [...(backtest?.starting != null && backtest.days.length ? [tested(backtest, testing, closes)] : []), ...stretches.map(paper)];
   let carried: number | null = null, elapsed = 0, base: number | null = null, anew = false;
   for (const g of segments) {
     const { path, starting } = g;

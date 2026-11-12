@@ -87,6 +87,7 @@ test("a minute inside a downtime takes no slot of its own", () => {
   assert.ok(minutes.every((p, i) => !i || p.time > minutes[i - 1].time), "strict time order");
 });
 const { backtest, cyclesHeld } = await namespace("model/backtest.ts");
+const readings = await namespace("model/equityReadings.ts");
 const { leadOf } = await namespace("widgets/paper/backtestCandles.ts");
 const { dayFloor, periodFor, respaced } = await namespace("widgets/paper/candleView.ts");
 const { EquityExtras } = await namespace("widgets/paper/equityExtras.ts");
@@ -581,6 +582,20 @@ test("the backtest leads the line a day a point, the paper runs carry on from it
   assert.equal(shown.readings.get(D0).positions, 1);
   assert.deepEqual(shown.drops.map((d) => [d.from - D0, d.to - D0, Math.round(d.peak), Math.round(d.trough), d.depth]), [[0, DAY, 110_000, 99_000, 0.05]],
                    "drawn between the days holding the sealed peak and trough, at the sealed depth");
+});
+
+test("a backtest's buy and hold buys each contract for an equal share at its first day's close, a contract with none yet held as cash", () => {
+  const { dailyHold } = readings, days = [0, 1, 2].map((d) => D0 + d * DAY);
+  const closes = { BTCUSDT: [[D0, 100], [D0 + DAY, 110], [D0 + 2 * DAY, 90]], ETHUSDT: [[D0 + DAY, 10], [D0 + 2 * DAY, 15]] };
+  const hold = dailyHold(days, closes, 100_000);
+  assert.deepEqual(days.map((d) => near(hold.get(d))), [100_000, 105_000, 45_000 + 75_000],
+                   "the first day is the start; BTC's half follows its closes from 100, ETH's stays cash until its first close (10), then follows it");
+  assert.equal(near(dailyHold(days, { BTCUSDT: [[D0 - DAY, 50], [D0 + 2 * DAY, 75]] }, 1000).get(D0 + 2 * DAY)), 1500,
+               "a close before the window is the base, a day without its own close keeps the last one");
+  assert.equal(dailyHold(days, { BTCUSDT: [] }, 1000), null, "no closes, no buy and hold");
+  const b = backtest(report()), l = stretches.continuous([], null, true, b, true, { BTCUSDT: closes.BTCUSDT });
+  assert.deepEqual([0, 1, 2].map((d) => l.readings.get(D0 + d * DAY).hold), [100_000, 110_000, 90_000], "the shown backtest reads its buy and hold each day");
+  assert.equal(stretches.continuous([], null, true, b, true).readings.get(D0).hold, null, "none without its closes");
 });
 
 test("a contract's backtest stretch is its day candles, else a blank a day of the window, its cycles drawn only while it is shown", () => {

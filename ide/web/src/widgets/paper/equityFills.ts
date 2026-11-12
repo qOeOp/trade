@@ -3,8 +3,8 @@
 // rim along its far edge, so the line reads as the foot of a raised strip (vibe-trading's band); and
 // the open profit and loss, the stretch between the balance (equity less the open profit) and the line
 // wherever they part, in the profit colour where equity is above the balance and the loss colour where
-// below, over the band; on request an equal-weight buy and hold of the run's contracts as a fine dashed
-// line. All of it inside the plot (equityZones.ts).
+// below, over the band; on request, beneath them all, an equal-weight buy and hold of the run's contracts as a
+// fine line over an area that fades from it to nothing at the plot's foot. All of it inside the plot (equityZones.ts).
 import type { AutoscaleInfo, IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, LogicalRange,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import type { Reading } from "../../model/equityReadings";
@@ -13,6 +13,8 @@ import { perColumn } from "./equityPlace";
 import { inPlot, toEdges, type Plot } from "./equityZones";
 
 export type FillsLook = { up: string; down: string; costs: string; rim: string };
+/** The buy and hold's line and its area's colour at the line (`#rrggbbaa`). */
+export type HoldLook = { line: string; area: string };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 type Range = AutoscaleInfo["priceRange"];
 
@@ -25,13 +27,13 @@ export class EquityFills implements ISeriesPrimitive<Time> {
   private befores: (number | null)[] = [];
   private holds: (number | null)[] = [];
   private look: FillsLook | null = null;
-  private hold: string | null = null;
+  private hold: HoldLook | null = null;
 
   /** `plot`: where they are drawn (equityZones.ts). */
   constructor(private readonly plot: () => Plot) {}
 
-  /** The points, their readings, the colours and, when it is drawn, the buy and hold's colour. */
-  set(points: readonly EquityPoint[], readings: ReadonlyMap<number, Reading>, look: FillsLook, hold: string | null): void {
+  /** The points, their readings, the colours and, when it is drawn, the buy and hold's. */
+  set(points: readonly EquityPoint[], readings: ReadonlyMap<number, Reading>, look: FillsLook, hold: HoldLook | null): void {
     const at = (p: EquityPoint) => readings.get(p.minute ?? p.time);
     Object.assign(this, { points, look, hold, balances: points.map((p) => at(p)?.balance ?? null), befores: points.map((p) => at(p)?.before ?? null),
                           holds: hold === null ? [] : points.map((p) => at(p)?.hold ?? null) });
@@ -57,8 +59,8 @@ export class EquityFills implements ISeriesPrimitive<Time> {
     return [{ zOrder: () => "bottom", renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace((s) => inPlot(s.context, this.plot(), s.bitmapSize.width, s.verticalPixelRatio, () => this.draw(s))) }) }];
   }
 
-  /** Over the points in view (four a pixel column at most): the costs' band and its rim, the buy and
-   *  hold, then the open profit's band, filled flat twice: clipped above the balance, then below it. The
+  /** Over the points in view (four a pixel column at most): the buy and hold, the costs' band and its
+   *  rim, then the open profit's band, filled flat twice: clipped above the balance, then below it. The
    *  bands and the rim fade into the plot's edges (equityZones), where a fee-heavy run's costs are cut. */
   private draw({ context: c, verticalPixelRatio: vr, horizontalPixelRatio: hr, bitmapSize }: Scope): void {
     const { chart, series, look, points } = this, range = chart?.timeScale().getVisibleLogicalRange();
@@ -76,6 +78,21 @@ export class EquityFills implements ISeriesPrimitive<Time> {
       return path;
     };
 
+    // The buy and hold's area, from the line down to the plot's foot, its colour fading from its highest
+    // point in view to nothing there; then the line over it.
+    const held = (i: number) => this.holds[i] != null, hold = perColumn(from, to, X, (i) => this.holds[i]!, held);
+    if (this.hold && hold.length > 1) {
+      const line = new Path2D(), foot = plot.bottom * vr, ys = hold.map((i) => Y(this.holds[i]!));
+      hold.forEach((i, k) => line[k ? "lineTo" : "moveTo"](X(i), ys[k]!));
+      const area = new Path2D(line);
+      area.lineTo(X(hold.at(-1)!), foot); area.lineTo(X(hold[0]!), foot); area.closePath();
+      const g = c.createLinearGradient(0, ys.reduce((top, y) => (y < top ? y : top), foot - 1), 0, foot);
+      g.addColorStop(0, this.hold.area); g.addColorStop(1, `${this.hold.area.slice(0, 7)}00`);
+      c.fillStyle = g; c.fill(area);
+      Object.assign(c, { strokeStyle: this.hold.line, lineWidth: Math.max(1, Math.floor(hr)), lineJoin: "round" });
+      c.stroke(line);
+    }
+
     const priced = (i: number) => this.befores[i] !== null, before = (i: number) => this.befores[i]!;
     const top = perColumn(from, to, X, before, priced), line = perColumn(from, to, X, value, priced);
     if (top.length > 1) {
@@ -85,13 +102,6 @@ export class EquityFills implements ISeriesPrimitive<Time> {
       top.forEach((i, k) => rim[k ? "lineTo" : "moveTo"](X(i), Math.round(Y(before(i))) + w / 2));
       Object.assign(c, { strokeStyle: toEdges(c, plot, vr, look.rim), lineWidth: w, lineJoin: "round" });
       c.stroke(rim);
-    }
-    const held = (i: number) => this.holds[i] != null, hold = perColumn(from, to, X, (i) => this.holds[i]!, held);
-    if (this.hold && hold.length > 1) {
-      const path = new Path2D();
-      hold.forEach((i, k) => path[k ? "lineTo" : "moveTo"](X(i), Y(this.holds[i]!)));
-      Object.assign(c, { strokeStyle: this.hold, lineWidth: Math.max(1, Math.floor(hr)) });
-      c.setLineDash([2 * hr, 2 * hr]); c.stroke(path); c.setLineDash([]);
     }
 
     const shown = perColumn(from, to, X, value, (i) => this.balances[i] !== null);

@@ -87,7 +87,8 @@ export function chartLook(zone: TimeZone = "UTC"): DeepPartial<ChartOptions> {
  *  for the picked day), the flat stretches and the gridlines; its notes with the drawdown limit and the
  *  deepest drawdowns hatched in the loss colour, the closes as arrows in both and the pace's tag on the neutral tag colour;
  *  its extras: the costs' band in a faint grey with a stronger rim (indigo is the line's), the open profit and loss filled
- *  faintly in both, the buy and hold in grey, the exposure in indigo (filled faintly); the stretches' names
+ *  faintly in both, the buy and hold as a grey line over a grey area fading out to the plot's foot, kept fainter than the
+ *  flat stretches' shading, the exposure in indigo (filled faintly); the stretches' names
  *  faint, the shown one's in the text colour, each on a halo of the island colour. */
 export function seriesColors(dark = false) {
   const font = `11px ${getComputedStyle(document.body).fontFamily}`;
@@ -126,7 +127,7 @@ export function seriesColors(dark = false) {
     captions: { text: canvasColor("fg-faint"), shown: canvasColor("fg"), halo: canvasColor("island"), seam: canvasColor("fg-faint", dark ? 0.55 : 0.5), font },
     extras: {
       fills: { up: canvasColor("pnl-up", dark ? 0.28 : 0.16), down: canvasColor("pnl-down", dark ? 0.3 : 0.16),
-               costs: canvasColor("fg", dark ? 0.08 : 0.07), rim: canvasColor("fg-muted", dark ? 0.45 : 0.4) }, hold: canvasColor("fg", dark ? 0.3 : 0.25),
+               costs: canvasColor("fg", dark ? 0.08 : 0.07), rim: canvasColor("fg-muted", dark ? 0.45 : 0.4) }, hold: { line: canvasColor("fg", dark ? 0.3 : 0.25), area: canvasColor("fg", dark ? 0.09 : 0.1) },
       exposure: canvasColor("equity", dark ? 0.4 : 0.3), exposureFill: canvasColor("equity", dark ? 0.1 : 0.07),
     },
   };

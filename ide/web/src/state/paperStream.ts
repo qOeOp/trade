@@ -4,7 +4,7 @@
 // event to highlight, the Trades window's tab, and the day picked in the calendar.
 import { streamUrl, type JournalLine, type Live, type PaperState, type RuntimeFailure, type Seal } from "../lib/paperApi";
 import { CATEGORIES, type Category } from "../model/paper";
-import { atom, useAtom } from "./atom";
+import { atom, persistedAtom, useAtom } from "./atom";
 
 export type Stream = {
   paperId: number; symbol: string | null; lines: JournalLine[]; bars: JournalLine[];
@@ -24,6 +24,9 @@ export const pickedTrade = atom<string | null>(null);
 export const pickedDay = atom<string | null>(null);
 /** The tab the Trades window shows; a click on a chart marker turns it to the events. */
 export const tradesTab = atom<"trades" | "events" | "logs" | "exceptions" | "reconcile">("trades");
+/** Whether the equity chart draws its buy and hold over a backtest and over a paper run, kept for the viewer. */
+export const holdShown = persistedAtom<{ backtest: boolean; paper: boolean }>("rg-equity-hold@1", { backtest: true, paper: false },
+  (v): v is { backtest: boolean; paper: boolean } => typeof (v as { backtest?: unknown })?.backtest === "boolean" && typeof (v as { paper?: unknown }).paper === "boolean");
 /** The month (YYYY-MM) the calendar shows, or null for the run's latest. */
 export const calendarMonth = atom<string | null>(null);
 /** The event categories the Events list shows. */

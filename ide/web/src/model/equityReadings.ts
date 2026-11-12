@@ -55,3 +55,25 @@ export function equityReadings(path: readonly (readonly [number, number])[], lin
   return found;
 }
 
+/** A backtest's buy and hold at each of `days` (a day's start, s; its point is the account at its close):
+ *  `closes` each contract's daily closes ([day start s, close], in order), each contract bought for an
+ *  equal share of `starting` at its first close on or before the first day, or, with none then, held as
+ *  cash until its first close; never rebalanced, price only (no fees or funding). Null with no closes. */
+export function dailyHold(days: readonly number[], closes: Closes, starting: number): Map<number, number> | null {
+  const symbols = Object.keys(closes).filter((s) => closes[s]!.length);
+  if (!symbols.length) return null;
+  const share = starting / symbols.length, at = symbols.map(() => 0), last: (number | null)[] = symbols.map(() => null), base = [...last];
+  const found = new Map<number, number>();
+  for (const day of days) {
+    let hold = 0;
+    symbols.forEach((s, k) => {
+      const series = closes[s]!;
+      while (at[k]! < series.length && series[at[k]!]![0] <= day) last[k] = series[at[k]!++]![1];
+      base[k] ??= last[k]!;
+      hold += base[k] === null ? share : (share * last[k]!) / base[k]!;
+    });
+    found.set(day, hold);
+  }
+  return found;
+}
+
