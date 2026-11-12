@@ -12,15 +12,18 @@ select`); its development period follows from the date and the start's contracts
 
 ## Read the ledger first
 
-- At every start, return from an interruption and `registration add`, check the checkout first:
+- Research runs in a worktree of its own, detached at `origin/main` (`git worktree add --detach
+  /tmp/research-<session id> origin/main`, every command run from it), so other sessions' work in
+  the main checkout cannot block it; profiles, `.env` and outputs resolve as from the main checkout.
+  Read skill files from this worktree, not through the Skill tool, which loads the main checkout's.
+- At every start, return from an interruption and `registration add`, check that worktree first:
   after `git fetch origin main`, `HEAD` is the current `origin/main` (`git rev-parse HEAD` equals
   `git rev-parse origin/main`) and the working tree is clean (`git status --porcelain` prints nothing). Fixes reach
   a session only through its checkout, and sealing records the checkout's commit as the revision of
   its readings. If `HEAD` is an older commit on `origin/main` and the tree is clean, move it there
-  (`git merge --ff-only origin/main` on `main`, `git checkout --detach origin/main` on a detached
-  `HEAD`) and say so in one line, then read again each skill file the move changed before using it
-  (the session holds the old text); otherwise do not register or replay, and tell the user the branch
-  or commit and any uncommitted paths.
+  (`git checkout --detach origin/main`) and say so in one line, then read again each skill file the
+  move changed before using it (the session holds the old text); otherwise do not register or
+  replay, and tell the user the commit and any uncommitted paths.
 - Then read the ledger before anything else: whether
   the service is up (`ledger service status`), the candidates (`candidate list`), the counts
   (`research status`) and the research state (`research state`): its `open_lines`, and for each
