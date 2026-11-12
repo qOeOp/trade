@@ -62,4 +62,4 @@ Real orders start only from the Live page, through its paired control (the `live
 
 ## Data and evidence
 
-The Dolt SQL service hosts the research ledger and the separate `paper` database, each named by its connection profile; `dolt_backup` and DoltHub retain historical copies of the research ledger only, and the `paper` database is never published. Market data lives in the market directory as plain Parquet files by table and month, with no copy. No copy creates a new source of fact. Native reports are caches: reconstruct them from pinned inputs and runtime, then compare them against their stored fingerprints.
+The Dolt SQL service hosts the research ledger and the separate `paper` database, each named by its connection profile; `dolt_backup` keeps a local copy of each; only the research ledger is published to DoltHub, the `paper` database never is. Market data lives in the market directory as plain Parquet files by table and month, with no copy. No copy creates a new source of fact. Native reports are caches: reconstruct them from pinned inputs and runtime, then compare them against their stored fingerprints.
