@@ -347,14 +347,50 @@ def _overlapping_line(conn: db.LedgerConnection, line: str | int, counted: Itera
     return record, instruments, overlapping_trials(counted, instruments, start, end)
 
 
+def sweeps(conn: db.LedgerConnection, line_id: int, found: Sequence[Mapping]) -> dict:
+    """The variants assessed without a replay on the lines behind `found` (the line itself and the lines of
+    its overlapping trials): the sum over their current search_exposure judgments of the largest
+    `Evaluated variants: K` along each one's supersession chain, so a supersession never lowers it
+    (`sweep_variants`), and the current judgments whose chain declares none (`undeclared_sweeps`, ids):
+    the sum is then a lower bound."""
+    ids = sorted({trial["trial_id"] for trial in found})
+    owners = {line_id}
+    if ids:
+        owners |= {owner for (owner,) in conn.rows("SELECT DISTINCT line_id FROM trial WHERE line_id IS NOT NULL AND "
+                                                   "trial_id IN (" + ",".join(["%s"] * len(ids)) + ")", tuple(ids))}
+    rows = conn.dicts("SELECT judgment_id, supersedes, body FROM judgment WHERE kind = 'search_exposure' AND line_id IN ("
+                      + ",".join(["%s"] * len(owners)) + ") ORDER BY judgment_id", tuple(sorted(owners)))
+    by_id = {row["judgment_id"]: row for row in rows}
+    superseded = {row["supersedes"] for row in rows if row["supersedes"] is not None}
+    total, undeclared = 0, []  # type: int, list[int]
+    for row in rows:
+        if row["judgment_id"] in superseded:
+            continue
+        declared: list[int] = []
+        link: Mapping | None = row
+        while link is not None:
+            k = judgments.declared_variants(link["body"])
+            if k is not None:
+                declared.append(k)
+            link = by_id.get(link["supersedes"])
+        if declared:
+            total += max(declared)
+        else:
+            undeclared.append(row["judgment_id"])
+    return {"sweep_variants": total, "undeclared_sweeps": undeclared}
+
+
 def trial_counts(conn: db.LedgerConnection, line: str | int, counted: Iterable[Mapping]) -> dict | None:
-    """The counts of multiple_testing alone, which need no return series: `research_trials` and
-    `all_purpose_trials`. Null before the line's first research trial."""
+    """The counts of multiple_testing alone, which need no return series: `research_trials`,
+    `all_purpose_trials`, `sweep_variants`, `undeclared_sweeps` and `trials_with_sweeps`. Null before the
+    line's first research trial."""
     overlap = _overlapping_line(conn, line, counted)
     if overlap is None:
         return None
-    found = overlap[2]
-    return {"research_trials": sum(trial["purpose"] == "research" for trial in found), "all_purpose_trials": len(found)}
+    record, _, found = overlap
+    swept = sweeps(conn, record["line_id"], found)
+    return {"research_trials": sum(trial["purpose"] == "research" for trial in found), "all_purpose_trials": len(found),
+            **swept, "trials_with_sweeps": len(found) + swept["sweep_variants"]}
 
 
 def multiple_testing(conn: db.LedgerConnection, line: str | int, counted: Iterable[Mapping],
@@ -362,7 +398,8 @@ def multiple_testing(conn: db.LedgerConnection, line: str | int, counted: Iterab
     """The trials behind a line's runs: the counted trials (counted_trials) that traded one of the
     instruments of the line's research trials in a trading window overlapping the line's development
     window, across market days and lines (`research_trials`; `all_purpose_trials` adds precheck,
-    explore and validation trials). From the trade-window daily returns of the overlapping research
+    explore and validation trials; `trials_with_sweeps` adds the variants their lines' search_exposure
+    judgments declare, `sweeps`). From the trade-window daily returns of the overlapping research
     runs with economic evidence (`available`) whose returns vary (`runs_with_returns`): the mean
     pairwise correlation over common days (`mean_correlation`), the independent trials it leaves of
     research_trials (`effective_trials`) and the sample variance of their daily Sharpe ratios
@@ -392,8 +429,10 @@ def multiple_testing(conn: db.LedgerConnection, line: str | int, counted: Iterab
         if sharpe is not None:
             daily[trial_id] = sharpe / math.sqrt(365)
     correlation = mean_correlation([series[trial_id] for trial_id in daily])
+    swept = sweeps(conn, record["line_id"], found)
     return {"line": record["name"], "dev_start": record["dev_start"], "dev_end": record["dev_end"],
             "instruments": sorted(instruments), "research_trials": len(research), "all_purpose_trials": len(found),
+            **swept, "trials_with_sweeps": len(found) + swept["sweep_variants"],
             "runs_with_returns": len(daily), "mean_correlation": correlation,
             "effective_trials": effective_trials(correlation, len(research)),
             "daily_sharpe_variance": statistics.variance(daily.values()) if len(daily) > 1 else None}
@@ -459,13 +498,14 @@ def _dominates(better: Mapping, worse: Mapping) -> bool:
 
 def deflated_range(facts: Mapping, testing: Mapping | None) -> dict | None:
     """One run's deflated Sharpe (measures.deflated_sharpe) over its trading-window daily returns, at each
-    end of the line's multiple-testing reading: `effective_trials` and `all_purpose_trials`, both with its
-    `daily_sharpe_variance`; an end is None when it cannot be computed. None without a reading."""
+    end of the line's multiple-testing reading: `effective_trials` and `trials_with_sweeps`, both with its
+    `daily_sharpe_variance`; an end is None when it cannot be computed. None without a reading. The
+    variants assessed without a replay have no return series, so they enter the upper end only."""
     if testing is None:
         return None
     returns = [value for ts, value, _ in facts["returns"] if facts["trade_start_ns"] <= ts < facts["trade_end_ns"]]
     return {name: measures.deflated_sharpe(returns, testing[name], testing["daily_sharpe_variance"])
-            for name in ("effective_trials", "all_purpose_trials")}
+            for name in ("effective_trials", "trials_with_sweeps")}
 
 
 def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mapping, records: list,

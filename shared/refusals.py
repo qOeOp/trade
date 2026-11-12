@@ -359,6 +359,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                "takes about, or no role.",)),
     "SUPERSEDES_INVALID": ("The superseded judgment is missing, of another kind or line, or already superseded.",
                            ("Supersede the current judgment of the same kind on the same line.",)),
+    "SEARCH_EXPOSURE_VARIANTS_MISSING": ("A search_exposure body does not start with the line `Evaluated variants: K`.",
+                                         ("Make the first line `Evaluated variants: K`, K the number of rule or "
+                                          "parameter variants the view assessed against the line's data without "
+                                          "a replay (research-round feedback.md); 0 only when it touches no "
+                                          "variant.",)),
     "OP_ID_CONFLICT": ("This operation ID already names a record with other content.",
                        ("Use a new operation ID, or omit it to derive one from the content.",)),
     "RECOMMENDATION_INCOMPLETE": ("A recommendation does not name every candidate of the line (its own trials and "

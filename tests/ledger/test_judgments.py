@@ -105,7 +105,7 @@ class JudgmentTests(unittest.TestCase):
         second = self.add("priority", body="second", supersedes=first["judgment_id"])
         self.assertEqual(self.code(kind="priority", body="third", supersedes=first["judgment_id"]),
                          "SUPERSEDES_INVALID")
-        self.assertEqual(self.code(kind="search_exposure", body="x", supersedes=second["judgment_id"]),
+        self.assertEqual(self.code(kind="search_exposure", body="Evaluated variants: 1\nx", supersedes=second["judgment_id"]),
                          "SUPERSEDES_INVALID")
         self.assertEqual(self.code(kind="priority", body="x", supersedes=10**9), "SUPERSEDES_INVALID")
         current = {row[0] for row in self.service.sql(self.profile, "SELECT judgment_id FROM judgment j WHERE "
@@ -115,6 +115,16 @@ class JudgmentTests(unittest.TestCase):
         with self.assertRaises(Refusal) as caught:
             self.add("verdict", body="not a judgment kind")
         self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")
+
+    def test_a_search_exposure_declares_its_variants_on_the_first_line(self):
+        for body in ("x", "Evaluated variants: 01", "evaluated variants: 3", " Evaluated variants: 3",
+                     "Evaluated variants: -1", "Evaluated variants: 3 views", "Notes\nEvaluated variants: 3"):
+            with self.subTest(body=body):
+                self.assertEqual(self.code(kind="search_exposure", body=body), "SEARCH_EXPOSURE_VARIANTS_MISSING")
+        first = self.add("search_exposure", body="Evaluated variants: 0\nsignal dates only")
+        self.add("search_exposure", body="Evaluated variants: 12\r\ngrid", supersedes=first["judgment_id"])
+        self.add("interpretation", body="no variants line needed")
+        self.assertEqual([judgments.declared_variants(body) for body in ("Evaluated variants: 7", "x", "")], [7, None, None])
 
     def test_a_recommendation_names_every_candidate_of_the_comparison_table(self):
         strategies.publish_candidate(self.profile, source("b"), "b", "Fixture", "another root")

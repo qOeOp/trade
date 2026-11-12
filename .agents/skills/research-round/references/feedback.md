@@ -14,8 +14,10 @@ Before the next registration, interpret the previous completed result with its a
 reassessment conditions. Invalid runs retried through `retry_of` receive repair evidence instead
 (diagnosis.md). Losing, insignificant or zero-activity results do not exclude a direction. Record
 self-computed views as search_exposure, naming each variant compared: analyses of replayed runs,
-skill-required ones included, and views of signals, dates or counts; product trial counts come from
-the ledger.
+skill-required ones included, and views of signals, dates or counts. Its first line is `Evaluated
+variants: K`, K the rule or parameter variants it set against the line's data without a replay (a
+variant's signal dates on known prices count); 0 only when it touches none. Product trial counts,
+these included, come from the ledger.
 
 ## Choose the next experiment
 

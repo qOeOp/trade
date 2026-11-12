@@ -112,7 +112,8 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertEqual(contract.check_graph(found), [])
         self.assertEqual(found, self.graph(), "one ledger commit gives one graph")
         reading = status.research_status(self.world.profile, None, found["line"]["bundle"])["multiple_testing"]
-        self.assertEqual(found["line"]["trial_counts"], {name: reading[name] for name in ("research_trials", "all_purpose_trials")},
+        self.assertEqual(found["line"]["trial_counts"], {name: reading[name] for name in ("research_trials", "all_purpose_trials", "sweep_variants",
+                                                                          "undeclared_sweeps", "trials_with_sweeps")},
                          "the graph's counts are the multiple-testing reading's")
         first, second = self.refs
         by_id = {c["id"]: c for c in found["candidates"]}

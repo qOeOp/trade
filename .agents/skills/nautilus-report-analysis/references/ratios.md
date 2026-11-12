@@ -11,7 +11,7 @@
   written under /tmp.
 - For a deflated Sharpe of a run in its line's comparison table, read the run's `deflated_sharpe`
   in `research status --line <the run's line>`: one end at `multiple_testing`'s `effective_trials`,
-  the other at its `all_purpose_trials`, both with its `daily_sharpe_variance` `V`. For another run,
+  the other at its `trials_with_sweeps`, both with its `daily_sharpe_variance` `V`. For another run,
   such as a candidate picked by its closing history results with `research history`'s participant
   count as `N`, compute it; never count trials yourself or compute a value from a count someone
   remembers. From the run's daily returns take the daily Sharpe (not annualized), skewness, raw

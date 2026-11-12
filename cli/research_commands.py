@@ -477,6 +477,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "RECOMMENDATION_INCOMPLETE (a recommendation must name as a subject every candidate of the line's own trials "
         "and start with a run of its execution identity in the comparison table at --based-on: its `candidates`); "
         "SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
+        "SEARCH_EXPOSURE_VARIANTS_MISSING (a search_exposure body whose first line is not `Evaluated variants: K`); "
         "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"),
     ("line", "select"): (
         "the market at --market-at (reader): market day, universe rule, latest complete day; the start "
@@ -564,7 +565,10 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "Sharpe of the line's runs reads: line, dev_start, dev_end, instruments (those of the line's research "
         "trials), research_trials and all_purpose_trials (counted trials on one of those instruments whose trading "
         "window overlaps the line's, across market days and lines; all_purpose_trials adds precheck, explore "
-        "and validation), runs_with_returns (the overlapping research runs with economic evidence and varying "
+        "and validation), sweep_variants (the variants assessed without a replay that the current search_exposure "
+        "judgments of the line and of those trials' lines declare, the largest K along each supersession chain), "
+        "undeclared_sweeps (ids of current search_exposure judgments declaring none, so the sum is a lower bound), "
+        "trials_with_sweeps (all_purpose_trials + sweep_variants), runs_with_returns (the overlapping research runs with economic evidence and varying "
         "daily returns), mean_correlation (their mean pairwise daily-return correlation over common days), "
         "effective_trials (rho + (1 - rho) * research_trials, rho the mean correlation floored at 0), "
         "daily_sharpe_variance (the variance of their per-day Sharpe ratios); null without a line or before its "
@@ -576,7 +580,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "execution_identity (the line's, from its "
         "latest research trial since line select; null before the first), runs [{candidate, trial_id, "
         "execution_identity {runtime_contract, execution, image_digest, keys}, measures, deflated_sharpe "
-        "{effective_trials, all_purpose_trials} (the run's deflated Sharpe at each multiple_testing count with its "
+        "{effective_trials, trials_with_sweeps} (the run's deflated Sharpe at each multiple_testing count with its "
         "daily_sharpe_variance; null without that reading), dominated_by, non_dominated}] (dominance only within one "
         "identity), candidates (those of the line's identity, which a "
         "recommendation names), without_economic_evidence; null without a line)",
@@ -648,7 +652,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("research", "counts"): (
         "the line's research trials and every counted trial with its capture manifest at --at (reader)",
         "nothing",
-        "trial_counts (research_trials, all_purpose_trials, as `research graph` gives them; null before the line's "
+        "trial_counts (research_trials, all_purpose_trials, sweep_variants, undeclared_sweeps, trials_with_sweeps, "
+        "as `research graph` gives them; null before the line's "
         "first research trial), ledger_commit",
         "LINE_UNKNOWN (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"),
     ("research", "graph"): (

@@ -106,6 +106,18 @@
             },
             "all_purpose_trials": {
               "type": "integer"
+            },
+            "sweep_variants": {
+              "type": "integer"
+            },
+            "undeclared_sweeps": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "trials_with_sweeps": {
+              "type": "integer"
             }
           }
         },

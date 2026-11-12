@@ -3,7 +3,9 @@
 A judgment is the Agent's text (recommendation, priority, interpretation or search exposure; the
 judgment.kind ENUM) on a research line, based on an exact ledger commit, about named candidates, trials or
 research registrations. It cites records and never copies their facts; it is appended, and a
-newer judgment of the same kind on the same line supersedes it at most once. The review cadence is
+newer judgment of the same kind on the same line supersedes it at most once. A search_exposure body
+starts with `Evaluated variants: K`, the variants it assessed without a replay, which the line's
+multiple-testing reading adds to its trial count (report.status.sweeps). The review cadence is
 the product's (registration.REVIEW_EVERY), never a judgment. A recommendation names, among its
 candidate subjects, every candidate with a run of the line's execution identity in its comparison
 table at the commit it is based on.
@@ -12,12 +14,14 @@ table at the commit it is based on.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import re
 
 from ledger import db, lines, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
 
 
+VARIANTS_LINE = re.compile(r"Evaluated variants: (0|[1-9][0-9]*)")
 CANDIDATE_ROLES = ("recommended", "parent", "control")  # with `about`, the judgment_subject.role ENUM
 TARGETS = ("candidate", "trial_id", "registration_id")
 
@@ -60,6 +64,13 @@ def _check_subject(conn: db.LedgerConnection, subject: dict) -> tuple:
     return subject["role"], None, None, registration
 
 
+def declared_variants(body: str) -> int | None:
+    """K of a search_exposure body's first line `Evaluated variants: K`; None without that line (judgments
+    written before 2026-11-12, which `judgment add` now refuses)."""
+    found = VARIANTS_LINE.fullmatch(body.split("\n", 1)[0].rstrip("\r"))
+    return int(found.group(1)) if found else None
+
+
 def _is_ancestor(conn: db.LedgerConnection, ancestor: str, descendant: str) -> bool:
     (base,), = conn.rows("SELECT DOLT_MERGE_BASE(%s, %s)", (ancestor, descendant))
     return base == ancestor
@@ -74,6 +85,9 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line: str, based_on_commi
     comparison table at a commit, which a recommendation must all name (required for one)."""
     if kind == "recommendation" and compared is None:
         raise ValueError("a recommendation needs the comparison table (compared=)")
+    if kind == "search_exposure" and declared_variants(body) is None:
+        raise refuse("SEARCH_EXPOSURE_VARIANTS_MISSING", "the body's first line is not `Evaluated variants: K`",
+                     expected="Evaluated variants: K")
     normalized = _subjects(subjects)
     with db.connect(profile, "writer") as conn:
         try:
