@@ -151,7 +151,7 @@ class Observer(Strategy):
         pending = pending_orders(self.cache, source.strategy_id)
         entries = [order for order in pending if not order.is_reduce_only]
         session.cancel_open(self.cache, entries, now)
-        if session.interrupting:
+        if session.interrupting or session.rewarming:
             # Positions and their reduce-only exchange orders stay; only entries, which nothing would protect, go.
             if not entries:
                 session.node.handle().stop()

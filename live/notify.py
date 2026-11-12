@@ -294,7 +294,6 @@ def _messages(run: dict) -> list[tuple[str, str]]:
 
 
 HELD = {"unknown_orders": "Binance holds orders this run does not know; every order on the contract was canceled",
-        "bars_missing": "a bar is missing from the feed; only a restart's warm-up rebuilds the strategy's input",
         "account_mode": "the account's modes changed", "foreign": "the account holds a position or order of another symbol"}
 
 
@@ -313,6 +312,11 @@ def _gate_messages(run: dict, name: str) -> list[tuple[str, str]]:
             noticed = True
             result.append((key, f"{name}: entries are still closed after ten minutes: Binance and the run's records "
                                 "do not agree yet."))
+        elif event == "entries_closed" and reasons and reasons[0] == "bars_missing":
+            noticed = True
+            result.append((key, f"{name}: a bar is missing from the feed, so entries are closed. Positions keep their "
+                                "exits; once the run holds nothing it starts again and warms up on Binance's complete "
+                                "bars (a minute or two), then trades."))
         elif event == "entries_closed" and reasons and reasons[0] in HELD:
             noticed = True
             result.append((key, f"{name}: entries are closed for the rest of the run: {HELD[reasons[0]]}. "
@@ -355,19 +359,26 @@ def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
     texts = {"interrupted": "was interrupted without closing: open positions keep their exchange stops, and the "
                             "control starts the run again.",
              "venue_flat_while_held": "is flat at Binance again; the next start trades.",
+             "rewarming": "missed a bar and holds no position: it starts again to warm up on Binance's complete bars.",
              "restart_limited": "was interrupted more than 3 times within an hour and is no longer started again "
                                 "automatically: open positions keep their exchange stops. Look at the run, then start "
                                 "or stop it."}
-    result = []
+    result, rewarming = [], False
     for row in run.get("restarts") or []:
         key, event = f"{run['run_id']}:restart:{row['event']}:{row['observed_ns']}", row["event"]
         text: str | None
-        if event == "resuming":
+        if event == "warmup":
+            # Design §3.2 item 3: entries reopen once a start after a missing bar has warmed up again.
+            text, rewarming = "warmed up again after the missing bar; entries are open." if rewarming else None, False
+        elif event == "resuming" and rewarming and not row.get("held"):
+            text = None  # said by the rewarming notice; the warm-up says when entries are open
+        elif event == "resuming":
             # The user's decision of 2026-11-13 (docs/plans/live-continuous-step4-resume-20261113.zh.md): say at
             # once that the strategy no longer manages the inherited position, so it can be closed by hand.
             text = (HELD_TEXT if row.get("held") else "started again on a flat account; it warms up and trades.")
         else:
             text = texts.get(event)
+            rewarming = rewarming or event == "rewarming"
         if text:
             result.append((key, f"{name} {text}"))
     return result

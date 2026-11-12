@@ -190,6 +190,9 @@ def _gated(name: str, method):
             live_connection.bar(self._live, args[0])
             if live_connection.held_bar(self._live, args[0]):
                 return None  # the run ends before the source decides again (engine.live_connection.held_bar)
+            if "bars_missing" in self._live.connection.closed and live_connection.rewarm_pending(
+                    self._live, Strategy.cache.__get__(self, type(self))):
+                return None  # a flat source decides on nothing after a gap: the next start warms it up again
             if method is None:
                 return None
             self._live.deciding = args[0].bar_type

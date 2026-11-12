@@ -106,11 +106,13 @@ class LiveViewTests(LiveFixture):
         self.native("interrupted")
         self.native("resuming", held=True)
         self.native("venue_flat_while_held", observation="held-account-1.json")
+        self.native("rewarming")
+        self.native("warmup", at_ns=1)
         state.append(self.directory / "lifecycle.jsonl", "restart_limited", self.run_id)
         result = views.run_view(self.root, self.run_id)
         self.assertEqual([(row["event"], row["held"]) for row in result["restarts"]],
                          [("interrupted", None), ("resuming", True), ("venue_flat_while_held", None),
-                          ("restart_limited", None)])
+                          ("rewarming", None), ("warmup", None), ("restart_limited", None)])
 
     def test_missing_native_and_account_are_unknown_not_zero_or_flat(self):
         (self.directory / "out" / "events.jsonl").unlink()

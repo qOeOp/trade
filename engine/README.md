@@ -582,12 +582,16 @@ seconds apart (one native position and open-order reconciliation cycle), both ag
 side and its open orders by venue ID, the account modes, nothing on another symbol, and a live bar received since the
 reconnect. A disagreement restarts the check. Orders at Binance the cache does not know are canceled with every order
 on the contract (native cancel-all, regular and conditional), and entries then stay closed for the run, as they do
-after a missing external bar (no data is patched; a restart's warm-up rebuilds the source's input) or changed account
-modes. The comparison also runs every five minutes while entries are open; two disagreeing reads in a row close them.
+after changed account modes. A missing external bar (Binance's stream does not resend a close it missed) is not
+patched: entries close and working ones are withdrawn; a position keeps its source and exits. Once the strategy holds
+no position, order or held entry, its source sees no further bar, and after two agreeing comparisons this start ends
+without closing anything (`rewarming`, exit status 3). The control starts the run again, whose warm-up reads Binance's
+complete bars (decision `docs/plans/live-bars-missing-rewarm-20261113.zh.md`). The comparison also runs every five minutes while entries are open; two disagreeing reads in a row close them.
 While nothing is open, a connection older than 23 hours is renewed natively (`reconnect_socket`) between seconds 20 and
 40 of a minute, moving Binance's 24-hour cut away from positions and the bar boundary. With a position open, the
 existing 60-second rule for a missing mark price still stops the run. A socket down for a minute, a check not passed
-in ten minutes, entries closed for the run and their reopening after such a notice are Telegram notices. No custom
+in ten minutes, entries closed for the run or for a missing bar, a start again to warm up, and the reopening after
+such a notice are Telegram notices. No custom
 reconciliation engine or second trading client is used.
 
 An Observer failure sends the same one cancel per working entry and ends the run unresolved. A source that leaves

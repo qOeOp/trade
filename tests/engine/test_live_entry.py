@@ -32,7 +32,7 @@ from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import history, live, live_brake
-from engine import live_commands as commands, live_lifecycle, live_node, live_session, live_source as live_source_runtime
+from engine import live_commands as commands, live_connection, live_lifecycle, live_node, live_session, live_source as live_source_runtime
 from engine.config import Refusal
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
@@ -427,6 +427,25 @@ class NativeEntryTests(unittest.TestCase):
         self.assertEqual(self.engine.cache.order(stop.client_order_id).status, OrderStatus.ACCEPTED)
         self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [position])
         self.assertFalse(self.session.failed)
+
+    def test_a_missing_bar_withdraws_a_working_entry_and_a_flat_start_ends_without_closing(self):
+        entry = self.admit(self.limit(price="95.00"))
+        self.assertEqual(entry.status, OrderStatus.ACCEPTED)
+        self.session.node = Mock()
+        live_connection.close_entries(self.session, "bars_missing", bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL",
+                                      after_ns=0, received_ns=1)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.CANCELED)
+        self.assertEqual([row["reason"] for row in self.read_events("entry_cancel_requested")], ["bars_missing"])
+        self.assertTrue(live_connection.rewarm_pending(self.session, self.engine.cache))
+        with patch.object(live_connection, "compare", return_value={}):
+            for observed in (10**12, 10**12 + 31 * 10**9):
+                live_connection.judge(self.session, self.engine.cache, {"observed_ns": observed})
+        self.assertTrue(self.session.rewarming)
+        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
+        live_lifecycle.Observer.observe(observer)
+        self.session.node.handle().stop.assert_called_once()  # nothing to close: this start ends as it is
+        self.assertFalse(self.session.native_flat or self.session.failed)
 
     def test_accepted_stop_for_the_whole_position_keeps_the_run_going(self):
         self.owned_position()
