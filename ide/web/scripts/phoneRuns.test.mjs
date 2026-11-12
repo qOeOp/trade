@@ -12,7 +12,7 @@ const row = (type, ms, extra = {}) => ({ event_type: type, ts_event: ns(ms), obs
 const fact = (label, value) => ({ label, value });
 const run = (over = {}) => ({
   id: "r1", candidate: "rsi@1", running: true, ended: false, symbols: ["BTCUSDT"], observedNs: { account: ns(T), terminal: null },
-  config: [fact("Budget (USDT)", "90"), fact("Loss threshold (USDT)", "5")], host: [fact("State", "running")], ending: [fact("Stop requested", "No")],
+  config: [fact("Drawdown brake", "0.15"), fact("Equity at start (USDT)", "90"), fact("Highest equity (USDT)", "100")], host: [fact("State", "running")], ending: [fact("Stop requested", "No")],
   equity: { budget: 90, minutes: [[1, 90], [2, 88.5], [3, null], [4, 91.84]] },
   orders: [row("OrderAccepted", T, { client_order_id: "E-1", order_side: "SELL", order_type: "LIMIT", price: "74700", quantity: "0.002" }),
     row("OrderFilled", T + 1000, { client_order_id: "E-1", order_side: "SELL", last_px: "74652.3", last_qty: "0.002" }),
@@ -32,9 +32,10 @@ test("a Live run holds what its positions' latest native events leave open, and 
   assert.deepEqual(lastFill(run()), { ms: T + 1000, symbol: "BTCUSDT", buy: false, qty: 0.002, px: 74652.3 });
 });
 
-test("the loss used is the budget less the account; the deepest loss stays; the run stops at budget less the threshold", () => {
-  assert.deepEqual(liveMoney(run()), { budget: 90, equity: 91.84, result: 91.84 - 90, maxLoss: 5, deepest: 1.5, stopsAt: 85 });
-  assert.equal(liveMoney(run({ equity: null, config: [] })), null, "no budget, no figures");
+test("the drawdown is from the highest equity; the deepest stays; the run stops the brake below the highest", () => {
+  assert.deepEqual(liveMoney(run()), { start: 90, equity: 91.84, result: 91.84 - 90, peak: 100, drawdown: 100 - 91.84, deepest: 1.5,
+    room: 15, stopsAt: 85 });
+  assert.equal(liveMoney(run({ equity: null, config: [] })), null, "no start, no figures");
 });
 
 test("a Live run's state reads as one word: unresolved before anything else, a requested stop while it runs", () => {

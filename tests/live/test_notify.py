@@ -222,6 +222,16 @@ class Sending(Base):
         self.assertIn("entries are open", texts[1])
         self.assertIn("closed for the rest of the run: a bar is missing", texts[2])
 
+    def test_the_brake_and_a_failed_key_check_and_its_recovery_are_noticed(self):
+        facts = run(brake={"peak": "104", "fired": {"equity": "88", "peak": "104", "drawdown": "0.1538",
+                                                    "observed_ns": "3"}},
+                    key_checks=[{"event": "key_check_failed", "code": "LIVE_KEY_WITHDRAWAL", "observed_ns": "4"},
+                                {"event": "key_check_passed", "code": None, "observed_ns": "5"}])
+        texts = [text for key, text in notify.messages(facts) if ":brake" in key or ":key:" in key]
+        self.assertIn("hit its drawdown brake: equity 88 USDT is 0.1538 below its highest 104 USDT", texts[0])
+        self.assertIn("failed the periodic check (LIVE_KEY_WITHDRAWAL)", texts[1])
+        self.assertIn("passes the periodic check again", texts[2])
+
     def test_an_interruption_each_start_again_and_the_restart_limit_are_noticed(self):
         restarts = [{"event": "interrupted", "observed_ns": "1", "held": None},
                     {"event": "resuming", "observed_ns": "2", "held": True},

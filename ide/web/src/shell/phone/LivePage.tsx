@@ -26,7 +26,7 @@ export function LivePage({ id }: { id: string }) {
   useEffect(() => { if (run && actions.inspect) void actions.inspect(run.id); }, [run?.id, actions.inspect]);
   const money = run ? liveMoney(run) : null;
   const points = useMemo(() => (run?.equity?.minutes ?? []).flatMap(([t, v]) => (v === null ? [] : [[t, v] as const])), [run?.equity]);
-  const levels = useMemo<Level[]>(() => money ? [{ value: money.budget, title: "Budget" }, ...(money.stopsAt !== null ? [{ value: money.stopsAt, title: "Loss limit", loss: true }] : [])] : [], [money?.budget, money?.stopsAt]);
+  const levels = useMemo<Level[]>(() => money ? [{ value: money.start, title: "Start" }, ...(money.stopsAt !== null ? [{ value: money.stopsAt, title: "Drawdown brake", loss: true }] : [])] : [], [money?.start, money?.stopsAt]);
   const back = { label: "Runs", onClick: closeRun };
   if (!run) return <><PhoneTop back={back} aside="Live" /><p className="p-4 text-dense text-fg-faint">{view.availability === "unavailable" ? "Live is not answering." : "This Live run is not listed by Live."}</p></>;
   const status = liveStatus(run), fill = lastFill(run), held = marked(liveHeld(run), coins), working = liveWorking(run), seen = liveObserved(run);
@@ -40,7 +40,7 @@ export function LivePage({ id }: { id: string }) {
         <div className="space-y-1 px-3 pt-3">
           <p className="flex min-w-0 items-baseline gap-2 text-dense"><Version name={run.candidate} /><span className={`shrink-0 ${textClass(status.tone)}`}>{status.word}</span></p>
           <p className="text-small text-fg-faint">{run.symbols?.join(", ") ?? "–"}{first !== undefined && ` · since ${since(first * 1000, zone, now)}`}{seen !== null && ` · ${keep(`observed ${ago(seen, now)} ago`)}`}</p>
-          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1"><Amount value={money?.equity ?? null} /><Change amount={money?.result} ratio={money && money.result !== null ? money.result / money.budget : null} /></p>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1"><Amount value={money?.equity ?? null} /><Change amount={money?.result} ratio={money && money.result !== null ? money.result / money.start : null} /></p>
           {fill && <FillLine fill={fill} zone={zone} />}
         </div>
         {points.length > 1 && <div className="px-3 pt-3"><EquityLine points={points} levels={levels} /></div>}

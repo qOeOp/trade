@@ -18,9 +18,10 @@ function accountCheck(run: LiveRunDto): LiveAccountCheck | null {
   };
 }
 
-/** The run's budget and its minute results as the account the chart draws (budget plus result), by time in seconds. */
+/** The equity the run armed with and its minute results as the account the chart draws (that plus the result), by
+ *  time in seconds. */
 function equityOf(run: LiveRunDto): LiveRun["equity"] {
-  const budget = Number(run.config.budget_usdt);
+  const budget = Number(run.brake?.start ?? NaN);
   if (!run.minute_results || !(budget > 0)) return null;
   return { budget, minutes: run.minute_results.map(([ns, result]) => [Math.floor(Number(ns) / 1e9), result === null ? null : budget + Number(result)] as const) };
 }
@@ -47,8 +48,8 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
     purpose: source?.purpose ?? "unknown", sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
     runtimeDigest: run.runtime.digest, symbols: run.symbols, accountCheck: accountCheck(run),
     observedNs: { account: account?.observed_ns ?? null, terminal: run.terminal?.observed_ns ?? null }, running: run.host.state === "running", ended: ENDED.has(run.host.state ?? ""),
-    config: [fact("Budget (USDT)", run.config.budget_usdt),
-      fact("Loss threshold (USDT)", run.config.max_loss_usdt), fact("Duration (seconds)", run.config.duration_seconds),
+    config: [fact("Drawdown brake", run.config.drawdown_brake), fact("Equity at start (USDT)", run.brake?.start ?? null),
+      fact("Highest equity (USDT)", run.brake?.peak ?? null), fact("Duration (seconds)", run.config.duration_seconds),
       fact("Leverage", run.config.leverage)],
     host: [fact("State", run.host.state), fact("Mode", run.host.mode), fact("Account custody held", yesNo(run.host.account_owned)), fact("Exit code", run.host.exit_code === null ? null : String(run.host.exit_code))],
     execution: [fact("Native terminal", run.terminal?.event ?? null), fact("Source failed", yesNo(run.terminal?.source_failed)), fact("Terminal observed", run.terminal?.observed_ns ?? null, "nanoseconds")],
@@ -76,9 +77,9 @@ export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<str
       ...item.evidence ? { evidence: { state: item.evidence.state, tolerance: item.evidence.tolerance,
         replays: item.evidence.replays.map((row) => ({ trialId: row.trial_id, balance: row.starting_balance_usdt })) } } : {} })),
     planFields: [
-      { id: "budget_usdt", label: "Budget (USDT)", value: home.defaults.budget_usdt },
-      { id: "max_loss_usdt", label: "Loss threshold (USDT)", value: home.defaults.max_loss_usdt },
-      { id: "duration_seconds", label: "Duration (seconds)", value: String(home.defaults.duration_seconds) },
+      // Shown and typed as a percentage; the server takes a fraction (state/liveTrading.ts).
+      { id: "drawdown_brake", label: "Drawdown brake", value: String(Math.round(Number(home.defaults.drawdown_brake) * 1e6) / 1e4) },
+      { id: "duration_seconds", label: "Duration (seconds)", value: home.defaults.duration_seconds === null ? "" : String(home.defaults.duration_seconds) },
       { id: "leverage", label: "Leverage", value: home.defaults.leverage },
     ],
     runs: home.runs.map((run) => liveRunPresentation(run, home.sources, reviews.get(run.run_id))), request: null,

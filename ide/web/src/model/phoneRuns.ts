@@ -10,7 +10,10 @@ import type { Coin } from "./market";
 export type Held = { key: string; symbol: string; long: boolean; qty: number; entry: number | null; mark: number | null; pnl: number | null };
 export type Working = { key: string; symbol: string; buy: boolean | null; qty: number | null; type: string; trigger: number | null; price: number | null; reduceOnly: boolean };
 export type Fill = { ms: number; symbol: string; buy: boolean | null; qty: number | null; px: number | null };
-export type Money = { budget: number; equity: number | null; result: number | null; maxLoss: number | null; deepest: number; stopsAt: number | null };
+/** A Live run's money: the equity it armed with, now, the result; its highest equity, how far below it equity is now
+ *  and was at worst, how far the brake lets it fall and the equity it stops at (engine/live_brake.py). */
+export type Money = { start: number; equity: number | null; result: number | null; peak: number | null; drawdown: number | null;
+  deepest: number; room: number | null; stopsAt: number | null };
 type LiveStatus = { word: string; tone: "meets" | "misses" | "fail" | "masked" };
 
 const ENDED = new Set(["OrderFilled", "OrderCanceled", "OrderRejected", "OrderExpired", "OrderDenied"]);
@@ -70,15 +73,17 @@ export function lastFill(run: LiveRun): Fill | null {
 
 const factOf = (facts: readonly { label: string; value: string | null }[], label: string) => facts.find((f) => f.label === label)?.value ?? null;
 
-/** The budget, the account now (budget plus the last known result), the loss threshold, the deepest loss
- *  so far and the equity the run stops at. */
 export function liveMoney(run: LiveRun): Money | null {
-  const budget = run.equity?.budget ?? amount(factOf(run.config, "Budget (USDT)"));
-  if (budget == null) return null;
+  const start = run.equity?.budget ?? amount(factOf(run.config, "Equity at start (USDT)"));
+  if (start == null) return null;
   const known = (run.equity?.minutes ?? []).flatMap(([, v]) => (v === null ? [] : [v]));
-  const equity = known.at(-1) ?? null, maxLoss = amount(factOf(run.config, "Loss threshold (USDT)"));
-  return { budget, equity, result: equity === null ? null : equity - budget, maxLoss,
-           deepest: Math.max(0, ...known.map((v) => budget - v)), stopsAt: maxLoss === null ? null : budget - maxLoss };
+  const equity = known.at(-1) ?? null, brake = amount(factOf(run.config, "Drawdown brake"));
+  // The brake counts from the highest equity it read; the chart's minutes are its own estimate between reads.
+  const peak = Math.max(amount(factOf(run.config, "Highest equity (USDT)")) ?? start, ...known);
+  let high = start, deepest = 0;
+  for (const v of known) { high = Math.max(high, v); deepest = Math.max(deepest, high - v); }
+  return { start, equity, result: equity === null ? null : equity - start, peak, drawdown: equity === null ? null : Math.max(0, peak - equity),
+           deepest, room: brake === null ? null : peak * brake, stopsAt: brake === null ? null : peak * (1 - brake) };
 }
 
 /** The run's state as one coloured word, as the desktop's run picker says it. */

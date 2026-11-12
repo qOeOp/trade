@@ -62,10 +62,10 @@ export function LiveCard({ run, now }: { run: LiveRun; now: number }) {
       <div className="space-y-1 px-3 pb-3 pt-2 pr-6">
         <p className="flex min-w-0 items-baseline gap-2 text-dense"><Version name={run.candidate} /><span className={`shrink-0 ${textClass(status.tone)}`}>{status.word}</span></p>
         <p className="truncate text-small text-fg-faint">Live · {run.symbols?.join(", ") ?? "–"}{seen !== null && ` · ${ended ? `ended ${clock(seen, zone)}` : `observed ${ago(seen, now)} ago`}`}</p>
-        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1"><Amount value={money?.equity ?? null} /><Change amount={money?.result} ratio={money && money.result !== null ? money.result / money.budget : null} /></p>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1"><Amount value={money?.equity ?? null} /><Change amount={money?.result} ratio={money && money.result !== null ? money.result / money.start : null} /></p>
         {fill && <FillLine fill={fill} zone={zone} />}
       </div>
-      {money && money.maxLoss !== null && run.running && <div className="border-t border-line px-3 py-2"><LossTrack money={money} /></div>}
+      {money && money.room !== null && run.running && <div className="border-t border-line px-3 py-2"><LossTrack money={money} /></div>}
       {held.map((h) => (
         <div key={h.key} className="space-y-0.5 border-t border-line px-3 py-2">
           <HeldLine held={h} />

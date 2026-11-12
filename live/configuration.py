@@ -14,7 +14,11 @@ from live import state
 SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 RUNTIME = re.compile(r"ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}\Z")
-CONFIG_KEYS = frozenset({"budget_usdt", "max_loss_usdt", "duration_seconds", "leverage"})
+DEFAULT_KEYS = frozenset({"duration_seconds", "leverage"})  # the operator's defaults
+# A run's choices: also its drawdown brake, which defaults to the user's maximum-drawdown target and can only be
+# tighter (engine.live_brake). Its cash floor is a share of the wallet at its first arming, not a choice.
+CONFIG_KEYS = DEFAULT_KEYS | {"drawdown_brake"}
+BRAKE_DEFAULT = "0.15"  # engine.live_brake.BRAKE_MAX (tests.live.test_runs checks they agree)
 
 
 def fail():
@@ -39,20 +43,20 @@ def absolute(value) -> Path:
     return Path(value)
 
 
-def run_config(value) -> dict:
-    value = fields(value, CONFIG_KEYS)
+def run_config(value, keys: frozenset = CONFIG_KEYS) -> dict:
+    value = fields(value, keys)
     result: dict = {}
-    for name in CONFIG_KEYS - {"duration_seconds", "leverage"}:
-        item = value[name]
+    if "drawdown_brake" in keys:
+        item = value["drawdown_brake"]
         try:
             if not isinstance(item, str) or len(item) > 64:
                 raise ValueError
             number = Decimal(item)
-            if not number.is_finite() or number <= 0:
+            if not number.is_finite() or not 0 < number <= Decimal(BRAKE_DEFAULT):
                 raise ValueError
         except (InvalidOperation, ValueError):
             raise fail() from None
-        result[name] = str(number)
+        result["drawdown_brake"] = str(number)
     duration = value["duration_seconds"]  # None: the run goes on until it is stopped
     if duration is not None and (type(duration) is not int or duration < 1):
         raise fail()
@@ -119,6 +123,6 @@ def load(path: Path) -> Configuration:
                          research_ledger=absolute(value["research_ledger"]),
                          research_at=text(value["research_at"], re.compile(r"[0-9a-v]{32}\Z")),
                          runtime=text(value["runtime"], RUNTIME), universe_file=absolute(value["universe_file"]),
-                         symbols=symbols, sources=sources, defaults=run_config(value["defaults"]),
+                         symbols=symbols, sources=sources, defaults=run_config(value["defaults"], DEFAULT_KEYS),
                          memory=text(value["memory"], re.compile(r"[1-9][0-9]*[mg]\Z")),
                          market_root=absolute(value["market_root"]))

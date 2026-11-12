@@ -47,8 +47,7 @@ class LiveWebControlTests(unittest.TestCase):
                     "research_ledger": str(self.directory / "unused-reader.json"), "research_at": "a" * 32,
                     "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64,
                     "universe_file": str(self.universe), "symbols": ["BTCUSDT"], "memory": "2g",
-                    "defaults": {"budget_usdt": "90", "max_loss_usdt": "2",
-                                 "duration_seconds": 8100, "leverage": "3"}, "market_root": "/unused-market",
+                    "defaults": {"duration_seconds": 8100, "leverage": "3"}, "market_root": "/unused-market",
                     "sources": [{"source_id": "example", "candidate": "example@1",
                                  "entry_class": "Example",
                                  "source_sha256": hashlib.sha256(self.source.read_bytes()).hexdigest(),
@@ -176,7 +175,7 @@ class LiveWebControlTests(unittest.TestCase):
         identity = {"image_ref": self.config.runtime, "image_digest": "sha256:" + "b" * 64,
                     "platform": "linux/amd64", "runtime_contract": "replay-contract@v8"}
         body = {"request_id": "prepare-lifecycle-one", "run_id": "lifecycle", "source_id": "example",
-                "credential_ref": ref, "config": self.config.defaults}
+                "credential_ref": ref, "config": {**self.config.defaults, "drawdown_brake": "0.15"}}
         with ExitStack() as stack:
             terms = self.fake_research(stack, origin, identity)
             stack.enter_context(patch.object(runs, "_network", return_value={"network": "fake-network"}))
@@ -229,7 +228,7 @@ class LiveWebControlTests(unittest.TestCase):
         identity = {"image_ref": self.config.runtime, "image_digest": "sha256:" + "b" * 64,
                     "platform": "linux/amd64", "runtime_contract": "replay-contract@v7"}
         body = {"request_id": "prepare-resolve-one", "run_id": "resolved", "source_id": "example",
-                "credential_ref": ref, "config": self.config.defaults}
+                "credential_ref": ref, "config": {**self.config.defaults, "drawdown_brake": "0.15"}}
         original = state.write_new
 
         def interrupted(path, data):

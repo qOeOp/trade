@@ -72,8 +72,7 @@ class LiveEvidenceTests(unittest.TestCase):
         manifest = dict(run_id="evidence", symbols=["AAAUSDT"], strategy_file=str(path), account_id="BINANCE-001",
                         universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                         source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
-                        config=dict(duration_seconds=3600, budget_usdt="100",
-                                    max_loss_usdt="10"))
+                        config=dict(duration_seconds=3600, drawdown_brake="0.15"))
         session = live.Session(manifest, self.output, "run", account_verified=True)
         session.node = Mock()
         return session, live.source_for_run(manifest)

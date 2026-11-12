@@ -6,9 +6,10 @@ import { namespace } from "./load.mjs";
 
 const model = await namespace("model/liveLaunch.ts", { sources: ["model/liveLaunchText"], packages: [] });
 const HASH = "c".repeat(64);
-const fields = [{ id: "budget_usdt", label: "Budget (USDT)", value: "90" }, { id: "max_loss_usdt", label: "Loss threshold (USDT)", value: "2" },
+const fields = [{ id: "drawdown_brake", label: "Drawdown brake", value: "15" },
   { id: "duration_seconds", label: "Duration (seconds)", value: "8100" }, { id: "leverage", label: "Leverage", value: "3" }];
-const config = fields.map((field) => ({ label: field.label, value: field.value }));
+// A prepared run's settings as the server reports them: the brake as a fraction.
+const config = [{ label: "Drawdown brake", value: "0.15" }, { label: "Duration (seconds)", value: "8100" }, { label: "Leverage", value: "3" }];
 const found = { state: "found", replays: [{ trialId: 12, balance: "95" }], tolerance: "0.1" };
 const source = (evidence) => ({ id: "s", candidate: "rsi@4", sourceHash: HASH, entryClass: "Rsi", purpose: "natural", ...evidence === undefined ? {} : { evidence } });
 const key = { ref: "abcdef0123456789", savedAt: null, selected: true, available: true, runIds: [] };
@@ -20,11 +21,11 @@ const checked = (over = {}) => ({ id: "web-check", candidate: "rsi@4", sourceHas
 const columns = (v, c = null, extra = {}) => model.launchColumns({ view: v, source: v.sources[0] ?? null, edits: {}, checked: c, reading: null, targets: null, ...extra });
 const row = (cols, id) => cols.flatMap((column) => column.rows).find((item) => item.id === id);
 
-test("with every row passing start opens; of the run settings only the duration is the user's to change", () => {
+test("with every row passing start opens; of the run settings the brake and the duration are the user's to change", () => {
   const cols = columns(view(), checked());
   assert.deepEqual(cols.map((column) => column.title), ["Strategy", "Account", "Limits & start"]);
   assert.equal(model.ready(cols), true);
-  assert.deepEqual(cols.flatMap((column) => column.rows).filter((item) => item.editable).map((item) => item.id), ["duration_seconds"]);
+  assert.deepEqual(cols.flatMap((column) => column.rows).filter((item) => item.editable).map((item) => item.id), ["drawdown_brake", "duration_seconds"]);
   assert.ok(cols.flatMap((column) => column.rows).every((item) => item.editable || item.source), "every shown row says where its value comes from");
   assert.equal(row(cols, "duration_seconds").source, "", "a value the user types here needs no source line");
   assert.equal(row(cols, "duration_seconds").reason, null);
@@ -35,9 +36,10 @@ test("the duration reads in years, months, days and hours, exactly, with no uppe
   assert.equal(model.spanText("3630"), "1 h 30 s", "seconds under an hour are kept, so the shown value is the one sent");
   assert.equal(model.spanText(String(31_536_000 + 2_592_000 + 2 * 86_400)), "1 y 1 mo 2 d");
   const duration = (seconds) => row(columns(view(), checked(), { edits: { duration_seconds: seconds } }), "duration_seconds");
-  for (const seconds of ["3600", "86401", String(5 * 31_536_000)]) assert.equal(duration(seconds).mark, "pass", seconds);
-  assert.equal(duration("0").mark, "fail");
-  assert.match(duration("0").reason, /At least 1 hour/);
+  for (const seconds of ["3600", "86401", String(5 * 31_536_000)]) assert.equal(duration(seconds).reason, null, seconds);
+  assert.equal(duration("0").mark, "shown", "no duration: the run goes on until it is stopped");
+  assert.match(duration("0").reason, /runs until you stop it/);
+  assert.equal(model.ready(columns(view(), checked(), { edits: { duration_seconds: "0" } })), true);
 });
 
 test("where Live is not set up every column is still drawn, each row failing in plain words, never a code", () => {
@@ -81,7 +83,11 @@ test("an older Live service, reporting no evidence or contracts, neither blocks 
 test("the account rows answer from the check: modes, funds, and a replay that started near the wallet", () => {
   assert.equal(row(columns(view()), "hedge").mark, "wait", "nothing observed before the check");
   assert.match(row(columns(view(), checked({ venue: { ...checked().venue, hedgeMode: false } })), "hedge").reason, /needs hedge mode/);
-  assert.equal(row(columns(view(), checked({ venue: { ...checked().venue, wallet: "50", available: "50" } })), "budget_usdt").mark, "fail");
+  const floor = (wallet, available) => row(columns(view(), checked({ venue: { ...checked().venue, wallet, available } })), "budget");
+  assert.deepEqual([floor("50", "50").value, floor("50", "50").mark], ["42.50", "pass"], "85% of the wallet, greyed, not a choice");
+  assert.equal(floor("50", "40").mark, "fail", "more than is available");
+  assert.equal(floor("118", "118").mark, "fail", "the first trial's floor is at most 100 USDT");
+  assert.equal(row(columns(view()), "budget").mark, "wait");
   const far = columns(view(), checked({ venue: { ...checked().venue, wallet: "200", available: "200" } }));
   assert.equal(row(far, "near").mark, "fail");
   assert.match(row(far, "near").reason, /within 10\.0% of the 200 USDT wallet\. The Agent replays/);
@@ -96,7 +102,8 @@ test("targets are shown with their answer but never hold back the start; another
   const busy = columns(view({ runs: [other] }), checked());
   assert.match(row(busy, "alone").reason, /web-other still holds the account/);
   assert.equal(model.ready(busy), false);
-  assert.equal(row(columns(view(), checked(), { edits: { duration_seconds: "1.5" } }), "duration_seconds").mark, "fail");
+  const brake = (percent) => row(columns(view(), checked(), { edits: { drawdown_brake: percent } }), "drawdown_brake").mark;
+  assert.deepEqual(["10", "15", "15.5", "0", "x"].map(brake), ["pass", "pass", "fail", "fail", "fail"], "only tighter than the target");
 });
 
 // The page with deterministic hooks: no effects, its own state slots, every element it returns inspected as props.

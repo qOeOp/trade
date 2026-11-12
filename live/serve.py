@@ -239,6 +239,8 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
                 observed = runs._status_view(root, path.name, maintain=False)
                 if observed["state"] == "interrupted":
                     control.restart_interrupted_locked(root, path.name, time.time_ns())
+                elif observed["state"] == "running" and observed["mode"] == "run":
+                    control.check_key_locked(root, path.name, time.monotonic())
                 elif observed["state"] != "running":
                     runs._status_view(root, path.name, maintain=True)
         except Exception:

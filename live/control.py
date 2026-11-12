@@ -11,7 +11,7 @@ import time
 from engine.live_errors import REFUSALS, LiveRefusal
 from engine.live_venue import EVIDENCE_TOLERANCE
 from ledger import db
-from live import authority, configuration, credentials, notify, release, requests, runs, state, views
+from live import authority, configuration, credentials, key, notify, release, requests, runs, state, views
 
 
 MESSAGES = {
@@ -29,8 +29,9 @@ MESSAGES = {
     "LIVE_ACCOUNT_OWNED": "Another Live execution is active or cannot yet be verified as resolved.",
     "LIVE_ACCOUNT_NOT_FLAT": "The account has existing positions or orders.",
     "LIVE_ACCOUNT_MODE": "The observed account settings do not match this Live configuration.",
-    "LIVE_FUNDS": "Observed eligible USDT funds do not cover the configured run budget.",
+    "LIVE_FUNDS": "Observed eligible USDT funds do not cover the run's cash floor (85% of the wallet at its first start).",
     "LIVE_KEY_WITHDRAWAL": "This API key permits withdrawals and cannot start this Live run.",
+    "LIVE_KEY_IP_UNRESTRICTED": "A run with no duration needs an API key restricted to this host's IP at Binance.",
     "LIVE_KEY_UNVERIFIED": "The API key permissions could not be verified.",
     "LIVE_CLOCK": "The observed server clock bounds exceed the existing Live limits.",
     "LIVE_RUN_FORMAT": "This historical run uses an earlier manifest format, which the product no longer reads.",
@@ -141,7 +142,7 @@ def listing(config: configuration.Configuration, *, binding: release.Binding | N
               "sources": [{**source.view(), **({"evidence": evidence.view(source.source_id)} if evidence else {})}
                           for source in config.sources.values()],
               "symbols": list(config.symbols),
-              "defaults": config.defaults, "credentials": [], "runs": [], "notify": notify.view(config.root)}
+              "defaults": {**config.defaults, "drawdown_brake": configuration.BRAKE_DEFAULT}, "credentials": [], "runs": [], "notify": notify.view(config.root)}
     def availability() -> None:
         try:
             authority.retained(config, binding).admit_locked(config.root)
@@ -249,6 +250,34 @@ def restart_interrupted_locked(root: Path, run_id: str, now_ns: int) -> dict | N
         return None
     path = credentials.run_path_locked(root, run_id, "run")
     return runs.launch_locked(root, run_id, path, "run")
+
+
+_KEY_CHECKED: dict[str, float] = {}  # run ID -> monotonic time of this control's latest check of its key
+KEY_EVENTS = frozenset({"key_check_failed", "key_check_passed"})
+
+
+def check_key_locked(root: Path, run_id: str, now: float) -> None:
+    """While a run trades, read its key's permissions every key.CHECK_SECONDS (design §3.9). A key that can withdraw,
+    lost its IP restriction or cannot be read is journalled (`key_check_failed`, once per cause) and the user told; the
+    run goes on, since stopping it would close its positions. A later pass is journalled once (`key_check_passed`)."""
+    if now - _KEY_CHECKED.get(run_id, float("-inf")) < key.CHECK_SECONDS:
+        return
+    _KEY_CHECKED[run_id] = now
+    directory = state.directory(root, run_id)
+    _, manifest = runs._manifest(root, run_id)
+    try:
+        key.require_limits(credentials.run_path_locked(root, run_id, "run"),
+                           ip_restricted=manifest["config"]["duration_seconds"] is None)
+        code = None
+    except LiveRefusal as exc:
+        code = exc.code
+    last = next((row for row in reversed(state.events(directory / "lifecycle.jsonl")) if row["event"] in KEY_EVENTS),
+                None)
+    failed = last is not None and last["event"] == "key_check_failed"
+    if code is not None and not (failed and last is not None and last.get("code") == code):
+        state.append(directory / "lifecycle.jsonl", "key_check_failed", run_id, code=code)
+    elif code is None and failed:
+        state.append(directory / "lifecycle.jsonl", "key_check_passed", run_id)
 
 
 def resolve(config: configuration.Configuration, request_id: str, *, binding: release.Binding | None = None) -> dict:

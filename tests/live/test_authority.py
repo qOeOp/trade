@@ -34,7 +34,7 @@ def prepared(root, run_id="original"):
                 "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
                             "platform": "linux/amd64"},
                 "candidate": {"strategy_id": "example", "revision": 1},
-                "symbols": ["BTCUSDT"], "config": {"memory": "2g"}, "credential_binding": "f" * 64}
+                "symbols": ["BTCUSDT"], "config": {"memory": "2g", "duration_seconds": 60}, "credential_binding": "f" * 64}
     state.write_new(directory / "inputs/manifest.json", state.encode(manifest))
     state.append(directory / "lifecycle.jsonl", "prepared", run_id)
     return directory, manifest
@@ -96,7 +96,7 @@ class InstalledAuthorityTests(unittest.TestCase):
     def test_declaration_snapshot_and_inode_are_rechecked_after_capture(self):
         scope = authority.from_file(self.fixture.file, self.fixture.binding)
         declared = state.read(self.declaration)
-        durable_json(self.declaration, {**declared, "defaults": {**declared["defaults"], "budget_usdt": "91"}})
+        durable_json(self.declaration, {**declared, "defaults": {**declared["defaults"], "duration_seconds": 8101}})
         self.refused(lambda: scope.admit_locked(self.root))
         durable_json(self.declaration, declared)
         original = self.fixture.file.read_bytes()

@@ -15,7 +15,7 @@ const split = (seconds: string): Parts => {
   return { fields, carry: rest };
 };
 const total = (parts: Parts) => SPAN_UNITS.reduce((sum, unit, at) => sum + Number(parts.fields[at] || 0) * unit.seconds, parts.carry);
-const FIELD = "w-[2ch] border-0 border-b border-link bg-transparent px-0 pb-px text-right tabular-nums outline-none hover:bg-hover focus:border-b-2 focus:pb-0 focus:text-fg aria-invalid:border-fail";
+const FIELD = "w-[2ch] placeholder:text-fg-faint border-0 border-b border-link bg-transparent px-0 pb-px text-right tabular-nums outline-none hover:bg-hover focus:border-b-2 focus:pb-0 focus:text-fg aria-invalid:border-fail";
 
 /** A duration typed as years, months, days and hours, each its own two-digit field on a blue underline, sent as the
  *  whole seconds the server takes (a month 30 days, a year 365). Every part shows two digits ("00 y 00 mo 01 d 00 h");
@@ -51,9 +51,10 @@ export function LiveDurationField({ label, value, invalid, onValue }: { label: s
   // At rest the leading zero parts are left out ("01 d 00 h"); while editing every part shows.
   const used = parts.fields.findIndex((field) => Number(field || 0) > 0);
   const first = editing ? 0 : used < 0 ? LAST : used;
+  const unset = !editing && used < 0 && parts.carry === 0; // no duration: "-- h", the run goes on until stopped
   return <span role="group" aria-label={label} onFocus={() => setEditing(true)} onBlur={leave} className="flex flex-wrap items-baseline justify-end whitespace-pre tabular-nums">
     {SPAN_UNITS.map((unit, at) => at >= first && <span key={unit.label} className="whitespace-pre">
-      <input ref={(node) => { inputs.current[at] = node; }} value={parts.fields[at]} aria-label={`${label}, ${unit.name}`}
+      <input ref={(node) => { inputs.current[at] = node; }} value={unset ? "" : parts.fields[at]} placeholder="--" aria-label={`${label}, ${unit.name}`}
         inputMode="numeric" maxLength={2} spellCheck={false} aria-invalid={invalid} onFocus={(event) => event.target.select()}
         onChange={(event) => type(at, event.target.value)} onKeyDown={key(at)}
         className={`${FIELD} ${Number(parts.fields[at] || 0) ? "text-fg" : "text-fg-faint"}`} />

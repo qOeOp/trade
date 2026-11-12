@@ -73,7 +73,9 @@ installing the new files; the timer is not a host-code execution channel from ma
 Live is enabled for the release plane only by an explicitly installed, private
 `/var/lib/trade-release/live/configuration.json`. It is an operator declaration with
 `format: "live-deployment-v1"` and the existing `root`, `research_ledger`, `research_at`, `universe_file`,
-`symbols`, `sources`, `defaults` (with `leverage`, the account's Binance leverage on the symbol), `memory` and
+`symbols`, `sources`, `defaults` (exactly `duration_seconds`, a whole number of seconds or `null` for runs until
+stopped, and `leverage`, the account's Binance leverage on the symbol; the drawdown brake defaults to the 15% target
+and the cash floor is 85% of the wallet, neither declared), `memory` and
 `market_root` (the market directory `$TRADE_DATA/market`, mounted read-only for the contract terms) fields from
 `live/configuration.py`. Omit `runtime` and
 `socket`: the admitted release supplies the runtime and derives its socket. Do not put an API key or secret

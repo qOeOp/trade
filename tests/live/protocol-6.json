@@ -12,11 +12,13 @@
    "purpose": "controlled"
   }
  ],
+ "symbols": [
+  "BTCUSDT"
+ ],
  "defaults": {
-  "budget_usdt": "90",
-  "max_loss_usdt": "2",
   "duration_seconds": 8100,
-  "leverage": "3"
+  "leverage": "3",
+  "drawdown_brake": "0.15"
  },
  "credentials": [],
  "runs": [
@@ -38,8 +40,7 @@
     "BTCUSDT"
    ],
    "config": {
-    "budget_usdt": "90",
-    "max_loss_usdt": "2",
+    "drawdown_brake": "0.15",
     "duration_seconds": "8100",
     "leverage": "3"
    },
@@ -72,10 +73,10 @@
    "orders": [
     {
      "event_type": "OrderFilled",
-     "observed_ns": "1794487377833967000",
+     "observed_ns": "1794497869284999000",
      "event_ref": {
       "source": "native",
-      "cursor": "4be2b120fafe7fe977822af86a0fc16d60e726cc74b7e61c6b1e007628505ae3:498:1"
+      "cursor": "81f516a201e187c9e6211f895fdf7cc75ad859e001a50243e898d7b7f6dff8ac:498:1"
      },
      "client_order_id": "cid-1",
      "instrument_id": "BTCUSDT-PERP.BINANCE",
@@ -92,21 +93,23 @@
      "-1.5"
     ]
    ],
+   "gate": [],
+   "restarts": [],
    "event_limit": 200,
    "evidence": [
     {
      "source": "inputs",
-     "cursor": "063cf622617bd6e8aa93e24eac072b43f92c3c22ab45d5aa52775897919decab:792",
+     "cursor": "94000190f9e0b981b02559403e4c2bad0ed0a452ceefeb4149493844f49b641a:949",
      "observed_ns": null,
-     "read_ns": "1794487377834723000",
+     "read_ns": "1794497869285872000",
      "complete": true,
      "state": "complete"
     },
     {
      "source": "lifecycle",
-     "cursor": "3d179c9590f36a076441b9829ff4bf3211f86f257ad7955dc67901f89b14506e:76",
-     "observed_ns": "1794487377833276000",
-     "read_ns": "1794487377834855000",
+     "cursor": "c145d4dd2d958c0a7ea9dd1b91ead7c11857150f7e47f05a9f8ff35af522bb9a:76",
+     "observed_ns": "1794497869284192000",
+     "read_ns": "1794497869285925000",
      "complete": true,
      "state": "complete"
     },
@@ -114,15 +117,15 @@
      "source": "custody",
      "cursor": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855:0",
      "observed_ns": null,
-     "read_ns": "1794487377834894000",
+     "read_ns": "1794497869285966000",
      "complete": true,
      "state": "complete"
     },
     {
      "source": "native",
-     "cursor": "4be2b120fafe7fe977822af86a0fc16d60e726cc74b7e61c6b1e007628505ae3:498",
-     "observed_ns": "1794487377834023000",
-     "read_ns": "1794487377834919000",
+     "cursor": "81f516a201e187c9e6211f895fdf7cc75ad859e001a50243e898d7b7f6dff8ac:498",
+     "observed_ns": "1794497869285060000",
+     "read_ns": "1794497869285992000",
      "complete": true,
      "state": "complete"
     },
@@ -130,7 +133,7 @@
      "source": "stop_intent",
      "cursor": "absent",
      "observed_ns": null,
-     "read_ns": "1794487377834961000",
+     "read_ns": "1794497869286034000",
      "complete": true,
      "state": "complete"
     },
@@ -138,7 +141,7 @@
      "source": "account_observation",
      "cursor": "b62c64ea4ba182bdbc4e2c34fbe3eeb7b767eb595a181d9cab68b046ab492783:332",
      "observed_ns": "123",
-     "read_ns": "1794487377835193000",
+     "read_ns": "1794497869286336000",
      "complete": true,
      "state": "complete"
     },
@@ -146,7 +149,7 @@
      "source": "host",
      "cursor": null,
      "observed_ns": null,
-     "read_ns": "1794487377834970000",
+     "read_ns": "1794497869286060000",
      "complete": true,
      "state": "complete"
     }

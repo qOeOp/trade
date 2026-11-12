@@ -15,7 +15,7 @@ import re
 import stat
 import time
 
-from engine.live_errors import LiveRefusal
+from engine.live_errors import REFUSALS, LiveRefusal
 from live import runs, state
 
 
@@ -174,8 +174,7 @@ def _identity(manifest):
                     "platform": _enum(runtime.get("platform"), {"linux/amd64", "linux/arm64"})},
         "symbols": [value for value in symbols if _text(value, re.compile(r"[A-Z0-9]{2,24}USDT\Z"))]
                    if isinstance(symbols, list) else None,
-        "config": {**{key: _decimal(config.get(key)) for key in
-                       ("budget_usdt", "max_loss_usdt")},
+        "config": {"drawdown_brake": _decimal(config.get("drawdown_brake")),
                    "duration_seconds": _integer(config.get("duration_seconds")),
                    "leverage": _decimal(config.get("leverage"))},
     }
@@ -257,6 +256,31 @@ def _restarts(native, lifecycle):
     rows += [{"event": "restart_limited", "observed_ns": str(row["observed_ns"]), "held": None}
              for row in lifecycle if row.get("event") == "restart_limited" and type(row.get("observed_ns")) is int]
     return sorted(rows, key=lambda row: int(row["observed_ns"]))[-MAX_ROWS:]
+
+
+def _brake(native):
+    """The run's equity at its first arming (its first `equity_peak`), its highest equity and, once it fired, the
+    drawdown brake (engine.live_brake)."""
+    if native is None:
+        return None
+    start = next((row for row in native if row.get("event") == "equity_peak"), None)
+    peak = next((row for row in reversed(native) if row.get("event") == "equity_peak"), None)
+    fired = next((row for row in native if row.get("event") == "drawdown_brake"), None)
+    return {"start": _decimal(start.get("equity")) if start else None,
+            "peak": _decimal(peak.get("equity")) if peak else None,
+            "fired": {name: _decimal(fired.get(name)) for name in ("equity", "peak", "drawdown")} | {
+                "observed_ns": str(fired["observed_ns"]) if type(fired.get("observed_ns")) is int else None}
+            if fired else None}
+
+
+def _key_checks(lifecycle):
+    """The control's periodic checks of the run's key that failed, and a pass after one (live.control)."""
+    if lifecycle is None:
+        return None
+    return [{"event": row["event"], "code": row.get("code") if row.get("code") in REFUSALS else None,
+             "observed_ns": str(row["observed_ns"])}
+            for row in lifecycle if row.get("event") in {"key_check_failed", "key_check_passed"}
+            and type(row.get("observed_ns")) is int][-MAX_ROWS:]
 
 
 def _account(sample: _Sample | None, reference, native_rows, latest_launch_ns):
@@ -391,6 +415,8 @@ def run_view(root: Path, run_id: str) -> dict:
                   "minute_results": _minute_results(native),
                   "gate": _gate(native),
                   "restarts": _restarts(native, lifecycle),
+                  "brake": _brake(native),
+                  "key_checks": _key_checks(lifecycle),
                   "event_limit": MAX_ROWS}
         evidence = [sample.evidence() for sample in (*samples.values(), stop)]
         if observation is not None:

@@ -10,7 +10,7 @@ from nautilus_trader.model import OrderStatus, TimeInForce
 from nautilus_trader.trading import Strategy
 from engine import live_connection
 from engine.live_errors import LiveRefusal as Refusal
-from engine.live_venue import require_admission, require_account_mode
+from engine.live_venue import require_admission, require_account_mode, require_clock
 from engine.order_rules import ENTRY_EQUITY_MULTIPLE, ENTRY_TYPES, exposure
 from engine.live_records import source_strategy_id, write_json
 if TYPE_CHECKING:
@@ -23,6 +23,9 @@ class AccountObservation:
     result: Future
 
 
+CLOCKED = frozenset({"entry", "compare"})
+
+
 def observe_account(reader, symbols: tuple[str, ...], purpose: str) -> AccountObservation:
     """Read-only I/O must not block native socket, protection or expiry dispatch."""
     future: Future = Future()
@@ -31,7 +34,11 @@ def observe_account(reader, symbols: tuple[str, ...], purpose: str) -> AccountOb
         if not future.set_running_or_notify_cancel():
             return
         try:
+            # An entry's read and the connection's comparison also bound the clock (design §3.9, require_clock).
+            clock = reader.clock() if purpose in CLOCKED else None
             snapshot = reader.snapshot(list(symbols))
+            if clock is not None:
+                snapshot["clock"] = clock
         except BaseException as exc:
             future.set_exception(exc)
         else:
@@ -98,7 +105,7 @@ def verify_connected_account(session: Session, snapshot: dict) -> None:
     observation = "connected-account-" + str(snapshot["observed_ns"]) + ".json"
     write_json(session.output / observation, snapshot)
     if session.mode == "run":
-        require_admission(snapshot, session.manifest)
+        require_admission(snapshot, session.manifest, session.brake.budget)
     else:
         require_account_mode(snapshot, session.manifest)
     session.event({"run": "started", "reconcile": "reconciled", "held": "held"}[session.mode], mode=session.mode,
@@ -164,7 +171,8 @@ def dispatch_entry(session: Session) -> None:
             return
         observation = "entry-account-" + str(snapshot["observed_ns"]) + ".json"
         write_json(session.output / observation, snapshot)
-        equity = require_admission(snapshot, session.manifest, flat=False)
+        require_clock(snapshot)  # each entry reads the venue's time too (design §3.9)
+        equity = require_admission(snapshot, session.manifest, session.brake.budget, flat=False)
         require_entry(session, pending.order)
         require_entry_size(session, pending.order, equity)
         live_connection.require_send_time(pending)

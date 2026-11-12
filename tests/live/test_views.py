@@ -43,7 +43,7 @@ class LiveViewTests(LiveFixture):
         return self.directory / "out" / filename
 
     def test_safe_whitelist_and_read_does_not_change_any_file(self):
-        self.manifest["config"].update(budget_usdt="100", max_loss_usdt="5",
+        self.manifest["config"].update(drawdown_brake="0.1",
                                        duration_seconds=8100, proxy_url="https://SECRET_PROXY", secret="SECRET_CONFIG")
         self.manifest["source"]["secret"] = "SECRET_SOURCE"
         (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(self.manifest))
@@ -87,6 +87,19 @@ class LiveViewTests(LiveFixture):
                          [("entries_closed", ["disconnected"]), ("entries_checking", ["unverified"]),
                           ("entries_opened", ["unverified"])])
         self.assertEqual(result["gate"][0]["socket"], "BINANCE wss://fstream.binance.com/ws")
+        self.assertNotIn("SECRET", json.dumps(result))
+
+    def test_the_brake_and_key_checks_show_known_values_only(self):
+        self.native("equity_peak", equity="104.5", observed_ns=1)
+        self.native("equity_peak", equity="SECRET", observed_ns=2)
+        self.native("drawdown_brake", equity="88", peak="104", drawdown="0.1538", observation="brake-account-3.json")
+        state.append(self.directory / "lifecycle.jsonl", "key_check_failed", self.run_id, code="NOT_A_CODE")
+        result = views.run_view(self.root, self.run_id)
+        self.assertEqual(result["brake"]["start"], "104.5")  # the first: the equity it armed with
+        self.assertEqual(result["brake"]["peak"], None)  # the latest peak is unreadable, not an older one
+        self.assertEqual({key: result["brake"]["fired"][key] for key in ("equity", "peak", "drawdown")},
+                         {"equity": "88", "peak": "104", "drawdown": "0.1538"})
+        self.assertEqual([(row["event"], row["code"]) for row in result["key_checks"]], [("key_check_failed", None)])
         self.assertNotIn("SECRET", json.dumps(result))
 
     def test_restarts_show_interruptions_starts_again_and_the_control_limit(self):

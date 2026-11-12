@@ -13,6 +13,7 @@ from nautilus_trader.model import OrderStatus, PositionSide
 from nautilus_trader.trading import Strategy
 from engine import protection, strategy as strategy_runtime
 from engine.live_errors import LiveRefusal as Refusal
+from engine.live_brake import Brake
 from engine.live_connection import Connection
 from engine.live_evidence import Evidence
 from engine import live_commands as commands
@@ -23,7 +24,7 @@ STOP_GRACE_SECONDS = 30
 CANCEL_RETRY_SECONDS = 5
 # engine.protection's allowance plus its Live detection lag. A false alarm flattens a healthy trade.
 PROTECTION_SECONDS = (protection.ALLOWANCE_NS + protection.LIVE_DETECTION_NS) // 1_000_000_000
-MARK_SECONDS = 60  # Without a mark for this long the loss limit cannot be applied, so it counts as reached.
+MARK_SECONDS = 60  # With a position open and no mark for this long, the run stops (design §3.2.4).
 MINUTE_NS = 60_000_000_000
 
 
@@ -56,6 +57,7 @@ class Session:
     account_verified: bool = False
     connection_failed: bool = False  # the connected start could not be verified; a later disconnect only closes entries
     connection: Connection = field(default_factory=Connection)  # the entry gate (engine.live_connection)
+    brake: Brake = field(default_factory=Brake)  # the drawdown brake and cash floor (engine.live_brake)
     cache_guard: Any = None
     canceled: dict[str, float] = field(default_factory=dict)
     exits: set[str] = field(default_factory=set)
@@ -153,35 +155,26 @@ class Session:
             self.event("protection_missing", strict=False, positions=late)
             self.begin_stop("protection_missing")
 
-    def check_loss(self, cache, now: float) -> None:
-        """This run's realized and unrealized result at the venue's mark price, from native fills.
-
-        An exception to leaving risk calculation to Nautilus: the pinned LiveRiskEngineConfig has no loss
-        limit. Funding and commissions paid in another asset are not counted.
-        """
+    def check_mark(self, cache, now: float) -> bool:
+        """Whether a position of the run is open; with one open and no mark price for MARK_SECONDS (a lost market
+        stream) the run takes the STOP path, failed. The drawdown brake reads the venue (engine.live_brake)."""
         try:
-            limit = Decimal(self.manifest["config"]["max_loss_usdt"])
-            positions = cache.positions(strategy_id=source_strategy_id(self.manifest))
-            exposed = any(position.is_open for position in positions)
-            since = (now if self.exposed_since is None else self.exposed_since) if exposed else None
-            self.exposed_since = since
-            price = self.mark[1] if self.mark and now - self.mark[0] < MARK_SECONDS else None
-            if since is not None and price is None:
-                if now - since >= MARK_SECONDS:
-                    raise TimeoutError("no recent mark price")
-                return
-            result = run_result(cache, positions, price)
+            exposed = any(position.is_open for position in cache.positions(strategy_id=source_strategy_id(self.manifest)))
         except Exception as exc:
             self.failed = True
-            self.event("loss_unverified", strict=False, failure_type=type(exc).__name__)
-            self.begin_stop("loss_unverified")
-            return
-        if result <= -limit:
-            self.event("max_loss", strict=False, result=str(result), mark=str(price))
-            self.begin_stop("max_loss")
+            self.event("exposure_unverified", strict=False, failure_type=type(exc).__name__)
+            self.begin_stop("exposure_unverified")
+            return True
+        since = (now if self.exposed_since is None else self.exposed_since) if exposed else None
+        self.exposed_since = since
+        if since is not None and not (self.mark and now - self.mark[0] < MARK_SECONDS) and now - since >= MARK_SECONDS:
+            self.failed = True
+            self.event("mark_missing", strict=False, seconds=int(now - since))
+            self.begin_stop("mark_missing")
+        return exposed
 
     def record_minute(self, cache, minute_ns: int, price) -> None:
-        """The run's result (check_loss's) at a minute's first mark price, or when the run stops, for the
+        """The run's result from native fills at a minute's first mark price, or when the run stops, for the
         chart of its account: only read and journalled, no check, stop or order follows from it. Unknown
         while a position is open without a price, or when it cannot be read."""
         result = None
