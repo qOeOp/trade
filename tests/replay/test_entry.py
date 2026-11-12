@@ -26,6 +26,7 @@ from tests.runtime.test_image import FILES, branch_build, build_inspection
 
 
 ONE = RUNNER_ARGV + ["--symbols", "AAAUSDT"]
+WEEK = [*ONE[:ONE.index("--end") + 1], "2026-01-08T00:00:00Z", *ONE[ONE.index("--end") + 2:]]  # a precheck window
 
 
 def codes(reasons) -> list[str]:
@@ -210,7 +211,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
             published = self.world.publish(name, parent=None)
             with contextlib.redirect_stderr(io.StringIO()):
                 return entry.precheck(self.world.profile, self.world.market, MARKET_DAY, published["candidate"], None,
-                                      ONE, self.world.output(name))
+                                      WEEK, self.world.output(name))
         other = {**IDENTITY, "image_ref": "localhost:15000/trade-runtime@" + IDENTITY["image_digest"]}
         unlabelled = {"RepoDigests": [IDENTITY["image_ref"]], "Config": {"Labels": {}}}
         with tempfile.TemporaryDirectory() as scratch:
@@ -238,7 +239,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
     def test_a_precheck_needs_the_candidate_contract(self):
         def precheck_call(**overrides):
             arguments = {"ledger": self.world.profile, "market": self.world.market, "at": MARKET_DAY,
-                         "candidate": "rsi@1", "runtime": None, "runner_argv": ONE,
+                         "candidate": "rsi@1", "runtime": None, "runner_argv": WEEK,
                          "output": self.world.output("refused-precheck"), **overrides}
             return entry.precheck(**arguments)
         other = {**IDENTITY, "runtime_contract": "r0-other"}
@@ -253,7 +254,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         published = self.world.publish("prechecked", parent=None)
         with contextlib.redirect_stderr(io.StringIO()):
             checked = entry.precheck(self.world.profile, self.world.market, MARKET_DAY, published["candidate"],
-                                     None, ONE, self.world.output("precheck"))
+                                     None, WEEK, self.world.output("precheck"))
         self.assertEqual((checked["status"], checked["problems"]), ("passed", []))
         capture = execution.read_capture(self.world.conn, checked["trial_id"])
         self.assertNotIn("reports/fills.csv", capture["files"])
@@ -267,26 +268,28 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         self.assertEqual(precheck.require_precheck(self.world.conn, review["review_id"], published["source_sha256"],
                                                    identity), checked["trial_id"])
 
-    def test_precheck_reports_window_exposure_before_execution_without_refusing_long_windows(self):
-        for end, eligible in (("2026-01-08T00:00:00Z", True), ("2026-01-08T00:01:00Z", False)):
+    def test_precheck_refuses_a_window_over_the_exemption_before_anything_runs(self):
+        published = self.world.publish("exposure-window", parent=None)
+        for end, allowed in (("2026-01-08T00:00:00Z", True), ("2026-01-08T00:01:00Z", False)):
             with self.subTest(end=end):
-                published = self.world.publish(f"exposure-{end}", parent=None)
-                argv = ONE.copy()
+                argv = WEEK.copy()
                 argv[argv.index("--end") + 1] = end
-                stderr = io.StringIO()
-                execute = entry.execute
-
-                def observed_execution(*args, **kwargs):
-                    self.assertIn("exposure exemption", stderr.getvalue(), "the advice precedes execution")
-                    return execute(*args, **kwargs)
-
-                with contextlib.redirect_stderr(stderr), patch.object(entry, "execute", observed_execution):
+                trials_before = self.count("trial")
+                if allowed:
                     checked = entry.precheck(self.world.profile, self.world.market, MARKET_DAY,
-                                             published["candidate"], None, argv,
-                                             self.world.output(f"exposure-{eligible}"))
-                self.assertEqual(checked["status"], "passed", "exposure advice is not a new refusal")
-                self.assertIs(checked["exposure_exemption"]["within_window_limit"], eligible)
-                self.assertEqual(checked["exposure_exemption"]["maximum_exempt_days"], precheck.PRECHECK_MAX_DAYS)
+                                             published["candidate"], None, argv, self.world.output("exposure-7d"))
+                    self.assertEqual(checked["status"], "passed")
+                    self.assertEqual(checked["exposure_exemption"]["trading_days"], precheck.PRECHECK_MAX_DAYS)
+                    continue
+
+                def executed(*args, **kwargs):
+                    self.fail("a precheck over the exemption must not execute")
+
+                with patch.object(entry, "execute", executed), self.assertRaises(Refusal) as caught:
+                    entry.precheck(self.world.profile, self.world.market, MARKET_DAY, published["candidate"],
+                                   None, argv, self.world.output("exposure-long"))
+                self.assertEqual(caught.exception.code, "PRECHECK_WINDOW_TOO_LONG")
+                self.assertEqual(self.count("trial"), trials_before, "no trial is opened")
 
 
 @unittest.skipUnless(BINARY, SKIP)
