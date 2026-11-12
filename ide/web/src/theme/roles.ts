@@ -5,7 +5,7 @@ const SURFACE = ["frame", "island", "island-alt", "popup", "tooltip", "card-bord
 const TEXT = ["fg", "fg-muted", "fg-faint", "fg-ghost", "icon"] as const;
 const DATA = ["recommended", "meets", "misses", "fail", "masked"] as const;
 const CHART = ["edge", "bar", "grid", "axis", "scope", "crosshair", "selected-mark",
-  "candle-up", "candle-down", "pnl-up", "pnl-down", "equity", "event", "line-shadow",
+  "candle-up", "candle-down", "pnl-up", "pnl-down", "equity", "event", "line-shadow", "series-1", "series-2", "series-3", "series-4", "series-5",
   "heat-0", "heat-up-1", "heat-up-2", "heat-up-3", "heat-down-1", "heat-down-2", "heat-down-3",
   "heat-ink", "heat-ink-0", "heat-ink-1", "heat-badge", "heat-badge-0", "heat-badge-1", "heat-badge-edge", "heat-badge-edge-0", "heat-badge-edge-1", "heat-edge"] as const;
 const BRAND = ["brand-deepseek", "brand-openai", "brand-anthropic"] as const;

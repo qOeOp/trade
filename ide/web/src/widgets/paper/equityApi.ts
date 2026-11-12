@@ -1,6 +1,6 @@
 // The equity chart's Lightweight Charts objects (EquityChart.tsx), made once: the chart, its series (the
 // pace, the replay, the equity), the primitives on the equity series (equityLayers, equityNotes,
-// equityCloses, stretchCaptions), the extras' series (equityExtras) and the axis ticks (axisTicks). The
+// equityCloses, equityRows, stretchCaptions), the extras' series (equityExtras) and the axis ticks (axisTicks). The
 // view never leaves the points: a pan stops at the first, ROOM points right of the last, and zooming out
 // stops at all of them (candleView's fence). The pane is in bands (equityZones.ts): the value axis fits the
 // plot, to the shown stretch's points in view while they are most of those in view (focused), so the end of
@@ -14,6 +14,9 @@ import { EquityCloses } from "./equityCloses";
 import type { EquityExtras } from "./equityExtras";
 import { EquityLayers, HALO, type EquityPoint } from "./equityLayers";
 import { EquityNotes } from "./equityNotes";
+import { EquityRows } from "./equityRows";
+import { atom, type Atom } from "../../state/atom";
+import type { Tip } from "./candleEvents";
 import { focused, shownReach } from "./equityStretches";
 import { StretchCaptions } from "./stretchCaptions";
 import { xAt } from "./equityPlace";
@@ -21,7 +24,9 @@ import { spacing } from "./viewAnchor";
 
 export type Api = {
   chart: IChartApi; equity: ISeriesApi<"Line">; pace: ISeriesApi<"Line">; replay: ISeriesApi<"Line">;
-  layers: EquityLayers; notes: EquityNotes; closes: EquityCloses; captions: StretchCaptions; ticks: AxisTicks; start: IPriceLine | null;
+  layers: EquityLayers; rows: EquityRows; notes: EquityNotes; closes: EquityCloses; captions: StretchCaptions; ticks: AxisTicks; start: IPriceLine | null;
+  /** The tooltip of what the pointer rests on: a share of a year's P&L bar (equityRows). */
+  tip: Atom<Tip | null>;
   /** Sets the least spacing again for the points drawn now (candleView's fence). */
   fenced: () => void;
 };
@@ -56,14 +61,15 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
   equity.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 }, entireTextOnly: true });
   // The notes first, so the line draws over their floor and brackets; the closes' arrows and the notes'
   // names above it, the depths over the arrows; the stretches' names over all.
-  const plot = (): Plot => plotOf(chart.paneSize(0).height, extras.foot(), layers.days(), layers.head());
-  const layers = new EquityLayers(plot), notes = new EquityNotes(plot), closes = new EquityCloses(plot);
+  const plot = (): Plot => plotOf(chart.paneSize(0).height, extras.foot(), layers.days(), rows.head());
+  const rows = new EquityRows(), layers = new EquityLayers(plot, () => rows.head()), notes = new EquityNotes(plot), closes = new EquityCloses(plot);
   // The rule before a stretch half a point before its first: the two stretches' points abut.
   const xOf = (t: number) => xAt(now().points, chart.timeScale(), t), seam = (t: number) => { const x = xOf(t); return x === null ? null : x - spacing(chart.timeScale()) / 2; };
-  const captions = new StretchCaptions(xOf, undefined, seam, (h) => dotsEnd(h, layers.head()));
+  const captions = new StretchCaptions(xOf, undefined, seam, (h) => dotsEnd(h, rows.head()));
   equity.attachPrimitive(closes);
   equity.attachPrimitive(notes);
   equity.attachPrimitive(layers);
+  equity.attachPrimitive(rows);
   equity.attachPrimitive(captions);
   extras.attach(chart, equity, plot);
   // The value ticks (axisTicks): only in the plot, every other one when crowded, none under the start's, the last value's
@@ -78,5 +84,7 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
     } });
   ticks.refresh();
   const fenced = fence(chart.timeScale(), () => now().points.length, 0.01);
-  return { chart, equity, pace, replay, layers, notes, closes, captions, ticks, start: null, fenced };
+  const tip = atom<Tip | null>(null);
+  chart.subscribeCrosshairMove((p) => tip.set(p.point ? rows.tipAt(p.point.x, p.point.y) : null));
+  return { chart, equity, pace, replay, layers, rows, notes, closes, captions, ticks, tip, start: null, fenced };
 }

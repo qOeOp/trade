@@ -10,6 +10,7 @@ import type { Down } from "./downLook";
 import { equityApi, type Api, type Now } from "./equityApi";
 import { EquityExtras } from "./equityExtras";
 import { EquityLegend } from "./EquityLegend";
+import { ChartTip } from "./ChartTip";
 import { FEW } from "./equityLayers";
 import type { Close } from "./equityCloses";
 import type { Lane, Leaning } from "../../model/held";
@@ -20,8 +21,7 @@ import type { Year } from "./equityYears";
 import { showStretch, stretchKey } from "./stretchKeys";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 
-const at = (t: number) => t as UTCTimestamp;
-const dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000;
+const at = (t: number) => t as UTCTimestamp, dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000;
 const views = new Map<string, { step: number; from: number; to: number }>();  // the view each set of stretches had last, for the session
 
 /** The account over the version's stretches (equityStretches.ts: its backtest a point a day, its paper
@@ -113,8 +113,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     if (!a) return;
     let active = true;
     const c = seriesColors(theme === "dark"), apply = () => { if (!active) return; api.current?.chart.applyOptions(chartLook(zone)); api.current?.ticks.refresh(); api.current?.chart.applyOptions({ crosshair: { mode: CrosshairMode.Magnet }, grid: { horzLines: { visible: false } } }); };
-    a.captions.setTimeZone(zone);
-    a.ticks.setTimeZone(zone);
+    a.captions.setTimeZone(zone); a.ticks.setTimeZone(zone);
     apply();
     afterFonts(apply);
     a.pace.applyOptions({ visible: annual !== null });
@@ -157,7 +156,8 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
 
   useEffect(() => {
     const c = seriesColors(theme === "dark");
-    api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers, restarts, own ? [own.from, own.to] : null, { years, annual, limit, hold: hold && holdable, lanes });
+    api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers, restarts, own ? [own.from, own.to] : null);
+    api.current?.rows.set(points, { years, annual, limit, hold: hold && holdable, lanes }, c.layers);
     api.current?.notes.set(points, minutes, limit, c.notes, priceFormat(0).formatter, starting, shown >= 0 ? shown : null, drops);
     api.current?.closes.set(points, closes, c.closes);
     // A lone stretch is named at the legend's head instead, so it takes no line of its own.
@@ -190,7 +190,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
                     reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={holdable ? hold : null} onHold={() => holdShown.set({ ...holds, [kind]: !hold })}
                     starting={starting} replayed={replayed} worst={worstShown} step={step} many={many && mine} ret={today?.ret} basis={own?.tested ? "bar-close mark" : null} aside={aside} /></div>
       <div className="relative min-h-0 flex-1 outline-none" tabIndex={0} onKeyDown={onKey}>
-        <div ref={host} className="h-full w-full" />
+        <div ref={host} className="h-full w-full" />{api.current && <ChartTip tip={api.current.tip} />}
         {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}
         {!points.length && <p className="absolute inset-0 z-10 grid place-items-center text-dense text-fg-faint">{warmup === null ? "No equity yet: the run has not started" : `No equity yet: the run starts at ${dateTime(warmup, zone, "minute")}, after its warm-up`}</p>}
       </div>

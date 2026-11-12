@@ -1,12 +1,14 @@
-// The equity chart's rows over its drawdown dots: the yearly scorecard's figures (equityYears) and a lane a
-// contract from the backtest's cycles (model/held.ts). Pure functions only: nothing is drawn.
+// The equity chart's rows over its drawdown dots: each year's P&L shares by contract (equityShares), the yearly
+// scorecard's figures (equityYears) and a lane a contract from the backtest's cycles (model/held.ts). Pure
+// functions only: nothing is drawn.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { namespace } from "./load.mjs";
 
-const { yearsOf, yearMeets, cellOf } = await namespace("widgets/paper/equityYears.ts");
+const { yearsOf, yearMeets, linesOf } = await namespace("widgets/paper/equityYears.ts");
 const { lanesOf, sidesHeld, breadthOf } = await namespace("model/held.ts");
 const { cycleHoldings } = await namespace("model/backtest.ts");
+const { piecesOf, sharesOf, placesOf, tipOf } = await namespace("widgets/paper/equityShares.ts");
 
 const DAY = 86_400, day = (y, m, d) => Date.UTC(y, m - 1, d) / 1000;
 /** A point a day from `from`, through `to`, each at `value(t)`. */
@@ -44,19 +46,18 @@ test("the buy and hold's return each year runs from its own close the year befor
   assert.deepEqual(yearsOf(points, 100).map((y) => y.hold), [null, null]);
 });
 
-test("a year's cell gives way from the buy and hold to its months to the year to the return alone, each figure coloured by its target", () => {
-  const look = { label: "L", quiet: "Q", meets: "M", misses: "X" };
+test("a year's three lines are its return, drawdown and buy and hold, each giving way to its figure alone and coloured by its target", () => {
+  const look = { label: "L", quiet: "Q", meets: "M", misses: "X" }, form = (ws) => ws.map(([text, colour]) => `${text}|${colour}`).join("");
   const [part] = yearsOf(daily(day(2021, 10, 1), day(2021, 12, 31), () => 90.7), 100);
-  const forms = cellOf(part, 0.2, 0.15, look).map((ws) => ws.map(([text, colour]) => `${text}|${colour}`).join(""));
-  assert.deepEqual(forms, ["2021 (Oct–Dec) |L−9.3%|X · DD |Q9.3%|M", "2021 |L−9.3%|X · DD |Q9.3%|M", "−9.3%|X · DD |Q9.3%|M", "−9.3%|X"]);
+  assert.deepEqual(linesOf(part, 0.2, 0.15, look).map((forms) => forms.map(form)),
+                   [["2021 Oct–Dec |L−9.3%|X", "2021 |L−9.3%|X", "−9.3%|X"], ["DD |Q9.3%|M", "9.3%|M"]], "no buy and hold, no third line");
   const [whole] = yearsOf(daily(day(2023, 1, 1), day(2023, 12, 31), (t) => (t < day(2023, 6, 1) ? 80 : 125)), 100);
-  assert.deepEqual(cellOf(whole, 0.2, 0.15, look)[0].map(([, c]) => c), ["L", "M", "Q", "X"], "+25% meets 20%; a 20% drawdown misses 15%");
-  assert.deepEqual(cellOf(whole, null, null, look)[0].map(([, c]) => c), ["L", "L", "Q", "L"], "without targets the figures stay plain");
+  assert.deepEqual(linesOf(whole, 0.2, 0.15, look).map((forms) => forms[0].at(-1)[1]), ["M", "X"], "+25% meets 20%; a 20% drawdown misses 15%");
+  assert.deepEqual(linesOf(whole, null, null, look).map((forms) => forms[0].at(-1)[1]), ["L", "L"], "without targets the figures stay plain");
   const [held] = yearsOf(daily(day(2023, 1, 1), day(2023, 12, 31), () => 125), 100, () => 34);
   const text = (ws) => ws.map(([t]) => t).join("");
-  assert.deepEqual(cellOf(held, 0.2, 0.15, look, true).map(text), ["2023 +25.0% · DD 0.0% · hold \u221266.0%", "2023 +25.0% · DD 0.0%", "+25.0% · DD 0.0%", "+25.0%"],
-                   "the buy and hold's return is the first to give way");
-  assert.equal(cellOf(held, 0.2, 0.15, look, false).length, 3, "not shown, not written");
+  assert.deepEqual(linesOf(held, 0.2, 0.15, look, true).map((forms) => forms.map(text)), [["2023 +25.0%", "+25.0%"], ["DD 0.0%", "0.0%"], ["hold \u221266.0%", "\u221266.0%"]]);
+  assert.equal(linesOf(held, 0.2, 0.15, look, false).length, 2, "not shown, not written");
 });
 
 test("each contract gets its own lane from the cycles, a hedge inside one contract reading as both", () => {
@@ -76,4 +77,36 @@ test("past a lane each, the contracts held count up each way at once, a hedge co
   const lanes = [{ symbol: "A", held: [[0, 10, true]] }, { symbol: "B", held: [[5, 15, false]] }, { symbol: "C", held: [[5, 10, null], [20, 30, true]] }];
   assert.deepEqual(breadthOf(lanes), [[0, 5, 1, 0], [5, 10, 2, 2], [10, 15, 0, 1], [20, 30, 1, 0]], "no stretch while none is held");
   assert.deepEqual(breadthOf([{ symbol: "A", held: [[0, 5, true]] }, { symbol: "B", held: [[5, 9, true]] }]), [[0, 9, 1, 0]], "one count across a handover is one stretch");
+});
+
+test("a year's two bars are each contract's P&L of the cycles it held that year, its gains and its losses, largest first", () => {
+  const at = (y, m) => Date.UTC(y, m - 1, 15), cycle = (symbol, closed, pnl) => ({ symbol, opened: closed, closed, pnl, gross: pnl });
+  const cycles = [cycle("BTCUSDT", at(2023, 3), 300), cycle("BTCUSDT", at(2023, 8), -100), cycle("ETHUSDT", at(2023, 5), 500),
+                  cycle("SOLUSDT", at(2023, 6), -50), cycle("ETHUSDT", at(2024, 1), -40), cycle("XRPUSDT", at(2024, 2), 0)];
+  const years = sharesOf(cycles);
+  assert.deepEqual(years.get(2023).map((s) => [s.symbol, s.pnl, s.trades, s.slot]), [["ETHUSDT", 500, 1, 1], ["BTCUSDT", 200, 2, 0], ["SOLUSDT", -50, 1, 2]],
+                   "nets per contract; a contract keeps its slot (alphabetical among those kept) every year");
+  assert.deepEqual(years.get(2024).map((s) => s.symbol), ["ETHUSDT"], "a contract that netted nothing has no share");
+  assert.deepEqual(placesOf(years.get(2023)).map((p) => [p.row, ...[p.at, p.len].map((n) => Math.round(n * 1000) / 1000)]), [[0, 0, 0.714], [0, 0.714, 0.286], [1, 0, 0.071]],
+                   "the gains' bar over the losses', both to the scale of the longer");
+});
+
+test("past the slots, the contracts that moved the least share Other, its gains and losses apart", () => {
+  const cycles = ["A", "B", "C"].map((s, k) => ({ symbol: `${s}USDT`, closed: Date.UTC(2023, 1, 1), pnl: (k + 1) * 100 }))
+    .concat([{ symbol: "DUSDT", closed: Date.UTC(2023, 2, 1), pnl: 30 }, { symbol: "EUSDT", closed: Date.UTC(2023, 2, 1), pnl: -20 }]).map((c) => ({ ...c, opened: c.closed, gross: c.pnl }));
+  const shares = sharesOf(cycles, null, 2).get(2023);
+  assert.deepEqual(shares.map((s) => [s.symbol, s.pnl, s.slot, s.members.map(([m]) => m)]),
+                   [["CUSDT", 300, 1, []], ["BUSDT", 200, 0, []], ["Other", 130, null, ["AUSDT", "DUSDT"]], ["Other", -20, null, ["EUSDT"]]]);
+  const tip = tipOf({ share: shares[2], year: 2023, of: 630, x0: 0, x1: 1, y0: 0, y1: 1 }, 5, 6);
+  assert.deepEqual([tip.title, ...tip.rows.map((r) => r.text)], ["Other (2) · 2023", "+130 USDT", "21% of 2023's gains", "A +100 USDT", "D +30 USDT", "2 cycles held"]);
+});
+
+test("a cycle held over a year's end is marked there by its contract's close; its costs fall in the year it closed", () => {
+  const day = (y, m, d) => Date.UTC(y, m - 1, d) / 1000, closes = { BTCUSDT: [[day(2023, 10, 23), 30_000], [day(2023, 12, 31), 42_000], [day(2024, 4, 29), 63_000]] };
+  const held = { symbol: "BTCUSDT", opened: Date.UTC(2023, 9, 24), closed: Date.UTC(2024, 3, 30, 11), gross: 33_000, pnl: 32_500 };
+  assert.deepEqual(piecesOf(held, closes), [[2023, 12_000], [2024, 20_500]], "12k of the 33k move came by the year's last close; the 500 of costs in 2024");
+  assert.deepEqual(piecesOf(held, null), [[2024, 32_500]], "without the closes, all where it closed");
+  assert.deepEqual(piecesOf(held, { BTCUSDT: [[day(2023, 10, 23), 30_000], [day(2023, 12, 31), 42_000], [day(2024, 4, 29), 31_000]] }), [[2024, 32_500]],
+                   "a price move under a tenth of the price leaves the mark unsteady: all where it closed");
+  assert.deepEqual(sharesOf([held], closes).get(2023).map((s) => [s.symbol, s.pnl, s.trades]), [["BTCUSDT", 12_000, 1]]);
 });

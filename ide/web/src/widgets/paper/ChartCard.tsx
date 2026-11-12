@@ -22,6 +22,7 @@ import { EquityChart } from "./EquityChart";
 import { Observation } from "./Observation";
 import { continuous, stretchName } from "./equityStretches";
 import { yearsOf } from "./equityYears";
+import { sharesOf } from "./equityShares";
 
 /** The chart card follows the selected stage: the backtest's equity, daily bars and cycles, or the
  *  paper account's equity, candles and fills. Contracts come from that stage only. The switches above
@@ -55,9 +56,11 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   const contracts = useMemo(() => [...new Set(drawn?.cycles.map((c) => c.symbol))].sort(), [drawn]);
   const holdCloses = useBacktestCloses(testing && equity ? contracts : [], drawn, market);
   const line = useMemo(() => continuous(equity ? stretches : [], targets.annual, true, drawn, testing, holdCloses), [stretches, targets.annual, equity, drawn, testing, holdCloses]);
-  // The shown backtest's years from its days, with its buy and hold's, on the names' line, free while it is the one stretch; a paper run's minutes have none to score.
+  // The shown backtest's years from its days, with its buy and hold's and its cycles' P&L by contract, in place of the names'
+  // line, free while it is the one stretch; a paper run's minutes have none to score.
   const years = useMemo(() => { const own = line.placed.find((p) => p.selected), days = own?.tested && line.placed.length === 1 ? line.minutes.slice(own.first, own.last + 1) : [];
-    return own && days.length ? yearsOf(days, own.starting * own.scale, (t) => line.readings.get(t)?.hold ?? null) : []; }, [line]);
+    const shares = sharesOf(drawn?.cycles ?? [], holdCloses);
+    return own && days.length ? yearsOf(days, own.starting * own.scale, (t) => line.readings.get(t)?.hold ?? null).map((y) => ({ ...y, shares: shares.get(y.year) ?? [] })) : []; }, [line, drawn, holdCloses]);
   const remembers = `${testing ? "backtest" : "paper"}:${version ?? ""}:${symbol}:${(drawn && equity) || lead ? `trial ${trial},` : ""}${stretches.map((x) => x.chain[0]!.paper_id).join()}`;
   // The contract's candles over every stretch, and the offline stretches inside each chain.
   const bars = useMemo(() => (ours ? stretches.flatMap((x) => x.piece.bars) : []), [ours, stretches]);

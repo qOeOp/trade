@@ -89,6 +89,15 @@
   /* a run's events on its contract charts (a gap, a rejection) and in its Events list: a sky blue, apart
      from the order levels' blue and the up and down pair, lighter on dark */
   --event: light-dark(#139BE0, #5AA9F5);
+  /* a contract's identity on a chart (the equity chart's yearly P&L bar): five categorical hues in a fixed
+     order, the dataviz skill's reference steps less its red and greens (profit and loss own those), each
+     stepped for its theme; checked with its validator (CVD and normal-vision separation pass in both themes,
+     yellow and magenta under 3:1 on white, so the bar names them or tips them) */
+  --series-1: light-dark(#2A78D6, #3987E5);
+  --series-2: light-dark(#EB6834, #D95926);
+  --series-3: light-dark(#6250D6, #9085E9);
+  --series-4: light-dark(#E87BA4, #D55181);
+  --series-5: light-dark(#EDA100, #C98500);
   /* the ink of a chart line's drop shadow, taken at a fraction */
   --line-shadow: #000000;
   --pnl-down: var(--candle-down);
