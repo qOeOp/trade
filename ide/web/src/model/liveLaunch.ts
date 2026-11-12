@@ -4,20 +4,18 @@
 // refuses as before; these rows only show its conditions earlier. Opening a setting is EDITABLE plus the server
 // accepting a value other than its default.
 import type { LiveCredential, LiveRun, LiveSource, LiveTradingView } from "./liveTrading";
-import { spanText, unavailableReason } from "./liveLaunchText";
-
+import { unavailableReason } from "./liveLaunchText";
 export { refusalText, spanText, unavailableReason } from "./liveLaunchText";
 /** pass / fail: a condition and its answer; wait: a condition not answered yet; shown: a value with no condition. */
 export type Mark = "pass" | "fail" | "wait" | "shown";
 export type LaunchRow = {
   id: string; label: string; value: string | null; unit?: string | null; mono?: boolean;
-  /** Where the value comes from, as the page says it. */
-  source: string;
+  span?: boolean; // the value is whole seconds, drawn as hours and minutes
+  presets?: readonly { label: string; value: string }[]; // one-click values of an editable row, before its reason
+  source: string; // where the value comes from, as the page says it
   editable: boolean; mark: Mark;
-  /** Whether starting needs this row to have a value and pass; a row that is not (the targets) is shown only. */
-  required: boolean;
-  /** Why it fails or waits, and who can change that; or a note on a passing or shown value. */
-  reason: string | null;
+  required: boolean; // whether starting needs this row to have a value and pass; one that is not (the targets) is shown only
+  reason: string | null; // why it fails or waits, and who can change that; or a note on a passing or shown value
 };
 export type LaunchColumn = { id: "strategy" | "account" | "limits"; title: string; rows: LaunchRow[] };
 
@@ -25,6 +23,8 @@ export type LaunchColumn = { id: "strategy" | "account" | "limits"; title: strin
  *  user's own choice: the duration of this run. Budget, loss limit and leverage are the Live settings' values (the
  *  leverage must equal the contract's on Binance); R5 derives budget and loss limit from the wallet. */
 export const EDITABLE: Readonly<Record<string, boolean>> = { budget_usdt: false, max_loss_usdt: false, duration_seconds: true, leverage: false };
+export const MAX_SPAN = 86400; // the longest run the Live runner takes (engine/live.py reads at most 86400 s)
+const SPANS = [1, 4, 8, 24].map((h) => ({ label: `${h} h`, value: String(h * 3600) }));
 
 export type LaunchInput = {
   view: LiveTradingView; source: LiveSource | null; edits: Readonly<Record<string, string>>;
@@ -37,7 +37,6 @@ export type LaunchInput = {
 
 const SETTINGS = "Live settings on the server", CHECK = "Account check";
 const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
-
 const value = (view: LiveTradingView, edits: LaunchInput["edits"], id: string) =>
   edits[id] ?? view.planFields.find((field) => field.id === id)?.value ?? null;
 
@@ -147,7 +146,7 @@ function account({ view, source, edits, checked }: LaunchInput, closed: string |
 
 function limits({ view, edits, checked }: LaunchInput, closed: string | null): LaunchRow[] {
   const loss = value(view, edits, "max_loss_usdt"), budget = value(view, edits, "budget_usdt"), duration = value(view, edits, "duration_seconds");
-  const span = duration === null ? null : spanText(duration);
+  const seconds = duration !== null && /^\d+$/.test(duration) ? Number(duration) : 0;
   const others = holding(view.runs, checked?.id ?? null);
   const notify = view.notify;
   return [
@@ -156,9 +155,10 @@ function limits({ view, edits, checked }: LaunchInput, closed: string | null): L
       mark: loss === null || !(Number(loss) > 0) ? "fail" : budget !== null && Number(loss) > Number(budget) ? "fail" : "pass",
       reason: loss === null ? closed ?? "Not set." : budget !== null && Number(loss) > Number(budget) ? "Above the budget; Live refuses it."
         : "The run stops once its loss reaches this." },
-    { id: "duration_seconds", label: "Duration", value: duration, unit: duration === null ? null : "s", source: EDITABLE.duration_seconds ? "Your choice" : SETTINGS,
-      editable: EDITABLE.duration_seconds ?? false, required: true, mark: span === null ? "fail" : "pass",
-      reason: duration === null ? closed ?? "Not set." : span === null ? "A whole number of seconds, 1 or more." : `${span}, then the run stops on its own.` },
+    { id: "duration_seconds", label: "Duration", value: duration, span: true, source: EDITABLE.duration_seconds ? "Your choice" : SETTINGS,
+      editable: EDITABLE.duration_seconds ?? false, required: true, mark: seconds >= 1 && seconds <= MAX_SPAN ? "pass" : "fail", presets: SPANS,
+      reason: duration === null ? closed ?? "Not set." : seconds < 1 ? "At least 1 minute." : seconds > MAX_SPAN ? "At most 24 h: Live stops a run within a day."
+        : "Then the run stops on its own." },
     { id: "notify", label: "Notifications", source: "Settings", editable: false, required: false, mark: "shown",
       value: notify ? notify.configured ? "Telegram on" : "Off" : null,
       reason: notify ? notify.configured ? null : "Set up Telegram in Settings to hear about fills and stops." : closed ?? "This Live service does not report them." },

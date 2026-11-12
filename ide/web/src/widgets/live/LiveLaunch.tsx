@@ -95,7 +95,11 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
         </div>
         {blocker && !closed && <p className="text-small text-fg-faint">{blocker}</p>}
       </LiveLaunchColumn>
-      <LiveLaunchColumn column={columns[2]!} index={2} closed={closed} edit={(id, value) => update((base) => ({ edits: { ...base.edits, [id]: value } }))}>
+      <LiveLaunchColumn column={columns[2]!} index={2} closed={closed} edit={(id, value) => update((base) => {
+        // A value back at the Live setting is no edit, so Reset shows only while something differs from it.
+        const { [id]: _was, ...rest } = base.edits;
+        return { edits: value === view.planFields.find((field) => field.id === id)?.value ? rest : { ...rest, [id]: value } };
+      })}>
         <LiveLaunchStart ready={canStart} waiting={closed ? [] : waiting} armed={armed} busy={starting.busy} sourceHash={source?.sourceHash ?? null}
           arm={() => setArmed(true)} disarm={() => setArmed(false)} start={start} />
         {Object.keys(edits).length > 0 && <TextButton size="form" disabled={busy} onClick={() => update(() => ({ edits: {} }))}>Reset to the Live settings</TextButton>}

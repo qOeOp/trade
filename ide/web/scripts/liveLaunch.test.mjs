@@ -26,7 +26,19 @@ test("with every row passing start opens; of the run settings only the duration 
   assert.equal(model.ready(cols), true);
   assert.deepEqual(cols.flatMap((column) => column.rows).filter((item) => item.editable).map((item) => item.id), ["duration_seconds"]);
   assert.ok(cols.flatMap((column) => column.rows).every((item) => item.source), "every row says where its value comes from");
-  assert.equal(row(cols, "duration_seconds").reason, "2 h 15 min, then the run stops on its own.");
+  assert.equal(row(cols, "duration_seconds").reason, "Then the run stops on its own.");
+});
+
+test("the duration reads in hours and minutes, exactly, takes one-click presets, and holds to the runner's 24 h", () => {
+  assert.equal(model.spanText("8100"), "2 h 15 min");
+  assert.equal(model.spanText("3630"), "1 h 30 s", "seconds under an hour are kept, so the shown value is the one sent");
+  const duration = (seconds) => row(columns(view(), checked(), { edits: { duration_seconds: seconds } }), "duration_seconds");
+  assert.deepEqual(duration("8100").presets.map((preset) => [preset.label, preset.value]), [["1 h", "3600"], ["4 h", "14400"], ["8 h", "28800"], ["24 h", "86400"]]);
+  assert.equal(duration("86400").mark, "pass");
+  assert.equal(duration("86401").mark, "fail");
+  assert.match(duration("86401").reason, /At most 24 h/);
+  assert.equal(duration("0").mark, "fail");
+  assert.match(duration("0").reason, /At least 1 minute/);
 });
 
 test("where Live is not set up every column is still drawn, each row failing in plain words, never a code", () => {

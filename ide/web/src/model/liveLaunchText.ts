@@ -32,9 +32,9 @@ export function refusalText(code: string | undefined): string {
   }[code]) || "Live refused this step. Requests shows what it recorded.";
 }
 
-/** A whole, positive number of seconds as hours and minutes ("2 h 15 min"), or null. */
+/** A whole, positive number of seconds as hours, minutes and seconds ("2 h 15 min", "1 h 30 s"), exactly, or null. */
 export function spanText(seconds: string): string | null {
   if (!/^[1-9][0-9]*$/.test(seconds.trim())) return null;
   const total = Number(seconds), h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
-  return [h && `${h} h`, m && `${m} min`, s && !h && `${s} s`].filter(Boolean).join(" ") || null;
+  return [h && `${h} h`, m && `${m} min`, s && `${s} s`].filter(Boolean).join(" ") || null;
 }
