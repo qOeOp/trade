@@ -13,6 +13,7 @@ from nautilus_trader.model import OrderStatus, PositionSide
 from nautilus_trader.trading import Strategy
 from engine import protection, strategy as strategy_runtime
 from engine.live_errors import LiveRefusal as Refusal
+from engine.live_connection import Connection
 from engine.live_evidence import Evidence
 from engine import live_commands as commands
 from engine.live_commands import AccountObservation, PendingEntry, pending_orders
@@ -46,7 +47,8 @@ class Session:
     account_observation: AccountObservation | None = None
     pending_entries: list[PendingEntry] = field(default_factory=list)  # entries awaiting their account check, in order
     account_verified: bool = False
-    connection_failed: bool = False
+    connection_failed: bool = False  # the connected start could not be verified; a later disconnect only closes entries
+    connection: Connection = field(default_factory=Connection)  # the entry gate (engine.live_connection)
     cache_guard: Any = None
     canceled: dict[str, float] = field(default_factory=dict)
     exits: set[str] = field(default_factory=set)
@@ -181,8 +183,8 @@ class Session:
 
 
     def lose_connection(self, reason: str) -> None:
-        # There is no public rc7 recovery-complete barrier. Keep existing venue orders
-        # and cache custody; a later CONNECTED event cannot re-arm this process.
+        # The connected start could not be verified, so nothing was ever admitted: stop. A disconnect after the start
+        # only closes entries (engine.live_connection). Keep existing venue orders and cache custody.
         self.account_verified, self.connection_failed, self.failed, self.native_flat = False, True, True, False
         commands.discard_observation(self)
         # Stop native command producers before any journal I/O or the node's asynchronous

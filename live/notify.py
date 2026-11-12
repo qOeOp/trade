@@ -269,6 +269,7 @@ def _messages(run: dict) -> list[tuple[str, str]]:
     if current == "running" and mode in {"run", "reconcile"}:
         result.append((f"{run_id}:running:{mode}",
                        f"{name} started." if mode == "run" else f"{name} is reconciling with Binance."))
+    result.extend(_gate_messages(run, name))
     for row in _fills(run):
         result.append((_fill_key(run, row), f"{name} fill: {row.get('order_side') or 'side unknown'} "
                        f"{row.get('last_qty') or '?'} {row.get('instrument_id') or ''} at {row.get('last_px') or '?'}."))
@@ -287,6 +288,36 @@ def _messages(run: dict) -> list[tuple[str, str]]:
         result.append((f"{run_id}:unresolved:{mode}",
                        f"{name} is UNRESOLVED and needs attention now: exposure may remain at Binance and nothing "
                        f"will close it. Follow 'Unresolved Live runs' in engine/README.md.{reason}"))
+    return result
+
+
+HELD = {"unknown_orders": "Binance holds orders this run does not know; every order on the contract was canceled",
+        "bars_missing": "a bar is missing from the feed; only a restart's warm-up rebuilds the strategy's input",
+        "account_mode": "the account's modes changed", "foreign": "the account holds a position or order of another symbol"}
+
+
+def _gate_messages(run: dict, name: str) -> list[tuple[str, str]]:
+    """Entries closed beyond a brief reconnect (engine.live_connection): a lost connection, a check that has not
+    passed for ten minutes, a reason that holds them closed for the run, and the reopening after a notice."""
+    result, noticed = [], False
+    for row in run.get("gate") or []:
+        key = f"{run['run_id']}:gate:{row['observed_ns']}"
+        event, reasons = row["event"], row.get("reasons") or []
+        if event == "connection_lost":
+            noticed = True
+            result.append((key, f"{name}: a Binance connection has been down for over a minute. Entries are closed; "
+                                "positions keep their exchange stops and the strategy's exits."))
+        elif event == "entries_held":
+            noticed = True
+            result.append((key, f"{name}: entries are still closed after ten minutes: Binance and the run's records "
+                                "do not agree yet."))
+        elif event == "entries_closed" and reasons and reasons[0] in HELD:
+            noticed = True
+            result.append((key, f"{name}: entries are closed for the rest of the run: {HELD[reasons[0]]}. "
+                                "Positions keep their exits; stop the run to end it."))
+        elif event == "entries_opened" and noticed:
+            noticed = False
+            result.append((key, f"{name}: Binance and the run agree again; entries are open."))
     return result
 
 

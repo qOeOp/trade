@@ -209,6 +209,19 @@ class Sending(Base):
         self.assertEqual(self.record()["done"], ["@daily:2026-11-09", "run-b:unresolved:run"])
         self.assertEqual(self.tick(DAY + 20).calls, [])
 
+    def test_entries_closed_beyond_a_brief_reconnect_are_noticed_and_so_is_their_reopening(self):
+        gate = [{"event": "entries_closed", "observed_ns": "1", "reasons": ["disconnected"], "socket": "BINANCE user"},
+                {"event": "entries_opened", "observed_ns": "2", "reasons": ["unverified"], "socket": None},
+                {"event": "entries_closed", "observed_ns": "3", "reasons": ["disconnected"], "socket": "BINANCE user"},
+                {"event": "connection_lost", "observed_ns": "4", "reasons": [], "socket": "BINANCE user"},
+                {"event": "entries_opened", "observed_ns": "5", "reasons": ["unverified"], "socket": None},
+                {"event": "entries_closed", "observed_ns": "6", "reasons": ["bars_missing"], "socket": None}]
+        texts = [text for key, text in notify.messages(run(gate=gate)) if ":gate:" in key]
+        self.assertEqual(len(texts), 3)  # a brief reconnect, closed and reopened, says nothing
+        self.assertIn("down for over a minute", texts[0])
+        self.assertIn("entries are open", texts[1])
+        self.assertIn("closed for the rest of the run: a bar is missing", texts[2])
+
     def test_a_closed_run_stays_read_until_the_summary_after_its_last_fill_and_while_it_holds_the_newest_wallet(self):
         self.tick(DAY)
         ended = {"host": {"state": "clean_stopped", "mode": "run", "exit_code": 0}, "custody": {"archived": True},

@@ -559,21 +559,31 @@ ownership; it is separate from the account's ability to hold both LONG and SHORT
 Order commands remain closed until a fresh account observation after native startup passes admission.
 Account reads run in one read-only background task; the existing Observer consumes the result while
 native socket and timer events continue. The worker never touches the node, source, order or cache.
-Late results after STOP, disconnect or the 30-second deadline cannot re-arm or dispatch an entry.
-The observer subscribes to native socket-state events. A disconnect synchronously stops the native source
-before requesting node shutdown, preventing managed GTD and market-exit timers from issuing new commands.
-It ends this run unresolved, preserving
-venue protection, cache and account custody; a later CONNECTED event does not resume trading. New order,
-modify, cancel and exit commands from the source are refused while connectivity is unverified. Already
-dispatched venue commands cannot be recalled by this gate. No custom reconciliation engine or second trading
-client is used. Residual fills still update the native cache and logs; stopped source callbacks no longer journal them.
+Late results after STOP or the 30-second deadline cannot dispatch an entry.
 
-Before the source stops, a disconnect or observer failure sends one native cancel for each working entry and
-leaves reduce-only protection in place, because no process would protect a later fill. Orders travel over REST,
-so a lost socket does not block the request, but nothing confirms the result: the run stays unresolved and the
-next read of the venue decides. An entry can still fill if the cancel is lost or loses the race, and that fill
-has no stop until an operator acts on the venue. A source that leaves the running state by itself (`stop`,
-`fault`, `degrade`) enters the normal STOP path, marked failed.
+A lost connection closes entries; it does not end the run (`engine/live_connection.py`, design
+`docs/plans/live-continuous-operation-design-20261110.zh.md` §3.2). A disconnect before the connected start is
+verified still ends the run, since nothing was admitted. After it, any Binance socket that goes down closes the entry
+gate: working entries get one native cancel each (REST, so a lost socket does not block it; an entry can still fill
+if the cancel is lost or loses the race, and its source protects it as usual), and an entry the source submits, or one
+still waiting for its account check, is refused with `LIVE_CONNECTION_UNVERIFIED`, which ends the run like any
+refused entry: the source cannot see a product refusal, and the pinned Python `Strategy` has no native `deny_order`.
+Reductions, cancels and closes from the source and the Observer go on (REST); exchange stops stay at Binance.
+When every socket is back, entries reopen only after two comparisons of a REST read with the native cache, at least 30
+seconds apart (one native position and open-order reconciliation cycle), both agree on the strategy's positions per
+side and its open orders by venue ID, the account modes, nothing on another symbol, and a live bar received since the
+reconnect. A disagreement restarts the check. Orders at Binance the cache does not know are canceled with every order
+on the contract (native cancel-all, regular and conditional), and entries then stay closed for the run, as they do
+after a missing external bar (no data is patched; a restart's warm-up rebuilds the source's input) or changed account
+modes. The comparison also runs every five minutes while entries are open; two disagreeing reads in a row close them.
+While nothing is open, a connection older than 23 hours is renewed natively (`reconnect_socket`) between seconds 20 and
+40 of a minute, moving Binance's 24-hour cut away from positions and the bar boundary. With a position open, the
+existing 60-second rule for a missing mark price still stops the run. A socket down for a minute, a check not passed
+in ten minutes, entries closed for the run and their reopening after such a notice are Telegram notices. No custom
+reconciliation engine or second trading client is used.
+
+An Observer failure sends the same one cancel per working entry and ends the run unresolved. A source that leaves
+the running state by itself (`stop`, `fault`, `degrade`) enters the normal STOP path, marked failed.
 
 Orders follow the shared order rules above; Binance Futures in the pinned release refuses linked OCO/OTO order
 lists, which the rules exclude everywhere. Live adds custody on top: the account is flat when the run starts; each
@@ -679,7 +689,7 @@ write journals `evidence_unavailable` once per part and the run goes on.
 
 ### Unresolved Live runs
 
-`status` says `unresolved` when a run ended without proof that the account is flat: a disconnect, a failed check, a
+`status` says `unresolved` when a run ended without proof that the account is flat: a failed check, a
 rejected or failed close, a crashed runner, or a `reconcile` stopped before flat. A position may remain at Binance,
 with or without its stop, and nothing will close it. When Telegram notifications are set up on the Live page,
 the paired control sends a message within about ten seconds of seeing the run unresolved, but only from its

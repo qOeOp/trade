@@ -8,6 +8,7 @@ import time
 from typing import Any, Callable, TYPE_CHECKING
 from nautilus_trader.model import OrderStatus, TimeInForce
 from nautilus_trader.trading import Strategy
+from engine import live_connection
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import require_admission, require_account_mode
 from engine.order_rules import ENTRY_EQUITY_MULTIPLE, ENTRY_TYPES, exposure
@@ -56,8 +57,10 @@ def pending_orders(cache, strategy_id=None) -> list:
 
 
 def require_connection(session: Session) -> None:
+    """Reductions, cancels and closes travel over REST: only a run whose start was never verified refuses them
+    (engine.live_connection gates entries alone)."""
     if not session.account_verified or session.connection_failed:
-        raise Refusal("LIVE_CONNECTION_UNVERIFIED", "order commands require verified uninterrupted venue connectivity")
+        raise Refusal("LIVE_CONNECTION_UNVERIFIED", "order commands require a run whose connected start was verified")
 
 
 def start_observation(session: Session, purpose: str) -> None:
@@ -73,8 +76,8 @@ def discard_observation(session: Session) -> None:
         observation.result.cancel()  # Does not cancel an already running HTTP request.
 
 
-def observed_account(session: Session, purpose: str) -> dict | None:
-    observation = session.account_observation
+def observed_account(session: Session, purpose: str, observation: AccountObservation | None = None) -> dict | None:
+    observation = session.account_observation if observation is None else observation
     if observation is None or observation.purpose != purpose:
         raise Refusal("LIVE_CONNECTION_UNVERIFIED", "the account observation does not match this operation")
     if time.monotonic() > observation.deadline:
@@ -107,7 +110,8 @@ def require_order_identity(session: Session, order) -> None:
 
 def require_entry(session: Session, order) -> None:
     """The entry's shape; its size is checked at dispatch (require_entry_size), against the equity of the account
-    observation taken for it. Entries may join the run's open positions and orders (user, 2026-11-11)."""
+    observation taken for it. Entries may join the run's open positions and orders (user, 2026-11-11). The entry gate
+    (engine.live_connection) is checked before this, by the caller."""
     require_connection(session)
     if not Strategy.is_running(session.source):
         raise Refusal("LIVE_ENTRY_STOPPED", "only a running native source may dispatch its entry")
@@ -143,6 +147,9 @@ def queue_entry(session: Session, entry: PendingEntry) -> None:
 
 def dispatch_entry(session: Session) -> None:
     if not session.pending_entries:
+        return
+    if not live_connection.entries_open(session):
+        live_connection.deny_queued(session, live_connection.gate_reason(session))  # ends the run
         return
     pending = session.pending_entries[0]
     try:
