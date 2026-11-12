@@ -16,7 +16,7 @@ function RowMark({ mark, required, busy }: { mark: Mark; required: boolean; busy
 
 const SAID: Record<Mark, string> = { pass: "met", fail: "not met", wait: "not answered yet", shown: "" };
 
-/** One row: its label and value on a line (an editable value in a field, the rest greyed), then where the value
+/** One row: its label and value on a line (an editable value on a blue underline, the rest greyed), then where the value
  *  comes from and, when it fails or waits, why and who can change that. */
 function Row({ row, closed, edit, busy }: { row: LaunchRow; closed: boolean; edit?: (id: string, value: string) => void; busy: boolean }) {
   const open = row.editable && !closed && edit;
@@ -31,8 +31,9 @@ function Row({ row, closed, edit, busy }: { row: LaunchRow; closed: boolean; edi
         <span className={closed ? "text-fg-faint" : "text-fg"}>{row.label}</span>
         {open ? <label className="flex items-center gap-1.5">
           <span className="sr-only">{row.label}</span>
+          {/* No box: the value sits in the row like the greyed ones, on a blue underline that thickens while editing. */}
           <input value={row.value ?? ""} inputMode="numeric" spellCheck={false} aria-invalid={row.mark === "fail"} onChange={(event) => edit(row.id, event.target.value)}
-            className="h-(--form-h) w-28 rounded-control border border-line-strong bg-island px-2 text-right tabular-nums text-fg outline-none focus:border-focus aria-invalid:border-fail" />
+            className="w-20 border-0 border-b border-link bg-transparent px-0 pb-px text-right tabular-nums text-fg outline-none focus:border-b-2 focus:pb-0 aria-invalid:border-fail" />
           {row.unit && <span className="text-fg-faint">{row.unit}</span>}
         </label> : <span className={`min-w-0 text-right tabular-nums wrap-anywhere ${tone} ${row.mono ? "font-mono" : ""}`}>
           {row.value ?? "—"}{row.value !== null && row.unit && <span className="text-fg-faint"> {row.unit}</span>}
