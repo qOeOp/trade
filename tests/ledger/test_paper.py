@@ -96,7 +96,7 @@ class ReadingTests(unittest.TestCase):
                       signed_qty="-1"),
                  line("bar", at + MINUTE, instrument_id=iid, ts_event=at + MINUTE - 10**6),
                  line("position", at + MINUTE, type="PositionChanged", instrument_id=iid, position_id="P-1",
-                      signed_qty="5"),
+                      signed_qty="4.9999999998", quantity="5", side="LONG"),
                  line("position", at + MINUTE, type="PositionClosed", instrument_id=iid, position_id="P-2",
                       signed_qty="0")]
         held = paper.held_at(lines, {iid: [at, at + 2 * MINUTE]})

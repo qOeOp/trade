@@ -214,11 +214,19 @@ def journal_lines(data: bytes) -> tuple[list[dict], int]:
 
 
 CENT = Decimal("0.00000001")  # USDT's precision, to which Nautilus rounds a notional and a funding amount
-MARK_LOOKBACK_MS = 10 * 60_000  # how far before a settlement its MARK minute is looked for
+MARK_LOOKBACK_MS = 10 * 60_000
+SIDES = {"LONG": 1, "SHORT": -1, "FLAT": 0}  # how far before a settlement its MARK minute is looked for
 
 
 def _money(value: Decimal) -> Decimal:
     return value.quantize(CENT, ROUND_HALF_EVEN)
+
+
+def signed_quantity(event: dict) -> Decimal:
+    """A position event's signed quantity: its exact quantity by its side (the native signed_qty is a float)."""
+    if event.get("quantity") is not None and event.get("side") in SIDES:
+        return (_decimal(event["quantity"]) or Decimal(0)) * SIDES[event["side"]]
+    return _decimal(event.get("signed_qty")) or Decimal(0)
 
 
 def held_at(lines: list[dict], due: dict[str, list[int]]) -> dict[tuple[str, int], dict[str, Decimal]]:
@@ -237,7 +245,7 @@ def held_at(lines: list[dict], due: dict[str, list[int]]) -> dict[tuple[str, int
             while pending[iid] and pending[iid][0] < (line.get("ts_event") or 0):
                 found[(iid, pending[iid].pop(0))] = dict(open_[iid])
         elif line["kind"] == "position" and line.get("position_id"):
-            quantity = _decimal(line.get("signed_qty")) or Decimal(0)
+            quantity = signed_quantity(line)
             if line.get("type") == "PositionClosed" or not quantity:
                 open_[iid].pop(line["position_id"], None)
             else:
