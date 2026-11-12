@@ -12,6 +12,7 @@ import { EquityExtras } from "./equityExtras";
 import { EquityLegend } from "./EquityLegend";
 import { FEW } from "./equityLayers";
 import type { Close } from "./equityCloses";
+import type { Leaning } from "../../model/held";
 import { resample, STEPS } from "./equityResolution";
 import { covered, firstView, lastWhere, stepOver, type Line } from "./equityStretches";
 import { glide } from "./glide";
@@ -26,9 +27,9 @@ const views = new Map<string, { step: number; from: number; to: number }>();  //
 /** The account over the version's stretches (equityStretches.ts: its backtest a point a day, its paper
  *  runs a point a minute) as one line, after vibe-trading's daily-returns chart: equity as its indigo hero line; the pace the line's minimum annual
  *  return asks for as a dashed line, the gap filled green ahead and red behind (against the start with no
- *  return target); behind them the drawdown an entry at each moment would take hanging from the top and, of the shown stretch,
- *  each day's return from the bottom and the stretches a position was held (equityLayers), any stretch a
- *  chain of runs was offline over all of them; on the line the drawdown limit's floor and the shown
+ *  return target); behind them which way a position was held along the top, the drawdown an entry at each moment would take
+ *  hanging under it and, of the shown stretch, each day's return from the bottom and the stretches a position was held
+ *  (equityLayers), any stretch a chain of runs was offline over all of them; on the line the drawdown limit's floor and the shown
  *  stretch's deepest drawdowns (equityNotes) and an arrow at each of its closes (equityCloses), whose click
  *  picks the trade; the balance, the costs' band, a buy and hold, and the exposure (equityExtras); a
  *  reconciled run's replay dotted. Each stretch is named at its start (stretchCaptions), a click on the
@@ -41,7 +42,7 @@ const views = new Map<string, { step: number; from: number; to: number }>();  //
  *  stretchKeys'. The readout row gives the layers' values under the pointer, `aside` at its right end. */
 export function EquityChart({ line, remembers, replay = null, annual, limit = null, closes = [], held = [], warmup = null, aside = null }: {
   line: Line; remembers: string; replay?: readonly [number, number][] | null; annual: number | null;
-  limit?: number | null; closes?: readonly Close[]; held?: readonly [number, number][]; warmup?: number | null; aside?: ReactNode;
+  limit?: number | null; closes?: readonly Close[]; held?: readonly Leaning[]; warmup?: number | null; aside?: ReactNode;
 }) {
   const { minutes, placed, restarts, readings, days, drops, sealed } = line;
   const host = useRef<HTMLDivElement>(null), api = useRef<Api | null>(null);

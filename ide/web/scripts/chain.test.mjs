@@ -14,6 +14,7 @@ const chain = await namespace("model/chain.ts");
 const { ending } = await namespace("model/ending.ts");
 const { joined, namespaced } = await namespace("model/joined.ts");
 const paper = await namespace("model/paper.ts");
+const held = await namespace("model/held.ts");
 const { stoppedPositions, observedCloses } = await namespace("model/stoppedPositions.ts");
 const { waitingUntil, waitingText, observedThrough } = await namespace("model/observation.ts");
 const { trades, holdings } = await namespace("model/trades.ts");
@@ -376,7 +377,9 @@ test("nothing is held across a restart: fills, spans and trade boxes start flat 
   assert.deepEqual(restarts, [{ from: killedAt / 1e6, to: startedAt / 1e6, gap: "offline", lead: "Docker or host restart", resumed: "restarted" }]);
   assert.deepEqual(paper.spans(found, "BTCUSDT", restarts), [[(T0 + MIN) / 1e6, killedAt / 1e6, true], [(T0 + 60 * MIN) / 1e6, null, false]]);
   assert.deepEqual(paper.spans(found, "BTCUSDT"), [[(T0 + MIN) / 1e6, (T0 + 60 * MIN) / 1e6, true]], "without the restart the two read as one trade");
-  assert.deepEqual(paper.heldUnion(found, T0 / 1e6, (T0 + 70 * MIN) / 1e6, restarts), [[(T0 + MIN) / 1e6, killedAt / 1e6], [(T0 + 60 * MIN) / 1e6, (T0 + 70 * MIN) / 1e6]]);
+  assert.deepEqual(held.sidesHeld([[0, 10, true], [5, 20, false], [20, 30, false], [40, 40, true]]), [[0, 5, true], [5, 10, null], [10, 30, false]],
+                   "both sides at once read as neither; touching spans of one side join; an empty span holds nothing");
+  assert.deepEqual(held.heldSides(found, T0 / 1e6, (T0 + 70 * MIN) / 1e6, restarts), [[(T0 + MIN) / 1e6, killedAt / 1e6, true], [(T0 + 60 * MIN) / 1e6, (T0 + 70 * MIN) / 1e6, false]]);
   const boxes = tradeBoxes(found, 1, null, null, null, s.bars, restarts);
   assert.equal(boxes.length, 1, "the long ends at the restart; the short is open with no position to box");
   assert.equal(boxes[0].exit, 80_500);
@@ -528,7 +531,7 @@ test("a backtest is its account a day from the stored returns and its cycles as 
   const bare = backtest(report({ slices: null }));
   assert.deepEqual([bare.account.gross, bare.account.fees, bare.account.funding, bare.account.open, bare.stats.winRate], [null, null, null, null, null],
                    "no profit bridge or trade structure without the report's slices: nothing is summed from the cycles in their place");
-  assert.deepEqual(cyclesHeld([...b.cycles, { ...b.cycles[0], opened: 0, closed: 5 }]), [[0, 5], [(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000]]);
+  assert.deepEqual(cyclesHeld([...b.cycles, { ...b.cycles[0], opened: 0, closed: 5 }]), [[0, 5, true], [(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000, true]]);
   const unknown = backtest(report({ cost_basis: null }));
   assert.deepEqual([unknown.starting, unknown.days.length, unknown.account, unknown.cycles.length], [null, 0, null, 1], "no equity without a recorded starting balance");
 });
@@ -541,7 +544,7 @@ test("a cycle still open at the window's end is held until that end, not closed 
   assert.deepEqual([b.cycles[0].open, b.cycles[1].open, b.account.holding, b.account.trades.map((t) => t.id)], [true, false, 1, ["9:1"]], "its trades are the closed cycles");
   assert.deepEqual(b.cycles.map((c) => [c.id, c.closed]), [["9:2", (D0 + 3 * DAY) * 1000], ["9:1", (D0 + DAY + 3600) * 1000]], "newest first, open at the window's end");
   assert.deepEqual(b.days.map((d) => d.held), [1, 1, 1]);
-  assert.deepEqual(cyclesHeld(b.cycles), [[(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000], [(D0 + 2 * DAY + 3600) * 1000, (D0 + 3 * DAY) * 1000]]);
+  assert.deepEqual(cyclesHeld(b.cycles), [[(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000, true], [(D0 + 2 * DAY + 3600) * 1000, (D0 + 3 * DAY) * 1000, false]]);
   assert.ok(b.stats.hold > 0, "no negative holding time");
 });
 

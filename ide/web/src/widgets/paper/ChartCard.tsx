@@ -3,7 +3,8 @@ import { precisions, symbolOf, type PaperRun } from "../../lib/paperApi";
 import type { Account } from "../../model/account";
 import { chartHistory } from "../../model/stage";
 import { cyclesHeld } from "../../model/backtest";
-import { heldOf, heldUnion, priceLines, restartsOf, spans as spansOf, warmupAt, type Fill, type Restart } from "../../model/paper";
+import { heldSides, type Leaning } from "../../model/held";
+import { heldOf, priceLines, restartsOf, spans as spansOf, warmupAt, type Fill, type Restart } from "../../model/paper";
 import { useView } from "../../model/view";
 import { backtestNote, type Loaded } from "../../state/backtest";
 import { barsNote, useBacktestBars } from "../../state/backtestBars";
@@ -75,12 +76,12 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   const r = useReconciliation(), reconciling = useAtom(tradesTab) === "reconcile";
   const replay = useMemo(() => (!testing && reconciling && run && r?.paper_id === run.paper_id && r.result ? r.result.equity.replay.map(([ns, v]) => [ns, Number(v)] as [number, number]) : null), [testing, r, run?.paper_id, reconciling]);
   const openFrom = spans.find(([, to]) => to === null)?.[0] ?? null;
-  // The equity chart's closes and the stretches any contract held a position, in seconds: the shown
+  // The equity chart's closes and the stretches any contract held a position and which way, in seconds: the shown
   // stretch's, the backtest's cycles or the paper run's fills.
   const trades = testing ? drawn?.cycles : a?.trades;
   const closes = useMemo(() => (trades ?? []).map((t) => ({ id: t.id, time: t.closed / 1000, pnl: t.pnl ?? 0 })), [trades]);
-  const holding = useMemo(() => (testing ? cyclesHeld(drawn?.cycles ?? []) : a?.start == null ? [] : heldUnion(fills, a.start, a.end, restarts))
-    .map(([x, y]) => [x / 1000, y / 1000] as [number, number]), [testing, drawn, fills, a?.start, a?.end, restarts]);
+  const holding = useMemo(() => (testing ? cyclesHeld(drawn?.cycles ?? []) : a?.start == null ? [] : heldSides(fills, a.start, a.end, restarts))
+    .map(([x, y, long]): Leaning => [x / 1000, y / 1000, long]), [testing, drawn, fills, a?.start, a?.end, restarts]);
 
   return (
     <section aria-label="Chart" className="flex min-h-0 min-w-0 flex-col rounded-island bg-island">
