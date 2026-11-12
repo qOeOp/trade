@@ -12,7 +12,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 ```
 trials: 11
-multiple_testing: {research_trials: 21, effective_trials: 14, all_purpose_trials: 37}
+multiple_testing: {research_trials: 21, effective_trials: 14, all_purpose_trials: 37, sweep_variants: 8, undeclared_sweeps: [], trials_with_sweeps: 45}
 ```
 
 请写出 `judgment add --kind recommendation` 的正文全文（英文），再用两三句话告诉我这次推荐背后的试验数。正文里哪些数写、哪些只引用，按这个 skill 的规则定。
