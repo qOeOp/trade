@@ -6,6 +6,9 @@ import { requestFocus } from "../../state/linking";
 import { Dropdown, DropdownFacts, DropdownItem, DropdownLabel, DropdownSeparator } from "../../components/Dropdown";
 import { ResearchLines } from "./ResearchLines";
 import { useResearchLines } from "../../state/researchLines";
+import { useAtom } from "../../state/atom";
+import { viewStatus } from "../../state/phone";
+import { Icon } from "../../icons/Icon";
 
 // The gates `research state` reads before the line's next registration, in words; the message keeps the detail.
 const GATES: Record<string, string> = { INTERPRETATION_REQUIRED: "Runs await interpretation", REVIEW_DUE: "Recommendation review due" };
@@ -17,6 +20,19 @@ export function LineWidget() {
   const { line, scope } = useView();
   const priority = useWidget<SummaryWidget>("summary")?.priority;
   const index = useResearchLines(), day = marketDay(line.market_day), gates = line.gates ?? [];
+  const status = useAtom(viewStatus);
+  // Before its first graph comes, the line the address names shows as on its way, not as no line.
+  const asked = new URLSearchParams(window.location.search).get("line");
+  if (!line.bundle && asked && status.busy) return (
+    <Dropdown label="Research line" trigger={<>
+      <span className="truncate font-mono font-semibold text-fg-muted">{asked.replace(/^research-line-/, "")}</span>
+      <Icon name="loading" size={12} className="shrink-0 text-icon motion-safe:animate-spin" />
+    </>}>
+      <DropdownLabel>{status.text}</DropdownLabel>
+      <DropdownSeparator />
+      <ResearchLines index={index} />
+    </Dropdown>
+  );
   if (!line.bundle) return <Dropdown label="Research line" trigger={<span className="text-fg-muted">No line</span>}><ResearchLines index={index} /></Dropdown>;
   return (
     <Dropdown label="Research line" trigger={<>
