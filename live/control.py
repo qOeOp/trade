@@ -5,8 +5,11 @@ from __future__ import annotations
 import hashlib
 from datetime import date, datetime
 from pathlib import Path
+import threading
+import time
 
 from engine.live_errors import REFUSALS, LiveRefusal
+from engine.live_venue import EVIDENCE_TOLERANCE
 from ledger import db
 from live import authority, configuration, credentials, notify, release, requests, runs, state, views
 
@@ -96,9 +99,48 @@ def run_view(config: configuration.Configuration, run_id: str, *, review: bool =
     return result
 
 
-def listing(config: configuration.Configuration, *, binding: release.Binding | None = None) -> dict:
+class Evidence:
+    """Each source's replay evidence (runs.replay_evidence), read in the background so the page shows it before a run
+    is prepared. Display only: preparation reads it again and refuses as before. At a fixed research commit and
+    execution image a found or missing answer stays; an unknown one (an image or ledger unreadable) is read again."""
+
+    RETRY_NS = 300 * 1_000_000_000
+
+    def __init__(self) -> None:
+        self._found: dict[str, dict] = {}
+        self._lock = threading.Lock()
+
+    def view(self, source_id: str) -> dict:
+        with self._lock:
+            found = self._found.get(source_id)
+        state_, replays = (found["state"], found["replays"]) if found else ("checking", [])
+        return {"state": state_, "replays": replays, "tolerance": str(EVIDENCE_TOLERANCE)}
+
+    def check(self, config: configuration.Configuration) -> None:
+        for source in config.sources.values():
+            with self._lock:
+                found = self._found.get(source.source_id)
+            if found and (found["state"] != "unknown" or time.monotonic_ns() - found["at"] < self.RETRY_NS):
+                continue
+            try:
+                rows = runs.replay_evidence(_profile(config), config.research_at, source.source_sha256,
+                                            config.symbols, config.runtime)
+                found = {"state": "found" if rows else "missing", "replays": [
+                    {"trial_id": row["trial_id"], "starting_balance_usdt": row["starting_balance_usdt"]} for row in rows]}
+            except Exception:
+                found = {"state": "unknown", "replays": []}
+            with self._lock:
+                self._found[source.source_id] = {**found, "at": time.monotonic_ns()}
+
+
+def listing(config: configuration.Configuration, *, binding: release.Binding | None = None,
+            evidence: Evidence | None = None) -> dict:
+    """`symbols` and each source's `evidence` let the page show a run's contracts and replay evidence before it is
+    prepared; `evidence` only from the serving control, which reads it in the background."""
     result = {"availability": "ready", "write_enabled": True, "write_reason": None, "maintenance_enabled": True,
-              "sources": [source.view() for source in config.sources.values()],
+              "sources": [{**source.view(), **({"evidence": evidence.view(source.source_id)} if evidence else {})}
+                          for source in config.sources.values()],
+              "symbols": list(config.symbols),
               "defaults": config.defaults, "credentials": [], "runs": [], "notify": notify.view(config.root)}
     def availability() -> None:
         try:

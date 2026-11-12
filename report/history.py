@@ -12,7 +12,11 @@ shorter than SHORT_DAYS is shown but counted in no summary.
 
 Picking a candidate by these readings is a choice among the line's participants, so each holdout carries its
 deflated Sharpe (measures.deflated_sharpe, the one formula `research status` also uses) with the participant count
-as the number of trials and the variance of the participants' per-day holdout Sharpe ratios (3.7).
+as the number of trials and the variance of the participants' per-day holdout Sharpe ratios (3.7). Beside it,
+`holdout_prior_trials` counts the searches that already looked at the holdout (roundtable 2026-11-12, 20261112-17):
+counted trials (status.counted_trials) of any purpose and line on the line's instruments whose trading window overlaps
+the holdout (status.overlapping_trials), leaving out the line's own history trials. Lines opened in one quarter share
+a holdout, so another line's explore or closing replays count here; searches outside this ledger do not show.
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ import statistics
 from ledger import db, execution, lines
 from ledger import targets as line_targets
 from registration import reproduction
-from report import measures
+from report import measures, status
 
 
 SHORT_DAYS = 90  # about three months
@@ -138,9 +142,32 @@ def _control_reproduces(conn: db.LedgerConnection, control: dict | None, run_id:
     return mine is not None and mine == theirs
 
 
-def line_history(conn: db.LedgerConnection, line: str | int) -> dict:
+def _prior_trials(conn: db.LedgerConnection, line_id: int, dev_end: datetime, own: set[int],
+                  counted: list[dict]) -> dict | None:
+    """`holdout_prior_trials`: the counted trials on the line's instruments (status.line_instruments) whose trading
+    window overlaps [dev_end, holdout end), the line's own history trials (`own`) left out, by line (null for a
+    trial on none) and purpose; None before the line's first research trial."""
+    instruments = status.line_instruments(conn, line_id)
+    if instruments is None:
+        return None
+    end = datetime.combine(lines.holdout_end(dev_end.date()), time())
+    found = [trial["trial_id"] for trial in status.overlapping_trials(counted, instruments, dev_end, end)
+             if trial["trial_id"] not in own]
+    groups: dict[tuple, int] = {}
+    if found:
+        for name, purpose in conn.rows(
+                "SELECT l.name, t.purpose FROM trial t LEFT JOIN research_line l ON l.line_id = t.line_id "
+                "WHERE t.trial_id IN (" + ",".join(["%s"] * len(found)) + ")", tuple(found)):
+            groups[(name, purpose)] = groups.get((name, purpose), 0) + 1
+    return {"trials": len(found), "instruments": sorted(instruments),
+            "by_line": [{"line": name, "purpose": purpose, "trials": n} for (name, purpose), n in
+                        sorted(groups.items(), key=lambda item: (item[0][0] is None, item[0]))]}
+
+
+def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]) -> dict:
     """One line's closing history test: its participants (history_participants) with their history cells and
-    summaries, ordered by development-period Sharpe; the line's targets in force and its research trial count."""
+    summaries, ordered by development-period Sharpe; the line's targets in force, its research trial count and
+    the earlier searches of its holdout among `counted` (status.counted_trials' counted trials)."""
     record = lines.read_line(conn, line)
     dev_start = datetime.combine(date.fromisoformat(record["dev_start"]), time())
     dev_end = datetime.combine(date.fromisoformat(record["dev_end"]), time())
@@ -170,18 +197,22 @@ def line_history(conn: db.LedgerConnection, line: str | int) -> dict:
                         (record["line_id"],))
     return {"line": record["name"], "closed": record["closed"], "dev_start": record["dev_start"],
             "dev_end": record["dev_end"], "targets": targets, "participants": len(rows),
-            "research_trials": research["n"] if research else 0, "discount": discount, "rows": rows}
+            "research_trials": research["n"] if research else 0, "discount": discount,
+            "holdout_prior_trials": _prior_trials(conn, record["line_id"], dev_end,
+                                                  {row["trial_id"] for row in found}, counted),
+            "rows": rows}
 
 
 def research_history(ledger, at: str | None = None, line: str | None = None) -> dict:
     """`research history`: the closing history test of `line`, or of every line with history trials."""
     with db.read_as_of(db.profile(ledger), at) as conn:
         commit = db.head_commit(conn)
+        counted = status.counted_trials(conn)["counted"]
         if line is not None:
-            found = [line_history(conn, line)]
+            found = [line_history(conn, line, counted)]
         else:
             named = [name for (name,) in conn.rows(
                 "SELECT DISTINCT l.name FROM research_line l JOIN trial t ON t.line_id = l.line_id "
                 "WHERE t.purpose = 'history' ORDER BY l.name")]
-            found = [line_history(conn, name) for name in named]
+            found = [line_history(conn, name, counted) for name in named]
     return {"ledger_commit": commit, "short_days": SHORT_DAYS, "lines": found}

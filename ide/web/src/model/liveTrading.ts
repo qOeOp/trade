@@ -8,6 +8,8 @@ export type LiveEvidence = { source: string; cursor: string | null; observedNs: 
 export type LiveSource = {
   id: string; candidate: string; sourceHash: string; entryClass: string;
   purpose: "natural" | "controlled";
+  /** Replay evidence read ahead of preparation; undefined when this Live service does not report it. */
+  evidence?: { state: "checking" | "found" | "missing" | "unknown"; replays: readonly { trialId: number; balance: string }[]; tolerance: string };
 };
 export type LiveCredential = {
   ref: string; savedAt: string | null; selected: boolean; available: boolean | null; runIds: readonly string[]; removed?: boolean;
@@ -22,6 +24,10 @@ export type LiveRun = {
   host: readonly LiveFact[]; execution: readonly LiveFact[]; account: readonly LiveFact[];
   ending: readonly LiveFact[]; evidence: readonly LiveEvidence[];
   accountCheck: LiveAccountCheck | null;
+  /** The account as its latest observation reports it (null fields: unknown), for the launch page's account rows. */
+  venue?: { canTrade: boolean | null; hedgeMode: boolean | null; multiAssets: boolean | null; wallet: string | null; available: string | null } | null;
+  /** The host's own state ("running", "unresolved", …) and whether the run holds the account slot. */
+  hostState?: string | null; accountOwned?: boolean | null;
   /** When the account was observed and the run's native terminal event, as ns; whether it executes now. */
   observedNs: { account: string | null; terminal: string | null }; running: boolean;
   /** The host reports the run ended, so Request stop has nothing to stop. */
@@ -34,6 +40,11 @@ export type LiveRun = {
 };
 export type LiveTradingView = {
   availability: "unavailable" | "ready"; preview: boolean; notice: string | null;
+  /** Why new actions are refused now, as a code (a failed read, or the service's write reason); null when they are
+   *  accepted. The launch page words it plainly. */
+  reason?: string | null;
+  /** The contracts a run trades; null when this Live service does not report them. */
+  symbols?: readonly string[] | null;
   credentials: readonly LiveCredential[]; sources: readonly LiveSource[]; planFields: readonly LivePlanField[];
   runs: readonly LiveRun[]; request: LiveRequest | null; requests?: readonly LiveRequest[];
   notify?: LiveNotify | null;
@@ -43,8 +54,9 @@ export type LiveTradingActions = {
   saveCredentials?: (input: { api_key: string; api_secret: string }) => void | Promise<void>;
   removeCredential?: (ref: string) => void | Promise<void>;
   prepare?: (input: { sourceId: string; values: Readonly<Record<string, string>> }) => Promise<LiveRequest | null>;
-  preflight?: (runId: string) => void | Promise<void>;
-  start?: (runId: string, confirmRealOrders: string) => void | Promise<void>;
+  /** Each resolves to the request's receipt (null: none received), so a refusal can be said where it was asked. */
+  preflight?: (runId: string) => void | Promise<LiveRequest | null | void>;
+  start?: (runId: string, confirmRealOrders: string) => void | Promise<LiveRequest | null | void>;
   stop?: (runId: string) => void | Promise<void>;
   reconcile?: (runId: string) => void | Promise<void>;
   maintain?: (runId: string) => void | Promise<void>;
@@ -65,7 +77,7 @@ export const labelUnit = (label: string): readonly [string, string | null] => {
 };
 
 export const LIVE_UNAVAILABLE: LiveTradingView = {
-  availability: "unavailable", preview: false,
+  availability: "unavailable", preview: false, reason: "LIVE_UNAVAILABLE",
   notice: "The Live service is not connected to this IDE. No request will be sent.",
   credentials: [], sources: [], planFields: [], runs: [], request: null,
 };

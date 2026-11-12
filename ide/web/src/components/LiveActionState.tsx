@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 export function useLiveAction() {
   const pending = useRef(false);
   const [busy, setBusy] = useState(false), [failed, setFailed] = useState(false);
-  const submit = async (action: () => void | Promise<void>) => {
+  const submit = async (action: () => unknown) => {
     if (pending.current) return;
     pending.current = true; setBusy(true); setFailed(false);
     try { await action(); }
