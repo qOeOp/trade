@@ -19,7 +19,8 @@ import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Serie
 /** A point a minute (or a step), or a backtest's a day (`day`); `down` across a chain's offline stretch
  *  (downLook.ts); `stretch` the index of the stretch it belongs to (equityStretches.ts); `cut` where a
  *  stretch starts anew, not carrying on from the one before it, so the line and its fill break there. */
-export type EquityPoint = { time: number; value: number; peak: number; pace: number | null; minute?: number; down?: boolean; stretch?: number; cut?: boolean; day?: boolean };
+/** `peak`: the highest equity so far in its stretch; `low`: the lowest from it to its stretch's end. */
+export type EquityPoint = { time: number; value: number; peak: number; low: number; pace: number | null; minute?: number; down?: boolean; stretch?: number; cut?: boolean; day?: boolean };
 export type EquityLook = { line: string; pace: string; knockout: string; knockoutWidth: number; haze: string; ahead: string; behind: string;
                            ceiling: string; held: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook };
 export { FEW, type DayBar };

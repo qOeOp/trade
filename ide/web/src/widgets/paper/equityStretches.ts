@@ -65,6 +65,12 @@ function tested(b: Backtest, selected: boolean): Segment {
   };
 }
 
+/** Sets each point's `low` to the lowest value from it to the end of `points` (one stretch), for the drawdown
+ *  an entry there takes. */
+export function entryLows(points: EquityPoint[]): void {
+  for (let i = points.length - 2; i >= 0; i--) points[i]!.low = Math.min(points[i]!.value, points[i + 1]!.low);
+}
+
 /** The backtest (`backtest`, with a starting balance, shown when `testing`) and the paper stretches as one
  *  line, a pace for `annual` a year (none when null); `readings` whether to read beside equity at all.
  *  A stretch that would start before the last one ends is left out. */
@@ -82,10 +88,11 @@ export function continuous(stretches: readonly Stretch[], annual: number | null,
     for (const [time, v] of path) {
       const value = v * scale;
       peak = Math.max(peak, value);
-      const p: EquityPoint = { time, value, peak, pace: annual === null ? null : base * (1 + annual) ** ((elapsed + time + g.lead - g.t0 - g.idle(time)) / YEAR_S), stretch: k, ...(g.lead ? { day: true } : {}) };
+      const p: EquityPoint = { time, value, peak, low: value, pace: annual === null ? null : base * (1 + annual) ** ((elapsed + time + g.lead - g.t0 - g.idle(time)) / YEAR_S), stretch: k, ...(g.lead ? { day: true } : {}) };
       if (own.at(-1)?.time === time) own[own.length - 1] = p; else own.push(p);
     }
     if (anew) own[0] = { ...own[0]!, cut: true };
+    entryLows(own);
     const points = withDowns(own, g.restarts), first = minutes.length;
     for (const p of points) minutes.push(p);  // not spread: a paper stretch holds months of minutes
     line.restarts.push(...g.restarts);

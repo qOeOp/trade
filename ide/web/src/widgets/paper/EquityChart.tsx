@@ -26,7 +26,7 @@ const views = new Map<string, { step: number; from: number; to: number }>();  //
 /** The account over the version's stretches (equityStretches.ts: its backtest a point a day, its paper
  *  runs a point a minute) as one line, after vibe-trading's daily-returns chart: equity as its indigo hero line; the pace the line's minimum annual
  *  return asks for as a dashed line, the gap filled green ahead and red behind (against the start with no
- *  return target); behind them the drawdown from the peak hanging from the top and, of the shown stretch,
+ *  return target); behind them the drawdown an entry at each moment would take hanging from the top and, of the shown stretch,
  *  each day's return from the bottom and the stretches a position was held (equityLayers), any stretch a
  *  chain of runs was offline over all of them; on the line the drawdown limit's floor and the shown
  *  stretch's deepest drawdowns (equityNotes) and an arrow at each of its closes (equityCloses), whose click

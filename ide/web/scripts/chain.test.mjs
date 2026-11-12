@@ -461,6 +461,19 @@ test("a version's stretches join as one line: no room between them, each later o
   assert.ok(!l.minutes.some((p) => p.cut), "a stretch that carries on does not break the line");
 });
 
+test("each point holds the lowest equity from it to its stretch's end, so the top band reads the drawdown an entry there takes", () => {
+  const a = piece(1, [line("started", T0)], [[T0, 100_000], [T0 + MIN, 120_000], [T0 + 2 * MIN, 90_000], [T0 + 3 * MIN, 105_000]], 105_000);
+  const b = piece(2, [line("started", T0 + 100 * MIN)], [[T0 + 100 * MIN, 100_000], [T0 + 101 * MIN, 80_000]], 80_000);
+  const l = stretches.continuous([{ chain: [sealed(1)], piece: a, selected: false, run: sealed(1) }, { chain: [sealed(2)], piece: b, selected: true, run: sealed(2) }], null, false);
+  assert.deepEqual(l.minutes.map((p) => Math.round(p.low)), [90_000, 90_000, 90_000, 105_000, 84_000, 84_000],
+    "a later stretch's lows do not reach back into the one before it");
+  const entry = l.minutes.map((p) => 1 - p.low / p.value);
+  assert.equal(entry.indexOf(Math.max(...entry)), 1, "the entry at the top takes the deepest drawdown");
+  assert.equal(Math.round(entry[2] * 1e6), 0, "an entry at the trough takes none");
+  const underwater = Math.max(...l.minutes.map((p) => 1 - p.value / p.peak));
+  assert.ok(Math.abs(Math.max(...entry) - underwater) < 1e-12, "the deepest entry drawdown is the run's worst, so the band's scale is unchanged");
+});
+
 test("a version's paper runs are one stretch: the time between two chains is a gap no run ran, outside the pace", () => {
   const S = T0 / 1e9, a = piece(1, [line("started", T0)], [[T0, 100_000], [T0 + MIN, 110_000]], 110_000, { seal: sealed(1, { stop: "STOP_FILE", stopped: T0 + MIN }).seal });
   const b = piece(2, [line("started", T0 + 100 * MIN)], [[T0 + 100 * MIN, 100_000], [T0 + 101 * MIN, 90_000]], 90_000);
