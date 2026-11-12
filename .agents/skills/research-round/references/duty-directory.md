@@ -3,10 +3,12 @@
 Each duty gives its question and its boundary.
 The four hard contracts (E1, E4, F5, H2) can never be `not applicable`.
 
-Duties locate policy responsibilities, not independent factors or implementation proofs. A stance
-names an explicit economic rule (`adopted`), a relevant baseline choice (`default`), or a structural reason
-the economic question does not arise (`not applicable`). Distinguish strategy decisions from engine
-guarantees, and apply the boundary of each duty when one action affects several responsibilities.
+Duties locate policy responsibilities, not independent factors or implementation proofs. `adopted`:
+the strategy has a rule that decides the question, whoever chose it. `default`: the question arises
+and the strategy has no rule for it; say what happens instead, such as what the engine does on its
+own. `not applicable`: no rule could decide it on this line's instruments; a method the strategy
+leaves unused is `default`. A line without a rule still names in its source label who judged so.
+Apply the boundary of each duty when one action affects several responsibilities.
 
 ## Contents
 
