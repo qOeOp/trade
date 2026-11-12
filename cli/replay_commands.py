@@ -80,7 +80,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "--strategy-file; the market at --at (default main), exported into a reused cache under the temporary "
         "directory; the runtime image (a tag is pulled)",
         "an explore trial with its start receipt and execution capture; the new --output directory (source, "
-        "reports, audit, fingerprint, process.json); publishes",
+        "reports, audit, fingerprint, process.json)",
         "purpose, status (passed or invalid), problems, path, trial_id, image_ref, market, metrics (unverified), "
         "metrics_note, next_actions; exit 0 even when invalid",
         "ENTRY_CLASS_INVALID; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); RUNTIME_UNAVAILABLE; UNIVERSE_EMPTY; "
@@ -90,7 +90,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "passes)"),
     ("replay", "precheck"): (
         "the candidate (reader); the market at --at, exported fresh; the runtime image",
-        "a precheck trial with its start receipt and execution capture; the new --output directory; publishes",
+        "a precheck trial with its start receipt and execution capture; the new --output directory",
         "purpose, trial_id, source_sha256, image_ref, export_sha256, comparable_config_sha256, status (passed or "
         "failed), problems, path, metrics, scope, exposure_exemption {trading_days, maximum_exempt_days, "
         "within_window_limit, note}; exit 1 unless passed",
@@ -107,7 +107,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the trial naming its research or validation registration, its start receipt and execution capture, one "
         "run row and, when passed, its reading, daily returns and cycles; a "
         "working directory under /tmp, removed once stored unless it is the new --output directory, kept as the "
-        "run's native report cache (kept and named on stderr after a failure); publishes",
+        "run's native report cache (kept and named on stderr after a failure)",
         "purpose, strategy, trial_id, status, failure_reasons, image_ref, ledger_commit, path (with --output); "
         "exit 1 unless passed",
         "REGISTRATION_REQUIRED (not exactly one of --registration, --validation); REGISTRATION_INVALID; "
@@ -123,7 +123,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the trial at --at (reader) and, for a sealed run, market daily returns from its market (a "
         "failure only empties the market measures); --directory or --reproduction files; --directory alone "
         "reads no ledger",
-        "nothing; never publishes",
+        "nothing",
         "source (sealed, precheck or directory) and that report: sealed gives status, audit, populations, "
         "activity, order_funnel, plans, headline, annual_return_interval (the block-bootstrap interval of the "
         "registration's design, read now, no verdict; null without a design; absent without economic evidence), "
@@ -140,7 +140,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "recorded commit; --image, else the newest image the run reached, else its own (another image must be a "
         "CI build of main); the runner arguments are rebuilt from the record",
         "an explore trial with its start receipt and capture (committed before the fingerprint check); the new "
-        "--output directory, kept on a mismatch; publishes on success",
+        "--output directory, kept on a mismatch",
         "directory, trial_id, fingerprints_match (true), reproduction_trial_id, image_ref, tables_differing",
         "REPRODUCTION_IMAGE_DIFFERS (a precheck on another image), REPRODUCTION_CONFIG_DIFFERS: nothing written; "
         "REPRODUCTION_MISMATCH (fingerprints or sealed facts differ, or the original has none): the trial is written; RUNTIME_NOT_MAIN; UNKNOWN_RUN, "
@@ -149,7 +149,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("replay", "reseal"): (
         "the passed run, its reading and the candidate (writer, head); then as replay reproduce",
         "replay reproduce's explore trial; then, when the current metrics code computes another reading, run_reading "
-        "updated (report, product_commit, op_id) in one reseal:<op_id> commit; publishes",
+        "updated (report, product_commit, op_id) in one reseal:<op_id> commit",
         "trial_id, reproduction_trial_id, directory, product_commit, previous_product_commit, resealed (false when "
         "the reading is unchanged), ledger_commit, op_id",
         "RUN_NOT_PASSED (no passed run with a reading); REPRODUCTION_MISMATCH (any fingerprint table differs, also "

@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from cli import main as cli
 from engine.live_errors import LiveRefusal
+from ledger import db
 from live import host as host_runtime
 from live import authority, configuration, runs, state
 from tests.live.authority_fixture import install
@@ -452,7 +453,7 @@ class LiveCustodyTests(LiveFixture):
         self.assertEqual(caught.exception.code, "LIVE_JOURNAL_UNAVAILABLE")
 
     def test_live_cli_does_not_load_active_research_or_publish(self):
-        with patch.object(cli.db, "profile", side_effect=AssertionError("active ledger")), \
+        with patch.object(db, "profile", side_effect=AssertionError("active ledger")), \
                 patch.object(runs, "observe", wraps=runs.observe) as observe, \
                 patch("sys.stdout", new_callable=io.StringIO) as output:
             self.assertEqual(cli.main(["live", "status", "--root", str(self.root), "--run-id", self.run_id]), 0)
@@ -523,7 +524,7 @@ class LiveCustodyTests(LiveFixture):
         reader.__enter__.return_value.one.return_value = candidate and {
             "source": b"original", "source_sha256": origin, "entry_class": "Original"}
         reader.__enter__.return_value.dicts.return_value = list(rows)
-        with patch.object(cli.db, "profile", return_value=object()), patch.object(runs, "prepare", return_value=manifest), \
+        with patch.object(db, "profile", return_value=object()), patch.object(runs, "prepare", return_value=manifest), \
                 patch.object(runs.db, "read_as_of", return_value=reader, side_effect=read_error) as read, \
                 patch.object(runs, "launch", return_value={"state": "starting", "warnings": []}) as launch:
             result = self.live_command(*arguments)

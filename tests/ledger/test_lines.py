@@ -72,7 +72,6 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM research_line"), [(3,)])
 
     def test_listing_lines_is_pinned_read_only_and_reads_closed_lines_only_when_asked(self):
-        from cli import main
         empty = lines.list_lines(self.profile)
         self.assertEqual(empty["lines"], [])
         first = self.select()
@@ -83,7 +82,6 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual([item["name"] for item in lines.list_lines(self.profile)["lines"]], [second["line"]],
                          "L11: the open lines by default")
         found = lines.list_lines(self.profile, every=True)
-        self.assertIn(("line", "list"), main.READS)
         self.assertEqual(found["ledger_commit"], head)
         self.assertEqual([(item["name"], item["closed"]) for item in found["lines"]],
                          [(first["line"], True), (second["line"], False)])
