@@ -157,7 +157,7 @@ research units, never pixels.
 | Type | Content |
 |---|---|
 | `summary` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
-| `lineage` | `targets`, `axis` (positions: the line's n-th trial at n, other lines' trials taking no room; `min`, `max`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first research run or else the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `revisions` (a version drawn without its parent, from the latest earlier revision of its strategy ID), `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `trials` (each trial with its number, `x`, version and purpose) |
+| `lineage` | `targets`, `axis` (positions: the line's n-th trial at n, other lines' trials taking no room; `min`, `max`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first research run or else the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `revisions` (a version drawn without its parent, from the latest earlier revision of its strategy ID), `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `decisions` (priority judgments opening `Change of approach.` or `Line decision.`, each at the gap after the trial before it, with its kind, time, ref and text), `trials` (each trial with its number, `x`, version and purpose) |
 | `progress` | `targets`, `axis` (the lineage's `min`, `max`, `scope_start`), `points` (research runs' returns with their trial number and `x`) and `recommended` (the versions the trail passed through) |
 | `scatter` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
 | `table` | `targets` and `rows`: one per version with its role, status, prediction, first trial, research-run count and the last run's readings |
@@ -191,7 +191,8 @@ lines drawn as git graphs draw them (recessive, except the selected version's li
 children), no gridlines or row stripes (the ruler gives the trials), the recommendation shown only by its version's mark (its
 history is in the Recommended menu), and a version that lost eligibility faded to 40% with no badge and only its mark in red; a ruler above numbers
 every trial (the trial where a version sits in the text colour, the rest faint), puts the trials that ran one version on a rounded
-tinted block, and inverts the trial under the pointer. Over the canvas the pointer is a crosshair as in
+tinted block, inverts the trial under the pointer, and marks between trials each decision the Agent made for the user (a hollow
+diamond for a change of approach, a solid one for a line decision, its judgment on hover) with a rule down the canvas. Over the canvas the pointer is a crosshair as in
 TradingView's magnet mode: faint dashed lines on the nearest trial and version row, sparser near a small reticle, drawn under
 the versions and lines. The charts follow the design spec: solid hairline gridlines along the value axis only, no tick marks,
 a dotted line only for the crosshair (target lines are solid), grey data with colour kept for what the chart is about,

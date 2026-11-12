@@ -5,7 +5,8 @@ import { v } from "../../theme/roles";
 import { bounds, UNIT } from "./geometry";
 
 /** Under the versions and edges (rows unstriped, so the background behind the data stays even; the
- *  crosshair marks the row under the pointer): the before-scope shading. The recommendation is not drawn
+ *  crosshair marks the row under the pointer): the before-scope shading, and a rule down from each decision
+ *  the ruler marks (dashed: a change of approach, solid: a line decision). The recommendation is not drawn
  *  here: a version's mark says it is recommended, and the toolbar's Recommended menu lists the versions it
  *  rested on in turn. Portalled into the viewport, not a node. */
 export function Backdrop({ widget, inset }: { widget: LineageWidget; inset: number }) {
@@ -18,6 +19,10 @@ export function Backdrop({ widget, inset }: { widget: LineageWidget; inset: numb
   return createPortal(
     <svg data-backdrop data-rows={widget.rows.length} width={width} height={height} className="pointer-events-none absolute -z-10" style={{ left, top }}>
       {scope != null && <rect x={0} y={0} width={Math.max(0, Math.min(width, X(scope)))} height={height} fill={v("scope")} />}
+      {[...new Map(widget.decisions.map((d) => [d.x, d.kind === "line"])).entries()].map(([x, line]) => (
+        <line key={x} x1={X(x) + 0.5} x2={X(x) + 0.5} y1={0} y2={height} stroke={v("line-strong")}
+              strokeDasharray={line ? undefined : "4 3"} />
+      ))}
     </svg>,
     viewport,
   );

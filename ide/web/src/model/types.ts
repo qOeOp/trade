@@ -83,6 +83,8 @@ export type LineageWidget = Widget & {
   edges: { from: string; to: string }[];
   revisions: { from: string; to: string }[];
   trail: { candidate: string; row: number; x0: number | null; x1: number | null; judgments: (number | null)[] }[];
+  /** Priority judgments recording a decision the Agent made for the user: a change of approach, a delegated line decision. */
+  decisions: { x: number; kind: "approach" | "line"; at: string; ref: string | null; text: string | null }[];
   trials: { trial_id: number; x: number; candidate: string; purpose: string }[];
 };
 
