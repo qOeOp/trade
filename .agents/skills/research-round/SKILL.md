@@ -75,10 +75,6 @@ When the distance lies far beyond such moves and beyond the inferred quotes' mea
 exposure `quotes` may still be chosen when the pinned market day holds them for every month of the trading window and research-start's
 readiness check supports the use.
 
-Trade-level inputs (`--trade-ticks`, only with `--execution quotes`) and open interest or long/short
-ratios (`--metrics`) are runner arguments, decided and passed like `--execution`:
-[strategy-authoring.md](references/strategy-authoring.md), Trades and metrics.
-
 For causal, trace every market-data price or indicator input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
 submission; a daily signal guard or a passed run audit does not cover other inputs. Read the
