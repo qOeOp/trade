@@ -165,6 +165,7 @@ class ReportTests(unittest.TestCase):
         exposure = next(item for item in report["slices"] if item["id"] == "market_exposure")["measures"]
         self.assertIsNotNone(exposure["beta_basket"]["value"])
         self.assertEqual(report["closed_by_year"]["2026"]["closed_trades"], 1)
+        self.assertIsNone(report["dev_years"], "a 31-day window has no development years")
         self.assertEqual(report["cost_basis"]["taker_fill_share"], 0.5)
         notional = sum(Decimal(item["notional"]) for item in report["cost_basis"]["by_liquidity_side"].values())
         stress = report["cost_basis"]["slippage_stress"]

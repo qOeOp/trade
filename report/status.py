@@ -30,6 +30,8 @@ MANY_KINDS = ("interpretation", "search_exposure")
 # The comparison table's measures (the single-run report's), and those where less is better.
 TABLE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "plan_win_rate")
 LOWER_IS_BETTER = ("mark_max_drawdown",)
+# Display-only columns of a 12-quarter window's development years (measures.dev_years); no dominance.
+DEV_YEAR_COLUMNS = {"worst_dev_year_return": "worst_year_return", "return_without_best_year": "return_without_best_year"}
 IDENTITY_COLUMNS = ("trial_id, purpose, source_sha256, runtime_contract, execution, comparable_config_sha256, "
                     f"export_sha256, input_start, trade_start, trade_end, {db.IMAGE_DIGEST}")
 
@@ -479,18 +481,21 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     with a run of it, which a recommendation must name; other lines' runs stay in `runs`. Passed runs
     of that window without economic evidence are listed apart with their reasons and no measures. With the
     line's multiple-testing reading (`testing`), each run carries its deflated Sharpe range (deflated_range),
-    else null. Nothing is ranked, scored or stored."""
+    else null. Each run shows its worst development year and its return without the best one (DEV_YEAR_COLUMNS),
+    null unless the window is three whole years. Nothing is ranked, scored or stored."""
     record = lines.read_line(conn, line)  # LINE_UNKNOWN for a bad name
     window = _window(record)
     identities = _identities(conn)
     current = line_identity(conn, record["line_id"], identities)
     own = set(lines.line_trials(conn, record["line_id"])["trials"])
     passed, without = _passed_research_runs(conn, checker, records, window, record["universe_rule"])
-    read = {trial_id: (_headline(facts, TABLE_MEASURES), deflated_range(facts, testing))
+    read = {trial_id: (_headline(facts, TABLE_MEASURES), deflated_range(facts, testing), measures.dev_years(facts))
             for trial_id, facts in measures.runs_facts(conn, [row["trial_id"] for row in passed])}
     found = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
               "execution_identity": identities.get(row["trial_id"]),
-              "measures": read[row["trial_id"]][0], "deflated_sharpe": read[row["trial_id"]][1]} for row in passed]
+              "measures": read[row["trial_id"]][0], "deflated_sharpe": read[row["trial_id"]][1],
+              **{name: (read[row["trial_id"]][2] or {}).get(key) for name, key in DEV_YEAR_COLUMNS.items()}}
+             for row in passed]
     excluded = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
                  "execution_identity": identities.get(row["trial_id"]), "reasons": row["reasons"]} for row in without]
     for item in found:
