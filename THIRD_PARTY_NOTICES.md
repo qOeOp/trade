@@ -46,8 +46,8 @@ No image contains market data: a deployment downloads it into its own market dir
 ## The IDE page and its chat service
 
 The page (`ide/web`) bundles its npm dependencies into one HTML file: 313 packages, all permissive (MIT 273,
-ISC 24, Apache-2.0 9, BSD-3-Clause 2, 0BSD, Unlicense, AFL-2.1 OR BSD-3-Clause, MIT and ISC), plus the OFL font
-below; list them with `npm ls --omit=dev --all` in `ide/web`. The chat service (`ide/agent`) installs 16 packages
+ISC 24, Apache-2.0 9, BSD-3-Clause 2, 0BSD, Unlicense, AFL-2.1 OR BSD-3-Clause, MIT and ISC), plus the fonts
+below; list the packages with `npm ls --omit=dev --all` in `ide/web`. The chat service (`ide/agent`) installs 16 packages
 (Apache-2.0 9, MIT 6, AFL-2.1 OR BSD-3-Clause 1). Icons and brand marks: [`ide/web/src/icons/NOTICE.md`](ide/web/src/icons/NOTICE.md),
 with their licence texts beside it.
 
@@ -55,7 +55,7 @@ with their licence texts beside it.
 
 | Font | Where | Licence |
 |---|---|---|
-| [Geist Mono](https://github.com/vercel/geist-font) (`ide/web/fonts/GeistMono-Variable.woff2`) | IDE page, research-chain site | SIL Open Font License 1.1, text in [`ide/web/fonts/GeistMono-OFL.txt`](ide/web/fonts/GeistMono-OFL.txt) |
+| [PP Supply Mono](https://pangrampangram.com/products/supply-mono) (`ide/web/fonts/Supply-*.otf`) | IDE page, research-chain site | Pangram Pangram, all rights reserved; subject to the foundry's [licence terms](https://pangrampangram.com/pages/eula) |
 | [Inter](https://github.com/rsms/inter) (`@fontsource-variable/inter`, Latin subset) | IDE page | SIL Open Font License 1.1, text in the npm package |
 | HarmonyOS Sans SC | IDE page, research-chain site | not shipped: the browser loads its slices from jsDelivr (`harmonyos-sans-sc-webfont-splitted@1.1.0`) under Huawei's HarmonyOS Sans Fonts License Agreement; the repository keeps only the generated CSS that names them |
 
