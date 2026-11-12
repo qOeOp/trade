@@ -10,7 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261112-08 | `replay precheck` 窗口超过 7 天时照跑全程、跑完才说来源已暴露；research-round 又说每次预检、登记与回放传同样的运行参数，字面包括窗口；研究会话 b5788262 两次用登记的 1,096 天窗口预检，4 个版本永久不能登记 | skill（窗口除外）；authority（超 7 天事先拒绝） | attach | minutes | in PR [#2780](https://github.com/qOeOp/trade/pull/2780) | 2026-11-12 | 2026-11-12 |
+| 20261112-08 | `replay precheck` 窗口超过 7 天时照跑全程、跑完才说来源已暴露；research-round 又说每次预检、登记与回放传同样的运行参数，字面包括窗口；研究会话 b5788262 两次用登记的 1,096 天窗口预检，4 个版本永久不能登记 | skill（窗口除外）；authority（超 7 天事先拒绝） | attach | minutes | in PR [#2791](https://github.com/qOeOp/trade/pull/2791) | 2026-11-12 | 2026-11-12 |
 | 20261112-09 | 审阅 activity 项只要求预检有成交，不要求本次改动的订单路径跑过；登记 21 的加仓无止损到全程回放才被审计判无效，登记 25 的减仓规则三年没触发 | skill（用户 11-12“Approve as recommended”：activity 要求改动加的或改的订单路径成交过，否则 `unresolved`，换窗口或 `ledger temp` 探针）；`reviewer-item-meanings` Q3 另 PR（#2793 合入后的 PR） | attach | hours | fixed 0889ff30d [#2793](https://github.com/qOeOp/trade/pull/2793) | 2026-11-12 | 2026-11-12 |
 | 20261112-10 | 研究登记与回放不核对检出是 `origin/main` 且干净（只有验证核对 `STALE_CHECKOUT`）；b5788262 有 2 次登记、1 次选线写在旧 HEAD 上，都在上下文压缩之后 | authority（研究也用 `STALE_CHECKOUT`） | attach | none | in PR [#2792](https://github.com/qOeOp/trade/pull/2792) | 2026-11-12 | 2026-11-12 |
 | 20261112-11 | 当分钟 `portfolio.equity` 定仓位算不算因果违规 skill 没定（`strategy-authoring.md:75-80` 对 `:151`）；审阅 17 次通过、4 次失败，结论随简报；推荐 @25 带着它 | authority（写明当分钟权益也须取自更早事件） | attach | minutes | open [b5788262 审计](2026-11-12-dow-theory-b5788262-full-audit.zh.md) | 2026-11-12 | 2026-11-12 |

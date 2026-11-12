@@ -447,6 +447,12 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
     output = paths.temporary_path(output)
     _reserved(runner_argv)
     _check_window(ledger, market, at, line, runner_argv)
+    window = registration_seams.runner_inputs(list(runner_argv))["window"]
+    trading_days = (window["end"] - window["trade_start"]) / (86_400 * 10**9)
+    if trading_days > source_precheck.PRECHECK_MAX_DAYS:
+        raise refuse("PRECHECK_WINDOW_TOO_LONG", f"the trading window is {trading_days:g} days; a precheck trades at "
+                                                 f"most {source_precheck.PRECHECK_MAX_DAYS}",
+                     missing=("--end",), expected=f"at most {source_precheck.PRECHECK_MAX_DAYS} trading days")
     identity = _resolve(runtime)
     if revision["runtime_contract"] != identity["runtime_contract"]:
         raise refuse("RUNTIME_CONTRACT_MISMATCH", f"{candidate} needs contract {revision['runtime_contract']}, the "
@@ -455,19 +461,9 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
     exported = None
     try:
         runner, exported = _export(market, at, runner_argv, True, ledger)
-        duration_ns = runner["window"]["end"] - runner["window"]["trade_start"]
-        trading_days = duration_ns / (86_400 * 10**9)
-        within_limit = duration_ns <= source_precheck.PRECHECK_MAX_DAYS * 86_400 * 10**9
         exposure = {"trading_days": trading_days, "maximum_exempt_days": source_precheck.PRECHECK_MAX_DAYS,
-                    "within_window_limit": within_limit,
-                    "note": ("Only this registration's cited precheck with matching source, runtime, inputs and "
-                             "configuration can be exempt; a technical pass alone does not grant exemption."
-                             if within_limit else
-                             "This trading window exceeds the precheck exposure exemption. Even a technical pass "
-                             "exposes this source and prevents its first research registration; retry_of cannot "
-                             "refer to an unregistered precheck.")}
-        print(f"Precheck trading window: {trading_days:g} days; exposure exemption permits at most "
-              f"{source_precheck.PRECHECK_MAX_DAYS} trading days. {exposure['note']}", file=sys.stderr, flush=True)
+                    "note": "Only this registration's cited precheck with matching source, runtime, inputs and "
+                            "configuration can be exempt; a technical pass alone does not grant exemption."}
         inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), exported)
         registration_seams.current.require_ci_build(dict(identity), dict(inspection))
         config_sha256 = trials.comparable_config_sha256(inspection.get("effective_config"))
