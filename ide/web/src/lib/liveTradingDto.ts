@@ -9,8 +9,15 @@ export type LiveWriteReply = { request: LiveRequest; run_id?: string; credential
 type LiveCredentialDto = {
   credential_ref: string; observed_ns: string; selected: boolean; removed: boolean; available: boolean; referenced_runs: string[];
 };
+/** A source's replay evidence as the serving control reads it ahead of preparation (live/control.py Evidence);
+ *  absent from an older control or one not serving. Preparation checks it again. */
+export type LiveEvidenceReadDto = {
+  state: "checking" | "found" | "missing" | "unknown";
+  replays: { trial_id: number; starting_balance_usdt: string }[]; tolerance: string;
+};
 export type LiveSourceDto = {
   source_id: string; candidate: string; source_sha256: string; entry_class: string; purpose: "natural" | "controlled";
+  evidence?: LiveEvidenceReadDto;
 };
 type LiveEvidenceDto = {
   source: string; cursor: string | null; observed_ns: string | null; read_ns: string; complete: boolean;
@@ -52,6 +59,8 @@ export type LiveRunDto = {
 export type LiveHomeDto = {
   availability: "ready"; write_enabled: boolean; maintenance_enabled: boolean; write_reason: string | null;
   sources: LiveSourceDto[]; credentials: LiveCredentialDto[]; runs: LiveRunDto[];
+  /** The contracts a run trades (the Live settings); absent from an older control. */
+  symbols?: string[];
   defaults: { budget_usdt: string; max_loss_usdt: string; duration_seconds: number; leverage: string };
   /** Telegram notification status (protocol 2); never the bot token or chat. */
   notify?: LiveNotifyDto;

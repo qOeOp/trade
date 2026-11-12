@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, when a change of approach is due the Agent stops registering and offers approaches inside this line, each changing a part the counted runs left alone and stating their detectable annual difference; it offers no other open line, other candidate, new start or closing of the line, since other open lines may be another session's, and it waits for the user's choice.
+description: Rule check — with the skill, when a change of approach is due the Agent stops registering more variants of the counted kind and chooses an approach inside this line itself, among approaches each changing a part the counted runs left alone and stating their detectable annual difference; it offers no other open line, other candidate, new start or closing of the line, since other open lines may be another session's, and it does not wait for the user's choice.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
@@ -12,6 +12,6 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 账本里还开着另外两条线：`research-line-20261029-channel-breakout-15m` 和 `research-line-20261104-chan-third-1h`，`candidate list` 里也有它们的候选。
 
-下一步你会做什么？请写出具体动作，以及你最后要问我的问题。
+下一步你会做什么？请写出具体动作。
 
 （离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

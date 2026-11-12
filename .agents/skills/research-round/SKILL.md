@@ -92,22 +92,25 @@ An input-clock failure follows [diagnosis.md](references/diagnosis.md).
 Complete every registered grid point once before reading performance or registering another
 batch. Do not add points or tune source within a batch.
 
-Keep iterating within the turn after interpreting results and recording priority. Reports and
-judgments do not end the loop. Stop only for the user, an authority boundary, a line that cannot
-continue ([changes.md](references/changes.md)) or a due change of approach. Reaching both targets is no
+Keep iterating within the turn after interpreting results and recording priority. Reports,
+judgments and a due change of approach do not end the loop. Stop only for the user, an authority
+boundary or a line that cannot continue ([changes.md](references/changes.md)). Reaching both targets is no
 stop: when a recommendation first does, tell the user once that validation is theirs to start and
 only a window after its registration counts, then keep working, asking nothing.
 A change of approach is due when the last `review_every` research runs in a row each
 leave candidate and control undistinguished (none of `mean_log_basic_interval`,
 `mean_log_studentized_interval` and `annual_return_difference_interval` excludes zero;
 [feedback.md](references/feedback.md)), whether or not the recommendation moved among them.
-`research state` lists these runs (`undistinguished_runs`) beside `review_every`. The ledger holds
-neither the user's choices of line or approach nor which runs only scale, so apply both yourself:
-count only runs after the user's last choice, which answers the runs before it, and leave
-scale-only runs out of the count, judging them against the targets
-([feedback.md](references/feedback.md)), even when one ended the list. When due, stop registering
-and offer approaches inside this line ([feedback.md](references/feedback.md), Change approach).
-Offer no other line, closing this one, new starts or template roots: other open lines may be
+`research state` lists these runs (`undistinguished_runs`) beside `review_every`. Count only runs
+after the line's latest change of approach, yours or the user's: a priority judgment whose body
+begins `Change of approach.` answers every trial up to the newest it names (`research state --line
+LINE --history`, paging with `--history-before`); record a choice of approach the user states,
+continuing as before included, the same way. The ledger does not tell which runs only scale: leave
+them out of the count yourself, judging them against the targets
+([feedback.md](references/feedback.md)), even when one ended the list. When due, choose an approach
+inside this line yourself, record it and keep working ([feedback.md](references/feedback.md),
+Change approach); the user may redirect at any time.
+Choose no other line, closing this one, new starts or template roots: other open lines may be
 another session's, and the user changes lines through `research-start` when they ask. Trial
 counts and budgets do not reject a research direction;
 `REVIEW_DUE` calls for [review.md](references/review.md).
@@ -115,8 +118,9 @@ counts and budgets do not reject a research direction;
 ## Evidence and records
 
 - Fills, costs, PnL and plan outcomes come only from product reports or `tables()`. Do not infer
-  economic outcomes from signals or price touches, substitute counterfactual estimates, or fill
-  masked measures, not even as a labelled rough figure the user asks for. Additional statistics follow `nautilus-report-analysis`.
+  economic outcomes from signals or price touches, compute returns, PnL or drawdown of a rule that
+  never ran, rescaled stored returns included (to choose what to register either: explore or
+  register it), or fill masked measures, not even as a labelled rough figure the user asks for. Additional statistics follow `nautilus-report-analysis`.
 - Your message with a recommendation or report gives the trials behind it from `research status` (`multiple_testing`:
   `effective_trials` to `all_purpose_trials`, every line's trials on the contract over an
   overlapping window), and names the other lines (open or closed) whose windows overlap. It gives

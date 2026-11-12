@@ -88,8 +88,8 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   report on the current development period or marked not yet replayed. The scope is each replay's `--symbols` or `--universe pool` (the members among the contracts
   this deployment's market holds, not every listed contract): propose it, never as a question of its own; the why comes from the hypothesis and `market coverage`, never
   from what earlier lines used. Roots with the same scope may share one scope and why.
-- A due change of approach (research-round) is not a line offer: it offers approaches inside the
-  line, never other lines, by research-round's feedback.md.
+- A due change of approach (research-round) is not a line offer: you choose an approach inside the
+  line yourself (research-round's feedback.md); a line stays the user's choice.
 - End with a question once the options are given. Until the user chooses, do not register,
   replay, publish or write a line record, and never treat the first recommendation as chosen.
   Choosing a line neither approves nor limits any experiment inside it.
@@ -119,9 +119,9 @@ source the user gives is transcribed into a new root (research-round's template.
   before research. Never set a token budget unless
   requested. Confirm the active Goal in one line; do not mark it complete while the line can continue.
 - An active Goal continues a turn that ends with a question without waiting for the user. Under it,
-  ask only what blocks the line (a due change of approach in research-round, an authority item, a data/scope choice that
-  readiness.md calls for); decide anything else within
-  your authority and say so in one line. Use the host's pause tool before asking only if it
+  ask only what blocks the line (an authority item, a data/scope choice that readiness.md calls
+  for, a line); decide anything else within your authority, a due change of approach included, and
+  say so in one line. Use the host's pause tool before asking only if it
   exists and the host currently permits it, including any required explicit user request; a tool
   is not permission. Otherwise combine the pause request/instructions and the blocking choice in
   one question and end the turn. On an unanswered continuation, a Goal the user resumed included,

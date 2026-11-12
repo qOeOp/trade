@@ -321,6 +321,21 @@ def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, 
     return result
 
 
+def _describe(symbols: list[str]) -> list[str]:
+    """The runner arguments of the execution image's --describe probe, which reports its replay code."""
+    return ["--market-root", "/unused", "--market-day", "live", "--symbols", *symbols,
+            "--start", "2026-01-01T00:00:00Z", "--end", "2026-01-02T00:00:00Z"]
+
+
+def replay_evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, symbols: list[str],
+                    runtime: str | None) -> list[dict]:
+    """The replays prepare_locked would record for this source (_evidence), read ahead so the page can show them
+    before a run is prepared. Read only; preparation still checks again and refuses as before."""
+    describe = _describe(symbols)
+    inspection = image.inspect_runtime(image.resolve(runtime or image.EXECUTION), describe)
+    return _evidence(research, research_at, source_sha256, symbols, inspection, describe)
+
+
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
                     budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str, leverage: str,
@@ -390,8 +405,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     except EngineRefusal as exc:
         raise state.fail("LIVE_UNIVERSE", str(exc)) from None
     identity = image.resolve(runtime or image.EXECUTION)
-    describe = ["--market-root", "/unused", "--market-day", "live", "--symbols", *symbols,
-                "--start", "2026-01-01T00:00:00Z", "--end", "2026-01-02T00:00:00Z"]
+    describe = _describe(symbols)
     inspection = image.inspect_runtime(identity, describe)
     image.require_main_build(identity, inspection)
     if found["runtime_contract"] != identity["runtime_contract"]:

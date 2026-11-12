@@ -14,9 +14,6 @@ async function component(name, fixtures = {}) {
     useEffect() {},
   };
   const exports = await namespace(`components/${name}.tsx`, { stubs: {
-    // The wizard's workspace draft is the canvas form's; these dialogs run with none (and no browser globals).
-    "state/liveWorkspace": {
-      FRESH_DRAFT: { version: null, step: 0, chosen: null, edits: {}, preparedId: null }, liveDraft: { get: () => null, set: () => {} }, useLiveDraft: () => null },
     "icons/Icon": { Icon: () => null },
     "components/IconButton": { IconButton: function IconButton() { return null; } },
     ...fixtures,
@@ -62,16 +59,15 @@ test("copy sends the complete selected identity to the clipboard helper", async 
   assert.ok(icon(id({ run: { ...props.run, id: "another-run" } }), "Copy run ID"));
 });
 
-test("an open launch confirmation becomes run review when current observations report execution", async () => {
-  const render = await component("LiveLaunchWizard");
+test("Review run… of a run that executes is the observation review, and a prepared one offers no start", async () => {
+  const render = await component("LiveRunReview");
   const run = { id: "run-review", sourceHash: "frozen-source", host: [{ label: "State", value: "prepared" }, { label: "Mode", value: null }] };
-  const props = { initialRunId: run.id, open: true, close() {}, manage() {}, requests() {}, selectRun() {},
-    view: { sources: [], runs: [run] }, actions: { start() {} } };
-  control(render(props), "Start live…").props.onClick();
-  assert.ok(control(render(props), "Start live trading"));
+  const props = { runId: run.id, open: true, close() {}, requests() {}, view: { sources: [], runs: [run], credentials: [] }, actions: { start() {}, preflight() {} } };
+  const prepared = render(props);
+  assert.equal(control(prepared, "Start live…"), undefined);
+  assert.equal(control(prepared, "Start live trading"), undefined);
   const observed = { ...run, host: [{ label: "State", value: "running" }, { label: "Mode", value: "run" }] };
   const tree = render({ ...props, view: { ...props.view, runs: [observed] } });
   assert.equal(tree.type.name, "LiveRunReviewDialog");
   assert.equal(tree.props.run, observed);
-  assert.equal(control(tree, "Start live trading"), undefined);
 });

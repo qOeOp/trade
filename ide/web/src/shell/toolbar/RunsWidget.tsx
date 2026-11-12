@@ -3,7 +3,7 @@ import { useNow } from "../../components/hooks/useNow";
 import { PopoverWidget } from "../../components/Dropdown";
 import { ActionButton, ActionRule } from "../../components/ActionGroup";
 import { RunMenuList } from "../../widgets/runs/RunMenuList";
-import { openLiveCredentials, openLiveRequests, openLiveWizard } from "../../state/liveWorkspace";
+import { openLiveCredentials, openLiveRequests, openLiveReview } from "../../state/liveWorkspace";
 import { useLiveTrading } from "../../state/liveTrading";
 import { DeleteButton, health, RunButton, RunMenu, StartButton } from "../../components/RunTile";
 import { Tip } from "../../components/Tip";
@@ -59,7 +59,7 @@ export function RunsWidget() {
 export function useRunActions(): ReactNode {
   const service = usePaperService(), { version, run, liveRun, stage } = useShown();
   if (stage === "live") return <>
-    {liveRun && <><ActionButton icon="tool.inspector" onClick={() => openLiveWizard(liveRun.id)}>Review run…</ActionButton><ActionRule /></>}
+    {liveRun && <><ActionButton icon="tool.inspector" onClick={() => openLiveReview(liveRun.id)}>Review run…</ActionButton><ActionRule /></>}
     <ActionButton icon="settings" onClick={openLiveCredentials}>Settings</ActionButton>
     <ActionButton icon="history" onClick={openLiveRequests}>Requests</ActionButton>
   </>;

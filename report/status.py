@@ -776,7 +776,7 @@ def _undistinguished_runs(profile, commit: str, trials: Sequence[tuple[int, int]
     change (research-round): `trials` leave candidate and control undistinguished, `uncompared` have no
     comparison and so neither count nor clear, `distinguished` is the run that ended the reading. It also ends
     when either list reaches `review_every`, so one read compares a bounded number of runs. A report, not a gate:
-    the ledger holds neither the user's choices of line nor which runs only scale, which the Agent discounts. A
+    it leaves out neither the runs a recorded change of approach answers nor scale-only runs, which the Agent discounts. A
     comparison the research refuses leaves its run uncompared; an unreachable service (comparison.ENVIRONMENT)
     refuses the read, which would otherwise fill `uncompared` with runs it never read."""
     found: dict = {"trials": [], "uncompared": [], "distinguished": None}

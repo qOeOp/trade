@@ -95,9 +95,10 @@ def write_route(path: str) -> tuple[str, str | None]:
     raise configuration.fail()
 
 
-def read(config: configuration.Configuration, path: str, *, binding: release.Binding | None = None) -> dict:
+def read(config: configuration.Configuration, path: str, *, binding: release.Binding | None = None,
+         evidence: control.Evidence | None = None) -> dict:
     if path == "/api/live":
-        return control.listing(config, binding=binding)
+        return control.listing(config, binding=binding, evidence=evidence)
     if path == "/api/live/credentials":
         if not config.root.exists():
             return {"credentials": []}
@@ -112,7 +113,8 @@ def read(config: configuration.Configuration, path: str, *, binding: release.Bin
     raise configuration.fail()
 
 
-def handler(config_file: Path, config: configuration.Configuration, *, binding: release.Binding | None = None):
+def handler(config_file: Path, config: configuration.Configuration, *, binding: release.Binding | None = None,
+            evidence: control.Evidence | None = None):
     class Handler(BaseHTTPRequestHandler):
         def answer(self, status: int, value: dict):
             body = state.encode(value)
@@ -137,7 +139,7 @@ def handler(config_file: Path, config: configuration.Configuration, *, binding: 
 
         def do_GET(self):
             try:
-                result = read(config, self.route(), binding=binding)
+                result = read(config, self.route(), binding=binding, evidence=evidence)
                 self.answer(200, {"ok": True, "data": result})
             except Exception as exc:
                 code = exc.code if isinstance(exc, LiveRefusal) else "LIVE_RECORD_UNAVAILABLE"
@@ -184,7 +186,8 @@ class Server(socketserver.ThreadingUnixStreamServer):
 
 
 @contextmanager
-def listener(config: configuration.Configuration, config_file: Path, *, binding: release.Binding | None = None):
+def listener(config: configuration.Configuration, config_file: Path, *, binding: release.Binding | None = None,
+             evidence: control.Evidence | None = None):
     directory = state.private_directory(config.socket.parent)
     # This empty process lease protects only this socket inode. Account operations still
     # use the original account.lock, never this lease or a second lifecycle mutex.
@@ -209,7 +212,7 @@ def listener(config: configuration.Configuration, config_file: Path, *, binding:
             if config.socket.lstat().st_ino != old.st_ino:
                 raise configuration.fail()
             config.socket.unlink()
-        server = Server(str(config.socket), handler(config_file, config, binding=binding))
+        server = Server(str(config.socket), handler(config_file, config, binding=binding, evidence=evidence))
         os.chmod(config.socket, 0o600)
         identity = config.socket.stat().st_ino
         try:
@@ -256,11 +259,20 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
             notify.tick(config, stop=done.is_set)
             done.wait(10)
 
+    evidence = control.Evidence()
+
+    def reader():
+        # Its own thread: reading replay evidence runs the execution image's probe, never delaying a request.
+        while not done.is_set():
+            evidence.check(config)
+            done.wait(60)
+
     previous = {}
     try:
-        with listener(config, config_file, binding=binding) as server:
+        with listener(config, config_file, binding=binding, evidence=evidence) as server:
             worker = threading.Thread(target=maintain)
             sender = threading.Thread(target=notifier)
+            checker = threading.Thread(target=reader, daemon=True)
             stopping = threading.Event()
             shutdown_thread: threading.Thread | None = None
 
@@ -278,6 +290,7 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
             previous = {sig: signal.signal(sig, shutdown) for sig in (signal.SIGTERM, signal.SIGINT)}
             worker.start()
             sender.start()
+            checker.start()
             try:
                 server.serve_forever()
             finally:
