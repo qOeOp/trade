@@ -168,6 +168,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                    "begins.",
                                    ("Trade inside that period; the holdout, the history before the period and the "
                                     "forward segment are replayed only when a line closes.",)),
+    "PRECHECK_WINDOW_TOO_LONG": ("A precheck's trading window (--trade-start, or --start, to --end; warm-up excluded) "
+                                 "is longer than the precheck exposure exemption: it would trade the source on "
+                                 "results the researcher could read and expose it before its first registration.",
+                                 ("Precheck on a window of at most 7 trading days on which the change's order path "
+                                  "runs; the full window belongs to the registered replay.",)),
     "LINE_HISTORY_SHORT": ("The instruments have fewer than 12 complete calendar quarters of market coverage before "
                            "the last quarter end: too little for a development year and the two-year holdout.",
                            ("Start the line from instruments the market has covered for at least three years before "
