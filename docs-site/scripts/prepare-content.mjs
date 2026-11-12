@@ -64,11 +64,13 @@ for (const cap of map.chapters.flatMap((chapter) => chapter.functions).flatMap((
 await writeFile(join(siteRoot, 'lib', 'generated', 'rd-map.json'), JSON.stringify(map));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon.svg'), join(siteRoot, 'public', 'icon.svg'));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon-dark.svg'), join(siteRoot, 'public', 'icon-dark.svg'));
-// The trade IDE's faces (ide/web/fonts): Geist Mono served beside the pages, and HarmonyOS Sans SC's
+// The trade IDE's faces (ide/web/fonts): PP Supply Mono served beside the pages, and HarmonyOS Sans SC's
 // unicode-range slices on jsDelivr at the IDE's pinned version, so a browser fetches only the slices on screen.
 const ideFonts = join(repositoryRoot, 'ide', 'web', 'fonts');
 await mkdir(join(siteRoot, 'public', 'fonts'), { recursive: true });
-await copyFile(join(ideFonts, 'GeistMono-Variable.woff2'), join(siteRoot, 'public', 'fonts', 'GeistMono-Variable.woff2'));
+for (const weight of ['Regular', 'Medium', 'Bold']) {
+  await copyFile(join(ideFonts, `Supply-${weight}.otf`), join(siteRoot, 'public', 'fonts', `Supply-${weight}.otf`));
+}
 const harmony = 'https://cdn.jsdelivr.net/npm/harmonyos-sans-sc-webfont-splitted@1.1.0/dist/';
 const harmonyFaces = [];
 for (const [name, range] of [['Regular', '100 449'], ['Medium', '450 900']]) {

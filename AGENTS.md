@@ -8,6 +8,10 @@ The research-chain site (sources in `docs/rd/`, published at https://qoeop.githu
 
 Stop and ask before any of these:
 
+- Changing the project's fonts. PP Supply Mono is the default for Latin text and numbers in the
+  IDE and research-chain site. Keep the existing font assets, family order, and glyph fallbacks.
+  Do not replace, remove, or override them, even for a redesign, refactor, or licensing fix,
+  without the user's explicit approval for that font change. Report any issue to the user first.
 - Real orders. Live trading on the real Binance account is a product feature the user operates:
   the user saves the credential and starts each run from the Live page (`live serve` control,
   `engine.live` runner). An Agent builds and changes Live code but never starts a Live run, places,

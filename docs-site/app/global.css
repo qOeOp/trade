@@ -6,18 +6,22 @@
 @import '../components/architecture-map.css';
 
 /* The site wears the trade IDE's look (ide/web/src/theme/tokens.css) on fumadocs' own layout:
-   warm low-chroma OKLCH neutrals, Geist Mono for every Latin letter and digit, HarmonyOS Sans SC for
+   warm low-chroma OKLCH neutrals, PP Supply Mono for every Latin letter and digit, HarmonyOS Sans SC for
    Chinese, IntelliJ's blue for selection and focus, its small radii and editor colours. The values are
    copied from the IDE's tokens, so the two stay one product without the site depending on the IDE's build. */
-@font-face { font-family: "Geist Mono"; font-style: normal; font-display: swap; font-weight: 100 900; src: url("/trade/fonts/GeistMono-Variable.woff2") format("woff2-variations"); }
+@font-face { font-family: "Supply"; font-style: normal; font-display: swap; font-weight: 100 449; src: url("/trade/fonts/Supply-Regular.otf") format("opentype"); }
+@font-face { font-family: "Supply"; font-style: normal; font-display: swap; font-weight: 450 649; src: url("/trade/fonts/Supply-Medium.otf") format("opentype"); }
+@font-face { font-family: "Supply"; font-style: normal; font-display: swap; font-weight: 650 900; src: url("/trade/fonts/Supply-Bold.otf") format("opentype"); }
 
-/* Chinese pages: the same Geist Mono face without the space, so a typed space between Chinese and Latin
-   takes HarmonyOS's narrow one instead of Geist Mono's full monospace cell; code keeps --font-mono. */
-@font-face { font-family: "Geist Mono Text"; font-style: normal; font-display: swap; font-weight: 100 900; unicode-range: U+21-10FFFF; src: url("/trade/fonts/GeistMono-Variable.woff2") format("woff2-variations"); }
+/* Chinese pages: the same Supply faces without the space, so a typed space between Chinese and Latin
+   takes HarmonyOS's narrow one instead of Supply's full monospace cell; code keeps --font-mono. */
+@font-face { font-family: "Supply Text"; font-style: normal; font-display: swap; font-weight: 100 449; unicode-range: U+21-10FFFF; src: url("/trade/fonts/Supply-Regular.otf") format("opentype"); }
+@font-face { font-family: "Supply Text"; font-style: normal; font-display: swap; font-weight: 450 649; unicode-range: U+21-10FFFF; src: url("/trade/fonts/Supply-Medium.otf") format("opentype"); }
+@font-face { font-family: "Supply Text"; font-style: normal; font-display: swap; font-weight: 650 900; unicode-range: U+21-10FFFF; src: url("/trade/fonts/Supply-Bold.otf") format("opentype"); }
 
 @theme {
-  --font-sans: "Geist Mono", "HarmonyOS Sans SC", ui-monospace, "SF Mono", Menlo, "PingFang SC", "Microsoft YaHei", monospace;
-  --font-mono: "Geist Mono", "HarmonyOS Sans SC", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "Supply", "HarmonyOS Sans SC", ui-monospace, "SF Mono", Menlo, "PingFang SC", "Microsoft YaHei", monospace;
+  --font-mono: "Supply", "HarmonyOS Sans SC", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 :root { color-scheme: light; }
@@ -109,7 +113,7 @@ body {
   text-autospace: normal;
   -webkit-font-smoothing: antialiased;
 }
-html:lang(zh) body { font-family: "Geist Mono Text", "HarmonyOS Sans SC", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace; }
+html:lang(zh) body { font-family: "Supply Text", "HarmonyOS Sans SC", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace; }
 /* Map labels follow the same locale-specific typography as the product UI. */
 .docs-architecture-shell, .docs-map-svg { font-family: inherit; font-feature-settings: inherit; }
 ::selection { background: var(--selection); }
