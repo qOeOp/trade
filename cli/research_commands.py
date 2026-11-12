@@ -581,7 +581,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "latest research trial since line select; null before the first), runs [{candidate, trial_id, "
         "execution_identity {runtime_contract, execution, image_digest, keys}, measures, deflated_sharpe "
         "{effective_trials, trials_with_sweeps} (the run's deflated Sharpe at each multiple_testing count with its "
-        "daily_sharpe_variance; null without that reading), dominated_by, non_dominated}] (dominance only within one "
+        "daily_sharpe_variance; null without that reading), worst_dev_year_return and return_without_best_year "
+        "(replay report dev_years, display only), dominated_by, non_dominated}] (dominance only within one "
         "identity), candidates (those of the line's identity, which a "
         "recommendation names), without_economic_evidence; null without a line)",
         "LINE_UNKNOWN (--line); "

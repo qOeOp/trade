@@ -41,8 +41,8 @@ LIMITATION = (f"Economic evidence is a read-time view under check {CHECK}; it re
 NOT_EVALUATED = ("{fact} was not recorded when the run was sealed; reproduce the run (replay.reproduce) to evaluate it "
                  "under this criterion")
 # Every performance key a report reader may carry; mask empties all of them for a run without evidence.
-PERFORMANCE_KEYS = ("headline", "measures", "slices", "closed_by_year", "drawdown", "capital", "cost_basis",
-                    "metrics", "single", "exposures_table", "account")
+PERFORMANCE_KEYS = ("headline", "measures", "slices", "closed_by_year", "dev_years", "drawdown", "capital",
+                    "cost_basis", "metrics", "single", "exposures_table", "account")
 # What a masked run keeps of each sealed activity fact: whether it held, why not, and its count.
 MASKED_FACT_KEYS = ("passed", "code", "count")
 

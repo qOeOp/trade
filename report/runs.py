@@ -20,6 +20,7 @@ import hashlib
 from pathlib import Path
 
 from ledger import db, execution, metrics, problems
+from ledger import targets as line_targets
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import availability, duties, reproduction as reproduced_identity
@@ -127,12 +128,14 @@ def report_of(conn: db.LedgerConnection, trial_id: int) -> dict:
               "failure_reasons": run["failure_reasons"] or [], "populations": (sealed or {}).get("populations"),
               "activity": (sealed or {}).get("activity"), "order_funnel": (sealed or {}).get("order_funnel"),
               "plans": plans(sealed),
-              "headline": None, "slices": None, "closed_by_year": None, "drawdown": None, "capital": None,
-              "cost_basis": None}
+              "headline": None, "slices": None, "closed_by_year": None, "dev_years": None, "drawdown": None,
+              "capital": None, "cost_basis": None}
     if run["status"] == "passed" and value["economic_evidence_available"]:
         derived = measures.derive_measures(facts, catalogue, measures.market_for(facts))
+        targets = line_targets.targets_for(conn, trial.get("line_id"))
         output.update(headline={name: derived[name] for name in measures.HEADLINE},
                       slices=slices_of(derived, catalogue), closed_by_year=measures.closed_by_year(facts["cycles"]),
+                      dev_years=measures.dev_years(facts, targets["annual_return"] if targets else None),
                       drawdown=(sealed or {}).get("drawdown"), capital=(sealed or {}).get("capital"),
                       cost_basis=cost_basis(facts))
     output["limitations"] = dedupe((sealed or {}).get("limitations"), value.get("limitations"))
