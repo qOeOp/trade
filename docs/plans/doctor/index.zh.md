@@ -17,7 +17,7 @@
 | 20261112-12 | readiness 没定义从窗口起点重建的路径相关状态怎样算收敛；rv 7 与 rv 8 对只差一个常数的版本判法相反 | skill（用户 11-12“Approve as recommended”，方案 A：从第一根输入重建的路径相关状态，两种不同预热起点给出相同状态之后才算就绪） | attach | minutes | in PR [#2798](https://github.com/qOeOp/trade/pull/2798) | 2026-11-12 | 2026-11-12 |
 | 20261112-13 | `WARMUP_INSUFFICIENT`、`NO_ACTIVE_INSTRUMENT` 在策略见到数据前拒绝，却在 `replay` 阶段，计为暴露与全用途试验（t19/t20），与 `replay precheck --help` 的说法不符 | authority（宿主侧归为策略前失败） | doctor | none | fixed 56f87d8a5 [#2794](https://github.com/qOeOp/trade/pull/2794) | 2026-11-12 | 2026-11-12 |
 | 20261112-14 | `line list --readings`（手机研究页）只看未被取代的推荐，推荐维持次数总从最新一次重复推荐算起：手机 3 次、桌面 9 次 | fix | doctor | wrong output | in PR [#2781](https://github.com/qOeOp/trade/pull/2781) | 2026-11-12 | 2026-11-12 |
-| 20261112-15 | 换思路的计数规则在这条线上分不出所比效应：可检测年化差中位 0.30，目标 20%/15%，40 个网格运行只分出 3 个；没有回撤比较 | measure；改规则由用户定 | doctor | hours | open [b5788262 审计](2026-11-12-dow-theory-b5788262-full-audit.zh.md) | 2026-11-12 | 2026-11-12 |
+| 20261112-15 | 换思路的计数规则在这条线上分不出所比效应：可检测年化差中位 0.30，目标 20%/15%，40 个网格运行只分出 3 个；没有回撤比较 | measure（用户定：先加回撤比较，计数规则不变，量过再定） | doctor | hours | in PR [#2804](https://github.com/qOeOp/trade/pull/2804) | 2026-11-12 | 2026-11-12 |
 | 20261112-16 | 有效试验数不含 `search_exposure` 记的离线参数扫描 | authority（研究方法） | doctor | unknown | open [b5788262 审计](2026-11-12-dow-theory-b5788262-full-audit.zh.md) | 2026-11-12 | 2026-11-12 |
 | 20261112-17 | 同季度开的线共享留出期，关闭的线公开留出结果；潜在 | authority（研究方法） | doctor | none | open [b5788262 审计](2026-11-12-dow-theory-b5788262-full-audit.zh.md) | 2026-11-12 | 2026-11-12 |
 | 20261112-18 | 两段 skill 重复别处已说的规则（`research-round/SKILL.md` 运行参数段、`readiness.md` 首次回放前查检出） | remove | doctor | none | in PR [#2782](https://github.com/qOeOp/trade/pull/2782) | 2026-11-12 | 2026-11-12 |
