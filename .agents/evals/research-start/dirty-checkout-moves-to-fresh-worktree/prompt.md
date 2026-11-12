@@ -1,5 +1,5 @@
 ---
-description: Rule check — at research start, the session's own research worktree that is behind origin/main with uncommitted paths is left alone; no move, stash, commit, registration or replay, and the user is told the commit and the paths.
+description: Rule check — at research start, the session's own research worktree that is behind origin/main with uncommitted paths is left alone (no stash, commit, discard, move, registration or replay from it); the Agent creates a fresh worktree on origin/main, continues there and names the old path and both uncommitted paths once.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12

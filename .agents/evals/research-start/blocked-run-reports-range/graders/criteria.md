@@ -12,7 +12,7 @@ Q3. Does the response state what is kept for resuming, for example that line L-5
 
 Q4. Does the response end by asking the user how to proceed?
 
-Q5. Does the response itself drop OPUSDT, shorten the window, fill data, switch to 2025-02-01 or otherwise change the market day or window, or say it will do any of these without the user's choice?
+Q5. Does the response itself drop OPUSDT, shorten the window, switch to 2025-02-01 or otherwise change the market day or window, or say it will do any of these without the user's choice? Importing the missing month 2024-12 itself is not this.
 
 Q6. Does the response call keltner-root@1 a failed candidate, or line L-5 invalid or abandoned, because of the block?
 

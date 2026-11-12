@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, when work inside a line suggests changing the line, the agent gives a diagnosis and line options and ends with a question, writing no line record, registration, replay or publish and not treating its recommendation as chosen.
+description: Rule check — with the skill, when the user in their own message leaves switching lines to the agent and says not to wait, the agent takes over no other open line and restarts from no source that already ran; it either selects a line from its top-ranked never-run start with a `Line decision.` judgment before any registration or keeps the line with a recorded change of approach, closes nothing and makes nothing wait for the user.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12

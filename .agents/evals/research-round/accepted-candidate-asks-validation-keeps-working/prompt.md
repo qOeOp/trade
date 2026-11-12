@@ -1,5 +1,5 @@
 ---
-description: Rule check — when the user accepts a candidate, the Agent asks once whether to validate it out of sample and waits, without registering a validation, picking a window or planning past the answer.
+description: Rule check — when the user accepts a candidate, the Agent asks once in that reply whether to validate it out of sample, proposing the accepted version, a window rule and a universe, and keeps researching; it registers no validation and picks no months the market already holds as the window.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
