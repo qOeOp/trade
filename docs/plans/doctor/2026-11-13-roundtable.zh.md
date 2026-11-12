@@ -90,3 +90,11 @@
 | B11 | 20261113-03 | 图的 gates 注释写明只含登记门 |
 
 各批次的 PR 与合入提交记在 [index.zh.md](index.zh.md) 对应行。
+
+## 结果
+
+各批次已合入：B2 dd58353b9 [#2832](https://github.com/qOeOp/trade/pull/2832) + 679879ab3 [#2840](https://github.com/qOeOp/trade/pull/2840)、B3 8f4aac19f [#2836](https://github.com/qOeOp/trade/pull/2836)、B4 249b1389a [#2842](https://github.com/qOeOp/trade/pull/2842) + c8005e73b [#2846](https://github.com/qOeOp/trade/pull/2846)、B5 168bc09b3 [#2831](https://github.com/qOeOp/trade/pull/2831)、B6 3b18b4798 [#2835](https://github.com/qOeOp/trade/pull/2835)、B7 fe69ee7f5 [#2843](https://github.com/qOeOp/trade/pull/2843)、B8 99cc79ee0 [#2837](https://github.com/qOeOp/trade/pull/2837)、B9 75f61ab87 [#2834](https://github.com/qOeOp/trade/pull/2834)、B10 8bb6e5837 [#2833](https://github.com/qOeOp/trade/pull/2833)、B11 27d678dca [#2841](https://github.com/qOeOp/trade/pull/2841)。
+
+- B6、B9、B10 新写的评测在新旧文本下都通过、分不出差别，按规则未收；三处只改 skill 文本。B8 删题前的复判 sonnet 符合门槛、haiku 在 Q3–Q5 判否；#2833 让原 Q2 的前提与 skill 矛盾，按“改 skill 弄错的题单独 PR 修”合入，`main` 上 0/3 → 分支 3/3。
+- B2 第一版（#2832）未经审美复查即合入，用户看图说“组合起来布局丑不协调”。独立审美审查四轮后（对齐的列表、目标写进表头、只给未达目标着色、按开着与关闭分组）合入 #2840；用户另提两条尝试：去掉线菜单里的“Back to the axis start”被采纳（Home 键、命令面板、状态栏线名都能回轴起点），竖向分隔线被否（把行重新切成拼接的框、跨列行处断开、两侧间距不等）。
+- 新立 20261113-05（`move-runs-before-rebuild` 的 Q3 在 `main` 上就不过）与 20261113-06（亮色 `--misses` 对比度不足，待用户）。
