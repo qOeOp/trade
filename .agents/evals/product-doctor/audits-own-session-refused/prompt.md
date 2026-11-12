@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a full audit requested inside the session that produced the research, or in another window of the same host, is declined with the steps for a fresh session on the other host and the handover items, and the research session's own account of the round is not accepted as audit input.
+description: Rule check — with the skill, a full audit requested inside the session that produced the research is declined with the steps for a fresh session, which may be a new window on the same host, and the handover items, and the research session's own account of the round is not accepted as audit input.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
