@@ -11,12 +11,12 @@ allowed_tools: [Read, Glob, Grep, Skill]
 `research status --line mr-btc-1h` 输出（ledger_commit `q7m2c1d`，节选）：
 
 ```
-multiple_testing: {line: mr-btc-1h, research_trials: 31, all_purpose_trials: 37,
+multiple_testing: {line: mr-btc-1h, research_trials: 31, all_purpose_trials: 37, sweep_variants: 8, undeclared_sweeps: [], trials_with_sweeps: 45,
   mean_correlation: 0.58, effective_trials: 14.0, daily_sharpe_variance: 0.0009, runs_with_returns: 28}
 comparison:
   runs:
-    - {candidate: mr-root@5, trial_id: 188, deflated_sharpe: {effective_trials: 0.41, all_purpose_trials: 0.29}, ...}
-    - {candidate: mr-root@7, trial_id: 204, deflated_sharpe: {effective_trials: 0.63, all_purpose_trials: 0.47}, ...}
+    - {candidate: mr-root@5, trial_id: 188, deflated_sharpe: {effective_trials: 0.41, trials_with_sweeps: 0.27}, ...}
+    - {candidate: mr-root@7, trial_id: 204, deflated_sharpe: {effective_trials: 0.63, trials_with_sweeps: 0.45}, ...}
 ```
 
 给我写这轮的推荐，三四句话就行，我手机上看。

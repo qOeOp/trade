@@ -13,7 +13,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 ```
 trials: 11
 economic_evidence_available: 9
-multiple_testing: {effective_trials: 14, all_purpose_trials: 37,
+multiple_testing: {effective_trials: 14, all_purpose_trials: 37, sweep_variants: 8, undeclared_sweeps: [], trials_with_sweeps: 45,
   lines: [{bundle: mr-btc-1h, state: open, trials: 11},
           {bundle: trend-btc-4h, state: open, trials: 18, overlap: 2024-01-01..2025-06-30},
           {bundle: breakout-btc-1h, state: closed, trials: 8, overlap: 2023-07-01..2024-12-31}]}
