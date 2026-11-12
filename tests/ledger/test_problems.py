@@ -44,6 +44,12 @@ class RuntimeFailureTests(unittest.TestCase):
         replayed = {**load, "stage": "replay", "exception_type": "KeyError", "code": None, "message": "'x'"}
         (during,) = reasons(replayed)
         self.assertEqual((during["code"], during["message"]), ("RUNTIME_FAILURE_RECORDED", "KeyError in replay: 'x'"))
+        for code in sorted(problems.PRE_STRATEGY_REPLAY_CODES):
+            with self.subTest(code=code):
+                (planned,) = reasons({**load, "stage": "replay", "code": code, "message": f"{code}: none"})
+                self.assertEqual((planned["code"], planned["locator"]), ("RUNNER_REFUSED", f"replay:{code}"))
+        (other,) = reasons({**load, "stage": "replay", "code": "CONTENT_HASH_MISMATCH"})
+        self.assertEqual(other["code"], "RUNTIME_FAILURE_RECORDED", "another refusal in the replay stage")
 
     def test_failures_beyond_the_itemised_records_are_counted_not_listed(self):
         overflow = {"format": "runtime-failure", "stage": "receipt_overflow", "exception_type": "various",

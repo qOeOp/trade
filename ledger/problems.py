@@ -24,8 +24,11 @@ FINGERPRINT = "fingerprint/fingerprint.json"
 FAILURE_FIELDS = ("stage", "exception_type")
 FAILURE_TEXT_LIMIT = 300  # characters of a failure message kept in a reason
 # engine.main stages that end before any market data reaches the strategy (execution_failure): binding,
-# load, inputs. The one definition for counting tests and for exposure (registration.sealed_no_result).
+# load, inputs. With PRE_STRATEGY_REPLAY_CODES, the one definition (before_strategy) for counting tests
+# and for exposure (registration.sealed_no_result).
 PRE_STRATEGY_STAGES = frozenset({"execution_binding", "load", "inputs"})
+# engine.run.plan_instances: refusals of the replay stage raised before any strategy instance exists
+PRE_STRATEGY_REPLAY_CODES = frozenset({"WARMUP_INSUFFICIENT", "NO_ACTIVE_INSTRUMENT"})
 OVERFLOW_STAGE = "receipt_overflow"  # engine.run.OVERFLOW_STAGE: the failures beyond the itemised records
 # engine.config.HOST_PATH_KEYS: the host paths the effective configuration hash leaves out
 HOST_PATH_KEYS = ("market_root", "universe_path")
@@ -146,11 +149,20 @@ def cause_first(reasons: list[dict]) -> list[dict]:
     return sorted(reasons, key=lambda item: item["code"] != "RUNNER_REFUSED")
 
 
+def before_strategy(failure) -> bool:
+    """Whether a runtime failure receipt (or failure group) ended the run before market data reached a
+    strategy: a stage of PRE_STRATEGY_STAGES, or a refusal of PRE_STRATEGY_REPLAY_CODES in the replay stage."""
+    if not isinstance(failure, Mapping):
+        return False
+    stage = failure.get("stage")
+    return stage in PRE_STRATEGY_STAGES or (stage == "replay" and failure.get("code") in PRE_STRATEGY_REPLAY_CODES)
+
+
 def _failure_reason(group: Mapping) -> dict:
     if group["stage"] == OVERFLOW_STAGE:
         return reason("RUNTIME_FAILURES_NOT_ITEMISED", f"{group['count']} more failures not itemised", OVERFLOW_STAGE)
     code, message = group["code"], group["message"]
-    if code and group["stage"] in PRE_STRATEGY_STAGES:
+    if code and before_strategy(group):
         detail = message.removeprefix(f"{code}: ")[:FAILURE_TEXT_LIMIT]
         return reason("RUNNER_REFUSED", f"{code} in {group['stage']}" + (f": {detail}" if detail else ""),
                       f"{group['stage']}:{code}")

@@ -182,7 +182,8 @@ def register(verbs, verb, runner) -> None:
         "--end; warm-up is excluded); a longer window is refused before anything runs, since it would expose the "
         "source and prevent its first research registration. Exemption also requires this precheck to be cited "
         "with matching execution identity; other prior replays can still expose the source. A precheck that failed "
-        "in the load or inputs stage, before any market data reached the strategy, is no exposure.", 100) + "\n\n" \
+        "before any market data reached a strategy (in loading or reading inputs, or because no contract's warm-up "
+        "or lifecycle gave it a strategy instance) is no exposure.", 100) + "\n\n" \
         + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
