@@ -27,7 +27,7 @@ report. Defer a template lacking required data, instrument support or native evi
 - Rewrite the rules and defaults from the source into one strategy file. Do not copy code that
   came with the source or any third-party code, and do not add stops, targets, filters,
   confirmation conditions or parameters the source does not have. What running needs and the
-  source leaves open is an implementer choice: one line of reason each, marked `implementer` `default` in the
+  source leaves open is an implementer choice: one line of reason each, labelled `implementer` in the
   header.
 - The header gives the source: DOI, arXiv id or URL with its version or date, and the
   source bundle name. Then the 27 duty lines in nine groups, by their duty-directory.md ids (the header template `candidate new` supplies), each with stance, reason and
