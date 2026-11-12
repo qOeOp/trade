@@ -17,13 +17,13 @@ from unittest.mock import patch
 from ledger import admin, db, witness
 from shared import paths
 from shared.errors import Refusal
-from registration import seams as registration_seams, validation
+from registration import validation
 from replay import entry
 from report import comparison, review
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, source
 from tests.ledger.tsa import LocalAuthority
 from tests.registration.world import DESIGN, RUNNER_ARGV, World
-from tests.replay.world import ReplayWorld, clean_checkout, registered_grid
+from tests.replay.world import ReplayWorld, registered_grid
 
 
 FINGERPRINT = {"fills": {"rows": 2, "sha256": "1" * 64}}
@@ -50,10 +50,6 @@ class TamperTests(unittest.TestCase):
     def setUpClass(cls):
         cls.world = world = World("tamper")
         cls.addClassCleanup(world.close)
-        checkout = clean_checkout(world.service.root / "checkout")
-        cls.checkout = registration_seams.use(checkout=lambda: checkout)  # the readers' clean product checkout
-        cls.checkout.__enter__()
-        cls.addClassCleanup(cls.checkout.__exit__, None, None, None)
         cls.authority = LocalAuthority()
         cls.addClassCleanup(cls.authority.close)
         roots = patch.object(witness, "_roots", lambda tsa_roots: cls.authority.roots)
