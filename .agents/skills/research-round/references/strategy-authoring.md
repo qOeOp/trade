@@ -87,7 +87,9 @@ header template, the entry class, the two hooks and a sizing helper.
   on the source's own input count until the seed weighs under 1% (about 2.5 periods for an EMA,
   5 for a Wilder average), counted from the instance's first input, so a short history and a
   cold Live start are covered too. Indicators with a fixed window
-  (SMA, highest high) are exact once the window is full.
+  (SMA, highest high) are exact once the window is full. A path-dependent state rebuilt from the
+  first input (swing points, a trend state machine) is ready only at the input count from which two
+  different warm-up starts give the same state; gate decisions on that count.
 
 ## Trades and metrics
 
