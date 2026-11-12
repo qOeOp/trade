@@ -155,6 +155,14 @@ class Compare(unittest.TestCase):
                                  "leverage": "5", "balance": "57.5"})
         self.assertEqual((result["kind"], result["starting_balance_usdt"]), ("live", "57.5"))
 
+    def test_the_entries_the_gate_changed_are_read_from_the_journal(self):
+        events = [{"event": "entry_released", "client_order_id": "O-1"},
+                  {"event": "entry_cancel_requested", "client_order_id": "O-2", "reason": "disconnected"},
+                  {"event": "entry_cancel_requested", "client_order_id": "O-3", "reason": "stop"},
+                  {"event": "entry_refused", "client_order_id": "O-4", "ts_init": 5, "held_ns": 1},
+                  {"event": "entry_refused", "client_order_id": "O-5", "ts_init": 6, "held_ns": None}]
+        self.assertEqual(compare.gate(events), {"released": ["O-1"], "withdrawn": ["O-2"], "refused": [5]})
+
     def test_a_pack_that_agrees_with_its_replay_is_the_same_from_bars_to_equity(self):
         _, result = self.compared(Pack(self.root))
         summary = result["summary"]

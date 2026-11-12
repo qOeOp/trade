@@ -44,11 +44,13 @@ def observe_account(reader, symbols: tuple[str, ...], purpose: str) -> AccountOb
     return observation
 
 
-@dataclass(frozen=True)
+@dataclass
 class PendingEntry:
     order: Any
     submit: Callable
     client_id: Any
+    bar_type: Any = None  # the bar the source was handling when it decided, if any
+    deadline_ns: int | None = None  # set when the entry is held at a closed gate (engine.live_connection.hold)
 
 
 def pending_orders(cache, strategy_id=None) -> list:
@@ -69,8 +71,11 @@ def start_observation(session: Session, purpose: str) -> None:
     session.account_observation = observe_account(session.account_reader, tuple(session.manifest["symbols"]), purpose)
 
 
-def discard_observation(session: Session) -> None:
+def discard_observation(session: Session, code: str = "LIVE_ENTRY_STOPPED", detail: str | None = None) -> None:
+    """Drop the outstanding observation and every entry still waiting to be sent; each is journaled as refused."""
     observation, session.account_observation = session.account_observation, None
+    for pending in session.pending_entries:
+        live_connection.refused(session, pending, code, detail)
     session.pending_entries.clear()
     if observation is not None:
         observation.result.cancel()  # Does not cancel an already running HTTP request.
@@ -149,8 +154,9 @@ def dispatch_entry(session: Session) -> None:
     if not session.pending_entries:
         return
     if not live_connection.entries_open(session):
-        live_connection.deny_queued(session, live_connection.gate_reason(session))  # ends the run
-        return
+        if not live_connection.holdable(session):
+            live_connection.deny_queued(session, live_connection.gate_reason(session))  # ends the run
+        return  # held entries wait for the gate (engine.live_connection.hold)
     pending = session.pending_entries[0]
     try:
         snapshot = observed_account(session, "entry")
@@ -161,16 +167,20 @@ def dispatch_entry(session: Session) -> None:
         equity = require_admission(snapshot, session.manifest, flat=False)
         require_entry(session, pending.order)
         require_entry_size(session, pending.order, equity)
+        live_connection.require_send_time(pending)
         session.event("entry_verified", observation=observation)
         # Native submit may synchronously dispatch callbacks. Remove this
         # unsubmitted intent first; no retries or fabricated native events.
         session.pending_entries.pop(0)
         session.account_observation = None
+        if pending.deadline_ns is not None:
+            session.event("entry_released", strict=False, client_order_id=str(pending.order.client_order_id),
+                          held_ns=time.time_ns() - pending.order.ts_init, observation=observation)
         pending.submit(pending.order, client_id=pending.client_id)
         if session.pending_entries and session.account_observation is None:
             start_observation(session, "entry")
-    except Exception:
-        discard_observation(session)
+    except Exception as exc:
+        discard_observation(session, getattr(exc, "code", type(exc).__name__), str(exc))
         session.failed = True
         session.begin_stop("entry_admission_failed")
         raise

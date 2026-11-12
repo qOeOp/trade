@@ -51,7 +51,8 @@ class Session:
     journal_failed: bool = False
     account_reader: Any = None
     account_observation: AccountObservation | None = None
-    pending_entries: list[PendingEntry] = field(default_factory=list)  # entries awaiting their account check, in order
+    pending_entries: list[PendingEntry] = field(default_factory=list)  # entries not yet sent, in order
+    deciding: Any = None  # the bar type of the bar the source is handling (engine.live_source)
     account_verified: bool = False
     connection_failed: bool = False  # the connected start could not be verified; a later disconnect only closes entries
     connection: Connection = field(default_factory=Connection)  # the entry gate (engine.live_connection)

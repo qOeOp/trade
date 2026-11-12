@@ -565,9 +565,17 @@ A lost connection closes entries; it does not end the run (`engine/live_connecti
 `docs/plans/live-continuous-operation-design-20261110.zh.md` §3.2). A disconnect before the connected start is
 verified still ends the run, since nothing was admitted. After it, any Binance socket that goes down closes the entry
 gate: working entries get one native cancel each (REST, so a lost socket does not block it; an entry can still fill
-if the cancel is lost or loses the race, and its source protects it as usual), and an entry the source submits, or one
-still waiting for its account check, is refused with `LIVE_CONNECTION_UNVERIFIED`, which ends the run like any
-refused entry: the source cannot see a product refusal, and the pinned Python `Strategy` has no native `deny_order`.
+if the cancel is lost or loses the race, and its source protects it as usual). An entry the source submits, or one
+still waiting for its account check, passes every other entry check and is held unsent (`entry_held`; not in the
+native cache, so nothing counts, cancels or fills it). When the gate reopens it takes its account check as any entry
+and is sent once, unchanged (`entry_released`), if that happens within 60 seconds of its decision (for GTD, early
+enough that it leaves with at least 605 seconds before it expires; every GTD entry is sent with that much left) and
+before the source receives another bar of the type it decided on. Otherwise the run ends with
+`LIVE_CONNECTION_UNVERIFIED` before that bar reaches the source (`entry_refused`, detail `entry_hold_expired` or
+`entry_hold_bar`): the source cannot see a product refusal, and the pinned Python `Strategy` has no native
+`deny_order`. A gate closed for a reason no check clears (below) refuses entries at once, held ones included.
+`live compare` attributes a fill the gate delayed or withdrew, and a decision Live refused after a hold, to the cause
+`entry_gate` (decision `docs/plans/live-entry-hold-20261113.zh.md`).
 Reductions, cancels and closes from the source and the Observer go on (REST); exchange stops stay at Binance.
 When every socket is back, entries reopen only after two comparisons of a REST read with the native cache, at least 30
 seconds apart (one native position and open-order reconciliation cycle), both agree on the strategy's positions per

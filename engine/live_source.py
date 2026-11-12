@@ -77,14 +77,21 @@ class _LiveConfigured(history.Warming):
             commands.require_order_identity(self._live, order)
             position = self.owned_position(position_id)
             return super().submit_order(order, position_id=position.id, client_id=client_id)
+        pending = PendingEntry(order, super().submit_order, client_id, self._live.deciding)
         try:
-            if self._live.account_verified and not live_connection.entries_open(self._live):
+            closed = self._live.account_verified and not live_connection.entries_open(self._live)
+            if closed and not live_connection.holdable(self._live):
                 live_connection.refuse(self._live, live_connection.gate_reason(self._live))
             commands.require_entry(self._live, order)
             self._orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
-            commands.queue_entry(self._live, PendingEntry(order, super().submit_order, client_id))
-        except Exception:
-            commands.discard_observation(self._live)
+            if closed:
+                live_connection.hold(self._live, pending)
+            else:
+                commands.queue_entry(self._live, pending)
+        except Exception as exc:
+            if pending not in self._live.pending_entries:
+                live_connection.refused(self._live, pending, getattr(exc, "code", type(exc).__name__), str(exc))
+            commands.discard_observation(self._live, getattr(exc, "code", type(exc).__name__), str(exc))
             self._live.failed = True
             self._live.begin_stop("entry_admission_failed")
             raise
@@ -181,6 +188,15 @@ def _gated(name: str, method):
         if kind == "bar":
             self._live.evidence.bar(args[0])
             live_connection.bar(self._live, args[0])
+            if live_connection.held_bar(self._live, args[0]):
+                return None  # the run ends before the source decides again (engine.live_connection.held_bar)
+            if method is None:
+                return None
+            self._live.deciding = args[0].bar_type
+            try:
+                return method(self, *args, **kwargs)
+            finally:
+                self._live.deciding = None
         elif kind is not None:
             for bar in args[0]:
                 self._live.evidence.bar(bar, kind)
