@@ -9,6 +9,12 @@ source received, warmed at the same T, on the run's contract at its leverage, st
 run started with. Nothing reaches a ledger: the comparison stays in a new temporary directory, and Live's execution
 records never leave the private root (AGENTS.md).
 
+A run that restarts trades in segments: each trading start (a process that warmed its source; one that held an
+inherited position did not) rebuilds the source from its own T. A segment is compared on its own: its warm-up's T,
+the wallet it started from, the evidence and journal lines of its process and the orders it initialized. Its result is
+the native cache's since that process began (the cache outlives processes), and `measures` sums the comparison in a
+time window for the weekly report (docs/plans/live-continuous-operation-design-20261110.zh.md §3.6).
+
 Live's funding is the run's settlements at Binance's published rates, as a replay settles them; what Binance
 actually charged is not in the evidence pack. Its equity path is that wallet plus each minute's result (native
 realized and open profit) plus that funding.
@@ -17,10 +23,13 @@ realized and open profit) plus that funding.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from decimal import Decimal
 import gzip
 import hashlib
+import itertools
 import json
+import math
 from pathlib import Path
 
 from engine.live_errors import LiveRefusal
@@ -78,6 +87,60 @@ def read_pack(directory: Path) -> dict:
         orders = [row["native"] for row in events if row.get("event") == "order" and isinstance(row.get("native"), dict)]
     return {"manifest": manifest, "source": source, "events": events, "market": _lines(out / EVIDENCE / MARKET),
             "reports": reports, "orders": orders, "out": out}
+
+
+def instant(text: str) -> int:
+    """An ISO time (UTC when it names no zone) in nanoseconds: --from and --to."""
+    moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    return round((moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).timestamp() * 10**6) * 1000
+
+
+def segments(pack: Mapping) -> list[dict]:
+    """The run's trading starts, oldest first: {start (its warm-up's T), first, last (its process's journal lines),
+    since, until (the wall time its process began, the next one began; None when unbounded)}. A process begins at its
+    `connecting`; a journal without any is one process."""
+    events = pack["events"]
+    cuts = [i for i, row in enumerate(events) if row.get("event") == "connecting"][1:]
+    found = []
+    for first, last in itertools.pairwise([0, *cuts, len(events)]):
+        warmed = next((row for row in events[first:last] if row.get("event") == "warmup"
+                       and isinstance(row.get("at_ns"), int)), None)
+        if warmed is not None:
+            found.append({"start": warmed["at_ns"], "first": first, "last": last,
+                          "since": events[first].get("observed_ns") if first else None,
+                          "until": events[last].get("observed_ns") if last < len(events) else None})
+    return found
+
+
+def segment(pack: Mapping, number: int | None) -> tuple[dict, dict]:
+    """(segment `number` (1 is the first; None the latest) as a pack of its own, {number, of}): its process's journal
+    lines and evidence rows, the orders it initialized, and each minute's result since its process began."""
+    found = segments(pack)
+    if not found:
+        raise refuse("LIVE_COMPARE_EMPTY", "the run's journal has no warm-up: its source never started",
+                     missing=("warmup",))
+    number = len(found) if number is None else number
+    if not 1 <= number <= len(found):
+        raise refuse("LIVE_COMPARE_EMPTY", f"the run has {len(found)} trading starts, not a start {number}",
+                     missing=("segment",))
+    item = found[number - 1]
+    since, until = item["since"], item["until"]
+
+    def inside(ns) -> bool:
+        return (since is None or (ns or 0) >= since) and (until is None or (ns or 0) < until)
+
+    lines = [dict(row) for row in pack["events"][item["first"]:item["last"]]]
+    # The cache outlives processes: a process begins flat, so its first known result is what it inherited.
+    inherited = next((Decimal(row["result"]) for row in lines
+                      if row.get("event") == "minute_result" and row.get("result") is not None), Decimal(0))
+    for row in lines:
+        if row.get("event") == "minute_result" and row.get("result") is not None:
+            row["result"] = shared._text(Decimal(row["result"]) - inherited)
+    initialized = {event["client_order_id"] for event in pack["orders"] if event.get("type") == "OrderInitialized"
+                   and item["start"] <= (event.get("ts_init") or 0) and (until is None or event["ts_init"] < until)}
+    return ({**pack, "events": lines, "market": [row for row in pack["market"] if inside(row.get("wall_ns"))],
+             "orders": [event for event in pack["orders"] if event.get("client_order_id") in initialized]},
+            {"number": number, "of": len(found)})
 
 
 def window(pack: Mapping) -> tuple[int, int]:
@@ -160,10 +223,61 @@ def run_record(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dic
             "terms": dict((pack["manifest"].get("market") or {}).get("terms") or {}), "fees": _fees(snapshot, symbol)}
 
 
-def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path, timeout: float | None = None) -> dict:
-    """live compare: replay a Live run's minutes on the archive and write reconcile.json."""
+def _percentile(values: list[int], share: float) -> int | None:
+    """The nearest-rank percentile."""
+    ordered = sorted(values)
+    return ordered[max(math.ceil(share * len(ordered)) - 1, 0)] if ordered else None
+
+
+def _change(path: list[list], since: int | None, until: int | None) -> Decimal | None:
+    inside = [Decimal(value) for minute, value in path
+              if (since is None or minute >= since) and (until is None or minute < until)]
+    return inside[-1] - inside[0] if inside else None
+
+
+def measures(compared: Mapping, events: list[dict], since: int | None = None, until: int | None = None) -> dict:
+    """The comparison's sums over the groups decided in [since, until) (§3.6's fills and holds): entries the replay
+    filled and Live did not, Live orders filled in part, the mean adverse fill price difference in basis points (Live's
+    buy above or sell below the replay's is positive), fees (Live's less the replay's), the equity change in the window
+    (Live's less the replay's), and the entries Live's gate held: how many, how long until each was sent or refused,
+    and how many runs a hold ended."""
+    def inside(ns) -> bool:
+        return isinstance(ns, int) and (since is None or ns >= since) and (until is None or ns < until)
+
+    rows = [row for group in compared["groups"] or [] if inside(group["at_ns"]) for row in group["orders"]]
+    filled = [row for row in rows if row["run"] and row["replay"] and row["run"]["fill"] and row["replay"]["fill"]]
+    adverse = [row["price_bps"] * (1 if row["side"] == "BUY" else -1) for row in filled]
+    fees = {side: sum((Decimal(row[side]["fill"]["commission"] or 0) for row in rows
+                       if row[side] and row[side]["fill"]), Decimal(0)) for side in ("run", "replay")}
+    text = shared._text
+    run, replay = (_change(compared["equity"][side], since, until) for side in ("run", "replay"))
+    held = [row for row in events if row.get("event") == "entry_held" and inside(row.get("ts_init"))]
+    ended = [row["held_ns"] for row in events if row.get("event") in ("entry_released", "entry_refused")
+             and isinstance(row.get("held_ns"), int) and inside(row.get("ts_init"))]
+    return {"groups": sum(inside(group["at_ns"]) for group in compared["groups"] or []),
+            "entries_unfilled": sum(row["role"] == "entry" and bool(row["run"]) and not row["run"]["fill"]
+                                    and bool(row["replay"]) and bool(row["replay"]["fill"]) for row in rows),
+            "partial_fills": sum(bool(row["run"] and row["run"]["fill"] and row["run"]["qty"] is not None
+                                      and Decimal(row["run"]["fill"]["qty"]) < Decimal(row["run"]["qty"]))
+                                 for row in rows),
+            "fills_paired": len(filled),
+            "adverse_slippage_bps": sum(adverse) / len(adverse) if adverse else None,
+            "fees": {"run": text(fees["run"]), "replay": text(fees["replay"]),
+                     "difference": text(fees["run"] - fees["replay"])},
+            "equity_change": {"run": text(run), "replay": text(replay),
+                              "difference": text(run - replay) if run is not None and replay is not None else None},
+            "holds": {"held": len(held), "held_ns_median": _percentile(ended, 0.5),
+                      "held_ns_p90": _percentile(ended, 0.9),
+                      "ended_runs": sum(row.get("event") == "entry_refused" and isinstance(row.get("held_ns"), int)
+                                        and inside(row.get("ts_init")) for row in events)}}
+
+
+def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path, timeout: float | None = None,
+            number: int | None = None, since: int | None = None, until: int | None = None) -> dict:
+    """live compare: replay one trading start of a Live run (the latest by default) on the archive and write
+    reconcile.json, with its measures over [since, until) (the whole segment by default)."""
     from market import files, instrument
-    pack = read_pack(state.directory(root, run_id))
+    pack, numbered = segment(read_pack(state.directory(root, run_id)), number)
     manifest = pack["manifest"]
     symbols = list(manifest["symbols"])
     start, end = window(pack)
@@ -190,6 +304,10 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     result = {"format": shared.FORMAT, "kind": "live", "run_id": run_id, "candidate": manifest["candidate"],
               "source_sha256": manifest["source"]["source_sha256"], "image_ref": manifest["runtime"]["image_ref"],
               "market_day": market_day, "window": {"start": shared._utc(start), "end": shared._utc(end)},
-              "starting_balance_usdt": balance, "replay": replayed, **compared}
+              "segment": numbered, "starting_balance_usdt": balance, "replay": replayed, **compared,
+              "measures": {"from": shared._utc(since) if since is not None else None,
+                           "to": shared._utc(until) if until is not None else None,
+                           **measures(compared, pack["events"], since, until)}}
     (output / "reconcile.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
-    return {"path": str(output / "reconcile.json"), "summary": result["summary"], "replay": result["replay"]}
+    return {"path": str(output / "reconcile.json"), "segment": numbered, "summary": result["summary"],
+            "measures": result["measures"], "replay": result["replay"]}
