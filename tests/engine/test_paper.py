@@ -1,5 +1,5 @@
 """engine.paper without a network: the credential refusal, the replay cadence of the live feed, the strategy's
-data callbacks held until the fills their data caused are applied, the instances a run plans and the event fields
+data callbacks held until the next data dispatch, when the fills their data caused are applied, the instances a run plans and the event fields
 the live view draws from."""
 
 import unittest
@@ -30,34 +30,74 @@ def estimate(ts: int, next_funding_ns: int, rate: str = "0.0001") -> FundingRate
 
 
 class HoldTests(unittest.TestCase):
-    def test_data_callbacks_run_later_in_their_order_and_one_that_raises_stops_none(self):
-        alerts, seen = [], []
-        clock = SimpleNamespace(timestamp_ns=lambda: DAY,
-                                set_time_alert_ns=lambda name, at, callback: alerts.append((name, at, callback)))
+    def setUp(self):
+        self.now = [DAY]
+        clock = SimpleNamespace(timestamp_ns=lambda: self.now[0])
+        for patch in (mock.patch.object(paper.Strategy, "clock", SimpleNamespace(__get__=lambda *_: clock)),
+                      mock.patch.object(paper.strategy_runtime, "execution_failure"),
+                      mock.patch.dict(paper.strategy_runtime.STRATEGIES, clear=True)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.addCleanup(paper.FINDINGS.clear)
 
+    def source(self, seen: list, name: str = "BTC"):
         class Source:
             def on_bar(self, bar):
-                seen.append(("bar", bar))
-                if bar == 2:
+                seen.append((name, "bar", bar.ts_init))
+                if bar.ts_init == 2:
                     raise ValueError("recorded by its guard")
 
             def on_mark_price(self, update):
-                seen.append(("mark", update))
+                seen.append((name, "mark", update.ts_init))
 
-        held = type("Held", (), {**paper.paper_callbacks(Source), "clock": None})
-        instance = held()
-        instance._paper_held, instance._paper_cadence = [], mock.Mock(**{"mark.return_value": True})
-        with mock.patch.object(paper.Strategy, "clock", SimpleNamespace(__get__=lambda *_: clock)), \
-                mock.patch.object(paper.strategy_runtime, "execution_failure"):
-            instance.on_bar(1)
-            instance.on_mark_price("m")
-            instance.on_bar(2)
-            instance.on_bar(3)
-            self.assertEqual(seen, [])
-            self.assertEqual([(name, at) for name, at, _ in alerts], [(f"paper-hold-{id(instance)}", DAY + paper.HOLD_NS)])
-            alerts[0][2](None)
-        self.assertEqual(seen, [("bar", 1), ("mark", "m"), ("bar", 2), ("bar", 3)])
-        self.assertEqual(instance._paper_held, [])
+        instance = type("Held", (), {**paper.paper_callbacks(Source), "clock": None})()
+        instance._paper_held, instance._paper_released_ns = [], 0
+        instance._paper_cadence = mock.Mock(**{"mark.return_value": True})
+        paper.strategy_runtime.STRATEGIES[name] = instance
+        return instance
+
+    @staticmethod
+    def bar(at: int, kind: str = "BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"):
+        return SimpleNamespace(bar_type=kind, ts_init=at)
+
+    def test_data_callbacks_run_at_the_next_dispatch_in_their_order_and_one_that_raises_stops_none(self):
+        seen: list = []
+        btc, eth = self.source(seen), self.source(seen, "ETH")
+        btc.on_bar(self.bar(1))
+        self.assertEqual(seen, [], "held until another data event is dispatched")
+        paper.release_before(self.bar(1))  # the same dispatch, as another subscriber gets it
+        self.assertEqual(seen, [])
+        eth.on_bar(self.bar(1, "ETHUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
+        btc.on_mark_price(SimpleNamespace(instrument_id="BTCUSDT-PERP.BINANCE", ts_init=1))
+        btc.on_bar(self.bar(2))
+        self.assertEqual(seen, [("BTC", "bar", 1), ("ETH", "bar", 1), ("BTC", "mark", 1)])
+        recorder = paper.Recorder.__new__(paper.Recorder)
+        with mock.patch.object(paper.Recorder, "marks", {}, create=True), \
+                mock.patch.object(paper.Recorder, "minute", None, create=True):
+            paper.Recorder.on_mark_price(recorder, SimpleNamespace(instrument_id="X", ts_init=3, ts_event=3,
+                                                                   value=None))
+        btc.on_bar(self.bar(4))
+        self.assertEqual(seen[3:], [("BTC", "bar", 2)], "the recorder's dispatch releases them too; one that raised "
+                                                       "stops none")
+        btc.on_bar(self.bar(5))
+        self.assertEqual(seen[4:], [("BTC", "bar", 4)])
+        btc._paper_held.clear()
+        self.assertEqual((btc._paper_held, eth._paper_held), ([], []))
+
+    def test_a_fill_stamped_before_released_callbacks_is_recorded_late(self):
+        btc = self.source([])
+        btc.on_bar(self.bar(1))
+        self.now[0] = DAY + 5
+        btc.on_bar(self.bar(2))  # releases the first bar, held at DAY
+        filled = type("OrderFilled", (), {"strategy_id": "R1-BTCUSDT", "client_order_id": "O-1", "ts_event": DAY})()
+        with mock.patch.object(paper, "journal") as journal, mock.patch.object(paper, "_event_fields", return_value={}):
+            btc.on_order_event(filled)
+            filled.ts_event = DAY + 1  # matched by the second bar, whose callbacks still wait
+            btc.on_order_event(filled)
+        late = [call for call in journal.call_args_list if call.args[0] == "release_late"]
+        self.assertEqual(len(late), 1)
+        self.assertEqual(late[0].kwargs["released_ns"], DAY)
+        self.assertEqual([found.split(":")[0] for found in paper.FINDINGS], ["PAPER_RELEASE_LATE"])
 
 
 class TradeSubscriptionTests(unittest.TestCase):
