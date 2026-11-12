@@ -208,8 +208,8 @@ is in `engine/README.md`.
   handle the end as a cancel.
 - Size from USDT equity, never a fixed USDT amount; each multiple (x1, x2) is its own version,
   scaling only the notional limit. Live measures the 3-times limit also against the account's USDT
-  wallet and available balance, and each entry needs USDT cash of at least `--budget-usdt`
-  (`LIVE_BUDGET`, `LIVE_FUNDS`).
+  wallet and available balance, and each entry needs USDT cash of at least the run's
+  budget (`LIVE_BUDGET`, `LIVE_FUNDS`).
 - Keep the stop and the candidate's reduce-only target, if any, at the position's quantity as
   above, each with `position_id=` the owned position; cancel the other once one is completely
   filled, since a partial fill leaves the position open.
