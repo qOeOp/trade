@@ -5,7 +5,7 @@ import time
 from nautilus_trader.common import SocketState
 from nautilus_trader.model import AccountId, ClientId, InstrumentId, OrderStatus, OrderType, StrategyId
 from nautilus_trader.trading import Strategy, StrategyConfig
-from engine import live_commands as commands, live_connection
+from engine import live_brake, live_commands as commands, live_connection
 from engine.cadence import Cadence
 from engine.live_commands import pending_orders
 from engine.live_session import MARK_SECONDS, MINUTE_NS, Session, STOP_GRACE_SECONDS
@@ -137,7 +137,7 @@ class Observer(Strategy):
             if session.mode == "run":
                 live_connection.tick(session, self, now)
                 session.check_protection(self.cache, now)
-                session.check_loss(self.cache, now)
+                live_brake.tick(session, session.check_mark(self.cache, now), now)
             elif session.mode == "held":
                 live_connection.held_tick(session, now)
             if not session.observe_stop_intent():

@@ -24,6 +24,7 @@ from engine import history, live
 from engine import live_commands as commands, live_connection, live_lifecycle, live_source as live_source_runtime
 from engine.live_venue import Credentials
 from tests.engine.test_live import SOURCE
+from tests.engine.test_live_venue import venue_clock
 from tests.engine.test_fill_model import INSTRUMENT
 
 
@@ -34,6 +35,9 @@ class FixtureReader:
         self.credential_binding = credential_binding
         self.calls = []
 
+    def clock(self):
+        return venue_clock()
+
     def snapshot(self, symbols):
         self.calls.append(tuple(symbols))
         return {
@@ -41,9 +45,9 @@ class FixtureReader:
             "config": {"canTrade": True, "dualSidePosition": True, "multiAssetsMargin": True},
             "account": {"multiAssetsMargin": True, "assets": [
                 {"asset": "USDT", "walletBalance": "100", "availableBalance": "199.93889229",
-                 "marginAvailable": True},
+                 "unrealizedProfit": "0", "marginAvailable": True},
                 {"asset": "USDC", "walletBalance": "100", "availableBalance": "199.93889229",
-                 "marginAvailable": True},
+                 "unrealizedProfit": "0", "marginAvailable": True},
             ]},
             "positions": [], "orders": [], "algo_orders": [],
             "symbols": {"AAAUSDT": {
@@ -66,7 +70,8 @@ def venue_snapshot(base: dict, cache, *, unknown: bool = False, observed_ns: int
     orders = [{"symbol": "AAAUSDT", "orderId": str(order.venue_order_id)} for order in cache.orders_open()]
     if unknown:
         orders.append({"symbol": "AAAUSDT", "orderId": "999999"})
-    return {**base, "observed_ns": observed_ns, "positions": positions, "orders": orders, "algo_orders": []}
+    return {**base, "observed_ns": observed_ns, "positions": positions, "orders": orders, "algo_orders": [],
+            "clock": venue_clock()}
 
 
 class NativeConnectionTests(unittest.TestCase):
@@ -101,11 +106,12 @@ class NativeConnectionTests(unittest.TestCase):
             account_id="BINANCE-001", credential_binding=credentials.binding,
             universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
             source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
-            config=dict(duration_seconds=60, budget_usdt="100", max_loss_usdt="10", leverage="50"),
+            config=dict(duration_seconds=60, drawdown_brake="0.15", leverage="50"),
             market=dict(market_day="2026-11-09", terms={"AAAUSDT": dict(
                 price_increment="0.01", size_increment="0.001", min_notional="0.1")}))
         reader = FixtureReader(credentials.binding)
         session = live.Session(manifest, root, "run", account_verified=True, account_reader=reader)
+        session.brake.budget = Decimal("85")
         session.node = Mock()  # Record asynchronous stop without advancing native time.
         source = live_source_runtime.live_source(live.source_for_run(manifest), session)
         session.source = source
@@ -310,11 +316,12 @@ class NativeConnectionTests(unittest.TestCase):
                     universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                     source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
                     config=dict(duration_seconds=3600,
-                                budget_usdt="100", max_loss_usdt="10", leverage="50"),
+                                drawdown_brake="0.15", leverage="50"),
                     market=dict(market_day="2026-11-09", terms={"AAAUSDT": dict(
                         price_increment="0.01", size_increment="0.001", min_notional="0.1")}))
                 session = live.Session(manifest, root, "run", account_verified=True,
                                        account_reader=FixtureReader(credentials.binding))
+                session.brake.budget = Decimal("85")
                 session.node = Mock()
                 source = live_source_runtime.live_source(live.source_for_run(manifest), session)
                 session.source = source

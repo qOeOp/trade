@@ -32,7 +32,7 @@ from nautilus_trader.trading import Strategy
 
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_records import source_strategy_id, write_json
-from engine.live_venue import require_account_mode, require_own_symbol
+from engine.live_venue import require_account_mode, require_clock, require_own_symbol
 from engine.order_rules import GTD_MINIMUM_NS
 
 COMPARE_SPACING_SECONDS = 31  # one native position check (30 s) and open-order check (10 s) between the two reads
@@ -228,7 +228,8 @@ def compare(snapshot: dict, cache, manifest: dict) -> dict[str, list]:
     symbol = manifest["symbols"][0]
     instrument = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
     strategy = source_strategy_id(manifest)
-    for check, name in ((require_account_mode, "account_mode"), (require_own_symbol, "foreign")):
+    for check, name in ((require_account_mode, "account_mode"), (require_own_symbol, "foreign"),
+                        (lambda read, _: require_clock(read), "clock")):
         try:
             check(snapshot, manifest)
         except Refusal as exc:

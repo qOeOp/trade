@@ -31,13 +31,13 @@ from nautilus_trader.model import (
 from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import Strategy, StrategyConfig
 
-from engine import history, live
+from engine import history, live, live_brake
 from engine import live_commands as commands, live_lifecycle, live_node, live_session, live_source as live_source_runtime
 from engine.config import Refusal
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 from tests.engine.test_live import SOURCE
-from tests.engine.test_live_venue import fixture
+from tests.engine.test_live_venue import fixture, venue_clock
 
 
 class DeferredAccount:
@@ -49,6 +49,9 @@ class DeferredAccount:
         self.release = threading.Event()
         self.calls = []
         self.failure = None
+
+    def clock(self):
+        return venue_clock()
 
     def snapshot(self, symbols):
         self.calls.append(tuple(symbols))
@@ -106,6 +109,7 @@ class NativeEntryTests(unittest.TestCase):
         self.reader = DeferredAccount(self.snapshot)
         self.addCleanup(self.reader.release.set)
         self.session = live.Session(self.manifest, self.root, "run", account_reader=self.reader)
+        live_brake.arm(self.session, self.snapshot)  # the cash floor: 85 USDT of the fixture's 100
         commands.verify_connected_account(self.session, self.snapshot)
         self.live_risk, risk = configured_risk(self.session)
         self.source = live_source_runtime.live_source(live.source_for_run(self.manifest), self.session)
@@ -223,9 +227,11 @@ class NativeEntryTests(unittest.TestCase):
         self.advance()
         self.assertEqual([order.client_order_id for order in self.engine.cache.orders()], ids)
 
-    def loss_at(self, price, now=0.0):
-        self.session.mark = (now, Price.from_str(price))
-        self.session.check_loss(self.engine.cache, now)
+    def equity_at(self, unrealized, now=0.0):
+        """An account read with the fixture's 100 USDT wallet and this unrealized result."""
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["account"]["assets"][0]["unrealizedProfit"] = unrealized
+        live_brake.observe(self.session, snapshot, now)
 
     def test_the_observer_receives_native_mark_prices_on_a_run_only(self):
         for mode, expected in (("run", True), ("reconcile", False)):
@@ -273,15 +279,17 @@ class NativeEntryTests(unittest.TestCase):
         self.assertIsNone(self.read_events("minute_result")[0]["result"])
         self.assertFalse(self.session.failed)
 
-    def test_loss_limit_closes_natively_without_failing_the_run(self):
-        self.owned_position()  # Long 0.500 at 100; the limit is 10.
-        self.loss_at("80.01")
+    def test_the_drawdown_brake_closes_natively_without_failing_the_run(self):
+        self.owned_position()  # The run's highest equity is the 100 USDT it armed with; the brake is 15%.
+        self.equity_at("-14.99")
         self.assertFalse(self.session.stopping)
-        self.loss_at("80.00")
+        self.equity_at("-15.00")
         self.assertTrue(self.session.stopping)
         self.assertFalse(self.session.failed)
-        self.assertEqual(self.read_events("max_loss")[0]["result"], "-10.00000000")
-        self.assertEqual(self.read_events("stopping")[0]["reason"], "max_loss")
+        brake, = self.read_events("drawdown_brake")
+        self.assertEqual((brake["equity"], brake["peak"], brake["drawdown"]), ("85.00", "100", "0.1500"))
+        self.assertTrue((self.root / brake["observation"]).exists())
+        self.assertEqual(self.read_events("stopping")[0]["reason"], "drawdown")
         observe = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
         live_lifecycle.Observer.observe(observe)
         self.advance("79.00", "80.00")
@@ -290,33 +298,15 @@ class NativeEntryTests(unittest.TestCase):
         self.assertTrue(self.session.native_flat)
         self.assertFalse(self.session.failed)
 
-    def test_loss_limit_counts_what_a_reduction_realized(self):
-        position = self.owned_position()
-        self.source.submit_order(self.reduction("0.400"), position_id=position.id)
-        self.advance("80.00", "81.00")  # Realized -8.00 selling at the bid.
-        self.loss_at("80.01")  # Plus -2.00 on the remaining 0.100 is still short of -10 by 0.001.
+    def test_the_brake_counts_from_the_highest_equity_and_fees_and_funding_lower_it(self):
+        self.equity_at("20")  # a new highest equity, journalled
+        self.assertEqual([row["equity"] for row in self.read_events("equity_peak")], ["120"])
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["account"]["assets"][0].update(walletBalance="102.01", unrealizedProfit="0")  # fees and funding paid
+        live_brake.observe(self.session, snapshot, 0.0)
         self.assertFalse(self.session.stopping)
-        self.loss_at("80.00")
-        self.assertTrue(self.session.stopping)
-
-    def test_loss_limit_counts_a_cycle_that_closed_before_another_opened(self):
-        position = self.owned_position()
-        self.loss_at("99.00")
-        self.assertIsNotNone(self.session.exposed_since)
-        self.source.submit_order(self.reduction("0.500"), position_id=position.id)
-        self.advance("90.00", "91.00")  # Realized -5.00, then flat.
-        self.loss_at("90.00")
-        self.assertFalse(self.session.stopping)
-        self.assertIsNone(self.session.exposed_since)
-        # A later fill opens its own position (HEDGING) after a stop closed the first.
-        Strategy.submit_order(self.source, self.source.order_factory.market(self.iid, OrderSide.BUY, Quantity.from_str("0.100")))
-        self.advance("90.00", "90.00")
-        later, = self.engine.cache.positions_open(strategy_id=self.source.strategy_id)
-        self.assertNotEqual(later.id, position.id)
-        self.assertEqual(later.realized_pnl.as_decimal(), 0)
-        self.loss_at("40.01")
-        self.assertFalse(self.session.stopping)
-        self.loss_at("40.00")
+        snapshot["account"]["assets"][0].update(walletBalance="102.00")
+        live_brake.observe(self.session, snapshot, 0.0)
         self.assertTrue(self.session.stopping)
 
     def lost_buy_cancel_beside_a_short_stop(self):
@@ -353,88 +343,63 @@ class NativeEntryTests(unittest.TestCase):
                                                         last_query=0, query_account=Mock()))
         self.assert_the_short_stays_protected(stop)
 
-    def test_a_loss_realized_past_the_limit_stops_a_flat_run_and_its_working_entry(self):
-        position = self.owned_position()
-        self.source.submit_order(self.reduction("0.500"), position_id=position.id)
-        self.advance("70.00", "71.00")
-        self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [])
-        self.session.mark = None  # Flat needs no mark.
-        self.session.check_loss(self.engine.cache, 0.0)
-        self.assertTrue(self.session.stopping)
-        self.assertFalse(self.session.failed)
-        self.assertEqual(self.read_events("stopping")[0]["reason"], "max_loss")
-
-    def test_loss_limit_applies_to_a_short(self):
-        order = self.admit(self.source.order_factory.limit(self.iid, OrderSide.SELL, Quantity.from_str("0.500"),
-                                                           Price.from_str("101.00")))
-        self.assertEqual(order.status, OrderStatus.ACCEPTED)
-        self.advance("101.00", "102.00")
-        self.loss_at("120.99")
-        self.assertFalse(self.session.stopping)
-        self.loss_at("121.00")
-        self.assertTrue(self.session.stopping)
-
-    def test_no_recent_mark_counts_as_reaching_the_limit(self):
+    def test_no_recent_mark_with_a_position_open_stops_the_run(self):
         self.owned_position()
         self.session.mark = (100.0, Price.from_str("99.00"))
-        self.session.check_loss(self.engine.cache, 110.0)  # Exposure is first seen now.
-        self.session.check_loss(self.engine.cache, 169.0)
+        self.session.check_mark(self.engine.cache, 110.0)  # Exposure is first seen now.
+        self.session.check_mark(self.engine.cache, 169.0)
         self.assertFalse(self.session.stopping)
         self.session.mark = (169.0, Price.from_str("99.00"))
-        self.session.check_loss(self.engine.cache, 228.0)
+        self.session.check_mark(self.engine.cache, 228.0)
         self.assertFalse(self.session.stopping)
-        self.session.check_loss(self.engine.cache, 229.0)
+        self.session.check_mark(self.engine.cache, 229.0)
         self.assertTrue(self.session.stopping)
         self.assertTrue(self.session.failed)
-        self.assertEqual(self.read_events("stopping")[0]["reason"], "loss_unverified")
+        self.assertEqual(self.read_events("stopping")[0]["reason"], "mark_missing")
 
     def test_no_mark_at_all_counts_from_when_the_position_appeared(self):
         self.owned_position()
-        self.session.check_loss(self.engine.cache, 500.0)
-        self.session.check_loss(self.engine.cache, 559.0)
+        self.session.check_mark(self.engine.cache, 500.0)
+        self.session.check_mark(self.engine.cache, 559.0)
         self.assertFalse(self.session.stopping)
-        self.session.check_loss(self.engine.cache, 560.0)
+        self.session.check_mark(self.engine.cache, 560.0)
         self.assertTrue(self.session.stopping)
         self.assertTrue(self.session.failed)
 
     def test_a_mark_too_old_to_use_never_prices_a_position(self):
-        self.session.mark = (0.0, Price.from_str("70.00"))  # Reading it would be a loss past the limit.
-        self.session.check_loss(self.engine.cache, 5000.0)
+        self.session.mark = (0.0, Price.from_str("70.00"))  # Too old to count as a mark.
+        self.session.check_mark(self.engine.cache, 5000.0)
         self.owned_position()
-        self.session.check_loss(self.engine.cache, 5001.0)
+        self.session.check_mark(self.engine.cache, 5001.0)
         self.assertFalse(self.session.stopping)
-        self.session.check_loss(self.engine.cache, 5061.0)
+        self.session.check_mark(self.engine.cache, 5061.0)
         self.assertTrue(self.session.stopping)
         self.assertTrue(self.session.failed)
-        self.assertEqual(self.read_events("stopping")[0]["reason"], "loss_unverified")
+        self.assertEqual(self.read_events("stopping")[0]["reason"], "mark_missing")
 
     def test_flat_needs_no_mark(self):
-        self.session.check_loss(self.engine.cache, 10_000.0)
+        self.session.check_mark(self.engine.cache, 10_000.0)
         self.assertFalse(self.session.stopping)
         self.assertIsNone(self.session.exposed_since)
 
-    def test_a_loss_check_that_cannot_run_takes_the_stop_path(self):
+    def test_an_exposure_check_that_cannot_run_takes_the_stop_path(self):
         cache = Mock()
         cache.positions.side_effect = RuntimeError("boom")
-        self.session.check_loss(cache, 0.0)
+        self.session.check_mark(cache, 0.0)
         self.assertTrue(self.session.stopping)
         self.assertTrue(self.session.failed)
-        self.assertEqual(self.read_events("loss_unverified")[0]["failure_type"], "RuntimeError")
+        self.assertEqual(self.read_events("exposure_unverified")[0]["failure_type"], "RuntimeError")
 
-    def test_the_observer_runs_the_loss_check_on_a_run_only(self):
-        position = self.owned_position()
-        stop = self.stop()
-        self.assertEqual(stop.status, OrderStatus.ACCEPTED)
-        self.session.mark = (time.monotonic(), Price.from_str("70.00"))
+    def test_the_observer_runs_the_brake_on_a_run_only(self):
+        self.owned_position()
         observer = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
-        self.session.mode = "reconcile"
-        live_lifecycle.Observer.observe(observer)
-        self.assertFalse(self.session.stopping)
-        self.session.mode = "run"
-        live_lifecycle.Observer.observe(observer)
-        self.assertTrue(self.session.stopping)
-        self.assertEqual(self.read_events("stopping")[0]["reason"], "max_loss")
-        self.assertEqual(self.engine.cache.position(position.id).side, PositionSide.LONG)
+        with patch.object(live_brake, "tick") as tick:
+            self.session.mode = "reconcile"
+            live_lifecycle.Observer.observe(observer)
+            tick.assert_not_called()
+            self.session.mode = "run"
+            live_lifecycle.Observer.observe(observer)
+        self.assertTrue(tick.call_args.args[1])  # a position is open
 
     def test_an_interruption_withdraws_entries_and_keeps_the_position_and_its_stop(self):
         position = self.owned_position()
@@ -477,7 +442,7 @@ class NativeEntryTests(unittest.TestCase):
 
         def observe(now):
             self.session.mark = (now, Price.from_str("99.00"))
-            with patch.object(live.time, "monotonic", return_value=now):
+            with patch.object(live.time, "monotonic", return_value=now), patch.object(live_brake, "tick"):
                 live_lifecycle.Observer.observe(observer)
 
         start = 1000.0  # A whole number: adding and subtracting 90 from an arbitrary float can land below 90.
@@ -775,7 +740,7 @@ class NativeEntryTests(unittest.TestCase):
         self.assertEqual(self.admit(self.limit(quantity="6.000")).status, OrderStatus.ACCEPTED)
 
     def test_entry_limit_uses_the_smaller_of_wallet_and_available(self):
-        self.manifest["config"]["budget_usdt"] = "50"
+        self.session.brake.budget = Decimal("50")
         for asset in self.reader.snapshot_value["account"]["assets"]:
             asset.update(walletBalance="200", availableBalance="60")
         _, observation = self.submit_pending(self.limit(quantity="1.801"))
@@ -945,7 +910,7 @@ class NativeEntryTests(unittest.TestCase):
         position = self.owned_position()
         self.advance("700.00", "701.00")
         close_notional = self.instrument.notional_value(position.quantity, Price.from_str("700.00"))
-        self.assertGreater(close_notional.as_decimal(), 3 * Decimal(self.manifest["config"]["budget_usdt"]))
+        self.assertGreater(close_notional.as_decimal(), 3 * self.session.brake.budget)
         self.source.close_position(position, reduce_only=True)
         self.advance("700.00", "701.00")
         self.assertTrue(self.engine.cache.position(position.id).is_closed)

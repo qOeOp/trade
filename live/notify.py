@@ -271,6 +271,7 @@ def _messages(run: dict) -> list[tuple[str, str]]:
                        f"{name} started." if mode == "run" else f"{name} is reconciling with Binance."))
     result.extend(_gate_messages(run, name))
     result.extend(_restart_messages(run, name))
+    result.extend(_brake_and_key_messages(run, name))
     for row in _fills(run):
         result.append((_fill_key(run, row), f"{name} fill: {row.get('order_side') or 'side unknown'} "
                        f"{row.get('last_qty') or '?'} {row.get('instrument_id') or ''} at {row.get('last_px') or '?'}."))
@@ -327,6 +328,25 @@ def _gate_messages(run: dict, name: str) -> list[tuple[str, str]]:
 HELD_TEXT = ("started again and found a position or open orders it inherited. That position is now protected only by "
              "its stop at Binance: the strategy no longer manages its exits and opens nothing. The run trades again "
              "by itself once the account is flat; close the position at Binance if you want to end it sooner.")
+
+
+def _brake_and_key_messages(run: dict, name: str) -> list[tuple[str, str]]:
+    """The drawdown brake firing (engine.live_brake) and the control's periodic key checks (live.control)."""
+    result = []
+    fired = (run.get("brake") or {}).get("fired")
+    if fired:
+        result.append((f"{run['run_id']}:brake",
+                       f"{name} hit its drawdown brake: equity {fired.get('equity')} USDT is {fired.get('drawdown')} "
+                       f"below its highest {fired.get('peak')} USDT. It closes its positions and stops; it is not "
+                       f"started again."))
+    for row in run.get("key_checks") or []:
+        key = f"{run['run_id']}:key:{row['event']}:{row['observed_ns']}"
+        if row["event"] == "key_check_failed":
+            result.append((key, f"{name}: its API key failed the periodic check ({row.get('code')}). The run goes "
+                                f"on; fix the key at Binance (no withdrawals, IP restricted) or stop the run."))
+        else:
+            result.append((key, f"{name}: its API key passes the periodic check again."))
+    return result
 
 
 def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:

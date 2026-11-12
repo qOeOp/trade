@@ -47,7 +47,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the paired controller owns maintenance",
         "run_id, state, mode, account_owned, source identities, image_ref (the pinned runtime image digest), symbols, "
         "exit_code, stop_reason (why the run first began to "
-        "stop, such as max_loss, protection_missing or duration; null when it has not or the journal is unreadable) "
+        "stop, such as drawdown, protection_missing or duration; null when it has not or the journal is unreadable) "
         "and, when unresolved, a note pointing to the manual steps",
         "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "logs"): (

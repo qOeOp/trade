@@ -21,7 +21,7 @@ from ledger import db, strategies
 from shared.errors import Refusal
 from runtime import image
 from live import host as host_runtime
-from live import key, requests, state
+from live import configuration, key, requests, state
 
 
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
@@ -361,7 +361,7 @@ def replay_evidence(research: db.LedgerProfile, research_at: str, source_sha256:
 
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
-                    budget_usdt: str, max_loss_usdt: str, duration_seconds: int | None, memory: str, leverage: str,
+                    drawdown_brake: str, duration_seconds: int | None, memory: str, leverage: str,
                     market_root: Path, source_sha256: str | None = None, request_id: str | None = None,
                     credential_ref: str | None = None, recover_partial: bool = False) -> dict:
     """Capture immutable source inputs using the reader, before any account effect. The source is the candidate's
@@ -378,13 +378,12 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     if duration_seconds is not None and (isinstance(duration_seconds, bool) or not isinstance(duration_seconds, int)
                                          or duration_seconds < 1):
         raise state.fail("LIVE_CONFIG", "duration-seconds must be a positive integer, or absent to run until stopped")
-    budget, max_loss = _positive(budget_usdt, "budget-usdt"), _positive(max_loss_usdt, "max-loss-usdt")
-    if Decimal(max_loss) > Decimal(budget):
-        raise state.fail("LIVE_CONFIG", "max-loss-usdt cannot exceed budget-usdt")
+    brake = _positive(drawdown_brake, "drawdown-brake")
+    if Decimal(brake) > Decimal(configuration.BRAKE_DEFAULT):
+        raise state.fail("LIVE_CONFIG", f"the drawdown brake can only be tighter than {configuration.BRAKE_DEFAULT}")
     if not is_leverage(leverage):
         raise state.fail("LIVE_CONFIG", "leverage must be an integer from 1 to 125")
-    config = {"budget_usdt": budget,
-              "max_loss_usdt": max_loss,
+    config = {"drawdown_brake": brake,
               "duration_seconds": duration_seconds, "memory": memory, "leverage": leverage,
               "proxy_url": f"http://{host_runtime.resource_names(root, run_id)['egress']}:3128"}
     if directory.exists() and not recover_partial:
@@ -502,7 +501,7 @@ def _require_frozen_prepare(root: Path, request_id: str, manifest: dict, researc
               "source_sha256": manifest["source"]["source_sha256"], "entry_class": manifest["source"]["entry_class"],
               "universe_sha256": manifest["universe_sha256"], "runtime": manifest["runtime"]["image_ref"],
               "config": {name: manifest["config"][name] for name in (
-                  "budget_usdt", "max_loss_usdt", "duration_seconds", "leverage", "memory")}}
+                  "drawdown_brake", "duration_seconds", "leverage", "memory")}}
     if (command.get("action") != "prepare" or claim is None or claim["disposition"] is not None
             or command.get("target") != {"run_id": manifest["run_id"], "credential_ref": credential_ref}
             or any(inputs.get(name) != value for name, value in wanted.items())):
@@ -599,7 +598,8 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, requ
     if mode == "reconcile" and not os.path.lexists(directory / "out" / "armed.json"):
         # Checked here too: a released run must not take the slot back only to be refused by its runner.
         raise state.fail("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
-    warnings = [] if mode == "reconcile" else key.require_limits(credentials)
+    warnings = [] if mode == "reconcile" else key.require_limits(
+        credentials, ip_restricted=manifest["config"]["duration_seconds"] is None)
     _recycle_others(root, run_id)
     if mode != "preflight" and _active(root) is None:
         state.append(root / "account.jsonl", "reserved", run_id)

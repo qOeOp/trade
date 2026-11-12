@@ -52,7 +52,7 @@ class ReplayEvidenceTests(LiveFixture):
                 patch.object(runs.image, "require_main_build"):
             return prepare(self.root, run_id, self.world.profile, db.head_commit(self.world.conn),
                            self.candidate["candidate"], ["AAAUSDT"], universe, self.credentials, None,
-                           scope=self.scope, budget_usdt="100", max_loss_usdt="10", duration_seconds=60,
+                           scope=self.scope, drawdown_brake="0.15", duration_seconds=60,
                            memory="2g", leverage="3", market_root=Path("unused"))
 
     def read_ahead(self) -> list[dict]:

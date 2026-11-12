@@ -55,6 +55,9 @@ WRITES[4] = WRITES[3]
 # name `candidate`, a source has no file availability, and the review drops `rewritten`
 # (docs/plans/execution-paths-replan-20261110.zh.md R2).
 PLAN[5], WRITES[5] = PLAN[4], WRITES[4]
+# Protocol 6 replaces the budget and the per-run loss limit with a drawdown brake: the cash floor is 85% of the wallet
+# at the run's first start, and a run may have no duration (docs/plans/live-continuous-operation-design-20261110.zh.md).
+PLAN[6], WRITES[6] = PLAN[5] - {"budget_usdt", "max_loss_usdt"} | {"drawdown_brake"}, WRITES[5]
 
 
 class ProtocolRequestTests(unittest.TestCase):
@@ -93,7 +96,7 @@ class ProtocolBaselineTests(test_views.LiveViewTests):
     """The baseline is something a control of this protocol answers: today's control answers at least it."""
 
     def test_todays_listing_still_holds_every_part_of_the_baseline(self):
-        self.manifest["config"].update(budget_usdt="90", max_loss_usdt="2",
+        self.manifest["config"].update(drawdown_brake="0.15",
                                        duration_seconds=8100, leverage="3")
         (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(self.manifest))
         self.account()

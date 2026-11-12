@@ -15,7 +15,7 @@ from nautilus_trader.model import BarType, OrderSide, OrderStatus, OrderType, Po
 from engine import live, live_commands as commands, live_connection, live_source
 from engine.live_errors import LiveRefusal
 from engine.live_records import source_strategy_id
-from tests.engine.test_live_venue import fixture
+from tests.engine.test_live_venue import fixture, venue_clock
 
 SYMBOL = "BTCUSDT"
 BAR = BarType.from_str(f"{SYMBOL}-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")
@@ -24,7 +24,7 @@ BAR = BarType.from_str(f"{SYMBOL}-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")
 def manifest(binding: str) -> dict:
     return {"run_id": "gate", "symbols": [SYMBOL], "account_id": "BINANCE-001", "trader_id": "LIVE-001",
             "credential_binding": binding, "source": {"source_sha256": "0" * 64},
-            "config": {"duration_seconds": 3600, "leverage": "50", "budget_usdt": "10", "max_loss_usdt": "1"}}
+            "config": {"duration_seconds": 3600, "leverage": "50", "drawdown_brake": "0.15"}}
 
 
 class Cache:
@@ -48,6 +48,7 @@ class GateTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.snapshot, _ = fixture()
+        self.snapshot["clock"] = venue_clock()  # a comparison's read bounds the clock too
         self.binding = self.snapshot["credential_binding"]
         self.session = live.Session(manifest(self.binding), Path(self.temp.name), "run", account_verified=True)
         self.session.node = mock.Mock()

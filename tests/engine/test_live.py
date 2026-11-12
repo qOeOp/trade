@@ -1,6 +1,7 @@
 """Offline Live assembly and ownership boundaries; no authenticated venue calls."""
 
 from argparse import Namespace
+from decimal import Decimal
 import fcntl
 import hashlib
 import gc
@@ -66,8 +67,7 @@ class LiveTests(unittest.TestCase):
                 "source_sha256": hashlib.sha256(SOURCE.encode()).hexdigest()},
             "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
                         "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v8"},
-            "config": {"budget_usdt": "100", "max_loss_usdt": "10", "duration_seconds": 30,
-                       "leverage": "50"},
+            "config": {"drawdown_brake": "0.15", "duration_seconds": 30, "leverage": "50"},
             "market": {"market_day": "2026-11-09", "terms": {"BTCUSDT": {
                 "price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}},
             "strategy_file": str(self.strategy), "universe_file": str(self.universe),
@@ -87,7 +87,7 @@ class LiveTests(unittest.TestCase):
     def test_invalid_manifest_no_nan_and_single_symbol(self):
         path = self.output / "input.json"
         for change in ({"symbols": ["BTCUSDT", "ETHUSDT"]},
-                       {"config": {**self.manifest["config"], "budget_usdt": "NaN"}},
+                       {"config": {**self.manifest["config"], "drawdown_brake": "NaN"}},
                        {"config": {**self.manifest["config"], "duration_seconds": True}}):
             with self.subTest(change=change):
                 path.write_text(json.dumps({**self.manifest, **change}))
@@ -119,13 +119,13 @@ class LiveTests(unittest.TestCase):
             live.read_manifest(path)
         self.assertEqual(caught.exception.code, "LIVE_MANIFEST_INVALID")
 
-    def test_runner_requires_a_loss_limit_within_the_budget(self):
-        for limit in (None, "0", "-1", "NaN", "100.01"):
+    def test_runner_requires_a_drawdown_brake_no_looser_than_the_target(self):
+        for limit in (None, "0", "-0.1", "NaN", "0.1501"):
             with self.subTest(limit):
-                config = dict(self.manifest["config"], max_loss_usdt=limit)
+                config = dict(self.manifest["config"], drawdown_brake=limit)
                 if limit is None:
-                    del config["max_loss_usdt"]
-                path = self.output / "loss-limit.json"
+                    del config["drawdown_brake"]
+                path = self.output / "brake.json"
                 path.write_text(json.dumps({**self.manifest, "config": config}))
                 with self.assertRaises(LiveRefusal) as caught:
                     live.read_manifest(path)
@@ -188,6 +188,7 @@ class LiveTests(unittest.TestCase):
                 snapshot["credential_binding"] = self.credentials.binding
                 snapshot["config"]["dualSidePosition"] = not changed_mode
                 session = live.Session(self.manifest, self.output, "run")
+                session.brake.budget = Decimal("85")
                 session.account_reader = mock.Mock()
                 session.account_reader.snapshot.return_value = snapshot
                 session.node = mock.Mock()
@@ -196,7 +197,8 @@ class LiveTests(unittest.TestCase):
                 commands.start_observation(session, "connected")
                 session.account_observation.result.result(timeout=1)
                 live_lifecycle.Observer.observe(observer)
-                session.account_reader.snapshot.assert_called_once_with(["BTCUSDT"])
+                # The connected check's read; a run's brake then reads the account too (engine.live_brake).
+                self.assertEqual(session.account_reader.snapshot.call_args_list[0], mock.call(["BTCUSDT"]))
                 self.assertEqual(session.account_verified, not changed_mode)
                 self.assertEqual(session.connection_failed, changed_mode)
                 if changed_mode:
@@ -430,6 +432,7 @@ class LiveTests(unittest.TestCase):
 
     def flat_snapshot(self):
         return {"observed_ns": 123, "credential_binding": self.credentials.binding,
+                "account": {"assets": [{"asset": "USDT", "walletBalance": "100", "unrealizedProfit": "0"}]},
                 "positions": [], "orders": [], "algo_orders": []}
 
     def good_clock(self):
@@ -471,7 +474,8 @@ class LiveTests(unittest.TestCase):
                 mock.patch.object(live, "require_admission") as admission, \
                 mock.patch.object(live, "source_for_run") as source:
             self.assertEqual(live.execute(args), 0)
-            admission.assert_called_once_with(snapshot, self.manifest)  # its default flat=True checks the account
+            # The cash floor is 85% of the wallet; the default flat=True checks the account.
+            admission.assert_called_once_with(snapshot, self.manifest, Decimal("85.00"))
             source.assert_called_once()
             for check in (admission, source):
                 check.side_effect = live.Refusal("LIVE_FUNDS", "not admitted")

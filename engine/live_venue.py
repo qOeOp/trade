@@ -26,7 +26,7 @@ from engine.order_rules import ENTRY_EQUITY_MULTIPLE
 
 CLOCK_AHEAD_MS = 1000  # The venue's own limit.
 CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests use, leaving the rest for transit.
-MANIFEST_FORMAT = "live-run-3"  # one definition: the host writes it, the runner's image refuses any other
+MANIFEST_FORMAT = "live-run-4"  # one definition: the host writes it, the runner's image refuses any other
 
 
 @dataclass(frozen=True)
@@ -214,18 +214,17 @@ def require_account_mode(snapshot: dict, manifest: dict) -> None:
 # budget stays a cash floor.
 
 
-def require_admission(snapshot: dict, manifest: dict, *, flat: bool = True) -> Decimal:
+def require_admission(snapshot: dict, manifest: dict, budget: Decimal | None, *, flat: bool = True) -> Decimal:
     """Admit a fresh USDT-funded trial without converting other collateral to cash; return the snapshot's USDT equity
-    (the lower of wallet and available balance), the base of the entry limit. The account must be flat when the run
-    starts (`flat`); a later entry may join the run's own positions and orders (user, 2026-11-11)."""
+    (the lower of wallet and available balance), the base of the entry limit. `budget` is the run's cash floor
+    (engine.live_brake: a share of the USDT wallet at its first arming). The account must be flat when the run starts
+    (`flat`); a later entry may join the run's own positions and orders (user, 2026-11-11)."""
     require_account_mode(snapshot, manifest)
     try:
         if snapshot["config"]["canTrade"] is not True:
             raise Refusal("LIVE_ACCOUNT_MODE", "fresh arming requires trading enabled")
-        config = manifest["config"]
-        budget = Decimal(config["budget_usdt"])
-        if not budget.is_finite() or not 0 < budget <= 100:
-            raise Refusal("LIVE_BUDGET", "the trial requires a budget of at most 100 USDT")
+        if budget is None or not budget.is_finite() or not 0 < budget <= 100:
+            raise Refusal("LIVE_BUDGET", "the initial trial admits a cash floor (85% of the USDT wallet) of at most 100 USDT")
         assets = snapshot["account"]["assets"]
         names = set()
         usdt = None
@@ -245,7 +244,7 @@ def require_admission(snapshot: dict, manifest: dict, *, flat: bool = True) -> D
         available = Decimal(usdt["availableBalance"])
         if not available.is_finite() or usdt["marginAvailable"] is not True \
                 or min(wallet, available) < budget:
-            raise Refusal("LIVE_FUNDS", "the declared trial budget exceeds eligible USDT wallet cash or available balance")
+            raise Refusal("LIVE_FUNDS", "the run's cash floor exceeds eligible USDT wallet cash or available balance")
         details = snapshot["symbols"][manifest["symbols"][0]]
         terms = details["instrument"]
         if terms["status"] != "TRADING" or terms["contractType"] != "PERPETUAL" or terms["marginAsset"] != "USDT":

@@ -18,11 +18,12 @@ export type LaunchRow = {
 };
 export type LaunchColumn = { id: "strategy" | "account" | "limits"; title: string; rows: LaunchRow[] };
 
-/** The run settings the server takes (live/configuration.py CONFIG_KEYS). Editable only where the run needs the
- *  user's own choice: the duration of this run. Budget, loss limit and leverage are the Live settings' values (the
- *  leverage must equal the contract's on Binance); R5 derives budget and loss limit from the wallet. */
-export const EDITABLE: Readonly<Record<string, boolean>> = { budget_usdt: false, max_loss_usdt: false, duration_seconds: true, leverage: false };
-
+/** The run settings the server takes (live/configuration.py CONFIG_KEYS). Editable where the run needs the user's own
+ *  choice: its duration (none: until stopped) and a drawdown brake tighter than the target. Leverage is the Live
+ *  settings' value (it must equal the contract's on Binance). The cash floor is no setting: 85% of the wallet. */
+export const EDITABLE: Readonly<Record<string, boolean>> = { drawdown_brake: true, duration_seconds: true, leverage: false };
+/** engine/live_brake.py: the loosest brake (the drawdown target), and the cash floor from a wallet (85%, to the cent). */
+export const BRAKE_MAX_PERCENT = 15, cashFloor = (wallet: string) => (Math.floor(Number(wallet) * 85 + 1e-9) / 100).toFixed(2);
 export type LaunchInput = {
   view: LiveTradingView; source: LiveSource | null; edits: Readonly<Record<string, string>>;
   /** The run this page prepared to check the account; its check and observation fill the account rows. */
@@ -31,12 +32,10 @@ export type LaunchInput = {
   reading: { annual_return: number | null; max_drawdown: number | null } | null;
   targets: { max_drawdown?: number | null; annual_return?: number | null } | null;
 };
-
 const SETTINGS = "Live settings on the server", CHECK = "Account check";
 const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
 const value = (view: LiveTradingView, edits: LaunchInput["edits"], id: string) =>
   edits[id] ?? view.planFields.find((field) => field.id === id)?.value ?? null;
-
 /** The value of each run setting as this page would prepare it. */
 export function launchValues(view: LiveTradingView, edits: LaunchInput["edits"]): Record<string, string> {
   return Object.fromEntries(view.planFields.map((field) => [field.id, value(view, edits, field.id) ?? field.value]));
@@ -45,8 +44,9 @@ export function launchValues(view: LiveTradingView, edits: LaunchInput["edits"])
 /** Whether `run` was prepared with exactly these settings, so it can be started as it is. */
 export function preparedWith(run: LiveRun, values: Readonly<Record<string, string>>): boolean {
   const config = Object.fromEntries(run.config.map((fact) => [fact.label, fact.value]));
-  return config["Budget (USDT)"] === values.budget_usdt && config["Loss threshold (USDT)"] === values.max_loss_usdt
-    && config["Duration (seconds)"] === values.duration_seconds && config["Leverage"] === values.leverage;
+  const brake = config["Drawdown brake"], seconds = Number(values.duration_seconds || 0);
+  return brake != null && Math.abs(Number(brake) * 100 - Number(values.drawdown_brake)) < 1e-9
+    && (config["Duration (seconds)"] ?? null) === (seconds >= 1 ? String(seconds) : null) && config["Leverage"] === values.leverage;
 }
 
 /** Runs other than `self` that still hold the account or may: running, unresolved, or holding its slot. */
@@ -93,7 +93,7 @@ function strategy({ view, source, reading, targets }: LaunchInput, closed: strin
   ];
 }
 
-function account({ view, source, edits, checked }: LaunchInput, closed: string | null, credential: LiveCredential | undefined): LaunchRow[] {
+function account({ source, checked }: LaunchInput, closed: string | null, credential: LiveCredential | undefined): LaunchRow[] {
   const check = checked?.accountCheck ?? null, venue = checked?.venue ?? null, passed = check?.state === "passed";
   const notYet = !checked ? "Shown after the account check." : check?.state === "running" ? "The account check is running." : null;
   const flag = (id: string, label: string, got: boolean | null | undefined, want: boolean, failing: string): LaunchRow => ({
@@ -102,7 +102,7 @@ function account({ view, source, edits, checked }: LaunchInput, closed: string |
     mark: got == null ? check?.state === "failed" ? "fail" : "wait" : got === want ? "pass" : "fail",
     reason: got == null ? notYet ?? (check?.state === "failed" ? "The last check did not observe it." : "Not observed.") : got === want ? null : failing,
   });
-  const budget = value(view, edits, "budget_usdt"), wallet = venue?.wallet ?? null, available = venue?.available ?? null;
+  const wallet = venue?.wallet ?? null, available = venue?.available ?? null, budget = wallet === null ? null : cashFloor(wallet);
   const funds = wallet !== null && available !== null ? Math.min(Number(wallet), Number(available)) : null;
   const evidence = source?.evidence, tolerance = Number(evidence?.tolerance ?? "0.1");
   const nearest = wallet !== null && evidence?.replays.length
@@ -126,11 +126,13 @@ function account({ view, source, edits, checked }: LaunchInput, closed: string |
       reason: passed ? null : notYet ?? "Not confirmed by the last check. A key that allows withdrawals is refused; turn that off at Binance." },
     { id: "wallet", label: "Futures wallet", value: wallet, unit: wallet === null ? null : "USDT", source: CHECK, editable: false, required: true,
       mark: wallet === null ? "wait" : "pass", reason: wallet === null ? notYet ?? "Not observed." : available === null ? null : `${available} USDT available` },
-    { id: "budget_usdt", label: "Budget", value: budget, unit: budget === null ? null : "USDT", source: EDITABLE.budget_usdt ? "Your choice" : SETTINGS,
-      editable: EDITABLE.budget_usdt ?? false, required: true,
-      mark: budget === null || !(Number(budget) > 0) ? "fail" : funds === null ? "wait" : Number(budget) <= funds ? "pass" : "fail",
-      reason: budget === null ? closed ?? "Not set." : funds === null ? "Compared with the wallet after the account check."
-        : Number(budget) <= funds ? null : "More than the USDT the wallet has available. Add USDT at Binance." },
+    { id: "budget", label: "Cash floor", value: budget, unit: budget === null ? "Wallet × 85 %" : "USDT", source: "Wallet × 85 % at the start",
+      editable: false, required: true,
+      mark: budget === null ? check?.state === "failed" ? "fail" : "wait" : !(Number(budget) > 0) || Number(budget) > 100 || funds === null || Number(budget) > funds ? "fail" : "pass",
+      reason: budget === null ? notYet ?? closed ?? "Set from the wallet the account check reads."
+        : Number(budget) > 100 ? "The first Live trial takes a cash floor of at most 100 USDT, a wallet up to about 117 USDT."
+        : funds === null || Number(budget) > funds ? "More than the USDT the wallet has available. Add USDT at Binance."
+        : "Each entry needs this much USDT in the wallet and available, a last line should the drawdown brake fail." },
     { id: "near", label: "Replay at wallet", source: "Replay evidence and the wallet", editable: false, required: Boolean(evidence),
       value: nearest ? nearest.balance : null, unit: nearest ? "USDT" : null,
       mark: !evidence ? "shown" : wallet === null ? "wait" : nearest && Math.abs(Number(nearest.balance) - Number(wallet)) <= tolerance * Number(wallet) ? "pass" : "fail",
@@ -142,19 +144,21 @@ function account({ view, source, edits, checked }: LaunchInput, closed: string |
 }
 
 function limits({ view, edits, checked }: LaunchInput, closed: string | null): LaunchRow[] {
-  const loss = value(view, edits, "max_loss_usdt"), budget = value(view, edits, "budget_usdt"), duration = value(view, edits, "duration_seconds");
+  const brake = value(view, edits, "drawdown_brake"), duration = value(view, edits, "duration_seconds");
   const seconds = duration !== null && /^\d+$/.test(duration) ? Number(duration) : 0;
+  const percentage = brake !== null && /^\d+(\.\d+)?$/.test(brake.trim()) ? Number(brake) : null;
   const others = holding(view.runs, checked?.id ?? null);
   const notify = view.notify;
   return [
-    { id: "max_loss_usdt", label: "Loss limit", value: loss, unit: loss === null ? null : "USDT", source: EDITABLE.max_loss_usdt ? "Your choice" : SETTINGS,
-      editable: EDITABLE.max_loss_usdt ?? false, required: true,
-      mark: loss === null || !(Number(loss) > 0) ? "fail" : budget !== null && Number(loss) > Number(budget) ? "fail" : "pass",
-      reason: loss === null ? closed ?? "Not set." : budget !== null && Number(loss) > Number(budget) ? "Above the budget; Live refuses it."
-        : "The run stops once its loss reaches this." },
-    { id: "duration_seconds", label: "Duration", value: duration, span: true, source: EDITABLE.duration_seconds ? "" : SETTINGS,
-      editable: EDITABLE.duration_seconds ?? false, required: true, mark: seconds >= 1 ? "pass" : "fail",
-      reason: duration === null ? closed ?? "Not set." : seconds < 1 ? "At least 1 hour." : null },
+    { id: "drawdown_brake", label: "Drawdown brake", value: brake, unit: "%", source: "Your maximum-drawdown target, or tighter",
+      editable: EDITABLE.drawdown_brake ?? false, required: true,
+      mark: percentage !== null && percentage > 0 && percentage <= BRAKE_MAX_PERCENT ? "pass" : "fail",
+      reason: brake === null ? closed ?? "Not set."
+        : percentage === null || !(percentage > 0) ? "A percentage above 0." : percentage > BRAKE_MAX_PERCENT ? `At most ${BRAKE_MAX_PERCENT} %; only tighter.`
+        : "Once equity (wallet plus open result, fees and funding counted) falls this far below its highest, the run closes, stops and is not started again." },
+    { id: "duration_seconds", label: "Stop after", value: duration, span: true, source: EDITABLE.duration_seconds ? "" : SETTINGS,
+      editable: EDITABLE.duration_seconds ?? false, required: false, mark: "shown",
+      reason: duration === null ? closed : seconds < 1 ? "Empty: runs until you stop it. Needs an API key restricted to this server's IP." : null },
     { id: "notify", label: "Notifications", source: "Settings", editable: false, required: false, mark: "shown",
       value: notify ? notify.configured ? "Telegram on" : "Off" : null,
       reason: notify ? notify.configured ? null : "Set up Telegram in Settings to hear about fills and stops." : closed ?? "This Live service does not report them." },

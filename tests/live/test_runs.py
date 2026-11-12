@@ -1,6 +1,7 @@
 """Private Live custody survives unknown launches and never mistakes process exit for flatness."""
 
 import copy
+from decimal import Decimal
 from datetime import datetime
 import hashlib
 import io
@@ -59,7 +60,7 @@ class LiveFixture(unittest.TestCase):
             "candidate": {"strategy_id": "example", "revision": 1},
             "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
             "universe_sha256": hashlib.sha256(b"{}").hexdigest(),
-            "config": {"memory": "2g"}, "credential_binding": hashlib.sha256(b"example-key").hexdigest(),
+            "config": {"memory": "2g", "duration_seconds": 60}, "credential_binding": hashlib.sha256(b"example-key").hexdigest(),
             "evidence": EVIDENCE,
         }
         state.write_new(self.directory / "inputs" / "strategy.py", b"source")
@@ -160,26 +161,32 @@ class LiveCustodyTests(LiveFixture):
         for leverage in ("0", "126", "03", "2.5", 3, None):
             with self.subTest(leverage=leverage):
                 with self.assertRaises(LiveRefusal) as caught:
-                    configuration.run_config({"budget_usdt": "90", "max_loss_usdt": "2", "duration_seconds": 8100,
+                    configuration.run_config({"drawdown_brake": "0.15", "duration_seconds": 8100,
                                               "leverage": leverage})
                 self.assertEqual(caught.exception.code, "LIVE_CONFIG")
                 with self.assertRaises(LiveRefusal) as caught:
                     prepare(self.root, "leverage-run", object(), "a" * 32, "original@2", ["BTCUSDT"],
-                                 Path("unused"), self.credentials, None, scope=self.scope, budget_usdt="100",
-                                 max_loss_usdt="10", duration_seconds=60, memory="2g", leverage=leverage,
+                                 Path("unused"), self.credentials, None, scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage=leverage,
                                  market_root=Path("unused"))
                 self.assertEqual(caught.exception.code, "LIVE_CONFIG")
         for leverage in ("1", "125"):
-            self.assertEqual(configuration.run_config({"budget_usdt": "90", "max_loss_usdt": "2",
+            self.assertEqual(configuration.run_config({"drawdown_brake": "0.15",
                                                        "duration_seconds": 8100, "leverage": leverage})["leverage"],
                              leverage)
 
-    def test_prepare_requires_a_loss_limit_within_the_budget(self):
-        for limit in ("0", "NaN", "100.01"):
+    def test_prepare_and_the_control_take_only_a_brake_at_most_the_drawdown_target(self):
+        from engine import live_brake
+        self.assertEqual(Decimal(configuration.BRAKE_DEFAULT), live_brake.BRAKE_MAX)
+        self.assertEqual(configuration.run_config({"drawdown_brake": "0.05", "duration_seconds": None,
+                                                   "leverage": "3"})["drawdown_brake"], "0.05")
+        for limit in ("0", "NaN", "0.1501"):
+            with self.subTest(limit), self.assertRaises(LiveRefusal) as caught:
+                configuration.run_config({"drawdown_brake": limit, "duration_seconds": None, "leverage": "3"})
+            self.assertEqual(caught.exception.code, "LIVE_CONFIG")
+        for limit in ("0", "NaN", "0.1501"):
             with self.subTest(limit), self.assertRaises(LiveRefusal) as caught:
                 prepare(self.root, "limit-run", object(), "a" * 32, "original@2", ["BTCUSDT"], Path("unused"),
-                             self.credentials, None, scope=self.scope, budget_usdt="100",
-                             max_loss_usdt=limit, duration_seconds=60, memory="2g", leverage="3",
+                             self.credentials, None, scope=self.scope, drawdown_brake=limit, duration_seconds=60, memory="2g", leverage="3",
                          market_root=Path("unused"))
             self.assertEqual(caught.exception.code, "LIVE_CONFIG")
 
@@ -190,7 +197,7 @@ class LiveCustodyTests(LiveFixture):
         self.assertEqual(caught.exception.code, "LIVE_KEY_WITHDRAWAL")
         network.assert_not_called()
         self.assertFalse((self.root / "account.jsonl").exists())
-        self.key_limits.assert_called_once_with(self.credentials)
+        self.key_limits.assert_called_once_with(self.credentials, ip_restricted=False)
         self.key_limits.reset_mock()
         with self.assertRaises(LiveRefusal) as caught:
             launch(self.root, self.run_id, self.credentials, "reconcile", scope=self.scope)
@@ -220,7 +227,7 @@ class LiveCustodyTests(LiveFixture):
         universe.write_text("{}")
         with self.assertRaises(LiveRefusal) as caught:
             prepare(self.root, self.run_id, object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
-                         self.credentials, None, scope=self.scope, budget_usdt="100", max_loss_usdt="10",
+                         self.credentials, None, scope=self.scope, drawdown_brake="0.15",
                          duration_seconds=60, memory="2g", leverage="3",
                          market_root=Path("unused"))
         self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
@@ -446,6 +453,26 @@ class LiveCustodyTests(LiveFixture):
         self.assertFalse(runs.restarts_due(self.directory, now))
         self.assertTrue(runs.restarts_due(self.directory, now + runs.HOUR_NS))
 
+    def test_a_running_runs_key_is_checked_hourly_and_each_failure_and_recovery_journalled_once(self):
+        from live import control
+        control._KEY_CHECKED.pop(self.run_id, None)
+        manifest = state.read(self.directory / "inputs" / "manifest.json")
+        manifest["config"]["duration_seconds"] = None
+        (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(manifest))
+        refused = LiveRefusal("LIVE_KEY_IP_UNRESTRICTED", "no restriction")
+        with patch.object(control.credentials, "run_path_locked", return_value=self.credentials):
+            self.key_limits.side_effect = refused
+            for now in (0.0, 10.0, 3600.0):  # the second is within the hour: no read
+                control.check_key_locked(self.root, self.run_id, now)
+            self.assertEqual(self.key_limits.call_count, 2)
+            self.key_limits.assert_called_with(self.credentials, ip_restricted=True)
+            self.key_limits.side_effect = None
+            control.check_key_locked(self.root, self.run_id, 7200.0)
+            control.check_key_locked(self.root, self.run_id, 10800.0)
+        rows = [(row["event"], row.get("code")) for row in state.events(self.directory / "lifecycle.jsonl")
+                if row["event"] in control.KEY_EVENTS]
+        self.assertEqual(rows, [("key_check_failed", "LIVE_KEY_IP_UNRESTRICTED"), ("key_check_passed", None)])
+
     def test_past_the_limit_the_control_tells_the_user_once_and_starts_nothing(self):
         from live import control
         self.launch_record()
@@ -609,8 +636,7 @@ class LiveCustodyTests(LiveFixture):
                 patch.object(runs.image, "inspect_runtime", return_value={}), \
                 patch.object(runs.image, "require_main_build"):
             manifest = prepare(self.root, "candidate-run", object(), "a" * 32, "original@2", ["BTCUSDT"],
-                                    universe, self.credentials, None, scope=self.scope, budget_usdt="100",
-                                    max_loss_usdt="10", duration_seconds=60, memory="2g", leverage="3",
+                                    universe, self.credentials, None, scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
                                     market_root=Path("unused"))
         self.assertEqual(read.call_args.args[1], "a" * 32)
         self.assertEqual(manifest["format"], runs.MANIFEST_FORMAT)
@@ -636,7 +662,7 @@ class LiveCustodyTests(LiveFixture):
                     patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
                     self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
                 runs.prepare_locked(root, "declared-run", object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
-                                    self.credentials, None, budget_usdt="100", max_loss_usdt="10",
+                                    self.credentials, None, drawdown_brake="0.15",
                                     duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
                                     source_sha256=declared)
             self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
@@ -651,8 +677,7 @@ class LiveCustodyTests(LiveFixture):
         other_key = self.root / "other-key.json"
         state.write_new(other_key, b'{"api_key":"another-key","api_secret":"another-secret"}')
         same = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": files["universe"],
-                "credentials": self.credentials, "runtime": None, "budget_usdt": "100",
-                "max_loss_usdt": "10", "duration_seconds": 60, "memory": "2g", "leverage": "3",
+                "credentials": self.credentials, "runtime": None, "drawdown_brake": "0.15", "duration_seconds": 60, "memory": "2g", "leverage": "3",
                 "market_root": Path("unused")}
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
@@ -673,8 +698,8 @@ class LiveCustodyTests(LiveFixture):
             stored = (state.directory(self.root, "conflict") / "inputs" / "manifest.json").read_bytes()
             # Without this the fixture's own difference could be what each case below is refused for.
             self.assertEqual(again(), manifest)
-            for changes in ({"candidate": "original@3"}, {"symbols": ["ETHUSDT"]}, {"budget_usdt": "101"},
-                            {"max_loss_usdt": "11"}, {"duration_seconds": 61},
+            for changes in ({"candidate": "original@3"}, {"symbols": ["ETHUSDT"]}, {"drawdown_brake": "0.1"},
+                            {"duration_seconds": 61},
                             {"memory": "3g"},
                             {"credentials": other_key},
                             {"universe": files["other-universe"]}, {"universe": linked},

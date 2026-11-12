@@ -24,11 +24,13 @@ export function refusalText(code: string | undefined): string {
     LIVE_ACCOUNT_OWNED: "Another Live run still holds the account. Stop or reconcile it first.",
     LIVE_ACCOUNT_NOT_FLAT: "The account holds positions or orders. Close them at Binance first.",
     LIVE_ACCOUNT_MODE: "The account's modes do not match what Live needs. Change them at Binance.",
-    LIVE_FUNDS: "The futures wallet does not cover the budget. Add USDT at Binance.",
+    LIVE_FUNDS: "The futures wallet does not cover the cash floor (85% of the wallet at the start). Add USDT at Binance.",
     LIVE_KEY_WITHDRAWAL: "This API key allows withdrawals. Turn that off at Binance, or save a key without it.",
     LIVE_KEY_UNVERIFIED: "Binance did not confirm the key's permissions. Try the account check again.",
+    LIVE_KEY_IP_UNRESTRICTED: "A run with no duration needs an API key restricted to this server's IP. Set one at Binance, or give the run a duration.",
+    LIVE_BUDGET: "The first Live trial takes a cash floor of at most 100 USDT, a wallet up to about 117 USDT.",
     LIVE_RELEASE_UNAVAILABLE: "Live is switching to a new release. Wait, then try again.",
-    LIVE_CONFIG: "Live did not take these settings. The duration must be a whole number of seconds.",
+    LIVE_CONFIG: "Live did not take these settings. The brake must be above 0 and at most 15 %; the duration whole seconds or empty.",
   }[code]) || "Live refused this step. Requests shows what it recorded.";
 }
 

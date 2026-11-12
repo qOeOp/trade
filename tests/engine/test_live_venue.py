@@ -17,6 +17,12 @@ from engine.live_venue import (
 )
 
 
+def venue_clock() -> list[dict]:
+    """A reading of the venue's time with no offset, as BinanceReadOnly.clock returns it."""
+    now = time.time_ns()
+    return [{"sent_ns": now, "server_ms": now // 1_000_000, "received_ns": now}]
+
+
 def fixture():
     credentials = Credentials("test-key", "test-secret")
     snapshot = {
@@ -24,9 +30,9 @@ def fixture():
         "config": {"canTrade": True, "dualSidePosition": True, "multiAssetsMargin": True},
         "account": {"multiAssetsMargin": True, "assets": [
             {"asset": "USDT", "walletBalance": "100", "availableBalance": "199.93889229",
-             "marginAvailable": True},
+             "unrealizedProfit": "0", "marginAvailable": True},
             {"asset": "USDC", "walletBalance": "100", "availableBalance": "199.93889229",
-             "marginAvailable": True},
+             "unrealizedProfit": "0", "marginAvailable": True},
         ]},
         "positions": [], "orders": [], "algo_orders": [],
         "symbols": {"BTCUSDT": {
@@ -40,7 +46,7 @@ def fixture():
         }},
     }
     manifest = {"symbols": ["BTCUSDT"], "credential_binding": credentials.binding,
-                "config": {"budget_usdt": "100", "max_loss_usdt": "10", "leverage": "50"},
+                "config": {"drawdown_brake": "0.15", "leverage": "50"},
                 "market": {"market_day": "2026-11-09", "terms": {"BTCUSDT": {
                     "price_increment": "0.1", "size_increment": "0.0010", "min_notional": "50"}}}}
     return snapshot, manifest
@@ -102,7 +108,7 @@ class LiveAdmissionTest(unittest.TestCase):
     def test_observed_flat_hedge_multiassets_cross_cash_can_be_admitted(self):
         observation, manifest = fixture()
         unchanged = copy.deepcopy(observation)
-        require_admission(observation, manifest)
+        require_admission(observation, manifest, Decimal("100"))
         self.assertEqual(observation, unchanged)
 
     def test_wrong_account_modes_and_foreign_exposure_are_not_adopted(self):
@@ -119,7 +125,7 @@ class LiveAdmissionTest(unittest.TestCase):
         ]
         for key, value in changes:
             with self.subTest(key=key, value=value), self.assertRaises(Refusal):
-                require_admission({**base, key: value}, manifest)
+                require_admission({**base, key: value}, manifest, Decimal("100"))
 
     def test_the_first_arming_needs_a_flat_account_and_a_later_entry_may_join_its_own_symbol(self):
         own = [("positions", [{"symbol": "BTCUSDT", "positionAmt": "0.001"}]), ("orders", [{"symbol": "BTCUSDT"}]),
@@ -127,15 +133,15 @@ class LiveAdmissionTest(unittest.TestCase):
         for key, value in own:
             base, manifest = fixture()
             with self.subTest(key=key), self.assertRaises(Refusal) as caught:
-                require_admission({**base, key: value}, manifest)
+                require_admission({**base, key: value}, manifest, Decimal("100"))
             self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_NOT_FLAT")
-            require_admission({**base, key: value}, manifest, flat=False)
+            require_admission({**base, key: value}, manifest, Decimal("100"), flat=False)
 
     def test_tiny_usdt_wallet_is_not_replaced_by_shared_collateral_available(self):
         observation, manifest = fixture()
         observation["account"]["assets"][0]["walletBalance"] = "0.01"
         with self.assertRaises(Refusal) as caught:
-            require_admission(observation, manifest)
+            require_admission(observation, manifest, Decimal("100"))
         self.assertEqual(caught.exception.code, "LIVE_FUNDS")
 
     def test_usdt_available_and_margin_eligibility_are_required(self):
@@ -146,21 +152,21 @@ class LiveAdmissionTest(unittest.TestCase):
             observation["account"]["assets"][0].update(availableBalance=available,
                                                        marginAvailable=eligible)
             with self.subTest(available=available, eligible=eligible), self.assertRaises(Refusal):
-                require_admission(observation, manifest)
+                require_admission(observation, manifest, Decimal("100"))
 
     def test_all_reported_assets_require_unique_nonempty_names(self):
         for asset in ["USDT", "USDC", "", " ", " USDC", None]:
             observation, manifest = fixture()
             observation["account"]["assets"].append({"asset": asset, "walletBalance": "0"})
             with self.subTest(asset=asset), self.assertRaises(Refusal):
-                require_admission(observation, manifest)
+                require_admission(observation, manifest, Decimal("100"))
 
     def test_other_asset_nonfinite_or_negative_wallet_refuses_fresh_entry(self):
         for wallet in ["NaN", "sNaN", "Infinity", "-Infinity", "-0.01"]:
             observation, manifest = fixture()
             observation["account"]["assets"][1]["walletBalance"] = wallet
             with self.subTest(wallet=wallet), self.assertRaises(Refusal):
-                require_admission(observation, manifest)
+                require_admission(observation, manifest, Decimal("100"))
 
     def test_asset_count_is_not_fixed_and_zero_wallet_assets_are_kept(self):
         for count in [0, 1, 12]:
@@ -169,35 +175,32 @@ class LiveAdmissionTest(unittest.TestCase):
                 {"asset": f"ASSET{index}", "walletBalance": "0"} for index in range(count)
             )
             with self.subTest(extra_assets=count):
-                require_admission(observation, manifest)
+                require_admission(observation, manifest, Decimal("100"))
 
     def test_missing_usdt_or_cash_fields_fail_closed(self):
         for key in ["asset", "walletBalance", "availableBalance", "marginAvailable"]:
             observation, manifest = fixture()
             del observation["account"]["assets"][0][key]
             with self.subTest(key=key), self.assertRaises(Refusal):
-                require_admission(observation, manifest)
+                require_admission(observation, manifest, Decimal("100"))
         observation, manifest = fixture()
         observation["account"]["assets"] = observation["account"]["assets"][1:]
         with self.assertRaises(Refusal):
-            require_admission(observation, manifest)
+            require_admission(observation, manifest, Decimal("100"))
 
     def test_budget_must_be_positive_and_at_most_100(self):
         for budget in ["101", "0", "-1", "NaN", "Infinity"]:
             observation, manifest = fixture()
-            manifest["config"].update(budget_usdt=budget)
             with self.subTest(budget=budget), self.assertRaises(Refusal) as caught:
-                require_admission(observation, manifest)
+                require_admission(observation, manifest, Decimal(budget))
             self.assertEqual(caught.exception.code, "LIVE_BUDGET")
         observation, manifest = fixture()
-        manifest["config"].update(budget_usdt="100")
-        self.assertEqual(require_admission(observation, manifest), Decimal("100"))
+        self.assertEqual(require_admission(observation, manifest, Decimal("100")), Decimal("100"))
 
     def test_admission_returns_the_smaller_of_wallet_and_available(self):
         observation, manifest = fixture()
-        manifest["config"].update(budget_usdt="50")
         observation["account"]["assets"][0].update(walletBalance="120", availableBalance="80.5")
-        self.assertEqual(require_admission(observation, manifest), Decimal("80.5"))
+        self.assertEqual(require_admission(observation, manifest, Decimal("50")), Decimal("80.5"))
 
     def test_minimum_notional_and_lot_both_must_fit_three_times_equity(self):
         # Wallet 100 USDT: the limit is 300.
@@ -208,11 +211,11 @@ class LiveAdmissionTest(unittest.TestCase):
             manifest["market"]["terms"]["BTCUSDT"]["min_notional"] = minimum
             details["mark"]["markPrice"] = mark
             with self.subTest(minimum=minimum, mark=mark), self.assertRaises(Refusal) as caught:
-                require_admission(observation, manifest)
+                require_admission(observation, manifest, Decimal("100"))
             self.assertEqual(caught.exception.code, "LIVE_MINIMUM_SIZE")
         observation, manifest = fixture()
         observation["symbols"]["BTCUSDT"]["mark"]["markPrice"] = "300000"
-        require_admission(observation, manifest)
+        require_admission(observation, manifest, Decimal("100"))
 
     def test_terms_other_than_the_markets_are_refused_with_both_values(self):
         for name, filter_type, field, value in (("price_increment", "PRICE_FILTER", "tickSize", "0.01"),
@@ -223,7 +226,7 @@ class LiveAdmissionTest(unittest.TestCase):
                 if row["filterType"] == filter_type:
                     row[field] = value
             with self.subTest(name=name), self.assertRaises(Refusal) as caught:
-                require_admission(observation, manifest)
+                require_admission(observation, manifest, Decimal("100"))
             self.assertEqual(caught.exception.code, "TERMS_CHANGED")
             self.assertIn(f"exchange {value}", caught.exception.message)
 
@@ -236,7 +239,7 @@ class LiveAdmissionTest(unittest.TestCase):
             observation = copy.deepcopy(base)
             observation["symbols"]["BTCUSDT"]["config"] = settings
             with self.subTest(settings=settings), self.assertRaises(Refusal):
-                require_admission(observation, manifest)
+                require_admission(observation, manifest, Decimal("100"))
 
     def test_instrument_contract_and_single_symbol_checks_remain(self):
         for key, value in [("status", "PENDING_TRADING"), ("contractType", "CURRENT_QUARTER"),
@@ -244,12 +247,12 @@ class LiveAdmissionTest(unittest.TestCase):
             observation, manifest = fixture()
             observation["symbols"]["BTCUSDT"]["instrument"][key] = value
             with self.subTest(key=key), self.assertRaises(Refusal):
-                require_admission(observation, manifest)
+                require_admission(observation, manifest, Decimal("100"))
         for symbols in [[], ["BTCUSDT", "ETHUSDT"], ["BTCUSDT", "BTCUSDT"]]:
             observation, manifest = fixture()
             manifest["symbols"] = symbols
             with self.subTest(symbols=symbols), self.assertRaises(Refusal):
-                require_admission(observation, manifest)
+                require_admission(observation, manifest, Decimal("100"))
 
 
 class AccountModeTest(unittest.TestCase):
@@ -264,7 +267,7 @@ class AccountModeTest(unittest.TestCase):
         observation["algo_orders"] = [{"symbol": "BTCUSDT"}]
         require_account_mode(observation, manifest)
         with self.assertRaises(Refusal):
-            require_admission(observation, manifest)
+            require_admission(observation, manifest, Decimal("100"))
 
     def test_reconcile_still_requires_current_identity_and_account_modes(self):
         for field, value in [("dualSidePosition", False), ("multiAssetsMargin", False)]:

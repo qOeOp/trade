@@ -21,6 +21,14 @@ back to one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Live (breaking): a 15% drawdown-from-highest-equity brake (wallet plus unrealized, fees and funding counted, read
+  over REST every 15 s; a run may set it tighter) replaces the per-run loss limit, and the cash floor is 85% of the
+  wallet at the run's first start instead of a declared budget. Manifest format `live-run-4` and web protocol 6:
+  runs prepared earlier are refused (`LIVE_RUN_FORMAT`). Before releasing, with no run holding the account, replace
+  the Live declaration's `defaults` with `{"duration_seconds": …, "leverage": …}` (`deploy/remote/README.md`).
+- Live: a run may have no duration (needs an IP-restricted key); each entry and comparison bounds the clock; the
+  control reads a running run's key permissions hourly and tells the user when they fail.
+
 ## 0.2.0 (2026-11-11)
 
 A breaking release: a new research ledger (schema generation 1) that starts research from zero. The previous ledger

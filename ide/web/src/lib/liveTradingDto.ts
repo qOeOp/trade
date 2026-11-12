@@ -41,7 +41,7 @@ export type LiveReviewDto = {
 export type LiveRunDto = {
   run_id: string; source: { source_sha256: string | null; entry_class: string | null }; candidate: Candidate;
   runtime: { digest: string | null; platform: "linux/amd64" | "linux/arm64" | null }; symbols: string[] | null;
-  config: { budget_usdt: string | null; max_loss_usdt: string | null; duration_seconds: string | null; leverage: string | null };
+  config: { drawdown_brake: string | null; duration_seconds: string | null; leverage: string | null };
   host: { state: string | null; mode: "preflight" | "run" | "reconcile" | null; account_owned: boolean | null; exit_code: number | null };
   stop_requested: boolean | null;
   terminal: { event: "clean_stop" | "reconciled_flat" | "venue_flat" | "reconcile_stopped" | "unresolved"; observed_ns: string | null; source_failed: boolean | null; event_ref: { source: string; cursor: string } } | null;
@@ -51,6 +51,8 @@ export type LiveRunDto = {
     hedge_mode: boolean | null; multi_assets: boolean | null; usdt_wallet: string | null; usdt_available: string | null; venue_flat: true | null;
   } | null;
   orders: LiveEventRow[] | null; positions: LiveEventRow[] | null; event_limit: 200; evidence: LiveEvidenceDto[]; complete: boolean;
+  /** The equity the run armed with, its highest equity and the drawdown brake once it fired (engine/live_brake.py). */
+  brake?: { start: string | null; peak: string | null; fired: { equity: string | null; peak: string | null; drawdown: string | null; observed_ns: string | null } | null } | null;
   /** The run's result at each minute's first mark and when it stopped, [minute_ns, result] (live/views.py); absent from an older service. */
   minute_results?: [string, string | null][] | null;
   purpose?: "natural" | "controlled" | null;
@@ -63,7 +65,8 @@ export type LiveHomeDto = {
   sources: LiveSourceDto[]; credentials: LiveCredentialDto[]; runs: LiveRunDto[];
   /** The contracts a run trades (the Live settings); absent from an older control. */
   symbols?: string[];
-  defaults: { budget_usdt: string; max_loss_usdt: string; duration_seconds: number; leverage: string };
+  /** A run's settings as the page starts them: no duration runs until stopped; the brake can only be tighter. */
+  defaults: { drawdown_brake: string; duration_seconds: number | null; leverage: string };
   /** Telegram notification status (protocol 2); never the bot token or chat. */
   notify?: LiveNotifyDto;
 };

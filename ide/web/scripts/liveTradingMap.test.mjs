@@ -6,7 +6,7 @@ const { liveRunPresentation, liveHomePresentation, HELD_NOTICE } = await namespa
 const run = () => ({
   run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, candidate: { strategy_id: "retest", revision: "1" },
   runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: null,
-  config: { budget_usdt: "90.000000000000000001", max_loss_usdt: "2", duration_seconds: "8100", leverage: "3" },
+  config: { drawdown_brake: "0.150000000000000001", duration_seconds: "8100", leverage: "3" },
   host: { state: "running", mode: "run", account_owned: null, exit_code: null }, stop_requested: false,
   terminal: { event: "clean_stop", observed_ns: "1000000000000000001", source_failed: true, event_ref: { source: "native", cursor: "n:1" } },
   custody: { released: false, release_reason: null, archived: null }, account: null,
@@ -27,7 +27,7 @@ test("native terminal, unknown account, released custody and decimal declaration
   assert.equal(mapped.symbols, null);
   assert.equal(mapped.orders, null);
   assert.equal(mapped.positions.length, 0);
-  assert.equal(mapped.config[0].value, "90.000000000000000001");
+  assert.equal(mapped.config[0].value, "0.150000000000000001");
   assert.equal(mapped.host.find((v) => v.label === "Account custody held").value, null);
   assert.equal(mapped.ending.find((v) => v.label === "Custody released").value, "No");
   assert.equal(mapped.execution.find((v) => v.label === "Source failed").value, "Yes");
@@ -64,7 +64,7 @@ test("credential metadata and a failed research review do not become successful 
   const native = run(), home = {
     availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], runs: [native],
     credentials: [{ credential_ref: "ref", observed_ns: "1000000000000000001", selected: false, removed: true, available: false, referenced_runs: [native.run_id] }],
-    defaults: { budget_usdt: "90", max_loss_usdt: "2", duration_seconds: 8100, leverage: "3" },
+    defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" },
   };
   const mapped = liveHomePresentation(home, new Map([[native.run_id, { ...native, review_error: { code: "LIVE_REVIEW_UNAVAILABLE" } }]]));
   assert.equal(mapped.credentials[0].removed, true);
@@ -97,17 +97,22 @@ test("a run is ended only in the host's ended states; an unresolved or unreporte
   }
 });
 
-test("minute results become the account on the budget, unknowns kept, and nothing without them or a budget", () => {
+test("minute results become the account on the equity the run armed with, unknowns kept, and nothing without them", () => {
   const results = [["60000000000", "-2.5"], ["120000000000", null], ["180000000000", "1.25"]];
-  assert.deepEqual(liveRunPresentation({ ...run(), config: { ...run().config, budget_usdt: "100" }, minute_results: results }, []).equity,
+  const brake = { start: "100", peak: "104", fired: null };
+  assert.deepEqual(liveRunPresentation({ ...run(), brake, minute_results: results }, []).equity,
     { budget: 100, minutes: [[60, 97.5], [120, null], [180, 101.25]] });
   assert.equal(liveRunPresentation(run(), []).equity, null, "an older service sends none");
-  assert.equal(liveRunPresentation({ ...run(), config: { ...run().config, budget_usdt: null }, minute_results: results }, []).equity, null);
+  assert.equal(liveRunPresentation({ ...run(), brake: { ...brake, start: null }, minute_results: results }, []).equity, null);
+  assert.deepEqual(liveHomePresentation({ availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [],
+    credentials: [], runs: [], defaults: { drawdown_brake: "0.15", duration_seconds: null, leverage: "3" } }, new Map()).planFields.slice(0, 2),
+    [{ id: "drawdown_brake", label: "Drawdown brake", value: "15" }, { id: "duration_seconds", label: "Duration (seconds)", value: "" }],
+    "the brake is typed as a percentage; no duration is an empty field");
 });
 
 test("notification status maps without any secret and is null from a control that does not report it", () => {
   const home = { availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], credentials: [], runs: [],
-    defaults: { budget_usdt: "90", max_loss_usdt: "2", duration_seconds: 8100, leverage: "3" } };
+    defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" } };
   assert.equal(liveHomePresentation(home, new Map()).notify, null);
   const notify = { configured: true, last_sent_ns: "1794000000000000000", last_error: { code: "http_4xx", at_ns: "1794000060000000000" }, dropped: 1 };
   assert.deepEqual(liveHomePresentation({ ...home, notify }, new Map()).notify,

@@ -38,6 +38,7 @@ from engine.live_records import write_json
 from engine.live_commands import pending_orders
 from engine.live_session import Session
 from engine.live_source import source_for_run
+from engine import live_brake
 from engine.live_lifecycle import source_outcome
 from engine.live_node import build_node
 
@@ -72,11 +73,8 @@ def read_manifest(path: Path) -> dict:
                 or not re.fullmatch(r".+@sha256:[0-9a-f]{64}", runtime["image_ref"])
                 or runtime["image_ref"].rsplit("@", 1)[1] != runtime["image_digest"]):
             raise ValueError
-        for name in ("budget_usdt", "max_loss_usdt"):
-            amount = Decimal(config[name])
-            if not amount.is_finite() or amount <= 0:
-                raise ValueError
-        if Decimal(config["max_loss_usdt"]) > Decimal(config["budget_usdt"]):
+        brake = Decimal(config["drawdown_brake"])
+        if not brake.is_finite() or not 0 < brake <= live_brake.BRAKE_MAX:
             raise ValueError
         duration = config["duration_seconds"]  # None: the run goes on until it is stopped
         if duration is not None and (type(duration) is not int or duration < 1):
@@ -187,12 +185,14 @@ def execute(args) -> int:
                     raise
                 session.mode = "held"  # observe only until the account is flat; the user is told
             session.armed_ns = json.loads(read_regular_file(args.output / "armed.json"))["observed_ns"]
+            live_brake.resume(session, args.output)  # the first arming's cash floor and the highest equity since
             session.event("resuming", held=session.mode == "held", observation=observation)
             if session.mode == "run":
                 loaded = source_for_run(manifest)
         elif args.mode in ("preflight", "run"):
             require_clock(snapshot)
-            require_admission(snapshot, manifest)  # flat by default: the run starts on a flat account
+            live_brake.arm(session, snapshot)
+            require_admission(snapshot, manifest, session.brake.budget)  # flat: the run starts on a flat account
             backing = require_evidence(snapshot, manifest)
             session.event("replay_evidence", trial_id=backing["trial_id"], starting_balance_usdt=backing["starting_balance_usdt"])
             loaded = source_for_run(manifest)
@@ -203,7 +203,9 @@ def execute(args) -> int:
         elif args.mode == "run":
             try:
                 with (args.output / "armed.json").open("x") as stream:
-                    json.dump({"run_id": manifest["run_id"], "observed_ns": time.time_ns()}, stream)
+                    # The arming's account observation: the run's cash floor and first equity (engine.live_brake).
+                    json.dump({"run_id": manifest["run_id"], "observed_ns": time.time_ns(), "observation": observation},
+                              stream)
                     stream.flush()
                     os.fsync(stream.fileno())
                 # The host releases an account slot on this file's absence, so it must survive a crash.
@@ -214,6 +216,8 @@ def execute(args) -> int:
                     os.close(directory)
             except FileExistsError:
                 raise Refusal("LIVE_COLD_RESTART", "a previously armed run can only reconcile without source callbacks") from None
+            # The run's first highest equity: its start, from which the brake and the page's chart count.
+            session.event("equity_peak", equity=str(session.brake.peak), observed_ns=snapshot["observed_ns"])
         else:
             if not (args.output / "armed.json").is_file():
                 raise Refusal("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")

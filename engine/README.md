@@ -546,7 +546,7 @@ confirmation, then repeats
 account admission. The initial trial admits one symbol and requires a flat account, Hedge/Multi-assets
 mode, CROSS margin and no automatic margin addition. The venue's leverage is observed, never changed or
 copied into a simulated account. A complete v2 account response must show finite nonnegative wallets
-and eligible USDT wallet cash and available balance each covering the budget (at most 100 USDT).
+and eligible USDT wallet cash and available balance each covering the cash floor (85% of the USDT wallet, at most 100 USDT).
 Other collateral is not converted into an entry allowance. CROSS does not isolate this budget from
 the rest of the account. Credentials are mounted only into the Live runner, not placed in argv or Docker environment.
 
@@ -596,7 +596,7 @@ the running state by itself (`stop`, `fault`, `degrade`) enters the normal STOP 
 Orders follow the shared order rules above; Binance Futures in the pinned release refuses linked OCO/OTO order
 lists, which the rules exclude everywhere. Live adds custody on top: the account is flat when the run starts; each
 entry then waits, in order, for its own fresh account check (cash of at least the budget, the 3-times exposure limit
-against that check's equity) before dispatch, and may join the run's open positions and orders. The loss limit counts the whole run.
+against that check's equity) before dispatch, and may join the run's open positions and orders. The drawdown brake counts the whole run.
 A GTD order goes to Binance with its expiry, which Binance
 [keeps to the second](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Order)
 and refuses when less than 600 seconds ahead; the order can end up to a second early, or late in extreme markets,
@@ -636,15 +636,23 @@ native reconciliation. A failed flat run keeps the account slot until `reconcile
 fails, it is not retried: the node stops with the position open and possibly no stop on the venue, and `status` says
 `unresolved` (see [Unresolved Live runs](#unresolved-live-runs)).
 
-`--max-loss-usdt`, required and at most the budget, limits one run. Each second during a `run` the runner adds the
-native result of every position at the venue's mark price, from a native mark subscription: fees in USDT and earlier
-closed cycles count; funding and commissions in another asset do not. Reaching the limit takes the STOP path with
-`stop_reason` `max_loss`, also when already flat (a working entry is withdrawn), and is not a failure, so a flat
-outcome stops cleanly and releases the slot. `stop_reason` keeps the run's first cause through a later `reconcile`. A
-position with no mark for 60 seconds, or a check that cannot run, counts as reaching it and also marks the run failed;
-an older mark never prices a position. The limit
-does not bound a gap, a lost connection or a rejected close; a trigger makes one close attempt. Do not transfer or
-trade by hand during a run. Set the limit beyond the stop's loss plus slippage, or the close can collide with the stop.
+The drawdown brake (`engine/live_brake.py`, design §3.5, user 2026-11-10) replaces the per-run loss limit. Every
+15 seconds during a `run` the runner reads the account over REST; equity is the USDT wallet plus its unrealized result,
+so fees and funding count. The run's highest equity starts at the equity it armed with and is journalled whenever it
+rises (`equity_peak`), so a start again carries it on. Once equity is the brake's share below it (`drawdown_brake`,
+the user's 15% maximum-drawdown target, or a tighter share the run was prepared with), the run takes the STOP path
+with `stop_reason` `drawdown`, writes the account read beside it, is not a failure, and is not started again. With a
+position open and no equity read for 60 seconds the brake cannot be applied: the run stops, failed
+(`drawdown_unverified`); so does a position with no mark price for 60 seconds (`mark_missing`). The cash floor is 85% of
+the USDT wallet at the first arming (the first trial admits at most 100 USDT, `LIVE_BUDGET`): each entry still needs
+that much USDT wallet and available cash, a last line should the brake fail. The brake does not bound a gap or a
+rejected close; a trigger makes one close attempt. Do not transfer or trade by hand during a run.
+
+Each entry's account read and the connection's comparisons also bound the clock (`LIVE_CLOCK`): an entry refused for
+it ends the run, a comparison that fails it closes entries until the clock agrees. A run with no duration needs an API
+key restricted to the host's IP (`LIVE_KEY_IP_UNRESTRICTED`), and while a run trades the paired control reads its key's
+permissions every hour: a failure (withdrawals on, IP restriction gone, unreadable) is journalled once
+(`key_check_failed`) and a Telegram notice; the run goes on.
 
 A run has an optional duration (none: it runs until stopped), counted from its first arming. SIGTERM or SIGINT (a
 host restart, a release, `docker stop`) interrupts it instead of stopping it (design
@@ -680,7 +688,7 @@ never reused; this run's native records may lack the close, and the account snap
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-3`) binds the checks to the runner: an older image refuses it before arming,
+A manifest's format (`live-run-4`) binds the checks to the runner: an older image refuses it before arming,
 and a run prepared under an earlier format is refused for every operation (`LIVE_RUN_FORMAT`).
 An ended run (`clean_stopped`, `reconciled_flat`, `venue_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network when the paired controller maintains it or another run starts: their logs go to `containers/` in the run directory,
