@@ -22,7 +22,8 @@ sql` for the head, `research graph --at=<hash> --without-comparisons --without-c
 trial counts at each commit it is served at, `research comparison` for the one version a page opens, under `/api/comparison?bundle=&trial_id=&at=`) and imports no product package. The page keeps a
 comparison's answer in the browser, by build and commit. The
 page is the web renderer's page: it reads `/api/view?line=&since=&at=` (200 a view,
-202 a state, otherwise the refusal JSON; without `line` the graph is the only open line's, and when
+202 a state, 503 the failure while no head can be read; a refused graph reaches the page as an
+`error` state carrying its refusal, and each later request asks for it again; without `line` the graph is the only open line's, and when
 several are open the page lists them as links that add `line`) and follows `/api/events` (Server-Sent Events: the current
 state on connect, then `fetching`, `checking`, `queued`, `computing`, `ready`, `unchanged` or `error`, with a heartbeat every
 15 s). A hidden page closes its stream and reads the view again when shown. While a page without `at` is open the head is read every 5 s. With `--research` (a mirror) it comes from the mirror's controller, which syncs from DoltHub every 60 s (Sync DoltHub starts one at once), so no
