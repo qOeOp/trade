@@ -20,16 +20,15 @@ research conclusions and experiment selection belong to `research-round`.
   its rules. This skill additionally retains item-by-item user authority for stored-field changes.
   Diagnosis grants no implementation authority, except an attach session's fixes
   ([attach.md](references/attach.md#diagnoses)).
-- A full audit runs in a fresh session on a different host from the research session (Codex or
-  Claude Code; [hosts.md](references/hosts.md) tells them apart by transcript path), so that it
-  shares no context with the round and uses another model family. When the transcript to audit is
-  this session's or one of its sub-agents', or the research session ran on this host, stop before
-  step 1 and give the user the steps: end the research session; open a new session on the other
-  host; hand it the transcript paths (main and sub-agents), the ledger commit range and the checkout
-  commit, any evidence directory and diagnoses an attach session kept, and no other account of the
-  round; invoke this skill there. The audit reads the transcript files, never excerpts or the
-  research session's own summary. Focused diagnosis inside a research session is unaffected;
-  focused questions that together cover the session are a full audit.
+- A full audit runs in a fresh session, on either host, that shares no context with the round: not
+  the research session or its sub-agents, nor a session that attached to it or discussed it. When
+  this session is one of those, stop before step 1 and give the user the steps: end the research
+  session; open a new session; hand it the transcript paths (main and sub-agents), the ledger commit
+  range and the checkout commit, any evidence directory and diagnoses an attach session kept, and no
+  other account of the round; invoke this skill there. The audit reads the transcript files
+  ([hosts.md](references/hosts.md)), never excerpts or the research session's own summary. Focused
+  diagnosis inside a research session is unaffected; focused questions that together cover the
+  session are a full audit.
 
 ## Scope
 
