@@ -78,7 +78,7 @@
         },
         "gates": {
           "type": "array",
-          "description": "The gates the next registration of the line would meet (INTERPRETATION_REQUIRED, REVIEW_DUE), as `research state` gives them.",
+          "description": "The gates the next registration of the line would meet: its line-record gates only (INTERPRETATION_REQUIRED, REVIEW_DUE); `research state` gives the runtime and market-day gates (RUNTIME_UNSUPPORTED, MARKET_DAY_UNRESOLVED).",
           "items": {
             "type": "object",
             "required": [
