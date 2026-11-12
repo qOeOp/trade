@@ -376,9 +376,10 @@ class Hub:
         try:
             try:
                 head = self._head()
+                index = None
                 if head != self.head:
                     try:
-                        self.line_index.get(head)
+                        index = self.line_index.get(head)
                     except ProductError:
                         pass  # navigation metadata has its own error path; it must not block a valid graph
             except ProductError as exc:
@@ -398,6 +399,11 @@ class Hub:
                     for client in self.clients:
                         if client.at is None:
                             self._want_for(self.key(head, client.line, client.since), False, client.have)
+                    # An open line no page follows yet is drawn after theirs, so choosing it finds its graph ready.
+                    followed = {client.line for client in self.clients if client.at is None}
+                    for line in (index or {}).get("lines", []):
+                        if not line.get("closed") and line.get("name") not in followed:
+                            self._want(self.key(head, line["name"], None), False)
                 self._notify()
         finally:
             self.refreshing.release()

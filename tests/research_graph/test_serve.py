@@ -59,6 +59,7 @@ class FakeProduct:
         self.trial_counts: dict | None = {"research_trials": 3, "all_purpose_trials": 9}
         self.counted: list[tuple[str, str]] = []
         self.counts_failure: dict | None = None  # `research counts` refuses with this
+        self.listed = [{"name": "historical", "closed": True}, {"name": "current", "closed": False}]  # `line list --all`
 
     def counts(self, line, commit):
         self.counted.append((line, commit))
@@ -107,8 +108,7 @@ class FakeProduct:
             "recommended": "a@1", "eligible": True, "annual_return": 0.25, "max_drawdown": 0.1}}]}
 
     def lines(self, commit):
-        return {"ledger_commit": commit, "lines": [{"name": "historical", "closed": True},
-                                                   {"name": "current", "closed": False}]}
+        return {"ledger_commit": commit, "lines": self.listed}
 
     def history(self, commit):
         return {"ledger_commit": commit, "short_days": 90, "lines": [{"line": "historical", "rows": []}]}
@@ -135,6 +135,7 @@ def until(condition, seconds=5.0):
 class HubTests(unittest.TestCase):
     def setUp(self):
         self.product = FakeProduct()
+        self.product.listed = [{"name": "historical", "closed": True}]  # no open line to draw ahead of a page
         self.hub = serve.Hub(self.product, "build", poll=0.05)
         threading.Thread(target=self.hub.work, daemon=True).start()
 
@@ -152,6 +153,24 @@ class HubTests(unittest.TestCase):
         status, view = self.hub.view(None, None, None)
         self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
         self.assertEqual(self.product.drawn, ["a" * 32], "a cached view is not drawn again")
+
+    def test_an_open_line_no_page_follows_is_drawn_when_the_head_moves(self):
+        self.product.listed = [{"name": "historical", "closed": True}, {"name": "current", "closed": False},
+                               {"name": "followed", "closed": False}]
+        self.hub.join(serve.Client("followed", None, None, have="0" * 32))
+        self.hub.refresh(wait=True)
+        until(lambda: self.hub.key("a" * 32, "current", None) in self.hub.views and self.hub.running is None)
+        self.assertEqual(self.hub.view("current", None, None)[0], 200, "choosing the open line finds its graph ready")
+        drawn = {key[3] for key in self.hub.views}
+        self.assertNotIn("historical", drawn, "a closed line is drawn only when a page asks")
+        self.assertNotIn("followed", drawn, "a followed line keeps its page's kept-graph check")
+
+    def test_a_page_at_the_head_is_drawn_before_the_open_lines(self):
+        self.product.listed = [{"name": "current", "closed": False}]
+        self.hub.join(serve.Client("asked", None, None))
+        self.hub.refresh(wait=True)
+        until(lambda: len(self.product.drawn) == 2)
+        self.assertEqual([key[3] for key in self.hub.views], ["asked", "current"])
 
     def test_a_slow_head_read_does_not_hold_a_page(self):
         until(lambda: self.hub.view(None, None, None)[0] == 200)
