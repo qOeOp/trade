@@ -64,7 +64,7 @@
   --meets: #4E9D6C;
   --misses: #C28013;
   /* misses as 11-12 px text: at least 4.5:1 on frame, island, island-alt and popup in each theme */
-  --misses-fg: light-dark(#875806, #CB8923);
+  --misses-fg: light-dark(#975A02, #CB8923);
   --fail: #B0464F;
   --masked: var(--fg-faint);
 
