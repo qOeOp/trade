@@ -16,7 +16,7 @@ import stat
 import time
 
 from engine.live_errors import REFUSALS, LiveRefusal
-from live import runs, state
+from live import daily, runs, state
 
 
 MAX_BYTES = 16 * 1024 * 1024
@@ -419,6 +419,8 @@ def run_view(root: Path, run_id: str) -> dict:
                   "restarts": _restarts(native, lifecycle),
                   "brake": _brake(native),
                   "key_checks": _key_checks(lifecycle),
+                  # The control's daily comparison with a replay (live.daily); never read through a link.
+                  "compare": daily.read_record(directory),
                   "event_limit": MAX_ROWS}
         evidence = [sample.evidence() for sample in (*samples.values(), stop)]
         if observation is not None:

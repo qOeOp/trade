@@ -67,7 +67,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "published funding rates; the run's own runtime image",
         "nothing in any database and nothing in the private root; the new --output directory (replay/ with the "
         "native reports and audit, reconcile.json); never a credential, order or venue connection",
-        "path, segment {number, of}, summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, "
+        "path, segment {number, of}, window {start, end}, market_day, unexplained [{at, at_ns, class}], "
+        "summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, "
         "differs, run_only, replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, differing_bars, "
         "warmup_differs, terms_differ, equity_max_difference}, measures {from, to (--from, --to), groups, "
         "entries_unfilled, partial_fills, fills_paired, adverse_slippage_bps, fees, equity_change, holds}, "
@@ -75,6 +76,16 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_COMPARE_EMPTY (no warm-up, no such trading start, no "
         "start observation or whole minute); LIVE_COMPARE_UNCOVERED (the market lacks the run's minutes); "
         "LIVE_RUN_ID; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); RUNTIME_UNAVAILABLE"),
+    ("live", "compare-daily"): (
+        "each launched run's private inputs, journal, evidence pack and compare.json; the market directory "
+        "(--market-root); Binance's published funding rates; each run's own runtime image",
+        "compare.lock and compare-tmp/ under the root (the working directory, removed after the pass), each run's "
+        "runs/<run>/compare.json; removes exited trade-live-compare-* stage containers; never a database, "
+        "credential, order or venue connection",
+        "state (done, or busy while another pass holds compare.lock), runs {run_id: the state of the record written: "
+        "running, done, waiting, failed, empty, or unreadable}",
+        "LIVE_RECORD_UNAVAILABLE (the root); LIVE_DIRECTORY (compare-tmp or its temporary directory); a run's own "
+        "refusal is kept in its record, never raised"),
 }
 
 
@@ -126,7 +137,13 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--timeout-seconds", type=float, help="stop the replay after this long")
     command.add_argument("--segment", type=int, help="the run's Nth trading start (1 is the first; default the latest)")
     command.add_argument("--from", dest="since", type=compare_instant, help="sum the measures from this time (UTC)")
-    command.add_argument("--to", dest="until", type=compare_instant, help="sum the measures before this time (UTC)")
+    command.add_argument("--to", dest="until", type=compare_instant,
+                         help="replay and sum the measures before this time (UTC)")
+    command = verb(live, "compare-daily", "compare each Live run's latest day with its replay (the control's daily "
+                   "comparison container; live.daily)")
+    command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
+    command.add_argument("--market-root", required=True, type=Path, help="the market directory, read only")
+    command.add_argument("--today", required=True, help="the UTC day the comparison runs on, such as 2026-11-13")
 
 
 def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
@@ -163,6 +180,9 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return live_runs.stop(args.root, args.run_id), 0
     if args.verb == "logs":
         return live_runs.logs(args.root, args.run_id, args.tail), 0
+    if args.verb == "compare-daily":
+        from live import daily
+        return daily.run(args.root, args.market_root, args.today), 0
     if args.verb == "compare":
         from live import compare
         return compare.compare(args.root, args.run_id, profiles.market(args.market), args.at, Path(args.output),

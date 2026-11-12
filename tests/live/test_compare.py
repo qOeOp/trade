@@ -163,7 +163,7 @@ class Compare(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
 
-    def compared(self, pack: Pack, replay_events: list[dict] | None = None) -> tuple[dict, dict]:
+    def compared(self, pack: Pack, replay_events: list[dict] | None = None, until: int | None = None) -> tuple[dict, dict]:
         """(the arguments the replay ran with, reconcile.json)."""
         given: dict = {}
 
@@ -191,7 +191,8 @@ class Compare(unittest.TestCase):
                 mock.patch("market.files.open_market"), \
                 mock.patch("market.instrument.terms", return_value=TERMS), \
                 mock.patch.object(compare.records, "published_settlements", return_value={}):
-            found = compare.compare(self.root, pack.run_id, {}, None, self.root / "out")
+            found = compare.compare(self.root, pack.run_id, {}, None, self.root / "out", until=until)
+        self.found = found
         return given, json.loads(Path(found["path"]).read_text())
 
     def test_the_replay_is_the_runs_own_from_its_warm_up_to_its_last_minute(self):
@@ -201,6 +202,19 @@ class Compare(unittest.TestCase):
                                  "symbols": ["BTCUSDT"], "start": START, "end": close_of(pack.minutes - 1) + 10**6,
                                  "leverage": "5", "balance": "57.5"})
         self.assertEqual((result["kind"], result["starting_balance_usdt"]), ("live", "57.5"))
+
+    def test_a_comparison_cut_short_replays_and_reads_only_what_came_before_the_cut(self):
+        pack = Pack(self.root)
+        cut = START + 6 * MINUTE
+        given, result = self.compared(pack, until=cut)
+        self.assertEqual((given["start"], given["end"]), (START, cut))  # the last bar before the cut closes at it
+        self.assertEqual([minute for minute, _ in result["equity"]["run"]], [START + i * MINUTE for i in range(6)])
+        self.assertEqual(result["inputs"]["BTCUSDT"]["bars"]["live"], 6)
+        [group] = result["groups"]
+        target = next(row for row in group["orders"] if row["role"] == "target")
+        self.assertIsNone(target["run"]["fill"])  # its fill came after the cut
+        self.assertEqual((self.found["window"], self.found["unexplained"]),
+                         ({"start": "2026-11-11T00:00:00Z", "end": "2026-11-11T00:06:00Z"}, []))
 
     def test_the_entries_the_gate_changed_are_read_from_the_journal(self):
         events = [{"event": "entry_released", "client_order_id": "O-1"},
@@ -287,8 +301,8 @@ class Compare(unittest.TestCase):
                                  "adverse_slippage_bps": 5.0,
                                  "fees": {"run": "0.12", "replay": "0.16", "difference": "-0.04"},
                                  "equity_change": {"run": "3", "replay": "4", "difference": "-1"},
-                                 "holds": {"held": 2, "held_ns_median": 5 * 10**9, "held_ns_p90": 60 * 10**9,
-                                           "ended_runs": 1}})
+                                 "holds": {"held": 2, "held_ns": [5 * 10**9, 60 * 10**9], "held_ns_median": 5 * 10**9,
+                                           "held_ns_p90": 60 * 10**9, "ended_runs": 1}})
         self.assertEqual(compare.measures({"groups": groups, "equity": equity}, events)["groups"], 4)
         self.assertEqual(compare.measures({"groups": None, "equity": {"run": [], "replay": []}}, [])["fees"],
                          {"run": "0", "replay": "0", "difference": "0"})

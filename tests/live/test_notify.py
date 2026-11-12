@@ -269,14 +269,52 @@ class Sending(Base):
         self.tick(DAY)
         ended = {"host": {"state": "clean_stopped", "mode": "run", "exit_code": 0}, "custody": {"archived": True},
                  "terminal": {"observed_ns": str(DAY + 2 * HOUR)}}
-        self.facts = [run("run-a", orders=[fill("t1", DAY + HOUR)], **ended),
-                      run("run-b", account={"usdt_wallet": "99", "observed_ns": str(DAY + HOUR)}, **ended)]
+        compared = {"day": "2026-11-09", "state": "done"}
+        self.facts = [run("run-a", orders=[fill("t1", DAY + HOUR)], compare=compared, **ended),
+                      run("run-b", account={"usdt_wallet": "99", "observed_ns": str(DAY + HOUR)}, compare=compared,
+                          **ended)]
         self.tick(DAY + 3 * HOUR)
         self.assertEqual(self.record()["closed"], [])
         summary = self.tick(DAY + 24 * HOUR + 10).texts()
         self.assertIn("Fills: 1", summary[0])
         self.assertIn("Wallet: 99 USDT", summary[0])
         self.assertEqual(self.record()["closed"], ["run-a"])  # run-b still holds the newest wallet observation
+
+    def test_the_daily_comparison_reports_unexplained_decisions_the_week_and_repeated_failures(self):
+        done = {"day": "2026-11-08", "state": "done", "unexplained_count": 2, "unexplained_week": 3,
+                "unexplained": [{"at": "2026-11-08T03:00:00Z", "at_ns": 1, "class": "run_only"}],
+                "measures": {"groups": 9, "entries_unfilled": 1, "partial_fills": 0, "adverse_slippage_bps": 2.25,
+                             "fees": {"difference": "0.01"}, "equity_change": {"difference": "-0.4"},
+                             "holds": {"held": 2, "held_ns_median": 4 * 10**9, "held_ns_p90": 31 * 10**9}}}
+        sent = [(key, text) for key, text in notify.messages(run(compare=done)) if ":compare" in key]
+        self.assertEqual([key for key, _ in sent], ["run-a:compare:2026-11-08", "run-a:compare-week:2026-11-08"])
+        self.assertIn("2 of its decisions differ from the replay's with no known cause (the first at "
+                      "2026-11-08T03:00:00Z)", sent[0][1])
+        self.assertIn("9 decisions, 3 unexplained; entries the replay filled and Live did not: 1; partial fills: 0; "
+                      "mean adverse slippage: 2.2 bps; fees Live less replay: 0.01 USDT; equity change Live less "
+                      "replay: -0.4 USDT; held entries: 2 (median 4 s, p90 31 s)", sent[1][1])
+        weekday = {**done, "day": "2026-11-09", "unexplained_count": 0}
+        self.assertEqual([key for key, _ in notify.messages(run(compare=weekday)) if ":compare" in key], [])
+        for failures, expected in ((1, []), (2, ["run-a:compare-failed:2026-11-09"])):
+            failed = {"day": "2026-11-09", "state": "failed", "code": "LIVE_COMPARE_EMPTY", "failures": failures}
+            self.assertEqual([key for key, _ in notify.messages(run(compare=failed)) if ":compare" in key], expected)
+
+    def test_an_ended_run_stays_read_until_its_last_day_is_compared_or_three_days_pass(self):
+        self.tick(DAY)
+        ended = {"host": {"state": "clean_stopped", "mode": "run", "exit_code": 0}, "custody": {"archived": True},
+                 "terminal": {"observed_ns": str(DAY + 2 * HOUR)}}
+        self.facts = [run("run-a", compare={"day": "2026-11-09", "state": "waiting"}, **ended)]
+        self.tick(DAY + 24 * HOUR + 10)
+        self.assertEqual(self.record()["closed"], [])  # the summary after its last day is out, the comparison not
+        self.facts[0]["compare"] = {"day": "2026-11-09", "state": "empty"}
+        self.tick(DAY + 25 * HOUR)
+        self.assertEqual(self.record()["closed"], ["run-a"])
+        self.facts = [run("run-b", compare=None, **ended)]
+        for days in (2, 3):  # the summary of 11-12, three days after its last, is still read
+            self.tick(DAY + days * 24 * HOUR + 10)
+            self.assertEqual(self.record()["closed"], ["run-a"])
+        self.tick(DAY + 4 * 24 * HOUR + 10)
+        self.assertEqual(self.record()["closed"], ["run-a", "run-b"])
 
     def test_no_failure_of_notification_reaches_the_maintenance_loop(self):
         self.tick(DAY)
