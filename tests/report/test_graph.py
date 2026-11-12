@@ -50,6 +50,16 @@ class ComparisonIntervalTests(unittest.TestCase):
         self.assertIsNone(self.crosses(mean_log_basic_interval=[None, None], mean_log_studentized_interval=None))
 
 
+class DecisionEventTests(unittest.TestCase):
+    def test_only_a_priority_opening_exactly_with_a_decision_is_that_decision(self):
+        kinds = [graph._event_kind(kind, body) for kind, body in [
+            ("priority", "Change of approach. Chosen by the Agent."), ("priority", "Line decision. Delegated."),
+            ("priority", "Next: widen the stop."), ("priority", " Change of approach."), ("priority", "change of approach."),
+            ("interpretation", "Line decision."), ("search_exposure", "Evaluated variants: 3")]]
+        self.assertEqual(kinds, ["approach_change", "line_decision", "priority", "priority", "priority",
+                                 "interpretation", "other"])
+
+
 class RecommendationHoldTests(unittest.TestCase):
     class Ledger:
         """The three reads _recommendation makes: judgments, the recommended subjects, research trials."""

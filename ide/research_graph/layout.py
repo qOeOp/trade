@@ -13,7 +13,9 @@ children in order of their first trial. A version drawn without its parent (a de
 strategy ID, published as a new root) is linked to the latest earlier revision of its strategy ID in
 `revisions`, apart from the parent `edges`. A renderer maps these units to its own pixels and colours.
 
-The summary carries the latest priority judgment (the next direction), which the axis does not draw.
+The summary carries the latest priority judgment (the next direction). The axis draws only the priority judgments
+recording a decision the Agent made for the user, which the graph gives their own kinds (`decisions`, at their gap):
+a change of approach within the line, and a line decision (a replacement line the user delegated).
 The recommendation judgments form a trail over the recommended versions' rows (one segment per
 stretch the recommendation stayed on one version), and `trials` says which version each trial ran; `progress` holds the research runs' annual
 returns on the same x.
@@ -26,6 +28,8 @@ from datetime import datetime, timezone
 
 VIEW_FORMAT = "research-graph-view"
 EVENT_KINDS = ("recommendation", "eligibility_change", "line_change")
+DECISION_KINDS = ("approach_change", "line_decision")  # priority judgments recording a decision made for the user
+PRIORITY_KINDS = ("priority", *DECISION_KINDS)
 
 
 def seconds(value: str) -> float:
@@ -168,7 +172,9 @@ def build_view(graph: dict) -> dict:
     events = [e for e in graph["events"] if e.get("at") and e["kind"] in EVENT_KINDS]
     recs = sorted((e for e in events if e["kind"] == "recommendation" and e.get("recommends") in row),
                   key=lambda e: seconds(e["at"]))
-    timed = [gap(e["at"]) for e in events]
+    decisions = [{"x": x, "kind": e["kind"], "at": e["at"], "ref": e.get("ref"), "text": e.get("text")}
+                 for e in graph["events"] if e["kind"] in DECISION_KINDS and e.get("at") and (x := gap(e["at"])) is not None]
+    timed = [gap(e["at"]) for e in events] + [d["x"] for d in decisions]
     xs = [n["x"] for n in nodes if n["x"] is not None] + [x for x in timed if x is not None]
     lo, hi = (min(xs) - 1, max(xs) + 1) if xs else (0.0, 1.0)
     trail: list[dict] = []  # one segment per stretch where the recommendation stayed on one version
@@ -190,7 +196,7 @@ def build_view(graph: dict) -> dict:
     runs = [t for c in candidates for t in research_runs(c)]
     best = research_runs(next(c for c in candidates if c["id"] == current))[-1:] if current else []
     prediction_of = {n["id"]: n["prediction"] for n in nodes}
-    priority = next((e for e in reversed(graph["events"]) if e["kind"] == "priority"), None)
+    priority = next((e for e in reversed(graph["events"]) if e["kind"] in PRIORITY_KINDS), None)
     widgets = [
         {"id": "summary", "type": "summary", "slot": "top", "targets": targets,
          "recommended": current, "reading": {k: best[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "win_rate")}
@@ -207,6 +213,7 @@ def build_view(graph: dict) -> dict:
          "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
          "revisions": revisions(candidates, row),
          "trail": trail,
+         "decisions": decisions,
          "trials": sorted(({"trial_id": t["trial_id"], "x": place[t["trial_id"]], "candidate": c["id"], "purpose": t["purpose"]}
                            for c in candidates for t in c.get("trials") or []), key=lambda t: t["trial_id"])},
         {"id": "progress", "type": "progress", "slot": "main", "title": "Progress", "targets": targets,
