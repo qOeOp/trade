@@ -20,7 +20,7 @@ one), the window and the universe rule. Register it with `validation registratio
   you cannot show, stop the old validation; otherwise it binds on its original terms. Record the
   reason through existing evidence/judgments citing the registration, ledger commit, affected
   market days and both image identities; retain the registration and window reservation, and
-  ask the user about a new future window. There is no cancellation or automatic release.
+  ask the user once about a new future window, a question that blocks only this validation. There is no cancellation or automatic release.
   Code refuses a binding whose build, source, design, membership, window, coverage or account
   differs from the original registration. No code judges image compatibility or the effect of a
   data correction: you do, state what stays unknown, and hand a stopped validation to the user.
