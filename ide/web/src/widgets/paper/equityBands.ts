@@ -2,7 +2,7 @@
 // a track (sideTrack), and the drawdown an entry at each moment would take, from equity then to the lowest it
 // reaches later in its stretch, hanging under it as a fine dot matrix (scaled so the band's foot is the deeper
 // of the run's worst drawdown, the deepest any entry takes, and 1%, which a short run's small dip never makes look like a crash); at the bottom each day's return as a slim bar on a baseline, the picked or hovered day
-// stronger, while three days or more are in view. Both drawn in device pixels with snapped edges, from
+// stronger, while three days or more are in view. All drawn in device pixels with snapped edges, from
 // the visible points thinned to each pixel column's first, lowest, highest and last (frameOf).
 import type { IChartApi, IPrimitivePaneRenderer, Logical } from "lightweight-charts";
 import type { Leaning } from "../../model/held";
