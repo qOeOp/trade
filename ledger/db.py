@@ -312,7 +312,8 @@ def start_service(root: Path) -> dict:
             except pymysql.MySQLError:
                 time.sleep(0.1)
         raise refuse("LEDGER_START", f"the Dolt service compose runs does not accept connections at {address(config)}",
-                     expected="`docker compose up -d ledger`")
+                     expected="the user starting the ledger service (`docker compose start ledger`); then rerun "
+                     "the same command")
     pid = _pid(root)
     if pid is None:
         environment = {**os.environ, "DOLT_ROOT_PATH": str(root / "home")}
