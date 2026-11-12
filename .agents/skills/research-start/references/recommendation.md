@@ -10,8 +10,8 @@
   report` and `hypothesis compare`. A reading the product left empty, or that needs a missing
   exposure table, stays empty with the reason; never estimate it or show a number the reports do not
   have.
-- The recommendation names the version, the readings it rests on, the trials behind it
-  (research-round's evidence rules) and the trade-offs. The next
+- The recommendation names the version, the measures and trials it rests on, never their numbers
+  (research-round's evidence rules), and the trade-offs. The next
   experiment's parent and control are chosen apart from it (the research-round skill's hypothesis
   stage).
 - With an IDE deployed, link each option on a line to its view, so the user can check it there:

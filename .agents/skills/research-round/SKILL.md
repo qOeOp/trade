@@ -117,7 +117,7 @@ counts and budgets do not reject a research direction;
 - Fills, costs, PnL and plan outcomes come only from product reports or `tables()`. Do not infer
   economic outcomes from signals or price touches, substitute counterfactual estimates, or fill
   masked measures, not even as a labelled rough figure the user asks for. Additional statistics follow `nautilus-report-analysis`.
-- A recommendation or report gives the trials behind it from `research status` (`multiple_testing`:
+- Your message with a recommendation or report gives the trials behind it from `research status` (`multiple_testing`:
   `effective_trials` to `all_purpose_trials`, every line's trials on the contract over an
   overlapping window), and names the other lines (open or closed) whose windows overlap. It gives
   the recommended run's deflated Sharpe range beside them (`deflated_sharpe`,
@@ -132,8 +132,8 @@ counts and budgets do not reject a research direction;
   BTC alone. A recommendation written while lines wait on the user's choice (research-start) replays
   nothing: it cites existing results and says the reference has not run; it runs after the choice.
 - Cite objects by bundle, trial or registration and ledger commit. Judgment bodies reference facts
-  instead of copying measures, counts or eligibility, apart from a recommendation's trial counts
-  above; working reports may display cited product values. To the user, name each object by its kind and product id (`trial N`, `recommendation
+  instead of copying measures, counts or eligibility; your message and working reports may display
+  cited product values. To the user, name each object by its kind and product id (`trial N`, `recommendation
   judgment N`, `STRATEGY@REVISION`), never a bare `#N`.
 - Write every free text the ledger keeps (candidate descriptions and differences, conjectures,
   predictions, judgment, evidence and review bodies, line notes and summaries) in English, whatever
