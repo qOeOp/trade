@@ -77,6 +77,18 @@ class LiveViewTests(LiveFixture):
                                                     ["180000000000", None]])
         self.assertNotIn("SECRET", json.dumps(result))
 
+    def test_the_entry_gate_shows_known_reasons_only(self):
+        self.native("entries_closed", reason="disconnected", socket="BINANCE wss://fstream.binance.com/ws")
+        self.native("entries_checking", reasons=["unverified"])
+        self.native("entries_opened", reasons=["unverified", "SECRET"])
+        self.native("comparison", agreed=True)
+        result = views.run_view(self.root, self.run_id)
+        self.assertEqual([(row["event"], row["reasons"]) for row in result["gate"]],
+                         [("entries_closed", ["disconnected"]), ("entries_checking", ["unverified"]),
+                          ("entries_opened", ["unverified"])])
+        self.assertEqual(result["gate"][0]["socket"], "BINANCE wss://fstream.binance.com/ws")
+        self.assertNotIn("SECRET", json.dumps(result))
+
     def test_missing_native_and_account_are_unknown_not_zero_or_flat(self):
         (self.directory / "out" / "events.jsonl").unlink()
         result = views.run_view(self.root, self.run_id)

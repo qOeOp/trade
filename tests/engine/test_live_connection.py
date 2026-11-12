@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
@@ -20,8 +20,7 @@ from nautilus_trader.model import (
 
 from nautilus_trader.common import SocketState
 from engine import history, live
-from engine import live_commands as commands, live_lifecycle, live_source as live_source_runtime
-from engine.live_errors import LiveRefusal
+from engine import live_commands as commands, live_connection, live_lifecycle, live_source as live_source_runtime
 from engine.live_venue import Credentials
 from tests.engine.test_live import SOURCE
 from tests.engine.test_fill_model import INSTRUMENT
@@ -58,7 +57,45 @@ class FixtureReader:
         }
 
 
+def venue_snapshot(base: dict, cache, *, unknown: bool = False, observed_ns: int) -> dict:
+    """The REST read the native cache agrees with: the open position per side and each open order's venue ID."""
+    positions = [{"symbol": "AAAUSDT", "positionSide": side, "positionAmt": str(sum(
+        (position.quantity.as_decimal() for position in cache.positions_open()
+         if position.side.name == side), Decimal(0)) * (1 if side == "LONG" else -1))} for side in ("LONG", "SHORT")]
+    orders = [{"symbol": "AAAUSDT", "orderId": str(order.venue_order_id)} for order in cache.orders_open()]
+    if unknown:
+        orders.append({"symbol": "AAAUSDT", "orderId": "999999"})
+    return {**base, "observed_ns": observed_ns, "positions": positions, "orders": orders, "algo_orders": []}
+
+
 class NativeConnectionTests(unittest.TestCase):
+    def assert_reopens_and_cancels_unknown(self, session, engine, protection):
+        base = session.account_reader.snapshot(["AAAUSDT"])
+        now = base["observed_ns"]
+
+        def judge(offset_ns, unknown=False):
+            snapshot = venue_snapshot(base, engine.cache, unknown=unknown, observed_ns=now + offset_ns)
+            with patch("engine.live_venue.time.time_ns", return_value=now + offset_ns):  # read just now
+                live_connection.judge(session, engine.cache, snapshot)
+
+        judge(0)  # no live bar since the reconnect: the feed's continuity is not shown yet
+        self.assertEqual(set(session.connection.closed), {"unverified"})
+        self.assertIsNone(session.connection.agreed)
+        session.connection.bar_since_reconnect = True
+        judge(1)
+        self.assertEqual(session.connection.agreed, now + 1)
+        judge(10**9)
+        self.assertTrue(session.connection.closed)  # one second apart is not a native reconciliation cycle
+        judge(31 * 10**9)
+        self.assertEqual(session.connection.closed, {})
+        # An order at the venue the cache does not know: every order on the contract is canceled, entries stay closed.
+        judge(32 * 10**9, unknown=True)
+        self.assertEqual(set(session.connection.closed), {"unknown_orders"})
+        self.assertFalse(session.stopping)
+        events = [json.loads(row) for row in (session.output / "events.jsonl").read_text().splitlines()]
+        self.assertEqual([row["event"] for row in events if row["event"].startswith("entries_")],
+                         ["entries_closed", "entries_checking", "entries_opened", "entries_closed"])
+
     def test_disconnect_withdraws_the_entry_and_the_venue_expires_gtd(self):
         # cancel_reaches_venue=False: the withdrawal is lost, so only the venue's GTD expiry or a fill ends the entry.
         for disconnected, gtd, cancel_reaches_venue in (
@@ -153,15 +190,18 @@ class NativeConnectionTests(unittest.TestCase):
                     source.submit_order(protection, position_id=position.id)
                     advance(start + 60_000_000)
                     self.assertEqual(engine.cache.order(protection.client_order_id).status, OrderStatus.ACCEPTED)
+                    observer = SimpleNamespace(session=session, cache=engine.cache)
+                    socket = SimpleNamespace(client_id="BINANCE", endpoint="binance-futures-user-streams",
+                                             state=SocketState.DISCONNECTED)
                     if disconnected:
                         if not cancel_reaches_venue:
                             session.cancel_entries = Mock()
-                        session.lose_connection("test_disconnect")
-                        callbacks = list(source.observed)  # The stopped source hears nothing further.
-                        self.assertFalse(source.is_running())
-                        session.node.handle().stop.assert_called_once_with()
-                        with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
-                            source.market_exit()
+                        live_lifecycle.Observer.on_socket_state(observer, socket)
+                        # The run goes on: the source keeps running and may still protect and reduce.
+                        self.assertTrue(source.is_running())
+                        session.node.handle().stop.assert_not_called()
+                        self.assertFalse(session.failed or session.stopping)
+                        self.assertEqual(set(session.connection.closed), {"disconnected"})
                         advance(start + 70_000_000)  # the venue receives the withdrawal
                     advance(start + 600_075_000_000)  # the GTD expiry, at least 600 s ahead (engine.order_rules)
                     withdrawn = disconnected and cancel_reaches_venue
@@ -171,19 +211,19 @@ class NativeConnectionTests(unittest.TestCase):
                     self.assertEqual(engine.cache.positions_open()[0].quantity, Quantity.from_str("0.001"))
                     self.assertEqual(engine.cache.order(protection.client_order_id).status, OrderStatus.ACCEPTED)
                     if disconnected:
-                        self.assertEqual(len(engine.cache.orders()), 2)
-                        self.assertEqual(source.observed, callbacks)
                         if not gtd:
                             advance(start + 600_080_000_000, bid="88.00", ask="89.00", size="0.002")
                             self.assertEqual(engine.cache.order(source.pending.client_order_id).status,
                                              OrderStatus.CANCELED if withdrawn else OrderStatus.FILLED)
-                            self.assertEqual(engine.cache.positions_open()[0].quantity,
-                                             Quantity.from_str("0.001" if withdrawn else "0.003"))
-                            self.assertEqual(source.observed, callbacks)
-                        live_lifecycle.Observer.on_socket_state(SimpleNamespace(session=session), SimpleNamespace(
-                            client_id="BINANCE", endpoint="binance-futures-user-streams", state=SocketState.CONNECTED))
-                        self.assertFalse(session.account_verified)
-                        self.assertTrue(session.connection_failed)
+                        socket.state = SocketState.CONNECTED
+                        live_lifecycle.Observer.on_socket_state(observer, socket)
+                        self.assertTrue(session.account_verified)
+                        self.assertEqual(set(session.connection.closed), {"unverified"})
+                        if withdrawn and gtd:
+                            self.assert_reopens_and_cancels_unknown(session, engine, protection)
+                            advance(start + 600_090_000_000)  # the venue receives the cancel-all
+                            self.assertEqual(engine.cache.order(protection.client_order_id).status,
+                                             OrderStatus.CANCELED)
                     self.assertEqual(live.strategy_runtime.FAILURES, [])
                 finally:
                     engine.end()

@@ -11,7 +11,7 @@ from engine import history, strategy as strategy_runtime
 from engine.cadence import Cadence
 from engine.config import EXECUTION_BAR_MINUTES, Refusal as ContractRefusal
 from engine.live_errors import LiveRefusal as Refusal
-from engine import live_commands as commands
+from engine import live_commands as commands, live_connection
 from engine.live_commands import PendingEntry
 from engine.live_records import source_strategy_id
 from engine.live_session import Session
@@ -78,6 +78,8 @@ class _LiveConfigured(history.Warming):
             position = self.owned_position(position_id)
             return super().submit_order(order, position_id=position.id, client_id=client_id)
         try:
+            if self._live.account_verified and not live_connection.entries_open(self._live):
+                live_connection.refuse(self._live, live_connection.gate_reason(self._live))
             commands.require_entry(self._live, order)
             self._orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
             commands.queue_entry(self._live, PendingEntry(order, super().submit_order, client_id))
@@ -178,6 +180,7 @@ def _gated(name: str, method):
             return None
         if kind == "bar":
             self._live.evidence.bar(args[0])
+            live_connection.bar(self._live, args[0])
         elif kind is not None:
             for bar in args[0]:
                 self._live.evidence.bar(bar, kind)

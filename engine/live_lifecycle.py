@@ -5,7 +5,7 @@ import time
 from nautilus_trader.common import SocketState
 from nautilus_trader.model import AccountId, ClientId, InstrumentId, OrderStatus, OrderType, StrategyId
 from nautilus_trader.trading import Strategy, StrategyConfig
-from engine import live_commands as commands
+from engine import live_commands as commands, live_connection
 from engine.cadence import Cadence
 from engine.live_commands import pending_orders
 from engine.live_session import MARK_SECONDS, MINUTE_NS, Session, STOP_GRACE_SECONDS
@@ -72,8 +72,12 @@ class Observer(Strategy):
     def on_socket_state(self, event):
         self.session.event("socket_state", strict=False, client_id=str(event.client_id),
                            endpoint=str(event.endpoint), state=str(event.state))
-        if event.state == SocketState.DISCONNECTED and not self.session.connection_failed:
-            self.session.lose_connection("venue_disconnected")
+        if self.session.connection_failed:
+            return
+        if event.state == SocketState.DISCONNECTED and not self.session.account_verified:
+            self.session.lose_connection("venue_disconnected")  # the start was not verified: nothing was admitted
+        else:
+            live_connection.on_socket_state(self.session, event)
 
     def on_mark_price(self, update):
         self.session.mark = (time.monotonic(), update.value)
@@ -131,6 +135,7 @@ class Observer(Strategy):
         if not session.observe_stop_intent():
             commands.dispatch_entry(session)
             if session.mode == "run":
+                live_connection.tick(session, self, now)
                 session.check_protection(self.cache, now)
                 session.check_loss(self.cache, now)
             if not session.observe_stop_intent():

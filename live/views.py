@@ -225,6 +225,27 @@ def _minute_results(rows):
             if row.get("event") == "minute_result" and (minute := _integer(row.get("minute_ns"))) is not None][-MAX_MINUTES:]
 
 
+GATE_EVENTS = frozenset({"entries_closed", "entries_checking", "entries_opened", "entries_held", "connection_lost",
+                         "connection_renewed", "entry_refused"})
+GATE_REASONS = frozenset({"disconnected", "unverified", "unknown_orders", "bars_missing", "account_mode", "foreign",
+                          "open"})
+
+
+def _gate(rows):
+    """The entry gate's events (engine.live_connection): when entries closed, why, and when they reopened."""
+    if rows is None:
+        return None
+    result = []
+    for row in rows:
+        if row.get("event") not in GATE_EVENTS or type(row.get("observed_ns")) is not int:
+            continue
+        reasons = row.get("reasons") if isinstance(row.get("reasons"), list) else [row.get("reason")]
+        result.append({"event": row["event"], "observed_ns": str(row["observed_ns"]),
+                       "reasons": [reason for reason in reasons if reason in GATE_REASONS] if reasons else [],
+                       "socket": _text(row.get("socket"), re.compile(r"[A-Za-z0-9_.:/ -]{1,200}\Z"))})
+    return result[-MAX_ROWS:]
+
+
 def _account(sample: _Sample | None, reference, native_rows, latest_launch_ns):
     if sample is None or sample.status != "complete" or not isinstance(sample.data, dict):
         return None
@@ -355,6 +376,7 @@ def run_view(root: Path, run_id: str) -> dict:
                   "orders": _native_rows(native, samples["native"], "order"),
                   "positions": _native_rows(native, samples["native"], "position"),
                   "minute_results": _minute_results(native),
+                  "gate": _gate(native),
                   "event_limit": MAX_ROWS}
         evidence = [sample.evidence() for sample in (*samples.values(), stop)]
         if observation is not None:

@@ -141,7 +141,7 @@ class LiveTests(unittest.TestCase):
             node.dispose()
             session.node = None
 
-    def test_commands_require_post_connect_account_and_disconnect_cannot_rearm(self):
+    def test_commands_require_post_connect_account_and_disconnect_only_closes_entries(self):
         session = live.Session(self.manifest, self.output, "run")
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1),
                                live.source_for_run(self.manifest))
@@ -164,19 +164,17 @@ class LiveTests(unittest.TestCase):
             event = SimpleNamespace(client_id="BINANCE", endpoint="binance-futures-market-streams-1",
                                     state=SocketState.DISCONNECTED)
             live_lifecycle.Observer.on_socket_state(observer, event)
+            # A disconnect after the verified start closes entries; it no longer ends the run.
+            self.assertTrue(session.account_verified)
+            self.assertFalse(session.connection_failed or session.failed or session.stopping)
+            session.node.handle.return_value.stop.assert_not_called()
+            self.assertEqual(set(session.connection.closed), {"disconnected"})
             event.state = SocketState.CONNECTED
             live_lifecycle.Observer.on_socket_state(observer, event)
-            self.assertFalse(session.account_verified)
-            self.assertTrue(session.connection_failed)
-            self.assertTrue(session.failed)
-            session.node.handle.return_value.stop.assert_called_once()
-            for command in commands:
-                with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
-                    command()
+            self.assertEqual(set(session.connection.closed), {"unverified"})  # reopened only by agreeing comparisons
             source.on_order_event(SimpleNamespace(to_dict=lambda: {"type": "OrderFilled"}))
             self.assertEqual(source.observed, ["order"])
-            with self.assertRaises(LiveRefusal):
-                session.event("clean_stop")
+            session.event("clean_stop")  # a disconnect no longer taints a flat end
         finally:
             node.dispose()
             session.node, session.source = None, None
