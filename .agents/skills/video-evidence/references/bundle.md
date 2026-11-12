@@ -22,7 +22,7 @@ another build). `stages` shows which of probe, media, asr, frames and crops are 
       probe/page.json                 generic pages and direct files: the page record (assets/page_record.py)
       media/receipt.json              allowlist projection of the download (assets/receipt.jq)
       media/SHA256SUMS                "<sha256>  <downloaded name>" per identity file
-      asr/transcript.json, run.json   raw ASR output; {pcm_sha256, detected_language, versions, model, argv}
+      asr/transcript.json, run.json   raw ASR output; {pcm_sha256, detected_language, user_language, versions, model, argv}
       frames/<dir>/*.png, grid.tsv    file, pts n*num/den, decoded-frame SHA-256, PNG SHA-256 (grid/ once any)
       crops/*.png, crops.tsv          file, SHA-256, parent media, parent pts, parent decoded SHA-256, WxH+X+Y
       <stage>/FAILED                  the verbatim error line (query strings removed) and the command
