@@ -115,8 +115,9 @@ counts and budgets do not reject a research direction;
 ## Evidence and records
 
 - Fills, costs, PnL and plan outcomes come only from product reports or `tables()`. Do not infer
-  economic outcomes from signals or price touches, substitute counterfactual estimates, or fill
-  masked measures, not even as a labelled rough figure the user asks for. Additional statistics follow `nautilus-report-analysis`.
+  economic outcomes from signals or price touches, compute returns, PnL or drawdown of a rule that
+  never ran, rescaled stored returns included (to choose what to register either: explore or
+  register it), or fill masked measures, not even as a labelled rough figure the user asks for. Additional statistics follow `nautilus-report-analysis`.
 - Your message with a recommendation or report gives the trials behind it from `research status` (`multiple_testing`:
   `effective_trials` to `all_purpose_trials`, every line's trials on the contract over an
   overlapping window), and names the other lines (open or closed) whose windows overlap. It gives
