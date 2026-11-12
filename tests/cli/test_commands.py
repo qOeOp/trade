@@ -23,7 +23,7 @@ from shared import profiles
 from shared.refusals import CATALOGUE
 from tests.market.directory import directory, seed
 from tests.ledger.dolt import BINARY, SKIP
-from tests.replay.world import clean_checkout
+from tests.registration.world import clean_checkout
 
 
 ROOT = Path(__file__).resolve().parents[2]

@@ -536,6 +536,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "bundle per --source, in one commit; the same line, body and execution again is a replay; publishes",
         "registration_id, line, grid_points, execution {image_ref, market_day, universe_rule, lifecycle_bundle, "
         "export_sha256, comparable_config_sha256, image_digest}, ledger_commit, replayed",
+        "STALE_CHECKOUT (HEAD is not the fetched origin/main, or the work tree has uncommitted or untracked files; "
+        "checked before anything else); "
         "REGISTRATION_INVALID (body, design, lineage or an unpublished grid candidate); LINEAGE_MISMATCH (the grid "
         "candidates do not share one parent, or their difference is not the first grid candidate's); "
         "RESEARCH_LINE_REQUIRED (no "

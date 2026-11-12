@@ -292,7 +292,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-example">
 
-比如功能分支推送后 CI 构建的镜像（`pr-N` 标签）可以探索、预检和做研究回放，但拿它绑定样本外验证会被拒绝（RUNTIME_NOT_MAIN）；本机自己构建再推到别的仓库的镜像，探索和预检都会被拒绝（RUNTIME_NOT_CI_BUILT）。本机代码落后于 main 时，样本外绑定也会被拒绝（STALE_CHECKOUT）。
+比如功能分支推送后 CI 构建的镜像（`pr-N` 标签）可以探索、预检和做研究回放，但拿它绑定样本外验证会被拒绝（RUNTIME_NOT_MAIN）；本机自己构建再推到别的仓库的镜像，探索和预检都会被拒绝（RUNTIME_NOT_CI_BUILT）。本机代码落后于 main 时，样本外绑定也会被拒绝（STALE_CHECKOUT）。研究登记和研究回放要求本机 checkout 正是已取回的 origin/main、工作区没有未提交或未跟踪的文件，否则拒绝（STALE_CHECKOUT）；这项核对不联网，先 fetch。
 
 </div>
 
