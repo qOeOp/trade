@@ -2,7 +2,7 @@ import type { LiveHomeDto, LiveRunDto, LiveSourceDto } from "../lib/liveTradingD
 import type { LiveAccountCheck, LiveFact, LiveRun, LiveTradingView } from "./liveTrading";
 
 const yesNo = (value: boolean | null | undefined) => value == null ? null : value ? "Yes" : "No";
-const fact = (label: string, value: string | null, format?: "nanoseconds"): LiveFact => ({ label, value, ...format ? { format } : {} });
+const fact = (label: string, value: string | null, format?: LiveFact["format"]): LiveFact => ({ label, value, ...format ? { format } : {} });
 // The host states of an ended run (live/runs.py ENDED; engine/README.md): no runner is left to stop. An
 // unresolved run is not one, since its recovery begins with a stop.
 const ENDED = new Set(["clean_stopped", "reconciled_flat", "venue_flat", "not_armed", "preflight_complete", "preflight_failed"]);
@@ -39,10 +39,72 @@ function heldNotice(run: LiveRunDto): string | null {
   return latest?.event === "resuming" && latest.held === true && !ENDED.has(run.host.state ?? "") ? HELD_NOTICE : null;
 }
 
+// Why the entry gate is closed (engine/live_connection.py; live/views.py GATE_REASONS), as Telegram words them.
+const GATE_TEXT: Record<string, string> = {
+  disconnected: "connection lost", unverified: "checking the account with Binance", unknown_orders: "unknown orders at Binance",
+  bars_missing: "a bar is missing", account_mode: "account modes changed", foreign: "another symbol at Binance",
+};
+// A process of the run ends at these, and the next one starts closed until it warms up (engine.live).
+const PROCESS_ENDS = new Set(["interrupted", "rewarming", "resuming"]);
+
+type Moment = { ns: bigint; kind: "gate" | "restart"; event: string; reasons: readonly string[]; held: boolean | null };
+
+function moments(run: LiveRunDto): Moment[] {
+  return [...(run.gate ?? []).map((row) => ({ ns: BigInt(row.observed_ns), kind: "gate" as const, event: row.event, reasons: row.reasons, held: null })),
+    ...(run.restarts ?? []).map((row) => ({ ns: BigInt(row.observed_ns), kind: "restart" as const, event: row.event, reasons: [], held: row.held }))]
+    .sort((a, b) => (a.ns < b.ns ? -1 : a.ns > b.ns ? 1 : 0));
+}
+
+/** A running run's entry gate now: closed until its latest start warms up (or while it holds an inherited position),
+ *  then closed for each reason the gate gave since, until it reopened. */
+function entriesOf(run: LiveRunDto): LiveRun["entries"] {
+  if (run.host.state !== "running" || run.host.mode !== "run" || !run.restarts) return null;
+  let warmed = false, held = false;
+  const closed = new Set<string>();
+  for (const moment of moments(run)) {
+    if (moment.kind === "restart" && PROCESS_ENDS.has(moment.event)) { warmed = false; held = moment.event === "resuming" && moment.held === true; closed.clear(); }
+    else if (moment.kind === "restart" && moment.event === "warmup") { warmed = true; held = false; }
+    else if (moment.event === "entries_closed" || moment.event === "connection_lost") moment.reasons.forEach((reason) => closed.add(reason));
+    else if (moment.event === "entries_opened") closed.clear();
+  }
+  if (held) return { open: false, text: "Closed · inherited position" };
+  if (!warmed) return { open: false, text: "Closed · warming up" };
+  if (closed.size === 0) return { open: true, text: "Open" };
+  return { open: false, text: `Closed · ${[...closed].map((reason) => GATE_TEXT[reason] ?? reason.replaceAll("_", " ")).join(", ")}` };
+}
+
+/** The latest entries_opened after a lost connection: when Binance and the run agreed again. */
+const reconnectOf = (run: LiveRunDto) => [...run.gate ?? []].reverse().find((row) => row.event === "entries_opened" && row.reasons.includes("disconnected"))?.observed_ns ?? null;
+
+function comparedOf(run: LiveRunDto): LiveRun["compared"] {
+  const record = run.compare;
+  if (!record) return null;
+  const failures = record.failures ?? 0, day = record.day;
+  switch (record.state) {
+    case "done": {
+      const unexplained = record.unexplained_count ?? 0, decisions = record.measures?.groups;
+      return { day, text: `${unexplained}${decisions === undefined ? "" : ` of ${decisions}`} unexplained`, attention: unexplained > 0 };
+    }
+    case "waiting": return { day, text: "waiting for the market", attention: false };
+    case "running": return { day, text: "comparing", attention: false };
+    case "empty": return { day, text: "nothing traded", attention: false };
+    default: return { day, text: `failed (${record.code ?? "unknown"})${failures > 1 ? `, ${failures} days running` : ""}`, attention: failures > 1 };
+  }
+}
+
+/** The facts of a run that keeps running (design §3.10): how long it has traded, its latest warm-up, its entries,
+ *  its last reconnect and its latest comparison with a replay. */
+function continuityOf(run: LiveRunDto, entries: LiveRun["entries"], compared: LiveRun["compared"]): LiveFact[] {
+  const warmups = (run.restarts ?? []).filter((row) => row.event === "warmup");
+  return [fact("Trading for", warmups[0]?.observed_ns ?? null, "since"), fact("Latest warm-up", warmups.at(-1)?.observed_ns ?? null, "nanoseconds"),
+    { ...fact("Entries", entries?.text ?? null), attention: entries?.open === false }, fact("Last reconnect", reconnectOf(run), "nanoseconds"),
+    { ...fact("Replay", compared ? `${compared.day} · ${compared.text}` : null), attention: compared?.attention ?? false }];
+}
+
 /** Preserve source distinctions and unknowns; no fill aggregation or account-state inference. */
 export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourceDto[], review?: LiveRunDto): LiveRun {
   const source = sources.find((item) => item.source_sha256 === run.source.source_sha256 && item.entry_class === run.source.entry_class);
-  const candidate = run.candidate, account = run.account;
+  const candidate = run.candidate, account = run.account, entries = entriesOf(run), compared = comparedOf(run);
   return {
     id: run.run_id, candidate: candidate.strategy_id ? `${candidate.strategy_id}${candidate.revision === null ? "" : `@${candidate.revision}`}` : "Candidate unknown",
     purpose: source?.purpose ?? "unknown", sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
@@ -61,6 +123,7 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
     venue: account ? { canTrade: account.can_trade, hedgeMode: account.hedge_mode, multiAssets: account.multi_assets,
       wallet: account.usdt_wallet, available: account.usdt_available } : null,
     hostState: run.host.state, accountOwned: run.host.account_owned, heldNotice: heldNotice(run),
+    entries, compared, continuity: run.host.mode === "run" ? continuityOf(run, entries, compared) : [],
     orders: run.orders, positions: run.positions, equity: equityOf(run), review: review?.review ?? run.review ?? null, reviewError: review?.review_error?.code ?? run.review_error?.code ?? null,
   };
 }

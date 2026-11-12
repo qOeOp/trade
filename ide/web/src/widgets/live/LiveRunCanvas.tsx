@@ -43,7 +43,7 @@ function LiveRunCanvasView({ run, version, view, actions, first, backtestAvailab
       <div className="shrink-0 space-y-2 border-b border-line px-3 py-2">
         {view.preview && <p className="text-small text-fg-faint">Fictional observations for layout review. No venue actions are available.</p>}
         {view.notice && <p role="status" className="text-dense text-fg-muted">{view.notice}</p>}
-        <LiveRunIdentity run={run} />
+        <LiveRunIdentity run={run} operation />
         {run.heldNotice && <p role="status" className={`text-dense ${textClass("misses")}`}>{run.heldNotice}</p>}
         <LiveActionFailure failed={action.failed} />
         {run.accountCheck && <LiveAccountCheck check={run.accountCheck} compact />}
