@@ -84,7 +84,9 @@ export function chartLook(zone: TimeZone = "UTC"): DeepPartial<ChartOptions> {
  *  events' flags in the secondary text colour, a warning's in the events' blue, and the gaps hatched in it; equity
  *  in indigo with the layers beneath it: its shadow (deeper on `dark`), the gap to its pace in profit and
  *  loss, kept faint so the line leads, the pace itself in the secondary text colour, the drawdown rows in a faint grey, the day bars in both (stronger
- *  for the picked day), the flat stretches and the gridlines; its notes with the drawdown limit and the
+ *  for the picked day), the flat stretches and the gridlines, the years' scorecard (the year in the secondary text colour, each
+ *  figure in the meets or misses colour, the rest faint), each year's P&L bar in the contracts' five series colours (the rest
+ *  in a faint grey) and the lanes' names faint; its notes with the drawdown limit and the
  *  deepest drawdowns hatched in the loss colour, the closes as arrows in both and the pace's tag on the neutral tag colour;
  *  its extras: the costs' band in a faint grey with a stronger rim (indigo is the line's), the open profit and loss filled
  *  faintly in both, the buy and hold as a grey line over a grey area fading out to the plot's foot, kept fainter than the
@@ -117,6 +119,8 @@ export function seriesColors(dark = false) {
       ceiling: canvasColor("fg-faint", dark ? 0.8 : 0.75), flat: canvasColor("fg", dark ? 0.035 : 0.04), column: canvasColor("fg", dark ? 0.05 : 0.035),
       up: canvasColor("pnl-up", dark ? 0.42 : 0.4), down: canvasColor("pnl-down", dark ? 0.42 : 0.4), upStrong: canvasColor("pnl-up", 0.9), downStrong: canvasColor("pnl-down", 0.9),
       grid: canvasColor("grid", 0.45), restart,
+      rows: { font, label: canvasColor("fg-muted"), quiet: canvasColor("fg-faint"), meets: canvasColor("meets"), misses: canvasColor("misses"), halo: canvasColor("island"), grid: canvasColor("grid", 0.45) },
+      shares: { series: (["series-1", "series-2", "series-3", "series-4", "series-5"] as const).map((r) => canvasColor(r)), other: canvasColor("fg-faint", 0.7), ink: canvasColor("fg"), paper: canvasColor("island"), track: canvasColor("grid", 0.3), font },
     },
     notes: {
       floor: canvasColor("pnl-down", 0.75), floorTag: canvasTint("pnl-down", 16), floorText: canvasColor("pnl-down"), bracket: canvasColor("pnl-down", 0.85),

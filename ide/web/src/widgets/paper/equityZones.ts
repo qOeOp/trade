@@ -1,21 +1,34 @@
-// The equity chart's pane in bands, top to bottom, so no layer runs into another's: the stretches' names
-// (stretchCaptions' BELOW) with the drawdown dots hanging from them down to CEILING of the pane; the plot,
-// which the value axis fits and in which every priced layer is drawn, clipped to it (the line and its
-// fills, the pace, the buy and hold, the floor, the drawdowns and the closes' arrows); the day bars, BARS of
-// the pane at most, standing on the exposure's band at the foot (equityExtras). GAP px part the plot from
-// the bands either side. Only what marks time runs the pane's height: the offline washes, the seams, the
-// flat stretches, the hovered day's column, and the gridlines across it. A fill the plot can cut (the
-// costs' band and its rim, the open profit, the gap to the pace, the drawdowns' hatching) fades out over
-// FADE px into its edges, so where it runs on past the plot it trails off instead of ending in a flat edge.
+// The equity chart's pane in bands, top to bottom, so no layer runs into another's. In the backtest stage,
+// which draws one stretch and names it in the legend, each year as a unit UNIT high: its scorecard's LINE px
+// lines (equityYears) beside its P&L bars by contract (equityShares); elsewhere the stretches' names
+// (stretchCaptions). Under them which way the run held (equityBands' sideTrack, just over the dots); the
+// drawdown dots; the plot, which the value axis fits and in which every priced layer is drawn, clipped to it
+// (the line and its fills, the pace, the floor, the drawdowns and the closes' arrows); the day bars, BARS of
+// the pane at most, standing on the exposure's band at the foot (equityExtras). The plot starts where it
+// would with no years, CEILING of the pane under the names: the years take their room from the dots (scaled
+// to what is left them), down to LEAST, and only past that push the plot down. GAP px part the plot from the
+// bands either side. Only what marks time runs the pane's height: the offline washes, the seams, the flat
+// stretches, the hovered day's column, and the gridlines across it; the buy and hold runs on under the plot
+// to the pane's foot. A fill the plot can cut (the costs' band and its rim, the open profit, the gap to the
+// pace, the drawdowns' hatching) fades out over FADE px into its edges, so where it runs on past the plot it
+// trails off instead of ending in a flat edge.
 import { BARS, CEILING } from "./equityBands";
 import { BELOW } from "./stretchCaptions";
 
 /** The plot's top and bottom, px from the pane's top. */
 export type Plot = { top: number; bottom: number };
-const GAP = 8, FADE = 32;  // px
+const GAP = 8, FADE = 32, UNDER = 11, LEAST = 9;  // px: around the plot, the edges' fade, from the years to the dots (the side track between), the dots' least room
+export const UNIT = { top: 4, high: 24 }, LINE = 12;  // px: a year's unit, a line of its scorecard
 
-/** The plot of a pane `h` px high whose foot holds the exposure's band (`foot` px) and, when `days`, the day bars. */
-export const plotOf = (h: number, foot: number, days: boolean): Plot => ({ top: BELOW + h * CEILING + GAP, bottom: h - foot - (days ? h * BARS : 0) - GAP });
+/** Where the drawdown dots start (px from the pane's top): under the years, else BELOW the names. */
+export const headOf = (years: boolean): number => (years ? UNIT.top + UNIT.high + UNDER : BELOW);
+
+/** Where the drawdown dots end in a pane `h` px high whose dots start at `head` (px). */
+export const dotsEnd = (h: number, head: number): number => Math.max(BELOW + h * CEILING, head + LEAST);
+
+/** The plot of a pane `h` px high whose dots start at `head` (px) and whose foot holds the exposure's band
+ *  (`foot` px) and, when `days`, the day bars. */
+export const plotOf = (h: number, foot: number, days: boolean, head = BELOW): Plot => ({ top: dotsEnd(h, head) + GAP, bottom: h - foot - (days ? h * BARS : 0) - GAP });
 
 /** `colour` (`#rrggbbaa`, as canvasColor gives it) fading out into the plot's top and bottom edges. */
 export function toEdges(c: CanvasRenderingContext2D, plot: Plot, vr: number, colour: string): CanvasGradient {

@@ -14,7 +14,9 @@ import type { Leaning } from "../../model/held";
 import type { Restart } from "../../model/paper";
 import { downsOf, downTags, drawDown, tagged, widened, type Down, type DownLook } from "./downLook";
 import { xAt } from "./equityPlace";
-import { inPlot, toEdges, type Plot } from "./equityZones";
+import { dotsEnd, inPlot, toEdges, type Plot } from "./equityZones";
+import type { ShareLook } from "./equityShares";
+import type { YearLook } from "./equityYears";
 import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 
 /** A point a minute (or a step), or a backtest's a day (`day`); `down` across a chain's offline stretch
@@ -23,7 +25,7 @@ import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Serie
 /** `peak`: the highest equity so far in its stretch; `low`: the lowest from it to its stretch's end. */
 export type EquityPoint = { time: number; value: number; peak: number; low: number; pace: number | null; minute?: number; down?: boolean; stretch?: number; cut?: boolean; day?: boolean };
 export type EquityLook = { line: string; pace: string; knockout: string; knockoutWidth: number; haze: string; ahead: string; behind: string;
-                           ceiling: string; flat: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook };
+                           ceiling: string; flat: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook; rows: YearLook; shares: ShareLook };
 export { FEW, type DayBar };
 const BLUR = 10, DROP = 6;  // px: the line's shadow's blur and how far down it falls
 /** How far (px) the line's knockout and shadow reach above and below it: the value axis keeps this much
@@ -48,19 +50,17 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   private downs: readonly Down[] = [];
   private foot = 0;
   private shown: readonly [number, number] | null = null;
-  private top = 0;
 
   /** `plot`: where the priced layers are drawn (equityZones.ts). */
-  constructor(private readonly plot: () => Plot) {}
+  constructor(private readonly plot: () => Plot, private readonly head: () => number) {}
 
   /** The points and the shown stretch's days, the day picked (its start, in seconds), the balance equity
    *  is measured against where it has no pace, the worst drawdown (from every minute), where the shown
    *  stretch held a position and which way (seconds), the colours, the restarts of its chains of runs, the shown
-   *  stretch's first and last minute (s; null when there is none) and how far down (px) the drawdown
-   *  band starts, under the stretches' names. */
+   *  stretch's first and last minute (s; null when there is none). */
   set(points: readonly EquityPoint[], days: readonly DayBar[], picked: number | null, base: number, worst: number, held: readonly Leaning[], look: EquityLook,
-      restarts: readonly Restart[] = [], shown: readonly [number, number] | null = null, top = 0): void {
-    Object.assign(this, { points, bars: days, picked, base, worst, held, look, downs: downsOf(restarts), shown, top, cuts: points.flatMap((p, i) => (p.cut ? [i] : [])) });
+      restarts: readonly Restart[] = [], shown: readonly [number, number] | null = null): void {
+    Object.assign(this, { points, bars: days, picked, base, worst, held, look, downs: downsOf(restarts), shown, cuts: points.flatMap((p, i) => (p.cut ? [i] : [])) });
     this.redraw?.();
   }
 
@@ -73,6 +73,7 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
 
   /** How much of the pane's foot (px) the day bars stand above: the exposure's band. */
   lift(px: number): void { if (px !== this.foot) { this.foot = px; this.redraw?.(); } }
+
 
   /** Whether the day bars have room at the foot: the shown stretch is long enough for them. */
   days(): boolean { return this.shown !== null && this.shown[1] - this.shown[0] >= FEW && this.bars.length > 0; }
@@ -132,8 +133,8 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     f.c.fillStyle = look!.grid;
     for (const p of this.ticks) f.c.fillRect(0, Math.round(this.y(p, f.vr)), f.w, Math.max(1, Math.round(f.vr)));
     inPlot(f.c, this.plot(), f.w, f.vr, () => { this.gap(f); this.pace(f); });
-    drawdownRows(f, points, this.worst, look!, this.top);
-    sideTrack(f, points, this.held, look!, this.top);
+    drawdownRows(f, points, this.worst, look!, this.head(), dotsEnd(f.h / f.vr, this.head()));
+    sideTrack(f, points, this.held, look!, this.head());
     if (days) dayBars({ ...f, h: f.h - Math.round(this.foot * f.vr) }, shown!, this.bars, (d) => d === this.picked || d === this.hovered, look!);
   }
 

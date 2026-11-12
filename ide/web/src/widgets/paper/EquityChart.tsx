@@ -10,24 +10,24 @@ import type { Down } from "./downLook";
 import { equityApi, type Api, type Now } from "./equityApi";
 import { EquityExtras } from "./equityExtras";
 import { EquityLegend } from "./EquityLegend";
+import { ChartTip } from "./ChartTip";
 import { FEW } from "./equityLayers";
 import type { Close } from "./equityCloses";
 import type { Leaning } from "../../model/held";
 import { resample, STEPS } from "./equityResolution";
 import { covered, firstView, lastWhere, stepOver, type Line } from "./equityStretches";
 import { glide } from "./glide";
-import { BELOW } from "./stretchCaptions";
+import type { Year } from "./equityYears";
 import { showStretch, stretchKey } from "./stretchKeys";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 
-const at = (t: number) => t as UTCTimestamp;
-const dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000;
+const at = (t: number) => t as UTCTimestamp, dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000;
 const views = new Map<string, { step: number; from: number; to: number }>();  // the view each set of stretches had last, for the session
 
 /** The account over the version's stretches (equityStretches.ts: its backtest a point a day, its paper
  *  runs a point a minute) as one line, after vibe-trading's daily-returns chart: equity as its indigo hero line; the pace the line's minimum annual
  *  return asks for as a dashed line, the gap filled green ahead and red behind (against the start with no
- *  return target); behind them which way a position was held along the top, the drawdown an entry at each moment would take hanging
+ *  return target); behind them the shown backtest's years along the top, each its return and its P&L by contract (equityYears, equityShares), which way the run held a position under them, the drawdown an entry at each moment would take hanging
  *  under it and, of the shown stretch, each day's return from the bottom and the stretches no position was held (equityLayers), any stretch
  *  a chain of runs was offline over all of them; on the line the drawdown limit's floor and the shown stretch's deepest drawdowns (equityNotes) and an arrow at each of its closes (equityCloses), whose click
  *  picks the trade; the balance, the costs' band, a buy and hold as a fading area (shown as the viewer last chose for
@@ -40,9 +40,9 @@ const views = new Map<string, { step: number; from: number; to: number }>();  //
  *  shown stretch with the end of the one before it (firstView), or the view these stretches last had.
  *  Wheel or drag the time axis to zoom, drag to pan, double-click for all of it; the keys are
  *  stretchKeys'. The readout row gives the layers' values under the pointer, `aside` at its right end. */
-export function EquityChart({ line, remembers, replay = null, annual, limit = null, closes = [], held = [], warmup = null, aside = null }: {
+export function EquityChart({ line, remembers, replay = null, annual, limit = null, closes = [], held = [], years = [], warmup = null, aside = null }: {
   line: Line; remembers: string; replay?: readonly [number, number][] | null; annual: number | null;
-  limit?: number | null; closes?: readonly Close[]; held?: readonly Leaning[]; warmup?: number | null; aside?: ReactNode;
+  limit?: number | null; closes?: readonly Close[]; held?: readonly Leaning[]; years?: readonly Year[]; warmup?: number | null; aside?: ReactNode;
 }) {
   const { minutes, placed, restarts, readings, days, drops, sealed } = line;
   const host = useRef<HTMLDivElement>(null), api = useRef<Api | null>(null);
@@ -113,8 +113,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     if (!a) return;
     let active = true;
     const c = seriesColors(theme === "dark"), apply = () => { if (!active) return; api.current?.chart.applyOptions(chartLook(zone)); api.current?.ticks.refresh(); api.current?.chart.applyOptions({ crosshair: { mode: CrosshairMode.Magnet }, grid: { horzLines: { visible: false } } }); };
-    a.captions.setTimeZone(zone);
-    a.ticks.setTimeZone(zone);
+    a.captions.setTimeZone(zone); a.ticks.setTimeZone(zone);
     apply();
     afterFonts(apply);
     a.pace.applyOptions({ visible: annual !== null });
@@ -157,14 +156,15 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
 
   useEffect(() => {
     const c = seriesColors(theme === "dark");
-    api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers, restarts, own ? [own.from, own.to] : null, BELOW);
+    api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers, restarts, own ? [own.from, own.to] : null);
+    api.current?.rows.set(points, { years, annual, hold: hold && holdable }, c.layers);
     api.current?.notes.set(points, minutes, limit, c.notes, priceFormat(0).formatter, starting, shown >= 0 ? shown : null, drops);
     api.current?.closes.set(points, closes, c.closes);
     // A lone stretch is named at the legend's head instead, so it takes no line of its own.
     api.current?.captions.set(placed.length > 1 ? placed.map((p) => ({ label: p.label, selected: p.selected, from: p.from })) : [], c.captions);
     extras.set({ points, readings, hold, look: c.extras });
     api.current?.layers.lift(extras.foot());
-  }, [points, minutes, days, day, starting, worst, held, limit, closes, readings, hold, theme, restarts, placed, drops]);
+  }, [points, minutes, days, day, starting, worst, held, years, annual, limit, closes, readings, hold, holdable, theme, restarts, placed, drops]);
 
   const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]);
   useEffect(() => {
@@ -190,7 +190,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
                     reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={holdable ? hold : null} onHold={() => holdShown.set({ ...holds, [kind]: !hold })}
                     starting={starting} replayed={replayed} worst={worstShown} step={step} many={many && mine} ret={today?.ret} basis={own?.tested ? "bar-close mark" : null} aside={aside} /></div>
       <div className="relative min-h-0 flex-1 outline-none" tabIndex={0} onKeyDown={onKey}>
-        <div ref={host} className="h-full w-full" />
+        <div ref={host} className="h-full w-full" />{api.current && <ChartTip tip={api.current.tip} />}
         {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}
         {!points.length && <p className="absolute inset-0 z-10 grid place-items-center text-dense text-fg-faint">{warmup === null ? "No equity yet: the run has not started" : `No equity yet: the run starts at ${dateTime(warmup, zone, "minute")}, after its warm-up`}</p>}
       </div>

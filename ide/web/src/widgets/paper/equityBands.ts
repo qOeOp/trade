@@ -56,12 +56,12 @@ export function frameOf({ context: c, horizontalPixelRatio: hr, verticalPixelRat
 }
 
 /** A dot matrix, as vibe-trading's: each column of dots (PITCH apart, counted from the pane's left so a
- *  dot keeps its place as the view moves) reaches down from `top` (px) as far as the deepest drawdown an
+ *  dot keeps its place as the view moves) reaches down from `top` towards `bottom` (px) as far as the deepest drawdown an
  *  entry under it would take, scaled to the band, one row for any drawdown at all; a point holds until the next. Filled
  *  once with a pattern of one dot a cell. */
-export function drawdownRows({ c, hr, vr, w, h, keep, xs }: Frame, points: readonly EquityPoint[], worst: number, look: EquityLook, top = 0): void {
+export function drawdownRows({ c, hr, vr, w, keep, xs }: Frame, points: readonly EquityPoint[], worst: number, look: EquityLook, top: number, bottom: number): void {
   if (!(worst > 0) || keep.length < 2) return;
-  const px = Math.max(2, Math.round(PITCH * hr)), py = Math.max(2, Math.round(PITCH * vr)), band = h * CEILING, scale = Math.max(worst, FLOOR), y0 = Math.ceil((top * vr) / py) * py;
+  const px = Math.max(2, Math.round(PITCH * hr)), py = Math.max(2, Math.round(PITCH * vr)), band = (bottom - top) * vr, scale = Math.max(worst, FLOOR), y0 = Math.ceil((top * vr) / py) * py;
   const cols = Math.ceil(w / px), depth = new Float32Array(cols);
   keep.forEach((i, k) => {
     const d = ((1 - points[i]!.low / points[i]!.value) / scale) * band, x0 = xs.get(i)!, next = keep[k + 1];
