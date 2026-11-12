@@ -58,9 +58,9 @@ not a substitute for the disposition.
 ## Before replay and on new data
 
 - Before a replay, check four things: no gate stops the line (SKILL.md); the runtime reference
-  resolves to exactly one image; the market has every month of the development window;
-  every contract's coverage can be read. Report any missing item through the coverage disposition
-  above.
+  resolves to exactly one image (`replay precheck` refuses otherwise, `RUNTIME_DIGEST_AMBIGUOUS`);
+  the market has every month of the development window; every contract's coverage can be read.
+  Report any missing item through the coverage disposition above.
 - For a source that reads open interest or long/short ratios (`--metrics`), also read
   `coverage[].metrics`: a month of the trading window with no file refuses the replay
   (`METRICS_MISSING`) and is a missing month in the disposition above. Missing days and rows and empty
