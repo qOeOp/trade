@@ -14,7 +14,9 @@ action. A sizing value you proposed stays your design variable when the user pic
 
 Commands run as `uv run --frozen python -m cli.main <noun> <verb> ...`. Each command's `--help`
 states its arguments, what it writes and what it returns.
-Resolve refusals through their `next_actions`, never bypass them. A `CONCURRENT_WRITE` wrote
+Resolve refusals through their `next_actions`, never bypass them. Repair a fixable refusal once,
+as a new revision; the same refusal on that experiment again drops it with a priority judgment
+naming the code (its registration and trials stay counted). A `CONCURRENT_WRITE` wrote
 nothing: keep no evidence bundle for it. Name the line with `--line LINE`
 on every command that takes it, even while it is the only open line: another session may open one
 at any time.
@@ -109,9 +111,12 @@ continuing as before included, the same way. The ledger does not tell which runs
 them out of the count yourself, judging them against the targets
 ([feedback.md](references/feedback.md)), even when one ended the list. When due, choose an approach
 inside this line yourself, record it and keep working ([feedback.md](references/feedback.md),
-Change approach); the user may redirect at any time.
+Change approach); the user may redirect at any time. Before each change of approach, registration
+batch or recommendation, read `research state --line LINE --history` again: build on a newer
+judgment another session wrote, never a competing one.
 Choose no other line, closing this one, new starts or template roots: other open lines may be
-another session's, and the user changes lines through `research-start` when they ask. Trial
+another session's, and the user changes lines through `research-start`, or leaves a line that
+cannot continue to you there. Poor results never change the line. Trial
 counts and budgets do not reject a research direction;
 `REVIEW_DUE` calls for [review.md](references/review.md).
 
@@ -160,7 +165,10 @@ counts and budgets do not reject a research direction;
 - Authoring a complete report: [report.md](templates/report.md).
 - Runtime, data, contract or execution environment identity changes: [changes.md](references/changes.md).
 - Out-of-sample validation: [validation.md](references/validation.md), only after the user requests
-  it. When the user accepts a candidate, ask once whether to validate it and wait. Only a window
+  it. When the user accepts a candidate (a recommendation reaching the targets is no acceptance),
+  ask once in that reply whether to validate it, proposing the accepted version, a window rule and
+  universe, and keep researching: the question blocks only the validation registration; disclose a
+  newer recommendation, never swap it in. Only a window
   after the validation registration's timestamp is out-of-sample. Development data, including
   previously unused subsets, support conditional observations, never independent validation or
   claims of generalization or absence of overfitting.

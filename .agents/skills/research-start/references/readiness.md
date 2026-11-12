@@ -36,7 +36,12 @@ not a substitute for the disposition.
 3. **Resumption state.** State the line, candidate, pinned inputs and existing registrations or
    runs retained for resuming; do not consume a registration, overwrite a run or write a new line
    while presenting options. Missing coverage does not make the candidate failed or the line invalid.
-4. **User choice.** Ask only about an anomaly that would stop or distort the replay: a gap the
+4. **User choice.** First import a missing month the archive holds of contracts and kinds the line
+   already uses and the `market-import` service does not keep yourself (below; quotes for a month
+   whose bars the market holds through `market import-quotes`), name it in the round's message
+   (a metrics import also holds the market's latest day back, `market/README.md`) and cite it in
+   the next priority judgment; the line's pinned market day reads it once imported and does not
+   move, so it needs no new line record. Ask only about an anomaly that would stop or distort the replay and no import fills: a gap the
    replay's treatment above fails the run on or leaves unvalued (a MARK gap beyond the carry where a
    position may be open), missing funding after the trading start, a missing month or a refused
    `market coverage` read, or a gap on an input value the strategy reads (for example a warm-up
@@ -46,11 +51,7 @@ not a substitute for the disposition.
    market day the market holds), or a new line on contracts the market covers (research-start); keep
    the options already offered unless new evidence rules one out. Follow a market refusal's `next_actions`;
    replacing stored history or the product's quote rule (quotes from another source) needs the
-   user's authority. Quotes missing for a month whose bars the market holds come in through
-   `market import-quotes`: list it beside
-   the runnable ranges. Each month is one write to the market directory, the user's decision; the
-   line's pinned market day reads it once imported and does not move, so it needs no new line record.
-   Make unknown ranges conditional on first obtaining coverage. A question about writing records, permission to inspect,
+   user's authority. Make unknown ranges conditional on first obtaining coverage. A question about writing records, permission to inspect,
    approving a product change, or which investigation to start does not replace this data/scope
    choice. Do not present filling with zero, interpolation or other invented data as an option to
    fix the gap.
@@ -74,8 +75,9 @@ not a substitute for the disposition.
   names it) and status file (`docker exec NAME cat /tmp/market-import/status.json`), and report a
   gap with the state there (`waiting`, `lagging`, or `stopped` with its refusal; months it
   `skipped` are archive gaps no import fills). Other contracts and kinds, and months before its
-  range, are supplied through `market import`, `market import-quotes` or `market import-metrics`, a
-  write the user decides, as in part 4, run in that container (`docker exec NAME python -m cli.main
+  range, are supplied through `market import`, `market import-quotes` or `market import-metrics`
+  (part 4: yourself for what the line already uses, a new contract or kind only with a chosen line's
+  start), after checking free memory and disk, run in that container (`docker exec NAME python -m cli.main
   market ... --market /run/trade/market-import.json`: the import lock holds only there), except
   bars in a month the market holds: `MONTH_EXISTS` whichever `--symbols`, and no command adds
   them, so name the contracts `market coverage` holds.

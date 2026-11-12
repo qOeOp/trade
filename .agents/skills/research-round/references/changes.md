@@ -30,9 +30,9 @@ registrations below concern development research, not another validation opportu
   a judgment and tell the user.
 - A source with an earlier precheck and no `retry_of` registers on that precheck's image citing it,
   then moves with `replay reproduce`; a new precheck elsewhere leaves `SOURCE_ALREADY_EXPOSED`.
-- Otherwise the line cannot continue; return to `research-start` to offer a new line under the new
-  identity. Close the old line (`line close`, as research-start describes), then select the new
-  one (`line select`). The new line starts from a template root or a candidate revision with a
+- Otherwise the line cannot continue: return to `research-start`, which offers a new line under the
+  new identity or starts one the user left to you; the old line stays open until the user ends it.
+  The new line starts from a template root or a candidate revision with a
   substantive change; never edit unrelated bytes to get past `SOURCE_EXISTS` or the exposure check.
 - A passed engine parity pairing holds only for what was paired.
   Write "the engine's behaviour did not change for this pairing"; never extend it to other
