@@ -25,6 +25,19 @@ MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_draw
                 "plan_win_rate": "win_rate"}
 EVENT_KINDS = {"recommendation": "recommendation", "priority": "priority", "interpretation": "interpretation",
                "search_exposure": "other"}
+# A priority judgment recording a decision made for the user opens with one of these exactly (research-round,
+# research-start); its event takes the kind beside it, so a reader never parses the judgment's prose.
+DECISION_OPENINGS = ("Change of approach.", "Line decision.")
+DECISION_KINDS = dict(zip(DECISION_OPENINGS, ("approach_change", "line_decision"), strict=True))
+
+
+def _event_kind(kind: str, body: str) -> str:
+    """A judgment's event kind: a priority opening with a decision opening is that decision."""
+    if kind == "priority":
+        found = next((event for opening, event in DECISION_KINDS.items() if body.startswith(opening)), None)
+        if found:
+            return found
+    return EVENT_KINDS.get(kind, "other")
 
 
 def _iso(value) -> str | None:
@@ -534,7 +547,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
     for row in judged:
         recommended = next((f"{s['strategy_id']}@{s['revision']}" for s in subjects.get(row["judgment_id"], [])
                             if s["role"] == "recommended" and s["strategy_id"] is not None), None)
-        events.append({"at": _iso(row["created_at"]), "kind": EVENT_KINDS.get(row["kind"], "other"),
+        events.append({"at": _iso(row["created_at"]), "kind": _event_kind(row["kind"], row["body"]),
                        "ref": f"judgment {row['judgment_id']}", "text": row["body"].split("\n", 1)[0][:300],
                        "recommends": recommended if recommended in keys else None})
     events.append({"at": _iso(record["created_at"]), "kind": "line_change", "ref": line,

@@ -11,7 +11,7 @@ import { RULER, UNIT } from "./geometry";
 
 const BLOCK_Y = 4, BLOCK_H = RULER - 8, NUM_Y = RULER / 2 + 3.5;
 /** A decision's name; its judgment's text opens with it and a full stop. */
-const DECISION = { approach: "Change of approach", line: "Line decision" } as const;
+const DECISION = { approach_change: "Change of approach", line_decision: "Line decision" } as const;
 
 /** The trial axis: every trial of the line, by its number, over its column, the trial where a version sits on the canvas
  *  in the text colour and the rest faint; the trials that ran one version on a rounded tinted block
@@ -68,7 +68,7 @@ export function Ruler({ lineage, inset }: { lineage: LineageWidget; inset: numbe
           );
         })}
         {decisions.map(([x, group]) => {
-          const cx = sx(x), cy = RULER / 2, line = group.some((d) => d.kind === "line");
+          const cx = sx(x), cy = RULER / 2, line = group.some((d) => d.kind === "line_decision");
           const diamond = `M${cx} ${cy - 4.5}L${cx + 4.5} ${cy}L${cx} ${cy + 4.5}L${cx - 4.5} ${cy}Z`;
           if (cx < -UNIT || cx > width + UNIT) return null;
           return (

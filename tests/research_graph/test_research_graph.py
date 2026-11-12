@@ -131,20 +131,19 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(summary["priority"], {"at": "2026-01-01T12:05:00Z", "ref": "judgment 9", "text": "next: widen the stop"})
         self.assertIsNone(next(w for w in layout.build_view(GRAPH)["widgets"] if w["id"] == "summary")["priority"])
 
-    def test_decisions_made_for_the_user_sit_on_the_axis_by_their_opening(self):
+    def test_decisions_made_for_the_user_sit_on_the_axis_and_count_as_priorities(self):
         graph = copy.deepcopy(GRAPH)
         graph["events"][1:1] = [
             {"at": "2026-01-01T09:40:00Z", "kind": "priority", "ref": "judgment 5", "text": "next: widen the stop", "recommends": None},
-            {"at": "2026-01-01T11:50:00Z", "kind": "priority", "ref": "judgment 8",
-             "text": "Change of approach. Agent chose: trend filter", "recommends": None},
-            {"at": "2026-01-01T11:55:00Z", "kind": "interpretation", "ref": "judgment 9",
-             "text": "Line decision. not a priority", "recommends": None},
-            {"at": "2026-01-01T12:05:00Z", "kind": "priority", "ref": "judgment 10",
-             "text": "Line decision. User delegated the stop", "recommends": None}]
+            {"at": "2026-01-01T11:50:00Z", "kind": "approach_change", "ref": "judgment 8",
+             "text": "Change of approach. Chosen by the Agent: trend filter", "recommends": None},
+            {"at": "2026-01-01T12:05:00Z", "kind": "line_decision", "ref": "judgment 10",
+             "text": "Line decision. The user delegated the stop", "recommends": None}]
         self.assertEqual(contract.check_graph(graph), [])
-        lineage = next(w for w in layout.build_view(graph)["widgets"] if w["id"] == "lineage")
-        self.assertEqual([(d["kind"], d["ref"], d["x"]) for d in lineage["decisions"]],
-                         [("approach", "judgment 8", 4.5), ("line", "judgment 10", 4.5)])
+        widgets = {w["id"]: w for w in layout.build_view(graph)["widgets"]}
+        self.assertEqual([(d["kind"], d["ref"], d["x"]) for d in widgets["lineage"]["decisions"]],
+                         [("approach_change", "judgment 8", 4.5), ("line_decision", "judgment 10", 4.5)])
+        self.assertEqual(widgets["summary"]["priority"]["ref"], "judgment 10")
         self.assertEqual(next(w for w in layout.build_view(GRAPH)["widgets"] if w["id"] == "lineage")["decisions"], [])
 
     def test_a_fix_published_as_a_new_root_links_to_the_revision_it_fixes(self):

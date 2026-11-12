@@ -451,6 +451,8 @@
             "enum": [
               "recommendation",
               "priority",
+              "approach_change",
+              "line_decision",
               "interpretation",
               "line_change",
               "eligibility_change",
