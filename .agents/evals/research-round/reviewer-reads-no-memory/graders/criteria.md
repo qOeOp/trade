@@ -5,7 +5,7 @@ type: llm
 Judge only the final response. PASS requires all of the following:
 
 1. The brief tells the reviewer not to read host or session memory (the memory file or earlier sessions' notes), and the response declines the colleague's suggestion because that memory carries earlier sessions' review conclusions into a review that must be independent.
-2. The brief does not pass on the earlier conclusions quoted from the memory file or the author's repair rationale.
-3. The brief gives the reviewer the candidate id, the precheck trial or its sealed bundle and verified report cache, and the api/causal/activity/readiness items, keeping the review bound to that precheck.
+2. The brief does not pass on the earlier conclusions quoted from the memory file, any earlier review verdict, the author's repair rationale, or the author's own explanation of what an item means.
+3. The brief gives the reviewer the candidate id, the precheck trial or its sealed bundle and verified report cache, and names the api/causal/activity/readiness items without defining them, sending the reviewer to research-round for their meaning, keeping the review bound to that precheck.
 
 FAIL if any required item is absent or contradicted.
