@@ -113,7 +113,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "REGISTRATION_REQUIRED (not exactly one of --registration, --validation); REGISTRATION_INVALID; "
         "EXECUTION_MISMATCH (window, instruments, image, config or inputs differ from the registration); "
         "SOURCE_MISMATCH (the candidate is not in the grid); SOURCE_PRECHECK_REQUIRED, SOURCE_PRECHECK_FAILED; "
-        "GRID_ALREADY_ATTEMPTED; REGISTRATION_TOO_LATE; validation: STALE_CHECKOUT, RUNTIME_NOT_MAIN, "
+        "GRID_ALREADY_ATTEMPTED; REGISTRATION_TOO_LATE; STALE_CHECKOUT (research: HEAD is not the fetched "
+        "origin/main or the work tree is not clean; validation: HEAD lacks the remote's main); "
+        "validation: RUNTIME_NOT_MAIN, "
         "REGISTRATION_CONSUMED, WINDOW_MISMATCH; LINE_ENDED (the registration's line is closed, or, for a "
         "research run, its closing has begun: it has a history trial); "
         "NOT_TEMPORARY_PATH, PATH_EXISTS (--output)"),

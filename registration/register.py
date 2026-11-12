@@ -580,6 +580,8 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
     open line `line` (default: the only open line, ledger.open_line) in one write, which checks again that the
     line is open; the same body and execution identity again is an idempotent replay."""
     _check_shape(body)
+    from registration import validation  # validation imports this module
+    validation.require_current(seams.current.checkout())
     body = copy.deepcopy(dict(body))
     sources = _source_bundles(source_files or [])
     with db.connect(profile, "writer") as conn:

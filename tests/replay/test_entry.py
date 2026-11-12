@@ -415,6 +415,18 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual((caught.exception.code, self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports),
                          ("STALE_CHECKOUT", before, exports))
 
+    def test_a_research_replay_needs_the_fetched_main_with_a_clean_work_tree_before_any_export(self):
+        draft = self.world.checkout / "draft.py"
+        draft.write_text("x = 1\n")
+        before, exports = self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports
+        try:
+            with self.assertRaises(Refusal) as caught:
+                self.run_ref(self.refs[4])
+        finally:
+            draft.unlink()
+        self.assertEqual((caught.exception.code, self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports),
+                         ("STALE_CHECKOUT", before, exports))
+
     def test_a_replay_whose_fingerprint_stage_fails_is_stored_invalid(self):
         self.world.fingerprint = None
         try:
