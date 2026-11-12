@@ -118,13 +118,15 @@ def _run_reading(conn: db.LedgerConnection, trial_id: int, checker: Mapping, rec
 def _recommendation(conn: db.LedgerConnection, line_id: int, on_line: set[int], members: list[dict], checker: Mapping,
                     records: list) -> dict | None:
     """What a line's graph summary says of its recommendation, read without drawing the graph: the version its latest
-    current recommendation judgment names, since when it has named it (the first of the latest judgments naming
-    it), how many of the line's research trials came after, and its latest sealed research run on the line read as
-    the graph reads it (_run_reading: eligible now, and its measures when it is). None without a recommendation."""
+    current recommendation judgment names, since when it has named it (the first of the unbroken latest
+    recommendation judgments naming it, superseded ones included, as the graph's events list them), how many of the
+    line's research trials came after, and its latest sealed research run on the line read as the graph reads it
+    (_run_reading: eligible now, and its measures when it is). None without a recommendation."""
     judged = conn.dicts("SELECT judgment_id, kind, created_at, supersedes FROM judgment WHERE line_id = %s "
                         "ORDER BY judgment_id", (line_id,))
     replaced = {row["supersedes"] for row in judged if row["supersedes"] is not None}
-    current = [row for row in judged if row["kind"] == "recommendation" and row["judgment_id"] not in replaced]
+    recommendations = [row for row in judged if row["kind"] == "recommendation"]
+    current = [row for row in recommendations if row["judgment_id"] not in replaced]
     if not current:
         return None
     named = {judgment: f"{strategy}@{revision}" for judgment, strategy, revision in conn.rows(
@@ -135,7 +137,7 @@ def _recommendation(conn: db.LedgerConnection, line_id: int, on_line: set[int], 
     if version is None:
         return None
     since = current[-1]
-    for row in reversed(current):
+    for row in reversed(recommendations[:recommendations.index(since) + 1]):
         if named.get(row["judgment_id"]) != version:
             break
         since = row

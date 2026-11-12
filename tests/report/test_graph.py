@@ -50,6 +50,34 @@ class ComparisonIntervalTests(unittest.TestCase):
         self.assertIsNone(self.crosses(mean_log_basic_interval=[None, None], mean_log_studentized_interval=None))
 
 
+class RecommendationHoldTests(unittest.TestCase):
+    class Ledger:
+        """The three reads _recommendation makes: judgments, the recommended subjects, research trials."""
+        def __init__(self, judgments, named, trials):
+            self.judgments, self.named, self.trials = judgments, named, trials
+
+        def dicts(self, sql, params=()):
+            return self.judgments if "FROM judgment" in sql else self.trials
+
+        def rows(self, sql, params=()):
+            return self.named
+
+    def test_a_re_recommendation_keeps_the_hold_from_the_first_judgment_naming_the_version(self):
+        """Each recommendation supersedes the previous one; the hold still starts at the first of the unbroken run
+        naming the version, as the drawn graph's summary counts it (layout: recommendations_unchanged)."""
+        judgments = [{"judgment_id": 1, "kind": "recommendation", "created_at": date(2026, 1, 1), "supersedes": None},
+                     {"judgment_id": 2, "kind": "recommendation", "created_at": date(2026, 1, 3), "supersedes": 1}]
+        trials = [{"trial_id": 10, "source_sha256": "a", "created_at": date(2026, 1, 2), "status": None},
+                  {"trial_id": 11, "source_sha256": "a", "created_at": date(2026, 1, 4), "status": None}]
+        ledger = self.Ledger(judgments, [(1, "s", 1), (2, "s", 1)], trials)
+        found = graph._recommendation(ledger, 1, {10, 11}, [], {}, [])
+        self.assertEqual((found["recommended"], found["since"], found["runs_since"]), ("s@1", "2026-01-01", 2))
+        ledger.named = [(1, "s", 2), (2, "s", 1)]
+        found = graph._recommendation(ledger, 1, {10, 11}, [], {}, [])
+        self.assertEqual((found["since"], found["runs_since"]), ("2026-01-03", 1),
+                         "a change of version restarts the hold")
+
+
 @unittest.skipUnless(BINARY, SKIP)
 class ResearchGraphTests(unittest.TestCase):
     @classmethod
