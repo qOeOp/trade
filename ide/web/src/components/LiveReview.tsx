@@ -11,10 +11,9 @@ export function LiveReview({ run, inspect }: { run: LiveRun; inspect: LiveTradin
   return <Section title="Research review">
     <div className="space-y-3">
       {run.reviewError ? <p className="text-dense text-fail">Review could not be read · {run.reviewError}. Registration status is unknown.</p> : review ? <>
-        <KeyValues items={[["Research commit", <span className="break-all">{review.research_at}</span>], ["Source rewritten", review.rewritten ? "Yes" : "No"]]} />
-        {review.rewritten && <p className="text-dense text-fg-muted">The original research registrations do not validate this rewritten source.</p>}
-        {review.origin_candidate_validations.length === 0 ? <p className="text-dense text-fg-muted">No registrations at this exact research commit.</p>
-          : <ul className="space-y-2">{review.origin_candidate_validations.map((row, index) => <li key={index} className="rounded-control border border-line p-2 text-small">
+        <KeyValues items={[["Research commit", <span className="break-all">{review.research_at}</span>]]} />
+        {review.validations.length === 0 ? <p className="text-dense text-fg-muted">No registrations at this exact research commit.</p>
+          : <ul className="space-y-2">{review.validations.map((row, index) => <li key={index} className="rounded-control border border-line p-2 text-small">
             <p>Registration {known(row.registration_id)} · {known(row.status)}</p>
             <p className="text-fg-faint">UTC research window · {known(row.window_start)} → {known(row.window_end)}</p>
           </li>)}</ul>}

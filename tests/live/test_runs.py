@@ -47,9 +47,8 @@ class LiveFixture(unittest.TestCase):
         for part in (self.directory, self.directory / "inputs", self.directory / "out", self.directory / "egress"):
             state.private_directory(part)
         self.manifest = {
-            "format": "live-run", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
-            "origin_candidate": {"strategy_id": "example", "revision": 1,
-                                 "source_sha256": hashlib.sha256(b"original").hexdigest()},
+            "format": runs.MANIFEST_FORMAT, "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
+            "candidate": {"strategy_id": "example", "revision": 1},
             "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
             "universe_sha256": hashlib.sha256(b"{}").hexdigest(),
             "config": {"memory": "2g"}, "credential_binding": hashlib.sha256(b"example-key").hexdigest(),
@@ -510,15 +509,15 @@ class LiveCustodyTests(LiveFixture):
         path.write_text(json.dumps({"name": "market", "holds": "market", "kind": "reader", "root": str(self.root)}))
         return path
 
-    def preflight(self, source=b"original", entry_class="Original", rows=(), candidate="found", read_error=None):
+    def preflight(self, source=b"original", rows=(), candidate="found", read_error=None):
         arguments = ("preflight", "--root", str(self.root), "--run-id", self.run_id, "--research-ledger", "reader",
                      "--research-at", "a" * 32, "--candidate", "original@2", "--symbols", "BTCUSDT",
                      "--universe-file", "unused", "--credentials-file", str(self.credentials), "--budget-usdt", "100",
                      "--max-loss-usdt", "10", "--duration-seconds", "60", "--leverage", "3",
                      "--market", str(self.market_profile()))
         origin = hashlib.sha256(b"original").hexdigest()
-        manifest = {"origin_candidate": {"strategy_id": "original", "revision": 2, "source_sha256": origin},
-                    "source": {"source_sha256": hashlib.sha256(source).hexdigest(), "entry_class": entry_class},
+        manifest = {"candidate": {"strategy_id": "original", "revision": 2},
+                    "source": {"source_sha256": hashlib.sha256(source).hexdigest(), "entry_class": "Original"},
                     "runtime": IDENTITY}
         reader = unittest.mock.MagicMock()
         reader.__enter__.return_value.one.return_value = candidate and {
@@ -530,7 +529,7 @@ class LiveCustodyTests(LiveFixture):
             result = self.live_command(*arguments)
         return result, read, launch, reader.__enter__.return_value
 
-    def test_preflight_shows_the_origin_its_validations_and_whether_the_source_was_rewritten(self):
+    def test_preflight_shows_the_candidate_and_its_validations(self):
         window = {"window_start": datetime(2026, 1, 1), "window_end": datetime(2026, 2, 1), "universe_rule": "fixed"}
         rows = [{"registration_id": 7, "retry_of": None, "trial_id": None, "status": None, **window},
                 {"registration_id": 8, "retry_of": 7, "trial_id": 9, "status": None, **window},
@@ -542,25 +541,20 @@ class LiveCustodyTests(LiveFixture):
         review = found["review"]
         self.assertEqual(review["research_at"], "a" * 32)
         self.assertEqual(review["source_sha256"], hashlib.sha256(b"original").hexdigest())
-        self.assertEqual(review["origin_candidate"]["strategy_id"], "original")
-        self.assertIs(review["rewritten"], False)
+        self.assertEqual(review["candidate"], {"strategy_id": "original", "revision": 2})
+        self.assertNotIn("rewritten", review)
         self.assertEqual([(item["registration_id"], item["status"], item["retry_of"], item["universe_rule"])
-                          for item in review["origin_candidate_validations"]],
+                          for item in review["validations"]],
                          [(7, "unbound", None, "fixed"), (8, "bound", 7, "fixed"), (9, "passed", 8, "fixed")])
         self.assertIn("no verdict on returns", review["validation_note"])
         self.assertEqual(read.call_args.args[1], "a" * 32)
         self.assertEqual(reader.dicts.call_args.args[1], (hashlib.sha256(b"original").hexdigest(),))
         launch.assert_called_once()
-        for changed, expected_class in (({"source": b"adapted", "entry_class": "Adapted"}, "Adapted"),
-                                        ({"entry_class": "Another"}, "Another")):
-            (code, output, _), *_ = self.preflight(rows=rows, **changed)
-            self.assertEqual(code, 0)
-            review = json.loads(output)["review"]
-            self.assertIs(review["rewritten"], True)
-            self.assertEqual(review["entry_class"], expected_class)
-            self.assertEqual(len(review["origin_candidate_validations"]), 3)  # Shown, and the note says they do not apply.
-        (code, output, _), *_ = self.preflight(source=b"adapted")
-        self.assertEqual(json.loads(output)["review"]["origin_candidate_validations"], [])
+
+    def test_a_prepared_source_that_is_not_the_candidates_is_refused_before_any_launch(self):
+        (code, _, errors), _, launch, _ = self.preflight(source=b"adapted")
+        self.assertEqual((code, json.loads(errors)["code"]), (1, "LIVE_IDENTITY_CHANGED"))
+        launch.assert_not_called()
 
     def test_preflight_and_status_show_the_image_the_run_pinned(self):
         # Only the manifest's digest: a repeat that passes a tag keeps the first digest and resolves nothing.
@@ -589,53 +583,56 @@ class LiveCustodyTests(LiveFixture):
         with self.assertRaises(LiveRefusal):
             state.directory(self.root, "../../other")
 
-    def test_adaptation_keeps_original_provenance_and_never_stores_credentials(self):
+    def test_prepare_captures_the_candidates_own_source_and_never_stores_credentials(self):
         universe = self.root / "universe-input.json"
         universe.write_text('{}')
-        adapted = self.root / "adapted.py"
-        adapted.write_bytes(b"adapted exact bytes")
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
                   "runtime_contract": "replay-contract@v8"}
         with patch.object(runs.db, "read_as_of") as read, \
                 patch.object(runs.strategies, "read_candidate", return_value=origin), \
-                patch("engine.load.read_universe"), patch("engine.load.load_strategy") as load, \
+                patch("engine.load.read_universe"), \
                 patch.object(runs.image, "resolve", return_value=IDENTITY), \
                 patch.object(runs.image, "inspect_runtime", return_value={}), \
                 patch.object(runs.image, "require_main_build"):
-            manifest = runs.prepare(self.root, "adaptation", object(), "a" * 32, "original@2", ["BTCUSDT"],
+            manifest = runs.prepare(self.root, "candidate-run", object(), "a" * 32, "original@2", ["BTCUSDT"],
                                     universe, self.credentials, None, scope=self.scope, budget_usdt="100",
                                     max_loss_usdt="10", duration_seconds=60, memory="2g", leverage="3",
-                                    market_root=Path("unused"), strategy_file=adapted, strategy_class="Adapted")
+                                    market_root=Path("unused"))
         self.assertEqual(read.call_args.args[1], "a" * 32)
-        self.assertEqual(manifest["format"], "live-run")
+        self.assertEqual(manifest["format"], runs.MANIFEST_FORMAT)
         self.assertEqual((manifest["config"]["leverage"], manifest["market"]), ("3", MARKET))
-        load.assert_called_once_with(adapted, "Adapted", hashlib.sha256(adapted.read_bytes()).hexdigest())
-        self.assertEqual(manifest["origin_candidate"]["source_sha256"], origin["source_sha256"])
-        self.assertEqual(manifest["source"]["source_sha256"], hashlib.sha256(adapted.read_bytes()).hexdigest())
-        self.assertNotIn("runtime_contract", manifest["source"])
-        captured = state.directory(self.root, "adaptation") / "inputs"
-        self.assertEqual((captured / "strategy.py").read_bytes(), adapted.read_bytes())
+        self.assertEqual(manifest["candidate"], {"strategy_id": "original", "revision": 2})
+        self.assertEqual(manifest["source"], {"source_sha256": origin["source_sha256"], "entry_class": "Original"})
+        captured = state.directory(self.root, "candidate-run") / "inputs"
+        self.assertEqual((captured / "strategy.py").read_bytes(), b"original bytes")
         for path in captured.iterdir():
             content = path.read_bytes()
             self.assertNotIn(b"example-key", content)
             self.assertNotIn(b"example-secret", content)
 
-    def test_start_cannot_replace_prepared_adaptation(self):
-        adapted = self.root / "different.py"
-        adapted.write_bytes(b"different")
-        with patch.object(host_runtime, "docker", side_effect=AssertionError("no Docker before identity check")):
-            with self.assertRaises(LiveRefusal) as caught:
-                runs.launch(self.root, self.run_id, self.credentials, "run",
-                            scope=self.scope, strategy_file=adapted, strategy_class="Example")
-        self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
+    def test_only_the_declared_source_hash_of_the_candidate_is_prepared(self):
+        universe = self.root / "universe-input.json"
+        universe.write_text('{}')
+        origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
+                  "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
+                  "runtime_contract": "replay-contract@v8"}
+        for found, declared in ((origin, "f" * 64), ({**origin, "source": b"other bytes"}, origin["source_sha256"])):
+            with self.subTest(declared=declared), patch.object(runs.db, "read_as_of"), \
+                    patch.object(runs.strategies, "read_candidate", return_value=found), \
+                    patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
+                    self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
+                runs.prepare_locked(root, "declared-run", object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
+                                    self.credentials, None, budget_usdt="100", max_loss_usdt="10",
+                                    duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
+                                    source_sha256=declared)
+            self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
+            self.assertFalse(state.directory(self.root, "declared-run").exists())
 
     def test_a_prepared_run_id_replays_the_same_inputs_and_refuses_any_other(self):
-        files = {name: self.root / name for name in ("universe", "other-universe", "adapted", "other-source")}
+        files = {name: self.root / name for name in ("universe", "other-universe")}
         files["universe"].write_text("{}")
         files["other-universe"].write_text('{"membership":{}}')
-        files["adapted"].write_bytes(b"adapted")
-        files["other-source"].write_bytes(b"other")
         linked = self.root / "linked-universe"
         linked.symlink_to(files["universe"])
         other_key = self.root / "other-key.json"
@@ -643,7 +640,7 @@ class LiveCustodyTests(LiveFixture):
         same = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": files["universe"],
                 "credentials": self.credentials, "runtime": None, "budget_usdt": "100",
                 "max_loss_usdt": "10", "duration_seconds": 60, "memory": "2g", "leverage": "3",
-                "market_root": Path("unused"), "strategy_file": files["adapted"], "strategy_class": "Adapted"}
+                "market_root": Path("unused")}
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
                   "runtime_contract": "replay-contract@v8"}
@@ -653,7 +650,7 @@ class LiveCustodyTests(LiveFixture):
 
         with patch.object(runs.db, "read_as_of") as read, \
                 patch.object(runs.strategies, "read_candidate", return_value=origin), \
-                patch("engine.load.read_universe"), patch("engine.load.load_strategy"), \
+                patch("engine.load.read_universe"), \
                 patch.object(runs.image, "resolve", return_value=IDENTITY), \
                 patch.object(runs.image, "inspect_runtime", return_value={}), \
                 patch.object(runs.image, "require_main_build"):
@@ -666,56 +663,14 @@ class LiveCustodyTests(LiveFixture):
                             {"memory": "3g"},
                             {"credentials": other_key},
                             {"universe": files["other-universe"]}, {"universe": linked},
-                            {"strategy_file": files["other-source"]}, {"strategy_class": "Other"},
                             {"runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64}):
                 with self.subTest(changes=changes):
                     with self.assertRaises(LiveRefusal) as caught:
                         prepare(**changes)
                     self.assertEqual(caught.exception.code, "LIVE_RUN_CONFLICT")
-        read.assert_called_once()
+        # The first preparation and the identical repeat read the candidate; a differing repeat is refused first.
+        self.assertEqual(read.call_count, 2)
         self.assertEqual((state.directory(self.root, "conflict") / "inputs" / "manifest.json").read_bytes(), stored)
-
-    def test_a_repeat_binds_the_same_source_whether_or_not_it_names_a_file(self):
-        universe = self.root / "universe-input.json"
-        universe.write_text("{}")
-        files = {name: self.root / f"{name}.py" for name in ("adapted", "copy")}
-        files["adapted"].write_bytes(b"adapted")
-        files["copy"].write_bytes(b"original bytes")
-        origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
-                  "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
-                  "runtime_contract": "replay-contract@v8"}
-
-        def prepare(run_id, source=None):
-            file, entry_class = source or (None, None)
-            return runs.prepare(self.root, run_id, object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
-                                self.credentials, None, scope=self.scope, budget_usdt="100",
-                                max_loss_usdt="10", duration_seconds=60, memory="2g", leverage="3",
-                                market_root=Path("unused"), strategy_file=file, strategy_class=entry_class)
-
-        own, adapted = (files["copy"], "Original"), (files["adapted"], "Adapted")
-        same_bytes = (files["copy"], "Other")  # another class of the candidate's own bytes is still a rewrite
-        with patch.object(runs.db, "read_as_of"), \
-                patch.object(runs.strategies, "read_candidate", return_value=origin), \
-                patch("engine.load.read_universe"), patch("engine.load.load_strategy"), \
-                patch.object(runs.image, "resolve", return_value=IDENTITY), \
-                patch.object(runs.image, "inspect_runtime", return_value={}), \
-                patch.object(runs.image, "require_main_build"):
-            for first, same, others in ((None, (None, own), (adapted, same_bytes)),
-                                        (adapted, (adapted,), (None, own, same_bytes)),
-                                        (same_bytes, (same_bytes,), (None, own, adapted))):
-                run_id = f"source-{(first[1] if first else 'none').lower()}"
-                manifest = prepare(run_id, first)
-                stored = (state.directory(self.root, run_id) / "inputs" / "manifest.json").read_bytes()
-                for source in same:
-                    with self.subTest(first=first, again=source):
-                        self.assertEqual(prepare(run_id, source), manifest)
-                for source in others:
-                    with self.subTest(first=first, other=source):
-                        with self.assertRaises(LiveRefusal) as caught:
-                            prepare(run_id, source)
-                        self.assertEqual(caught.exception.code, "LIVE_RUN_CONFLICT")
-                self.assertEqual((state.directory(self.root, run_id) / "inputs" / "manifest.json").read_bytes(),
-                                 stored)
 
     def test_full_runner_identity_is_required_for_idempotency_and_logs(self):
         self.launch_record()

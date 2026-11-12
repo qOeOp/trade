@@ -30,7 +30,7 @@ MESSAGES = {
     "LIVE_KEY_WITHDRAWAL": "This API key permits withdrawals and cannot start this Live run.",
     "LIVE_KEY_UNVERIFIED": "The API key permissions could not be verified.",
     "LIVE_CLOCK": "The observed server clock bounds exceed the existing Live limits.",
-    "LIVE_RUN_FORMAT": "This historical run uses a format from before replay-contract@v8, which the product no longer reads.",
+    "LIVE_RUN_FORMAT": "This historical run uses an earlier manifest format, which the product no longer reads.",
     "LIVE_IDENTITY_CHANGED": "The retained inputs, confirmation or resource identity do not match.",
     "LIVE_RESTART_REQUIRES_RECONCILIATION": "An attempted run cannot restart its strategy. Review the original execution.",
     "LIVE_NOTIFY_TOKEN": "Telegram did not accept this bot token. Copy it again from @BotFather.",
@@ -71,10 +71,10 @@ def _review(config: configuration.Configuration, root: Path, run_id: str) -> dic
     result = runs.review(_profile(config), claim["command"]["inputs"]["research_at"], manifest)
     # The CLI serializer already formats these reader datetime values. Direct HTTP
     # reads need the same wire dates, without a general str(object) fallback.
-    result["origin_candidate_validations"] = [
+    result["validations"] = [
         {**row, **{name: row[name].isoformat() if isinstance(row.get(name), (date, datetime)) else row.get(name)
                    for name in ("window_start", "window_end")}}
-        for row in result["origin_candidate_validations"]]
+        for row in result["validations"]]
     return result
 
 
@@ -141,12 +141,10 @@ def operator_preflight(root: Path, run_id: str, research: db.LedgerProfile, rese
 
 
 def operator_start(root: Path, run_id: str, credentials_file: Path, confirm_real_orders: str, *,
-                   scope: authority.Authority, strategy_file: Path | None = None,
-                   strategy_class: str | None = None) -> dict:
+                   scope: authority.Authority) -> dict:
     """Confirm and launch through the shared locked core, retaining both admissions."""
     runs.require_confirmed(root, run_id, confirm_real_orders, scope=scope)
-    return runs.launch(root, run_id, credentials_file, "run", scope=scope,
-                       strategy_file=strategy_file, strategy_class=strategy_class)
+    return runs.launch(root, run_id, credentials_file, "run", scope=scope)
 
 
 def operator_reconcile(root: Path, run_id: str, credentials_file: Path, *,
@@ -172,14 +170,14 @@ def _fixed_prepare(config: configuration.Configuration, body: dict, scope: autho
                 raise state.fail("LIVE_REQUEST_CONFLICT", "request-id already binds different preparation inputs")
             return command
     source = config.sources.get(body["source_id"])
-    if source is None or not source.available():
+    if source is None:
         raise state.fail("LIVE_SOURCE_MISSING", "the configured source is unavailable")
     from engine.load import read_regular_file
     universe = read_regular_file(config.universe_file)
     return {"action": "prepare", "target": target, "inputs": {
         "source_id": source.source_id, "research_at": config.research_at, "candidate": source.candidate,
         "symbols": config.symbols, "source_sha256": source.source_sha256, "entry_class": source.entry_class,
-        "strategy_file": str(source.strategy_file), "universe_file": str(config.universe_file),
+        "universe_file": str(config.universe_file),
         "universe_sha256": hashlib.sha256(universe).hexdigest(), "runtime": config.runtime,
         "config": {**parameters, "memory": config.memory}}}
 
@@ -187,13 +185,11 @@ def _fixed_prepare(config: configuration.Configuration, body: dict, scope: autho
 def _prepare(config, root, run_id, credential_ref, inputs, request_id, *, existing=False):
     path = credentials.prepare_path_locked(root, credential_ref, request_id=request_id)
     directory = state.directory(root, run_id)
-    source = directory / "inputs" / "strategy.py" if existing else Path(inputs["strategy_file"])
     universe = directory / "inputs" / "universe.json" if existing else Path(inputs["universe_file"])
     return runs.prepare_locked(root, run_id, _profile(config), inputs["research_at"], inputs["candidate"],
                                 inputs["symbols"], universe, path, inputs["runtime"], **inputs["config"],
-                                market_root=config.market_root, strategy_file=source,
-                                strategy_class=inputs["entry_class"], request_id=request_id,
-                                credential_ref=credential_ref)
+                                market_root=config.market_root, source_sha256=inputs["source_sha256"],
+                                request_id=request_id, credential_ref=credential_ref)
 
 
 def _operation(config, action, command, body, root, request_id):
@@ -246,8 +242,8 @@ def resolve(config: configuration.Configuration, request_id: str, *, binding: re
             runs.prepare_locked(root, run_id, _profile(config), inputs["research_at"], inputs["candidate"],
                                  inputs["symbols"], Path(inputs["universe_file"]), path, inputs["runtime"],
                                  **inputs["config"], market_root=config.market_root,
-                                 strategy_file=Path(inputs["strategy_file"]), strategy_class=inputs["entry_class"],
-                                 request_id=request_id, credential_ref=ref, recover_partial=True)
+                                 source_sha256=inputs["source_sha256"], request_id=request_id, credential_ref=ref,
+                                 recover_partial=True)
             return requests.view_locked(root, request_id)
         return requests.recover_locked(root, request_id)
 

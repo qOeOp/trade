@@ -49,7 +49,7 @@ class LiveWebControlTests(unittest.TestCase):
                     "defaults": {"budget_usdt": "90", "max_loss_usdt": "2",
                                  "duration_seconds": 8100, "leverage": "3"}, "market_root": "/unused-market",
                     "sources": [{"source_id": "example", "candidate": "example@1",
-                                 "strategy_file": str(self.source), "entry_class": "Example",
+                                 "entry_class": "Example",
                                  "source_sha256": hashlib.sha256(self.source.read_bytes()).hexdigest(),
                                  "purpose": "controlled"}]}
         self.authority = install(self, self.root, self.raw, release_state=self.directory / "i")
@@ -331,7 +331,7 @@ class LiveWebControlTests(unittest.TestCase):
         self.assertEqual(self.config.socket.stat().st_ino, inode)
 
     def test_review_registration_datetimes_survive_direct_http_read(self):
-        original = {"research_at": "a" * 32, "origin_candidate_validations": [
+        original = {"research_at": "a" * 32, "validations": [
             {"registration_id": 1, "window_start": datetime(2026, 1, 1),
              "window_end": datetime(2026, 2, 1), "status": "unbound"}]}
         claim = {"command": {"inputs": {"research_at": "a" * 32}}}
@@ -343,7 +343,7 @@ class LiveWebControlTests(unittest.TestCase):
         with patch.object(serve, "read", return_value={"review": review}):
             status, body = self.call("GET", "/api/live/runs/example")
         self.assertEqual(status, 200)
-        row = body["data"]["review"]["origin_candidate_validations"][0]
+        row = body["data"]["review"]["validations"][0]
         self.assertEqual(row["window_start"], "2026-01-01T00:00:00")
         self.assertEqual(row["window_end"], "2026-02-01T00:00:00")
 

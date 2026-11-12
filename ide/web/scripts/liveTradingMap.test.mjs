@@ -4,7 +4,7 @@ import { namespace } from "./load.mjs";
 
 const { liveRunPresentation, liveHomePresentation } = await namespace("model/liveTradingMap.ts", { sources: [], packages: [] });
 const run = () => ({
-  run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, origin_candidate: { strategy_id: "retest", revision: "1", source_sha256: "origin" },
+  run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, candidate: { strategy_id: "retest", revision: "1" },
   runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: null,
   config: { budget_usdt: "90.000000000000000001", max_loss_usdt: "2", duration_seconds: "8100", leverage: "3" },
   host: { state: "running", mode: "run", account_owned: null, exit_code: null }, stop_requested: false,
@@ -14,7 +14,7 @@ const run = () => ({
 });
 
 test("Live purpose requires exact catalog hash and entry class; a legacy source remains unknown", () => {
-  const source = { source_id: "s", source_sha256: "actual", entry_class: "Actual", purpose: "controlled", origin_candidate: "retest@1", available: true, code: null };
+  const source = { source_id: "s", source_sha256: "actual", entry_class: "Actual", purpose: "controlled", candidate: "retest@1" };
   assert.equal(liveRunPresentation(run(), [source]).purpose, "controlled");
   assert.equal(liveRunPresentation(run(), [{ ...source, source_sha256: "other" }]).purpose, "unknown");
   assert.equal(liveRunPresentation(run(), [{ ...source, entry_class: "Other" }]).purpose, "unknown");

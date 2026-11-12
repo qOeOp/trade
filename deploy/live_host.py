@@ -146,8 +146,8 @@ class LiveHost:
                 "--mount", f"type=bind,src={root},dst={root}" + (",readonly" if helper else ""),
                 "--mount", f"type=bind,src={self.state},dst={self.state},readonly",
                 "--mount", f"type=volume,src={self.web.config.readers},dst=/run/trade/ledger-readers,readonly"]
+        # A source's bytes come from the research ledger; only the reader profile and universe are files.
         paths = {absolute(value["research_ledger"]), absolute(value["universe_file"])}
-        paths.update(absolute(row["strategy_file"]) for row in value["sources"])
         for path in sorted(paths):
             if path.is_symlink() or not path.is_file():
                 raise RuntimeError("Live declared inputs must retain their regular source files")

@@ -529,9 +529,10 @@ requires a separately reviewed exclusive recovery installation. Native account/o
 
 `preflight` captures immutable source inputs from an explicit research reader and commit, pins a main-CI
 runtime digest, queries the account and applies the account and source checks `start` will repeat, so `status`
-says `preflight_failed` and `logs` gives the refusal before any account slot is taken. A reviewed adaptation has its own source hash, separate from its
-origin candidate. The result shows the origin candidate, whether this source or class differs from it, and the
-candidate's out-of-sample registrations at that commit. They inform the operator and no validation is required.
+says `preflight_failed` and `logs` gives the refusal before any account slot is taken. Live runs only the
+candidate's own source, read from the ledger at that commit; there is no adapted file, and a declared source hash
+that is not the candidate's is refused (`LIVE_IDENTITY_CHANGED`). The result shows the candidate and its
+out-of-sample registrations at that commit. They inform the operator and no validation is required.
 `start` takes the prepared run ID, the same private credential file and `--confirm-real-orders` with the run's
 `source_sha256`, then repeats
 account admission. The initial trial admits one symbol and requires a flat account, Hedge/Multi-assets
@@ -639,7 +640,7 @@ never reused; this run's native records may lack the close, and the account snap
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run`) binds the checks to the runner: an older image refuses it before arming,
+A manifest's format (`live-run-2`) binds the checks to the runner: an older image refuses it before arming,
 and a run prepared under an earlier format is refused for every operation (`LIVE_RUN_FORMAT`).
 An ended run (`clean_stopped`, `reconciled_flat`, `venue_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network when the paired controller maintains it or another run starts: their logs go to `containers/` in the run directory,

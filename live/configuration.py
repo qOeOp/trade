@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-import hashlib
 from pathlib import Path
 import re
 
@@ -67,26 +66,17 @@ def run_config(value) -> dict:
 
 @dataclass(frozen=True)
 class Source:
+    """A candidate Live may run: preparation reads its bytes from the research ledger at research_at and refuses
+    any other source hash or entry class (live.runs.prepare_locked)."""
     source_id: str
     candidate: str
-    strategy_file: Path
     source_sha256: str
     entry_class: str
     purpose: str
 
-    def available(self) -> bool:
-        try:
-            from engine.load import read_regular_file
-            return hashlib.sha256(read_regular_file(self.strategy_file)).hexdigest() == self.source_sha256
-        except (OSError, ValueError):
-            return False
-
     def view(self) -> dict:
-        available = self.available()
-        return {"source_id": self.source_id, "origin_candidate": self.candidate,
-                "source_sha256": self.source_sha256, "entry_class": self.entry_class,
-                "purpose": self.purpose, "available": available,
-                "code": None if available else "LIVE_SOURCE_MISSING"}
+        return {"source_id": self.source_id, "candidate": self.candidate, "source_sha256": self.source_sha256,
+                "entry_class": self.entry_class, "purpose": self.purpose}
 
 
 @dataclass(frozen=True)
@@ -118,12 +108,12 @@ def load(path: Path) -> Configuration:
         raise fail()
     sources = {}
     for row in rows:
-        row = fields(row, {"source_id", "candidate", "strategy_file", "source_sha256", "entry_class", "purpose"})
+        row = fields(row, {"source_id", "candidate", "source_sha256", "entry_class", "purpose"})
         source_id = text(row["source_id"], SOURCE_ID)
         if source_id in sources or row["purpose"] not in ("natural", "controlled"):
             raise fail()
         sources[source_id] = Source(source_id, text(row["candidate"], re.compile(r"[a-zA-Z0-9_.-]+@[1-9][0-9]*\Z")),
-                                    absolute(row["strategy_file"]), text(row["source_sha256"], DIGEST),
+                                    text(row["source_sha256"], DIGEST),
                                     text(row["entry_class"], re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")), row["purpose"])
     return Configuration(root=absolute(value["root"]), socket=absolute(value["socket"]),
                          research_ledger=absolute(value["research_ledger"]),

@@ -210,7 +210,7 @@ test("run review preserves action availability and names phases without inventin
 });
 
 test("with no live run selected the Live canvas is the three-step New live run form, kept while it holds a draft", () => {
-  const source = { id: "source-fixture", candidate: "fixture-strategy@1", sourceHash: "c".repeat(64), entryClass: "FixtureStrategy", purpose: "natural", availability: "ready" };
+  const source = { id: "source-fixture", candidate: "fixture-strategy@1", sourceHash: "c".repeat(64), entryClass: "FixtureStrategy", purpose: "natural" };
   const ready = { ...blank, availability: "ready", notice: null, sources: [source] };
   canvasRun = null;
   try {

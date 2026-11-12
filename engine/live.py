@@ -55,9 +55,10 @@ def read_manifest(path: Path) -> dict:
         symbols = value["symbols"]
         if not isinstance(symbols, list) or len(symbols) != 1 or not re.fullmatch(r"[A-Z0-9]+USDT", symbols[0]):
             raise ValueError
-        source, origin, runtime, config = value["source"], value["origin_candidate"], value["runtime"], value["config"]
+        source, candidate, runtime, config = value["source"], value["candidate"], value["runtime"], value["config"]
         if (runtime["runtime_contract"] != RUNTIME_CONTRACT
-                or not HASH.fullmatch(source["source_sha256"]) or not HASH.fullmatch(origin["source_sha256"])
+                or not HASH.fullmatch(source["source_sha256"])
+                or not isinstance(candidate["strategy_id"], str) or type(candidate["revision"]) is not int
                 or not HASH.fullmatch(value["universe_sha256"])
                 or not re.fullmatch(r".+@sha256:[0-9a-f]{64}", runtime["image_ref"])
                 or runtime["image_ref"].rsplit("@", 1)[1] != runtime["image_digest"]):

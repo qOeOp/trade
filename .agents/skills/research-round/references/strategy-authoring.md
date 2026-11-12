@@ -200,10 +200,8 @@ native reports. Never run the replay with `docker run` or `python -m engine...` 
 
 A candidate written to the rules below runs in Live as it is: replay, Paper and Live run the one file
 and its validations cover it. Write a candidate that may go to Live this way when it is created, as a
-candidate version replayed like any other; do not plan a Live rewrite. Only a candidate written
-otherwise needs a separate file the operator passes to `live preflight` with `--strategy-file`, which
-its validations do not cover (`review.rewritten`). What Live enforces during a run is in
-`engine/README.md`.
+candidate version replayed like any other; Live accepts no other file. What Live enforces during a run
+is in `engine/README.md`.
 
 - Live needs the account flat when the run starts; entries arriving together each wait, in order,
   for their own account check. Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:

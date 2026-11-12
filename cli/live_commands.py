@@ -41,18 +41,18 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LIVE_CONFIG; LIVE_RECORD_UNAVAILABLE; unavailable when custody or execution cannot be verified; busy while "
         "a runner or account slot remains active"),
     ("live", "preflight"): (
-        "the selected service release identity, explicit research reader at a full commit, reviewed optional adaptation, "
-        "universe and private credential file",
+        "the selected service release identity, explicit research reader at a full commit, the candidate (Live runs its "
+        "own source, read from the ledger), universe and private credential file",
         "immutable private inputs, retained CI-image containers and GET-only account observations; no ledger or order writes",
         "run_id, mode, state, directory, container, warnings (an API key with no IP restriction) and review {research_at, "
-        "origin_candidate, source_sha256, entry_class, image_ref (the runtime image digest pinned when this run-id "
-        "was first prepared; a repeat that passes a tag keeps it), rewritten (source or class differs from the candidate), "
-        "origin_candidate_validations [{registration_id, window_start, window_end, universe_rule, retry_of, status}] "
+        "candidate {strategy_id, revision}, source_sha256, entry_class, image_ref (the runtime image digest pinned when "
+        "this run-id was first prepared; a repeat that passes a tag keeps it), "
+        "validations [{registration_id, window_start, window_end, universe_rule, retry_of, status}] "
         "(empty means none at research_at), validation_note}; status reads "
         "preflight_complete or preflight_failed from the same account, clock and source checks start applies, and logs "
         "gives the refusal",
         "UNKNOWN_CANDIDATE (also a candidate absent at a repeat's research_at); LIVE_RELEASE_UNAVAILABLE; LIVE_RUN_CONFLICT; LIVE_RUN_FORMAT; LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
-        "LIVE_CONFIG; LIVE_RESEARCH_COMMIT; LIVE_SYMBOLS; LIVE_UNIVERSE; LIVE_SOURCE_UNSUPPORTED; LIVE_IDENTITY_CHANGED; "
+        "LIVE_CONFIG; LIVE_RESEARCH_COMMIT; LIVE_SYMBOLS; LIVE_UNIVERSE; LIVE_IDENTITY_CHANGED; "
         "LIVE_MARKET_TERMS; LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; "
         "LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE; RUNTIME_NOT_MAIN"),
     ("live", "start"): (
@@ -61,7 +61,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "reserves this configured account slot and starts native Live execution; an unknown outcome retains custody",
         "run_id, mode, starting/running state, write_status and warnings; no restart of an attempted source",
         "LIVE_RELEASE_UNAVAILABLE; LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RESTART_REQUIRES_RECONCILIATION; LIVE_RUN_FORMAT; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
-        "LIVE_ACCOUNT_CHANGED; LIVE_CONFIG; LIVE_SOURCE_MISSING; LIVE_IDENTITY_CHANGED (includes a confirmation that is not this run's source); LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; "
+        "LIVE_ACCOUNT_CHANGED; LIVE_IDENTITY_CHANGED (includes a confirmation that is not this run's source); LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; "
         "LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "status"): (
         "the private manifest, lifecycle, native observations and retained container state",
@@ -121,8 +121,6 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--research-at", required=True, help="full immutable research commit")
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--symbols", nargs="+", required=True, help="distinct Binance USD-M symbols, e.g. BTCUSDT")
-    command.add_argument("--strategy-file", type=Path, help="reviewed Live adaptation; original candidate stays unchanged")
-    command.add_argument("--strategy-class", help="entry class of the adapted source")
     command.add_argument("--universe-file", type=Path, required=True,
                          help="universe JSON file (each symbol's membership intervals); its bytes are frozen "
                               "with the run")
@@ -154,8 +152,6 @@ def register(verbs, verb, runner) -> None:
             command.add_argument("--confirm-real-orders", required=True, metavar="SOURCE_SHA256",
                                  help="the source_sha256 preflight or status shows: this source places real orders with "
                                       "real money, and a loss can exceed the limits you set")
-            command.add_argument("--strategy-file", type=Path, help="optionally verify the prepared source bytes")
-            command.add_argument("--strategy-class", help="optionally verify the prepared entry class")
         if action == "logs":
             command.add_argument("--tail", default=200, type=int, help="1–2000 lines")
 
@@ -197,13 +193,11 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             args.symbols, args.universe_file, args.credentials_file, args.runtime,
             budget_usdt=args.budget_usdt, max_loss_usdt=args.max_loss_usdt, duration_seconds=args.duration_seconds, memory=args.memory,
             leverage=args.leverage, market_root=Path(profiles.market(args.market)["root"]),
-            scope=live_scope,
-            strategy_file=args.strategy_file, strategy_class=args.strategy_class), 0
+            scope=live_scope), 0
     if args.verb == "start":
         from live import control
         return control.operator_start(args.root, args.run_id, args.credentials_file, args.confirm_real_orders,
-                                      scope=live_scope, strategy_file=getattr(args, "strategy_file", None),
-                                      strategy_class=getattr(args, "strategy_class", None)), 0
+                                      scope=live_scope), 0
     if args.verb == "reconcile":
         from live import control
         return control.operator_reconcile(args.root, args.run_id, args.credentials_file, scope=live_scope), 0
