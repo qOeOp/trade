@@ -72,11 +72,12 @@ header template, the entry class, the two hooks and a sizing helper.
   close (Paper and Live: 5 s later, once the last minute is in), the first one whole. The warm-up
   history of the same period arrives as `{instrument_id}-<N>-<UNIT>-LAST-EXTERNAL`, a different bar
   type with the same `bar_type.spec`: route bars by instrument and `spec`, so that neither is dropped.
-- Every market-data price or indicator input used to decide whether, how much or at what price
-  to submit (signals, quantity inputs and specification-check prices included) must come from a
-  completed event strictly earlier than submission. Trace each input's timestamp; guarding the signal
-  timestamp alone does not establish this. Submit on a later event so fills cannot share the
-  input bar's close. When a rule reads a prior-bar indicator, update it after the decision.
+- Every input used to decide whether, how much or at what price to submit (signals, quantity
+  inputs, specification-check prices, equity and account state included) must come from a
+  completed event strictly earlier than submission; in replay a timestamp's MARK arrives before its
+  bar, so read equity at the earlier decision event. Trace each input's timestamp; guarding the
+  signal timestamp alone does not establish this. Submit on a later event so fills
+  cannot share the input bar's close. When a rule reads a prior-bar indicator, update it after the decision.
   Do not delay required protection or termination actions with a blanket bar gate.
 - `on_start` runs at the instance's `trade_start_ns`, later when its listing or history is. The
   independent audit also checks native `OrderSubmitted` / `OrderEmulated.ts_event` against that
@@ -150,7 +151,7 @@ empty ratios read in `replay_diagnostics`.
   count them.
 - React to order and position events
   and read `self.cache` and `self.portfolio`. Never infer a fill from a bar's range, compute fees or
-  funding, or keep a private ledger. Size from native state: portfolio equity, the instrument's
+  funding, or keep a private ledger. Size from native state: portfolio equity (read as above), the instrument's
   multiplier, `make_price`, `make_qty`, `min_quantity` and `min_notional`.
 
 ## Plans, sizing and capital

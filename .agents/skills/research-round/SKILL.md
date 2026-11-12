@@ -77,9 +77,10 @@ When the distance lies far beyond such moves and beyond the inferred quotes' mea
 exposure `quotes` may still be chosen when the pinned market day holds them for every month of the trading window and research-start's
 readiness check supports the use.
 
-For causal, trace every market-data price or indicator input reaching order submission, including
+For causal, trace every price, indicator, equity or account-state input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
-submission; a daily signal guard or a passed run audit does not cover other inputs. Read the
+submission (equity read in the submitting callback already holds that minute's MARK and does not); a
+daily signal guard or a passed run audit does not cover other inputs. Read the
 prices with `market bars` at the precheck's market day: the stored bars and funding the
 Catalog holds, each with the time it reaches the strategy (`ts_event_ms`, a bar's close); read
 tick, size step and minimum notional from `market coverage`'s `terms`. Compare
