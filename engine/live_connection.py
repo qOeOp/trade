@@ -206,7 +206,8 @@ def on_socket_state(session, event) -> None:
 
 
 def bar(session, bar) -> None:
-    """Continuity of the external bars the source receives: a missing one holds entries closed for the run."""
+    """Continuity of the external bars the source receives: a missing one closes entries until a restart warms the
+    source up again (rewarm)."""
     try:
         if not bar.bar_type.is_externally_aggregated():
             return
@@ -219,7 +220,29 @@ def bar(session, bar) -> None:
     if state.reconnected is not None and not state.bar_since_reconnect:
         state.bar_since_reconnect = True
     if previous is not None and bar.ts_event - previous > step:
-        close_entries(session, "bars_missing", withdraw=False, bar_type=kind, after_ns=previous, received_ns=bar.ts_event)
+        # The source is rebuilt by the next start (rewarm): its working entries go now, while this process still
+        # protects a fill; positions keep their exits (design §3.2 item 3).
+        close_entries(session, "bars_missing", bar_type=kind, after_ns=previous, received_ns=bar.ts_event)
+
+
+def rewarm_pending(session, cache) -> bool:
+    """A missing bar closed entries, nothing else holds them closed that a restart's own checks would not clear, and
+    this strategy holds nothing: no position, no order, no entry waiting to be sent. Its source decides on nothing more
+    (it is rebuilt by the next start) and the venue comparison decides the restart (design §3.2 item 3)."""
+    closed = session.connection.closed
+    if session.mode != "run" or session.stopping or session.pending_entries or "bars_missing" not in closed \
+            or not set(closed) - {"bars_missing"} <= RECOVERABLE:
+        return False
+    strategy = source_strategy_id(session.manifest)
+    return not cache.positions_open(strategy_id=strategy) and not any(
+        not order.is_closed for order in cache.orders(strategy_id=strategy))
+
+
+def rewarm(session) -> None:
+    """End this start without closing anything; the control starts the run again (engine.live INTERRUPTED) and its
+    warm-up reads Binance's complete bars: the data is not patched."""
+    session.rewarming = True
+    session.begin_stop("rewarming")
 
 
 def compare(snapshot: dict, cache, manifest: dict) -> dict[str, list]:
@@ -307,7 +330,7 @@ def tick(session, observer, now: float) -> None:
     if state.last_compare is None:
         state.last_compare = now  # the start's own account check just agreed; the periodic one follows
         return
-    checking = bool(state.closed) and set(state.closed) <= RECOVERABLE
+    checking = bool(state.closed) and set(state.closed) <= RECOVERABLE or rewarm_pending(session, observer.cache)
     interval = (COMPARE_RETRY_SECONDS if state.agreed is None or not checking else COMPARE_SPACING_SECONDS) \
         if checking or state.suspect else PERIODIC_SECONDS
     if now - state.last_compare >= interval:
@@ -323,7 +346,8 @@ def judge(session, cache, snapshot: dict) -> None:
     found = compare(snapshot, cache, session.manifest)
     if state.reconnected is not None and not state.bar_since_reconnect:
         found.setdefault("bars", []).append("no bar since the reconnect")
-    checking = bool(state.closed) and set(state.closed) <= RECOVERABLE
+    rewarming = rewarm_pending(session, cache)
+    checking = bool(state.closed) and set(state.closed) <= RECOVERABLE or rewarming
     observation = None
     if found or checking:
         # Kept when it disagrees or decides a check; a periodic agreement adds nothing to keep.
@@ -338,7 +362,8 @@ def judge(session, cache, snapshot: dict) -> None:
         if state.agreed is None:
             state.agreed = snapshot["observed_ns"]
         elif snapshot["observed_ns"] - state.agreed >= (COMPARE_SPACING_SECONDS - 1) * 1_000_000_000:
-            open_entries(session)
+            # Two agreeing reads since the gap: the venue holds nothing the cache does not know.
+            rewarm(session) if rewarming else open_entries(session)
         return
     state.agreed = None
     if "unknown_orders" in found:

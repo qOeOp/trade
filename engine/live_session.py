@@ -39,6 +39,7 @@ class Session:
     interrupt_requested: threading.Event = field(default_factory=threading.Event)
     interrupting: bool = False
     held_flat: bool = False  # a held resume saw the venue flat: the next start trades again
+    rewarming: bool = False  # a missing bar while flat: the next start warms the source up again
     armed_ns: int | None = None  # a resumed run's first arming: its duration counts from there, across starts
     node: Any = None
     source: Any = None
@@ -119,6 +120,9 @@ class Session:
 
     def observe_stop_intent(self) -> bool:
         """Apply operator intent at dispatch/submission, without waiting for a timer."""
+        if self.rewarming and (strategy_runtime.FAILURES or self.stop_requested.is_set()
+                               or (self.output / "STOP").exists() or self.duration_reached()):
+            self.rewarming = self.stopping = False  # a stop that ends the run supersedes starting it again
         if strategy_runtime.FAILURES:
             self.failed = True
             self.begin_stop("source_failure")
@@ -127,11 +131,15 @@ class Session:
         elif self.interrupt_requested.is_set() and not self.stopping:
             self.interrupting = True
             self.begin_stop("interrupted")
-        elif (duration := self.manifest["config"]["duration_seconds"]) is not None and (
-                time.time_ns() - self.armed_ns >= duration * 10**9 if self.armed_ns is not None
-                else self.started is not None and time.monotonic() - self.started >= duration):
+        elif self.duration_reached():
             self.begin_stop("duration")
         return self.stopping
+
+    def duration_reached(self) -> bool:
+        duration = self.manifest["config"]["duration_seconds"]
+        return duration is not None and (
+            time.time_ns() - self.armed_ns >= duration * 10**9 if self.armed_ns is not None
+            else self.started is not None and time.monotonic() - self.started >= duration)
 
     def check_protection(self, cache, now: float) -> None:
         """engine.protection on the native cache (native orders keep reduce-only; Binance Hedge orders carry none)."""

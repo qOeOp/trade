@@ -38,7 +38,9 @@ OBSERVATION_PREFIXES = {"preflight": ("preflight",), "started": ("connected-acco
 OBSERVATION_EVENTS = frozenset(OBSERVATION_PREFIXES)
 HOST_STATES = frozenset({"prepared", "running", "clean_stopped", "not_armed", "unresolved", "reconciled_flat",
                          "venue_flat", "preflight_complete", "preflight_failed", "interrupted"})
-RESTART_EVENTS = frozenset({"interrupted", "resuming", "held", "venue_flat_while_held", "held_flat"})
+# warmup: a trading start's source warmed up (after rewarming, entries are open again: live.notify).
+RESTART_EVENTS = frozenset({"interrupted", "resuming", "held", "venue_flat_while_held", "held_flat", "rewarming",
+                            "warmup"})
 
 
 def _text(value, pattern=IDENTIFIER):

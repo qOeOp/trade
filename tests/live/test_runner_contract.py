@@ -75,3 +75,16 @@ class RunnerContractTests(LiveFixture):
                 self.setUp()
                 self.assertEqual(reading(self, sample), sample["reading"], RAISE)
                 self.assertFalse(os.path.lexists(self.directory / "out" / "STOP") and sample["reading"]["starts_again"])
+
+    def test_a_start_that_ended_to_warm_up_again_is_an_interruption_that_starts_again(self):
+        # engine.live_connection.rewarm: a non-ending event and the interrupted status, so this number holds.
+        sample = {"mode": "run", "files": ["armed.json"],
+                  "events": [{"event": "connecting", "mode": "run"},
+                             {"event": "entries_closed", "reason": "bars_missing"},
+                             {"event": "stopping", "reason": "rewarming", "source_reason": None},
+                             {"event": "rewarming", "mode": "run"}],
+                  "container": {"Running": False, "Status": "exited", "ExitCode": runner.INTERRUPTED}}
+        self.assertEqual(reading(self, sample), {"state": "interrupted", "stop_reason": None, "exit_code": 3,
+                                                 "starts_again": True})
+        self.assertNotIn("rewarming", runner.ENDED_EVENTS)
+

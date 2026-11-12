@@ -246,7 +246,7 @@ def execute(args) -> int:
             observed_flat = not (pending_orders(node.cache) or node.cache.positions_open())
             session.native_flat = observed_flat and (session.native_flat or args.mode == "reconcile") \
                 and not (session.persistence_failed or session.journal_failed or session.connection_failed
-                         or session.interrupting or session.held_flat)
+                         or session.interrupting or session.held_flat or session.rewarming)
         except BaseException as exc:
             session.event("unresolved", failure_type=type(exc).__name__, strict=False,
                           code=exc.code if isinstance(exc, Refusal) else None)
@@ -274,9 +274,10 @@ def execute(args) -> int:
             session.event("clean_stop" if args.mode == "run" else "reconciled_flat",
                           source_failed=session.failed, observation=observation)
             return 1 if session.failed else 0
-        if (session.interrupting or session.held_flat) and not session.failed:
+        if (session.interrupting or session.held_flat or session.rewarming) and not session.failed:
             # Positions and their exchange stops stay; the control starts this run again (live.runs).
-            session.event("held_flat" if session.held_flat else "interrupted", mode=session.mode)
+            session.event("held_flat" if session.held_flat else "rewarming" if session.rewarming else "interrupted",
+                          mode=session.mode)
             return INTERRUPTED
         if session.mode == "run":
             session.event("unresolved", mode=args.mode)

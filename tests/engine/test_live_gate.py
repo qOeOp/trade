@@ -43,6 +43,11 @@ def order(venue_id, status=OrderStatus.ACCEPTED, strategy=None, closed=False):
                            strategy_id=strategy)
 
 
+def native(cache):
+    """Strategy as live_source reads a source's native cache through it."""
+    return SimpleNamespace(cache=SimpleNamespace(__get__=lambda *_: cache))
+
+
 class GateTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -265,20 +270,91 @@ class GateTests(unittest.TestCase):
         fresh.armed_ns = 0
         self.assertFalse(fresh.observe_stop_intent())
 
-    def test_a_missing_bar_holds_entries_closed_without_withdrawing_working_ones(self):
+    def gap(self):
         self.session.cancel_entries = mock.Mock()
         minute = 60_000_000_000
         for ts in (minute, 2 * minute):
             live_connection.bar(self.session, SimpleNamespace(bar_type=BAR, ts_event=ts))
         self.assertTrue(live_connection.entries_open(self.session))
         live_connection.bar(self.session, SimpleNamespace(bar_type=BAR, ts_event=4 * minute))
+
+    def agree_twice(self, cache, found=None):
+        with mock.patch.object(live_connection, "compare", return_value=found or {}):
+            for observed in (10**12, 10**12 + 31 * 10**9):
+                live_connection.judge(self.session, cache, dict(self.snapshot, observed_ns=observed))
+
+    def test_a_missing_bar_withdraws_working_entries_and_never_reopens_them(self):
+        self.gap()
         self.assertEqual(set(self.session.connection.closed), {"bars_missing"})
-        self.session.cancel_entries.assert_not_called()
-        # Held for the run: no comparison reopens it.
+        self.session.cancel_entries.assert_called_once_with("bars_missing")  # a fill is still protected now
+        position = SimpleNamespace(strategy_id=self.strategy, is_open=True)
+        self.agree_twice(Cache(positions=[position]))  # agreeing reads with a position open: no restart
+        self.assertEqual(set(self.session.connection.closed), {"bars_missing"})
+        self.assertFalse(self.session.stopping)
+
+    def test_a_flat_run_starts_again_to_warm_up_after_two_agreeing_reads_since_the_gap(self):
+        self.gap()
+        cache = Cache()
+        self.assertTrue(live_connection.rewarm_pending(self.session, cache))
+        with mock.patch.object(commands, "observe_account") as observe:
+            self.session.connection.last_compare = 0
+            live_connection.tick(self.session, SimpleNamespace(cache=cache), 10)
+            observe.assert_called_once()  # flat: the check runs at once, as for a reconnect
+        self.session.connection.observation = None
         with mock.patch.object(live_connection, "compare", return_value={}):
-            self.session.connection.agreed = 1
-            live_connection.judge(self.session, Cache(), dict(self.snapshot, observed_ns=10**12))
-        self.assertEqual(set(self.session.connection.closed), {"bars_missing"})
+            live_connection.judge(self.session, cache, dict(self.snapshot, observed_ns=10**12))
+        self.assertFalse(self.session.stopping)  # one read is not enough
+        with mock.patch.object(live_connection, "compare", return_value={}):
+            live_connection.judge(self.session, cache, dict(self.snapshot, observed_ns=10**12 + 31 * 10**9))
+        self.assertTrue(self.session.rewarming and self.session.stopping)
+        self.assertFalse(self.session.failed)
+        self.assertEqual([row["reason"] for row in self.events() if row["event"] == "stopping"], ["rewarming"])
+        self.assertFalse(any(row["event"] == "entries_opened" for row in self.events()))
+
+    def test_an_order_the_cache_does_not_know_keeps_the_run_from_starting_again(self):
+        self.gap()
+        self.session.source = mock.Mock()
+        with mock.patch.object(live_connection.Strategy, "cancel_all_orders") as cancel_all:
+            self.agree_twice(Cache(), {"unknown_orders": ["V-9"]})
+        cancel_all.assert_called()  # the existing path: every order on the contract goes
+        self.assertEqual(set(self.session.connection.closed), {"bars_missing", "unknown_orders"})
+        self.assertFalse(live_connection.rewarm_pending(self.session, Cache()))
+        self.assertFalse(self.session.stopping)
+
+    def test_only_a_flat_strategy_waits_to_warm_up_and_only_for_reasons_a_restart_clears(self):
+        self.gap()
+        open_order = order(1, strategy=self.strategy)
+        self.assertFalse(live_connection.rewarm_pending(self.session, Cache(orders=[open_order])))
+        self.assertTrue(live_connection.rewarm_pending(self.session, Cache(orders=[order(2, closed=True)])))
+        self.session.connection.closed["unverified"] = 0.0
+        self.assertTrue(live_connection.rewarm_pending(self.session, Cache()))
+        self.session.connection.closed["foreign"] = 0.0
+        self.assertFalse(live_connection.rewarm_pending(self.session, Cache()))
+
+    def test_a_flat_source_sees_no_bar_after_the_gap_and_one_with_a_position_does(self):
+        seen = []
+        on_bar = live_source._gated("on_bar", lambda source, bar: seen.append(bar))
+        source = SimpleNamespace(_live=self.session)
+        self.session.evidence = mock.Mock()
+        self.gap()
+        bar = SimpleNamespace(bar_type=BAR, ts_event=5 * 60_000_000_000)
+        with mock.patch.object(live_source, "Strategy", native(Cache())):
+            on_bar(source, bar)
+        self.assertEqual(seen, [])
+        self.session.evidence.bar.assert_called_once_with(bar)  # still in the evidence pack
+        held = Cache(positions=[SimpleNamespace(strategy_id=self.strategy, is_open=True)])
+        with mock.patch.object(live_source, "Strategy", native(held)):
+            on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=6 * 60_000_000_000))
+        self.assertEqual(len(seen), 1)  # its exits are managed as before
+
+    def test_a_stop_asked_for_while_warming_up_again_ends_the_run(self):
+        self.gap()
+        live_connection.rewarm(self.session)
+        (self.session.output / "STOP").write_text("")
+        self.assertTrue(self.session.observe_stop_intent())
+        self.assertFalse(self.session.rewarming)  # the observer flattens and the run ends clean, not interrupted
+        self.assertEqual([row["reason"] for row in self.events() if row["event"] == "stopping"],
+                         ["rewarming", "requested"])
 
     def test_an_old_connection_is_renewed_only_while_flat_and_mid_minute(self):
         observer = mock.Mock()

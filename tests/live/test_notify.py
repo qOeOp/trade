@@ -220,7 +220,22 @@ class Sending(Base):
         self.assertEqual(len(texts), 3)  # a brief reconnect, closed and reopened, says nothing
         self.assertIn("down for over a minute", texts[0])
         self.assertIn("entries are open", texts[1])
-        self.assertIn("closed for the rest of the run: a bar is missing", texts[2])
+        self.assertIn("a bar is missing from the feed, so entries are closed", texts[2])
+        self.assertIn("starts again and warms up", texts[2])
+
+    def test_a_start_again_to_warm_up_is_noticed_once_and_so_is_the_reopening(self):
+        restarts = [{"event": "warmup", "observed_ns": "1", "held": None},  # the first start: nothing to say
+                    {"event": "rewarming", "observed_ns": "2", "held": None},
+                    {"event": "resuming", "observed_ns": "3", "held": False},
+                    {"event": "warmup", "observed_ns": "4", "held": None},
+                    {"event": "interrupted", "observed_ns": "5", "held": None},
+                    {"event": "resuming", "observed_ns": "6", "held": False},
+                    {"event": "warmup", "observed_ns": "7", "held": None}]
+        sent = [(key, text) for key, text in notify.messages(run(restarts=restarts)) if ":restart:" in key]
+        self.assertEqual([key for key, _ in sent], ["run-a:restart:rewarming:2", "run-a:restart:warmup:4",
+                                                    "run-a:restart:interrupted:5", "run-a:restart:resuming:6"])
+        self.assertIn("starts again to warm up", sent[0][1])
+        self.assertIn("entries are open", sent[1][1])
 
     def test_the_brake_and_a_failed_key_check_and_its_recovery_are_noticed(self):
         facts = run(brake={"peak": "104", "fired": {"equity": "88", "peak": "104", "drawdown": "0.1538",

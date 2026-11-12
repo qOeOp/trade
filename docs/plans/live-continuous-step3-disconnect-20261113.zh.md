@@ -38,5 +38,5 @@
 1. 在 Live 页面用小预算启动一个运行（源码最好在空仓时很少入场）。
 2. 短断：在某分钟第 5 秒左右让 runner 的出口断网约 30 秒（例如 `docker pause <egress>`，30 秒后 `docker unpause`），不跨分钟边界。
    期望：`events.jsonl` 依次出现 `entries_closed`（disconnected）、`entries_checking`、两条 `comparison`（agreed=true，相隔 ≥30 秒）、`entries_opened`；运行没有结束，没有 `unresolved`，不发 Telegram。
-3. 长断：断网约 2 分钟。期望：多出 `connection_lost` 和 Telegram"断开超过 1 分钟"；因为跨过分钟边界，还会有 `entries_closed`（bars_missing），入场在本次运行内保持关闭，Telegram 说明原因——这是预期行为，停止运行即可。
+3. 长断：断网约 2 分钟。期望：多出 `connection_lost` 和 Telegram"断开超过 1 分钟"；因为跨过分钟边界，还会有 `entries_closed`（bars_missing），入场关闭，Telegram 说明原因；空仓时随后以 `rewarming` 结束本次启动，控制重启并重新预热后入场重开（`live-bars-missing-rewarm-20261113.zh.md`）。
 4. 有持仓时重复一次：止损单在交易所保持不动；断网超过 60 秒没有标记价格时运行按现有规则停止并平仓。
