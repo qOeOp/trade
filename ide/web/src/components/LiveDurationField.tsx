@@ -20,10 +20,12 @@ const FIELD = "w-[2ch] border-0 border-b border-link bg-transparent px-0 pb-px t
 /** A duration typed as years, months, days and hours, each its own two-digit field on a blue underline, sent as the
  *  whole seconds the server takes (a month 30 days, a year 365). Every part shows two digits ("00 y 00 mo 01 d 00 h");
  *  a zero part is faint, so the parts in use read first. Typing moves to the next part once no further digit fits; ↑/↓ step the part by one; Backspace in an empty
- *  part goes back one. Leaving the field writes the value in its largest units ("45 d" becomes "1 mo 15 d"). Time
+ *  part goes back one. Leaving the field writes the value in its largest units ("45 d" becomes "1 mo 15 d") and
+ *  hides the leading zero parts until it is edited again. Time
  *  below an hour in a server default shows faint after it until the first edit. */
 export function LiveDurationField({ label, value, invalid, onValue }: { label: string; value: string; invalid: boolean; onValue: (seconds: string) => void }) {
   const [parts, setParts] = useState(() => split(value));
+  const [editing, setEditing] = useState(false);
   const sent = useRef(value), inputs = useRef<(HTMLInputElement | null)[]>([]);
   // A value from outside (Reset) redraws the fields; the field's own edits do not until it is left.
   useEffect(() => { if (value !== sent.current) { sent.current = value; setParts(split(value)); } }, [value]);
@@ -42,10 +44,15 @@ export function LiveDurationField({ label, value, invalid, onValue }: { label: s
     send({ ...split(String(Math.max(0, total(parts) - parts.carry + unit * (event.key === "ArrowUp" ? 1 : -1)))), carry: 0 });
   };
   const leave = (event: FocusEvent<HTMLSpanElement>) => {
-    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setParts((now) => split(String(total(now))));
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setEditing(false);
+    setParts((now) => split(String(total(now))));
   };
-  return <span role="group" aria-label={label} onBlur={leave} className="flex flex-wrap items-baseline justify-end whitespace-pre tabular-nums">
-    {SPAN_UNITS.map((unit, at) => <span key={unit.label} className="whitespace-pre">
+  // At rest the leading zero parts are left out ("01 d 00 h"); while editing every part shows.
+  const used = parts.fields.findIndex((field) => Number(field || 0) > 0);
+  const first = editing ? 0 : used < 0 ? LAST : used;
+  return <span role="group" aria-label={label} onFocus={() => setEditing(true)} onBlur={leave} className="flex flex-wrap items-baseline justify-end whitespace-pre tabular-nums">
+    {SPAN_UNITS.map((unit, at) => at >= first && <span key={unit.label} className="whitespace-pre">
       <input ref={(node) => { inputs.current[at] = node; }} value={parts.fields[at]} aria-label={`${label}, ${unit.name}`}
         inputMode="numeric" maxLength={2} spellCheck={false} aria-invalid={invalid} onFocus={(event) => event.target.select()}
         onChange={(event) => type(at, event.target.value)} onKeyDown={key(at)}
