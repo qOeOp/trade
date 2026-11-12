@@ -51,3 +51,5 @@ D6 其余停点：未提交的研究工作树不动它，另起一个新的继�
 - Skill：research-start SKILL.md 与 readiness.md，research-round SKILL.md、feedback.md、changes.md、validation.md。
 - 研究链站点：entry.zh.mdx（E-4、E-4-1-1、MARKET_DAY_UNRESOLVED）、replay-environment.zh.mdx（缺口与导入）。
 - 评测：新增本次行为的用例；被改错的旧用例在单独的 PR 里改。
+- 评测发现的两处回归，各补一句：达到两项目标不算用户接受候选，不在那时问验证（targets-met-tells-validation-once）；用户给的来源马上转写成新的根，不能只留作证据或拆成本线的改动，选哪条线仍由用户决定（user-source-becomes-new-root）。
+- D3 的附带影响：手动导入一个合约的 metrics 会把市场的最新日拖后，最长约两个月（market/README.md）。导入时在本轮消息里说明。

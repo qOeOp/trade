@@ -117,7 +117,8 @@ reading reports; ask for nothing else (no sizing, budgets or stages).
 
 An idea the user adds with the choice is one ordinary hypothesis in the line (research-round's
 hypothesis stage), never exempt from registration or applied by editing source and replaying. A
-source the user gives is transcribed into a new root (research-round's template.md).
+source the user gives is transcribed into a new root at once (research-round's template.md), never
+kept only as evidence or split into changes of this line's source; the user chooses its line.
 
 - Before continuing into `research-round`, establish the host Goal for the selected line. Reuse
   an active Goal for this line. Otherwise compose the objective yourself from its bundle/start,

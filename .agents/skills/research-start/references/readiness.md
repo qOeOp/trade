@@ -37,10 +37,11 @@ not a substitute for the disposition.
    runs retained for resuming; do not consume a registration, overwrite a run or write a new line
    while presenting options. Missing coverage does not make the candidate failed or the line invalid.
 4. **User choice.** First import a missing month the archive holds of contracts and kinds the line
-   already uses and the `market-import` service does not keep yourself (below; quotes for a month whose bars the market holds through `market
-   import-quotes`), name it in the round's message and cite it in the next priority judgment; the
-   line's pinned market day reads it once imported and does not move, so it needs no new line
-   record. Ask only about an anomaly that would stop or distort the replay and no import fills: a gap the
+   already uses and the `market-import` service does not keep yourself (below; quotes for a month
+   whose bars the market holds through `market import-quotes`), name it in the round's message
+   (a metrics import also holds the market's latest day back, `market/README.md`) and cite it in
+   the next priority judgment; the line's pinned market day reads it once imported and does not
+   move, so it needs no new line record. Ask only about an anomaly that would stop or distort the replay and no import fills: a gap the
    replay's treatment above fails the run on or leaves unvalued (a MARK gap beyond the carry where a
    position may be open), missing funding after the trading start, a missing month or a refused
    `market coverage` read, or a gap on an input value the strategy reads (for example a warm-up

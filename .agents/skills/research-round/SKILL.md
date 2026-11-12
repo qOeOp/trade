@@ -165,9 +165,10 @@ counts and budgets do not reject a research direction;
 - Authoring a complete report: [report.md](templates/report.md).
 - Runtime, data, contract or execution environment identity changes: [changes.md](references/changes.md).
 - Out-of-sample validation: [validation.md](references/validation.md), only after the user requests
-  it. When the user accepts a candidate, ask once in that reply whether to validate it, proposing
-  the accepted version, a window rule and universe, and keep researching: the question blocks only
-  the validation registration; disclose a newer recommendation, never swap it in. Only a window
+  it. When the user accepts a candidate (a recommendation reaching the targets is no acceptance),
+  ask once in that reply whether to validate it, proposing the accepted version, a window rule and
+  universe, and keep researching: the question blocks only the validation registration; disclose a
+  newer recommendation, never swap it in. Only a window
   after the validation registration's timestamp is out-of-sample. Development data, including
   previously unused subsets, support conditional observations, never independent validation or
   claims of generalization or absence of overfitting.
