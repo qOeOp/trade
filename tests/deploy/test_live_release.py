@@ -41,6 +41,9 @@ class PairHost(Host):
         self.controls = []
         self.inspect_hook = None
         self.inspected = []
+        self.adopt_flags = []  # whether each inspection was asked for the busy runs' runtimes
+        self.runtimes = []  # the runtime build revisions a busy account's runs answer with --adopt
+        self.inspect_failure = False
 
     def requires_live(self, name):
         return name in self.live_web
@@ -65,9 +68,14 @@ class PairHost(Host):
     def docker(self, *args, **kwargs):
         if args[0] == "run" and "release-inspect" in args:
             self.assert_locked()
-            self.inspected.append(Path(args[-1]).parent.name)
+            self.inspected.append(Path(args[args.index("--configuration") + 1]).parent.name)
+            self.adopt_flags.append("--adopt" in args)
             if self.inspect_hook:
                 self.inspect_hook()
+            if self.inspect_failure:
+                raise RuntimeError("docker run failed: usage: cli.main live release-inspect")
+            if "--adopt" in args and self.idle == "busy":
+                return json.dumps({"state": "busy", "runtimes": self.runtimes})
             return json.dumps({"state": self.idle})
         raise AssertionError(args)
 
@@ -531,6 +539,90 @@ class WebFirstReleaseTests(unittest.TestCase):
         self.assertEqual(self.host.disk, WEB + A)
         self.assertFalse(self.release.transaction.exists())
         self.assertFalse(self.release.failed.exists())
+
+
+class AdoptReleaseTests(unittest.TestCase):
+    """A candidate that changes the control pairs over a busy account when its control takes over the running
+    runners: the same declaration, ADOPT_INSPECT declared, and each busy run's runtime build revision declaring the
+    candidate's runner contract (docs/plans/live-continuous-step6-adopt-20261113.zh.md)."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.host = PairHost(Path(directory.name).resolve())
+        self.host.idle = "busy"
+        self.built = "e" * 40  # the runtime revision the busy run was built from
+        self.host.runtimes = [self.built]
+        self.source = Mock()
+        self.source.agent_changed.return_value = False
+        self.source.control_changed.return_value = True
+        self.source.protocol.return_value = 1
+        self.source.adopts.return_value = True
+        self.contracts = {B: 1, C: 1, self.built: 1}
+        self.source.runner_contract.side_effect = lambda sha: self.contracts.get(sha)
+        self.live = PairLive(self.host, self.source)
+        self.release = Release(self.host, self.source, live=self.live)
+
+    def test_a_busy_account_pairs_and_its_runners_pass_to_the_candidate_control(self):
+        self.release.apply(PAIR)
+        self.assertEqual((self.host.disk, self.host.live, self.host.disk_owner()), (WEB + B, WEB + B, B))
+        self.assertFalse(self.release.transaction.exists())
+        self.assertEqual(self.live.created, [(WEB + B, SERVICE)])
+        self.assertEqual(self.host.controls, [("start", WEB + B), ("drain", WEB + A)])
+        # The owner's control is asked as before; the candidate's lists the runtimes, once to write the
+        # transaction and once inside the commit.
+        self.assertEqual(list(zip(self.host.inspected, self.host.adopt_flags, strict=True)), [(A, False), (B, True), (B, True)])
+        self.assertEqual({call.args for call in self.source.runner_contract.call_args_list}, {(B,), (self.built,)})
+
+    def test_a_different_missing_or_unreadable_runner_contract_lets_only_the_web_go_first(self):
+        def unreadable(sha):
+            raise ValueError("not one plain line")
+
+        for case in ("different", "no revision", "undeclared", "unreadable"):
+            with self.subTest(case=case):
+                self.setUp()
+                if case == "different":
+                    self.contracts[self.built] = 2
+                elif case == "no revision":
+                    self.host.runtimes = [self.built, None]
+                elif case == "undeclared":
+                    del self.contracts[self.built]  # a runtime built before RUNNER_CONTRACT
+                else:
+                    self.source.runner_contract.side_effect = unreadable
+                self.release.apply(PAIR)
+                self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + B + AHEAD, A))
+                self.assertEqual(self.live.created, [])
+                self.assertTrue(self.host.containers[LIVE + A])
+                self.assertFalse(any(action == "drain" for action, _ in self.host.controls))
+                self.assertFalse(self.release.failed.exists())
+
+    def test_without_adopt_inspect_or_with_a_changed_declaration_a_busy_account_needs_idle_as_before(self):
+        self.source.adopts.return_value = False  # an older candidate has no --adopt option
+        self.release.apply(PAIR)
+        self.assertEqual(self.host.disk, WEB + B + AHEAD)
+        self.assertNotIn(True, self.host.adopt_flags)
+        self.setUp()
+        self.live.declared = {**self.live.configs[WEB + A], "research_at": "b" * 32}
+        self.release.apply(PAIR)
+        self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + A, A))
+        self.assertEqual(self.host.adopt_flags, [False], "a changed declaration asks the candidate for idle only")
+        self.assertFalse(self.release.transaction.exists())
+
+    def test_a_failing_inspection_is_an_unavailable_account_and_fails_no_tick(self):
+        self.host.inspect_failure = True
+        self.release.apply(PAIR)
+        self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + B + AHEAD, A))
+        self.assertFalse(self.release.failed.exists())
+
+    def test_runners_that_cannot_pass_at_commit_roll_back(self):
+        self.host.on_observe = lambda: self.contracts.update({self.built: 2})  # after the switch, before the commit
+        with self.assertRaises(LiveBusy):
+            self.release.apply(PAIR)
+        self.assertEqual((self.host.disk, self.host.live, self.host.disk_owner()), (WEB + A, WEB + A, A))
+        self.assertTrue(self.host.containers[LIVE + A])
+        self.assertFalse(self.host.containers[LIVE + B])
+        self.assertFalse(self.release.transaction.exists())
+        self.assertTrue(self.release.failed.joinpath(B).exists())
 
 
 class LiveHostBoundaryTests(unittest.TestCase):

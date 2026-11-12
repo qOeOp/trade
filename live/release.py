@@ -22,6 +22,11 @@ from live import requests, runs, state
 # A control's own Web. A routed Web may instead serve ahead of the control that owns the account
 # (deploy.release_host.ahead, docs/plans/live-web-first-release-20261108.zh.md); such a Web has no control of its own.
 WEB = re.compile(re.escape(release_host.WEB) + REVISION.pattern)
+# `live release-inspect --adopt` answers a busy account with the runtime revision of each busy run, so a release host
+# can hand those runners to a new control of the same runner contract (engine/live.py RUNNER_CONTRACT). The host reads
+# this line from Git before it passes the flag: an older control has no such option
+# (docs/plans/live-continuous-step6-adopt-20261113.zh.md).
+ADOPT_INSPECT = 1
 
 
 def _unavailable():
@@ -160,46 +165,54 @@ def _events(path: Path) -> list[dict]:
 
 def idle_locked(root: Path) -> str:
     """Read custody and verified retained runners, including every unarchived preflight."""
+    return inspect_locked(root)[0]
+
+
+def inspect_locked(root: Path) -> tuple[str, list]:
+    """(idle, busy or unavailable; the `runtime.build_revision` of each busy run, None where its manifest has none).
+    Busy only once every run was read: one run that cannot be verified makes the whole account unavailable."""
+    busy: list = []
     try:
         mode = root.lstat().st_mode
         if (not stat.S_ISDIR(mode) or mode & 0o077
                 or not stat.S_ISREG((root / "account.lock").lstat().st_mode)):
-            return "unavailable"
+            return "unavailable", []
         requests.require_clear(root)
         account = _events(root / "account.jsonl")
         if any(row.get("event") not in {"reserved", "released"}
                or not isinstance(row.get("run_id"), str) or not state.RUN_ID.fullmatch(row["run_id"])
                for row in account):
-            return "unavailable"
+            return "unavailable", []
         directory = root / "runs"
         retained = []
         if os.path.lexists(directory):
             if directory.is_symlink() or not directory.is_dir():
-                return "unavailable"
+                return "unavailable", []
             retained = sorted(directory.iterdir())
             if any(item.is_symlink() or not item.is_dir() or not state.RUN_ID.fullmatch(item.name)
                    for item in retained):
-                return "unavailable"
+                return "unavailable", []
         active = runs._active(root)
         if active is not None and active not in {item.name for item in retained}:
-            return "unavailable"
+            return "unavailable", []
         for item in retained:
             if any((item / part).is_symlink() or not (item / part).is_dir() for part in ("inputs", "out")):
-                return "unavailable"
+                return "unavailable", []
             run_dir, manifest = runs._manifest(root, item.name)
             rows = _events(run_dir / "lifecycle.jsonl")
             if (sum(row.get("event") == "prepared" for row in rows) != 1
                     or any(row.get("run_id") != item.name for row in rows)):
-                return "unavailable"
+                return "unavailable", []
             native = _events(run_dir / "out" / "events.jsonl")
             if not any(row.get("event") == "launch_requested" for row in rows) and (
                     native or os.path.lexists(run_dir / "out" / "armed.json")):
-                return "unavailable"
+                return "unavailable", []
             observed = runs._status_view(root, item.name, maintain=False)
             if observed["account_owned"] or observed["state"] == "running":
-                return "busy"
+                busy.append(manifest["runtime"].get("build_revision"))
+                continue
             if observed["state"] not in {"prepared", *runs.ENDED}:
-                return "unavailable"
+                return "unavailable", []
             # A latest finished preflight does not prove an earlier timed-out one exited.
             # Original recycling already verified all runners; inspect only its later window.
             for launch in runs._since_removal(run_dir):
@@ -207,12 +220,13 @@ def idle_locked(root: Path) -> str:
                     continue
                 actual = runs._runner(root, item.name, run_dir, manifest, launch)
                 if actual is None:
-                    return "unavailable"
+                    return "unavailable", []
                 if actual["State"].get("Running") is True:
-                    return "busy"
+                    busy.append(manifest["runtime"].get("build_revision"))
+                    break
                 if (actual["State"].get("Status") != "exited"
                         or actual["State"].get("Running") is not False):
-                    return "unavailable"
-        return "idle"
+                    return "unavailable", []
+        return ("busy", busy) if busy else ("idle", [])
     except (LiveRefusal, OSError, ValueError, KeyError, TypeError):
-        return "unavailable"
+        return "unavailable", []

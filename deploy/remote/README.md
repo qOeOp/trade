@@ -122,14 +122,24 @@ the timer, let any release service finish, write the declaration (0600, in a 070
 `/var/lib/trade-release/live/`) and resume the timer. The next release pairs
 the first control. Do not save a credential or start a run as part of installing.
 
-When Live is busy or unresolved, the timer still releases a Web-only candidate beside the owner control
-(memory headroom permitting). A candidate that changes the control goes **Web first** when its
+When Live is busy, a candidate that changes the control still pairs and **takes over the running runners**
+when the declaration is unchanged, its `live/release.py` declares `ADOPT_INSPECT`, and every busy run's runtime
+build revision declares the candidate's `engine/live.py` `RUNNER_CONTRACT`. The candidate's own inspection lists
+those revisions inside the account lock, again at commit, and the journal logs `with a control that can take over
+running Live runners`. No runner, egress or image is touched: from the commit on, the new control restarts an
+interrupted run, checks its key and finishes it, and the old one is retired as below
+([design](../../docs/plans/live-continuous-step6-adopt-20261113.zh.md)). A changed declaration still needs Live idle
+(above): while a swapped declaration waits for its pair, the old control does no maintenance either, so an
+interrupted run is not started again and no key is checked until Live is idle and the new control pairs.
+
+When Live is busy or unresolved and its runners cannot pass, the timer still releases a Web-only candidate
+beside the owner control (memory headroom permitting). A candidate that changes the control goes **Web first** when its
 `live/protocol.py` `PROTOCOL` equals the owner's: its Web, named `trade-release-web-<revision>-pre`, serves
 beside the owner control exactly as a Web-only one does, and the journal logs `ahead of Live control
 <owner>`; once Live is idle the same revision pairs its own control under the plain name. An undeclared, malformed or
 different protocol keeps the current Web/control pair, and so does a held account lock, which is a
-read in progress rather than a busy account
-([design](../../docs/plans/live-web-first-release-20261108.zh.md)). During an idle update,
+read in progress rather than a busy account; an inspection that fails to run counts as unavailable
+([design](../../docs/plans/live-web-first-release-20261108.zh.md)). During a paired update,
 new effect-producing Live requests wait for a committed owner; reads and STOP remain available. Existing
 runners are never restarted for publication. Once the new pair is committed, the host verifies each
 retired control's exact Id, disables only its restart policy and sends cooperative SIGTERM. It observes

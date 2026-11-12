@@ -9,7 +9,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from deploy.release import GitSource, Release
+from deploy.release import (ADOPT, ADOPT_FILE, PROTOCOL, PROTOCOL_FILE, RUNNER_CONTRACT, RUNNER_CONTRACT_FILE, GitSource,
+                            Release)
 from deploy.paper_host import PAPER, PaperHost
 from deploy.release_host import (AGENT, AHEAD, KEPT_RELEASES, WEB, Config, DockerHost, ahead, revision,
                                  route_config, route_name, route_owner)
@@ -588,6 +589,37 @@ class SelectionTests(unittest.TestCase):
                 source.protocol(B)  # a failed read is not an undeclared protocol
             with self.assertRaisesRegex(RuntimeError, "invalid"):
                 source.protocol("main")
+
+    def test_adoption_and_runner_contract_are_declared_lines_and_none_before_their_declaration(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = GitSource(Path(root))
+
+            def tree(text, listed=True):
+                return lambda *args, **kwargs: (args[-1] + "\n" if listed else "") if args[0] == "ls-tree" else text
+
+            source.git = Mock(side_effect=tree('"""Doc."""\nRUNNER_CONTRACT = 2\nADOPT_INSPECT = 1\n'))
+            self.assertEqual((source.runner_contract(B), source.adopts(B)), (2, True))
+            self.assertEqual([call.args for call in source.git.call_args_list],
+                             [("ls-tree", "--name-only", B, "--", "engine/live.py"), ("show", f"{B}:engine/live.py"),
+                              ("ls-tree", "--name-only", B, "--", "live/release.py"), ("show", f"{B}:live/release.py")])
+            for text, listed in (("INTERRUPTED = 3\n", True), ("", False), ("RUNNER_CONTRACT = 0\n", True)):
+                source.git = Mock(side_effect=tree(text, listed))
+                self.assertEqual((source.runner_contract(B), source.adopts(B)), (None, False), text)
+            source.git = Mock(side_effect=tree("RUNNER_CONTRACT = 1\nRUNNER_CONTRACT = 2\n"))
+            with self.assertRaises(ValueError):
+                source.runner_contract(B)
+            source.git = Mock(side_effect=RuntimeError("git failed"))
+            with self.assertRaisesRegex(RuntimeError, "git failed"):
+                source.runner_contract(B)
+
+    def test_the_declarations_the_release_host_reads_are_in_this_revision(self):
+        for path, pattern, value in ((PROTOCOL_FILE, PROTOCOL, None), (ADOPT_FILE, ADOPT, 1),
+                                     (RUNNER_CONTRACT_FILE, RUNNER_CONTRACT, None)):
+            with self.subTest(path=path):
+                found = pattern.findall((Path(__file__).resolve().parents[2] / path).read_text())
+                self.assertEqual(len(found), 1)
+                if value is not None:
+                    self.assertEqual(int(found[0]), value)
 
     def test_withdrawn_malformed_or_stale_channel_cannot_use_a_cached_approval(self):
         with tempfile.TemporaryDirectory() as root:
