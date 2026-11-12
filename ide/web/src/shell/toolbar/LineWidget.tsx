@@ -62,6 +62,7 @@ export function LineWidget() {
         <DropdownSeparator />
       </>}
       <ResearchLines index={index} />
+      <DropdownSeparator />
       <DropdownFacts items={[
         ["Research line", line.bundle],
         ["Start", line.start ?? "-"],

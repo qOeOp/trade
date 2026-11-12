@@ -114,3 +114,23 @@ export function DropdownFacts({ items }: { items: readonly (readonly [string, Re
     </dl>
   );
 }
+
+// Menu rows that line up as columns: the grid (`cols`, a grid-template-columns class) sets the columns, its first
+// one the check column; a label row and each link row span all of them as a subgrid, so every cell of a column
+// starts at the same x whatever the other rows hold.
+const GRID_ROW = "col-span-full grid grid-cols-subgrid rounded-control px-2";
+export const DropdownGrid = ({ cols, children }: { cols: string; children: ReactNode }) => <div className={`grid ${cols}`}>{children}</div>;
+/** A row of column headers, not a menu item; its first cell sits over the check column. */
+export const DropdownGridLabel = ({ children }: { children: ReactNode }) =>
+  <DropdownMenu.Label className={`${GRID_ROW} items-end pb-1 pt-1.5 text-small text-fg-faint`}><span />{children}</DropdownMenu.Label>;
+/** A navigation row of the grid, a real link like DropdownLink. */
+export function DropdownGridLink({ href, current = false, children }: { href: string; current?: boolean; children: ReactNode }) {
+  return <DropdownMenu.Item asChild>
+    <a href={href} aria-current={current ? "page" : undefined}
+       className={`${GRID_ROW} h-(--row-h) items-center outline-none data-highlighted:bg-selection`}>
+      <span className="grid place-items-center text-icon">{current && <Icon name="check" />}</span>
+      {children}
+    </a>
+  </DropdownMenu.Item>;
+}
+export const DropdownGridSeparator = () => <DropdownMenu.Separator className="col-span-full my-1 h-px bg-line-strong" />;
