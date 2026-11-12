@@ -351,6 +351,8 @@ class ComparisonTableTests(unittest.TestCase):
         self.assertEqual((found["line"], found["instruments"], found["research_trials"], found["runs_with_returns"]),
                          (self.world.line["line"], instruments, 2, 2))
         self.assertGreaterEqual(found["all_purpose_trials"], found["research_trials"])
+        self.assertEqual((found["sweep_variants"], found["undeclared_sweeps"], found["trials_with_sweeps"]),
+                         (0, [], found["all_purpose_trials"]))
         self.assertAlmostEqual(found["mean_correlation"], statistics.correlation(*(
             [days[day] for day in sorted(days)] for days in series)))
         self.assertAlmostEqual(found["effective_trials"], status.effective_trials(found["mean_correlation"], 2))
@@ -361,7 +363,7 @@ class ComparisonTableTests(unittest.TestCase):
             returns = [days[day] for day in sorted(days)]
             self.assertEqual(item["deflated_sharpe"], {
                 name: measures.deflated_sharpe(returns, found[name], found["daily_sharpe_variance"])
-                for name in ("effective_trials", "all_purpose_trials")}, "each end at one count, over the trade window")
+                for name in ("effective_trials", "trials_with_sweeps")}, "each end at one count, over the trade window")
             self.assertIsNotNone(item["deflated_sharpe"]["effective_trials"])
 
     def test_the_table_lists_every_available_run_with_its_report_measures_and_dominance(self):

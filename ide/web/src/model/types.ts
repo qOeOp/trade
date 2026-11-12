@@ -69,7 +69,7 @@ export type SummaryWidget = Widget & {
   runs_since_recommendation_changed: number;
   versions: number;
   research_runs: number;
-  trial_counts?: { research_trials: number; all_purpose_trials: number } | null;
+  trial_counts?: { research_trials: number; all_purpose_trials: number; sweep_variants: number; undeclared_sweeps: number[]; trials_with_sweeps: number } | null;
   masked_runs: number;
   /** The latest priority judgment: the next direction the research takes. */
   priority?: { at: string | null; ref: string; text: string } | null;
