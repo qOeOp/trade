@@ -86,7 +86,8 @@ export const stopRequested = (run: LiveRun) => factOf(run.ending, "Stop requeste
 export function liveStatus(run: LiveRun): LiveStatus {
   const state = factOf(run.host, "State"), stopping = stopRequested(run);
   if (state === "unresolved") return { word: "Unresolved", tone: "fail" };
-  if (run.running) return stopping ? { word: "Stopping", tone: "misses" } : { word: "Running", tone: "meets" };
+  if (run.running) return stopping ? { word: "Stopping", tone: "misses" }
+    : run.heldNotice ? { word: "Holding", tone: "misses" } : { word: "Running", tone: "meets" };
   if (run.ended) return { word: "Ended", tone: "masked" };
   return { word: state ? state.replace(/_/g, " ") : "Unknown", tone: "misses" };
 }

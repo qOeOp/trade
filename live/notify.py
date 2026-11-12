@@ -322,6 +322,13 @@ def _gate_messages(run: dict, name: str) -> list[tuple[str, str]]:
     return result
 
 
+# A start that found a position or open orders it inherited (engine.live held). The Live page says the same
+# (ide/web/src/model/liveTradingMap.ts HELD_NOTICE).
+HELD_TEXT = ("started again and found a position or open orders it inherited. That position is now protected only by "
+             "its stop at Binance: the strategy no longer manages its exits and opens nothing. The run trades again "
+             "by itself once the account is flat; close the position at Binance if you want to end it sooner.")
+
+
 def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
     """An interruption, each start again of the same run (trading, or holding around an open position), the account
     flat while held, and the control's limit on automatic starts (engine.live, design §3.4)."""
@@ -336,9 +343,9 @@ def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
         key, event = f"{run['run_id']}:restart:{row['event']}:{row['observed_ns']}", row["event"]
         text: str | None
         if event == "resuming":
-            text = ("started again around an open position and only observes: entries are closed and the exchange "
-                    "stops stay. It trades again once the account is flat (its stops, or a close at Binance)."
-                    if row.get("held") else "started again on a flat account; it warms up and trades.")
+            # The user's decision of 2026-11-13 (docs/plans/live-continuous-step4-resume-20261113.zh.md): say at
+            # once that the strategy no longer manages the inherited position, so it can be closed by hand.
+            text = (HELD_TEXT if row.get("held") else "started again on a flat account; it warms up and trades.")
         else:
             text = texts.get(event)
         if text:

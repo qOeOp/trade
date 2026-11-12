@@ -232,7 +232,10 @@ class Sending(Base):
         texts = [text for key, text in notify.messages(run(restarts=restarts)) if ":restart:" in key]
         self.assertEqual(len(texts), 5)  # held_flat only ends a start; venue_flat_while_held already said so
         self.assertIn("interrupted without closing", texts[0])
-        self.assertIn("only observes", texts[1])
+        self.assertIn("protected only by its stop at Binance: the strategy no longer manages its exits", texts[1])
+        self.assertIn("close the position at Binance", texts[1])
+        keys = [key for key, _ in notify.messages(run(restarts=restarts)) if ":restart:" in key]
+        self.assertEqual(keys[1], "run-a:restart:resuming:2", "the key the earlier text was sent under: no resend")
         self.assertIn("flat at Binance again", texts[2])
         self.assertIn("flat account", texts[3])
         self.assertIn("no longer started again automatically", texts[4])

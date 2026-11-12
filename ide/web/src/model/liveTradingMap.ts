@@ -25,6 +25,19 @@ function equityOf(run: LiveRunDto): LiveRun["equity"] {
   return { budget, minutes: run.minute_results.map(([ns, result]) => [Math.floor(Number(ns) / 1e9), result === null ? null : budget + Number(result)] as const) };
 }
 
+/** What a start that found a position or open orders it inherited means for the user (engine.live held; the
+ *  user's decision of 2026-11-13, docs/plans/live-continuous-step4-resume-20261113.zh.md). Telegram says the same
+ *  (live/notify.py HELD_TEXT). */
+export const HELD_NOTICE = "This run started again and found a position or open orders it inherited. That position is now "
+  + "protected only by its stop at Binance: the strategy no longer manages its exits and opens nothing. The run trades "
+  + "again by itself once the account is flat; close the position at Binance if you want to end it sooner.";
+
+/** The notice while the run's latest start holds: no later start, and the account not yet seen flat. */
+function heldNotice(run: LiveRunDto): string | null {
+  const latest = [...run.restarts ?? []].reverse().find((row) => row.event === "resuming" || row.event === "venue_flat_while_held");
+  return latest?.event === "resuming" && latest.held === true && !ENDED.has(run.host.state ?? "") ? HELD_NOTICE : null;
+}
+
 /** Preserve source distinctions and unknowns; no fill aggregation or account-state inference. */
 export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourceDto[], review?: LiveRunDto): LiveRun {
   const source = sources.find((item) => item.source_sha256 === run.source.source_sha256 && item.entry_class === run.source.entry_class);
@@ -46,7 +59,7 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
     evidence: run.evidence.map((item) => ({ source: item.source, cursor: item.cursor, observedNs: item.observed_ns, readNs: item.read_ns, complete: item.complete, state: item.state })),
     venue: account ? { canTrade: account.can_trade, hedgeMode: account.hedge_mode, multiAssets: account.multi_assets,
       wallet: account.usdt_wallet, available: account.usdt_available } : null,
-    hostState: run.host.state, accountOwned: run.host.account_owned,
+    hostState: run.host.state, accountOwned: run.host.account_owned, heldNotice: heldNotice(run),
     orders: run.orders, positions: run.positions, equity: equityOf(run), review: review?.review ?? run.review ?? null, reviewError: review?.review_error?.code ?? run.review_error?.code ?? null,
   };
 }

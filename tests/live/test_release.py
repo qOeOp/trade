@@ -6,9 +6,11 @@ import select
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from cli import live_commands
 from deploy.release_host import durable_json, route_config
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
@@ -209,6 +211,33 @@ class LiveReleaseTests(LiveFixture):
         with patch.object(runs, "_runner", side_effect=runner):
             self.assertEqual(release.idle_locked(self.root), "busy")
 
+    def test_adopt_inspection_lists_each_busy_runtime_only_after_every_run_was_read(self):
+        self.launch_record()
+        original = runs._manifest
+        built = "b" * 40
+
+        def manifest(root, run_id):
+            directory, value = original(root, run_id)
+            return directory, {**value, "runtime": {**value["runtime"], "build_revision": built}}
+
+        running = {"State": {"Running": True, "Status": "running"}}
+        with patch.object(runs, "_runner", return_value=running):
+            self.assertEqual(release.inspect_locked(self.root), ("busy", [None]))  # this manifest names no revision
+            with patch.object(runs, "_manifest", side_effect=manifest):
+                self.assertEqual(release.inspect_locked(self.root), ("busy", [built]))
+            later = self.root / "runs" / "zz-unreadable"  # read after the busy run: no inputs, no outputs
+            later.mkdir(mode=0o700)
+            self.assertEqual(release.inspect_locked(self.root), ("unavailable", []))
+            self.assertEqual(release.idle_locked(self.root), "unavailable", "a busy run no longer hides a later one")
+            later.rmdir()
+        args = SimpleNamespace(verb="release-inspect", configuration=self.authority.file, adopt=True)
+        with patch.object(release, "inspect_locked", return_value=("busy", [built, None])):
+            self.assertEqual(live_commands.dispatch(args, []), ({"state": "busy", "runtimes": [built, None]}, 0))
+            self.assertEqual(live_commands.dispatch(SimpleNamespace(**{**vars(args), "adopt": False}), []),
+                             ({"state": "busy"}, 0))
+        with patch.object(release, "inspect_locked", return_value=("idle", [])):
+            self.assertEqual(live_commands.dispatch(args, []), ({"state": "idle"}, 0))
+
     def test_invalid_run_set_partial_native_and_unknown_request_do_not_mean_idle(self):
         other = self.root / "runs" / "invalid_name"
         other.mkdir()
@@ -385,5 +414,9 @@ except LiveRefusal as exc:
                                     str(configuration)], capture_output=True, text=True, timeout=10)
         self.assertEqual(child.returncode, 0, child.stderr)
         self.assertEqual(json.loads(child.stdout), {"state": "idle"})
+        with state.serialized(self.root):
+            child = subprocess.run([sys.executable, "-m", "cli.main", "live", "release-inspect", "--configuration",
+                                    str(configuration), "--adopt"], capture_output=True, text=True, timeout=10)
+        self.assertEqual((child.returncode, json.loads(child.stdout)), (0, {"state": "idle"}), child.stderr)
         self.assertEqual(before, self.files())
 

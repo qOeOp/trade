@@ -40,6 +40,7 @@ test("the loss used is the budget less the account; the deepest loss stays; the 
 test("a Live run's state reads as one word: unresolved before anything else, a requested stop while it runs", () => {
   assert.equal(liveStatus(run()).word, "Running");
   assert.equal(liveStatus(run({ ending: [fact("Stop requested", "Yes")] })).word, "Stopping");
+  assert.deepEqual(liveStatus(run({ heldNotice: "held" })), { word: "Holding", tone: "misses" });
   assert.equal(liveStatus(run({ running: false, host: [fact("State", "unresolved")] })).tone, "fail");
   assert.equal(liveStatus(run({ running: false, ended: true, host: [fact("State", "clean_stopped")] })).word, "Ended");
 });

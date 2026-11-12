@@ -36,7 +36,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "fixed deployment configuration, retained requests, runs and verified container identities; the release host "
         "must already hold the original account lock across this inspection and its metadata write",
         "none: no lock acquisition or creation, credential reads, venue connections, state repair or trading",
-        "{state: idle|busy|unavailable}; all three observations return exit 0 and only idle permits release admission",
+        "{state: idle|busy|unavailable}; all three observations return exit 0 and only idle permits release admission; "
+        "with --adopt a busy answer also lists runtimes (each busy run's runtime build revision or null), and a "
+        "release host may then hand those runners to a control of the same runner contract",
         "LIVE_CONFIG; LIVE_RECORD_UNAVAILABLE; unavailable when custody or execution cannot be verified; busy while "
         "a runner or account slot remains active"),
     ("live", "status"): (
@@ -94,6 +96,8 @@ def register(verbs, verb, runner) -> None:
                          "credential_remove; the request ID for resolve")
     command = verb(live, "release-inspect", "inspect custody while the paired release host holds the account lock")
     command.add_argument("--configuration", type=Path, required=True, help=LIVE_CONFIGURATION_HELP)
+    command.add_argument("--adopt", action="store_true",
+                         help="list the runtime build revision of each busy run (live.release.ADOPT_INSPECT)")
     for action, description in (("status", "read private execution and unresolved account custody"),
                                 ("logs", "read a bounded tail of the private runner log"),
                                 ("stop", "request owned-order cancellation and flat reconciliation; never kill")):
@@ -140,7 +144,8 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             inventory.require_clear(live_scope.root)
         except LiveRefusal:
             return {"state": "unavailable"}, 0
-        return {"state": release.idle_locked(live_scope.root)}, 0
+        found, runtimes = release.inspect_locked(live_scope.root)
+        return ({"state": found, "runtimes": runtimes} if args.adopt and found == "busy" else {"state": found}), 0
     if args.verb == "status":
         return live_runs.observe(args.root, args.run_id), 0
     if args.verb == "stop":

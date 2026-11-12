@@ -54,6 +54,8 @@ export type LiveRunDto = {
   /** The run's result at each minute's first mark and when it stopped, [minute_ns, result] (live/views.py); absent from an older service. */
   minute_results?: [string, string | null][] | null;
   purpose?: "natural" | "controlled" | null;
+  /** Interruptions and starts again of the same run (live/views.py _restarts); absent from an older service. */
+  restarts?: { event: string; observed_ns: string; held: boolean | null }[] | null;
   review?: LiveReviewDto | null; review_error?: { code: string } | null;
 };
 export type LiveHomeDto = {

@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import time
 
 from .release_host import (REVISION, RUNTIME_REF, SERVICE_REF, UNPRIVILEGED, WEB, ahead, contained, durable_json,
@@ -218,8 +219,12 @@ class LiveHost:
 
     @contextmanager
     def barrier(self, name: str, service: str | None = None, *, idle: bool = False,
-                wait_for_lock: bool = False):
-        """The metadata writer itself holds the existing inode; an inspector never owns this lock."""
+                adopt: Callable[[list], bool] | None = None, wait_for_lock: bool = False):
+        """The metadata writer itself holds the existing inode; an inspector never owns this lock.
+
+        With `adopt` (only for a control that declares live.release.ADOPT_INSPECT) a busy account also admits, when
+        `adopt` accepts the runtime revisions of its busy runs, still inside the lock. An inspection that fails to
+        run or answer is an unavailable account (docs/plans/live-continuous-step6-adopt-20261113.zh.md)."""
         configured = self.snapshot(name)
         declared = self.declaration_value()
         if configured["root"] != declared["root"]:
@@ -257,16 +262,22 @@ class LiveHost:
                 service = service or self.checked(name)["image"]
                 if not isinstance(service, str) or not SERVICE_REF.fullmatch(service):
                     raise RuntimeError("Live idle inspection needs the admitted immutable service image")
-                result = self.web.docker(
-                    "run", "--rm", "--init", "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=67108864",
-                    "--memory", "256m", *self.common(name, helper=True), "--entrypoint", "python", service,
-                    "-m", "cli.main", "live", "release-inspect", "--configuration", str(self.configuration(name)),
-                    timeout=180)
-                value = json.loads(result)
+                try:
+                    value = json.loads(self.web.docker(
+                        "run", "--rm", "--init", "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=67108864",
+                        "--memory", "256m", *self.common(name, helper=True), "--entrypoint", "python", service,
+                        "-m", "cli.main", "live", "release-inspect", "--configuration", str(self.configuration(name)),
+                        *(["--adopt"] if adopt is not None else []), timeout=180))
+                except (RuntimeError, subprocess.SubprocessError, ValueError):
+                    value = {"state": "unavailable"}
                 held()
-                if value in ({"state": "busy"}, {"state": "unavailable"}):
+                busy = (adopt is not None and isinstance(value, dict) and set(value) == {"state", "runtimes"}
+                        and value["state"] == "busy" and isinstance(value["runtimes"], list))
+                if busy and adopt is not None and adopt(value["runtimes"]):
+                    held()
+                elif busy or value in ({"state": "busy"}, {"state": "unavailable"}):
                     raise LiveBusy("Live is active or unresolved; keep the current Web/control pair")
-                if value != {"state": "idle"}:
+                elif value != {"state": "idle"}:
                     raise RuntimeError("Live idle observation is unavailable")
             yield held
             held()

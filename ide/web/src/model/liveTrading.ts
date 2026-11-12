@@ -28,6 +28,8 @@ export type LiveRun = {
   venue?: { canTrade: boolean | null; hedgeMode: boolean | null; multiAssets: boolean | null; wallet: string | null; available: string | null } | null;
   /** The host's own state ("running", "unresolved", …) and whether the run holds the account slot. */
   hostState?: string | null; accountOwned?: boolean | null;
+  /** Set while the latest start holds around a position or orders it inherited (model/liveTradingMap.ts HELD_NOTICE). */
+  heldNotice?: string | null;
   /** When the account was observed and the run's native terminal event, as ns; whether it executes now. */
   observedNs: { account: string | null; terminal: string | null }; running: boolean;
   /** The host reports the run ended, so Request stop has nothing to stop. */

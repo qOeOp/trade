@@ -131,6 +131,7 @@ Nautilus 原生的 `request_bars`，请求 81 根 15 分钟原生 K 线（`EXTER
 （`deploy/remote/README.md`，`live-web-control.zh.md`：发布事务开始时必须空闲，提交前在同一账户锁内再查一次）。
 运行永不结束就永远等不到空闲，所以要让新控制接管正在跑的 runner：runner 是独立容器，发布本来就不重启它；
 要设计的是账户锁、运行原件和维护职责在新旧控制之间的交接。这部分先做设计和独立评审。
+实现见 `live-continuous-step6-adopt-20261113.zh.md`（runner 合同号相同即接管，声明变更仍要求空闲）。
 
 ### 3.9 其它长期运行事项
 
