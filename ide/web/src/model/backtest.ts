@@ -9,7 +9,7 @@
 import { amount, symbolOf } from "../lib/paperApi";
 import type { TrialReport } from "../lib/trialApi";
 import { tradeStats, type Account, type TradeStats } from "./account";
-import type { Holding } from "./held";
+import { sidesHeld, type Leaning } from "./held";
 import type { Closed } from "./trades";
 
 /** A cycle as a closed trade: `pnl` after fees and funding, `gross` its price move alone; `open` when it was
@@ -81,5 +81,5 @@ function accountOf(r: TrialReport, starting: number, days: readonly Day[], cycle
   };
 }
 
-/** Each cycle as a contract's position (ms): the equity chart's lanes and held stretches (model/held.ts). */
-export const cycleHoldings = (cycles: readonly Cycle[]): Holding[] => cycles.map((c) => [c.symbol, c.opened, c.closed, c.long] as const);
+/** When any cycle was open (ms) and which way, overlapping ones joined, oldest first (sidesHeld). */
+export const cyclesHeld = (cycles: readonly Cycle[]): Leaning[] => sidesHeld(cycles.map((c) => [c.opened, c.closed, c.long] as const));

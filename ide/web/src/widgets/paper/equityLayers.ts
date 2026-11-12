@@ -1,6 +1,6 @@
 // The equity chart's own layers, drawn as one series primitive on the equity series so they move with
 // its scales, after vibe-trading's band chart, each in its band of the pane (equityZones.ts). Beneath the series: the stretches where the run held no
-// position, faintly shaded, and the hovered day's column (the day bars above the exposure's band, `lift`); the value gridlines; the gap between equity
+// position, faintly shaded, and which way it held along the top (equityBands' sideTrack), and the hovered day's column (the day bars above the exposure's band, `lift`); the value gridlines; the gap between equity
 // and the pace it is measured against, flat, in the profit colour where equity is ahead and the loss
 // colour where behind, and the pace as a long-dashed line; the drawdown and day bands (equityBands), behind the line as vibe-trading's. Above it the equity line itself (the series draws none):
 // a knockout stroke in the island's colour parting it from the fills and casting a deep, soft shadow
@@ -9,7 +9,7 @@
 // last. Over the line, each stretch a chain of runs was offline or no run ran (downLook.ts), opaque the
 // pane's height, so nothing drawn from the series runs across it and the line simply stops either side of
 // it; only words (the notes' names, the stretches' names) and the closes' arrows draw over it.
-import { DAY_S, FEW, dayBars, drawdownRows, frameOf, span, type DayBar, type Frame } from "./equityBands";
+import { DAY_S, FEW, dayBars, drawdownRows, frameOf, sideTrack, span, type DayBar, type Frame } from "./equityBands";
 import type { Leaning } from "../../model/held";
 import type { Restart } from "../../model/paper";
 import { downsOf, downTags, drawDown, tagged, widened, type Down, type DownLook } from "./downLook";
@@ -134,6 +134,7 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     for (const p of this.ticks) f.c.fillRect(0, Math.round(this.y(p, f.vr)), f.w, Math.max(1, Math.round(f.vr)));
     inPlot(f.c, this.plot(), f.w, f.vr, () => { this.gap(f); this.pace(f); });
     drawdownRows(f, points, this.worst, look!, this.head(), dotsEnd(f.h / f.vr, this.head()));
+    sideTrack(f, points, this.held, look!, this.head());
     if (days) dayBars({ ...f, h: f.h - Math.round(this.foot * f.vr) }, shown!, this.bars, (d) => d === this.picked || d === this.hovered, look!);
   }
 

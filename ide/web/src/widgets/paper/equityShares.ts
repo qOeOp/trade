@@ -1,13 +1,13 @@
 // The equity chart's yearly P&L bars (equityZones' top row): over each year of the shown backtest, right of
 // its scorecard (equityYears), two bars, the year's gains over its losses, each cut into the contracts' shares
-// of the P&L their cycles made that year, largest first from the left, filled in the contract's colour. A cycle
-// held across a year's end is marked to its contract's last close of that year (`piecesOf`), so a year's
+// of the P&L their cycles made that year, largest first from the left, filled in the contract's colour. A
+// cycle held across a year's end is marked to its contract's last close of that year (`piecesOf`), so a year's
 // shares are what its equity moved by, not what happened to close in it; what its fees and funding took falls
 // in the year it closed. The longer of the two runs the room it is given, the other to the same scale, both
-// over a faint track of that length. A contract keeps its colour across the years: up to SLOTS contracts have
-// one each (those that moved the most P&L over the run); the rest share Other, in grey, its gains and its
-// losses apart. The island shows GAP px between two shares. A share wide enough carries its name, in
-// whichever of the text and island colours stands out more on it; the tooltip (`tipOf`) names every share.
+// over a faint track of that length, TALL px each, GAP px between two shares. A contract keeps its colour
+// across the years: up to SLOTS contracts have one each (those that moved the most P&L over the run); the rest
+// share Other, in grey, its gains and its losses apart. A share wide enough carries its name, in whichever of
+// the text and island colours stands out more on it; the tooltip (`tipOf`) names every share.
 import { baseAsset } from "../../lib/paperApi";
 import type { Tip } from "./candleEvents";
 import { span, type Frame } from "./equityBands";
@@ -19,7 +19,7 @@ export type ShareLook = { series: readonly string[]; other: string; ink: string;
 export type Hit = { x0: number; x1: number; y0: number; y1: number; year: number; share: Share; of: number };
 
 export const SLOTS = 5;
-const GAP = 2, PAD = 3, SPLIT = 2;  // px: between shares, around a name, between the two bars
+const GAP = 4, PAD = 3, TALL = 9, NAME = 9;  // px: between shares, around a name, a bar's height, its names' font size
 const OTHER = "Other";
 
 type Cycle = { symbol: string; opened: number; closed: number; pnl: number | null; gross: number };
@@ -93,22 +93,27 @@ export function tipOf({ share: s, year, of }: Hit, x: number, y: number): Tip {
 
 /** The year's two bars between `a` and `b` (device px), from `top` (px) down `high` px; where each share is drawn. */
 export function shareBars({ c, hr, vr, w }: Frame, year: number, shares: readonly Share[], a: number, b: number, top: number, high: number, look: ShareLook): Hit[] {
-  const places = placesOf(shares), gap = Math.round(GAP * hr), width = b - a, tall = (high - SPLIT) / 2;
+  const places = placesOf(shares), gap = Math.round(GAP * hr), width = b - a, split = high / 2 - TALL;
   const of = [0, 1].map((row) => places.reduce((n, p) => n + (p.row === row ? Math.abs(p.share.pnl) : 0), 0));
   if (!places.length || width < 4 * gap) return [];
-  const longest = places.reduce((n, p) => Math.max(n, p.at + p.len), 0);
-  c.fillStyle = look.track;
-  for (const row of [0, 1]) { const s = span(a, a + longest * width); c.fillRect(s.at, Math.round((top + row * (tall + SPLIT)) * vr), s.len, Math.round(tall * vr)); }
-  return places.flatMap(({ share, row, at, len }) => {
-    const y0 = top + row * (tall + SPLIT), y = Math.round(y0 * vr), h = Math.round(tall * vr), end = at + len >= longest - 1e-9;
+  const longest = places.reduce((n, p) => Math.max(n, p.at + p.len), 0), rowTop = (row: number) => top + split / 2 + row * (TALL + split);
+  c.save();
+  Object.assign(c, { font: look.font.replace(/(\d+)px/, `${NAME * vr}px`), textBaseline: "alphabetic", fillStyle: look.track });
+  for (const row of [0, 1]) { const s = span(a, a + longest * width); c.fillRect(s.at, Math.round(rowTop(row) * vr), s.len, Math.round(TALL * vr)); }
+  const hits = places.flatMap(({ share, row, at, len }): Hit[] => {
+    const y0 = rowTop(row), y = Math.round(y0 * vr), h = Math.round(TALL * vr), end = at + len >= longest - 1e-9;
     const x0 = a + at * width + (at ? gap / 2 : 0), x1 = a + (at + len) * width - (end ? 0 : gap / 2);
     if (x1 < 0 || x0 > w || x1 - x0 < 1) return [];
     const s = span(x0, x1), colour = share.slot === null ? look.other : look.series[share.slot]!;
     c.fillStyle = colour; c.fillRect(s.at, y, s.len, h);
-    const name = nameOf(share), lo = Math.max(s.at, 0), hi = Math.min(s.at + s.len, w), tw = c.measureText(name).width;
-    if (hi - lo >= tw + 2 * PAD * hr) { c.fillStyle = inkOn(colour, look); c.fillText(name, Math.round((lo + hi) / 2 - tw / 2), y + h / 2); }
-    return [{ x0: s.at / hr, x1: (s.at + s.len) / hr, y0, y1: y0 + tall, year, share, of: of[row]! }];
+    // The name centred on its glyphs, not its em box, so its capitals sit square in the thin bar.
+    const name = nameOf(share), lo = Math.max(s.at, 0), hi = Math.min(s.at + s.len, w), m = c.measureText(name), tw = m.width;
+    if (hi - lo >= tw + 2 * PAD * hr) { c.fillStyle = inkOn(colour, look); c.fillText(name, Math.round((lo + hi) / 2 - tw / 2), Math.round(y + h / 2 + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2)); }
+    // The pointer finds a share over its row's half of the unit, not only the bar's thin strip.
+    return [{ x0: s.at / hr, x1: (s.at + s.len) / hr, y0: top + row * (high / 2), y1: top + (row + 1) * (high / 2), year, share, of: of[row]! }];
   });
+  c.restore();
+  return hits;
 }
 
 /** The text or the island colour, whichever stands out more on `fill` (all `#rrggbb…`, as canvasColor gives them). */
