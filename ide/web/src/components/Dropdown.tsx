@@ -25,7 +25,7 @@ export function Dropdown({ trigger, label, children, align = "start", variant = 
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align={align} sideOffset={4} collisionPadding={8}
-          className="z-50 max-h-[70vh] min-w-56 overflow-auto rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-popup">
+          className="z-50 max-h-[70vh] min-w-56 max-w-(--radix-dropdown-menu-content-available-width) overflow-auto rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-popup">
           {children}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -120,9 +120,10 @@ export function DropdownFacts({ items }: { items: readonly (readonly [string, Re
 // starts at the same x whatever the other rows hold.
 const GRID_ROW = "col-span-full grid grid-cols-subgrid rounded-control px-2";
 export const DropdownGrid = ({ cols, children }: { cols: string; children: ReactNode }) => <div className={`grid ${cols}`}>{children}</div>;
-/** A row of column headers, not a menu item; its first cell sits over the check column. */
-export const DropdownGridLabel = ({ children }: { children: ReactNode }) =>
-  <DropdownMenu.Label className={`${GRID_ROW} items-end pb-1 pt-1.5 text-small text-fg-faint`}><span />{children}</DropdownMenu.Label>;
+/** A row of column headers, not a menu item; its first cell sits over the check column. `sticky` keeps it in view
+ *  while the menu scrolls, at the menu's edge over its 4px padding (`-top-1`), so no row shows above it. */
+export const DropdownGridLabel = ({ children, sticky = false }: { children: ReactNode; sticky?: boolean }) =>
+  <DropdownMenu.Label className={`${GRID_ROW} items-start pb-1 pt-1.5 text-small text-fg-faint ${sticky ? "sticky -top-1 z-10 bg-popup" : ""}`}><span />{children}</DropdownMenu.Label>;
 /** A navigation row of the grid, a real link like DropdownLink. */
 export function DropdownGridLink({ href, current = false, children }: { href: string; current?: boolean; children: ReactNode }) {
   return <DropdownMenu.Item asChild>

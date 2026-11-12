@@ -39,7 +39,8 @@ function Recommendation({ r, targets }: { r: LineReading | null | undefined; tar
   if (r === null) return <span className={`${VERSION} col-span-3 text-fg-faint`}>No recommendation yet</span>;
   const [name, revision] = r.recommended.split("@");
   const version = <span className={`${VERSION} font-mono text-fg-muted`}>{name}{revision !== undefined && <span className="text-fg-faint">@{revision}</span>}</span>;
-  if (r.eligible === false) return <>{version}<span className={`${NUMBER} col-span-2 text-misses`}>Ineligible now</span></>;
+  if (r.eligible === false) return <>{version}<span className={`${NUMBER} col-span-2 text-misses`}
+    title={`Its latest research run${r.trial_id ? ` (trial ${r.trial_id})` : ""} no longer carries economic evidence.`}>Ineligible now</span></>;
   return <>{version}
     <Value value={r.annual_return} target={targets?.annual_return} higher name="Annual return" />
     <Value value={r.max_drawdown} target={targets?.max_drawdown} higher={false} name="Max drawdown" /></>;
@@ -60,10 +61,11 @@ export function ResearchLines({ index }: { index: LineIndex }) {
     <span className={NUMBER}>{label}{common && target != null && <span className="block">{sign}{pct(target)}</span>}</span>;
   return <>
     {!loaded && !error && <DropdownLabel>Reading research lines…</DropdownLabel>}
+    {loaded && !error && lines.length === 0 && <DropdownLabel>No research lines yet</DropdownLabel>}
     {loaded && <DropdownGrid cols={COLS}>
       {sections.filter(([, rows]) => rows.length).map(([title, rows], i) => <div key={title} className="contents">
         {i > 0 && <DropdownGridSeparator />}
-        <DropdownGridLabel>
+        <DropdownGridLabel sticky={i === 0}>
           <span className={NAME}>{title} · {rows.length}{i === 0 && loading ? " · Updating…" : ""}</span>
           {i === 0 && <>
             <span className={DEV}>Development</span><span className={VERSION}>Recommended</span>
@@ -71,7 +73,7 @@ export function ResearchLines({ index }: { index: LineIndex }) {
           </>}
         </DropdownGridLabel>
         {rows.map((item) => <DropdownGridLink key={item.name} href={lineHref(window.location.href, item.name)} current={item.name === line.bundle}>
-          <span className={`${NAME} block max-w-[22ch] truncate font-mono ${item.closed ? "text-fg-muted" : ""}`}>{item.name.replace(/^research-line-/, "")}</span>
+          <span title={item.name} className={`${NAME} block max-w-[22ch] truncate font-mono ${item.closed ? "text-fg-muted" : ""}`}>{item.name.replace(/^research-line-/, "")}</span>
           <span className={`${DEV} text-fg-faint`} title={byMonth ? `${item.dev_start} → ${item.dev_end}` : undefined}>{when(item)}</span>
           <Recommendation r={readings[item.name]} targets={item.targets ?? null} />
         </DropdownGridLink>)}
