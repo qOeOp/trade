@@ -126,6 +126,20 @@ class JudgmentTests(unittest.TestCase):
         self.add("interpretation", body="no variants line needed")
         self.assertEqual([judgments.declared_variants(body) for body in ("Evaluated variants: 7", "x", "")], [7, None, None])
 
+    def test_a_decision_opening_is_exact_and_a_change_of_approach_names_its_chooser(self):
+        for kind, body in (("priority", "Change of approach. Trials 1-5 undistinguished; chosen by the user."),
+                           ("priority", "Line decision. Old line stopped; the user delegated the switch."),
+                           ("priority", "Priority after trial 6: exits first"),
+                           ("interpretation", "Line of the decision rule held")):
+            with self.subTest(accepted=body):
+                self.assertIsNone(judgments.check_decision_opening(kind, body))
+        for kind, body in (("priority", "change of approach: chosen by the Agent"),
+                           ("priority", "Line Decision. delegated"), ("priority", " Change of approach. chosen by the user"),
+                           ("interpretation", "Change of approach. chosen by the Agent")):
+            with self.subTest(kind=kind, body=body):
+                self.assertEqual(self.code(kind=kind, body=body), "DECISION_OPENING_INVALID")
+        self.assertEqual(self.code(kind="priority", body="Change of approach. Exits next."), "APPROACH_CHOOSER_MISSING")
+
     def test_a_recommendation_names_every_candidate_of_the_comparison_table(self):
         strategies.publish_candidate(self.profile, source("b"), "b", "Fixture", "another root")
         table = []

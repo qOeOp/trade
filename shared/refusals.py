@@ -364,6 +364,14 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                           "parameter variants the view assessed against the line's data without "
                                           "a replay (research-round feedback.md); 0 only when it touches no "
                                           "variant.",)),
+    "DECISION_OPENING_INVALID": ("A judgment's first line reads as a decision opening but is not `Change of "
+                                 "approach.` or `Line decision.` exactly, or is not on a priority judgment.",
+                                 ("Begin the priority judgment's body with `Change of approach.` or `Line "
+                                  "decision.` exactly (research-round feedback.md, research-start), or reword "
+                                  "a first line that records no such decision.",)),
+    "APPROACH_CHOOSER_MISSING": ("A change of approach does not say who chose it.",
+                                 ("Say `chosen by the Agent` or `chosen by the user` in the body "
+                                  "(research-round feedback.md).",)),
     "OP_ID_CONFLICT": ("This operation ID already names a record with other content.",
                        ("Use a new operation ID, or omit it to derive one from the content.",)),
     "RECOMMENDATION_INCOMPLETE": ("A recommendation does not name every candidate of the line (its own trials and "
