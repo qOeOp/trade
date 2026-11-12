@@ -28,9 +28,9 @@ function equityOf(run: LiveRunDto): LiveRun["equity"] {
 /** Preserve source distinctions and unknowns; no fill aggregation or account-state inference. */
 export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourceDto[], review?: LiveRunDto): LiveRun {
   const source = sources.find((item) => item.source_sha256 === run.source.source_sha256 && item.entry_class === run.source.entry_class);
-  const origin = run.origin_candidate, account = run.account;
+  const candidate = run.candidate, account = run.account;
   return {
-    id: run.run_id, candidate: origin.strategy_id ? `${origin.strategy_id}${origin.revision === null ? "" : `@${origin.revision}`}` : "Origin candidate unknown",
+    id: run.run_id, candidate: candidate.strategy_id ? `${candidate.strategy_id}${candidate.revision === null ? "" : `@${candidate.revision}`}` : "Candidate unknown",
     purpose: source?.purpose ?? "unknown", sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
     runtimeDigest: run.runtime.digest, symbols: run.symbols, accountCheck: accountCheck(run),
     observedNs: { account: account?.observed_ns ?? null, terminal: run.terminal?.observed_ns ?? null }, running: run.host.state === "running", ended: ENDED.has(run.host.state ?? ""),
@@ -55,8 +55,7 @@ export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<str
   return {
     availability: "ready", preview: false, notice: home.write_enabled ? null : unavailable,
     credentials: home.credentials.map((item) => ({ ref: item.credential_ref, savedAt: item.observed_ns, selected: item.selected, available: item.available, removed: item.removed, runIds: item.referenced_runs })),
-    sources: home.sources.map((item) => ({ id: item.source_id, candidate: item.origin_candidate, sourceHash: item.source_sha256, entryClass: item.entry_class, purpose: item.purpose,
-      availability: item.available ? "Available" : `Unavailable${item.code ? ` · ${item.code}` : ""}` })),
+    sources: home.sources.map((item) => ({ id: item.source_id, candidate: item.candidate, sourceHash: item.source_sha256, entryClass: item.entry_class, purpose: item.purpose })),
     planFields: [
       { id: "budget_usdt", label: "Budget (USDT)", value: home.defaults.budget_usdt },
       { id: "max_loss_usdt", label: "Loss threshold (USDT)", value: home.defaults.max_loss_usdt },

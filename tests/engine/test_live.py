@@ -55,10 +55,9 @@ class LiveTests(unittest.TestCase):
         self.universe.write_text('{"membership":{"BTCUSDT":[[0,9999999999999999999]]}}')
         self.credentials = Credentials("offline-placeholder", "offline-placeholder")
         self.manifest = {
-            "format": "live-run", "run_id": "native-test", "trader_id": "LIVE-001",
+            "format": "live-run-2", "run_id": "native-test", "trader_id": "LIVE-001",
             "account_id": "BINANCE-LIVE-001", "credential_binding": self.credentials.binding,
-            "symbols": ["BTCUSDT"], "origin_candidate": {
-                "strategy_id": "example", "revision": 1, "source_sha256": "b" * 64}, "source": {
+            "symbols": ["BTCUSDT"], "candidate": {"strategy_id": "example", "revision": 1}, "source": {
                 "entry_class": "Source",
                 "source_sha256": hashlib.sha256(SOURCE.encode()).hexdigest()},
             "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,

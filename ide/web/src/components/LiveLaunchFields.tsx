@@ -15,7 +15,7 @@ export function LiveStrategyChoice({ sources, source, choose, disabled }: {
       </Select>
     </label>
     {source && <div className="space-y-3">
-      <KeyValues stackNarrow items={[["Purpose", source.purpose === "controlled" ? "Controlled execution test" : "Natural signal"], ["Entry class", source.entryClass], ["Availability", source.availability]]} />
+      <KeyValues stackNarrow items={[["Purpose", source.purpose === "controlled" ? "Controlled execution test" : "Natural signal"], ["Entry class", source.entryClass]]} />
       {source.purpose === "controlled" && <p className="text-small text-fg-muted">This tests order execution. It does not validate the strategy's returns.</p>}
       <details className="text-small text-fg-faint"><summary className="cursor-pointer">Source identity</summary><p className="mt-2 break-all font-mono">{source.sourceHash}</p></details>
     </div>}

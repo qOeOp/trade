@@ -28,8 +28,8 @@ if TYPE_CHECKING:
 
 
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
-                   "read validation report <registration_id>. A registration covers the origin candidate on its "
-                   "universe_rule, never a rewritten source.")
+                   "read validation report <registration_id>. A registration covers this candidate on its "
+                   "universe_rule.")
 # The runner's flat events and the states they end a run in; venue_flat is the whole account at Binance only.
 FLAT = {"clean_stop": "clean_stopped", "reconciled_flat": "reconciled_flat", "venue_flat": "venue_flat"}
 ENDED = {*FLAT.values(), "not_armed", "preflight_complete", "preflight_failed"}
@@ -52,7 +52,8 @@ def _manifest(root: Path, run_id: str) -> tuple[Path, dict]:
     if manifest.get("run_id") != run_id:
         raise state.fail("LIVE_IDENTITY_CHANGED", "the private manifest does not identify this run")
     if manifest.get("format") != MANIFEST_FORMAT:
-        raise state.fail("LIVE_RUN_FORMAT", "this run predates replay-contract@v8, which no longer reads it")
+        raise state.fail("LIVE_RUN_FORMAT", "this run was prepared under an earlier manifest format, which is no "
+                                            "longer read")
     for filename, digest in (("strategy.py", manifest["source"]["source_sha256"]),
                              ("universe.json", manifest["universe_sha256"])):
         path = directory / "inputs" / filename
@@ -250,33 +251,37 @@ def _bound_credential(root: Path, run_id: str, directory: Path, path: Path, mode
     return prepared
 
 
-def _candidate_source(research: db.LedgerProfile, research_at: str, candidate: str) -> tuple[str, str]:
+def _candidate(research: db.LedgerProfile, research_at: str, candidate: str, source_sha256: str | None) -> dict:
+    """The candidate at research_at; Live runs its own source and nothing else (no adapted file)."""
     with db.read_as_of(research, research_at) as reader:
         found = strategies.read_candidate(reader, candidate)
-    return found["source_sha256"], found["entry_class"]
+    if hashlib.sha256(found["source"]).hexdigest() != found["source_sha256"]:
+        raise state.fail("LIVE_IDENTITY_CHANGED", "the candidate's stored source does not hash to its source_sha256")
+    if source_sha256 is not None and found["source_sha256"] != source_sha256:
+        raise state.fail("LIVE_IDENTITY_CHANGED", f"{candidate} at research_at is source {found['source_sha256']}, "
+                                                  f"not the declared {source_sha256}")
+    return found
 
 
 def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
             symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
             budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str, leverage: str,
-            market_root: Path, scope: Authority,
-            strategy_file: Path | None = None, strategy_class: str | None = None) -> dict:
+            market_root: Path, scope: Authority) -> dict:
     """Capture immutable source inputs using the installed account authority."""
     with scope.serialized(root) as root:
         scope.admit_locked(root)
         return prepare_locked(root, run_id, research, research_at, candidate, symbols, universe, credentials, runtime,
                                budget_usdt=budget_usdt, max_loss_usdt=max_loss_usdt, duration_seconds=duration_seconds, memory=memory,
-                               leverage=leverage, market_root=market_root,
-                               strategy_file=strategy_file, strategy_class=strategy_class)
+                               leverage=leverage, market_root=market_root)
 
 
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
                     budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str, leverage: str,
-                    market_root: Path, strategy_file: Path | None = None,
-                    strategy_class: str | None = None, request_id: str | None = None,
+                    market_root: Path, source_sha256: str | None = None, request_id: str | None = None,
                     credential_ref: str | None = None, recover_partial: bool = False) -> dict:
-    """Capture immutable source inputs using the reader, before any account effect."""
+    """Capture immutable source inputs using the reader, before any account effect. The source is the candidate's
+    own, read from the ledger; `source_sha256`, when the declaration names it, must be that candidate's."""
     requests.require_clear(root, request_id)
     directory = state.directory(root, run_id)
     bound_prepared = _bound_credential(root, run_id, directory, credentials, "preflight", request_id)
@@ -297,30 +302,17 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
               "max_loss_usdt": max_loss,
               "duration_seconds": duration_seconds, "memory": memory, "leverage": leverage,
               "proxy_url": f"http://{host_runtime.resource_names(root, run_id)['egress']}:3128"}
-    if (strategy_file is None) != (strategy_class is None):
-        raise state.fail("LIVE_CONFIG", "an adapted source needs both strategy-file and strategy-class")
-    actual_source = None
-    if strategy_file is not None:
-        from engine.load import read_regular_file, load_strategy
-        try:
-            actual_source = read_regular_file(strategy_file)
-            actual_hash = hashlib.sha256(actual_source).hexdigest()
-            load_strategy(strategy_file, str(strategy_class), actual_hash)
-        except EngineRefusal as exc:
-            raise state.fail("LIVE_SOURCE_UNSUPPORTED", str(exc)) from None
     if directory.exists() and not recover_partial:
         _, prior = _manifest(root, run_id)
-        source_ref = f"{prior['origin_candidate']['strategy_id']}@{prior['origin_candidate']['revision']}"
+        source_ref = f"{prior['candidate']['strategy_id']}@{prior['candidate']['revision']}"
         if (source_ref != candidate or prior["symbols"] != symbols or prior["config"] != config
                 or prior["credential_binding"] != binding
                 or universe.is_symlink()
                 or hashlib.sha256(universe.read_bytes()).hexdigest() != prior["universe_sha256"]
                 or runtime is not None and "@" in runtime and runtime != prior["runtime"]["image_ref"]
-                # Last, so the candidate is read only when everything else matches: without a file this
-                # call binds the candidate's own source and class, which an adapted run does not hold.
-                or (prior["source"]["source_sha256"], prior["source"]["entry_class"])
-                != ((actual_hash, strategy_class) if actual_source is not None
-                    else _candidate_source(research, research_at, candidate))):
+                # Last, so the candidate is read only when everything else matches.
+                or prior["source"]["source_sha256"]
+                != _candidate(research, research_at, candidate, source_sha256)["source_sha256"]):
             raise state.fail("LIVE_RUN_CONFLICT", "run-id already binds different inputs, settings or credentials")
         if bound_prepared and request_id is None:
             original_id = bound_prepared.get("request_id")
@@ -342,8 +334,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
                 if not requests.same_command(original["command"], current["command"]):
                     raise state.fail("LIVE_RUN_CONFLICT", "a prepared run retains its original request and research snapshot")
         return prior
-    with db.read_as_of(research, research_at) as reader:
-        found = strategies.read_candidate(reader, candidate)
+    found = _candidate(research, research_at, candidate, source_sha256)
     if universe.is_symlink():
         raise state.fail("LIVE_UNIVERSE", "the universe must be a regular file")
     universe_bytes = universe.read_bytes()
@@ -360,12 +351,11 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     if found["runtime_contract"] != identity["runtime_contract"]:
         raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
     market = _market_terms(market_root, symbols)
-    source_bytes = found["source"] if actual_source is None else actual_source
+    source_bytes = found["source"]
     key = hashlib.sha256(run_id.encode()).hexdigest()[:12]
     manifest = {"format": MANIFEST_FORMAT, "run_id": run_id,
-                "origin_candidate": {name: found[name] for name in ("strategy_id", "revision", "source_sha256")},
-                "source": {"entry_class": strategy_class or found["entry_class"],
-                           "source_sha256": hashlib.sha256(source_bytes).hexdigest()},
+                "candidate": {name: found[name] for name in ("strategy_id", "revision")},
+                "source": {name: found[name] for name in ("source_sha256", "entry_class")},
                 "runtime": identity, "symbols": symbols, "config": config, "credential_binding": binding,
                 "trader_id": f"LIVE-{key}", "account_id": f"BINANCE-LIVE-{key}",
                 "strategy_file": "/inputs/strategy.py", "universe_file": "/inputs/universe.json",
@@ -432,14 +422,15 @@ def review(research: db.LedgerProfile, research_at: str, manifest: dict) -> dict
     """What the operator reads before start: the pinned source and image and the facts at this commit, no gate and no
     conclusion. An absent candidate is refused, so an empty list means no registration."""
     from registration import validation
-    origin, source = manifest["origin_candidate"], manifest["source"]
+    candidate, source = manifest["candidate"], manifest["source"]
     with db.read_as_of(research, research_at) as reader:
-        found = strategies.read_candidate(reader, f"{origin['strategy_id']}@{origin['revision']}")
+        found = strategies.read_candidate(reader, f"{candidate['strategy_id']}@{candidate['revision']}")
+        if found["source_sha256"] != source["source_sha256"]:
+            raise state.fail("LIVE_IDENTITY_CHANGED", "the prepared source is not this candidate's")
         registrations = validation.candidate_registrations(reader, found["source_sha256"])
-    return {"research_at": research_at, "origin_candidate": origin, "source_sha256": source["source_sha256"],
+    return {"research_at": research_at, "candidate": candidate, "source_sha256": source["source_sha256"],
             "entry_class": source["entry_class"], "image_ref": manifest["runtime"]["image_ref"],
-            "rewritten": (source["source_sha256"], source["entry_class"]) != (found["source_sha256"], found["entry_class"]),
-            "origin_candidate_validations": registrations, "validation_note": VALIDATION_NOTE}
+            "validations": registrations, "validation_note": VALIDATION_NOTE}
 
 
 def require_confirmed(root: Path, run_id: str, source_sha256: str, *, scope: Authority) -> None:
@@ -489,31 +480,18 @@ def _network(root: Path, run_id: str, directory: Path, manifest: dict) -> dict:
     return names
 
 
-def launch(root: Path, run_id: str, credentials: Path, mode: str, *, scope: Authority, strategy_file: Path | None = None,
-           strategy_class: str | None = None) -> dict:
+def launch(root: Path, run_id: str, credentials: Path, mode: str, *, scope: Authority) -> dict:
     with scope.serialized(root) as root:
         scope.admit_locked(root)
-        return launch_locked(root, run_id, credentials, mode, strategy_file=strategy_file,
-                              strategy_class=strategy_class)
+        return launch_locked(root, run_id, credentials, mode)
 
 
-def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_file: Path | None = None,
-           strategy_class: str | None = None, request_id: str | None = None) -> dict:
+def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, request_id: str | None = None) -> dict:
     if mode not in ("preflight", "run", "reconcile"):
         raise state.fail("LIVE_MODE", "unknown Live operation")
     requests.require_clear(root, request_id)
     directory, manifest = _manifest(root, run_id)
     _bound_credential(root, run_id, directory, credentials, mode, request_id)
-    if (strategy_file is None) != (strategy_class is None):
-        raise state.fail("LIVE_CONFIG", "source verification needs both strategy-file and strategy-class")
-    if strategy_file is not None:
-        from engine.load import read_regular_file
-        try:
-            actual_hash = hashlib.sha256(read_regular_file(strategy_file)).hexdigest()
-        except EngineRefusal as exc:
-            raise state.fail("LIVE_SOURCE_MISSING", str(exc)) from None
-        if actual_hash != manifest["source"]["source_sha256"] or strategy_class != manifest["source"]["entry_class"]:
-            raise state.fail("LIVE_IDENTITY_CHANGED", "start cannot replace the already prepared source")
     _credentials(credentials, manifest["credential_binding"])
     recorded = _recycled(directory)
     if recorded and recorded["state"] not in REPEATABLE and mode != "run":
@@ -631,7 +609,7 @@ def _status_view(root: Path, run_id: str, *, maintain: bool) -> dict:
         _recycle(root, run_id, directory, result, launch)
     return {"run_id": run_id, "state": result, "mode": launch["mode"] if launch else None,
             "account_owned": _active(root) == run_id, "container": launch["container"] if launch else None,
-            "origin_candidate": manifest["origin_candidate"], "source": manifest["source"],
+            "candidate": manifest["candidate"], "source": manifest["source"],
             "image_ref": manifest["runtime"]["image_ref"], "symbols": manifest["symbols"], "exit_code": exit_code,
             "stop_reason": _stop_reason(directory),
             **({"note": UNRESOLVED_NOTE} if result == "unresolved" else {})}

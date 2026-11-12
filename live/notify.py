@@ -205,14 +205,14 @@ def execute(config: configuration.Configuration, action: str, body: dict, *, cal
 # Messages. Each has a stable key; a key in `done` is never sent again.
 
 def _source_name(config: configuration.Configuration, run: dict) -> str:
-    """The candidate version the page shows for this run's source; a controlled-test adaptation says so."""
-    source, origin = run.get("source") or {}, run.get("origin_candidate") or {}
+    """The candidate version the page shows for this run's source; a controlled test says so."""
+    source, candidate = run.get("source") or {}, run.get("candidate") or {}
     found = next((item for item in config.sources.values()
                   if item.source_sha256 == source.get("source_sha256") and item.entry_class == source.get("entry_class")),
                  None)
     if found is not None:
         return found.candidate + (", controlled test" if found.purpose == "controlled" else "")
-    return f"{origin.get('strategy_id') or 'unknown'}@{origin.get('revision') or '?'}"
+    return f"{candidate.get('strategy_id') or 'unknown'}@{candidate.get('revision') or '?'}"
 
 
 def collect(config: configuration.Configuration, skip: set[str]) -> list[dict]:

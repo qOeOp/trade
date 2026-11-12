@@ -51,6 +51,10 @@ WRITES[3] = WRITES[2]
 # (docs/plans/r1-2d-leverage-terms-20261111.zh.md).
 PLAN[4] = PLAN[3] | {"leverage"}
 WRITES[4] = WRITES[3]
+# Protocol 5 answers the candidate Live runs instead of an origin and a possibly rewritten source: sources and runs
+# name `candidate`, a source has no file availability, and the review drops `rewritten`
+# (docs/plans/execution-paths-replan-20261110.zh.md R2).
+PLAN[5], WRITES[5] = PLAN[4], WRITES[4]
 
 
 class ProtocolRequestTests(unittest.TestCase):

@@ -29,12 +29,12 @@ def prepared(root, run_id="original"):
     source, universe = b"class Example: pass\n", b"{}"
     state.write_new(directory / "inputs/strategy.py", source)
     state.write_new(directory / "inputs/universe.json", universe)
-    manifest = {"format": "live-run", "run_id": run_id,
+    manifest = {"format": runs.MANIFEST_FORMAT, "run_id": run_id,
                 "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(source).hexdigest()},
                 "universe_sha256": hashlib.sha256(universe).hexdigest(),
                 "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
                             "platform": "linux/amd64"},
-                "origin_candidate": {"strategy_id": "example", "revision": 1},
+                "candidate": {"strategy_id": "example", "revision": 1},
                 "symbols": ["BTCUSDT"], "config": {"memory": "2g"}, "credential_binding": "f" * 64}
     state.write_new(directory / "inputs/manifest.json", state.encode(manifest))
     state.append(directory / "lifecycle.jsonl", "prepared", run_id)

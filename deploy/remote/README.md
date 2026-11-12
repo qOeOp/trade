@@ -77,7 +77,9 @@ Live is enabled for the release plane only by an explicitly installed, private
 `market_root` (the market directory `$TRADE_DATA/market`, mounted read-only for the contract terms) fields from
 `live/configuration.py`. Omit `runtime` and
 `socket`: the admitted release supplies the runtime and derives its socket. Do not put an API key or secret
-in this file.
+in this file. Each `sources` row is `source_id`, `candidate` (`ID@N`), its `source_sha256` and `entry_class`, and
+`purpose` (`natural` or `controlled`); preparation reads that candidate's own source from the research ledger at
+`research_at` and refuses any other hash, so no strategy file is staged.
 Removing a source row retires it once the next paired control reads the declaration: a prepared run keeps
 its own copy of the inputs, and past runs of that source show no declared purpose.
 
@@ -98,8 +100,8 @@ A paired release builds its control's snapshot from the installed declaration; a
 its prepared runs keep the snapshot they started with. To change the catalog fields (sources,
 `research_at`, defaults and the rest), wait until no run on the Live page shows **Account custody held**
 Yes and no request is unresolved, pause
-the release timer and let any release service finish. Stage new source files beside the existing inputs
-(regular, root-owned, read-only) and keep the old ones while an old control is retained, since it mounts
+the release timer and let any release service finish. Stage a new universe or reader file beside the existing
+inputs (regular, root-owned, read-only) and keep the old ones while an old control is retained, since it mounts
 them. Then replace the declaration atomically (0600, written beside it and renamed over it) and resume
 the timer. From the swap on, the old control serves only reads and STOP. The next release pairs a
 new control from the declaration, even if it touches only Web paths; nothing changes until one lands.
@@ -115,7 +117,7 @@ declaration, a host that has never enabled Live retains its existing Web/Paper r
 To enable Live on a host whose first release is verified, make the custody `root` outside `TRADE_DATA`,
 the Paper directories and Git, mode 0700, owned by the operator UID/GID the control will run as, and in it an
 empty `account.lock` (mode 0600, the same owner): a release opens that existing lock and never creates it.
-Stage the declared strategy, universe and research files as regular, root-owned, read-only files. Then pause
+Stage the declared universe and research reader files as regular, root-owned, read-only files. Then pause
 the timer, let any release service finish, write the declaration (0600, in a 0700
 `/var/lib/trade-release/live/`) and resume the timer. The next release pairs
 the first control. Do not save a credential or start a run as part of installing.
@@ -334,7 +336,7 @@ All keys accepted by this installation share the original durable run/reconcile 
 retain their existing overlap behavior and do not certify a later start's account state.
 
 Keep that fixed private root outside `TRADE_DATA`, the Paper directories and Git, with
-the strategy and universe files (`LIVE_INPUTS`) beside it. The CLI example uses an external API key file (`KEY`,
+the universe file (`LIVE_INPUTS`) beside it. The CLI example uses an external API key file (`KEY`,
 mode 0600); credentials saved through the Live page instead have private versions under `LIVE_ROOT/credentials/`.
 Name the images for the **currently committed owner revision**, not simply the newest CI build, from a checkout of
 main. Read it from `/var/lib/trade-release/router/active.json`: the route's `@id` after `live-` when present,
@@ -369,7 +371,7 @@ live() {
 }
 live preflight --root "$LIVE_ROOT" --run-id RUN --research-ledger /run/trade/ledgers/research.json \
   --research-at COMMIT --candidate CANDIDATE --symbols BTCUSDT \
-  --strategy-file "$LIVE_INPUTS/strategy.py" --strategy-class CLASS --universe-file "$LIVE_INPUTS/universe.json" \
+  --universe-file "$LIVE_INPUTS/universe.json" \
   --credentials-file "$KEY" --runtime "$LIVE_SELECTED_RUNTIME" --budget-usdt BUDGET \
   --max-loss-usdt LOSS --duration-seconds SECONDS --leverage LEVERAGE
 live start --root "$LIVE_ROOT" --run-id RUN --credentials-file "$KEY" --confirm-real-orders SOURCE_SHA256

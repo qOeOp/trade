@@ -158,18 +158,17 @@ def _ref(sample: _Sample, index: int):
 
 
 def _identity(manifest):
-    source, origin, runtime, config = (manifest.get(key) for key in ("source", "origin_candidate", "runtime", "config"))
-    source, origin, runtime, config = (item if isinstance(item, dict) else {} for item in
-                                      (source, origin, runtime, config))
+    source, candidate, runtime, config = (manifest.get(key) for key in ("source", "candidate", "runtime", "config"))
+    source, candidate, runtime, config = (item if isinstance(item, dict) else {} for item in
+                                         (source, candidate, runtime, config))
     image = runtime.get("image_ref")
     digest = image.rsplit("@", 1)[-1] if isinstance(image, str) else ""
     symbols = manifest.get("symbols")
     return {
         "source": {"source_sha256": _text(source.get("source_sha256"), HASH),
                    "entry_class": _text(source.get("entry_class"), re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z"))},
-        "origin_candidate": {"strategy_id": _text(origin.get("strategy_id")),
-                             "revision": _integer(origin.get("revision")),
-                             "source_sha256": _text(origin.get("source_sha256"), HASH)},
+        "candidate": {"strategy_id": _text(candidate.get("strategy_id")),
+                      "revision": _integer(candidate.get("revision"))},
         "runtime": {"digest": digest if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) else None,
                     "platform": _enum(runtime.get("platform"), {"linux/amd64", "linux/arm64"})},
         "symbols": [value for value in symbols if _text(value, re.compile(r"[A-Z0-9]{2,24}USDT\Z"))]

@@ -43,7 +43,7 @@ class CredentialStoreTests(unittest.TestCase):
             state.private_directory(part)
         manifest = {"format": runs.MANIFEST_FORMAT, "run_id": run_id, "runtime": IDENTITY,
                     "symbols": ["BTCUSDT"], "config": {"memory": "2g"},
-                    "origin_candidate": {"strategy_id": "example", "revision": 1},
+                    "candidate": {"strategy_id": "example", "revision": 1},
                     "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
                     "universe_sha256": hashlib.sha256(b"{}").hexdigest(),
                     "credential_binding": hashlib.sha256(self.key.encode()).hexdigest()}
@@ -66,7 +66,7 @@ class CredentialStoreTests(unittest.TestCase):
         inputs = {"source_id": "example", "research_at": "a" * 32, "candidate": "example@1",
                   "symbols": ["BTCUSDT"], "source_sha256": hashlib.sha256(b"source").hexdigest(),
                   "entry_class": "Example", "universe_sha256": hashlib.sha256(b"{}").hexdigest(),
-                  "runtime": IDENTITY["image_ref"], "strategy_file": "/private/fake-source.py",
+                  "runtime": IDENTITY["image_ref"],
                   "universe_file": "/private/fake-universe.json",
                   "config": {"budget_usdt": "90", "max_loss_usdt": "2", "leverage": "3",
                              "duration_seconds": 8100, "memory": "2g"}}

@@ -238,8 +238,3 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     combined = type("LiveSource_" + loaded.content_hash,
                     (strategy_runtime.Subscriptions, _LiveConfigured, OrderRules, loaded.strategy_class), callbacks)
     return combined(session, loaded)
-
-
-# Retained class import identity; engine.live re-exports these exact objects.
-LiveClock.__module__ = "engine.live"
-_LiveConfigured.__module__ = "engine.live"

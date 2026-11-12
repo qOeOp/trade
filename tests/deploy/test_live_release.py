@@ -541,12 +541,12 @@ class LiveHostBoundaryTests(unittest.TestCase):
         self.root = self.base / "custody"
         self.root.mkdir(mode=0o700)
         (self.root / "account.lock").touch(mode=0o600)
-        self.inputs = [self.base / name for name in ("reader.json", "universe.json", "source.py")]
+        self.inputs = [self.base / name for name in ("reader.json", "universe.json")]
         for path in self.inputs:
             path.write_text("{}")
         self.declared = {"format": DECLARATION, "root": str(self.root), "research_ledger": str(self.inputs[0]),
                          "research_at": "a" * 32, "universe_file": str(self.inputs[1]), "symbols": ["BTCUSDT"],
-                         "sources": [{"strategy_file": str(self.inputs[2])}],
+                         "sources": [{"source_id": "example"}],
                          "defaults": {}, "memory": "2g", "market_root": str(self.base)}
         self.web = DockerHost(Config(state=self.base / "release"))
         self.web.docker = Mock()
@@ -566,7 +566,7 @@ class LiveHostBoundaryTests(unittest.TestCase):
         value = self.live.snapshot(WEB + B)
         self.assertEqual(value["runtime"], RUNTIME)
         self.assertEqual(value["socket"], str(self.live.socket(WEB + B) / "control.sock"))
-        self.assertEqual(value["sources"], [{"strategy_file": str(self.inputs[2])}])
+        self.assertEqual(value["sources"], [{"source_id": "example"}])
         with patch.object(self.live, "checked") as checked:
             self.live.prepare(B, {**PAIR, "revision": C})
         checked.assert_called_once_with(WEB + B)

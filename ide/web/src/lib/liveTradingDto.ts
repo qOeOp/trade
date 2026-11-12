@@ -10,8 +10,7 @@ type LiveCredentialDto = {
   credential_ref: string; observed_ns: string; selected: boolean; removed: boolean; available: boolean; referenced_runs: string[];
 };
 export type LiveSourceDto = {
-  source_id: string; origin_candidate: string; source_sha256: string; entry_class: string;
-  purpose: "natural" | "controlled"; available: boolean; code: string | null;
+  source_id: string; candidate: string; source_sha256: string; entry_class: string; purpose: "natural" | "controlled";
 };
 type LiveEvidenceDto = {
   source: string; cursor: string | null; observed_ns: string | null; read_ns: string; complete: boolean;
@@ -26,13 +25,13 @@ export type LiveEventRow = {
   realized_return?: string | null; ts_event?: string | null; ts_init?: string | null; ts_opened?: string | null; ts_closed?: string | null;
   order_side?: "BUY" | "SELL" | null; side?: "LONG" | "SHORT" | "FLAT" | null; order_type?: string | null; time_in_force?: string | null;
 };
-type Candidate = { strategy_id: string | null; revision: string | null; source_sha256: string | null };
+type Candidate = { strategy_id: string | null; revision: string | null };
 export type LiveReviewDto = {
-  research_at: string; origin_candidate: Omit<Candidate, "revision"> & { revision: string | number | null }; source_sha256: string; entry_class: string;
-  rewritten: boolean; origin_candidate_validations: readonly Record<string, unknown>[]; validation_note: string;
+  research_at: string; candidate: Omit<Candidate, "revision"> & { revision: string | number | null }; source_sha256: string; entry_class: string;
+  validations: readonly Record<string, unknown>[]; validation_note: string;
 };
 export type LiveRunDto = {
-  run_id: string; source: { source_sha256: string | null; entry_class: string | null }; origin_candidate: Candidate;
+  run_id: string; source: { source_sha256: string | null; entry_class: string | null }; candidate: Candidate;
   runtime: { digest: string | null; platform: "linux/amd64" | "linux/arm64" | null }; symbols: string[] | null;
   config: { budget_usdt: string | null; max_loss_usdt: string | null; duration_seconds: string | null; leverage: string | null };
   host: { state: string | null; mode: "preflight" | "run" | "reconcile" | null; account_owned: boolean | null; exit_code: number | null };

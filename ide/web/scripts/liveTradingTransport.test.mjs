@@ -234,7 +234,7 @@ test("a pre-forward 400 and a missing request never fabricate a durable refusal 
 test("a home-read failure retains explicit stop and local maintenance for a known run", async () => {
   const h = await harness(new Map(), true);
   const retainedRun = {
-    run_id: "run-a", source: { source_sha256: "source", entry_class: "Strategy" }, origin_candidate: { strategy_id: "fixture", revision: "1", source_sha256: "source" },
+    run_id: "run-a", source: { source_sha256: "source", entry_class: "Strategy" }, candidate: { strategy_id: "fixture", revision: "1" },
     runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: [],
     config: { budget_usdt: "90", max_loss_usdt: "2", duration_seconds: "8100", leverage: "3" },
     host: { state: "running", mode: "run", account_owned: true, exit_code: null }, stop_requested: false, terminal: null,

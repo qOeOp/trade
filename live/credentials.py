@@ -281,7 +281,7 @@ def resolve_prepare_path_locked(root: Path, run_id: str, credential_ref: str, re
     directory = state.directory(root, run_id)
     claim = requests.read_locked(root, request_id)
     required = {"research_at", "candidate", "symbols", "source_sha256", "entry_class", "universe_sha256",
-                "runtime", "config", "source_id", "strategy_file", "universe_file"}
+                "runtime", "config", "source_id", "universe_file"}
     config_fields = {"budget_usdt", "max_loss_usdt", "duration_seconds", "leverage", "memory"}
     try:
         if (claim is None or requests.is_closed(claim) or claim["disposition"] is not None

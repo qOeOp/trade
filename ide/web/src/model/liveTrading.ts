@@ -7,7 +7,7 @@ export type LiveFact = { label: string; value: string | null; format?: "nanoseco
 export type LiveEvidence = { source: string; cursor: string | null; observedNs: string | null; complete: boolean | null; readNs?: string; state?: string };
 export type LiveSource = {
   id: string; candidate: string; sourceHash: string; entryClass: string;
-  purpose: "natural" | "controlled"; availability: string;
+  purpose: "natural" | "controlled";
 };
 export type LiveCredential = {
   ref: string; savedAt: string | null; selected: boolean; available: boolean | null; runIds: readonly string[]; removed?: boolean;
