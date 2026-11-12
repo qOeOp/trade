@@ -2,7 +2,6 @@ import type { SummaryWidget } from "../../model/types";
 import { useView, useWidget } from "../../model/view";
 import { marketDay } from "../../lib/format";
 import { copyText } from "../../lib/clipboard";
-import { requestFocus } from "../../state/linking";
 import { Dropdown, DropdownFacts, DropdownItem, DropdownLabel, DropdownSeparator } from "../../components/Dropdown";
 import { ResearchLines } from "./ResearchLines";
 import { useResearchLines } from "../../state/researchLines";
@@ -62,6 +61,7 @@ export function LineWidget() {
         <DropdownSeparator />
       </>}
       <ResearchLines index={index} />
+      <DropdownSeparator />
       <DropdownFacts items={[
         ["Research line", line.bundle],
         ["Start", line.start ?? "-"],
@@ -71,7 +71,6 @@ export function LineWidget() {
       ]} />
       <DropdownSeparator />
       <DropdownItem icon="copy" onSelect={() => void copyText(line.bundle)}>Copy line name</DropdownItem>
-      <DropdownItem onSelect={() => requestFocus("")} hint="Home">Back to the axis start</DropdownItem>
     </Dropdown>
   );
 }
