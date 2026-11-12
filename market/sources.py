@@ -207,10 +207,10 @@ def fetch_archive(cache_root: Path, key: str) -> Path:
     return target
 
 
-def fetch_all(cache_root: Path, keys: list[str], workers: int = 4) -> list[Path]:
+def fetch_all(cache_root: Path, keys: list[str]) -> list[Path]:
     if not keys:
         return []
-    with ThreadPoolExecutor(max(1, min(workers, len(keys)))) as pool:
+    with ThreadPoolExecutor(max(1, min(4, len(keys)))) as pool:
         return list(pool.map(lambda key: fetch_archive(cache_root, key), keys))
 
 
@@ -275,8 +275,8 @@ def _check_series(kind: str, symbol: str, interval: str | None) -> None:
     check_symbol(symbol)
 
 
-def monthly_archives(cache_root: Path, kind: str, symbol: str, interval: str | None, months: list[str],
-                     workers: int = 4) -> dict[str, Path]:
+def monthly_archives(cache_root: Path, kind: str, symbol: str, interval: str | None,
+                     months: list[str]) -> dict[str, Path]:
     """market.monthly_archives: {month: verified path} for the published monthly archives among `months`.
 
     A few months (an append) are fetched by their known names, an unpublished one answering 404;
@@ -290,8 +290,7 @@ def monthly_archives(cache_root: Path, kind: str, symbol: str, interval: str | N
         listed, _ = _listing(stem, delimiter=None)
         published = {period(key) for key in listed if key.endswith(".zip")}
         wanted = [month for month in months if month in published]
-        return dict(zip(wanted, fetch_all(cache_root, [f"{stem}{month}.zip" for month in wanted], workers),
-                        strict=True))
+        return dict(zip(wanted, fetch_all(cache_root, [f"{stem}{month}.zip" for month in wanted]), strict=True))
     found = {}
     for month in months:
         try:
