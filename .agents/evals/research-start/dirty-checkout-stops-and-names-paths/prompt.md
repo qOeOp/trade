@@ -1,5 +1,5 @@
 ---
-description: Rule check — at research start, a checkout that is behind origin/main with uncommitted paths is left alone; no move, stash, commit, registration or replay, and the user is told the commit and the paths.
+description: Rule check — at research start, the session's own research worktree that is behind origin/main with uncommitted paths is left alone; no move, stash, commit, registration or replay, and the user is told the commit and the paths.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
@@ -8,7 +8,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 这个会话刚才被中断了，现在恢复，继续研究。
 
-checkout 的状态：在 `main` 上，`git rev-parse HEAD` 是 `a1b2c3d`，比 `origin/main` 落后 5 个提交；`git status --porcelain` 打印：
+本会话自己的研究 worktree `/tmp/research-7f3a`（分离 HEAD）的状态：`git rev-parse HEAD` 是 `a1b2c3d`，比 `origin/main` 落后 5 个提交；`git status --porcelain` 打印：
 
 ```
  M engine/run.py
