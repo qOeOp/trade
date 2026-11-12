@@ -20,7 +20,7 @@ MODEL resolves the pinned snapshot offline (a repo ID would fetch an unpinned on
 
 Detect the spoken language on two 30 s windows. If they disagree, or differ from a language the user
 named, stop and ask: a wrong `--language` makes Whisper write a fluent translation and exit 0. Rerun
-the block with the user's answer in `USER_LANGUAGE`; nothing else sets it.
+the block with the user's answer in `USER_LANGUAGE`; only that answer and the reviewer rerun set it.
 
     mkdir -p "$W"; MEDIA=${MEDIA:-$ROOT/sha256}
     for h in $(cut -c1-64 "$B/media/SHA256SUMS"); do f=$(ls "$MEDIA/$h".*)
@@ -51,9 +51,9 @@ The `if` is the success gate. `run.json` records the argv that ran and the hash 
       'map(if . == $m then $id elif . == $s then "." else ltrimstr($w) end) | .[0] |= sub(".*/"; "")' > "$W/argv.json"
     "$MLX_VENV/bin/python" -I -c 'import sys, json; from importlib.metadata import version as v; print(json.dumps({p: v(p) for p in ["mlx-whisper", "mlx", "mlx-metal", "numpy"]} | {"python": sys.version.split()[0]}))' > "$W/versions.json"
     jq -n --arg pcm "$(ffmpeg -nostdin -v error -i "$W/audio.wav" -f s16le - | shasum -a 256 | cut -c1-64)" \
-      --arg lang "$DETECTED" --arg ff "$(ffmpeg -version | head -1)" --arg rev "$REV" \
+      --arg lang "$DETECTED" --arg user "${USER_LANGUAGE:-}" --arg ff "$(ffmpeg -version | head -1)" --arg rev "$REV" \
       --arg wt "$(shasum -a 256 "$MODEL/weights.npz" | cut -c1-64)" --slurpfile v "$W/versions.json" --slurpfile a "$W/argv.json" \
-      '{pcm_sha256: $pcm, detected_language: $lang, versions: ($v[0] + {ffmpeg: $ff}), argv: $a[0],
+      '{pcm_sha256: $pcm, detected_language: $lang, user_language: (if $user == "" then null else $user end), versions: ($v[0] + {ffmpeg: $ff}), argv: $a[0],
         model: {repo: "mlx-community/whisper-large-v3-mlx", revision: $rev, weights_sha256: $wt}}' > "$S/run.json"
     mv "$S" "$B/asr" && rm -rf "$W"
 
@@ -80,6 +80,6 @@ digits: read both forms. Another Whisper is not an independent check.
 ## Reviewer rerun (after the checker passed on the restored `B`)
 
 Set `B` to the restored bundle, `MEDIA` to the backup's `sha256/`, `W` to an empty scratch directory and
-`S="$W/rerun"`, then run MODEL (with `run.json`'s revision), Language and Transcript above, never the recorded
-argv. `DETECTED` must equal `run.json`'s `detected_language` and `cmp "$S/transcript.json"
+`S="$W/rerun"`, `USER_LANGUAGE` to `run.json`'s `user_language` when it is not null (unset otherwise), then run
+MODEL (with `run.json`'s revision), Language and Transcript above, never the recorded argv. `DETECTED` must equal `run.json`'s `detected_language` and `cmp "$S/transcript.json"
 "$B/asr/transcript.json"` must be silent; any difference is reported, never repaired.
