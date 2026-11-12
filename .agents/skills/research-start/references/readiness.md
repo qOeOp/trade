@@ -79,8 +79,6 @@ not a substitute for the disposition.
   market ... --market /run/trade/market-import.json`: the import lock holds only there), except
   bars in a month the market holds: `MONTH_EXISTS` whichever `--symbols`, and no command adds
   them, so name the contracts `market coverage` holds.
-- Before the first replay of a line or of a session, check the checkout again as at the start
-  (SKILL.md): `HEAD` is the current `origin/main` and the working tree is clean.
 
 ## Inferred quotes and low activity
 
