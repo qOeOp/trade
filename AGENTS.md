@@ -28,8 +28,10 @@ Stop and ask before any of these:
 - Changing (relaxing or tightening) a refusal or audit check in code, tests, configuration or a
   skill, or either of the user's two research targets (maximum drawdown and minimum annual
   return), including to get past a failing check. Win rate is a report dimension, not a target.
-- Terminating a host process or changing host configuration: Docker or system settings, credential
-  helpers, the network path, installing or upgrading host tools or plugins.
+- Starting, stopping or restarting Docker Desktop or a deployment's own services (the `trade-ide`
+  compose services, the remote host's), terminating any host process, or changing host
+  configuration: Docker or system settings, credential helpers, the network path, installing or
+  upgrading host tools or plugins.
 - Reading any credential (browser cookies included) other than the research data keys
   `research-sources` names. Those sit in the main checkout's `.env` beside exchange credentials:
   read one named value inside the command that uses it, never source or print the file, never
