@@ -43,15 +43,14 @@ test("the buy and hold's return each year runs from its own close the year befor
   assert.deepEqual(yearsOf(points, 100).map((y) => y.hold), [null, null]);
 });
 
-test("a year's lines are its return and buy and hold, each giving way to its figure alone, the return coloured by its target", () => {
-  const look = { label: "L", quiet: "Q", meets: "M", misses: "X" }, form = (ws) => ws.map(([text, colour]) => `${text}|${colour}`).join("");
+test("a year's lines name the year and the buy and hold, months or no months, beside their figures, the return coloured by its target", () => {
+  const look = { label: "L", quiet: "Q", meets: "M", misses: "X" }, flat = (ls) => ls.map(({ name, figure }) => [...name, ...figure]);
   const [part] = yearsOf(daily(day(2021, 10, 1), day(2021, 12, 31), () => 90.7), 100);
-  assert.deepEqual(linesOf(part, 0.2, look).map((forms) => forms.map(form)), [["2021 Oct–Dec |L−9.3%|X", "2021 |L−9.3%|X", "−9.3%|X"]], "no buy and hold, no second line");
+  assert.deepEqual(flat(linesOf(part, 0.2, look)), [["2021", "L", "\u22129.3%", "X"]], "a part year is named as any; no buy and hold, no second line");
   const [whole] = yearsOf(daily(day(2023, 1, 1), day(2023, 12, 31), () => 125), 100, () => 34);
-  assert.equal(linesOf(whole, 0.2, look)[0][0].at(-1)[1], "M", "+25% meets 20%");
-  assert.equal(linesOf(whole, null, look)[0][0].at(-1)[1], "L", "without a target the figure stays plain");
-  const text = (ws) => ws.map(([t]) => t).join("");
-  assert.deepEqual(linesOf(whole, 0.2, look, true).map((forms) => forms.map(text)), [["2023 +25.0%", "+25.0%"], ["hold \u221266.0%", "\u221266.0%"]]);
+  assert.equal(linesOf(whole, 0.2, look)[0].figure[1], "M", "+25% meets 20%");
+  assert.equal(linesOf(whole, null, look)[0].figure[1], "L", "without a target the figure stays plain");
+  assert.deepEqual(flat(linesOf(whole, 0.2, look, true)), [["2023", "L", "+25.0%", "M"], ["hold", "Q", "\u221266.0%", "Q"]]);
 });
 
 test("a year's two bars are each contract's P&L of the cycles it held that year, its gains and its losses, largest first", () => {

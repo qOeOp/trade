@@ -1,13 +1,14 @@
 // The equity chart's yearly P&L bars (equityZones' top row): over each year of the shown backtest, right of
 // its scorecard (equityYears), two bars, the year's gains over its losses, each cut into the contracts' shares
-// of the P&L their cycles made that year, largest first from the left, filled in the contract's colour. A
-// cycle held across a year's end is marked to its contract's last close of that year (`piecesOf`), so a year's
-// shares are what its equity moved by, not what happened to close in it; what its fees and funding took falls
-// in the year it closed. The longer of the two runs the room it is given, the other to the same scale, both
-// over a faint track of that length, TALL px each, GAP px between two shares. A contract keeps its colour
-// across the years: up to SLOTS contracts have one each (those that moved the most P&L over the run); the rest
-// share Other, in grey, its gains and its losses apart. A share wide enough carries its name, in whichever of
-// the text and island colours stands out more on it; the tooltip (`tipOf`) names every share.
+// of the P&L their cycles made that year, largest first from the left, each outlined in the contract's colour
+// and hatched in it at 45°, as the drawdowns are. A cycle held across a year's end is marked to its contract's
+// last close of that year (`piecesOf`), so a year's shares are what its equity moved by, not what happened to
+// close in it; what its fees and funding took falls in the year it closed. The longer of the two runs the room
+// it is given, the other to the same scale, both over a faint track of that length, TALL px each, GAP px
+// between two shares. A contract keeps its colour across the years: up to SLOTS contracts have one each (those
+// that moved the most P&L over the run); the rest share Other, in grey, its gains and its losses apart. A
+// share wide enough carries its name, in the text colour on a patch of the island's; the tooltip (`tipOf`)
+// names every share.
 import { baseAsset } from "../../lib/paperApi";
 import type { Tip } from "./candleEvents";
 import { span, type Frame } from "./equityBands";
@@ -19,7 +20,7 @@ export type ShareLook = { series: readonly string[]; other: string; ink: string;
 export type Hit = { x0: number; x1: number; y0: number; y1: number; year: number; share: Share; of: number };
 
 export const SLOTS = 5;
-const GAP = 4, PAD = 3, TALL = 9, NAME = 9;  // px: between shares, around a name, a bar's height, its names' font size
+const GAP = 4, PAD = 3, TALL = 9, NAME = 9, LEAN = 4;  // px: between shares, around a name, a bar's height, its names' font size, the stripes' pitch
 const OTHER = "Other";
 
 type Cycle = { symbol: string; opened: number; closed: number; pnl: number | null; gross: number };
@@ -105,10 +106,17 @@ export function shareBars({ c, hr, vr, w }: Frame, year: number, shares: readonl
     const x0 = a + at * width + (at ? gap / 2 : 0), x1 = a + (at + len) * width - (end ? 0 : gap / 2);
     if (x1 < 0 || x0 > w || x1 - x0 < 1) return [];
     const s = span(x0, x1), colour = share.slot === null ? look.other : look.series[share.slot]!;
-    c.fillStyle = colour; c.fillRect(s.at, y, s.len, h);
-    // The name centred on its glyphs, not its em box, so its capitals sit square in the thin bar.
+    const line = Math.max(1, Math.floor(hr));
+    c.fillStyle = hatch(c, colour, Math.max(3, Math.round(LEAN * hr))); c.fillRect(s.at, y, s.len, h);
+    Object.assign(c, { strokeStyle: colour, lineWidth: line }); c.strokeRect(s.at + line / 2, y + line / 2, s.len - line, h - line);
+    // The name centred on its glyphs, not its em box, so its capitals sit square in the thin bar; on a patch
+    // of the island's colour inside the outline, so no stripe cuts into it.
     const name = nameOf(share), lo = Math.max(s.at, 0), hi = Math.min(s.at + s.len, w), m = c.measureText(name), tw = m.width;
-    if (hi - lo >= tw + 2 * PAD * hr) { c.fillStyle = inkOn(colour, look); c.fillText(name, Math.round((lo + hi) / 2 - tw / 2), Math.round(y + h / 2 + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2)); }
+    if (hi - lo >= tw + 2 * PAD * hr) {
+      const x = Math.round((lo + hi) / 2 - tw / 2), base = Math.round(y + h / 2 + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2);
+      c.fillStyle = look.paper; c.fillRect(x - Math.round(PAD * hr), y + line, tw + 2 * Math.round(PAD * hr), h - 2 * line);
+      c.fillStyle = look.ink; c.fillText(name, x, base);
+    }
     // The pointer finds a share over its row's half of the unit, not only the bar's thin strip.
     return [{ x0: s.at / hr, x1: (s.at + s.len) / hr, y0: top + row * (high / 2), y1: top + (row + 1) * (high / 2), year, share, of: of[row]! }];
   });
@@ -116,12 +124,18 @@ export function shareBars({ c, hr, vr, w }: Frame, year: number, shares: readonl
   return hits;
 }
 
-/** The text or the island colour, whichever stands out more on `fill` (all `#rrggbb…`, as canvasColor gives them). */
-function inkOn(fill: string, { ink, paper }: ShareLook): string {
-  const lum = (hex: string) => {
-    const [r, g, b] = [1, 3, 5].map((i) => { const v = parseInt(hex.slice(i, i + 2), 16) / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
-    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
-  };
-  const ratio = (x: string) => { const [p, q] = [lum(x), lum(fill)].sort((m, n) => n - m); return (p! + 0.05) / (q! + 0.05); };
-  return ratio(ink) >= ratio(paper) ? ink : paper;
+/** 45° stripes of `colour` a `pitch` px apart, kept per pitch and colour. */
+const hatches = new Map<string, CanvasPattern | string>();
+function hatch(c: CanvasRenderingContext2D, colour: string, pitch: number): CanvasPattern | string {
+  const key = `${colour}:${pitch}`;
+  if (!hatches.has(key)) {
+    const cell = document.createElement("canvas"), g = cell.getContext("2d");
+    Object.assign(cell, { width: pitch, height: pitch });
+    if (g) {
+      Object.assign(g, { strokeStyle: colour, lineWidth: Math.max(1, pitch / 4) });
+      for (const d of [-pitch, 0, pitch]) { g.beginPath(); g.moveTo(d, pitch); g.lineTo(d + pitch, 0); g.stroke(); }
+    }
+    hatches.set(key, (g && c.createPattern(cell, "repeat")) ?? colour);
+  }
+  return hatches.get(key)!;
 }

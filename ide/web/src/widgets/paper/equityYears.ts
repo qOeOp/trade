@@ -1,11 +1,12 @@
 // The equity chart's yearly scorecards (equityZones' top row): over each calendar year (UTC, as the backtest's
 // days) of the shown backtest, at the left of its own stretch of the row, two lines: the year's return, in the
 // meets colour when it meets the return target and the misses colour when not, as Details marks it, and, while
-// the buy and hold is shown, the buy and hold's return. To their right, its P&L bars (equityShares). A year the
-// backtest covers only part of says which months (`2021 Oct–Dec`); its return is that part's, not annualised,
+// the buy and hold is shown, the buy and hold's return; each line's name (the year, `hold`) at the left and
+// its figure at the right of the column, SPACE px apart at least. To their right, its P&L bars (equityShares).
+// A year the backtest covers only part of is named as any other; its return is that part's, not annualised,
 // and meets the pace's share of the annual target over those days (as the dashed pace line asks for). Each
-// year is a unit of its own, INSET px in from its edges; its lines are written in the richest form that leaves
-// its bars BARS px.
+// year is a unit of its own, INSET px in from its edges; its names give way first where they would leave its
+// bars less than BARS px.
 import { meets } from "../../model/semantics";
 import { DAY_S, type Frame } from "./equityBands";
 import type { Share } from "./equityShares";
@@ -17,7 +18,7 @@ import { LINE, UNIT } from "./equityZones";
 export type Year = { year: number; first: number; last: number; part: string | null; days: number; ret: number; hold: number | null; shares: readonly Share[] };
 export type YearLook = { font: string; label: string; quiet: string; meets: string; misses: string; halo: string; grid: string };
 
-const YEAR_DAYS = 365, PAD = 6, INSET = 4, BARS = 32;  // the pace's year (equityStretches' YEAR_S); px: from the words to the bars, from a year's edges, the bars' least
+const YEAR_DAYS = 365, PAD = 6, INSET = 4, BARS = 32, SPACE = 8;  // the pace's year (equityStretches' YEAR_S); px: from the words to the bars, from a year's edges, the bars' least, a name's from its figure
 const month = (t: number) => new Date(t * 1000).toLocaleString("en-US", { month: "short", timeZone: "UTC" });
 const yearOf = (t: number) => new Date(t * 1000).getUTCFullYear();
 
@@ -48,14 +49,13 @@ export const yearMeets = (y: Year, annual: number | null): boolean | null =>
 
 const signed = (v: number) => { const s = (+(v * 100).toFixed(1) || 0).toFixed(1); return `${+s > 0 ? "+" : ""}${s}%`.replace(/^-/, "−"); };
 
-type Words = [string, string][];  // runs of text and their colours
+/** A line of a year's scorecard: its name and its figure, each a text and its colour. */
+export type Line = { name: [string, string]; figure: [string, string] };
 
-/** A year's lines, each in its forms richest first: the year (and its months) and return, then the buy and
- *  hold's return (when `hold`), each giving way to its figure alone. */
-export function linesOf(y: Year, annual: number | null, look: YearLook, hold = false): Words[][] {
-  const ok = yearMeets(y, annual), ret: Words = [[signed(y.ret), ok === null ? look.label : ok ? look.meets : look.misses]];
-  const year: Words[] = [...(y.part ? [[[`${y.year} ${y.part} `, look.label], ...ret] as Words] : []), [[`${y.year} `, look.label], ...ret], ret];
-  return [year, ...(hold && y.hold !== null ? [[[["hold ", look.quiet], [signed(y.hold), look.quiet]], [[signed(y.hold), look.quiet]]] as Words[]] : [])];
+/** A year's lines: the year and its return, then the buy and hold's (when `hold`). */
+export function linesOf(y: Year, annual: number | null, look: YearLook, hold = false): Line[] {
+  const ok = yearMeets(y, annual), ret: Line = { name: [`${y.year}`, look.label], figure: [signed(y.ret), ok === null ? look.label : ok ? look.meets : look.misses] };
+  return [ret, ...(hold && y.hold !== null ? [{ name: ["hold", look.quiet], figure: [signed(y.hold), look.quiet] } as Line] : [])];
 }
 
 /** Each year's edges (device px): half way to the next year's first point, the first's and last's at their points. */
@@ -71,26 +71,21 @@ export function yearText(f: Frame, years: readonly Year[], annual: number | null
   Object.assign(c, { textBaseline: "middle", lineJoin: "round", lineWidth: 3 * hr, strokeStyle: look.halo });
   const out = years.map((y, k) => {
     const [a, b] = edges[k]!, lo = Math.max(a, 0) + INSET * hr, hi = Math.min(b, w) - INSET * hr, lines = linesOf(y, annual, look, hold);
-    const at = (level: number) => lines.map((forms) => forms[Math.min(level, forms.length - 1)]!), wide = (ls: Words[]) => Math.max(...ls.map((ws) => width(c, ws)));
-    const levels = [0, 1, 2].map(at), room = (PAD + BARS) * hr;
-    const fits = levels.find((ls) => wide(ls) + room <= hi - lo) ?? levels.find((ls) => wide(ls) <= hi - lo);
-    if (!fits) return null;
-    fits.forEach((words, row) => {
-      const middle = Math.round((UNIT.top + (UNIT.high - LINE * fits.length) / 2 + LINE * (row + 0.5)) * vr);
-      // The halo under all the words first, so none cuts into the one before it.
-      for (const fill of [false, true]) {
-        let x = Math.round(lo);
-        for (const [text, colour] of words) {
-          if (fill) { c.fillStyle = colour; c.fillText(text, x, middle); } else c.strokeText(text, x, middle);
-          x += c.measureText(text).width;
-        }
-      }
+    const most = (part: "name" | "figure") => Math.max(...lines.map((l) => c.measureText(l[part][0]).width)), figures = most("figure");
+    // With their names, if the bars keep their room or there are none to keep; else the figures alone.
+    const named = most("name") + SPACE * hr + figures, wide = [named, figures].find((n) => n + (PAD + BARS) * hr <= hi - lo) ?? (named <= hi - lo ? named : figures);
+    if (wide > hi - lo) return null;
+    lines.forEach(({ name, figure }, row) => {
+      const middle = Math.round((UNIT.top + (UNIT.high - LINE * lines.length) / 2 + LINE * (row + 0.5)) * vr);
+      const runs: [string, string, number][] = [...(wide > figures ? [[...name, Math.round(lo)] as [string, string, number]] : []), [...figure, Math.round(lo + wide - c.measureText(figure[0]).width)]];
+      // The halo under all the words first, so none cuts into another.
+      for (const [text, , x] of runs) c.strokeText(text, x, middle);
+      for (const [text, colour, x] of runs) { c.fillStyle = colour; c.fillText(text, x, middle); }
     });
-    const from = lo + wide(fits) + PAD * hr;
+    const from = lo + wide + PAD * hr;
     return hi - from >= BARS * hr ? [from, hi] as [number, number] : null;
   });
   c.restore();
   return out;
 }
 
-const width = (c: CanvasRenderingContext2D, words: Words) => words.reduce((n, [text]) => n + c.measureText(text).width, 0);
