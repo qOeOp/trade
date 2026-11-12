@@ -23,7 +23,7 @@ export function LiveRunReview({ runId, open, close, view, actions, requests }: {
       <FormButton disabled={!actions.refresh || reading.busy} onClick={() => { if (actions.refresh) void reading.submit(actions.refresh); }}>{reading.busy ? "Reading…" : "Refresh observations"}</FormButton>
     </>}>
     <div className="space-y-4">
-      {view.notice && <p role="status" className="text-small text-misses">{view.notice}</p>}
+      {view.notice && <p role="status" className="text-small text-misses-fg">{view.notice}</p>}
       {run ? <><LiveRunIdentity run={run} /><LiveLaunchReview run={run} credentials={view.credentials} actions={actions} action={check} /></>
         : <p role="status" className="text-fg-muted">Reading the run. Refresh observations to view its frozen plan.</p>}
     </div>

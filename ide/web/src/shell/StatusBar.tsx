@@ -80,7 +80,7 @@ export function StatusBar() {
       {!live && <PaperStartStatus />}
       {!live && said && <Tip content={said.text} side="top"><span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span></Tip>}
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
-        {runs && !live && gapped > 0 && <span className="text-misses">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
+        {runs && !live && gapped > 0 && <span className="text-misses-fg">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
         <PublicCopyStatus />
         <MarketImportStatus />
         <ResearchSyncStatus />

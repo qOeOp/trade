@@ -46,7 +46,7 @@ export function PhoneNotice({ tone, children }: { tone: "fail" | "misses"; child
   return (
     <p role="status" className={`flex gap-2 rounded-card border px-3 py-2 text-dense ${textClass("fg")}`}
        style={{ background: wash(tone, 8), borderColor: wash(tone, 40) }}>
-      <span className={`mt-0.5 shrink-0 ${textClass(tone)}`}><Icon name="warning" /></span><span className="min-w-0">{children}</span>
+      <span className="mt-0.5 shrink-0"><Icon name="warning" tone={tone} /></span><span className="min-w-0">{children}</span>
     </p>
   );
 }

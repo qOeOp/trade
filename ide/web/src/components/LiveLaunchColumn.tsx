@@ -12,7 +12,7 @@ function RowMark({ mark, required, busy }: { mark: Mark; required: boolean; busy
     ? <><Icon name="loading" size={16} className="text-icon motion-safe:animate-spin motion-reduce:hidden" /><Icon name="untested" size={16} className="text-fg-faint motion-safe:hidden" /></>
     : <Icon name="untested" size={16} className="text-fg-faint" />;
   return mark === "pass" ? <Icon name="passed" size={16} className="text-meets" />
-    : <Icon name="failed" size={16} className={required ? "text-fail" : "text-misses"} />;
+    : <Icon name="failed" size={16} tone={required ? "fail" : "misses"} />;
 }
 
 const SAID: Record<Mark, string> = { pass: "met", fail: "not met", wait: "not answered yet", shown: "" };

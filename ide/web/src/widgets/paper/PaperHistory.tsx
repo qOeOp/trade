@@ -37,7 +37,7 @@ export function PaperHistory({ runs, all, now, pick }: { runs: readonly PaperRun
   const since = startedMs(runs[0]!) ?? createdNs(runs[0]!) / 1e6;
   const facts = [plural(h.runs, "run"), h.failed && `${plural(h.failed, "start")} failed`, h.stops && `stopped ${h.stops === 1 ? "once" : `${h.stops} times`}`,
     h.paused && `paused ${brief(h.paused)}`, h.offline && `offline ${brief(h.offline)}`].filter(Boolean);
-  const failed = (run: PaperRun) => <span className="block text-small text-misses">Run {run.paper_id} · {ending(run).text} · {at(createdNs(run) / 1e6)}</span>;
+  const failed = (run: PaperRun) => <span className="block text-small text-misses-fg">Run {run.paper_id} · {ending(run).text} · {at(createdNs(run) / 1e6)}</span>;
   const line = (step: Step): ReactNode => {
     if (step.kind === "run") {
       const span = step.from === null ? null : (step.to ?? now) - step.from;

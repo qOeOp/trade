@@ -24,7 +24,7 @@ export function LiveCredentialsDialog({ view, actions, close, requests }: {
       <FormButton primary type="submit" form={form} disabled={!actions.saveCredentials || action.busy}>{action.busy ? "Submitting…" : "Save credentials"}</FormButton></>
       : <FormButton onClick={close}>Done</FormButton>}>
     <div className="space-y-4">
-      {view.notice && <p role="status" className="text-small text-misses">{view.notice}</p>}
+      {view.notice && <p role="status" className="text-small text-misses-fg">{view.notice}</p>}
       <LiveCredentialVersions credentials={view.credentials} remove={actions.removeCredential} />
       {editing ? <form id={form} className="space-y-4 border-t border-line pt-4" onSubmit={(event) => { event.preventDefault(); save(); }}>
         <TextField label="API key" type="password" autoComplete="off" spellCheck={false} value={key} onValue={setKey} disabled={!actions.saveCredentials || action.busy} />

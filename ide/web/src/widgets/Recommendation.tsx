@@ -14,7 +14,7 @@ const two = { minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 function Metric({ label, children, unit, tip, miss = false }: { label: string; children: ReactNode; unit?: string; tip?: ReactNode; miss?: boolean }) {
   const body = (
     <span className="whitespace-nowrap">
-      <span className="text-fg-faint">{label} </span><span className={miss ? "text-misses" : "text-fg"}>{children}</span>
+      <span className="text-fg-faint">{label} </span><span className={miss ? "text-misses-fg" : "text-fg"}>{children}</span>
       {unit && <span className="text-fg-faint"> {unit}</span>}
     </span>
   );

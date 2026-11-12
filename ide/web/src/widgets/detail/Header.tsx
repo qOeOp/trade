@@ -8,7 +8,7 @@ import { select } from "../../state/selection";
 import { TextButton } from "../../components/TextButton";
 import { Tip } from "../../components/Tip";
 
-const PREDICTION_TEXT = { meets: "text-meets", misses: "text-misses", "fg-muted": "text-fg-muted", "fg-faint": "text-fg-faint" } as const;
+const PREDICTION_TEXT = { meets: "text-meets", misses: "text-misses-fg", "fg-muted": "text-fg-muted", "fg-faint": "text-fg-faint" } as const;
 
 /** The selected version's card: its name, role, prediction verdict, when it was published, its
  *  parent; its readings follow in the same card. */

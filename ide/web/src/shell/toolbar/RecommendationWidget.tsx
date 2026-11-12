@@ -18,7 +18,7 @@ export function RecommendationWidget() {
   return (
     <Dropdown label={ineligible ? "Last recommended, ineligible now" : "Recommended"}
               trigger={<><span className="truncate font-mono">{summary.recommended}</span>
-                {ineligible && <span className="shrink-0 text-small text-misses">Ineligible now</span>}</>}>
+                {ineligible && <span className="shrink-0 text-small text-misses-fg">Ineligible now</span>}</>}>
       {ineligible && <p className="max-w-80 px-2 py-1.5 text-small text-fg-muted">
         The latest recommendation names {summary.recommended}, but its latest research run no longer carries economic evidence.</p>}
       <DropdownLabel>Recommended versions · newest first</DropdownLabel>
