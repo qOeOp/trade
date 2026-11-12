@@ -414,14 +414,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "--file (a regular UTF-8 Python file, parsed and compiled, never run); the parent and existing candidates "
         "(writer, head)",
         "one candidate row (revision = the strategy ID's highest + 1); the same strategy ID, source, entry class "
-        "and parent again is a replay returning the stored record; publishes",
+        "and parent again is a replay returning the stored record",
         "candidate, source_sha256, parent, runtime_contract, ledger_commit, replayed",
         "SOURCE_EXISTS (these bytes are already a candidate); SOURCE_SYNTAX, SOURCE_SIZE; ENTRY_CLASS_NOT_UNIQUE "
         "(not exactly one top-level class of that name); LINEAGE_INCOMPLETE (--parent and --difference go "
         "together); UNKNOWN_CANDIDATE, BAD_REF (parent); OP_ID_CONFLICT"),
     ("candidate", "show"): (
         "the candidate at --at (reader); its source hash is recomputed",
-        "nothing; never publishes",
+        "nothing",
         "candidate, strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent, "
         "difference, created_at, ledger_commit",
         "BAD_REF (not ID@N); UNKNOWN_CANDIDATE; UNKNOWN_REF (--at); LEDGER_CORRUPT (source does not match its "
@@ -429,7 +429,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("candidate", "export"): (
         "the candidate's source at --at (reader); the packaged working directory templates",
         "the source file (--output, new, under the temporary root) and AGENTS.md and strategy-header.md beside "
-        "it; no ledger write; never publishes",
+        "it; no ledger write",
         "candidate, source_sha256, path, bytes, ledger_commit, notes (files written)",
         "NOT_TEMPORARY_PATH; PATH_EXISTS (the source, AGENTS.md or strategy-header.md exists); "
         "UNKNOWN_CANDIDATE, BAD_REF; LEDGER_CORRUPT (the file does not reread to the source hash)"),
@@ -442,28 +442,28 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("candidate", "list"): (
         "candidates, research trials of registration grid points, runs and source reviews at --at (reader); each "
         "run's economic evidence availability",
-        "nothing; never publishes",
+        "nothing",
         "ledger_commit, checker, candidates [{strategy_id, revision, source_sha256, entry_class, "
         "runtime_contract, description, parent_source_sha256, parent, difference, created_at, attempts "
         "[{registration_id, trial_id, run_status, availability}], valid_evidence}]; large",
         "UNKNOWN_REF (--at); a run whose records do not verify is listed as unavailable, not refused"),
     ("evidence", "add"): (
         "--file paths (a directory is walked; links refused) and --note (stored as note.md)",
-        "one evidence bundle and its files (writer); the same name and content again is a replay; publishes",
+        "one evidence bundle and its files (writer); the same name and content again is a replay",
         "bundle, files {path: sha256}, write_status (written or replayed), ledger_commit",
         "EMPTY_EVIDENCE (no files or note, or an empty file); BUNDLE_EXISTS; RESERVED_BUNDLE (a product "
         "namespace: lifecycle-*, trial-N-*); "
         "INVALID_EVIDENCE_PATH; MEDIA_NOT_KEPT (video or audio); EVIDENCE_TOO_LARGE (a file over 64 MiB)"),
     ("evidence", "export"): (
         "any bundle at --at (reader), product namespaces included; every hash is recomputed",
-        "the bundle's files into a new directory under the temporary root; no ledger write; never publishes",
+        "the bundle's files into a new directory under the temporary root; no ledger write",
         "bundle, at_commit, path, files [{name, sha256, bytes}]",
         "NOT_TEMPORARY_PATH; PATH_EXISTS; UNKNOWN_BUNDLE; LEDGER_CORRUPT (a file does not match its hash)"),
     ("execution", "recover"): (
         "the precheck trial and its start receipt (writer, head); --failure-receipt (an EXECUTION_CAPTURE_LIMIT "
         "refusal); process.json and the capture files in --workdir (the receipt's own workdir)",
         "the bundle trial-<id>-recovery (the files, recovery.json, host-error.json), marked recovery material; "
-        "the original capture stays missing; the same bytes again are a replay; publishes",
+        "the original capture stays missing; the same bytes again are a replay",
         "trial_id, recovery_bundle, original_capture (missing), limitation, ledger_commit",
         "RECOVERY_NOT_APPLICABLE (not a precheck, capture present, another workdir, or the trial has a run or "
         "a registration relies on it); RECOVERY_INCOMPLETE (another receipt, or required reports absent); TRIAL_NOT_FOUND; "
@@ -471,7 +471,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("judgment", "add"): (
         "--body (a regular UTF-8 file); the line, subjects and superseded judgment (writer, head); for a "
         "recommendation, the line's comparison table at --based-on",
-        "one judgment row and its subject rows; the same content again is a replay; publishes",
+        "one judgment row and its subject rows; the same content again is a replay",
         "judgment_id, ledger_commit, replayed",
         "LINE_UNKNOWN; COMMIT_NOT_ANCESTOR (--based-on is not an ancestor of the head); COMMIT_BEFORE_LINE; "
         "RECOMMENDATION_INCOMPLETE (a recommendation must name as a subject every candidate of the line's own trials "
@@ -482,7 +482,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the market at --market-at (reader): market day, universe rule, latest complete day; the start "
         "candidate, its source reviews, the open lines and targets (writer, head)",
         "one research_line row named <slug> and, when given, the line's targets in the same commit; the same "
-        "choice under that name again writes no line (created false); publishes",
+        "choice under that name again writes no line (created false)",
         "line, line_id, start, window {start, end} (the development period: the 12 calendar quarters before the "
         "holdout, the 8 quarters ending at the last quarter end before today that the market covers; 4 quarters "
         "when the start's precheck instruments have fewer than 24 quarters of coverage before it), market_day, "
@@ -493,8 +493,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "TARGETS_INVALID"),
     ("line", "targets"): (
         "the targets in force for the line or the default (writer, head)",
-        "one line_target row superseding the one in force; values equal to it write nothing (written false); "
-        "publishes",
+        "one line_target row superseding the one in force; values equal to it write nothing (written false)",
         "max_drawdown, annual_return, source (line or default), target_id, created_at, line, written, commit",
         "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); LINE_ENDED "
         "(--line is closed); LINE_UNKNOWN; TARGETS_INVALID (needs 0 < max-drawdown < 1 and 0 < annual-return < 1000)"),
@@ -504,7 +503,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "one history trial and its run per segment left (each calendar year before the development period as a "
         "veto segment, the period again as the control, the two-year holdout after it as one segment, the forward "
         "segment after the holdout), candidates by development-period Sharpe; "
-        "a segment with a history run is skipped, so a rerun resumes; publishes",
+        "a segment with a history run is skipped, so a rerun resumes",
         "line, market_day, ran [{source_sha256, segment, run, history_trial_id, status}], left, participants, "
         "segments_without_trading",
         "LINE_UNKNOWN, LINE_ENDED; MARKET_DAY_UNRESOLVED; REPRODUCTION_CONFIG_DIFFERS (the image gives a run "
@@ -513,7 +512,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "--summary (a regular UTF-8 file, at most 32 KB); the line, its history trials and its closing at the head "
         "(writer); the market's first and latest complete day at the newest day",
         "one line_close row holding the summary, which ends the line; the same summary again is a replay; then the "
-        "profile's backup is synced as `ledger export --kind backup` does; publishes",
+        "profile's backup is synced as `ledger export --kind backup` does",
         "line, line_id, closed_at, ledger_commit, replayed, backup ({ledger_commit, backup_path}, null without a backup "
         "directory or when the sync was refused), backup_failed (the sync's refusal; the closing stands)",
         "HISTORY_INCOMPLETE (a segment of the closing history test has no history run: `line history`); "
@@ -521,7 +520,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("line", "list"): (
         "the open research lines (with --all the closed ones too), their closings and targets at --at (reader); "
         "with --readings the recommendation judgments and each recommended version's latest research run; no market",
-        "nothing; never publishes",
+        "nothing",
         "ledger_commit, lines [{line_id, name, start, dev_start, dev_end, market_day, created_at, closed, targets, "
         "versions, recommendation (with --readings: {recommended, since, research_runs, runs_since, trial_id, "
         "eligible, annual_return, max_drawdown} or null)}] oldest first; versions are the candidates its research "
@@ -533,7 +532,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "--body and --source files; the open line (--line), its trials, judgments and source reviews (writer, head); "
         "the market at the line's pinned market day (reader); the runtime image, resolved to its digest and probed",
         "one research_registration row with its grid points and comparison design, and one source-<sha256> "
-        "bundle per --source, in one commit; the same line, body and execution again is a replay; publishes",
+        "bundle per --source, in one commit; the same line, body and execution again is a replay",
         "registration_id, line, grid_points, execution {image_ref, market_day, universe_rule, lifecycle_bundle, "
         "export_sha256, comparable_config_sha256, image_digest}, ledger_commit, replayed",
         "REGISTRATION_INVALID (body, design, lineage or an unpublished grid candidate); LINEAGE_MISMATCH (the grid "
@@ -547,7 +546,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("hypothesis", "compare"): (
         "the registration, the grid run and its control at --at (reader); market daily returns from the run's "
         "market (a market failure only empties the market measures)",
-        "nothing; never publishes",
+        "nothing",
         "registration_id, trial_id, control_trial_id, research_parent, ledger_commit, registered_at, "
         "product_commit, comparison_source_sha256, availability, evidence (paired daily log difference, intervals, p, "
         "design), attribution (headline, slices, predictions, trade_pairs), limitations; a registration without "
@@ -558,7 +557,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("research", "status"): (
         "trials, runs, research trials of registrations, source reviews and validations of the whole ledger at --at "
         "(reader); no market",
-        "nothing; never publishes",
+        "nothing",
         "ledger_commit; trials (counted trials of every purpose, ledger-wide); multiple_testing (what a deflated "
         "Sharpe of the line's runs reads: line, dev_start, dev_end, instruments (those of the line's research "
         "trials), research_trials and all_purpose_trials (counted trials on one of those instruments whose trading "
@@ -584,7 +583,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("research", "state"): (
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
         "market holds the line's market day (reader)",
-        "nothing in the ledger, never publishes; pulls the main runtime image each time, which moves the local "
+        "nothing in the ledger; pulls the main runtime image each time, which moves the local "
         "`main` tag, to learn the current image",
         "ledger_commit, line, execution_identity (the line's), current_image (the main image's digest reference; null "
         "when it cannot be resolved), runs_behind_image (the line's passed runs not yet on it: `replay reproduce "
@@ -607,7 +606,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("research", "history"): (
         "the line's research and history trials, their runs, captures and stored facts, and its targets at --at "
         "(reader); no market",
-        "nothing; never publishes",
+        "nothing",
         "ledger_commit, short_days, lines [{line, closed, dev_start, dev_end, targets, participants, research_trials, "
         "rows [{source_sha256, candidate (ID@N), run, development (the research run's cell), cells [{trial_id, kind (veto, control, "
         "holdout or forward), label, trade_start, trade_end, status, whole_year, short, measures {annual_return, "
@@ -625,7 +624,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LINE_UNKNOWN"),
     ("research", "runs"): (
         "trials, runs, candidates, lines, targets and every listed run's stored facts at --at (reader); no market",
-        "nothing; never publishes",
+        "nothing",
         "ledger_commit, line, by, runs_listed (before --limit), without_economic_evidence (a count), groups [{group, "
         "runtime_contract, execution, image_digest, window_start, window_end, universe_rule}], lines [{line, "
         "targets {max_drawdown, annual_return, source} or null}], runs [{candidate, trial_id, group, lines (those "
@@ -641,19 +640,19 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LINE_UNKNOWN (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"),
     ("research", "unchanged"): (
         "what changed between --since and --at, with the line's versions, trials, registrations and reviews (reader)",
-        "nothing; never publishes",
+        "nothing",
         "unchanged, reason (what reaches the line, or null), since, ledger_commit",
         "LINE_UNKNOWN (--line); UNKNOWN_REF (--at, --since)"),
     ("research", "counts"): (
         "the line's research trials and every counted trial with its capture manifest at --at (reader)",
-        "nothing; never publishes",
+        "nothing",
         "trial_counts (research_trials, all_purpose_trials, as `research graph` gives them; null before the line's "
         "first research trial), ledger_commit",
         "LINE_UNKNOWN (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"),
     ("research", "graph"): (
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "
         "returns inside the comparisons",
-        "nothing; never publishes",
+        "nothing",
         "format (research-graph@3), source, scope {ledger_commit, start, end}, line (with gates [{code, message}], "
         "the gates `research state` reads before the next registration), candidates [{id, parent, "
         "source, trials, comparison, reviews, status, ...}], events, gaps; large (every candidate's source)",
@@ -662,13 +661,13 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "MARKET_UNREACHABLE (other comparison refusals only leave a comparison null)"),
     ("research", "comparison"): (
         "one registered run, its control and their source reviews at --at (reader); market daily returns",
-        "nothing; never publishes",
+        "nothing",
         "comparison: the object `research graph` gives that version, or null when it has none",
         "UNKNOWN_REF (--at); MARKET_UNREACHABLE (other comparison refusals give comparison null)"),
     ("source", "review"): (
         "the candidate and the precheck trial at the head (reader); the runtime image, resolved to its digest; "
         "--items (JSON) and the precheck's original capture (writer)",
-        "one source_review row (the verdict, items and reviewer); the same content again is a replay; publishes",
+        "one source_review row (the verdict, items and reviewer); the same content again is a replay",
         "review_id, candidate, source_sha256, image_digest, precheck_trial, verdict, ledger_commit, replayed",
         "PRECHECK_NOT_FOUND (the trial is no precheck of this source on this image); REVIEW_INVALID (unknown or "
         "missing items; each needs {status: passed|failed|unresolved|no_opportunity, note}; passed only when no "
@@ -678,7 +677,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "--design (JSON); the candidate (writer, head); --market-at in the market (reader)",
         "one validation_registration row; then sends the commit hash's SHA-256 to the RFC 3161 authority and "
         "records a verified token as a second commit (a failed witness keeps the registration and reports "
-        "witness.status failed); publishes",
+        "witness.status failed)",
         "registration_id, candidate, window, registered_at, ledger_commit, witness {status, stamped_at, error}, "
         "replayed, next_actions",
         "DESIGN_INVALID; WINDOW_INVALID; REGISTRATION_TOO_LATE (--window-start not after now; retries exempt); "
@@ -687,7 +686,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("validation", "report"): (
         "the registration, its witness, binding and run at --at (reader), and the registrations of the same "
         "window and universe rule; market daily returns (a failure only empties the market measures)",
-        "nothing; never publishes",
+        "nothing",
         "registration_id, ledger_commit, product_commit, registration, witness, binding, window_read_before_binding "
         "(trials of any source trading inside the window, made after the original registration and before the "
         "binding), availability, metrics, single, family {size, provisional, missing_p, members [{registration_id "

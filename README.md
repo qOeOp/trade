@@ -18,7 +18,7 @@ set the two targets, maximum drawdown and minimum annual return.
 Know these before you start:
 
 - **Your research can be public and permanent.** A deployment's ledger, and any ledger you give a DoltHub repository,
-  publishes complete strategy source, results and judgments on every command that changes it. DoltHub history cannot
+  publishes complete strategy source, results and judgments: a deployment within 5 minutes of every change. DoltHub history cannot
   be taken back, and there is no private mode. Market data comes from Binance's public archives under non-commercial
   terms, and a public ledger carries readings derived from it: [Licence and data
   attribution](#licence-and-data-attribution).
@@ -164,10 +164,10 @@ run binds the strategy revision, actual image manifest digest, platform, inputs
 and resolved configuration.
 
 Both are public. The research ledger is on DoltHub: after `dolt login`, name its repository once (the
-administrator copies the login key into the service's own Dolt home); every command that may change it then
-publishes it, read commands never publish, and the next such command or `ledger publish` reruns a failed
-publish, as the compose ledger service does every 5 minutes (the page's status bar names a copy still behind after
-15 minutes). A first `--remote` that fails is not kept, so a mistyped repository can be corrected; once it has taken
+administrator copies the login key into the service's own Dolt home). Commands that change it only commit
+locally: the compose ledger service publishes what the copy lacks every 5 minutes, retrying a failed publish the
+same way, and `ledger publish` publishes at once, the only publisher without the deployment (the page's status bar
+names a copy still behind after 15 minutes). A first `--remote` that fails is not kept, so a mistyped repository can be corrected; once it has taken
 the ledger it stays:
 
 ```bash
@@ -205,7 +205,7 @@ project is not affiliated with, sponsored or endorsed by Binance.
 - [`.agents/evals/`](.agents/evals/): one eval suite per skill (`.agents/evals/<skill>/<case>/`), run from the repository root with `claude plugin eval .agents` (`--case <glob>` picks cases). `.agents/` is the plugin root ([`.agents/.claude-plugin/plugin.json`](.agents/.claude-plugin/plugin.json)): the runner scans the plugin root for the suites and refuses links or roots over 20000 entries, so the suites sit beside the skills instead of at the top level; results go to the ignored `.agents/evals/results/`.
 - [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`), engineering parity (`compare_reports.py`), paper trading (`paper.py`: one strategy on live Binance public data with Nautilus Sandbox fills, no credential) and the operator-only Live runner (`live.py`, [Live execution](engine/README.md#live-execution)).
 - [`engine/runtime/`](engine/runtime/): build inputs of the replay image (Python, Nautilus and the replay closure) and of the execution image Paper and Live run, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
-- [`cli/`](cli/): the command line, the one entry Agents use: the noun-verb dispatch, the `ledger sql` read guard (`READ_FIRST`: one statement whose first word is a read keyword, else `WRITE_VIA_SQL`), the publish-after-write policy (`_publish_after`: a command that may change a database publishes it once afterwards, read commands never), `ledger service run`/`check` for the compose deployment (`cli/service.py`) and the strategy scaffold templates of `candidate new` and `candidate export` (`cli/templates/`).
+- [`cli/`](cli/): the command line, the one entry Agents use: the noun-verb dispatch, the `ledger sql` read guard (`READ_FIRST`: one statement whose first word is a read keyword, else `WRITE_VIA_SQL`), `ledger service run`/`check` for the compose deployment (`cli/service.py`) and the strategy scaffold templates of `candidate new` and `candidate export` (`cli/templates/`).
 - [`ledger/`](ledger/), [`registration/`](registration/), [`replay/`](replay/), [`report/`](report/): the research ledger and Paper's database (`schema.sql`, `paper.sql`), registration and admission, the one replay entry, economic-evidence qualification and the report readers.
 - [`shared/`](shared/): the profile directory (`profiles.py`), the coded refusals (`refusals.py`) and the temporary and checkout paths (`paths.py`) the packages share.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
