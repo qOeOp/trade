@@ -53,10 +53,12 @@ def journal() -> list[dict]:
         line("bar", START + MINUTE, instrument_id="BTCUSDT-PERP.BINANCE", ts_event=START + MINUTE - 10**6),
         line("order", START + MINUTE, type="OrderSubmitted"),
         line("order", START + MINUTE, type="OrderFilled"),
+        line("position", START + MINUTE, type="PositionOpened", instrument_id="BTCUSDT-PERP.BINANCE",
+             position_id="P-1", signed_qty="0.01"),
         snapshot(START, "100000", "0"),
         snapshot(START + MINUTE, "99990", "10"),
         line("funding_settlement", START + 2 * MINUTE + 30 * 10**9, settlement_ns=START + 2 * MINUTE + 30 * 10**9,
-             stream_rate="0.0001",
+             instrument_id="BTCUSDT-PERP.BINANCE", stream_rate="0.0001",
              mark="100000", positions=[{"signed_qty": "0.01"}]),
         snapshot(START + 2 * MINUTE, "99990", "20"),
         line("data_gap", START + 3 * MINUTE, missing_bars=2),
@@ -82,6 +84,47 @@ class ReadingTests(unittest.TestCase):
         self.assertAlmostEqual(found["daily_returns"][0][1], 0.0)  # the minute before midnight is flat
         self.assertAlmostEqual(found["total_return"], 0.000199)
         self.assertEqual((found["fills"], found["orders_submitted"], found["missing_bars"], found["bars"]), (1, 1, 2, 1))
+
+    def test_a_settlement_takes_the_positions_held_before_the_bar_closing_after_it(self):
+        """A replay settles after the bars stamped before the settlement and the fills they caused, before the bar
+        stamped after it; the journal's order of bars and position events says the same."""
+        iid, other, at = "BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE", START + 2 * MINUTE
+        lines = [line("bar", at, instrument_id=iid, ts_event=at - 10**6),
+                 line("position", at, type="PositionOpened", instrument_id=iid, position_id="P-1", signed_qty="2"),
+                 line("bar", at + MINUTE, instrument_id=other, ts_event=at + MINUTE - 10**6),
+                 line("position", at + MINUTE, type="PositionOpened", instrument_id=iid, position_id="P-2",
+                      signed_qty="-1"),
+                 line("bar", at + MINUTE, instrument_id=iid, ts_event=at + MINUTE - 10**6),
+                 line("position", at + MINUTE, type="PositionChanged", instrument_id=iid, position_id="P-1",
+                      signed_qty="4.9999999998", quantity="5", side="LONG"),
+                 line("position", at + MINUTE, type="PositionClosed", instrument_id=iid, position_id="P-2",
+                      signed_qty="0")]
+        held = paper.held_at(lines, {iid: [at, at + 2 * MINUTE]})
+        self.assertEqual(held[(iid, at)], {"P-1": Decimal(2), "P-2": Decimal(-1)})
+        self.assertEqual(held[(iid, at + 2 * MINUTE)], {"P-1": Decimal(5)})
+        found = paper.settlements(lines, {iid: [(at, Decimal("0.0001"), Decimal("100.123456789")),
+                                                (at + 2 * MINUTE, Decimal("-0.0001"), None)]})
+        # Nautilus: each position's notional rounded to 0.00000001, times the rate, rounded half even; a long pays.
+        self.assertEqual([item["funding"] for item in found], [Decimal("-0.02002469") + Decimal("0.01001235"),
+                                                               Decimal(0)])
+
+    def test_a_seal_settles_what_binance_published_at_the_mark_a_replay_uses(self):
+        at_ms = (START + 2 * MINUTE) // 10**6  # 00:00 UTC
+        lines = [line("started", START, source_sha256=SOURCE, input_start_ns=START), *journal()[1:]]
+        marks = [[at_ms - 120_000 + 60_000 * i, "0", "0", "0", str(99_000 + i), "0", at_ms - 60_001 + 60_000 * i, "0"]
+                 for i in range(3)]
+        with mock.patch("market.sources.rest_funding", return_value=[(at_ms, "0.0002")]) as funding, \
+                mock.patch("market.sources.rest_klines", return_value=marks) as klines:
+            published = paper.published_settlements(lines, START + 4 * MINUTE)
+        self.assertEqual(funding.call_args.args, ("BTCUSDT", START // 10**6, (START + 4 * MINUTE) // 10**6 + 1))
+        self.assertEqual(klines.call_args.args[:3], ("MARK", "BTCUSDT", "1m"))
+        # The minute closing 1 ms before the settlement, not the one closing after it.
+        self.assertEqual(published, {"BTCUSDT-PERP.BINANCE": [(at_ms * 10**6, Decimal("0.0002"), Decimal(99_001))]})
+        settled = paper.settlements(lines, published)
+        self.assertEqual([item["funding"] for item in settled], [Decimal("-0.198002")])
+        with mock.patch("market.sources.rest_funding") as funding:
+            self.assertEqual(paper.published_settlements(lines[:4], START + 4 * MINUTE), {})
+        funding.assert_not_called()  # a run that held nothing asks the exchange nothing
 
     def test_a_drop_below_the_peak_is_the_drawdown(self):
         lines = journal()[:5] + [snapshot(START + MINUTE, "100000", "1000"), snapshot(START + 2 * MINUTE, "100000", "-100")]

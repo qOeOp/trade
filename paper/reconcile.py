@@ -230,14 +230,15 @@ def replay_equity(reports: Path, minutes: list[int]) -> list[list]:
 
 
 def compare(lines: list[dict], replay_events: list[dict], archive: Mapping[str, list[list]], reports: Path | None,
-            start: int, end: int) -> dict:
-    """The comparison of one run's journal with its replay: fills, bars and equity."""
+            start: int, end: int, settled: list[dict] | None = None) -> dict:
+    """The comparison of one run's journal with its replay: fills, bars and equity (with the funding `settled`, the
+    seal's published settlements, else the journal's estimate)."""
     found = bars(lines, archive, start, end)
     fills = classify(pair(orders(line for line in lines if line["kind"] == "order"), orders(replay_events)),
                      found, start, end)
     counts = {kind: sum(item["class"] == kind for item in fills)
               for kind in ("same", "price", "quantity", "time", "paper_only", "replay_only")}
-    paper_equity, _ = records.equity_path(lines)
+    paper_equity, _ = records.equity_path(lines, settled)
     minutes = [minute for minute, _ in paper_equity if start <= minute < end]
     equity = {"paper": [[minute, str(value)] for minute, value in paper_equity if start <= minute < end],
               "replay": replay_equity(reports, minutes) if reports else []}
@@ -307,7 +308,9 @@ def reconcile(profile: db.LedgerProfile, market: dict, at: str | None, paper_id:
     reports = Path(replayed["path"]) / entry.REPORTS
     events_file = reports / "order_events.jsonl.gz"
     events = [json.loads(raw) for raw in gzip.open(events_file)] if events_file.is_file() else None
-    compared = compare(lines, events or [], archive, reports if (reports / "account.csv").is_file() else None, start, end)
+    settled = records.settlements(lines, records.published_settlements(lines, seal.get("stopped_ns")))
+    compared = compare(lines, events or [], archive, reports if (reports / "account.csv").is_file() else None, start, end,
+                       settled)
     if events is None:  # the replay wrote no order events: its fills are unknown, not none
         compared["fills"] = None
         compared["summary"] |= dict.fromkeys(("replay_fills", "same", "price", "quantity", "time", "paper_only",
