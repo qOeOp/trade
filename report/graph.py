@@ -13,6 +13,7 @@ import dataclasses
 import multiprocessing
 
 from ledger import db, lines, metrics
+from ledger.judgments import DECISION_OPENINGS
 from ledger import targets as line_targets
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -25,9 +26,8 @@ MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_draw
                 "plan_win_rate": "win_rate"}
 EVENT_KINDS = {"recommendation": "recommendation", "priority": "priority", "interpretation": "interpretation",
                "search_exposure": "other"}
-# A priority judgment recording a decision made for the user opens with one of these exactly (research-round,
-# research-start); its event takes the kind beside it, so a reader never parses the judgment's prose.
-DECISION_OPENINGS = ("Change of approach.", "Line decision.")
+# A priority judgment recording a decision made for the user opens with one of these exactly (`judgment add` refuses
+# any other near miss); its event takes the kind beside it, so a reader never parses the judgment's prose.
 DECISION_KINDS = dict(zip(DECISION_OPENINGS, ("approach_change", "line_decision"), strict=True))
 
 
