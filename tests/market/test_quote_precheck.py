@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from market import sources, store
+from market import quotes, sources, store
 from tests.market.directory import directory, forged, seed
 from tests.market.exchange import day_ms
 
@@ -20,7 +20,7 @@ class QuotePrecheckTests(unittest.TestCase):
         with patch.object(store, "contract_files", side_effect=RuntimeError("precheck passed")), \
                 tempfile.TemporaryDirectory() as cache:
             try:
-                store.import_quotes(profile, JAN, Path(cache), symbols, log=lambda _: None)
+                quotes.import_quotes(profile, JAN, Path(cache), symbols, log=lambda _: None)
             except sources.MarketError as exc:
                 return exc.as_dict()
             except RuntimeError as exc:

@@ -18,7 +18,7 @@ from decimal import Decimal
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from market import coverage, export, files, instrument, series, store, universe
+from market import coverage, export, files, instrument, series, universe
 from market.sources import DAY as DAY_MS, MINUTE, _refuse
 
 
@@ -61,7 +61,7 @@ def daily_returns(profile: dict, market_day: str, universe_rule: str | None, sta
     if not days:
         raise _refuse("the window holds no whole UTC day", "MARKET_RETURNS_WINDOW", missing=("window",))
     market = files.open_market(profile, "reader")
-    market_day = store.check_day(files.resolve_day(market, store.check_day(market_day)))
+    market_day = files.resolve_day(market, files.check_day(market_day))
     rule = universe.rule_of(market, market_day)
     if rule != universe_rule:
         raise _refuse(f"market day {market_day} produces {rule}, not {universe_rule}", "RULE_VERSION_MISMATCH",
@@ -72,15 +72,14 @@ def daily_returns(profile: dict, market_day: str, universe_rule: str | None, sta
         if month.strftime("%Y-%m") in months:
             members.setdefault(month.strftime("%Y-%m"), set()).add(symbol)
     symbols = sorted({BTC, *(symbol for found in members.values() for symbol in found)})
-    first_close = int((datetime.fromisoformat(days[0]).replace(tzinfo=timezone.utc) - DAY).timestamp()) * 1000 \
-        + CLOSE_OFFSET_MS
+    first_close = series._day_ms(date.fromisoformat(days[0]) - DAY) + CLOSE_OFFSET_MS
     closes: dict[str, dict[str, int]] = {}
     for batch in files.scan(market, market_day, "bar", symbols, first_close, first_close + len(days) * DAY_MS + MINUTE):
         marks = batch.filter(pc.equal(batch.column("price_type"), "MARK"))
         found = marks.filter(pa.array(marks.column("ts_open").to_numpy() % DAY_MS == CLOSE_OFFSET_MS))
         for symbol, ts_open, close in zip(*(found.column(name).to_pylist() for name in ("symbol", "ts_open", "close")),
                                           strict=True):
-            closes.setdefault(symbol, {})[datetime.fromtimestamp(ts_open // 1000, timezone.utc).date().isoformat()] = close
+            closes.setdefault(symbol, {})[series._ms_day(ts_open).isoformat()] = close
     return {**returns_from(closes, members, days), "market_day": market_day, "universe_rule": universe_rule}
 
 
@@ -117,13 +116,13 @@ def stored_bars(profile: dict, at: str | None, symbol: str, price_type: str, tim
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, at)
     instrument.terms(market, market_day, symbol)
-    price_scale, volume_scale = series.PRICE_SCALE, series.VOLUME_SCALE
     if timeframe == "1d":
         bars = export.daily_bars(market, market_day, symbol, start_ms, None, stop)
     else:
         bars = coverage.read_bars(market, market_day, symbol, price_type, start_ms, stop)
-    rows = [[opened, opened + step - 1, *(_scaled(value, price_scale) for value in prices), _scaled(volume, volume_scale)]
-            for opened, *prices, volume in zip(*(bars[name].tolist() for name in coverage.COLUMNS), strict=True)]
+    rows = [[opened, opened + step - 1, *(_scaled(value, series.PRICE_SCALE) for value in prices),
+             _scaled(volume, series.VOLUME_SCALE)]
+            for opened, *prices, volume in zip(*(bars[name].tolist() for name in series.COLUMNS), strict=True)]
     found = {"market_day": market_day, "symbol": symbol, "price_type": price_type, "timeframe": timeframe,
              "interval": {"start": _iso(start_ms), "end": _iso(stop), "ms": [start_ms, stop]},
              "next_start": _iso(stop) if stop < end_ms else None,

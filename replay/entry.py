@@ -16,7 +16,6 @@ run's native reports (kept, and printed, when anything fails after a container s
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
 import hashlib
 import json
 import os
@@ -378,13 +377,9 @@ def _check_window(ledger: db.LedgerProfile, market, at: str | None, line: str | 
     inputs = registration_seams.runner_inputs(list(runner_argv))
     source = registration_seams.current.market(market)
     market_day = source.resolve_day(at)
-    first_day, latest = source.days(market_day)
-    covered = None
-    if line is None:
-        first_months: dict = {}
-        for month, symbol in source.universe_month(market_day):
-            first_months.setdefault(symbol, date.fromisoformat(f"{month}-01"))
-        covered = lines.covered_from(inputs["selection"].get("symbols"), first_day, first_months)
+    _, latest = source.days(market_day)
+    covered = None if line is not None else lines.covered_from(inputs["selection"].get("symbols"),
+                                                               source.universe_month(market_day))
     with db.connect(ledger, "reader") as conn:
         lines.check_replay_window(conn, line, inputs["window"]["trade_start"], inputs["window"]["end"], latest,
                                   covered)

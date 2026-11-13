@@ -83,6 +83,8 @@ METRICS = Table(_schema(
     ("count_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
     ("sum_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
     ("count_long_short_ratio", pa.decimal128(38, 16), True)), ("symbol", "create_time"), "create_time", "contract")
+METRICS_VALUES = tuple(METRICS.schema.names[2:])  # sum_open_interest, then the three long/short ratios
+TRADE_SCALE = 8  # agg_trade price and quantity, and the quotes inferred from them: integers x 10^8
 
 # The tables this code reads and writes; a table with no file reads as empty.
 TABLES = {"instrument": INSTRUMENT, "bar": BAR, "funding": FUNDING, "universe_month": UNIVERSE_MONTH, "quote": QUOTE,
@@ -123,8 +125,7 @@ def row_rules(table: str, batch: pa.RecordBatch) -> list[tuple[str, pa.Array]]:
     if table == "metrics":
         times = c("create_time").to_numpy(zero_copy_only=False)
         rules = [("create_time on a 5-minute grid", pa.array(times % 300_000 == 0))]
-        for name in ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
-                     "count_long_short_ratio"):
+        for name in METRICS_VALUES:
             rules.append((f"{name} >= 0", pc.fill_null(pc.greater_equal(c(name), _zero(c(name).type)), True)))
         return rules
     return []
@@ -279,6 +280,13 @@ def parse_day(market_day: str) -> date | None:
         return date.fromisoformat(market_day)
     except ValueError:
         return None
+
+
+def check_day(market_day) -> str:
+    if parse_day(market_day) is None:
+        raise _refuse(f"{market_day!r} is not a resolved market day", "MARKET_DAY_UNKNOWN",
+                      missing=(str(market_day),))
+    return market_day
 
 
 def last_time(market: Market, entry: DataFile) -> int | None:
@@ -610,7 +618,7 @@ def data_tests(market: Market) -> list[str]:
     latest = pc.max(months.column("month")).as_py()
     newest = months.filter(pc.equal(months.column("month"), pa.scalar(latest, pa.date32())))
     members = sorted(set(newest.column("symbol").to_pylist()))
-    eve = (latest - date(1970, 1, 1)).days * DAY - DAY
+    eve = series._day_ms(latest) - DAY
     traded = set()
     for batch in read_table(market, None, "bar", members, eve, eve + DAY):
         minute = pa.array(batch.column("ts_open").to_numpy(zero_copy_only=False) % 60_000 == 0)

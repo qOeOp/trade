@@ -135,8 +135,8 @@ class ResearchLineTests(unittest.TestCase):
             with self.subTest(covered=covered), self.assertRaises(Refusal) as caught:
                 lines.development_period(today, latest, covered)
             self.assertEqual(caught.exception.code, "LINE_HISTORY_SHORT")
-        months = {"BTCUSDT": date(2020, 2, 1), "OPUSDT": date(2022, 7, 1)}
-        self.assertEqual([lines.covered_from(found, date(2020, 2, 1), months) for found in
+        members = [("2022-07", "OPUSDT"), ("2020-02", "BTCUSDT"), ("2022-08", "OPUSDT"), ("2020-03", "BTCUSDT")]
+        self.assertEqual([lines.covered_from(found, members) for found in
                           (None, ["BTCUSDT"], ["BTCUSDT", "OPUSDT"], ["BTCUSDT", "WIFUSDT"])],
                          [date(2020, 2, 1), date(2020, 2, 1), date(2022, 7, 1), None])
         self.assertEqual([lines.selection(argv) for argv in ('["--symbols", "BTCUSDT", "ETHUSDT", "--start", "x"]',

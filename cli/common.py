@@ -4,7 +4,7 @@ and its common options."""
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 import json
@@ -50,28 +50,6 @@ def refusal_json(exc: Refusal) -> dict:
 def _market_refusal(exc) -> Refusal:
     """A market package refusal (market.sources.MarketError) as a ledger refusal with its catalogue repair commands."""
     return Refusal(exc.code, exc.message, missing=exc.missing, next_actions=CATALOGUE[exc.code])
-
-
-# Profiles
-
-def _market_facts(profile: dict) -> Callable[[str], dict]:
-    """market.resolve_day and market.freshness for ledger.select_line, with the market's first day and each
-    symbol's first universe month (ledger.lines.covered_from)."""
-    from market import store
-    from market.sources import MarketError
-
-    def facts(market_at: str) -> dict:
-        from market import files, universe
-        try:
-            found = store.freshness(profile, market_at)
-            members = universe.months_of(files.open_market(profile, "reader"), found["market_day"])
-        except MarketError as exc:
-            raise _market_refusal(exc) from exc
-        first_months: dict[str, date] = {}
-        for month, symbol in members:
-            first_months.setdefault(symbol, month)
-        return {**found, "first_day": min(first_months.values()), "first_months": first_months}
-    return facts
 
 
 # Small argument helpers

@@ -12,13 +12,13 @@ Nautilus Catalogs the runner reads. The tables are on the site's market database
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a market day and the engine instrument built from it |
 | `universe.py` | the rule `usdt-perp-listed30d-v1`: classification, monthly members, membership paths |
-| `store.py` | `import_month` (one month's files; after the latest month or just before the earliest), `import_quotes`, exact scaling, `freshness` |
+| `store.py` | `import_month` (one month's files; after the latest month or just before the earliest), exact scaling, what the importers share, `freshness` |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark, funding, quote, trade and metrics writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a market day, and their native events written into a Catalog |
-| `coverage.py` | per-contract coverage facts at a market day (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
+| `coverage.py` | per-contract coverage facts at a market day (`coverage_facts`, `metrics_facts`, `diagnose_coverage`) |
 | `read.py` | BTC and equal-weight daily returns of the universe members the directory holds, for the report (`daily_returns`); one contract's stored bars and funding at a market day for source reviewers (`stored_bars`) |
-| `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`) |
-| `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one file per contract month, several contracts of a month written at once |
+| `quotes.py` | best bid/ask inferred from the stored aggTrades under `RULE`, the checks it applies (`derive`) and the quote import (`import_quotes`) |
+| `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact integers at the trade scale, one file per contract month, several contracts of a month written at once |
 | `metrics.py` | open interest and three long/short ratios from the daily `metrics` archives, exact decimals, the days of a month not yet held appended per contract |
 
 ## The market directory
@@ -85,7 +85,8 @@ that costs.
 `agg_trade` retains the official seven USD-M aggTrade fields plus the archive's `symbol`, including
 events which did not change a quote. Its primary key is `(symbol, transact_time, agg_trade_id)`;
 there are no secondary indexes or derived columns. `price` and `quantity` are signed int64s exactly
-multiplied by 100,000,000 under `binance-aggtrades-int64-scale8-v1`, independently of the bar scales.
+multiplied by 100,000,000 (`files.TRADE_SCALE`, which the quotes inferred from them keep) under
+`binance-aggtrades-int64-scale8-v1`, independently of the bar scales.
 Every value must fit exactly: loss of precision or integer overflow refuses the entire
 month (`SCALE_LOSS`), with no rounding or alternative encoding.
 
@@ -331,11 +332,3 @@ refused on a market profile (`LEDGER_UNKNOWN`); `--help` states the full contrac
   chunks on BTCUSDT, 934,560 minutes: 18.5 MB of growth instead of 145 MB, the same 2.5 s). The export
   cache key includes the exporter's source hash and the path, size and modification time of the files it reads.
 - Exports read a table's files row group by row group and write 250,000 rows per file.
-
-## Tests
-
-`tests/market/test_rules.py` tests sources against the stand-in exchange
-`tests/market/exchange.py`, stitching, gaps, derivation, scaling, the universe rule, native names and
-writers. `tests/market/test_store.py` imports three months from the stand-in exchange into a temporary
-market directory: the universe, the import's refusals, freshness, membership, coverage, daily returns, stored bars and an
-export the engine streams whole.

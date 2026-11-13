@@ -59,9 +59,9 @@ def market_import(market: dict, month: str, cache_root: str | None, workers: int
 def market_import_quotes(market: dict, month: str, cache_root: str | None, symbols: list[str] | None = None) -> dict:
     """market import-quotes: one ended UTC month of best bid/ask inferred from the stored aggTrades
     (market.quotes.RULE); `symbols` defaults to the month's universe members."""
-    from market import store
+    from market import quotes
     first = _month_start(month, started=True)
-    return store.import_quotes(market, first, _market_cache(cache_root), symbols, log=_market_log)
+    return quotes.import_quotes(market, first, _market_cache(cache_root), symbols, log=_market_log)
 
 
 def market_import_trades(market: dict, month: str, cache_root: str | None, symbols: list[str]) -> dict:

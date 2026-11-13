@@ -13,7 +13,7 @@ import tempfile
 import textwrap
 
 from cli.common import (CANDIDATE_HELP, RUNNER_EPILOG, RUNTIME_DEFAULT_HELP, RUNTIME_HELP, _at, _count,
-                        _json_file, _ledger_option, _market_facts, _market_option, _new_temporary, _op_id,
+                        _json_file, _ledger_option, _market_option, _new_temporary, _op_id,
                         _regular_file, _utc_time, refusal_json)
 from cli.ledger_commands import ledger_export
 from ledger import db, evidence, execution, judgments, lines, strategies, targets
@@ -274,6 +274,19 @@ def _targets(args) -> tuple[str, str] | None:
         raise refuse("TARGETS_INVALID", "give both research targets or neither",
                      expected="--max-drawdown and --annual-return together")
     return given
+
+
+def _market_facts(market: dict):
+    """The market facts ledger.select_line reads at a market reference, through the registration market seam."""
+    from registration import seams
+    source = seams.current.market(market)
+
+    def facts(market_at: str) -> dict:
+        market_day = source.resolve_day(market_at)
+        return {"market_day": market_day, "universe_rule": source.universe_rule(market_day),
+                "latest_complete_day": source.days(market_day)[1],
+                "members": source.universe_month(market_day)}
+    return facts
 
 
 def _market_days(market: dict) -> tuple[date, date]:

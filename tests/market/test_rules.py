@@ -413,13 +413,9 @@ class UniverseTests(Refusals):
 
 class NativeTests(Refusals):
     def test_native_names_number_episodes_and_spell_non_ascii_coins(self):
-        self.assertEqual(export.native_symbol("BTCUSDT"), {"instrument_id": "BTCUSDT-PERP.BINANCE",
-                                                           "strategy_tag": "BTC", "short_name": "BTC"})
-        self.assertEqual(export.native_symbol("1000PEPEUSDT", 2)["instrument_id"], "1000PEPEUSDT-E2-PERP.BINANCE")
-        self.assertEqual(export.native_symbol("1000PEPEUSDT")["short_name"], "PEPE")
-        found = export.native_symbol("币安人生USDT")
-        self.assertEqual(found["instrument_id"], "XE5B881E5AE89E4BABAE7949FUSDT-PERP.BINANCE")
-        self.assertEqual(found["short_name"], "币安人生")
+        self.assertEqual(export.native_symbol("BTCUSDT"), "BTCUSDT-PERP.BINANCE")
+        self.assertEqual(export.native_symbol("1000PEPEUSDT", 2), "1000PEPEUSDT-E2-PERP.BINANCE")
+        self.assertEqual(export.native_symbol("币安人生USDT"), "XE5B881E5AE89E4BABAE7949FUSDT-PERP.BINANCE")
         self.refused("SYMBOL_SHAPE", export.native_symbol, "BTC-USDT")
         self.refused("SYMBOL_SHAPE", export.native_symbol, "ETHBTC")
         self.refused("EPISODE_INDEX", export.native_symbol, "BTCUSDT", 0)
@@ -461,13 +457,13 @@ class WriterTests(Refusals):
         backwards = bars([(T0 + MINUTE, 100, 100, 100, 100, 1), (T0, 100, 100, 100, 100, 1)])
         fine = bars([(T0, 1_000_000_000, 1_000_000_000, 1_000_000_000, 1_000_000_000, 10_000)])
         bar_type = f"{iid}-1-MINUTE-LAST-EXTERNAL"
-        self.refused("BARS_UNSORTED", export.write_bars, catalog, bar_type, backwards, MINUTE, 2, 3, 8, 4)
+        self.refused("BARS_UNSORTED", export.write_bars, catalog, bar_type, backwards, MINUTE, 2, 3)
         self.refused("BAR_RAW_INEXACT", export.write_bars, catalog, bar_type,
-                     bars([(T0, 123_456_789, 123_456_789, 123_456_789, 123_456_789, 1)]), MINUTE, 2, 3, 8, 4)
-        self.assertEqual(export.write_bars(catalog, bar_type, fine, MINUTE, 2, 3, 8, 4), 1)
-        self.refused("MARK_UNSORTED", export.write_marks, catalog, iid, backwards, MINUTE, 8, 8)
+                     bars([(T0, 123_456_789, 123_456_789, 123_456_789, 123_456_789, 1)]), MINUTE, 2, 3)
+        self.assertEqual(export.write_bars(catalog, bar_type, fine, MINUTE, 2, 3), 1)
+        self.refused("MARK_UNSORTED", export.write_marks, catalog, iid, backwards, MINUTE, 8)
         self.refused("MARK_INEXACT", export.write_marks, catalog, iid,
-                     bars([(T0, 1, 1, 1, 123_456_789, 0)]), MINUTE, 2, 8)
+                     bars([(T0, 1, 1, 1, 123_456_789, 0)]), MINUTE, 2)
         self.refused("FUNDING_UNSORTED", export.write_funding, self.root, str(iid),
                      [(T0, Decimal("0.0001")), (T0, Decimal("0.0001"))])
         self.refused("FUNDING_RATE_SHAPE", export.write_funding, self.root, str(iid), [(T0, "x")])
@@ -515,7 +511,7 @@ class WriterTests(Refusals):
                                               on_grid=all(export.on_grid(values, "0.10", 8) for values in prices))
         catalog = ParquetDataCatalog(str(self.root))
         bar_type = f"{made.id}-1-MINUTE-LAST-EXTERNAL"
-        export.write_bars(catalog, bar_type, minute, MINUTE, precision, 3, 8, 4)
+        export.write_bars(catalog, bar_type, minute, MINUTE, precision, 3)
 
         class Buy(Strategy):
             def on_start(self):

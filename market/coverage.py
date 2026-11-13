@@ -5,8 +5,7 @@ Facts only, at one pinned market day: per contract its member months, the gaps a
 minutes of its one-minute LAST and MARK bars in the input interval, how the two align, and its
 funding settlement count and bounds; `market coverage` adds the settlement spacing and the settlements
 missing inside it (`funding_spacing`), its quote, complete trade and metrics months and stored bounds
-(`quote_facts`, `trade_facts`, `metrics_facts`) and the
-terms row an export of the market day trades on (`market.terms`); none is part of an export receipt. First
+(`metrics_facts`) and the terms row an export of the market day trades on (`market.terms`); none is part of an export receipt. First
 and last data are proxies of listing and delisting, no exchange fact. Nothing here drops a contract,
 shortens a window, fills data or judges an economic failure.
 """
@@ -26,8 +25,6 @@ from market.sources import MINUTE, _refuse
 
 
 FORMAT = "market-coverage-v1"
-HOUR = 60 * MINUTE
-COLUMNS = series.COLUMNS
 INTERPRETATION = (
     "Gaps, zero-volume minutes, missing funding and first or last data are input facts; their causes are unproven. "
     "The replay entry does not drop contracts, shorten the window, fill data or judge an economic failure from them, "
@@ -54,7 +51,7 @@ def bar_blocks(market: files.Market, market_day: str, symbol: str, price_type: s
     for batch in files.scan(market, market_day, "bar", [symbol], start_ms, end_ms):
         batch = batch.filter(pc.equal(batch.column("price_type"), price_type))
         if batch.num_rows:
-            yield np.column_stack([batch.column(name).to_numpy() for name in COLUMNS])
+            yield np.column_stack([batch.column(name).to_numpy() for name in series.COLUMNS])
 
 
 def read_bars(market: files.Market, market_day: str, symbol: str, price_type: str, start_ms: int,
@@ -62,7 +59,7 @@ def read_bars(market: files.Market, market_day: str, symbol: str, price_type: st
     """One series' one-minute integer bars in [start_ms, end_ms) at an exact market day."""
     blocks = list(bar_blocks(market, market_day, symbol, price_type, start_ms, end_ms))
     stacked = np.concatenate(blocks) if blocks else np.empty((0, 6), np.int64)
-    return {name: np.ascontiguousarray(stacked[:, index]) for index, name in enumerate(COLUMNS)}
+    return {name: np.ascontiguousarray(stacked[:, index]) for index, name in enumerate(series.COLUMNS)}
 
 
 def read_funding(market: files.Market, market_day: str, symbol: str, start_ms: int,
@@ -128,7 +125,7 @@ def coverage_facts(market: files.Market, market_day: str, symbol: str, start_ms:
     """market.coverage_facts: the market-coverage-v1 facts of one contract in [start_ms, end_ms) at an
     exact market day."""
     _interval(start_ms, end_ms)
-    store.check_day(market_day)
+    files.check_day(market_day)
     last, mark = _series(last_bars, start_ms, end_ms, True), _series(mark_bars, start_ms, end_ms, False)
     unmatched = int(len(np.setxor1d(np.asarray(last_bars["ts_open"]), np.asarray(mark_bars["ts_open"]))))
     months = [month.isoformat() for month, member in universe.months_of(market, market_day) if member == symbol]
@@ -151,7 +148,7 @@ def funding_spacing(times: list[int]) -> dict:
     consecutive settlements, each time taken at its nearest whole UTC hour, and the settlements missing
     inside a run. A single interval that is a whole multiple k >= 2 of the spacing of the run(s) beside it
     (the same on both sides) is k - 1 missing settlements, not a spacing change."""
-    slots = [round(at / HOUR) for at in times]
+    slots = [store.funding_slot(at) for at in times]
     runs: list[list[int]] = []  # [hours, index of the first settlement, index of the last]
     for index, hours in enumerate(later - earlier for earlier, later in zip(slots[:-1], slots[1:], strict=True)):
         if runs and runs[-1][0] == hours:
@@ -170,14 +167,15 @@ def funding_spacing(times: list[int]) -> dict:
             merged[-1][2] = high
         else:
             merged.append([hours, low, high])
-    return {"spacing": [{"spacing_ms": hours * HOUR, "from_ms": times[low], "to_ms": times[high]}
+    return {"spacing": [{"spacing_ms": hours * store.HOUR, "from_ms": times[low], "to_ms": times[high]}
                         for hours, low, high in merged],
             "missing_settlements": missing}
 
 
 def _held(market: files.Market, market_day: str, table: str, symbol: str, start_ms: int, end_ms: int,
           nulls: tuple[str, ...] = ()) -> dict:
-    """`symbol`'s files of `table` meeting [start_ms, end_ms) at the market day: `months`, each with its rows at the market day
+    """`symbol`'s files of `table` (its inferred best bid/ask, its complete aggregate trades, which a replay exports as
+    trade ticks on request, or its metrics) meeting [start_ms, end_ms) at the market day: `months`, each with its rows at the market day
     (and the nulls of the `nulls` columns), the first and last stored time in the interval and the parts with no
     file. A file ending by the market day counts from its footer; one it cuts through is read."""
     visible = files.day_end(table, market_day)
@@ -208,18 +206,6 @@ def _held(market: files.Market, market_day: str, table: str, symbol: str, start_
         uncovered.append([at, end_ms])
     first, last = _edges(market, market_day, table, symbol, start_ms, end_ms) if found else (None, None)
     return {"months": months, "first_ms": first, "last_ms": last, "uncovered_intervals_ms": uncovered}
-
-
-def quote_facts(market: files.Market, market_day: str, symbol: str, start_ms: int, end_ms: int) -> dict:
-    """The inferred best bid/ask of one contract in [start_ms, end_ms) at an exact market day: each month's file
-    meeting it and its rows, the first and last stored quote time in the interval and the parts no file holds."""
-    return _held(market, market_day, "quote", symbol, start_ms, end_ms)
-
-
-def trade_facts(market: files.Market, market_day: str, symbol: str, start_ms: int, end_ms: int) -> dict:
-    """The complete aggregate trades of one contract in [start_ms, end_ms) at an exact market day, which a replay
-    exports as trade ticks on request: as quote_facts."""
-    return _held(market, market_day, "agg_trade", symbol, start_ms, end_ms)
 
 
 def metrics_facts(market: files.Market, market_day: str, symbol: str, start_ms: int, end_ms: int) -> dict:
@@ -291,10 +277,9 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
         mark = read_bars(market, market_day, symbol, "MARK", start_ms, end_ms)
         funding = read_funding(market, market_day, symbol, start_ms, end_ms)
         facts = coverage_facts(market, market_day, symbol, start_ms, end_ms, last, mark, funding)
-        found.append({**facts, "interpretation": INTERPRETATION,
-                      "funding": {**facts["funding"], **funding_spacing([at for at, _ in funding])},
-                      "quotes": quote_facts(market, market_day, symbol, start_ms, end_ms),
-                      "trades": trade_facts(market, market_day, symbol, start_ms, end_ms),
+        found.append({**facts, "funding": {**facts["funding"], **funding_spacing([at for at, _ in funding])},
+                      "quotes": _held(market, market_day, "quote", symbol, start_ms, end_ms),
+                      "trades": _held(market, market_day, "agg_trade", symbol, start_ms, end_ms),
                       "metrics": metrics_facts(market, market_day, symbol, start_ms, end_ms),
                       "terms": {key: value for key, value in terms.items() if key != "symbol"}})
     return {"market_day": market_day, "scope": "explicit_symbols", "input_interval_ms": [start_ms, end_ms], "coverage": found,

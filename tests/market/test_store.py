@@ -133,11 +133,9 @@ class ImportTests(unittest.TestCase):
 
     def test_freshness_reads_the_market_day(self):
         fresh = store.freshness(self.profile)
-        self.assertEqual(fresh, {"market_day": self.market_days[MAR], "universe_rule": universe.RULE,
-                                 "universe_months": ["2025-02", "2025-03"], "symbols": 3,
-                                 "covered_through": day_ms(date(2025, 3, 31)), "latest_complete_day": date(2025, 3, 30),
-                                 "latest_complete_month": "2025-02", "current_month_through": day_ms(date(2025, 3, 31))})
-        self.assertEqual(store.freshness(self.profile, self.market_days[FEB])["covered_through"], day_ms(date(2025, 2, 28)))
+        self.assertEqual(fresh, {"market_day": self.market_days[MAR], "universe_months": ["2025-02", "2025-03"],
+                                 "latest_complete_day": date(2025, 3, 30)})
+        self.assertEqual(store.freshness(self.profile, self.market_days[FEB])["latest_complete_day"], date(2025, 2, 27))
 
     def test_months_import_once_and_in_order(self):
         with serving(self.exchange):
