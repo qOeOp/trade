@@ -35,9 +35,11 @@ function Row({ row, closed, edit, busy }: { row: LaunchRow; closed: boolean; edi
         {open && row.span ? <LiveDurationField label={row.label} value={row.value ?? ""} invalid={invalid} onValue={(value) => edit(row.id, value)} />
           : open ? <label className="flex items-baseline whitespace-pre">
             <span className="sr-only">{row.label}</span>
-            {/* No box: the value sits in the row like the greyed ones, on a blue underline that thickens while editing. */}
+            {/* No box: the value sits in the row like the greyed ones, on a blue underline that thickens while editing,
+                as wide as its digits (two at least, as the duration's fields). */}
             <input value={row.value ?? ""} inputMode="numeric" spellCheck={false} aria-invalid={invalid} onChange={(event) => edit(row.id, event.target.value)}
-              className="w-[8ch] border-0 border-b border-link bg-transparent px-0 pb-px text-right tabular-nums text-fg outline-none hover:bg-hover focus:border-b-2 focus:pb-0 aria-invalid:border-fail" />
+              style={{ width: `${Math.max(2, (row.value ?? "").length)}ch` }}
+              className="border-0 border-b border-link bg-transparent px-0 pb-px text-right tabular-nums text-fg outline-none hover:bg-hover focus:border-b-2 focus:pb-0 aria-invalid:border-fail" />
             {row.unit && <span className="text-fg-faint"> {row.unit}</span>}
           </label>
           : <span className={`min-w-0 text-right tabular-nums wrap-anywhere ${tone} ${row.mono ? "font-mono" : ""}`}>
