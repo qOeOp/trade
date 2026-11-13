@@ -56,7 +56,7 @@ A `DOLT_BINARY` refusal on the host means the command reads a Dolt backup: run i
 | Code | What to do |
 |---|---|
 | `RUNTIME_UNAVAILABLE` | Docker could not pull or inspect the runtime image. Check `docker pull` of that image by hand; a hung credential helper (`credsStore` in `~/.docker/config.json`) is a common cause. |
-| `STALE_CHECKOUT` | The checkout is behind `origin/main`: `git pull`. |
+| `STALE_CHECKOUT` | A validation replay needs a checkout that contains origin's latest `main`: `git pull`. A research `registration add` or `replay run` needs `HEAD` at the fetched `origin/main` and a clean tree: `git fetch origin main`, then `git checkout --detach origin/main` in a clean research worktree, or open a fresh one; never stash or commit in it. |
 | `RUNTIME_MISMATCH` | The local image disagrees with its recorded identity. Pull it by digest again; if it still disagrees, report the image. |
 | `RUNTIME_NOT_MAIN` | A validation or reproduction needs a `main` build of the runtime: merge first, then rerun on the `main` runtime. |
 

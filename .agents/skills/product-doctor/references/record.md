@@ -31,8 +31,8 @@ User decisions on authority items, with the date.
 status, first and last record), a closed table (id, finding, source, cost class, status) and a
 deliberate table (shape kept on purpose, reason, date, decision link).
 
-- Source: `doctor` or `user`; for `user` (the user pointed it out before a diagnosis
-  did), also the [lenses.md](lenses.md) workstream that should have caught it, by its name there.
+- Source: `doctor`, `user` or `attach` (an attach session's fix, attach.md); for `user` (the
+  user pointed it out before a diagnosis did), also the [lenses.md](lenses.md) workstream that should have caught it, by its name there.
 - Cost class, measured: `none`, `minutes`, `hours` (hours of session time or a blocked research
   line), `wrong output`; `unknown` where nothing was measured.
 - Status: one state word plus the link to the record that set it (`in PR` links the PR); the
