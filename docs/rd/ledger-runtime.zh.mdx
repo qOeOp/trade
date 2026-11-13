@@ -22,7 +22,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <Step>
 
-策略发布成候选；来源原件和审查结论写成证据包入账；判断一条条入账。
+策略发布成候选；来源原件写成证据包入账，审查结论写成来源审查记录；判断一条条入账。
 
 </Step>
 
@@ -54,7 +54,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 **研究记录只存账本及其副本，没入账的材料当作不存在**
 
-长期保存的研究记录只有账本、它的 dolt_backup 备份和公开的 DoltHub 副本，内容全部公开，没有私有存储；会话记忆、交接文件和工作副本都不算。入账的有候选源码、研究线、登记、试验和运行记录、原生报告的语义指纹和执行记录、来源与审查证据、研究状态清单和备注，后几类以证据包入账，包名就是身份；你给的研究目标另记在 line_target 表。引用结论要给出证据包名、运行或登记编号和账本版本，判断里不抄数字；没入账的材料先入账再引用。
+长期保存的研究记录只有账本、它的 dolt_backup 备份和公开的 DoltHub 副本，内容全部公开，没有私有存储；会话记忆、交接文件和工作副本都不算。入账的有候选源码、研究线、登记、来源审查、判断、试验和运行记录、原生报告的语义指纹和执行记录，这些是账本表里的行；试验的启动、捕获和恢复文件，市场日的生命周期事实，登记引用的来源原件和 Agent 自己的证据以证据包入账，包名就是身份；研究状态由这些记录推出，不另存；你给的研究目标另记在 line_target 表。引用结论要给出证据包名、运行或登记编号和账本版本，判断里不抄数字；没入账的材料先入账再引用。
 
 入账清单中的样本外登记记录称 out-of-sample registrations；样本外验证流程称 out-of-sample validation，包含登记、回放和报告。
 
@@ -272,7 +272,7 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 #### Agent 只追加文字、原件和判断，不写分数和裁决 [#J-2-4-1]
 
-Agent 写的是登记、理由、来源、审查结论、备注和更正这类证据包。判断一条条追加，改判断就写新的一条并指向旧的。判断正文只引用候选、试验、登记和账本版本，不抄数字。
+登记和来源审查由产品命令按 Agent 给的内容写成行；Agent 自己写的是来源原件、备注和更正这类证据包。判断一条条追加，改判断就写新的一条并指向旧的。判断正文只引用候选、试验、登记和账本版本，不抄数字。
 
 绩效指标、计数和资格都在读研究状态时取出来。让 Agent 自己写分数，就等于让它给自己的工作打分。
 
@@ -302,8 +302,6 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 4. 核对执行命令的产品 checkout 的 HEAD 含远端 main 的最新提交；证明不了就拒绝（STALE_CHECKOUT）。
 
 <div className="rd-foot"><span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-<p className="rd-note">第 1 代账本的隔离测试覆盖绑定时的两项核对：镜像是 main 的自动构建（`RUNTIME_NOT_MAIN`），执行代码含 main 最新提交（`STALE_CHECKOUT`）（`tests/registration/test_validation.py`、`tests/runtime/test_image.py`，2026-11-11 通过）。探索和预检的 CI 构建核对有测试（`tests/runtime/test_image.py`、`tests/replay/test_entry.py`，2026-11-11 通过）：别的仓库、缺构建标签、代码与版本不符都拒绝且不写试验，非 main 分支的 CI 构建通过，用的是测试替身镜像和本地 Git 远端，没有真实镜像仓库。真实行情回放、样本外封存、完整报告、公共时间戳服务与真实远端竞态仍缺。</p>
 
 ### 读取入口 [#J-2-9]
 
@@ -411,7 +409,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 #### 写错了就追加一条指向原记录的更正，原件不动 [#J-3-1-2]
 
-写错时不改原件，追加一条更正证据包：写明被更正的对象（运行编号、登记证据包名或其他证据包名）、它所在的账本版本、更正内容和理由。包名由 Agent 起，但不能落在产品保留的命名范围里。可读摘要在读取时合并最新更正，并标出被更正的表述（见 <Ref id="E.1.1.3" />），原件按需再读。
+写错时不改原件，追加一条更正证据包：写明被更正的对象（运行编号、登记编号或证据包名）、它所在的账本版本、更正内容和理由。包名由 Agent 起，但不能落在产品保留的命名范围里。可读摘要在读取时合并最新更正，并标出被更正的表述（见 <Ref id="E.1.1.3" />），原件按需再读。
 
 原记录和它的版本保持原样，按版本读历史仍能看到原貌。代码只保证「原件不能改、更正只能是新包」；什么时候更正、写什么，由 Agent 判断。
 
@@ -436,8 +434,6 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 </div>
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-<p className="rd-note">缺：评测 withdrawn-reading-told 已通过；尚无真实会话验证。</p>
 
 #### 改和删能查到但拦不住：保证的是留痕 [#J-3-1-4]
 
@@ -869,8 +865,6 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/changes.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺一次执行记录，检验 Agent 在配对通过后不把一致写成普遍一致或策略有效。</p>
-
 ### 有意变更或证明不了时 [#J-5-4]
 
 旧身份下的记录永远能读回；同一契约内的变更由 <Ref id="V.2" /> 恢复可比资格，契约升级后研究状态直接说明这条路线只能关闭、在新契约上新开。
@@ -1034,7 +1028,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 **开发期由规则固定，新数据到了不扩展旧线**
 
-开线时开发期按规则算出：Q 是市场覆盖到的、今天之前最后一个季度末，保留期是截至 Q 的 8 个季度，开发期是保留期之前的 12 个季度（起点候选的预检合约在 Q 之前不足 24 个季度覆盖时取 4 个季度，不足 12 个季度不能开线）。同一季度里开的线共用同一组分段。开发期不是选项，线开着时不改；新月份数据到了，旧线照常用它的开发期，Agent 只报告新数据补齐了哪些月份、还缺什么。
+开线时开发期按规则算出：Q 是市场覆盖到的、今天之前最后一个季度末，保留期是截至 Q 的 8 个季度，开发期是保留期之前的 12 个季度（起点候选的预检合约在 Q 之前不足 24 个季度覆盖时取 4 个季度，不足 12 个季度不能开线，LINE_HISTORY_SHORT）。同一季度里开的线共用同一组分段。开发期不是选项，线开着时不改；新月份数据到了，旧线照常用它的开发期，Agent 只报告新数据补齐了哪些月份、还缺什么。
 
 市场日、范围规则和开发期合起来是这条线的数据约定。换约定就是换一条线：在新的季度开线，旧线关闭前跑完关线历史回测，旧线的记录和证据都保留。
 
@@ -1044,9 +1038,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-<p className="rd-note">research-start 已随 [#2707](https://github.com/qOeOp/trade/pull/2707) 改为开发期按规则算出、不是选项（`.agents/skills/research-start/SKILL.md:10`），规则有测试（`tests/ledger/test_lines.py`）；评测 `line-select-period-not-chosen` 本次未运行；缺新月份到达后旧线不扩展、在新季度另开线的执行记录。</p>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.development_period` `ledger.select_line`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 待定事项 [#J-pending]
 

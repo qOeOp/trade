@@ -266,7 +266,7 @@ def research_status(ledger, at: str | None = None, line: str | None = None) -> d
 # The multiple-testing reading
 
 def _contracts(value) -> set[str]:
-    """The instrument IDs of a counted trial (counted_trials' `instruments`)."""
+    """The Binance symbols of a counted trial (counted_trials' `instruments`, from input_identity.symbols)."""
     return {item for item in value if isinstance(item, str)} if isinstance(value, (list, tuple)) else set()
 
 

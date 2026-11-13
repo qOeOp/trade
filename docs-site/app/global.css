@@ -274,7 +274,6 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 /* Audited card footer: who guarantees the rule, and the function or skill file that implements it. */
 .rd-foot { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; font-size: 12px; color: var(--fg-muted); }
 .rd-impl { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; }
-.rd-note { margin-top: 0.25rem; font-size: 12px; color: var(--fg-muted); }
 .rd-example { margin: 0.5rem 0 0.75rem; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--island-alt); }
 .rd-example > p { margin: 0; }
 

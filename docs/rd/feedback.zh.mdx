@@ -188,8 +188,6 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺：评测 `priority-cites-report-signals` 本次未运行；没有真实会话记录。</p>
-
 ## 11.3　复盘与推荐：产品停点触发，研究默认继续 [#F-3]
 
 上次推荐以来满 5 个研究试验，产品就拦住下一次登记，Agent 复盘一次、给出综合推荐；复盘完研究照常继续。
@@ -236,7 +234,7 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 复盘时用到的次数，都从 `report.research_status` 读。它按 <Ref id="V.4.4.1" /> 的口径从账本分项给出：尝试、审计通过、经济可用、仅诊断、无效、没跑完，以及样本外登记状态，并附账本版本。Agent 引用这些分项、解释它们的含义；不自评进度，不自己数尝试次数，也不按会话里的记忆计数。
 
-可比候选数取「经济可用」那一项，由资格视图 `registration.assess` 判定；「审计通过」的数不能当成可比候选数。
+可比候选数取「经济可用」那一项，由资格判定 `registration.assess` 给出；「审计通过」的数不能当成可比候选数。
 
 审计通过只说明记录自洽，不代表真有交易可比。拿它当可比候选数，会把零成交的运行也算进去。这个读口只读，不返回停止标志、目标或分数，所以没有拒绝码：代码保证数字是事实，解释是否走样由评测检查。
 
@@ -244,7 +242,7 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 <div className="rd-example">
 
-比如研究计数要是只按「运行通过」统计有效运行，零成交的运行也会被算成有效，所以计数按资格视图来。账本里一条路线的试验次数往往远多于绑定了正式研究运行的次数（含根）；复盘时要按这些分项说话，不能把全部试验说成「跑完了」。
+比如研究计数要是只按「运行通过」统计有效运行，零成交的运行也会被算成有效，所以计数按资格判定来。账本里一条路线的试验次数往往远多于绑定了正式研究运行的次数（含根）；复盘时要按这些分项说话，不能把全部试验说成「跑完了」。
 
 </div>
 
@@ -283,8 +281,6 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 </div>
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-<p className="rd-note">缺：尚无真实会话验证；评测见 due-stop-offers-approaches-in-line、due-change-decides-and-continues 和 due-change-authority-still-stops。</p>
 
 ### 复盘的内容 [#F-3-2]
 

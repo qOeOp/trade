@@ -366,8 +366,6 @@ skill 规定资金使用率怎么算、怎么和回撤一起读；算它用的�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · references/capital.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">封存时的计算已实现并有测试（`ledger/metrics.py:860`，`tests/ledger/test_metrics.py`）；Agent 读值、不重算有评测 `participation-read-not-recomputed`、`participation-null-recomputed`，本次未运行；缺真实会话记录。</p>
-
 ## 8.3　度量目录与两种报告 [#R-3]
 
 一套度量目录，两种报告，其余的分析保持动态。
@@ -638,8 +636,6 @@ PBO/CSCV（回测过拟合概率）不纳入默认正式报告，不用于资格
 </div>
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-<p className="rd-note">已实现并有测试（`tests/report/test_numerics.py` 的 `RegimeTests`，2026-11-11 通过）；尚无真实研究会话中的读数。</p>
 
 #### 交易结构：两侧各自统计再比，不逐笔配对 [#R-3-2-7]
 
