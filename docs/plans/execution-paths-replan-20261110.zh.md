@@ -37,7 +37,7 @@
   GTD 至少 600 秒连 Live 也不查，只写在技能文字里，由 Binance 拒单。
 - **保护单覆盖有三份实现，语义各不相同。** 研究审计 `UNPROTECTED_POSITION`（`engine/audit.py:77`、`398-401`），Paper 的 `_protection`（`engine/paper.py:641-656`），Live 的 `check_protection`（`engine/live_session.py:110-126`，只数已接受订单的剩余量）。
 - **Live 专用改写版。** 研究候选被改写成另一个源码哈希再上 Live（`live/runs.py:298-307`，`origin_candidate` 对 `source`）。改写版不在任何研究证据里。
-- **预热请求在回放里没有回应。** 11-08 单一源码设计已经定下"三种模式都由源码调用原生 `request_bars`，回放用 `BacktestEngineConfig(catalogs=…)` 回应"，rc7 探针也验证过（`live-modularization-single-source-20261108.zh.md:136-152`），但回放一直没配 Catalog。
+- **预热请求在回放里没有回应。** 11-08 单一源码设计已经定下"三种模式都由源码调用原生 `request_bars`，回放用 `BacktestEngineConfig(catalogs=…)` 回应"，rc7 探针也验证过（[已删除的单一源码设计 136-152 行](https://github.com/qOeOp/trade/blob/efc2e11d9201d8b40b8928348d292cee160607b4/docs/plans/live-modularization-single-source-20261108.zh.md#L136-L152)），但回放一直没配 Catalog。
   @4 只加预热的版本因此在回放里永远拿不到历史，这段代码不被任何研究证据覆盖。
 - **Paper 的资金费另记一本账。** Sandbox 不结算，封存时按推送里的估计费率补算（`ledger/paper.py:166-174`），与 `Cadence.funding` 的注释矛盾，也和 AGENTS.md 的"结算归 Nautilus"冲突。
 - **Paper 用固定 100ms 墙钟延后数据回调**（`engine/paper.py:108`、`412-416`），不检查成交是否已处理完，也不记录延后不够的时候。

@@ -74,7 +74,7 @@ rc7 没有"恢复完成"信号，本方案用第 2 步的显式比对代替。�
 
 ### 3.3 启动预热
 
-按 `live-modularization-single-source-20261108.zh.md` 的预热方案做：三种模式都由策略源码在 15 分钟边界 T 调用一次
+按[已删除的单一源码设计](https://github.com/qOeOp/trade/blob/efc2e11d9201d8b40b8928348d292cee160607b4/docs/plans/live-modularization-single-source-20261108.zh.md)的预热方案做：三种模式都由策略源码在 15 分钟边界 T 调用一次
 Nautilus 原生的 `request_bars`，请求 81 根 15 分钟原生 K 线（`EXTERNAL`，`start=T−81P`，`limit=81`），在 `on_historical_bars` 里
 收到后验证最后 80 根的精确时间。
 
