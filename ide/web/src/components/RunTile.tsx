@@ -1,23 +1,18 @@
 import { dateTime, type TimeZone } from "../lib/time";
 import { useTimeZone } from "../state/timeZone";
 import type { ReactNode } from "react";
-import { ContextMenu } from "radix-ui";
 import type { PaperRun } from "../lib/paperApi";
 import { ACTIVE, continuable } from "../model/chain";
 import { ending } from "../model/ending";
 import { LAG_MS, waitingText, waitingUntil } from "../model/observation";
 import { copyText } from "../lib/clipboard";
-import { Icon } from "../icons/Icon";
-import { openSource, showLineage } from "../state/editors";
-import { requestFocus } from "../state/linking";
+import { openSource } from "../state/editors";
 import { activeRun, deleteDialog, deleting, full, startDialog, starting, startPaper, stopDialog, usePaperRuns, resumePaper, resuming } from "../state/paper";
 import { usePhone } from "../state/phone";
-import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
 import type { DataRole } from "../theme/roles";
 import { ActionButton } from "./ActionGroup";
-
-const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
+import { locate, Menu, MenuItem, MenuSeparator } from "./VersionMenu";
 
 /** A run's health in words and its tone: running, data late, stopping, or how it ended (model/ending.ts),
  *  in the warning tone when its evidence is untrusted. */
@@ -108,22 +103,13 @@ export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode 
   const id = run.candidate ?? "";
   if (usePhone()) return children;  // a phone reads: starting, stopping and deleting wait for Desktop layout
   return (
-    <ContextMenu.Root>
-      <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
-      <ContextMenu.Portal>
-        <ContextMenu.Content className="z-50 min-w-52 rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-popup">
-          <ContextMenu.Label className="truncate px-2 pb-1 pt-1.5 font-mono text-small text-fg-faint">{id} · run {run.paper_id}</ContextMenu.Label>
-          {ACTIVE.has(run.state) && <ContextMenu.Item className={ITEM} onSelect={() => stopDialog.set(run)}><Icon name="stop" />Stop and seal…</ContextMenu.Item>}
-          {(run.state === "ended" || run.state === "unsealed") && <ContextMenu.Item className={ITEM} onSelect={() => void resumePaper(run)}><Icon name="run" />Resume this run</ContextMenu.Item>}
-          <ContextMenu.Item className={ITEM} onSelect={() => { select(id); showLineage(); requestFocus(id); }}><Icon name="locate" />Locate version in graph</ContextMenu.Item>
-          <ContextMenu.Item className={ITEM} onSelect={() => openSource(id)}><Icon name="file.python" />Open source</ContextMenu.Item>
-          <ContextMenu.Item className={ITEM} onSelect={() => void copyText(String(run.paper_id))}><Icon name="copy" />Copy run id</ContextMenu.Item>
-          {run.state === "sealed" && <>
-            <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
-            <ContextMenu.Item className={ITEM} onSelect={() => deleteDialog.set(run)}><Icon name="delete" />Delete run…</ContextMenu.Item>
-          </>}
-        </ContextMenu.Content>
-      </ContextMenu.Portal>
-    </ContextMenu.Root>
+    <Menu title={`${id} · run ${run.paper_id}`} items={<>
+      {ACTIVE.has(run.state) && <MenuItem icon="stop" label="Stop and seal…" run={() => stopDialog.set(run)} />}
+      {(run.state === "ended" || run.state === "unsealed") && <MenuItem icon="run" label="Resume this run" run={() => void resumePaper(run)} />}
+      <MenuItem icon="locate" label="Locate version in graph" run={() => locate(id)} />
+      <MenuItem icon="file.python" label="Open source" run={() => openSource(id)} />
+      <MenuItem icon="copy" label="Copy run id" run={() => void copyText(String(run.paper_id))} />
+      {run.state === "sealed" && <><MenuSeparator /><MenuItem icon="delete" label="Delete run…" run={() => deleteDialog.set(run)} /></>}
+    </>}>{children}</Menu>
   );
 }

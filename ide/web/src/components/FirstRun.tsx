@@ -3,15 +3,12 @@ import { askSetup, namesRepository, question, readSetup, refusesKey, refusesRepo
 import { useAtom } from "../state/atom";
 import { paperService } from "../state/paper";
 import { FormButton, TextField } from "./chat/Field";
+import { External } from "./External";
 import { Typing } from "./Typing";
 
 const POLL_MS = 1000;
 const PAPER_GRACE_MS = 60_000;  // compose starts paper once ledger reports healthy, which takes a while
 const UP = "docker compose -f deploy/compose.yaml up -d";
-const LINK = "text-fg underline decoration-line-strong underline-offset-3 hover:decoration-current";
-
-const External = ({ href, children }: { href: string; children: ReactNode }) =>
-  <a className={LINK} href={href} target="_blank" rel="noreferrer">{children} ↗</a>;
 
 function Failure({ refusal }: { refusal: SetupRefusal }) {
   return (

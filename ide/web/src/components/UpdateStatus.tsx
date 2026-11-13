@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../icons/Icon";
 import { useUpdate, type Update } from "../state/update";
+import { Spinner } from "./Spinner";
 import { Tip } from "./Tip";
 
 // Loading states follow the design spec: shown after 200ms, then kept at least 400ms, so a quick
@@ -43,8 +44,7 @@ export function UpdateStatus() {
     </span>
   ) : (
     <span role="status" className="flex min-w-0 items-center gap-1.5 text-fg-muted">
-      <Icon name="loading" size={12} className="motion-safe:animate-spin motion-reduce:hidden" />
-      <Icon name="history" size={12} className="motion-safe:hidden" />
+      <Spinner />
       <span className="truncate">Updating to {short(seen.commit)} · {STAGE[seen.stage]}</span>
     </span>
   );

@@ -19,12 +19,11 @@ export function LiveCredentialsDialog({ view, actions, close, requests }: {
     clear();
     void action.submit(() => actions.saveCredentials!(input));
   };
-  return <LiveDialogFrame open close={close} narrow title="Live settings" description="Exchange API keys for your Live runs, and where Live sends its notifications."
+  return <LiveDialogFrame notice={view.notice} open close={close} narrow title="Live settings" description="Exchange API keys for your Live runs, and where Live sends its notifications."
     footer={editing ? <><FormButton onClick={() => { clear(); edit(false); }}>Cancel editing</FormButton>
       <FormButton primary type="submit" form={form} disabled={!actions.saveCredentials || action.busy}>{action.busy ? "Submitting…" : "Save credentials"}</FormButton></>
       : <FormButton onClick={close}>Done</FormButton>}>
     <div className="space-y-4">
-      {view.notice && <p role="status" className="text-small text-misses-fg">{view.notice}</p>}
       <LiveCredentialVersions credentials={view.credentials} remove={actions.removeCredential} />
       {editing ? <form id={form} className="space-y-4 border-t border-line pt-4" onSubmit={(event) => { event.preventDefault(); save(); }}>
         <TextField label="API key" type="password" autoComplete="off" spellCheck={false} value={key} onValue={setKey} disabled={!actions.saveCredentials || action.busy} />

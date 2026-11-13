@@ -7,6 +7,7 @@ import { select } from "../state/selection";
 import { paletteOpen } from "../state/shell";
 import { startDialog, starting, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
 import { Kbd } from "../components/Kbd";
+import { SCRIM } from "../components/dialog";
 import { VersionLine } from "../components/VersionLine";
 import type { Action } from "./commands";
 
@@ -20,7 +21,7 @@ export function CommandPalette({ lineage, actions }: { lineage?: LineageWidget; 
   const busy = new Set([...runs.map((r) => r.candidate), ...useAtom(starting).keys()]);
   return (
     <Command.Dialog open={open} onOpenChange={paletteOpen.set} label="Go to a version or run a command"
-                    overlayClassName="fixed inset-0 z-40 bg-scrim"
+                    overlayClassName={SCRIM}
                     contentClassName="fixed left-1/2 top-[14%] z-50 w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-hidden rounded-popup border border-popup-border bg-popup shadow-popup">
       <Command.Input placeholder="Version, change or command…" autoFocus className="w-full border-b border-line bg-transparent px-3 py-2 text-ui outline-none" />
       <Command.List className="max-h-96 overflow-auto p-1 text-dense">

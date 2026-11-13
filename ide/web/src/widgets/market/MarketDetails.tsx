@@ -2,11 +2,12 @@ import { useTimeZone } from "../../state/timeZone";
 import { useMemo } from "react";
 import { change, plural, usd, when } from "../../lib/format";
 import { coinsAt, group, MORE, splits, subsectorLevel, type Coin, type Snapshot } from "../../model/market";
-import { openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
+import { openPath, useMarketView, useSnapshot } from "../../state/market";
 import { columns, DataTable, type Column } from "../../components/DataTable";
 import { KeyValues } from "../../components/KeyValues";
 import { CardGroup, Section } from "../../components/Section";
 import { CoinDetails, Signed } from "./CoinDetails";
+import { MarketPending } from "./CoinsWindow";
 import { GlobalMarket } from "./GlobalMarket";
 import { liquidated, Liquidations } from "./Liquidations";
 import { MarketRuns } from "./MarketRuns";
@@ -59,9 +60,9 @@ function Sources({ snapshot }: { snapshot: Snapshot }) {
  *  first; its breadth, its sectors (at All) or sub-sectors (in a split sector) with their changes, its
  *  liquidations, its movers and below All the paper runs trading its coins; and when each source was last read. */
 export function MarketDetails() {
-  const snapshot = useSnapshot(), service = useOverviewService(), { path, coin, size } = useMarketView();
+  const snapshot = useSnapshot(), { path, coin, size } = useMarketView();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
-  if (!snapshot) return <p className="p-4 text-fg-faint">{service === "offline" ? "Market data offline. Reconnecting automatically." : "Reading the market…"}</p>;
+  if (!snapshot) return <MarketPending />;
   const picked = coin ? snapshot.coins.find((c) => c.symbol === coin) : undefined;
   const names = path.filter((p) => p !== MORE);
   const title = path.length ? `${names.join(" · ")}${path.at(-1) === MORE ? " · the rest" : ""}` : "All perpetuals";

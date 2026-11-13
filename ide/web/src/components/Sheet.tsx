@@ -1,5 +1,6 @@
 import { useRef, type ReactNode, type TouchEvent } from "react";
 import { Dialog, VisuallyHidden } from "radix-ui";
+import { SCRIM } from "./dialog";
 
 /** A phone's popup: the desktop's popup surface (hairline, shadow, popup radius on its top corners) risen from
  *  the foot over a scrim, its grab bar on top. It closes on the scrim, the bar, the browser's Escape, or dragged down
@@ -32,7 +33,7 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
   return (
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-scrim" />
+        <Dialog.Overlay className={SCRIM} />
         <Dialog.Content ref={sheet} onTouchStart={start} onTouchMove={move} onTouchEnd={end} onTouchCancel={end} aria-describedby={undefined} className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] flex-col rounded-t-island border-t border-popup-border bg-popup pb-[env(safe-area-inset-bottom)] shadow-popup outline-none">
           <VisuallyHidden.Root><Dialog.Title>{title}</Dialog.Title></VisuallyHidden.Root>
           <Dialog.Close aria-label="Close" className="grid h-6 w-full shrink-0 place-items-center"><i className="h-1 w-9 rounded-full bg-line-strong" /></Dialog.Close>

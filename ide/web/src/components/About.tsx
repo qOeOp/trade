@@ -9,20 +9,19 @@ import { copyFault, readAbout, useAbout, usePaperHealth, usePublicCopy } from ".
 import { useOverviewService } from "../state/market";
 import { useMarketImport } from "../state/marketImport";
 import { usePaperService } from "../state/paper";
+import { dotClass } from "../theme/roles";
 import { FormButton } from "./chat/Field";
+import { External } from "./External";
+import { PANEL, SCRIM } from "./dialog";
 
-const LINK = "text-fg underline decoration-line-strong underline-offset-3 hover:decoration-current";
-const External = ({ href, children }: { href: string; children: ReactNode }) =>
-  <a className={LINK} href={href} target="_blank" rel="noreferrer">{children} ↗</a>;
 const Mono = ({ children }: { children: ReactNode }) => <span className="font-mono">{children}</span>;
 const Code = ({ children }: { children: ReactNode }) => <code className="font-mono text-fg">{children}</code>;
 
 const NAMES = { checking: "Checking…", absent: "Not deployed", offline: "Offline", present: "Connected" };
-const DOT = { fail: "bg-fail", misses: "bg-misses" };
 
 /** A fault's line: the dot the rail and the status bar mark the same fact with. */
-const Fault = ({ tone, children }: { tone: keyof typeof DOT | null; children: ReactNode }) =>
-  <>{tone && <i className={`mr-1.5 inline-block size-1.5 rounded-full align-middle ${DOT[tone]}`} />}{children}</>;
+const Fault = ({ tone, children }: { tone: "fail" | "misses" | null; children: ReactNode }) =>
+  <>{tone && <i className={`mr-1.5 inline-block size-1.5 rounded-full align-middle ${dotClass(tone)}`} />}{children}</>;
 
 function Row({ name, children }: { name: string; children: ReactNode }) {
   return <><dt className="text-fg-faint">{name}</dt><dd className="min-w-0 break-words text-fg-muted">{children}</dd></>;
@@ -107,8 +106,8 @@ export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => v
   return (
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-scrim" />
-        <Dialog.Content className="fixed left-1/2 top-[18%] z-50 w-[440px] max-w-[calc(100vw-32px)] -translate-x-1/2 space-y-3 rounded-popup border border-popup-border bg-popup p-4 text-dense shadow-popup outline-none">
+        <Dialog.Overlay className={SCRIM} />
+        <Dialog.Content className={PANEL}>
           <div>
             <Dialog.Title className="text-ui font-semibold">{TITLE}</Dialog.Title>
             <Dialog.Description className="text-fg-muted">{NOTE}</Dialog.Description>

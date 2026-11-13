@@ -36,8 +36,8 @@ await components.link(loader({ stubs: {
   "icons/Icon": { Icon: () => null },
   // SSR has no portal host. Inspect actual dialog contents; browser checks cover the Radix frame.
   "components/LiveDialogFrame": {
-    LiveDialogFrame: ({ open, title, description, children, footer }) => open
-      ? createElement(Fragment, null, "[dialog]", title, description, children, footer) : null,
+    LiveDialogFrame: ({ open, title, description, notice, children, footer }) => open
+      ? createElement(Fragment, null, "[dialog]", title, description, notice, children, footer) : null,
   },
 } }).link);
 await components.evaluate();
