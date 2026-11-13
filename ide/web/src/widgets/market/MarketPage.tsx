@@ -1,35 +1,20 @@
-import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { plural } from "../../lib/format";
 import { coinsAt, level, into, MORE, type Color, type Node, type Size } from "../../model/market";
 import { layout } from "../../model/treemap";
 import { hoverAt, ripple } from "../../model/ripple/layout";
 import { marketCoin, marketColor, marketSize, openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
 import { Breadcrumbs, type Crumb } from "../../components/Breadcrumbs";
-import { Dropdown, DropdownRadio } from "../../components/Dropdown";
+import { DropdownChoice } from "../../components/Dropdown";
 import { HeatLegend } from "../../components/HeatLegend";
 import { HeatTile } from "../../components/HeatTile";
 import { TextButton } from "../../components/TextButton";
+import { Empty } from "../../components/Waiting";
 import { useSize } from "../../components/hooks/useSize";
 
 const SIZES = [{ value: "marketCap", label: "Market cap" }, { value: "volume24h", label: "Volume 24h" }, { value: "oi", label: "Open interest" }] as const;
 const COLORS = [{ value: "change1h", label: "Change 1h" }, { value: "change4h", label: "Change 4h" }, { value: "change24h", label: "Change 24h" },
                 { value: "change7d", label: "Change 7d" }, { value: "funding", label: "Funding" }, { value: "oiChange24h", label: "Open interest 24h" }] as const;
-
-/** A compact menu of one choice, its trigger naming what it sets and the chosen option. */
-function Choice<T extends string>({ name, options, value, onChange }: { name: string; options: readonly { value: T; label: string }[]; value: T; onChange: (v: T) => void }) {
-  return (
-    <Dropdown variant="compact" align="end" label={`Tile ${name.toLowerCase()}`}
-              trigger={<span className="whitespace-nowrap"><span className="text-fg-faint">{name}</span> {options.find((o) => o.value === value)?.label}</span>}>
-      <DropdownRadio value={value} options={options} onChange={onChange} />
-    </Dropdown>
-  );
-}
-
-const Empty = ({ title, children }: { title: string; children?: ReactNode }) => (
-  <div className="grid h-full place-items-center p-6 text-center text-dense">
-    <div className="max-w-md"><p className="font-semibold text-fg">{title}</p>{children && <p className="mt-2 text-balance text-fg-muted">{children}</p>}</div>
-  </div>
-);
 
 /** The path as steps: All, the sector, its sub-sector, then each opened "+N more" by how many coins it holds. */
 const crumbs = (path: readonly string[], labels: readonly string[]): Crumb[] => [
@@ -86,8 +71,8 @@ export function MarketPage() {
         <Breadcrumbs items={crumbs(path, labels)} />
         <span className="shrink-0 whitespace-nowrap text-fg-faint">{plural(nodes.length, path.length ? "tile" : "sector")} · {plural(count, "contract")}</span>
         <span className="ml-auto flex items-center gap-3">
-          <Choice<Size> name="Size" options={SIZES} value={size} onChange={marketSize.set} />
-          <Choice<Color> name="Colour" options={COLORS} value={color} onChange={marketColor.set} />
+          <DropdownChoice<Size> name="Size" label="Tile size" options={SIZES} value={size} onChange={marketSize.set} />
+          <DropdownChoice<Color> name="Colour" label="Tile colour" options={COLORS} value={color} onChange={marketColor.set} />
           <HeatLegend color={color} />
         </span>
       </div>

@@ -13,7 +13,7 @@ const decimals = (v: unknown) => (typeof v === "string" && v.includes(".") ? v.s
 
 /** The side `run` holds on contract `symbol`, from its latest native position event: none once the run ended. */
 export function sideOf(run: LiveRun, symbol: string): "LONG" | "SHORT" | null {
-  const last = run.ended ? null : (run.positions ?? []).filter((p) => p.instrument_id === `${symbol}-PERP.BINANCE`).at(-1);
+  const last = run.ended ? null : (run.positions ?? []).filter((p) => symbolOf(p.instrument_id) === symbol).at(-1);
   return last && last.event_type !== "PositionClosed" && (last.side === "LONG" || last.side === "SHORT") ? last.side : null;
 }
 

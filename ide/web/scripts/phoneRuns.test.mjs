@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loader } from "./load.mjs";
 
-const { liveHeld, liveWorking, lastFill, liveMoney, liveStatus, paperHeld, paperIssues, paperEquity, marked, stopFor, away } = await loader().namespace("model/phoneRuns.ts");
+const { liveHeld, liveWorking, lastFill, liveMoney, liveStatus, paperHeld, paperIssues, paperEquity, marked, stopFor, away, runsDot } = await loader().namespace("model/phoneRuns.ts");
 
 const T = Date.UTC(2026, 10, 11, 0, 10), ns = (ms) => String(BigInt(ms) * 1_000_000n);
 const row = (type, ms, extra = {}) => ({ event_type: type, ts_event: ns(ms), observed_ns: ns(ms), event_ref: { source: "native", cursor: `${type}:${ms}` },
@@ -12,7 +12,7 @@ const row = (type, ms, extra = {}) => ({ event_type: type, ts_event: ns(ms), obs
 const fact = (label, value) => ({ label, value });
 const run = (over = {}) => ({
   id: "r1", candidate: "rsi@1", running: true, ended: false, symbols: ["BTCUSDT"], observedNs: { account: ns(T), terminal: null },
-  config: [fact("Drawdown brake", "0.15"), fact("Equity at start (USDT)", "90"), fact("Highest equity (USDT)", "100")], host: [fact("State", "running")], ending: [fact("Stop requested", "No")],
+  config: [fact("Drawdown brake", "0.15"), fact("Equity at start (USDT)", "90"), fact("Highest equity (USDT)", "100")], hostState: "running", ending: [fact("Stop requested", "No")],
   equity: { budget: 90, minutes: [[1, 90], [2, 88.5], [3, null], [4, 91.84]] },
   orders: [row("OrderAccepted", T, { client_order_id: "E-1", order_side: "SELL", order_type: "LIMIT", price: "74700", quantity: "0.002" }),
     row("OrderFilled", T + 1000, { client_order_id: "E-1", order_side: "SELL", last_px: "74652.3", last_qty: "0.002" }),
@@ -42,8 +42,17 @@ test("a Live run's state reads as one word: unresolved before anything else, a r
   assert.equal(liveStatus(run()).word, "Running");
   assert.equal(liveStatus(run({ ending: [fact("Stop requested", "Yes")] })).word, "Stopping");
   assert.deepEqual(liveStatus(run({ heldNotice: "held" })), { word: "Holding", tone: "misses" });
-  assert.equal(liveStatus(run({ running: false, host: [fact("State", "unresolved")] })).tone, "fail");
-  assert.equal(liveStatus(run({ running: false, ended: true, host: [fact("State", "clean_stopped")] })).word, "Ended");
+  assert.equal(liveStatus(run({ running: false, hostState: "unresolved" })).tone, "fail");
+  assert.equal(liveStatus(run({ running: false, ended: true, hostState: "clean_stopped" })).word, "Ended");
+});
+
+test("the Runs dot, desktop and phone alike: red for an unresolved Live run or a silent paper daemon, green while either runs", () => {
+  const idle = { runs: [], running: 0 };
+  assert.equal(runsDot([run({ running: false, hostState: "unresolved" })], idle, "present"), "fail");
+  assert.equal(runsDot([], idle, "offline"), "fail");
+  assert.equal(runsDot([run()], idle, "present"), "meets");
+  assert.equal(runsDot([], { runs: [], running: 1 }, "present"), "meets");
+  assert.equal(runsDot([run({ running: false, ended: true })], null, "absent"), undefined);
 });
 
 test("a paper run's card reads the listing: its held positions, its issues and its outline in seconds", () => {

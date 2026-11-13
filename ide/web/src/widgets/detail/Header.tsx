@@ -5,10 +5,9 @@ import { PREDICTION, ROLE } from "../../model/semantics";
 import { when } from "../../lib/format";
 import { Icon } from "../../icons/Icon";
 import { select } from "../../state/selection";
+import { textClass } from "../../theme/roles";
 import { TextButton } from "../../components/TextButton";
 import { Tip } from "../../components/Tip";
-
-const PREDICTION_TEXT = { meets: "text-meets-fg", misses: "text-misses-fg", "fg-muted": "text-fg-muted", "fg-faint": "text-fg-faint" } as const;
 
 /** The selected version's card: its name, role, prediction verdict, when it was published, its
  *  parent; its readings follow in the same card. */
@@ -20,7 +19,7 @@ export function Header({ c, children }: { c: Candidate; children?: ReactNode }) 
       <h2 className="truncate font-mono text-h1 font-semibold">{c.id}</h2>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-dense text-fg-faint">
         <Tip content={role ? ROLE[role].hint : undefined}><span className="text-fg-muted">{role ? ROLE[role].label : "-"}</span></Tip>
-        <span className={PREDICTION_TEXT[PREDICTION[c.prediction_class].tone]}>{PREDICTION[c.prediction_class].label}</span>
+        <span className={textClass(PREDICTION[c.prediction_class].tone)}>{PREDICTION[c.prediction_class].label}</span>
         <span>{when(c.created_at, zone)}</span>
         {c.parent && (
           // pulled out by its padding, and its arrow by the glyph's own inset, so the arrow's ink starts at

@@ -1,16 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { expandAllFeature, hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature } from "@headless-tree/core";
-import { useTree } from "@headless-tree/react";
+import { useMemo } from "react";
 import type { SourceItem, SourcesWidget } from "../../model/types";
 import { Icon } from "../../icons/Icon";
 import { openSource } from "../../state/editors";
 import { hoverProps } from "../../state/linking";
-import { select, useSelection } from "../../state/selection";
 import { sourceTreeControl } from "../../state/versionTree";
-import { TREE_INDENT, TreeRow } from "../../components/TreeRow";
+import { TreeRow } from "../../components/TreeRow";
+import { ROOT, useSelectionTree } from "../../components/hooks/useSelectionTree";
 import { VersionMenu } from "../../components/VersionMenu";
 
-const ROOT = "__root__";
 const DIR = "dir:";
 
 type Entry = { id: string; label: string; item: SourceItem | null; children: string[] };
@@ -41,41 +38,14 @@ function files(items: readonly SourceItem[]): Map<string, Entry> {
 export function SourceTree({ widget }: { widget: SourcesWidget }) {
   const entries = useMemo(() => files(widget.items), [widget]);
   const dirs = useMemo(() => [...entries.keys()].filter((id) => id.startsWith(DIR)), [entries]);
-  const [expandedItems, setExpandedItems] = useState<string[]>(dirs);
-  const [focusedItem, setFocusedItem] = useState<string | null>(null);
-  const selected = useSelection();
-  const isFile = (id: string | null): id is string => !!id && !!entries.get(id)?.item;
-  const tree = useTree<Entry>({
-    rootItemId: ROOT,
-    getItemName: (item) => item.getItemData().label,
-    isItemFolder: (item) => item.getItemData().item === null,
-    dataLoader: { getItem: (id) => entries.get(id)!, getChildren: (id) => entries.get(id)?.children ?? [] },
-    state: { expandedItems, selectedItems: selected ? [selected] : [], focusedItem },
-    setExpandedItems,
-    setFocusedItem: (next) => {
-      const id = typeof next === "function" ? next(focusedItem) : next;
-      setFocusedItem(id);
-      if (isFile(id) && id !== selected) select(id, { reveal: true });
-    },
-    setSelectedItems: (next) => {
-      const [id = null] = typeof next === "function" ? next(selected ? [selected] : []) : next;
-      if (isFile(id)) select(id, { reveal: true });
-    },
-    onPrimaryAction: (item) => { if (isFile(item.getId())) select(item.getId(), { reveal: true }); },
-    indent: TREE_INDENT,
-    features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature, expandAllFeature],
-  });
-
-  const reveal = (id: string | null) => {
-    if (!isFile(id)) return;
-    const strategy = DIR + id.slice(0, id.lastIndexOf("@"));
-    if (entries.has(strategy)) setExpandedItems((open) => [...new Set([...open, strategy])]);
-    requestAnimationFrame(() => { void tree.getItemInstance(id).scrollTo({ block: "nearest" }); });
-  };
-  useEffect(() => reveal(selected), [selected]);  // follow a selection made elsewhere
-  useEffect(() => {
-    sourceTreeControl.set({ expandAll: () => setExpandedItems(dirs), collapseAll: () => setExpandedItems([]), revealSelected: () => reveal(selected) });
-    return () => sourceTreeControl.set(null);
+  const tree = useSelectionTree<Entry>({
+    item: (id) => entries.get(id)!,
+    children: (id) => entries.get(id)?.children ?? [],
+    name: (id) => entries.get(id)?.label ?? id,
+    folder: (id) => entries.get(id)?.item === null,
+    selectable: (id): id is string => !!id && !!entries.get(id)?.item,
+    ancestors: (id) => [DIR + id.slice(0, id.lastIndexOf("@"))].filter((dir) => entries.has(dir)),
+    folders: dirs, control: sourceTreeControl,
   });
 
   return (

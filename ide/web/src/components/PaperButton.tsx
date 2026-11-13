@@ -4,6 +4,7 @@ import { useAtom } from "../state/atom";
 import { activeRun, full, startDialog, starting, stopDialog, stopping, usePaperRuns, usePaperService } from "../state/paper";
 import { useNow } from "./hooks/useNow";
 import { waited } from "./PaperStartStatus";
+import { Spinner } from "./Spinner";
 import { Tip } from "./Tip";
 
 /** The ▶ after a version, as IntelliJ's run mark beside a line: a click asks to run it on paper, showing the
@@ -24,27 +25,20 @@ export function PaperButton({ id }: { id: string }) {
     else startDialog.set(id);
   };
   const label = pendingStart ? "Starting paper…" : pendingStop ? "Stopping paper…" : run ? "Stop and seal" : "Run paper…";
-  const tip = pendingStart ? <Waiting since={since} />
+  const tip = pendingStart ? <StartWait since={since} />
     : run || busy ? label : limit ?? label;
   return (
     <Tip side="bottom" content={tip}>
       <button type="button" aria-label={label} aria-busy={busy} aria-disabled={busy} onClick={click} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
               className={`nodrag nopan grid size-5 shrink-0 place-items-center rounded-control transition-[opacity,background-color] ${busy ? "cursor-progress opacity-100" : "opacity-0 hover:bg-hover active:bg-pressed focus-visible:opacity-100 group-hover:opacity-100"} ${pendingStop ? "animate-pulse" : ""}`}>
-        {pendingStart ? <Spinner /> : <Icon name={run ? "stop" : "run"} size={12} tone={run ? "fail" : limit ? undefined : "meets"} />}
+        {pendingStart ? <Spinner className="text-icon" /> : <Icon name={run ? "stop" : "run"} size={12} tone={run ? "fail" : limit ? undefined : "meets"} />}
       </button>
     </Tip>
   );
 }
 
-
-/** A turning ring, a still clock under reduced motion: the ▶ while its start is in flight. */
-function Spinner() {
-  return <><Icon name="loading" size={12} className="text-icon motion-safe:animate-spin motion-reduce:hidden" />
-    <Icon name="history" size={12} className="text-icon motion-safe:hidden" /></>;
-}
-
 /** The tip of a ▶ whose start is in flight: how long it has waited and what the server is doing. */
-function Waiting({ since }: { since: number }) {
+function StartWait({ since }: { since: number }) {
   const now = useNow(1000);
   return <span>Starting paper · {waited(now - since)} <span className="text-fg-faint">· preparing image and containers; the Runs page opens when it is accepted</span></span>;
 }

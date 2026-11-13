@@ -3,9 +3,8 @@ import { AlertDialog, Dialog } from "radix-ui";
 import { useAtom } from "../state/atom";
 import { deleteDialog, deletePaper, lastSymbols, startDialog, startPaper, stopDialog, stopPaper } from "../state/paper";
 import { FormButton } from "./chat/Field";
+import { PANEL, SCRIM } from "./dialog";
 
-const PANEL = "fixed left-1/2 top-[18%] z-50 w-[440px] max-w-[calc(100vw-32px)] -translate-x-1/2 space-y-3 rounded-popup border border-popup-border bg-popup p-4 text-dense shadow-popup outline-none";
-const SCRIM = "fixed inset-0 z-40 bg-scrim";
 const SYMBOLS = /^[A-Z0-9]{2,30}$/;
 
 /** "Run paper", asked before every new start: the contracts (the last research replay's to start with) or

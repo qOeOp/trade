@@ -4,10 +4,9 @@ import type { PaperRun } from "../lib/paperApi";
 import { duration, plural, signedPct } from "../lib/format";
 import { ACTIVE, chainReturn, chainStart, chainTrades } from "../model/chain";
 import { useTimeZone } from "../state/timeZone";
-import { pnlClass, type DataRole } from "../theme/roles";
+import { dotClass, pnlClass } from "../theme/roles";
 import { Ended, health, RunMenu } from "./RunTile";
 
-const DOT: Record<DataRole, string> = { recommended: "bg-recommended", meets: "bg-meets", misses: "bg-misses", fail: "bg-fail", masked: "bg-masked" };
 
 /** How the strategy stands, in a few words: running for how long (since its chain's first run), data late
  *  or failing in amber, or how and when it ended. */
@@ -39,7 +38,7 @@ export function RunRow({ run, chain, on, now, note, onPick, history }: {
           {ret !== null && <span className={`shrink-0 text-small tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span>}
         </span>
         <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-small text-fg-muted">
-          <i aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${DOT[tone]}`} />
+          <i aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${dotClass(tone)}`} />
           <span className="flex min-w-0 max-w-[60%] shrink-0"><Status run={run} chain={chain} now={now} /></span>
           {trades !== null && <span className="shrink-0 tabular-nums">· {plural(trades, "trade")}</span>}
           {note && <span className="min-w-0 shrink-[100] truncate text-fg-faint">· {note}</span>}

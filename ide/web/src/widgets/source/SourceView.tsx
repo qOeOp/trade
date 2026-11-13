@@ -1,13 +1,12 @@
 import { useRef } from "react";
 import type { SourceItem, SourcesWidget } from "../../model/types";
 import { Icon } from "../../icons/Icon";
-import { showLineage, toggleDiff } from "../../state/editors";
-import { requestFocus } from "../../state/linking";
-import { select } from "../../state/selection";
+import { toggleDiff } from "../../state/editors";
 import { CodeView } from "../../components/CodeView";
 import { useSize } from "../../components/hooks/useSize";
 import { PanelHeader } from "../../components/PanelHeader";
 import { TextButton } from "../../components/TextButton";
+import { locate } from "../../components/VersionMenu";
 
 type Opened = { item: SourceItem | undefined; parent: SourceItem | undefined; comparing: boolean };
 
@@ -35,7 +34,7 @@ export function SourceBar({ id, diff, widget }: { id: string; diff: boolean; wid
         {item?.source != null && parent?.source != null
           && <TextButton active={diff} onClick={toggleDiff} aria-label="Compare with parent" title="Compare with parent" className="shrink-0">
             <Icon name="diff" /><span className="hidden @[34rem]:inline">Compare with parent</span></TextButton>}
-        <TextButton onClick={() => { select(id); showLineage(); requestFocus(id); }} aria-label="Locate in graph" title="Locate in graph" className="shrink-0">
+        <TextButton onClick={() => locate(id)} aria-label="Locate in graph" title="Locate in graph" className="shrink-0">
           <Icon name="locate" /><span className="hidden @[34rem]:inline">Locate in graph</span></TextButton>
       </div>
     </PanelHeader>

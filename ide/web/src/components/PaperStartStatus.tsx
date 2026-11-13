@@ -1,7 +1,7 @@
-import { Icon } from "../icons/Icon";
 import { useAtom } from "../state/atom";
 import { starting } from "../state/paper";
 import { useNow } from "./hooks/useNow";
+import { Spinner } from "./Spinner";
 import { Tip } from "./Tip";
 
 const WHY = "The server takes the runtime image (pulling it when this host does not have it yet, which can take minutes after a release), "
@@ -26,8 +26,7 @@ function Pending({ first: [candidate, since], count }: { first: [string, number]
   return (
     <Tip content={WHY} side="top">
       <span role="status" className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-fg-muted">
-        <Icon name="loading" size={12} className="motion-safe:animate-spin motion-reduce:hidden" />
-        <Icon name="history" size={12} className="motion-safe:hidden" />
+        <Spinner />
         {count > 1 ? `Starting ${count} paper runs` : <>Starting paper <span className="max-w-48 truncate">· {candidate}</span></>}
         <span className="tabular-nums">· {waited(now - since)}</span>
       </span>
