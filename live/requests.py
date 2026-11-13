@@ -1,6 +1,7 @@
 """Durable operator intent around existing Live effects, never a retry queue.
 
-All ``*_locked`` functions and ``require_clear`` run under ``state.serialized``.
+All ``*_locked`` functions and ``require_clear`` run under the exclusive account lock
+(``state.serialized``, or the control's ``Authority.serialized``).
 Only ``dispatch`` creates a claim; a repeated ID never calls its operation again.
 The original lifecycle remains the authority for what actually happened.
 """

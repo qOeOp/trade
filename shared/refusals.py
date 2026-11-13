@@ -33,8 +33,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "LEDGER_KIND": ("The profile is not what the command reads: a market, the research ledger or the Paper "
                     "database (a profile's `kind` and `holds`).",
                     ("Pass a profile of the kind the message names. A Paper database is made with `ledger init "
-                     "NAME --database paper --kind isolated --holds paper`; rewrite a profile in the old market format as "
-                     "the message says.",)),
+                     "--name paper --kind isolated --holds paper --service-root DIR`; rewrite a profile in the old "
+                     "market format as the message says.",)),
     "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
                            "not answer (a long write such as an import can stall it for minutes; otherwise its process, "
                            "its container or the Docker host is hung).",
@@ -222,7 +222,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                ("Run the validation the user registered; other trials of this candidate may not "
                                 "touch its window until it is bound.",)),
     "TRIAL_NOT_FOUND": ("The trial does not exist on this ledger version.",
-                        ("List trials with `research status`.",)),
+                        ("List trials with `ledger sql` on the `trial` table.",)),
     "EXECUTION_IDENTITY": ("The execution start receipt disagrees with its trial row (source, runtime identity) "
                            "or is malformed; or the stages, commands or working directory of a capture differ from "
                            "the process record, the start receipt or the sealed hashes.",
@@ -266,7 +266,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                 "working directory its start receipt records: a precheck with no run and no "
                                 "registration attempt, or (by the replay entry only) a sealed replay refused for "
                                 "size.",
-                                ("Read the trial's capture with `research status`; replay again instead of "
+                                ("Read the trial's capture with `replay report --trial-id N`; replay again instead of "
                                  "recovering.",)),
     "RECOVERY_INCOMPLETE": ("The kept directory lacks valid stage facts or an original the stages require, or the "
                             "host error is not the capture-limit refusal.",
@@ -306,9 +306,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                               "working copies.",
                               ("Read the exploration or precheck from its directory; register to store a run.",)),
     "RUN_ALREADY_INGESTED": ("The trial already has a run.",
-                             ("Read it with `research status`; a trial is stored once.",)),
+                             ("Read it with `replay report --trial-id N`; a trial is stored once.",)),
     "UNKNOWN_RUN": ("The ledger version read holds no run of that ID.",
-                    ("List runs with `research status`.",)),
+                    ("List runs with `research runs`, or with `ledger sql` on the `run` table.",)),
     "REPORT_UNREADABLE": ("A native report file exists but is not UTF-8 CSV, JSON or gzip as the runner writes it.",
                           ("Replay again into a new directory; report the runner if it persists.",)),
     # Replays (replay/)
@@ -352,8 +352,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "COMMIT_BEFORE_LINE": ("The judgment's based_on_commit is older than its research line.",
                            ("Read the ledger after the line was selected and pass that commit.",)),
     "SUBJECT_UNKNOWN": ("A judgment subject names no existing candidate, trial or research registration.",
-                        ("Reference existing records only; list them with `candidate list` and "
-                         "`research status`.",)),
+                        ("Reference existing records only; list candidates with `candidate list`, trials and "
+                         "registrations with `ledger sql`.",)),
     "SUBJECT_ROLE_MISMATCH": ("A subject role is unknown, or recommended, parent or control names no candidate.",
                               ("Give a candidate role recommended, parent, control or about; a trial or registration "
                                "takes about, or no role.",)),
@@ -491,7 +491,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            "control first. Validation retries keep the original candidate, window, universe "
                            "rule and test design. A poor result is no reason to retry.",)),
     "REGISTRATION_UNKNOWN": ("The validation registration does not exist.",
-                             ("List validation registrations with `research status`.",)),
+                             ("List validation registrations with `ledger sql` on the `validation_registration` table.",)),
     "REGISTRATION_CONSUMED": ("The validation registration was already bound.",
                               ("Register a new validation; a bound registration stays consumed.",)),
     "STALE_CHECKOUT": ("The product checkout's HEAD lacks the latest main commit, or this cannot be proved; for a "
@@ -842,7 +842,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
 
 
 # The market package's codes that share a name with a ledger code but refuse a market reference: their
-# meaning and repair when a market refusal is printed (`cli.main._market_refusal`).
+# meaning and repair when a market refusal is printed (`cli.common._market_refusal`).
 MARKET_CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "UNKNOWN_REF": ("The reference is not main, head or a market day (a valid day, YYYY-MM-DD), or it is a day "
                     "after the newest the market holds.",

@@ -27,7 +27,7 @@ class _KeyRead(BinanceReadOnly):
 
 def require_limits(credentials: Path) -> list[str]:
     """Refuses a key that can withdraw, has no IP restriction (every run, the user 2026-11-13; design §3.9) or whose
-    permissions cannot be read; returns what the operator should know."""
+    permissions cannot be read; returns no warnings."""
     try:
         found = _KeyRead(read_credentials(credentials)).get(RESTRICTIONS)
         withdrawals, restricted = found["enableWithdrawals"], found["ipRestrict"]

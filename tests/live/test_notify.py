@@ -198,11 +198,11 @@ class Sending(Base):
 
     def test_ended_and_unresolved_runs_say_why_and_a_closed_run_is_no_longer_read(self):
         self.tick(DAY)
-        self.facts = [run("run-a", "clean_stopped", mode="run", stop_reason="max_loss", minute_results=[["1", "-1.5"], ["2", None]],
+        self.facts = [run("run-a", "clean_stopped", mode="run", stop_reason="drawdown", minute_results=[["1", "-1.5"], ["2", None]],
                           host={"state": "clean_stopped", "mode": "run", "exit_code": 1}, custody={"archived": True}),
                       run("run-b", "unresolved", terminal={"observed_ns": "9"})]
         texts = self.tick(DAY + 10).texts()
-        self.assertEqual(texts[0], "Live run run-a (example) ended: stopped flat. Stop reason: max_loss. Result: -1.5 USDT. "
+        self.assertEqual(texts[0], "Live run run-a (example) ended: stopped flat. Stop reason: drawdown. Result: -1.5 USDT. "
                                    "Needs attention: exit code 1.")
         self.assertIn("run-b (example) is UNRESOLVED and needs attention now", texts[1])
         self.assertEqual(self.record()["closed"], ["run-a"])

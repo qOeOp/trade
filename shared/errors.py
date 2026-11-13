@@ -3,8 +3,9 @@
 A refusal says which code was refused, what is missing, the expected shape, whether this call
 wrote anything, and the commands that supply what is missing. It never carries SQL, service
 paths, credentials or a way around a check (a server error carries only the server's own text,
-truncated), and it is never stored. This module depends on
-nothing else; the commands come from `shared.refusals`, passed in by the raiser.
+truncated). It is not stored, except a capture-size refusal (`EXECUTION_CAPTURE_LIMIT`), kept as
+recovery material and as its invalid run's failure reason. This module depends on nothing else;
+the commands come from `shared.refusals`, passed in by the raiser.
 """
 
 from __future__ import annotations
