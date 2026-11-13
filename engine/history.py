@@ -118,6 +118,7 @@ class Warming:
                        fetch: Callable[[Any, int, Any, tuple[int, int]], list[list]] | None = None) -> None:
         """`fetch(instrument_id, at, declared, precisions)` fills the run's Catalog (Paper and Live; see fetch)."""
         order_rules.WARMING.add(str(strategy_id))
+        order_rules.CONTRACTS[str(strategy_id)] = instrument_id
         STATES[str(strategy_id)] = {
             "at": at, "instrument_id": instrument_id, "declared": declared, "fetch": fetch, "pending": set(),
             "received": {}, "expected": {}, "delivered": {}, "result": None, "thread": None, "fetched_ns": None,

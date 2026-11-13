@@ -19,7 +19,10 @@ contract at once (user, 2026-11-11).
    quantities or order parameters, and only the venue's own client.
 5. A GTD order expires at least GTD_MINIMUM_NS after it is sent (Binance's limit).
 6. A strategy cancels and closes only its own orders and positions.
-7. No order before the strategy's warm-up has ended and the runner has called its on_start (WARMING).
+7. An order is on the strategy instance's own contract (CONTRACTS): instances of one source coordinate legs on several
+   contracts through state the source shares between them, each ordering on its own (user, 2026-11-13;
+   docs/plans/cross-line-fusion-20261111.zh.md, 5.1).
+8. No order before the strategy's warm-up has ended and the runner has called its on_start (WARMING).
 
 The source cannot name submit_order_list, bracket, add_exec_algorithm or close_all_positions at all
 (engine.load.FORBIDDEN_ORDER_APIS).
@@ -40,6 +43,7 @@ ENTRY_TYPES = frozenset({OrderType.LIMIT, OrderType.STOP_MARKET})  # user, 2026-
 GTD_MINIMUM_NS = 600_000_000_000
 VENUE = "BINANCE"
 WARMING: set[str] = set()  # the strategy IDs whose warm-up has not ended (engine.run)
+CONTRACTS: dict[str, Any] = {}  # strategy ID -> its instance's own InstrumentId (engine.history.Warming._warming_setup)
 
 
 def _cache(source):
@@ -74,6 +78,8 @@ def violation(source, order, position_id=None, client_id=None, params=None) -> s
         return f"orders go through the {VENUE} client"
     if order.strategy_id != _strategy_id(source):
         return "an order carries its own strategy's identity"
+    if CONTRACTS.get(str(order.strategy_id)) != order.instrument_id:
+        return "an order is on its strategy instance's own contract"
     clock = Strategy.clock.__get__(source, type(source))
     if order.time_in_force == TimeInForce.GTD and order.expire_time_ns - clock.timestamp_ns() < GTD_MINIMUM_NS:
         return "a GTD order expires at least 600 seconds after it is sent"

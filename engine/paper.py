@@ -959,6 +959,7 @@ def _main(args) -> None:
         strategy_runtime.BREACHES.clear()
         strategy_runtime.DECLARED.clear()
         order_rules.WARMING.clear()
+        order_rules.CONTRACTS.clear()
         history.clear()
         RECORDERS.clear()
         FINDINGS.clear()

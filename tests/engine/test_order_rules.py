@@ -6,11 +6,11 @@ import unittest
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.model import (
-    Bar, BarType, MarkPriceUpdate, OmsType, OrderSide, PositionId, Price, Quantity, StrategyId, TimeInForce, TraderId,
+    Bar, BarType, InstrumentId, MarkPriceUpdate, OmsType, OrderSide, PositionId, Price, Quantity, StrategyId, TimeInForce, TraderId,
 )
 from nautilus_trader.trading import Strategy, StrategyConfig
 
-from engine import strategy as strategy_runtime
+from engine import order_rules, strategy as strategy_runtime
 from engine.order_rules import OrderRules
 from engine.run import ACCOUNT_CONTRACT, add_venue
 from tests.engine.test_fill_model import BAR_NS, BAR_TYPE, FLAT, INSTRUMENT, INSTRUMENT_ID, START, fees
@@ -21,6 +21,7 @@ class Probe(OrderRules, strategy_runtime.Subscriptions, Strategy):
 
     def __init__(self, steps):
         super().__init__(StrategyConfig(strategy_id=StrategyId("P-1"), oms_type=OmsType.HEDGING))
+        order_rules.CONTRACTS["P-1"] = INSTRUMENT_ID  # as the runner registers it (engine.history.Warming)
         self.steps, self.count, self.seen = steps, 0, {}
 
     def on_start(self):
@@ -111,12 +112,23 @@ class OrderRuleTests(unittest.TestCase):
             "with parameters": lambda s: s.submit_order(s.limit(), params={"x": 1}),
             "short GTD": lambda s: s.submit_order(s.limit(time_in_force=TimeInForce.GTD, expire_time=s.clock.timestamp_ns() + 599_000_000_000)),
             "order list": lambda s: s.submit_order_list(object()),
+            "on another contract": lambda s: s.submit_order(s.order_factory.limit(
+                InstrumentId.from_str("ETHUSDT-PERP.BINANCE"), OrderSide.BUY, Quantity.from_str("0.500"),
+                Price.from_str("100.00"))),
         }
         for name, step in cases.items():
             with self.subTest(name=name):
                 breaches, orders = replay({2: step})
                 self.assertEqual(codes(breaches), ["ORDER_RULE"])
                 self.assertEqual(orders, [])
+
+    def test_an_instance_without_its_own_contract_sends_nothing(self):
+        def unregistered(s):
+            order_rules.CONTRACTS.pop("P-1")
+            s.submit_order(s.limit())
+        breaches, orders = replay({2: unregistered})
+        self.assertEqual(([text.rsplit(": ", 1)[1] for _, text in breaches], orders),
+                         (["an order is on its strategy instance's own contract"], []))
 
     def test_a_long_enough_gtd_entry_is_sent(self):
         breaches, orders = replay({2: lambda s: s.submit_order(s.limit(price="90.00", time_in_force=TimeInForce.GTD,
