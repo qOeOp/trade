@@ -10,7 +10,7 @@ profile given or the active one), so this module imports no product package. Whi
 a page without `at` is open the head is read every `poll` seconds (a research mirror's from its controller, the
 only place a Sync moves it, so no product process runs per read); when it moves, each open page's
 graph is fetched once at the new head, the latest only. One fetch runs at a time. Up to 8 successful views stay in memory, keyed
-by ledger, build, commit, line and `since`, retaining a scope's newest live completion before its
+by commit, line and `since`, retaining a scope's newest live completion before its
 older duplicates. A named live page can show that completion while a newer head is still drawing,
 and when `research unchanged` says the new head gives that line the same graph, it is kept under the new commit
 instead of being drawn. A page may also name the graph its browser kept (`have`, with the `build` that drew it), and
@@ -47,7 +47,7 @@ for again at each open, so an unchanged page costs a 304. Everything else stays 
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 import gzip
@@ -62,6 +62,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import NamedTuple
 from urllib.parse import parse_qs, urlsplit
 import zlib
 
@@ -87,8 +88,6 @@ COMPARISONS = 64
 COUNTS = 16
 HISTORIES = 4
 READINGS = 4
-BUNDLE = re.compile(r"[A-Za-z0-9._@-]{1,200}")  # a registration ID (the graph names it `bundle`)
-LINE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")  # a research line's name (ledger.lines.SLUG)
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}")  # a Binance symbol such as BTCUSDT
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")  # a UTC day
 COMMIT = re.compile(r"[0-9a-v]{32}")  # a Dolt commit hash in full
@@ -139,10 +138,7 @@ def _market_day(at: str) -> bool:
 
 def _days(start: str, end: str) -> bool:
     """Whether `start` and `end` are UTC days, `start` the earlier."""
-    try:
-        return bool(DAY.fullmatch(start) and DAY.fullmatch(end)) and date.fromisoformat(start) < date.fromisoformat(end)
-    except ValueError:
-        return False
+    return _market_day(start) and _market_day(end) and start < end
 
 
 @dataclass
@@ -198,7 +194,7 @@ class Product:
         """A line's trial counts, read for each graph served: the graph above leaves them out, so what they refuse is here."""
         return self.run("research", "counts", f"--ledger={self.ledger}", f"--line={line}", f"--at={commit}")
 
-    def comparison(self, registration: str, trial_id: int, commit: str) -> dict:
+    def comparison(self, registration: int, trial_id: int, commit: str) -> dict:
         """One version's comparison, computed when the page opens it: the graph above leaves it out."""
         return self.run("research", "comparison", f"--ledger={self.ledger}", f"--registration={registration}",
                         f"--trial-id={trial_id}", f"--at={commit}")
@@ -238,6 +234,14 @@ class Client:
         return message
 
 
+class ViewKey(NamedTuple):
+    """What a view is drawn for. A Hub serves one ledger with one build, so only these vary."""
+
+    commit: str
+    line: str | None
+    since: str | None
+
+
 @dataclass(frozen=True)
 class CompletedView:
     view: dict
@@ -255,46 +259,43 @@ class Hub:
         self.readings = Pinned[str](product.readings, READINGS)
         self.trials = Pinned[tuple[int, str]](lambda key: product.trial(*key), TRIALS)
         self.bars = Pinned[tuple[str, str, str, str]](lambda key: product.bars(*key), BARS)
-        self.comparisons = Pinned[tuple[str, int, str]](lambda key: product.comparison(*key), COMPARISONS)
+        self.comparisons = Pinned[tuple[int, int, str]](lambda key: product.comparison(*key), COMPARISONS)
         self.counts = Pinned[tuple[str, str]](lambda key: product.counts(*key), COUNTS)
         self.lock = threading.Condition()
         self.refreshing = threading.Lock()
         self.head: str | None = None
         self.checked = 0.0
         self.fault: dict | None = None  # the last failed head read; cleared by a good one
-        self.views: OrderedDict[tuple, CompletedView] = OrderedDict()  # completion order, not access order
-        self.failed: dict[tuple, dict] = {}
-        self.wanted: list[tuple[tuple, bool]] = []  # (key, pinned to an `at`), oldest first
-        self.running: tuple | None = None
+        self.views: OrderedDict[ViewKey, CompletedView] = OrderedDict()  # completion order, not access order
+        self.failed: dict[ViewKey, dict] = {}
+        self.wanted: list[tuple[ViewKey, bool]] = []  # (key, pinned to an `at`), oldest first
+        self.running: ViewKey | None = None
         self.clients: list[Client] = []
-        self.checks: list[tuple[tuple, str]] = []  # (key, the commit a browser kept), oldest first
-        self.checking: tuple[tuple, str] | None = None
+        self.checks: list[tuple[ViewKey, str]] = []  # (key, the commit a browser kept), oldest first
+        self.checking: tuple[ViewKey, str] | None = None
         # Their answers at the head: None when it must be drawn, else what the unchanged state adds. A new head forgets them.
-        self.same: dict[tuple[tuple, str], dict | None] = {}
-
-    def key(self, commit: str, line: str | None, since: str | None) -> tuple:
-        return (self.product.ledger, self.build, commit, line, since)
+        self.same: dict[tuple[ViewKey, str], dict | None] = {}
 
     # States
 
-    def _client_key(self, client: Client) -> tuple | None:
+    def _client_key(self, client: Client) -> ViewKey | None:
         commit = client.at or self.head
-        return None if commit is None else self.key(commit, client.line, client.since)
+        return None if commit is None else ViewKey(commit, client.line, client.since)
 
     @staticmethod
-    def _scope(key: tuple) -> tuple:
-        return key[:2] + key[3:]  # ledger, build, line and since; only the commit may differ
+    def _scope(key: ViewKey) -> tuple:
+        return key[1:]  # line and since; only the commit may differ
 
-    def _available(self, key: tuple | None, live: bool) -> tuple | None:
+    def _available(self, key: ViewKey | None, live: bool) -> ViewKey | None:
         if key in self.views:
             return key
         # An unnamed default can resolve to another line at the new head. Explicit `at` is exact.
-        if not live or key is None or key[3] is None:
+        if not live or key is None or key.line is None:
             return None
         return next((old for old in reversed(self.views)
                      if self.views[old].live and self._scope(old) == self._scope(key)), None)
 
-    def _remember(self, key: tuple, view: dict, pinned: bool) -> None:
+    def _remember(self, key: ViewKey, view: dict, pinned: bool) -> None:
         self.views[key] = CompletedView(view, live=not pinned)
         self.views.move_to_end(key)
         if len(self.views) > CACHED:
@@ -303,17 +304,17 @@ class Hub:
             victim = next((old for old in self.views if old != key and old not in protected), next(iter(self.views)))
             del self.views[victim]
 
-    def state(self, key: tuple | None, live: bool = True, have: str | None = None) -> dict:
+    def state(self, key: ViewKey | None, live: bool = True, have: str | None = None) -> dict:
         message = self._progress(key, live, have)
         available = self._available(key, live)
         if available is not None and available != key:
-            message["available_commit"] = available[2]
+            message["available_commit"] = available.commit
         return message
 
-    def _progress(self, key: tuple | None, live: bool, have: str | None = None) -> dict:
+    def _progress(self, key: ViewKey | None, live: bool, have: str | None = None) -> dict:
         """A page's state. A live page (no `at`) is also told, over the view it holds, of a failed refresh."""
         fault = self.fault
-        commit = key[2] if key else None
+        commit = key.commit if key else None
         if live and fault is not None:
             return {"state": "error", "ledger_commit": commit, "error": fault}
         if key in self.views:
@@ -342,12 +343,12 @@ class Hub:
                 client.ready.set()
         self.lock.notify_all()
 
-    def _want(self, key: tuple, pinned: bool) -> None:
+    def _want(self, key: ViewKey, pinned: bool) -> None:
         if key not in self.views and key != self.running and all(key != wanted for wanted, _ in self.wanted):
             self.failed.pop(key, None)
             self.wanted.append((key, pinned))
 
-    def _want_for(self, key: tuple, pinned: bool, have: str | None) -> None:
+    def _want_for(self, key: ViewKey, pinned: bool, have: str | None) -> None:
         """Draw `key`, unless the graph a browser kept may be the same: that is asked first and spares the draw."""
         if have is None or pinned or key in self.views:
             self._want(key, pinned)
@@ -395,15 +396,15 @@ class Hub:
                     self.checks.clear()
                     pending, self.wanted = self.wanted, []
                     for key, pinned in pending:
-                        self._want(key if pinned else self.key(head, key[3], key[4]), pinned)
+                        self._want(key if pinned else key._replace(commit=head), pinned)
                     for client in self.clients:
                         if client.at is None:
-                            self._want_for(self.key(head, client.line, client.since), False, client.have)
+                            self._want_for(ViewKey(head, client.line, client.since), False, client.have)
                     # An open line no page follows yet is drawn after theirs, so choosing it finds its graph ready.
                     followed = {client.line for client in self.clients if client.at is None}
                     for line in (index or {}).get("lines", []):
                         if not line.get("closed") and line.get("name") not in followed:
-                            self._want(self.key(head, line["name"], None), False)
+                            self._want(ViewKey(head, line["name"], None), False)
                 self._notify()
         finally:
             self.refreshing.release()
@@ -442,18 +443,20 @@ class Hub:
         except ProductError:
             return None
 
-    def _reused(self, key: tuple) -> dict | None:
+    def _reused(self, key: ViewKey) -> dict | None:
         """The live view this scope already has, stamped `key`'s commit, when it would draw the same."""
+        if key.line is None or key.since is not None:
+            return None
         with self.lock:
-            older = None if key[3] is None or key[4] is not None else self._available(key, True)
+            older = self._available(key, True)
             found = None if older is None else self.views[older].view
         scope = None if found is None else found.get("scope")
         if (found is None or not scope or not scope.get("ledger_commit") or scope.get("market_unread")
-                or not self._unchanged(key[3], scope["ledger_commit"], key[2])):
+                or not self._unchanged(key.line, scope["ledger_commit"], key.commit)):
             return None
-        counts = self.counts.get((key[3], key[2]))["trial_counts"]  # what it refuses, a draw at this commit would refuse too
-        return {**found, "widgets": [{**w, "trial_counts": counts} if w.get("id") == "summary" else w for w in found["widgets"]],
-                "scope": {**scope, "ledger_commit": key[2], "drawn_commit": scope.get("drawn_commit") or scope["ledger_commit"]}}
+        counts = self.counts.get((key.line, key.commit))["trial_counts"]  # what it refuses, a draw at this commit would refuse too
+        return {**found, "widgets": [{**w, "trial_counts": counts} if w["type"] == "summary" else w for w in found["widgets"]],
+                "scope": {**scope, "ledger_commit": key.commit, "drawn_commit": scope.get("drawn_commit") or scope["ledger_commit"]}}
 
     def confirm(self) -> None:
         """Answer the oldest question about a graph a browser kept, one at a time and never behind a draw."""
@@ -463,10 +466,11 @@ class Hub:
                     self.lock.wait()
                 self.checking = self.checks.pop(0)
                 key, have = self.checking
-            same = self._same(key[3], have, key[2])
+            assert key.line is not None  # a kept graph is asked of a named line only
+            same = self._same(key.line, have, key.commit)
             with self.lock:
                 self.checking = None
-                if key[2] == self.head:
+                if key.commit == self.head:
                     self.same[key, have] = same
                     if same is None:
                         self._want(key, False)
@@ -485,8 +489,8 @@ class Hub:
             try:
                 view = None if pinned else self._reused(key)
                 if view is None:
-                    graph = self.product.graph(key[2], key[3], key[4])
-                    graph["line"]["trial_counts"] = self.counts.get((graph["line"]["bundle"], key[2]))["trial_counts"]
+                    graph = self.product.graph(*key)
+                    graph["line"]["trial_counts"] = self.counts.get((graph["line"]["bundle"], key.commit))["trial_counts"]
                     view = layout.build_view(graph)
                     view["scope"] = {**(view["scope"] or {}), "build": self.build}  # what a page's kept view and answers are good for
             except ProductError as exc:
@@ -504,8 +508,14 @@ class Hub:
     # Pages
 
     def resolve(self, since: str | None, at: str | None) -> tuple[str | None, str | None]:
-        """Full hashes for `since` and `at` (a ProductError for an unknown reference)."""
-        return (self.product.commit(since) if since else None, self.product.commit(at) if at else None)
+        """Full hashes for `since` and `at` (a ProductError for an unknown reference). The head read last is its own
+        hash, as a live page names it when the head moves."""
+        with self.lock:
+            head = self.head
+
+        def full(ref: str | None) -> str | None:
+            return (ref if ref == head else self.product.commit(ref)) if ref else None
+        return full(since), full(at)
 
     def view(self, line: str | None, since: str | None, at: str | None, have: str | None = None) -> tuple[int, dict]:
         """(200, view), (202, state) after asking for it, or (503, failure) when there is no head. Only the
@@ -519,7 +529,7 @@ class Hub:
             commit = at or self.head
             if commit is None:
                 return 503, self.fault or _failure("LEDGER_UNAVAILABLE", "the head could not be read")
-            key = self.key(commit, line, since)
+            key = ViewKey(commit, line, since)
             self._want_for(key, at is not None, have)
             self._notify()
             available = self._available(key, at is None)
@@ -801,27 +811,28 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                                                            "diverged": bool(found.get("diverged")),
                                                            "commit": found.get("ledger_commit")}})
 
+        def pinned[K: Hashable](self, cache: Pinned[K], key: K) -> None:
+            """What `cache` keeps for `key`, or the product's refusal."""
+            try:
+                self.json(200, cache.get(key))
+            except ProductError as exc:
+                self.json(400, exc.body)
+
         def trial(self, query: dict[str, str]) -> None:
             """A trial's report at a full ledger commit (immutable, so kept), or the product's refusal."""
             trial_id, at = query.get("trial_id", ""), query.get("at", "")
             if not trial_id.isdigit() or not COMMIT.fullmatch(at):
                 self.json(400, _failure("BAD_REQUEST", "give trial_id and at, a full ledger commit"))
                 return
-            try:
-                self.json(200, hub.trials.get((int(trial_id), at)))
-            except ProductError as exc:
-                self.json(400, exc.body)
+            self.pinned(hub.trials, (int(trial_id), at))
 
         def comparison(self, query: dict[str, str]) -> None:
             """A version's comparison at a full ledger commit (immutable, so kept), or the product's refusal."""
-            bundle, trial_id, at = query.get("bundle", ""), query.get("trial_id", ""), query.get("at", "")
-            if not BUNDLE.fullmatch(bundle) or not trial_id.isdigit() or not COMMIT.fullmatch(at):
-                self.json(400, _failure("BAD_REQUEST", "give bundle, trial_id and at, a full ledger commit"))
+            registration, trial_id, at = query.get("registration", ""), query.get("trial_id", ""), query.get("at", "")
+            if not registration.isdigit() or not trial_id.isdigit() or not COMMIT.fullmatch(at):
+                self.json(400, _failure("BAD_REQUEST", "give registration, trial_id and at, a full ledger commit"))
                 return
-            try:
-                self.json(200, hub.comparisons.get((bundle, int(trial_id), at)))
-            except ProductError as exc:
-                self.json(400, exc.body)
+            self.pinned(hub.comparisons, (int(registration), int(trial_id), at))
 
         def bars(self, query: dict[str, str]) -> None:
             """A contract's daily bars over whole UTC days at a market day (kept), or the product's refusal."""
@@ -829,10 +840,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             if query.get("timeframe") != "1d" or not SYMBOL.fullmatch(symbol) or not _market_day(at) or not _days(start, end):
                 self.json(400, _failure("BAD_REQUEST", "give symbol, timeframe=1d, start and end (UTC days, start first) and at, a market day (YYYY-MM-DD)"))
                 return
-            try:
-                self.json(200, hub.bars.get((symbol, start, end, at)))
-            except ProductError as exc:
-                self.json(400, exc.body)
+            self.pinned(hub.bars, (symbol, start, end, at))
 
         def events(self, client: Client) -> None:
             self.send_response(200)

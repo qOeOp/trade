@@ -3,7 +3,7 @@ import test from "node:test";
 import { bounds, centredOn, elbowPath, home, MARK_CENTRE, NODE_HALF, positions, ROW, UNIT } from "../src/widgets/lineage/geometry.ts";
 
 const line = (start = 216) => ({
-  axis: { min: start - 1, max: start + 8 },
+  axis: { max: start + 8 },
   rows: [{ id: "root@1", row: 0 }, { id: "child@1", row: 1 }],
   nodes: [{ id: "root@1", x: start, row: 0 }, { id: "child@1", x: start + 7, row: 1 }],
   trials: [{ x: start, candidate: "root@1" }, { x: start + 7, candidate: "child@1" }],
@@ -46,7 +46,6 @@ test("old prechecks do not open empty canvas space; later reruns remain reachabl
 
 test("the EMA budget line starts at its first drawn version, not its old precheck 212", () => {
   const widget = line(239);
-  widget.axis.min = 236.5;
   widget.trials.unshift({ x: 212, candidate: "root@1", purpose: "precheck" },
     { x: 236, candidate: "root@1", purpose: "precheck" });
   for (const width of [696, 1516, 2200]) {
@@ -77,7 +76,7 @@ test("focus and Home reserve the shared value-axis gutter even in a narrow canva
 
 test("empty and unplaced graphs have finite bounds and home coordinates", () => {
   for (const nodes of [[], [{ id: "unrun@1", x: null, row: 0 }]]) {
-    const widget = { axis: { min: 211, max: 212 }, trials: [{ x: 212 }], nodes, rows: [] };
+    const widget = { axis: { max: 212 }, trials: [{ x: 212 }], nodes, rows: [] };
     assert.ok(Object.values(bounds(widget)).every(Number.isFinite));
     assert.deepEqual(home(widget), { x: 16, y: 15 });
     assert.equal(positions(widget).size, 0);

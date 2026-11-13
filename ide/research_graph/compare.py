@@ -7,9 +7,8 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .layout import research_runs, seconds
+from .layout import MEASURES, research_runs, seconds
 
-MEASURES = ("annual_return", "max_drawdown", "sharpe", "plan_win_rate")
 FIELDS = ("change", "source", "hypothesis", "duties", "registration", "control_trial", "interpretation")
 
 

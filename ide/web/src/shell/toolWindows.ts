@@ -86,9 +86,9 @@ export function toolWindows(widgets: readonly Widget[], agent = false, market = 
     if (widget) return [{ ...s, widget }];
     // Runs and Market show their own details, so Details stays without a line's view.
     return (page === "runs" || page === "market") && s.id === "inspector"
-      ? [{ ...s, widget: { id: `${page}-details`, type: "candidate-detail", items: [], default: null } }] : [];
+      ? [{ ...s, widget: { type: "candidate-detail", items: [], default: null } }] : [];
   });
-  const own = (w: ToolWindow) => ({ ...w, widget: { id: w.id, type: w.id } });
+  const own = (w: ToolWindow) => ({ ...w, widget: { type: w.id } });
   return [...known, own(TRADES), ...(market ? [own(COINS), own(NEWS)] : []), ...(agent ? [own(AGENT)] : [])]
     .filter((w) => w.side !== "bottom" || bottomToolOnPage(w.id, page));
 }

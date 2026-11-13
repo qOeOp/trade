@@ -56,10 +56,8 @@ class ContractTests(unittest.TestCase):
 class LayoutTests(unittest.TestCase):
     def test_versions_sit_at_their_first_research_run_in_lineage_rows(self):
         view = layout.build_view(GRAPH)
-        widgets = {w["id"]: w for w in view["widgets"]}
-        self.assertEqual([(w["type"], w["slot"]) for w in view["widgets"]],
-                         [("summary", "top"), ("lineage", "main"), ("progress", "main"), ("scatter", "main"), ("table", "main"), ("notes", "main"),
-                          ("candidate-detail", "side"), ("sources", "side")])
+        widgets = {w["type"]: w for w in view["widgets"]}
+        self.assertEqual(list(widgets), ["summary", "lineage", "progress", "scatter", "table", "notes", "candidate-detail", "sources"])
         tree = widgets["lineage"]
         nodes = {n["id"]: n for n in tree["nodes"]}
         self.assertEqual([n["trials"] for n in tree["nodes"]][-1], [5], "the palette finds a version by its trial")
@@ -71,20 +69,18 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual((nodes["a@1"]["prediction"], nodes["b@1"]["prediction"], nodes["root@1"]["prediction"]),
                          ("held", "mixed", "none"))
         segment, = tree["trail"]
-        self.assertEqual((segment["candidate"], segment["x1"]), ("a@1", tree["axis"]["max"]))
+        self.assertEqual(segment["candidate"], "a@1")
         self.assertEqual(segment["x0"], 4.5, "a timed event sits halfway through the gap after its last trial")
         self.assertEqual([(t["trial_id"], t["candidate"]) for t in tree["trials"]],
                          [(1, "root@1"), (2, "root@1"), (3, "a@1"), (4, "a@1"), (5, "b@1")])
         progress = widgets["progress"]
         self.assertEqual(progress["recommended"], ["a@1"])
-        self.assertEqual([p["eligible"] for p in progress["points"]], [False, True, True])
-        self.assertEqual(progress["axis"]["max"], tree["axis"]["max"], "the same x as the lineage")
-        self.assertEqual(len(widgets["readings"]["points"]), 3)
-        self.assertEqual(widgets["details"]["default"], "a@1")
-        self.assertFalse(any("source" in c for c in widgets["details"]["items"]), "the source travels once, in sources")
+        self.assertEqual(len(widgets["scatter"]["points"]), 3)
+        self.assertEqual(widgets["candidate-detail"]["default"], "a@1")
+        self.assertFalse(any("source" in c for c in widgets["candidate-detail"]["items"]), "the source travels once, in sources")
         self.assertEqual([(s["id"], s["parent"], s["source"]) for s in widgets["sources"]["items"]],
                          [("a@1", "root@1", "class A:\n    pass\n"), ("b@1", "a@1", None), ("root@1", None, "class Root:\n    pass\n")])
-        self.assertEqual({r["id"]: (r["role"], r["runs"], r["annual_return"]) for r in widgets["versions"]["rows"]},
+        self.assertEqual({r["id"]: (r["role"], r["runs"], r["annual_return"]) for r in widgets["table"]["rows"]},
                          {"root@1": (None, 1, 0.1), "a@1": ("recommended", 1, 0.25), "b@1": (None, 1, 0.18)})
         summary = widgets["summary"]
         self.assertEqual((summary["recommended"], summary["runs_since_recommendation_changed"], summary["masked_runs"]),
@@ -93,7 +89,7 @@ class LayoutTests(unittest.TestCase):
     def test_a_recommendation_that_lost_its_evidence_is_shown_apart_from_its_eligibility(self):
         graph = copy.deepcopy(GRAPH)
         graph["candidates"][1]["trials"][1].update(eligible=False, ineligible_reason="SOURCE_REVIEW_FAILED")
-        widgets = {w["id"]: w for w in layout.build_view(graph)["widgets"]}
+        widgets = {w["type"]: w for w in layout.build_view(graph)["widgets"]}
         nodes = {n["id"]: n for n in widgets["lineage"]["nodes"]}
         self.assertEqual(nodes["a@1"]["status"], "masked", "CF-08: eligibility before the recommendation")
         summary = widgets["summary"]
@@ -106,7 +102,7 @@ class LayoutTests(unittest.TestCase):
         for c in graph["candidates"]:
             for t in c["trials"]:
                 t["trial_id"] = next(numbers)
-        widgets = {w["id"]: w for w in layout.build_view(graph)["widgets"]}
+        widgets = {w["type"]: w for w in layout.build_view(graph)["widgets"]}
         tree = widgets["lineage"]
         self.assertEqual([n["x"] for n in tree["nodes"]], [2.0, 4.0, 5.0], "the line's 2nd, 4th and 5th trials")
         self.assertEqual([(t["trial_id"], t["x"]) for t in tree["trials"]], [(10, 1), (20, 2), (103, 3), (140, 4), (250, 5)])
@@ -118,18 +114,18 @@ class LayoutTests(unittest.TestCase):
         graph = copy.deepcopy(GRAPH)
         graph["line"]["trial_counts"] = {"research_trials": 546, "all_purpose_trials": 1181}
         self.assertEqual(contract.check_graph(graph), [])
-        summary = next(w for w in layout.build_view(graph)["widgets"] if w["id"] == "summary")
+        summary = next(w for w in layout.build_view(graph)["widgets"] if w["type"] == "summary")
         self.assertEqual((summary["research_runs"], summary["trial_counts"]["research_trials"]), (3, 546))
-        self.assertIsNone(next(w for w in layout.build_view(GRAPH)["widgets"] if w["id"] == "summary")["trial_counts"])
+        self.assertIsNone(next(w for w in layout.build_view(GRAPH)["widgets"] if w["type"] == "summary")["trial_counts"])
 
     def test_the_summary_names_the_latest_priority_the_axis_leaves_out(self):
         graph = copy.deepcopy(GRAPH)
         graph["events"][1:1] = [{"at": "2026-01-01T11:50:00Z", "kind": "priority", "ref": "judgment 8", "text": "first", "recommends": None},
                                 {"at": "2026-01-01T12:05:00Z", "kind": "priority", "ref": "judgment 9", "text": "next: widen the stop", "recommends": None}]
         self.assertEqual(contract.check_graph(graph), [])
-        summary = next(w for w in layout.build_view(graph)["widgets"] if w["id"] == "summary")
+        summary = next(w for w in layout.build_view(graph)["widgets"] if w["type"] == "summary")
         self.assertEqual(summary["priority"], {"at": "2026-01-01T12:05:00Z", "ref": "judgment 9", "text": "next: widen the stop"})
-        self.assertIsNone(next(w for w in layout.build_view(GRAPH)["widgets"] if w["id"] == "summary")["priority"])
+        self.assertIsNone(next(w for w in layout.build_view(GRAPH)["widgets"] if w["type"] == "summary")["priority"])
 
     def test_decisions_made_for_the_user_sit_on_the_axis_and_count_as_priorities(self):
         graph = copy.deepcopy(GRAPH)
@@ -140,11 +136,11 @@ class LayoutTests(unittest.TestCase):
             {"at": "2026-01-01T12:05:00Z", "kind": "line_decision", "ref": "judgment 10",
              "text": "Line decision. The user delegated the stop", "recommends": None}]
         self.assertEqual(contract.check_graph(graph), [])
-        widgets = {w["id"]: w for w in layout.build_view(graph)["widgets"]}
+        widgets = {w["type"]: w for w in layout.build_view(graph)["widgets"]}
         self.assertEqual([(d["kind"], d["ref"], d["x"]) for d in widgets["lineage"]["decisions"]],
                          [("approach_change", "judgment 8", 4.5), ("line_decision", "judgment 10", 4.5)])
         self.assertEqual(widgets["summary"]["priority"]["ref"], "judgment 10")
-        self.assertEqual(next(w for w in layout.build_view(GRAPH)["widgets"] if w["id"] == "lineage")["decisions"], [])
+        self.assertEqual(next(w for w in layout.build_view(GRAPH)["widgets"] if w["type"] == "lineage")["decisions"], [])
 
     def test_a_fix_published_as_a_new_root_links_to_the_revision_it_fixes(self):
         graph = copy.deepcopy(GRAPH)
@@ -154,7 +150,7 @@ class LayoutTests(unittest.TestCase):
                          "at": "2026-01-01T13:30:00"}]},
             {"id": "a@2", "parent": "root@2", "created_at": "2026-01-01T14:00:00",
              "trials": [{"trial_id": 7, "purpose": "precheck"}]}]
-        tree = next(w for w in layout.build_view(graph)["widgets"] if w["id"] == "lineage")
+        tree = next(w for w in layout.build_view(graph)["widgets"] if w["type"] == "lineage")
         self.assertEqual(tree["revisions"], [{"from": "root@1", "to": "root@2"}],
                          "a@2 has its parent drawn, so only the parentless fix links to its earlier revision")
         self.assertEqual(len(tree["edges"]), 3, "parent edges stay as they are")

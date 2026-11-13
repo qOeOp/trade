@@ -63,8 +63,8 @@ export type PaperState = {
   positions: OpenPosition[]; orders: OpenOrder[];
 };
 
-/** The page token for Paper and research-sync actions; empty when neither service is configured. */
-export const paperToken = () => document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]')?.content ?? "";
+/** The page's token for Paper, research-sync, setup and Live writes; empty when none of them is configured. */
+const paperToken = () => document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]')?.content ?? "";
 
 /** A write refused before forwarding after a release can renew its nonce and retry exactly once. */
 export async function pageFetch(url: string, init: RequestInit = {}): Promise<Response> {

@@ -2,7 +2,7 @@
 // (read every few seconds while it does and the page shows), starts and stops in flight, the dialogs that ask before one,
 // the last notice for the status bar and the last refused action. The run the Runs page shows is state/shown.ts's.
 import { ApiError, errorText } from "../lib/agentApi";
-import { paperApi, paperToken, type Listing, type PaperRun } from "../lib/paperApi";
+import { paperApi, type Listing, type PaperRun } from "../lib/paperApi";
 import { shared } from "../lib/shared";
 import { whileVisible } from "../lib/whileVisible";
 import { ACTIVE } from "../model/chain";
@@ -18,8 +18,8 @@ const POLL_MS = 3000, PHONE_POLL_MS = 15_000;
 // A failure stays longer: a start can fail minutes after its click, when nobody watches the bar.
 const NOTICE_MS = 6000, FAILED_MS = 30_000;
 
-/** Whether the page's server has a paper daemon (`--paper`, which puts a token in the page): "absent"
- *  without one; with one, "present" while it answers and "offline" while it does not, asked again every
+/** Whether the page's server has a paper daemon (`--paper`): "absent" when it answers 404 for one, as for
+ *  any service it was not given; with one, "present" while it answers and "offline" while it does not, asked again every
  *  few seconds, so the Runs page says the daemon is down instead of vanishing. */
 export const paperService = atom<"checking" | "absent" | "offline" | "present">("checking");
 export const paperRuns = atom<Listing | null>(null);
@@ -85,7 +85,7 @@ async function poll(): Promise<void> {
     await paperApi("/health");
   } catch (error) {
     if (error instanceof ApiError && error.code === "AUTH_REQUIRED") sessionRequired.set(true);
-    paperService.set("offline");
+    paperService.set(error instanceof ApiError && error.code === "NOT_FOUND" ? "absent" : "offline");
     return;
   }
   missed = 0;
@@ -95,11 +95,8 @@ async function poll(): Promise<void> {
 
 /** With a daemon behind the page's server, follows it: its runs while it answers, its health while not. */
 export async function detectPaperService(): Promise<void> {
-  if (!paperToken()) {
-    paperService.set("absent");
-    return;
-  }
   await poll();
+  if (paperService.get() === "absent") return;
   if (paperService.get() === "present") await Promise.all(unconfirmedStarts().map(checkStart));
   whileVisible(() => void poll(), phoneNow() ? PHONE_POLL_MS : POLL_MS);
 }

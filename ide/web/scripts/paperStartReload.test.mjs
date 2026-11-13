@@ -14,11 +14,11 @@ function storage() {
     setItem: (k, v) => map.set(k, v), removeItem: (k) => map.delete(k) };
 }
 
-async function reload(sessionStorage, accepted) {
+async function reload(sessionStorage, accepted, health = async () => ({})) {
   const calls = [];
   const paperApi = async (path, init = {}) => {
     calls.push(`${init.method ?? "GET"} ${path.split("?")[0]}`);
-    if (path === "/health") return {};
+    if (path === "/health") return health();
     if (path === "/runs" && !init.method) return { runs: [], running: 0, memory: null, starting: [] };
     if (path.startsWith("/starts")) return { run: accepted ? { paper_id: 7, symbols: ["BTCUSDT"] } : null };
     return { paper_id: 7, symbols: ["BTCUSDT"] };
@@ -26,7 +26,7 @@ async function reload(sessionStorage, accepted) {
   const context = createContext({ window: { sessionStorage, setTimeout: () => 0 }, crypto: { randomUUID: () => `${Math.random()}` } });
   const graph = loader({ context, sources: ["state/paper", "lib/pendingStarts"], packages: [], stubs: {
     "lib/agentApi": { ApiError, errorText: String }, "state/atom": { atom, useAtom: (a) => a.get() },
-    "lib/paperApi": { paperApi, paperToken: () => "token" }, "lib/shared": { shared: (_, next) => next },
+    "lib/paperApi": { paperApi }, "lib/shared": { shared: (_, next) => next },
     "lib/whileVisible": { whileVisible: () => {} }, "model/chain": { ACTIVE: new Set() },
     "model/paperMemory": { full: () => null }, "state/phone": { phoneNow: () => false },
     "state/shell": { showRunsPage: () => {} }, "state/stage": { chooseRun: () => {}, pickWanted: () => {} },
@@ -56,4 +56,11 @@ test("an unanswered start the daemon accepted is confirmed on the next load", as
   await paper.detectPaperService();
   assert.deepEqual(calls.filter((c) => c.startsWith("POST")), []);
   assert.equal(pending.unconfirmedStarts().length, 0);
+});
+
+test("a server given no paper daemon answers 404, and the page calls Paper absent and asks nothing more", async () => {
+  const { paper, calls } = await reload(storage(), false, async () => { throw new ApiError("NOT_FOUND", "/api/paper/health"); });
+  await paper.detectPaperService();
+  assert.equal(paper.paperService.get(), "absent");
+  assert.deepEqual(calls, ["GET /health"]);
 });

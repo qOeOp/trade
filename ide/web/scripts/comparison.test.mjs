@@ -14,7 +14,7 @@ async function page(replies) {
     "lib/comparisonApi": { fetchComparison: async (...args) => { asked.push(args); return replies.shift(); } } } });
   return { ...module, asked };
 }
-const version = { registration: "bundle-1", trials: [{ purpose: "research", status: "passed", trial_id: 9 }] };
+const version = { registration: "4", trials: [{ purpose: "research", status: "passed", trial_id: 9 }] };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test("CF-30: a failed comparison is asked again when the version is opened again", async () => {
@@ -25,7 +25,7 @@ test("CF-30: a failed comparison is asked again when the version is opened again
   p.useComparison(version);  // opened again
   await settle();
   assert.deepEqual(p.useComparison(version), { kind: "ready", comparison: { p: 0.1 } });
-  assert.deepEqual(p.asked.map((a) => a.join(" ")), ["bundle-1 9 c1", "bundle-1 9 c1"], "at the commit the graph was drawn at");
+  assert.deepEqual(p.asked.map((a) => a.join(" ")), ["4 9 c1", "4 9 c1"], "at the commit the graph was drawn at");
 });
 
 test("an answer is kept and not asked again", async () => {

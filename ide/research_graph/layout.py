@@ -1,8 +1,8 @@
 """Graph to view model (research-graph-view): what to draw and where, in research units, no pixels.
 
-The view is a manifest (line, targets, counts) and a list of widgets. Each widget has an id, a
-type (summary, lineage, progress, scatter, table, notes, candidate-detail, sources) and a slot (top, main or side) and is
-self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
+The view is a manifest (line, targets) and a list of widgets. Each widget has a type (summary, lineage, progress,
+scatter, table, notes, candidate-detail, sources), one widget per type, and is self-contained, so a renderer draws
+each type on its own and a widget can travel as its own document.
 
 x is research progress in the line's own trials: the line's n-th trial sits at n, its trial number
 travelling with it as a label, so other lines' trials in between take no room; a candidate sits at its first
@@ -16,7 +16,7 @@ strategy ID, published as a new root) is linked to the latest earlier revision o
 The summary carries the latest priority judgment (the next direction). The axis draws only the priority judgments
 recording a decision the Agent made for the user, which the graph gives their own kinds (`decisions`, at their gap):
 a change of approach within the line, and a line decision (a replacement line the user delegated).
-The recommendation judgments form a trail over the recommended versions' rows (one segment per
+The recommendation judgments form a trail over the recommended versions (one segment per
 stretch the recommendation stayed on one version), and `trials` says which version each trial ran; `progress` holds the research runs' annual
 returns on the same x.
 """
@@ -30,6 +30,7 @@ VIEW_FORMAT = "research-graph-view"
 EVENT_KINDS = ("recommendation", "eligibility_change", "line_change")
 DECISION_KINDS = ("approach_change", "line_decision")  # priority judgments recording a decision made for the user
 PRIORITY_KINDS = ("priority", *DECISION_KINDS)
+MEASURES = ("annual_return", "max_drawdown", "sharpe", "plan_win_rate")  # a run's headline readings
 
 
 def seconds(value: str) -> float:
@@ -176,16 +177,14 @@ def build_view(graph: dict) -> dict:
                  for e in graph["events"] if e["kind"] in DECISION_KINDS and e.get("at") and (x := gap(e["at"])) is not None]
     timed = [gap(e["at"]) for e in events] + [d["x"] for d in decisions]
     xs = [n["x"] for n in nodes if n["x"] is not None] + [x for x in timed if x is not None]
-    lo, hi = (min(xs) - 1, max(xs) + 1) if xs else (0.0, 1.0)
+    end = max(xs) + 1 if xs else 1.0
     trail: list[dict] = []  # one segment per stretch where the recommendation stayed on one version
     for e in recs:
         x = gap(e["at"])
         if trail and trail[-1]["candidate"] == e["recommends"]:
             trail[-1]["judgments"].append(x)
         else:
-            trail.append({"candidate": e["recommends"], "row": row[e["recommends"]], "x0": x, "judgments": [x]})
-    for a, b in zip(trail, [*trail[1:], None][:len(trail)], strict=True):
-        a["x1"] = b["x0"] if b else hi
+            trail.append({"candidate": e["recommends"], "x0": x, "judgments": [x]})
     start = (graph.get("scope") or {}).get("start")
     status_of = {n["id"]: n["status"] for n in nodes}
     current = recs[-1]["recommends"] if recs else None
@@ -198,16 +197,16 @@ def build_view(graph: dict) -> dict:
     prediction_of = {n["id"]: n["prediction"] for n in nodes}
     priority = next((e for e in reversed(graph["events"]) if e["kind"] in PRIORITY_KINDS), None)
     widgets = [
-        {"id": "summary", "type": "summary", "slot": "top", "targets": targets,
-         "recommended": current, "reading": {k: best[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "plan_win_rate")}
+        {"type": "summary", "targets": targets,
+         "recommended": current, "reading": {k: best[0].get(k) for k in MEASURES}
          if best else None, "status": status_of.get(current) if current else None,
          "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak,
          "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and place[r["trial_id"]] > held_since),
          "versions": len(candidates), "research_runs": len(runs), "trial_counts": graph["line"].get("trial_counts"),
          "masked_runs": sum(1 for r in runs if r.get("eligible") is False),
          "priority": {k: priority[k] for k in ("at", "ref", "text")} if priority else None},
-        {"id": "lineage", "type": "lineage", "slot": "main", "title": "Lineage by trial", "targets": targets,
-         "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
+        {"type": "lineage", "targets": targets,
+         "axis": {"max": end, "scope_start": gap(start) if start else None},
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],
          "nodes": nodes,
          "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
@@ -216,32 +215,29 @@ def build_view(graph: dict) -> dict:
          "decisions": decisions,
          "trials": sorted(({"trial_id": t["trial_id"], "x": place[t["trial_id"]], "candidate": c["id"], "purpose": t["purpose"]}
                            for c in candidates for t in c.get("trials") or []), key=lambda t: t["trial_id"])},
-        {"id": "progress", "type": "progress", "slot": "main", "title": "Progress", "targets": targets,
-         "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
+        {"type": "progress", "targets": targets,
+         "axis": {"scope_start": gap(start) if start else None},
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "x": place[t["trial_id"]], "annual_return": t["annual_return"],
-                     "max_drawdown": t.get("max_drawdown"), "eligible": t.get("eligible")}
+                     "max_drawdown": t.get("max_drawdown")}
                     for c in candidates for t in research_runs(c) if t.get("annual_return") is not None],
          "recommended": sorted({t["candidate"] for t in trail})},
-        {"id": "readings", "type": "scatter", "slot": "main", "title": "Research runs: annual return vs max drawdown",
-         "targets": targets,
+        {"type": "scatter", "targets": targets,
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
                      "max_drawdown": t["max_drawdown"], "eligible": t.get("eligible"), "status": status_of[c["id"]]}
                     for c in candidates for t in research_runs(c)
                     if t.get("annual_return") is not None and t.get("max_drawdown") is not None]},
-        {"id": "versions", "type": "table", "slot": "main", "title": "Version table", "targets": targets,
+        {"type": "table", "targets": targets,
          "rows": [{"id": c["id"], "parent": c.get("parent"), "role": c.get("status"), "status": status_of[c["id"]],
                    "prediction": prediction_of[c["id"]], "first_trial": first_trial(c), "runs": len(research_runs(c)),
-                   **{k: (research_runs(c)[-1:] or [{}])[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "plan_win_rate")}}
+                   **{k: (research_runs(c)[-1:] or [{}])[0].get(k) for k in MEASURES}}
                   for c in candidates]},
-        {"id": "gaps", "type": "notes", "slot": "main", "title": "What this data lacks", "items": graph["gaps"]},
-        {"id": "details", "type": "candidate-detail", "slot": "side",
+        {"type": "notes", "items": graph["gaps"]},
+        {"type": "candidate-detail",
          "default": recs[-1]["recommends"] if recs else (candidates[0]["id"] if candidates else None),
-         "items": [{**{k: v for k, v in c.items() if k != "source"}, "status_class": status_of[c["id"]],
-                    "prediction_class": prediction_of[c["id"]]} for c in candidates]},
-        {"id": "sources", "type": "sources", "slot": "side", "title": "Sources",
+         "items": [{**{k: v for k, v in c.items() if k != "source"}, "prediction_class": prediction_of[c["id"]]} for c in candidates]},
+        {"type": "sources",
          "items": [{"id": c["id"], "parent": c.get("parent") if c.get("parent") in row else None, "source": c.get("source")}
                    for c in sorted(candidates, key=lambda c: c["id"])]},
     ]
     return {"format": VIEW_FORMAT, "source": graph["source"], "scope": graph.get("scope"), "line": graph["line"], "targets": targets,
-            "counts": {"candidates": len(candidates), "research_runs": sum(len(research_runs(c)) for c in candidates)},
             "widgets": widgets}
