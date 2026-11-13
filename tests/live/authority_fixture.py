@@ -33,12 +33,12 @@ def install(test, root, raw=None, *, release_state=None, mock_inventory=True):
         raw = {"format": "live-control-v1", "root": str(root), "socket": "unused",
                "research_ledger": str(root / "unused-reader.json"), "research_at": "a" * 32,
                "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64,
-               "universe_file": str(root / "unused-universe.json"), "symbols": ["BTCUSDT"], "memory": "2g",
+               "universe_file": str(root / "unused-universe.json"), "memory": "2g",
                "defaults": {"duration_seconds": 8100, "leverage": "3"},
                "market_root": str(root / "unused-market"),
                "sources": [{"source_id": "example", "candidate": "example@1",
                             "entry_class": "Example", "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-                            "purpose": "controlled"}]}
+                            "purpose": "controlled", "symbols": ["BTCUSDT"]}]}
     raw = copy.deepcopy(raw)
     raw["root"] = str(root)
     declared = {"format": "live-deployment-v1", **{key: raw[key] for key in OPERATOR_FIELDS}}

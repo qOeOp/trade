@@ -301,8 +301,8 @@ class SwitchTests(LiveFixture):
                           ("runtime_switch_failed", "RUNTIME_UNAVAILABLE", NEW["image_digest"])])
 
     def test_the_control_offers_its_image_to_a_running_run_on_another_with_its_evidence_and_paired_replay(self):
-        config = SimpleNamespace(runtime=NEW["image_ref"], symbols=("BTCUSDT",))
-        source = SimpleNamespace(source_id="deployed")
+        config = SimpleNamespace(runtime=NEW["image_ref"])
+        source = SimpleNamespace(source_id="deployed", symbols=("BTCUSDT",))
         evidence = control.Evidence()
         evidence._found["deployed"] = {"state": "found", "replays": [{"trial_id": 7, "starting_balance_usdt": "100"}],
                                        "at": 0}
@@ -317,7 +317,7 @@ class SwitchTests(LiveFixture):
                                           evidence)["evidence"], "missing")
         self.assertIsNone(control._offered(config, {**run, "host": {"state": "interrupted", "mode": "run"}}, source,
                                            evidence))
-        self.assertIsNone(control._offered(SimpleNamespace(runtime=IDENTITY["image_ref"], symbols=("BTCUSDT",)), run,
+        self.assertIsNone(control._offered(SimpleNamespace(runtime=IDENTITY["image_ref"]), run,
                                            source, evidence))  # already on it
         other = {**run, "compare": {"paired": {**paired, "image_ref": IDENTITY["image_ref"]}}}
         self.assertIsNone(control._offered(config, other, source, evidence)["paired"])  # another image's replay

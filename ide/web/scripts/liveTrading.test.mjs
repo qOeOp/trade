@@ -207,7 +207,7 @@ test("run review preserves action availability and names phases without inventin
 });
 
 test("with no live run selected the Live canvas is the three-column launch page, kept while it holds a draft", () => {
-  const source = { id: "source-fixture", candidate: "fixture-strategy@1", sourceHash: "c".repeat(64), entryClass: "FixtureStrategy", purpose: "natural" };
+  const source = { id: "source-fixture", candidate: "fixture-strategy@1", sourceHash: "c".repeat(64), entryClass: "FixtureStrategy", purpose: "natural", symbols: ["BTCUSDT"] };
   const ready = { ...blank, availability: "ready", notice: null, reason: null, sources: [source] };
   canvasRun = null;
   try {

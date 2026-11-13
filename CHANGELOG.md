@@ -21,6 +21,11 @@ back to one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Live (breaking): each source in the Live declaration names its own contracts (`symbols`, those of its replay
+  evidence, one strategy instance each) instead of one top-level `symbols`; the launch page shows the chosen source's,
+  and the comparison replays and reconciles every contract of a run, each against its own commission. Web protocol 7.
+  Before releasing, with no run holding the account, move the declaration's `symbols` into each `sources` row
+  (`deploy/remote/README.md`).
 - Live (breaking): a 15% drawdown-from-highest-equity brake (wallet plus unrealized, fees and funding counted, read
   over REST every 15 s; a run may set it tighter) replaces the per-run loss limit, and the cash floor is 85% of the
   wallet at the run's first start instead of a declared budget. Manifest format `live-run-4` and web protocol 6:

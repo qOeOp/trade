@@ -17,6 +17,8 @@ export type LiveEvidenceReadDto = {
 };
 export type LiveSourceDto = {
   source_id: string; candidate: string; source_sha256: string; entry_class: string; purpose: "natural" | "controlled";
+  /** The contracts it trades, one strategy instance each (protocol 7). */
+  symbols: string[];
   evidence?: LiveEvidenceReadDto;
 };
 type LiveEvidenceDto = {
@@ -85,8 +87,6 @@ export type LiveCompareDto = {
 export type LiveHomeDto = {
   availability: "ready"; write_enabled: boolean; maintenance_enabled: boolean; write_reason: string | null;
   sources: LiveSourceDto[]; credentials: LiveCredentialDto[]; runs: LiveRunDto[];
-  /** The contracts a run trades (the Live settings); absent from an older control. */
-  symbols?: string[];
   /** A run's settings as the page starts them: no duration runs until stopped; the brake can only be tighter. */
   defaults: { drawdown_brake: string; duration_seconds: number | null; leverage: string };
   /** Telegram notification status (protocol 2); never the bot token or chat. */

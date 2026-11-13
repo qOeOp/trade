@@ -68,11 +68,11 @@ class ControlShutdownTests(unittest.TestCase):
             "format": "live-control-v1", "root": str(self.work / "custody"), "socket": str(self.socket),
             "research_ledger": str(self.work / "unused-reader.json"), "research_at": "a" * 32,
             "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64,
-            "universe_file": str(self.work / "universe.json"), "symbols": ["BTCUSDT"], "memory": "2g",
+            "universe_file": str(self.work / "universe.json"), "memory": "2g",
             "defaults": {"duration_seconds": 8100, "leverage": "3"}, "market_root": "/unused-market",
             "sources": [{"source_id": "example", "candidate": "example@1",
                          "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "entry_class": "Example",
-                         "purpose": "controlled"}]}))
+                         "purpose": "controlled", "symbols": ["BTCUSDT"]}]}))
         fixture = install(self, self.work / "custody", state.read(self.config), release_state=self.work / "i")
         self.config, self.socket = fixture.file, fixture.config.socket
 

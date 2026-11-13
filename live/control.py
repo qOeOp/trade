@@ -95,7 +95,7 @@ def _offered(config: configuration.Configuration, result: dict, source, evidence
     if host.get("state") != "running" or host.get("mode") != "run" or current is None or current == digest:
         return None
     found = evidence.view(source.source_id) if evidence is not None and source is not None \
-        and list(config.symbols) == result.get("symbols") else {"state": "unknown", "replays": []}
+        and list(source.symbols) == result.get("symbols") else {"state": "unknown", "replays": []}
     trial = switch.get("trial_id")
     backed = ("found" if any(str(row["trial_id"]) == trial for row in found["replays"]) else "missing") \
         if found["state"] in {"found", "missing"} and trial else found["state"]
@@ -163,7 +163,7 @@ class Evidence:
                 continue
             try:
                 rows = runs.replay_evidence(_profile(config), config.research_at, source.source_sha256,
-                                            config.symbols, config.runtime)
+                                            list(source.symbols), config.runtime)
                 found = {"state": "found" if rows else "missing", "replays": [
                     {"trial_id": row["trial_id"], "starting_balance_usdt": row["starting_balance_usdt"]} for row in rows]}
             except Exception:
@@ -174,12 +174,11 @@ class Evidence:
 
 def listing(config: configuration.Configuration, *, binding: release.Binding | None = None,
             evidence: Evidence | None = None) -> dict:
-    """`symbols` and each source's `evidence` let the page show a run's contracts and replay evidence before it is
+    """Each source's `symbols` and `evidence` let the page show a run's contracts and replay evidence before it is
     prepared; `evidence` only from the serving control, which reads it in the background."""
     result = {"availability": "ready", "write_enabled": True, "write_reason": None, "maintenance_enabled": True,
               "sources": [{**source.view(), **({"evidence": evidence.view(source.source_id)} if evidence else {})}
                           for source in config.sources.values()],
-              "symbols": list(config.symbols),
               "defaults": {**config.defaults, "drawdown_brake": configuration.BRAKE_DEFAULT}, "credentials": [], "runs": [], "notify": notify.view(config.root)}
     def availability() -> None:
         try:
@@ -232,7 +231,7 @@ def _fixed_prepare(config: configuration.Configuration, body: dict, scope: autho
     universe = read_regular_file(config.universe_file)
     return {"action": "prepare", "target": target, "inputs": {
         "source_id": source.source_id, "research_at": config.research_at, "candidate": source.candidate,
-        "symbols": config.symbols, "source_sha256": source.source_sha256, "entry_class": source.entry_class,
+        "symbols": list(source.symbols), "source_sha256": source.source_sha256, "entry_class": source.entry_class,
         "universe_file": str(config.universe_file),
         "universe_sha256": hashlib.sha256(universe).hexdigest(), "runtime": config.runtime,
         "config": {**parameters, "memory": config.memory}}}

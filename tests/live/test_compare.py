@@ -315,6 +315,20 @@ class Compare(unittest.TestCase):
         self.assertEqual(compare.measures({"groups": None, "equity": {"run": [], "replay": []}}, [])["fees"],
                          {"run": "0", "replay": "0", "difference": "0"})
 
+    def test_every_contracts_minute_bars_and_commission_are_the_runs(self):
+        eth = "ETHUSDT-PERP.BINANCE"
+        pack = {"manifest": {"symbols": ["BTCUSDT", "ETHUSDT"]}, "events": [{"event": "warmup", "at_ns": START}],
+                "market": [bar_row(0), {**bar_row(4), "bar_type": f"{eth}-1-MINUTE-LAST-EXTERNAL", "instrument_id": eth},
+                           {**bar_row(9), "bar_type": "SOLUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"}]}
+        self.assertEqual(compare.window(pack), (START, close_of(4) + 10**6))
+        self.assertEqual([line["ts_event"] for line in compare.journal(pack, START) if line["kind"] == "bar"],
+                         [close_of(0), close_of(4)])
+        rates = lambda maker: {"commission": {"makerCommissionRate": maker, "takerCommissionRate": "0.0005"}}
+        self.assertEqual(compare._fees({"symbols": {"BTCUSDT": rates("0.0002"), "ETHUSDT": rates("0.00018")}},
+                                       ["BTCUSDT", "ETHUSDT"]),
+                         {"BTCUSDT": {"maker": "0.0002", "taker": "0.0005"},
+                          "ETHUSDT": {"maker": "0.00018", "taker": "0.0005"}})
+
     def test_the_measures_window_is_read_in_utc(self):
         self.assertEqual([compare.instant(text) for text in ("2026-11-11", "2026-11-11T00:01:00Z",
                                                              "2026-11-11T08:01:00+08:00")],

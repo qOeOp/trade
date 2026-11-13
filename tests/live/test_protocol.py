@@ -58,6 +58,9 @@ PLAN[5], WRITES[5] = PLAN[4], WRITES[4]
 # Protocol 6 replaces the budget and the per-run loss limit with a drawdown brake: the cash floor is 85% of the wallet
 # at the run's first start, and a run may have no duration (docs/plans/live-continuous-operation-design-20261110.zh.md).
 PLAN[6], WRITES[6] = PLAN[5] - {"budget_usdt", "max_loss_usdt"} | {"drawdown_brake"}, WRITES[5]
+# Protocol 7 moves the contracts from the Live settings onto each source, which trades them one instance each
+# (docs/plans/cross-line-fusion-20261111.zh.md, L1 b).
+PLAN[7], WRITES[7] = PLAN[6], WRITES[6]
 
 
 class ProtocolRequestTests(unittest.TestCase):

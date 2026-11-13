@@ -9,11 +9,11 @@
    "candidate": "example@1",
    "source_sha256": "511331842e782cf0a7b143dde02ca7b29d6dcae245ad102073eb21b068475abb",
    "entry_class": "Example",
-   "purpose": "controlled"
+   "purpose": "controlled",
+   "symbols": [
+    "BTCUSDT"
+   ]
   }
- ],
- "symbols": [
-  "BTCUSDT"
  ],
  "defaults": {
   "duration_seconds": 8100,

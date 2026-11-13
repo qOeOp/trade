@@ -11,9 +11,9 @@ const fields = [{ id: "drawdown_brake", label: "Drawdown brake", value: "15" },
 // A prepared run's settings as the server reports them: the brake as a fraction.
 const config = [{ label: "Drawdown brake", value: "0.15" }, { label: "Duration (seconds)", value: "8100" }, { label: "Leverage", value: "3" }];
 const found = { state: "found", replays: [{ trialId: 12, balance: "95" }], tolerance: "0.1" };
-const source = (evidence) => ({ id: "s", candidate: "rsi@4", sourceHash: HASH, entryClass: "Rsi", purpose: "natural", ...evidence === undefined ? {} : { evidence } });
+const source = (evidence) => ({ id: "s", candidate: "rsi@4", sourceHash: HASH, entryClass: "Rsi", purpose: "natural", symbols: ["BTCUSDT"], ...evidence === undefined ? {} : { evidence } });
 const key = { ref: "abcdef0123456789", savedAt: null, selected: true, available: true, runIds: [] };
-const view = (over = {}) => ({ availability: "ready", preview: false, notice: null, reason: null, symbols: ["BTCUSDT"], credentials: [key], sources: [source(found)],
+const view = (over = {}) => ({ availability: "ready", preview: false, notice: null, reason: null, credentials: [key], sources: [source(found)],
   planFields: fields, runs: [], request: null, notify: { configured: true, lastSentNs: null, lastError: null, dropped: 0 }, ...over });
 const checked = (over = {}) => ({ id: "web-check", candidate: "rsi@4", sourceHash: HASH, config, host: [], running: false, ended: true,
   hostState: "preflight_complete", accountOwned: false, accountCheck: { state: "passed", readAt: null },
@@ -44,7 +44,7 @@ test("the duration reads in years, months, days and hours, exactly, with no uppe
 });
 
 test("where Live is not set up every column is still drawn, each row failing in plain words, never a code", () => {
-  const closed = view({ availability: "unavailable", reason: "LIVE_UNAVAILABLE", sources: [], credentials: [], planFields: [], symbols: null, notify: null });
+  const closed = view({ availability: "unavailable", reason: "LIVE_UNAVAILABLE", sources: [], credentials: [], planFields: [], notify: null });
   const cols = columns(closed);
   assert.equal(cols.length, 3);
   assert.equal(model.ready(cols), false);
@@ -74,9 +74,9 @@ test("missing replay evidence fails its row, says the Agent replays the candidat
   for (const state of ["checking", "unknown"]) assert.equal(row(columns(view({ sources: [source({ state, replays: [], tolerance: "0.1" })] })), "evidence").mark, "wait");
 });
 
-test("an older Live service, reporting no evidence or contracts, neither blocks on them nor claims they pass", () => {
-  const cols = columns(view({ sources: [source()], symbols: null }), checked());
-  for (const id of ["evidence", "contracts", "near"]) assert.equal(row(cols, id).mark, "shown", id);
+test("an older Live service, reporting no evidence, neither blocks on it nor claims it passes", () => {
+  const cols = columns(view({ sources: [source()] }), checked());
+  for (const id of ["evidence", "near"]) assert.equal(row(cols, id).mark, "shown", id);
   assert.equal(model.ready(cols), true);
   assert.equal(model.checkBlocker({ view: view({ sources: [source()] }), source: source() }, true), null);
 });
@@ -174,4 +174,13 @@ test("check account reuses the run it prepared and asks for its account check, n
   const waiting = named(render(props), "LiveLaunchStart").props;
   assert.equal(waiting.ready, false, "start waits for the check's answer");
   assert.deepEqual(waiting.waiting, ["Account"], "the line names the column still waiting, not each row");
+});
+
+test("the contracts row shows the chosen source's own contracts, one instance each", () => {
+  const two = { ...source(found), symbols: ["BTCUSDT", "ETHUSDT"] };
+  const cols = columns(view({ sources: [two] }), checked());
+  assert.equal(row(cols, "contracts").value, "BTCUSDT, ETHUSDT");
+  assert.match(row(cols, "contracts").reason, /One strategy instance on each contract/);
+  assert.match(row(cols, "leverage").reason, /each contract's leverage/);
+  assert.equal(row(columns(view()), "contracts").reason, null);
 });
