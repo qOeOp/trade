@@ -6,7 +6,7 @@ import { join, relative, dirname, resolve } from "node:path";
 
 const SRC = resolve(dirname(new URL(import.meta.url).pathname), "../src");
 // recommended, meets, misses, fail, per theme (a single hex in tokens.css is both themes)
-const VALIDATED = { light: ["#3871E1", "#36956D", "#B87701", "#A63D47"], dark: ["#3871E1", "#4AA87F", "#BE880A", "#BE5354"] };
+const VALIDATED = { light: ["#3871E1", "#419368", "#B87701", "#A63D47"], dark: ["#3871E1", "#4AA87F", "#BE880A", "#BE5354"] };
 const MAX_LINES = 200;
 // Which top-level folders a folder may import from (App and main may import anything).
 const MAY = {

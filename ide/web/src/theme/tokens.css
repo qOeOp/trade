@@ -64,7 +64,7 @@
      in light and lighter in dark, at least 4.5:1 on frame, island, island-alt and popup and on a selected
      row over island, island-alt or popup in each theme */
   --recommended: #3871E1;
-  --meets: light-dark(#36956D, #4AA87F);
+  --meets: light-dark(#419368, #4AA87F);
   --misses: light-dark(#B87701, #BE880A);
   --fail: light-dark(#A63D47, #BE5354);
   --recommended-fg: light-dark(#255DCB, #81ADFE);

@@ -58,7 +58,7 @@
   --shadow-raised: 0 1px 2px var(--shadow-near);
   /* the IDE's data hues (ide/web/src/theme/tokens.css): a capability's verification tier takes them */
   --recommended: #3871E1;
-  --meets: light-dark(#36956D, #4AA87F);
+  --meets: light-dark(#419368, #4AA87F);
   --misses: light-dark(#B87701, #BE880A);
   /* map edges: the IDE's walked-path grey */
   --edge-path: light-dark(oklch(0.64 var(--n-c) var(--n-h)), oklch(0.66 var(--n-c) var(--n-h)));
