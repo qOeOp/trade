@@ -31,6 +31,11 @@ back to one is [Rolling back](deploy/remote/README.md#rolling-back).
   natively and the run goes on. A contract Binance lists as not `TRADING` closes entries (new ones denied natively,
   positions keep their exchange stops) until it trades again. The control reads a running run's key permissions
   hourly and tells the user when they fail.
+- Live (breaking): a running run can take the release's runtime image without ending (`runtime_switch`, "Switch at
+  next flat" on its page): at its next flat moment the start ends without closing anything and the run starts again
+  on the new image, keeping its brake, highest equity, cash floor and history; one that does not reach its warm-up
+  falls back to the previous image once. The daily comparison also replays the latest compared day on the offered
+  image. Runner contract 2 (the runner reads `SWITCH`): a control of contract 1 cannot adopt its runners.
 
 ## 0.2.0 (2026-11-11)
 

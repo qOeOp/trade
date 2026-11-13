@@ -366,7 +366,8 @@ class Collecting(test_views.LiveViewTests):
         self.native("stopping", reason="SECRET reason with spaces")
         source = SimpleNamespace(source_id="deployed", candidate="example-live@2", purpose="natural",
                                  source_sha256=self.manifest["source"]["source_sha256"], entry_class="Example")
-        facts = notify.collect(SimpleNamespace(root=self.root, sources={"deployed": source}), set())
+        facts = notify.collect(SimpleNamespace(root=self.root, sources={"deployed": source},
+                                               runtime=self.manifest["runtime"]["image_ref"]), set())
         self.assertEqual([fact["source_name"] for fact in facts], ["example-live@2"])
         self.assertEqual(facts[0]["stop_reason"], "other")
         texts = [text for _, text in notify.messages(facts[0])]
@@ -379,7 +380,9 @@ class Collecting(test_views.LiveViewTests):
         for page in ("http://trade.example.com", "https://trade.example.com/x", "https://evil.test\n"):
             with patch.dict(os.environ, {"TRADE_PAGE": page}):
                 self.assertEqual([text for _, text in notify.messages(facts[0])], texts, page)
-        self.assertEqual(notify.collect(SimpleNamespace(root=self.root, sources={}), {"probe-one"}), [])
+        self.assertEqual(notify.collect(SimpleNamespace(root=self.root, sources={},
+                                                        runtime=self.manifest["runtime"]["image_ref"]), {"probe-one"}),
+                         [])
 
 
 for _name in [name for name in vars(test_views.LiveViewTests) if name.startswith("test_")]:

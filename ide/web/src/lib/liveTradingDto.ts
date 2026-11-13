@@ -57,16 +57,30 @@ export type LiveRunDto = {
   minute_results?: [string, string | null][] | null;
   purpose?: "natural" | "controlled" | null;
   /** Interruptions and starts again of the same run (live/views.py _restarts); absent from an older service. */
-  restarts?: { event: string; observed_ns: string; held: boolean | null }[] | null;
+  restarts?: { event: string; observed_ns: string; held: boolean | null; switch?: boolean }[] | null;
   /** The entry gate's events (live/views.py _gate): when entries closed, why, and when they reopened. */
   gate?: { event: string; observed_ns: string; reasons: string[]; socket: string | null; status?: string | null }[] | null;
   /** The control's latest daily comparison with a replay (live/daily.py); absent from an older control. */
   compare?: LiveCompareDto | null;
+  /** The runtime image the latest start runs on, a confirmed switch it waits for, how earlier ones ended, and the
+   *  release's image when it differs (live/views.py _switch, live/control.py _offered); absent from an older control. */
+  switch?: LiveSwitchDto | null;
   review?: LiveReviewDto | null; review_error?: { code: string } | null;
+};
+export type LiveImageDto = { digest: string | null; build_revision: string | null };
+export type LivePairedDto = {
+  image_ref: string; day: string; state: "running" | "done" | "failed" | "empty"; code?: string | null;
+  unexplained_week?: number; measures?: { groups?: number } | null;
+};
+export type LiveSwitchDto = {
+  current: LiveImageDto; pending: (LiveImageDto & { requested_ns: string }) | null;
+  events: { event: "runtime_switch_requested" | "runtime_switched" | "runtime_switch_canceled" | "runtime_switch_failed"; observed_ns: string; code: string | null; reason: "user" | "stopped" | "ended" | null; digest: string | null }[];
+  trial_id: string | null;
+  offered?: (LiveImageDto & { evidence: "found" | "missing" | "checking" | "unknown"; paired: LivePairedDto | null }) | null;
 };
 export type LiveCompareDto = {
   day: string; state: "running" | "done" | "waiting" | "failed" | "empty"; code?: string | null; failures?: number;
-  unexplained_count?: number; measures?: { groups?: number } | null;
+  unexplained_count?: number; unexplained_week?: number; measures?: { groups?: number } | null;
 };
 export type LiveHomeDto = {
   availability: "ready"; write_enabled: boolean; maintenance_enabled: boolean; write_reason: string | null;

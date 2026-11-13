@@ -90,7 +90,8 @@ def write_route(path: str) -> tuple[str, str | None]:
     match = re.fullmatch(r"/api/live/requests/" + REQUEST + r"/resolve", path)
     if match:
         return "resolve", match[1]
-    match = re.fullmatch(r"/api/live/runs/" + RUN + r"/(preflight|start|stop|reconcile|maintain)", path)
+    match = re.fullmatch(r"/api/live/runs/" + RUN + r"/(preflight|start|stop|reconcile|maintain|runtime_switch"
+                         r"|runtime_switch_cancel)", path)
     if match:
         return match[2], match[1]
     raise configuration.fail()
@@ -110,7 +111,7 @@ def read(config: configuration.Configuration, path: str, *, binding: release.Bin
         return requests.view(config.root, match[1])
     match = re.fullmatch(r"/api/live/runs/" + RUN, path)
     if match:
-        return control.run_view(config, match[1])
+        return control.run_view(config, match[1], evidence=evidence)
     raise configuration.fail()
 
 
@@ -241,6 +242,7 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
                     control.restart_interrupted_locked(root, path.name, time.time_ns())
                 elif observed["state"] == "running" and observed["mode"] == "run":
                     control.check_key_locked(root, path.name, time.monotonic())
+                    runs.sync_switch_locked(root, path.name, time.time_ns())
                 elif observed["state"] != "running":
                     runs._status_view(root, path.name, maintain=True)
         except Exception:
@@ -282,7 +284,7 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
             if daily.due(now, last):
                 last = now
                 try:
-                    daily.launch(config.root, config.market_root, now)
+                    daily.launch(config.root, config.market_root, now, config.runtime)
                 except Exception:
                     pass  # the run's record says what the comparison found; the next hour tries again
             done.wait(60)

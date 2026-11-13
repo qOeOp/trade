@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { LiveEvidence, LiveFact, LiveRequest, LiveRun } from "../model/liveTrading";
 import { dateTime, nsMilliseconds } from "../lib/time";
 import { useTimeZone } from "../state/timeZone";
@@ -17,7 +18,7 @@ function elapsed(ms: number, now: number): string {
 
 /** Recorded facts as a ledger: each a line, its name at the left and its value at the right edge, rules
  *  between them; a long value stands under its name across the line, so it never squeezes the name. */
-export function LiveFacts({ title, facts }: { title: string; facts: readonly LiveFact[] }) {
+export function LiveFacts({ title, facts, children }: { title: string; facts: readonly LiveFact[]; children?: ReactNode }) {
   const zone = useTimeZone();
   return (
     <Section title={title}>
@@ -30,6 +31,7 @@ export function LiveFacts({ title, facts }: { title: string; facts: readonly Liv
           <dd title={format && value !== null ? `${value} ns` : undefined} className={`min-w-0 wrap-anywhere tabular-nums ${long ? "mt-0.5" : "text-right"} ${attention ? textClass("misses") : ""}`}>{shown ?? <span className="text-fg-faint">Unknown</span>}</dd>
         </div>;
       })}</dl> : <p className="text-dense text-fg-faint">No observation received.</p>}
+      {children}
     </Section>
   );
 }

@@ -80,7 +80,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "each launched run's private inputs, journal, evidence pack and compare.json; the market directory "
         "(--market-root); Binance's published funding rates; each run's own runtime image",
         "compare.lock and compare-tmp/ under the root (the working directory, removed after the pass), each run's "
-        "runs/<run>/compare.json; removes exited trade-live-compare-* stage containers; never a database, "
+        "runs/<run>/compare.json (with the paired replay on --offered-runtime); removes exited "
+        "trade-live-compare-* stage containers; never a database, "
         "credential, order or venue connection",
         "state (done, or busy while another pass holds compare.lock), runs {run_id: the state of the record written: "
         "running, done, waiting, failed, empty, or unreadable}",
@@ -108,7 +109,8 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--release-state", type=Path, help="fixed release state directory; requires --release-web")
     command.add_argument("--release-web", help="this control's paired managed Web name; requires --release-state")
     command.add_argument("--action", required=True, choices=("prepare", "preflight", "start", "stop", "reconcile",
-                                                           "maintain", "credential_save", "credential_remove", "resolve",
+                                                           "maintain", "runtime_switch", "runtime_switch_cancel",
+                                                           "credential_save", "credential_remove", "resolve",
                                                            "notify_save", "notify_test", "notify_remove"),
                          help="the operator command to execute")
     command.add_argument("--target", help="the run ID the action applies to; the credential reference for "
@@ -144,6 +146,8 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
     command.add_argument("--market-root", required=True, type=Path, help="the market directory, read only")
     command.add_argument("--today", required=True, help="the UTC day the comparison runs on, such as 2026-11-13")
+    command.add_argument("--offered-runtime", dest="offered",
+                         help="the control's runtime image: replay each running run on another image on it as well")
 
 
 def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
@@ -182,7 +186,7 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return live_runs.logs(args.root, args.run_id, args.tail), 0
     if args.verb == "compare-daily":
         from live import daily
-        return daily.run(args.root, args.market_root, args.today), 0
+        return daily.run(args.root, args.market_root, args.today, args.offered), 0
     if args.verb == "compare":
         from live import compare
         return compare.compare(args.root, args.run_id, profiles.market(args.market), args.at, Path(args.output),

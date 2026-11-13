@@ -230,6 +230,9 @@ def collect(config: configuration.Configuration, skip: set[str]) -> list[dict]:
         except Exception:
             continue  # unknown this tick; never a reason to stop the others
         run["source_name"] = _source_name(config, run)
+        if run.get("switch") is not None:
+            from live import control  # control imports this module
+            run["switch"]["offered"] = control._offered(config, run, None, None)
         run["stop_reason"] = reason if isinstance(reason, str) and REASON.fullmatch(reason) else (
             None if reason is None else "other")
         result.append(run)
@@ -271,6 +274,7 @@ def _messages(run: dict) -> list[tuple[str, str]]:
                        f"{name} started." if mode == "run" else f"{name} is reconciling with Binance."))
     result.extend(_gate_messages(run, name))
     result.extend(_restart_messages(run, name))
+    result.extend(_switch_messages(run, name))
     result.extend(_brake_and_key_messages(run, name))
     result.extend(_compare_messages(run, name))
     for row in _fills(run):
@@ -417,6 +421,37 @@ def _compared(run: dict, last: str | None, newest: str) -> bool:
     return DAILY + (date.fromisoformat(last) + timedelta(days=COMPARE_GRACE_DAYS)).isoformat() < newest
 
 
+def _switch_messages(run: dict, name: str) -> list[tuple[str, str]]:
+    """A runtime image the release offers a running run, once per image, and how a confirmed switch ended (design
+    §3.8). Taking it is said by the restart notices (rewarming with `switch`)."""
+    switch, run_id = run.get("switch") or {}, run["run_id"]
+    result = []
+    offered = switch.get("offered")
+    if offered and offered.get("digest"):
+        result.append((f"{run_id}:offered:{offered['digest']}",
+                       f"{name}: this release offers a new runtime image ({offered['digest'][:19]}). The run stays on "
+                       f"its current one until you switch it from its page."))
+    for row in switch.get("events") or []:
+        key = f"{run_id}:switch:{row['event']}:{row['observed_ns']}"
+        if row["event"] == "runtime_switch_failed" and row.get("code") == "RUNTIME_UNAVAILABLE":
+            result.append((key, f"{name}: the new runtime image is no longer on this server, so it started again on "
+                                f"its current one. The switch is canceled."))
+        elif row["event"] == "runtime_switch_failed":
+            result.append((key, f"{name} could not start on the new runtime image ({row.get('code')}), so it starts "
+                                f"again on the previous one. The switch is canceled."))
+        elif row["event"] == "runtime_switch_canceled" and row.get("reason") == "ended":
+            result.append((key, f"{name}: the runtime switch it waited for is canceled; the run ended first."))
+    return result
+
+
+def _switch_taken(run: dict, after_ns: str) -> bool | None:
+    """Whether the switch a start ended for was taken (runtime_switched), dropped (canceled, failed) or not yet
+    decided (None) by the first switch row at or after that end."""
+    rows = [row for row in (run.get("switch") or {}).get("events") or []
+            if row["event"] != "runtime_switch_requested" and int(row["observed_ns"]) >= int(after_ns)]
+    return None if not rows else rows[0]["event"] == "runtime_switched"
+
+
 def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
     """An interruption, each start again of the same run (trading, or holding around an open position), the account
     flat while held, and the control's limit on automatic starts (engine.live, design §3.4)."""
@@ -427,13 +462,17 @@ def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
              "restart_limited": "was interrupted more than 3 times within an hour and is no longer started again "
                                 "automatically: open positions keep their exchange stops. Look at the run, then start "
                                 "or stop it."}
-    result, rewarming = [], False
+    result: list[tuple[str, str]] = []
+    rewarming: bool | str = False
     for row in run.get("restarts") or []:
         key, event = f"{run['run_id']}:restart:{row['event']}:{row['observed_ns']}", row["event"]
         text: str | None
         if event == "warmup":
             # Design §3.2 item 3: entries reopen once a start after a missing bar has warmed up again.
-            text, rewarming = "warmed up again after the missing bar; entries are open." if rewarming else None, False
+            text = ("warmed up on the new runtime image; entries are open." if rewarming == "switch"
+                    else "warmed up again; entries are open." if rewarming == "kept"
+                    else "warmed up again after the missing bar; entries are open." if rewarming else None)
+            rewarming = False
         elif event == "resuming" and rewarming and not row.get("held"):
             text = None  # said by the rewarming notice; the warm-up says when entries are open
         elif event == "resuming":
@@ -444,6 +483,12 @@ def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
             # The user's decision of 2026-11-13: a failed warm-up after a missing bar starts the run once more.
             text, rewarming = ("could not warm up again after the missing bar; it starts once more to try again. If "
                                "that warm-up fails too, the run ends."), True
+        elif event == "rewarming" and row.get("switch"):
+            # Design §3.8: the user confirmed a new runtime image and the strategy holds nothing. A switch canceled
+            # or failed after this start ended leaves the run on its current image.
+            taken = _switch_taken(run, row["observed_ns"])
+            text, rewarming = (("holds no position: it starts again on the new runtime image you confirmed.", "switch")
+                               if taken is not False else (None, "kept"))
         else:
             text = texts.get(event)
             rewarming = rewarming or event == "rewarming"

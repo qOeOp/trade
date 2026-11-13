@@ -15,7 +15,7 @@ from deploy.release_host import durable_json, route_config
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
 from live import control, release, requests, runs, state
-from tests.live.test_runs import LiveFixture
+from tests.live.test_runs import IDENTITY, LiveFixture
 from tests.live.authority_fixture import install, inject_cli
 
 
@@ -225,6 +225,13 @@ class LiveReleaseTests(LiveFixture):
             self.assertEqual(release.inspect_locked(self.root), ("busy", [None]))  # this manifest names no revision
             with patch.object(runs, "_manifest", side_effect=manifest):
                 self.assertEqual(release.inspect_locked(self.root), ("busy", [built]))
+                # After a confirmed switch the run answers with the build its latest launch runs on (design §3.8).
+                switched = {**IDENTITY, "image_ref": IDENTITY["image_ref"][:-64] + "f" * 64, "build_revision": "f" * 40}
+                state.append(self.directory / "lifecycle.jsonl", "runtime_switch_requested", self.run_id,
+                             runtime=switched, request_id="switch-1")
+                state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id, mode="run",
+                             container="runner", image_ref=switched["image_ref"])
+                self.assertEqual(release.inspect_locked(self.root), ("busy", ["f" * 40]))
             later = self.root / "runs" / "zz-unreadable"  # read after the busy run: no inputs, no outputs
             later.mkdir(mode=0o700)
             self.assertEqual(release.inspect_locked(self.root), ("unavailable", []))

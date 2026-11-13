@@ -88,13 +88,15 @@ def runner_args(mode: str) -> list[str]:
 
 def container_identity(root: Path, run_id: str, directory: Path, manifest: dict, name: str, role: str, *,
                mode: str | None = None, credentials_path: str | None = None,
-               container_id: str | None = None) -> dict | None:
-    """Verify the full retained resource before reading it or issuing a lifecycle action."""
+               container_id: str | None = None, runtime: dict | None = None) -> dict | None:
+    """Verify the full retained resource before reading it or issuing a lifecycle action. `runtime` is the image the
+    runner was launched on (live.runs.launch_runtime); the egress always runs on the manifest's."""
     found = inspect("container", name)
     if found is None:
         return None
+    runtime = manifest["runtime"] if runtime is None or role == "egress" else runtime
     names = resource_names(root, run_id)
-    pinned = inspect("image", manifest["runtime"]["image_ref"])
+    pinned = inspect("image", runtime["image_ref"])
     network_created = next((row for row in reversed(state.events(directory / "lifecycle.jsonl"))
                             if row["event"] == "network_created"), None)
     network_id = network_created.get("network_id") if network_created else None
@@ -126,9 +128,9 @@ def container_identity(root: Path, run_id: str, directory: Path, manifest: dict,
     if (found.get("Name") != "/" + name or not found.get("Id")
             or container_id is not None and found.get("Id") != container_id
             or pinned is None or not pinned.get("Id") or found.get("Image") != pinned["Id"]
-            or manifest["runtime"]["image_ref"] not in (pinned.get("RepoDigests") or [])
-            or f"{pinned.get('Os')}/{pinned.get('Architecture')}" != manifest["runtime"]["platform"]
-            or config.get("Image") != manifest["runtime"]["image_ref"]
+            or runtime["image_ref"] not in (pinned.get("RepoDigests") or [])
+            or f"{pinned.get('Os')}/{pinned.get('Architecture')}" != runtime["platform"]
+            or config.get("Image") != runtime["image_ref"]
             or labels.get(f"{LABEL}.run") != run_id or labels.get(f"{LABEL}.role") != role
             or config.get("Entrypoint") != ["python"] or config.get("Cmd") != expected_command
             or config.get("User") != f"{os.geteuid()}:{os.getegid()}"
@@ -180,9 +182,10 @@ def egress_command(manifest: dict, directory: Path, run_id: str, names: dict[str
                                          labels={f"{LABEL}.run": run_id, f"{LABEL}.role": "egress"})
 
 
-def runner_command(manifest: dict, directory: Path, run_id: str, credentials: Path, mode: str, runner: str, names: dict[str, str]) -> list[str]:
+def runner_command(manifest: dict, directory: Path, run_id: str, credentials: Path, mode: str, runner: str,
+                   names: dict[str, str], runtime: dict | None = None) -> list[str]:
     return container.live_command(
-        manifest["runtime"], [(directory / "inputs", "/inputs", True), (directory / "out", "/reports", False),
+        runtime or manifest["runtime"], [(directory / "inputs", "/inputs", True), (directory / "out", "/reports", False),
                               (credentials.absolute(), "/run/secrets/binance.json", True)],
         "engine.live", runner_args(mode),
         name=runner, network=names["network"], memory=manifest["config"]["memory"],

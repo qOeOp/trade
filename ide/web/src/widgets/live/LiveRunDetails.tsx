@@ -1,6 +1,7 @@
 import { LiveEvidenceList, LiveFacts } from "../../components/LiveFacts";
 import { LiveRecovery } from "../../components/LiveRecovery";
 import { LiveReview } from "../../components/LiveReview";
+import { LiveRuntimeSwitch } from "../../components/LiveRuntimeSwitch";
 import { Section } from "../../components/Section";
 import { livePurposeLabel } from "../../model/liveTrading";
 import { useLiveRunView, type LiveRunView } from "../../state/liveRun";
@@ -16,6 +17,7 @@ function LiveRunDetailsView({ run, actions }: LiveRunView) {
     <div className="pt-3"><h2 className="break-words font-semibold">{run.candidate}</h2><p className="mt-1 text-small text-fg-faint">{livePurposeLabel(run.purpose)}</p></div>
     <LiveFacts title="Account observation" facts={run.account} />
     <LiveFacts title="Run status" facts={[...run.host, ...run.continuity ?? []]} />
+    <LiveRuntimeSwitch run={run} actions={actions} />
     <LiveFacts title="Native completion" facts={run.execution} />
     <LiveFacts title="Stopping and custody" facts={run.ending} />
     <LiveFacts title="Frozen plan" facts={run.config} />

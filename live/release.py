@@ -169,7 +169,8 @@ def idle_locked(root: Path) -> str:
 
 
 def inspect_locked(root: Path) -> tuple[str, list]:
-    """(idle, busy or unavailable; the `runtime.build_revision` of each busy run, None where its manifest has none).
+    """(idle, busy or unavailable; the `build_revision` of the runtime each busy run's launch runs on, None where it
+    has none).
     Busy only once every run was read: one run that cannot be verified makes the whole account unavailable."""
     busy: list = []
     try:
@@ -209,7 +210,7 @@ def inspect_locked(root: Path) -> tuple[str, list]:
                 return "unavailable", []
             observed = runs._status_view(root, item.name, maintain=False)
             if observed["account_owned"] or observed["state"] == "running":
-                busy.append(manifest["runtime"].get("build_revision"))
+                busy.append(runs.launch_runtime(run_dir, manifest, runs._latest_launch(run_dir)).get("build_revision"))
                 continue
             if observed["state"] not in {"prepared", *runs.ENDED}:
                 return "unavailable", []
@@ -222,7 +223,7 @@ def inspect_locked(root: Path) -> tuple[str, list]:
                 if actual is None:
                     return "unavailable", []
                 if actual["State"].get("Running") is True:
-                    busy.append(manifest["runtime"].get("build_revision"))
+                    busy.append(runs.launch_runtime(run_dir, manifest, launch).get("build_revision"))
                     break
                 if (actual["State"].get("Status") != "exited"
                         or actual["State"].get("Running") is not False):
