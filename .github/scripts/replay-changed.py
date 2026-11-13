@@ -97,7 +97,7 @@ def _same_but_version(name: str, base: str) -> bool:
 
 def main() -> None:
     value = changed(os.environ["CI_EVENT_NAME"], os.environ["CI_PATHS"].splitlines(),
-                    os.environ.get("CI_BASE_SHA", ""), os.environ["CI_REPLAY_IMAGE"])
+                    os.environ.get("CI_BASE_SHA", ""), os.environ.get("CI_REPLAY_IMAGE", ""))
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         output.write(f"changed={str(value).lower()}\n")
 
