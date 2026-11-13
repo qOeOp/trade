@@ -174,6 +174,11 @@ class SealedReportTests(unittest.TestCase):
         self.assertEqual((sealed["drawdown"], sealed["capital"]), (None, None))
         self.assertTrue(any(item.startswith("EXPOSURE_GRID_MISMATCH") for item in sealed["limitations"]))
         self.assertFalse(any(item.split(":")[0] in metrics.PLAN_CONTRACT_CODES for item in sealed["limitations"]))
+        unreadable = native()  # an account row the plan contract does not read
+        del unreadable.account[1]["locked"]
+        sealed = report(unreadable)
+        self.assertTrue(any(item.startswith("NATIVE_VALUE_UNREADABLE") for item in sealed["limitations"]))
+        self.assertFalse(any(item.split(":")[0] in metrics.PLAN_CONTRACT_CODES for item in sealed["limitations"]))
         broken = native()
         broken.positions[0]["realized_pnl"] = "9.00000000 USDT"
         sealed = report(broken)
@@ -206,8 +211,7 @@ class SealedReportTests(unittest.TestCase):
                           if item.split(":")[0] in metrics.PLAN_CONTRACT_CODES])
         reports = native()
         found = metrics.cycles(reports.positions, reports.fills)
-        self.assertEqual(metrics.plan_metrics(reports.orders, reports.fills, reports.positions, found, [], ()),
-                         {"closed": 1, "wins": 1, "open": 1, "win_rate": 0.5})
+        self.assertIsNone(metrics.plan_metrics(reports.orders, reports.fills, reports.positions, found, [], ()))
 
     def test_cycles_cover_every_fill_once_and_stay_linear_usdt(self):
         uncovered = native()
@@ -295,7 +299,7 @@ class MarkEquityTests(unittest.TestCase):
                       "unrealized_pnl": Decimal(100)}]
         path = metrics.equity_path(self.SUMMARY, account, exposures)
         self.assertEqual([point["equity"] for point in path], [Decimal(100100), Decimal(100100), Decimal(100100)])
-        self.assertEqual(metrics.mark_drawdown(self.SUMMARY, account, exposures, path)["max_drawdown"], 0.0)
+        self.assertEqual(metrics.mark_drawdown(self.SUMMARY, path)["max_drawdown"], 0.0)
 
     def test_account_rows_tied_on_time_keep_report_order(self):
         account = [{"ts_event": iso(JAN), "total": "100000", "locked": "0"},
