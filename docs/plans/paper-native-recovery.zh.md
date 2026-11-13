@@ -178,3 +178,15 @@ PR #2207 已创建，首个提交43f6d16e4的全部CI检查通过。对应runtim
 - run 7 停止前空仓无挂单，正常STOP封存：fills=0、final equity=100000、exit=0、reasons=[]。新 run 8 / BTCUSDT 明确使用新账户，runtime `ghcr.io/qoeop/trade-runtime@sha256:40dedf763163e20538fefe884ac18d06376db4306de43bd8aabaf9812155bfaa`，market commit `20261104000000000000000000000000`。不追认为旧 run 6 的持仓延续。
 - 生产 runner `3f6415528fe2` 经受控 Docker SIGTERM 正常退出，后台自动恢复同一容器。原journal prefix逐字节相同，started=1、resumed=1，launches为start/resume，checkpoint hash校验通过，无STOP文件。等待阶段原 input_start=2026-11-07 00:00 UTC 保持不变；该验证不是已有真实持仓的生产恢复证明。
 - 原始证据仅在 `/tmp/paper-native-recovery-probe/`：`parity/acceptance-summary.json`、`ci-acceptance-v3.json`、`production-acceptance.json`。授权的6个测试Redis容器与隔离Dolt服务已清理/停止；数据库目录、脚本、结果和镜像保留。固定IP服务器仍是后续工作，未采购或开通。
+
+## 未成交订单的回读不比 liquidity_side（2026-11-13）
+
+用户答"都同意"，授权放宽回读检查的这一项。
+
+起因：多合约 Paper 探针在 04:18 存下一个切点后，每次空仓保存都被拒，报 native cache readback differs from the owner。在 rc7 运行镜像里做原生探针（Sandbox LiveNode 接 Redis 缓存，比较属主缓存的 `NativeCache._native` 与 FIFO 标记之后的 `load_all()`），查明原因：
+
+- Sandbox 给挂着的限价单设 `liquidity_side=MAKER` 时不发事件；
+- Redis 按事件列表重建订单（`OrderAny::from_events`），在成交之前一直是 `NO_LIQUIDITY_SIDE`；
+- 所以一张限价单只要没成交就结束（过期或撤单），之后每个切点都会被拒。对冲持仓和 Sandbox 自动撤掉的只减仓止损都能原样读回。
+
+决定：从未成交的订单（`filled_qty` 为 0）比较时不比 `liquidity_side`。已成交订单的 `liquidity_side` 和其余字段照常比较。修复见 #2882。

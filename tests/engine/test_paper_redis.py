@@ -27,6 +27,18 @@ class NativeReadbackTests(unittest.TestCase):
         self.assertNotEqual(before, NativeCache._native([account([a, b], margin="5 USDT")]))
         self.assertEqual(json.loads(before[0])["last_event"], b)
 
+    def test_an_unfilled_orders_liquidity_side_is_not_compared_and_a_filled_ones_is(self):
+        # rc7's Sandbox sets MAKER on a resting limit order without an event; Redis rebuilds it from its events.
+        def order(filled, side, status="EXPIRED"):
+            return SimpleNamespace(to_dict=lambda: {"client_order_id": "O-1", "filled_qty": filled,
+                                                    "liquidity_side": side, "status": status})
+        self.assertEqual(NativeCache._native([order("0.000", "MAKER")]),
+                         NativeCache._native([order("0.000", "NO_LIQUIDITY_SIDE")]))
+        self.assertNotEqual(NativeCache._native([order("0.002", "MAKER", "FILLED")]),
+                            NativeCache._native([order("0.002", "TAKER", "FILLED")]))
+        self.assertNotEqual(NativeCache._native([order("0.000", "MAKER")]),
+                            NativeCache._native([order("0.000", "MAKER", "CANCELED")]))
+
     def test_same_event_uuid_with_changed_payload_refuses(self):
         a, changed = {"event_id": "a", "balance": "100"}, {"event_id": "a", "balance": "99"}
         with self.assertRaises(checkpoint.Refusal):
