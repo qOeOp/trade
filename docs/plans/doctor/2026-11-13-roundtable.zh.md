@@ -119,5 +119,5 @@
 - **20261113-01**：隔离临时账本里 65,535 字节正文完整写入；65,536 与 70,000 字节 ASCII、75,000 字节中文都被拒为 `DOLT_SQL_ERROR`，`not_written` 并回滚，消息为 “too large for column 'body'”，下一步提示写明 65,535 上限；没有截断。不是缺陷，`rejected`。
 - **20261113-05**：问题在题面不在 skill，只改 Q3，4383c4be7 [#2913](https://github.com/qOeOp/trade/pull/2913)。
 - **20261023-03**：旧账本 A2 首推 60,306 字节（>32 KB）触发规则；首推改为只权衡 `candidates` 与表中未被支配的他线运行，47cda88f6 [#2918](https://github.com/qOeOp/trade/pull/2918)。唯一一次跨线改推荐（1778 选 1513）在新规则下仍会被权衡。`all-comparable-candidates` 新文本 3/3，无需另开 Q1 PR。
-- **20261112-15**：对 dow 线 43 个研究运行只读跑 `hypothesis compare`（40 个可比），重放到期次数：R0 5 次；R1 4 次，同号检验 6/6，采纳；R2 5 次，不采纳；R3 只报告（34/40 的可检测差大于到目标的差距）。R1 是计数改动，草稿 [#2919](https://github.com/qOeOp/trade/pull/2919) 待用户看过再合。
+- **20261112-15**：对 dow 线 43 个研究运行只读跑 `hypothesis compare`（40 个可比），重放到期次数：R0 5 次；R1 4 次，同号检验 6/6，采纳；R2 5 次，不采纳；R3 只报告（34/40 的可检测差大于到目标的差距）。R1 是计数改动，草稿 [#2919](https://github.com/qOeOp/trade/pull/2919) 经用户 11-13 “Merge R1” 后合入 2723b9e7f。
 
