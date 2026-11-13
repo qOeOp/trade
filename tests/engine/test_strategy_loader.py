@@ -72,7 +72,8 @@ class StrategyLoaderTests(unittest.TestCase):
             importlib.import_module(loaded.strategy_class.__module__).ProbeStrategy,
             loaded.strategy_class,
         )
-        self.assertEqual(strategy_metadata(loaded)["strategy_source"]["path"], str(self.source.resolve()))
+        self.assertEqual(strategy_metadata(loaded), {"source_sha256": loaded.content_hash,
+                                                     "strategy_entry_class": "ProbeStrategy"})
 
     def test_hash_rejection_happens_before_source_execution(self):
         marker = self.root / "executed"
@@ -285,7 +286,6 @@ class StrategyLoaderTests(unittest.TestCase):
                 self.load(digest=digest)
 
     def test_a_source_without_a_stop_loss_or_with_on_stop_is_refused(self):
-        self.assertIs(strategy_metadata(self.load())["strategy_uses_stop_loss"], True)
         for changed, code in (
                 (SOURCE.replace("class ProbeStrategy(Strategy):\n", "class ProbeStrategy(Strategy):\n    USES_STOP_LOSS = True\n"),
                  None),

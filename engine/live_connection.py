@@ -38,7 +38,8 @@ from nautilus_trader.common import SocketState
 from nautilus_trader.trading import Strategy
 
 from engine.live_errors import LiveRefusal as Refusal
-from engine.live_records import contract as contract_id, owned, strategy_ids, symbol_of, write_json
+from engine.config import symbol_of
+from engine.live_records import contract as contract_id, owned, strategy_ids, write_json
 from engine.live_venue import require_account_mode, require_clock, require_own_symbol
 from engine.order_rules import GTD_MINIMUM_NS, WARMING
 

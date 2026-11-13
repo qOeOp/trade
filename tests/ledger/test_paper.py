@@ -181,7 +181,7 @@ class ReadingTests(unittest.TestCase):
         month = int(datetime(2026, 11, 1, tzinfo=UTC).timestamp()) * 10**9
         row = {**ROW, "symbols": ["BTCUSDT", "ETHUSDT"], "market_day": "2026-10-24",
                "config": {"leverage": "3", "fees": {"maker": "0.0002", "taker": "0.0005"}}}
-        lines = [line("started", START, source_sha256=SOURCE, input_start_ns=START, strategy_uses_stop_loss=True),
+        lines = [line("started", START, source_sha256=SOURCE, input_start_ns=START),
                  *journal()[1:],
                  line("position", START + 3 * MINUTE, type="PositionClosed", instrument_id="BTCUSDT-PERP.BINANCE",
                       position_id="P-1", realized_pnl="2.5 USDT"),

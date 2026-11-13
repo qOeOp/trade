@@ -112,8 +112,9 @@ class TradeSubscriptionTests(unittest.TestCase):
                  "R1-BTCUSDT: subscribe_data Metrics for BTCUSDT-PERP.BINANCE, which this run does not stream")):
             for value in held:
                 value.clear()
-            recorder = paper.Recorder(paper.RecorderConfig([str(IID)], False, {}))
-            with self.subTest(code=code), mock.patch.object(paper, "journal") as journal:
+            recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
+            with self.subTest(code=code), mock.patch.object(paper, "journal") as journal, \
+                    mock.patch.object(recorder, "_protection"):
                 recorder.on_stop_timer(None)
                 self.assertFalse(paper.STOP.is_set())
                 paper.strategy_runtime.BREACHES.append((code, subscription))
@@ -201,7 +202,7 @@ class TermsTests(unittest.TestCase):
         loaded = {"price_increment": Price.from_str("0.10"), "size_increment": Quantity.from_str("0.001"),
                   "min_notional": Money(50, Currency.from_str("USDT")), "margin_init": Decimal("0.1"),
                   "margin_maint": Decimal("0.1"), **changes}
-        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], True, {str(IID): self.MARKET}))
+        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {str(IID): self.MARKET}))
         self.addCleanup(paper.STOP.clear)
         self.addCleanup(paper.STOP_REASON.clear)
         self.addCleanup(paper.FINDINGS.clear)

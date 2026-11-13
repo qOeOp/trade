@@ -293,7 +293,9 @@ whose revision is on origin/main and whose observed code equals that commit's by
 
 The v8 source proof covers every file of the replay closure. For main-build validation, the required
 map comes from the unique literal `RUNTIME_SOURCE_PATHS` declaration in the trusted Git revision,
-read without executing it, and must equal the contract's layout.
+read without executing it, and must equal the contract's layout or a map its earlier images report
+(`runtime.image.EARLIER_SOURCE_PATHS`): until 2026-11-13 the v8 replay image also held `engine/live_errors.py`,
+which the Live modules alone import, so those images and their runs still reproduce.
 
 The project is an installable package: `uv run --frozen --project REPO python SCRIPT` imports
 the product packages (`engine`, `market`, `ledger`, `report` and the rest) from a script anywhere, and the image imports `engine` from any
@@ -323,7 +325,7 @@ the last timestamp after every component stopped. It adds no timer: in rc3 probe
 timer made a run with many resting orders more than ten times slower. Balances and margins are not
 repeated: use the latest account state before the next bar timestamp. A held contract without a
 MARK at a bar (a hole in its one-minute data) is valued at its latest MARK while that is at most 60
-minutes old (`MARK_CARRY_MAX_MINUTES`, an uncalibrated example value); each such hole is one
+minutes old (`engine.config.MARK_CARRY_MAX_MINUTES`, an uncalibrated example value); each such hole is one
 interval in the summary's `mark_carry` and a limitation. A run fails integrity if a timestamp or an
 open position goes unvalued: one `CAPITAL_VALUATION_GAP` finding per unvalued interval.
 

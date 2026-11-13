@@ -39,6 +39,7 @@ import itertools
 import json
 from pathlib import Path
 
+from engine.config import symbol_of
 from shared.refusals import refuse
 
 
@@ -75,10 +76,6 @@ def _amount(value) -> Decimal | None:
 
 def _text(value: Decimal | None) -> str | None:
     return None if value is None else format(value.normalize(), "f")
-
-
-def symbol_of(instrument_id: str) -> str:
-    return instrument_id.split("-", 1)[0]
 
 
 # Orders and groups

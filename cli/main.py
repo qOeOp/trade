@@ -10,7 +10,8 @@ market profile in the profile directory. Runner arguments (window and instrument
 
 A result is one JSON object on stdout. A refusal is one JSON object on stderr with exit 1: code,
 message, missing, expected, write_status (not_written, written or unknown; rerun with operation_id
-when unknown) and next_actions, the commands that supply what is missing. A command that changes the
+when unknown) and next_actions, the commands that supply what is missing; a Live refusal (engine/live_errors.py)
+holds only code and message. A command that changes the
 ledger commits it locally and returns without publishing: the ledger service under compose publishes what
 origin lacks every 5 minutes, and `ledger publish` publishes at once. Each command's --help lists what it
 reads, writes and returns and its main refusals.
@@ -114,8 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         _print(sys.stderr, refusal_json(exc))
         return 1
     except LiveRefusal as exc:
-        _print(sys.stderr, {"code": exc.code, "message": exc.message,
-                            "write_status": "unknown", "next_actions": ["Read the same Live run's status and log."]})
+        _print(sys.stderr, {"code": exc.code, "message": exc.message})
         return 1
     except store.MarketError as exc:
         _print(sys.stderr, refusal_json(_market_refusal(exc)))

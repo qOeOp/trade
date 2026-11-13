@@ -9,7 +9,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-cache --no-install-project
 # The replay closure: the import closure of engine.run, engine.audit and engine.compare (engine/config.py
 # RUNTIME_SOURCE_PATHS and AUDIT_PATH; tests/runtime/test_replay_closure.py keeps the lists equal).
-COPY engine/__init__.py engine/audit.py engine/compare.py engine/config.py engine/fill.py engine/history.py engine/klines.py engine/live_errors.py engine/load.py engine/native_csv.py engine/order_rules.py engine/protection.py engine/report.py engine/run.py engine/strategy.py engine/warmup.py ./engine/
+COPY engine/__init__.py engine/audit.py engine/compare.py engine/config.py engine/fill.py engine/history.py engine/klines.py engine/load.py engine/native_csv.py engine/order_rules.py engine/protection.py engine/report.py engine/run.py engine/strategy.py engine/warmup.py ./engine/
 # The image carries only the runtime package; this path entry makes it importable from any
 # directory or script, as the host's editable project install does.
 RUN echo /opt/trade > "$(/opt/trade/.venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')/trade-runtime.pth"

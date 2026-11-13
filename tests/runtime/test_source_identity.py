@@ -1,4 +1,4 @@
-"""Fixed v8 source layouts are selected by trusted Git, including direct main checks."""
+"""Fixed source layouts are selected by trusted Git, including direct main checks."""
 
 from copy import deepcopy
 import hashlib
@@ -20,6 +20,8 @@ CURRENT = image.layout(CONTRACT)["source_paths"]
 # The five-file map of builds before replay-contract@v8; no image of this contract reports it.
 LEGACY = {key: CURRENT[key] for key in ("config_source_sha256", "runner_source_sha256", "load_source_sha256",
                                         "report_source_sha256", "fingerprint_source_sha256")}
+# The map v8 images built before 2026-11-13 report: their runs still reproduce.
+EARLIER, = image.EARLIER_SOURCE_PATHS[CONTRACT]
 
 
 def declaration(paths):
@@ -34,7 +36,7 @@ class SourceIdentityTests(unittest.TestCase):
         cls.root = Path(cls.temporary.name)
         cls.git("init", "--quiet", "--initial-branch", "main")
         cls.builds = []
-        for paths in (LEGACY, CURRENT):
+        for paths in (LEGACY, CURRENT, EARLIER):
             files = {path: (path + "\n").encode() for path in (*paths.values(), "engine/audit.py", "uv.lock")}
             files["engine/config.py"] = declaration(paths)
             for path, raw in files.items():
@@ -84,6 +86,16 @@ class SourceIdentityTests(unittest.TestCase):
                                             if key in LEGACY}
         self.refused(1, downgraded)  # even when all five reported hashes match the new revision
         self.refused(0, self.builds[1][1])  # do not rewrite history with new fields
+
+    def test_an_earlier_v8_image_is_still_a_main_build_of_its_own_revision_only(self):
+        self.assertEqual(set(EARLIER) - set(CURRENT), {"live_errors_source_sha256"})
+        self.assertEqual(self.check(2), self.builds[2][0]["build_revision"])
+        self.refused(1, self.builds[2][1])  # a current revision takes no earlier map
+        self.refused(2, self.builds[1][1])  # nor an earlier revision the current one
+        helper = image_tests.ProbeTests()
+        result, _ = helper.inspect(probe=helper.probe(source_file_paths=dict(EARLIER),
+                                                      source_files_sha256={key: "d" * 64 for key in EARLIER}))
+        self.assertEqual(result["source_file_paths"], EARLIER)
 
     def test_direct_main_check_rejects_missing_swapped_extra_or_invalid_fields(self):
         for field in ("strategy_source_sha256", "fill_source_sha256"):

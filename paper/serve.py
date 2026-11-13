@@ -34,6 +34,7 @@ import threading
 import time
 from urllib.parse import parse_qs, urlsplit
 
+from engine.config import instrument_id
 from ledger import db, paper as records, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -77,10 +78,6 @@ class Failure(Exception):
         failure = cls(status, code, found.get("message", ""))
         failure.body |= {key: found[key] for key in ("missing", "write_status") if key in found}
         return failure
-
-
-def _instrument(symbol: str) -> str:
-    return f"{symbol}-PERP.BINANCE"
 
 
 def read_lines(path: Path, offset: int) -> tuple[int, list[dict], int]:
@@ -615,7 +612,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     symbol = query.get("symbol")
                     if symbol is not None and not SYMBOL.fullmatch(symbol):
                         raise Failure(400, "USAGE_ERROR", "symbol is a Binance symbol such as BTCUSDT")
-                    self.stream(int(found[1]), _instrument(symbol) if symbol else None, resume_of(query))
+                    self.stream(int(found[1]), instrument_id(symbol) if symbol else None, resume_of(query))
                 elif found and found[2] == "reconcile":
                     self.json(200, daemon.reconciliation(int(found[1])))
                 elif found and found[2] == "logs":

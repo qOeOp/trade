@@ -14,7 +14,7 @@ from collections.abc import Mapping
 import json
 from pathlib import Path
 
-from engine.config import ACCOUNT_CONTRACT
+from engine.config import ACCOUNT_CONTRACT, instrument_id
 from ledger import db, paper as records
 from replay import reconcile as shared
 from shared import paths
@@ -83,7 +83,7 @@ def _context(market: dict, run_day: str, market_day: str, symbols: list[str], st
             {"replay_terms": replay_terms,
              "replay_fees": {"maker": instrument.ASSUMED["maker_fee"], "taker": instrument.ASSUMED["taker_fee"]},
              "archived_warmup": {symbol: shared.archive_warmup(market, market_day, symbol, start,
-                                                               received.get(f"{symbol}-PERP.BINANCE", {}),
+                                                               received.get(instrument_id(symbol), {}),
                                                                replay_terms[symbol]) for symbol in symbols}})
 
 

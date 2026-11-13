@@ -16,6 +16,7 @@ from engine import history, strategy as strategy_runtime
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import BinanceReadOnly, Credentials
 from engine.live_lifecycle import Observer
+from engine.config import instrument_id
 from engine.live_records import strategy_ids
 from engine.live_session import Session
 from engine.live_source import live_source
@@ -28,7 +29,7 @@ ACCOUNT_LOOKBACK_MINUTES = 24 * 60  # a start's account.csv keeps the last day o
 def build_node(session: Session, credentials: Credentials, cache_config, loaded=None,
                *, source_module: str = "engine.live"):
     manifest = session.manifest
-    instrument_ids = [f"{symbol}-PERP.BINANCE" for symbol in manifest["symbols"]]
+    instrument_ids = [instrument_id(symbol) for symbol in manifest["symbols"]]
     provider = BinanceInstrumentProviderConfig(load_all=False, load_ids=instrument_ids)
     proxy = manifest["config"].get("proxy_url")
     if session.account_reader is None:

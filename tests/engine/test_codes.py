@@ -10,7 +10,7 @@ import numpy as np
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.persistence import ParquetDataCatalog
 
-from engine import audit, config, load, report, run
+from engine import audit, config, live_errors, load, report, run
 from market import export, instrument
 
 
@@ -22,14 +22,20 @@ TERMS = {"price_increment": "0.01", "size_increment": "0.001", "max_quantity": N
 
 
 class CatalogueTests(unittest.TestCase):
-    def raised(self, pattern: str) -> set[str]:
+    def raised(self, pattern: str, live: bool | None = None) -> set[str]:
+        """The codes `pattern` finds in engine/*.py: in the Live modules (live True), the others (False) or all."""
         found = set()
         for path in ENGINE.glob("*.py"):
-            found |= set(re.findall(pattern, path.read_text()))
+            if live is None or path.name.startswith("live") == live:
+                found |= set(re.findall(pattern, path.read_text()))
         return found
 
     def test_every_code_raised_or_reported_is_catalogued(self):
-        refusals = self.raised(r'(?:Refusal|_refusal)\(\s*"([A-Z_]+)"')
+        # The Live modules raise engine.live_errors.LiveRefusal under the name Refusal; the others, config.Refusal.
+        live = self.raised(r'Refusal\(\s*"([A-Z_]+)"', live=True)
+        self.assertTrue(live)
+        self.assertLessEqual(live, live_errors.REFUSALS)
+        refusals = self.raised(r'(?:Refusal|_refusal)\(\s*"([A-Z_]+)"', live=False)
         self.assertTrue(refusals)
         self.assertLessEqual(refusals, set(config.REFUSALS))
         findings = self.raised(r'finding\(\s*"([A-Z_]+)"')

@@ -37,7 +37,7 @@ INTERPRETATION = (
     "bar, and bar execution moves the last price through it: an order already resting that it crosses waits for the "
     "next traded bar, and an order submitted in that minute can fill at once at the engine's last quote. A LAST gap has no bar and matches nothing; a derived bar is built from the minutes present, and "
     "a bucket with none does not exist. Through a MARK gap an open position is valued at its latest MARK while that "
-    "is at most engine.run.MARK_CARRY_MAX_MINUTES old (the summary's mark_carry, a limitation). Valuation runs at the "
+    "is at most engine.config.MARK_CARRY_MAX_MINUTES old (the summary's mark_carry, a limitation). Valuation runs at the "
     "MARK times of the run's input contracts: a longer gap while a position is open fails the run's integrity "
     "(CAPITAL_VALUATION_GAP) when another input contract has a MARK inside it; when none has, nothing is valued inside "
     "it and the run does not fail, so compare mark.gap_intervals_ms with the positions. With no position open it "

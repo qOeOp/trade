@@ -27,6 +27,7 @@ from typing import TypedDict
 import pandas as pd
 
 from engine import protection as stop_coverage
+from engine.config import MARK_CARRY_MAX_MINUTES, MINUTE_NS
 from engine.native_csv import dict_reader
 
 
@@ -77,7 +78,6 @@ FINDINGS: dict[str, str] = {
     "EVENT_ORDER_STATE_MISMATCH": "The event history's status, quantity, filled quantity, side or type differs from "
                                   "the orders report.",
     "EVENT_FILL_MISMATCH": "The event history's fills differ from the fills report.",
-    "STOP_LOSS_DECLARATION_INVALID": "The summary's strategy_uses_stop_loss is not True.",
     "UNPROTECTED_POSITION": "A position exceeded its working reduce-only stops for longer than one execution bar.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",
     "LIFECYCLE_BUNDLE_MISSING": "Native lifecycle events exist but the inputs name no lifecycle bundle.",
@@ -456,14 +456,10 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
                                                 value["start_ns"]))
 
 
-def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: dict) -> tuple[list[str], dict]:
+def protection(events: list[dict], orders: list[dict], fills: list[dict], summary: dict) -> tuple[list[str], dict]:
     """engine.protection: reconcile the order event history and refuse unprotected positions."""
-    events = read_order_events(run_dir / ORDER_EVENTS)
     venue_cancels: list[int] | None = [] if summary.get("clock") == "live" else None
     findings = event_report_findings(events, orders, fills, venue_cancels)
-    uses_stop_loss = summary.get("strategy_uses_stop_loss", True)
-    if uses_stop_loss is not True:  # engine.load refuses any other declaration (STOP_LOSS_REQUIRED)
-        findings.append(finding("STOP_LOSS_DECLARATION_INVALID", f"strategy_uses_stop_loss is {uses_stop_loss!r}"))
     try:
         intervals = uncovered_intervals(events, pd.Timestamp(summary["period_end_utc"]).value)
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
@@ -481,7 +477,7 @@ def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: di
             f"position orders {value['position_order_ids']}, ended stops {value['ended_stop_order_ids']}"))
     crossed = {} if venue_cancels is None else {"venue_cancels": len(venue_cancels),
                                                 "venue_cancel_lead_ns_max": max(venue_cancels, default=None)}
-    return findings, {"strategy_uses_stop_loss": uses_stop_loss, "native_order_events": len(events),
+    return findings, {"native_order_events": len(events),
                       "uncovered_intervals": intervals, **crossed}
 
 
@@ -582,6 +578,7 @@ def lifecycle_findings(lifecycle, fills: list[dict], positions: list[dict], even
     receipt) without a termination there is DATA_ENDS_WITHOUT_TERMINATION: the replay would hold it
     unvalued and untradeable without saying why."""
     from engine.config import parse_window
+    from engine.load import trading_end
     config = coverage["effective_config"] if isinstance(coverage.get("effective_config"), dict) else {}
     # Unvalidated JSON: a value that is not a string fails parse_window, which generic_audit records.
     window = parse_window(config.get("start"), None, config.get("end"))  # type: ignore[arg-type]
@@ -592,15 +589,13 @@ def lifecycle_findings(lifecycle, fills: list[dict], positions: list[dict], even
             episode = piece.get("episode") if isinstance(piece, dict) else None
             if episode is not None and (episode.get("start_ns") or 0) >= window.end_ns:
                 continue  # listed after the window
-            ends = [int(event["ts_event"]) for event in (episode or {}).get("events") or ()
-                    if event.get("type") == "InstrumentClose" or event.get("action") == "CLOSE"]
-            until = min([window.end_ns, *ends])
+            until = trading_end(episode, window.end_ns)
             last = piece.get("last_bar_ns") if isinstance(piece, dict) else None
             name = piece.get("instrument_id") or symbol if isinstance(piece, dict) else symbol
             if last is None or int(last) + 1_000_000 < until - DATA_END_TOLERANCE_NS:
                 found.append(finding("DATA_ENDS_WITHOUT_TERMINATION",
                                      f"{name}: its last bar closes at {_ns_utc(int(last)) if last else 'no bar'}, "
-                                     f"{'the termination' if ends and until < window.end_ns else 'the window end'} "
+                                     f"{'the termination' if until < window.end_ns else 'the window end'} "
                                      f"is {_ns_utc(until)}"))
 
 
@@ -690,7 +685,7 @@ def lifecycle_findings(lifecycle, fills: list[dict], positions: list[dict], even
     return found + findings
 
 
-DATA_END_TOLERANCE_NS = 60 * 60 * 10**9  # engine.run.MARK_CARRY_MAX_MINUTES: a shorter trailing hole is a hole
+DATA_END_TOLERANCE_NS = MARK_CARRY_MAX_MINUTES * MINUTE_NS  # a shorter trailing hole is a hole
 # A live clock's account update may follow its fill by at most this (user 2026-11-12, Paper seal audit option A).
 FILL_ACCOUNT_LAG_MAX_NS = 10**9
 
@@ -825,9 +820,9 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:
     protection_info: dict
     economics, protection_info = {}, {}
     try:
-        protection_findings, protection_info = protection(run_dir, orders, fills, summary)
-        findings.extend(protection_findings)
         events = read_order_events(run_dir / ORDER_EVENTS)
+        protection_findings, protection_info = protection(events, orders, fills, summary)
+        findings.extend(protection_findings)
         coverage = None
         from engine.load import LIFECYCLE_COUNTS
         # Lifecycle: rebuilt from the coverage receipt beside the reports (engine.lifecycle_events), then

@@ -27,6 +27,7 @@ from pathlib import Path
 import shutil
 import tempfile
 
+from engine.config import instrument_id, symbol_of
 from ledger import db, strategies
 from shared.refusals import refuse
 
@@ -301,7 +302,7 @@ def published_settlements(lines: list[dict], stopped_ns: int | None,
     if not held or started is None or not isinstance(started.get("input_start_ns"), int) or not stopped_ns:
         return {}
     start_ms, end_ms = started["input_start_ns"] // 10**6, stopped_ns // 10**6 + 1
-    rates = {iid: [(at * 10**6, Decimal(rate)) for at, rate in sources.rest_funding(iid.split("-", 1)[0], start_ms, end_ms)]
+    rates = {iid: [(at * 10**6, Decimal(rate)) for at, rate in sources.rest_funding(symbol_of(iid), start_ms, end_ms)]
              for iid in sorted(held)}
     positions = held_at(lines, {iid: [at for at, _ in rows] for iid, rows in rates.items()})
     found: dict[str, list[tuple[int, Decimal | None, Decimal | None]]] = {}
@@ -311,7 +312,7 @@ def published_settlements(lines: list[dict], stopped_ns: int | None,
             if positions[(iid, at)]:
                 minute = (at // 10**6 - 59_999) // 60_000 * 60_000  # the last minute closing at or before it
                 closes = [(int(row[0]) + 59_999, Decimal(row[4])) for row in sources.rest_klines(
-                    "MARK", iid.split("-", 1)[0], "1m", minute - MARK_LOOKBACK_MS, minute + 60_000)]
+                    "MARK", symbol_of(iid), "1m", minute - MARK_LOOKBACK_MS, minute + 60_000)]
                 mark = next((close for closed, close in reversed(closes) if closed * 10**6 <= at), None)
             found.setdefault(iid, []).append((at, rate, mark))
     return found
@@ -321,20 +322,26 @@ def equity_path(lines: list[dict], settled: list[dict] | None = None,
                 ) -> tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]]:
     """The account's equity at each journalled minute (balance, open profit and the funding Sandbox does not
     settle: `settled`, settlements(lines) when not given) and each settlement's funding cash flow, by time."""
-    funding_by_ns = [(item["settlement_ns"], item["funding"])
-                     for item in (settlements(lines) if settled is None else settled)]
-    path: list[tuple[int, Decimal]] = []
-    applied, funding = 0, Decimal(0)
+    points = []
     for line in sorted((line for line in lines if line["kind"] == "snapshot"), key=lambda line: line.get("minute_ns") or 0):
         balance, unrealized = _decimal(line.get("balance_total")), _decimal(line.get("unrealized_pnl"))
-        if balance is None or unrealized is None:
-            continue
-        minute = line.get("minute_ns") or 0
-        # A snapshot is taken as its minute ends: it carries every settlement up to that moment.
-        while applied < len(funding_by_ns) and funding_by_ns[applied][0] <= minute + 60 * 10**9:
+        if balance is not None and unrealized is not None:
+            points.append((line.get("minute_ns") or 0, balance + unrealized))
+    return with_funding(points, settlements(lines) if settled is None else settled)
+
+
+def with_funding(points: list[tuple[int, Decimal]], settled: list[dict],
+                 ) -> tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]]:
+    """Each (minute, equity without funding) point, in time order, plus the funding settled by its minute's end (a
+    Paper snapshot or Live minute result is taken as its minute ends), and each settlement's funding by time."""
+    funding_by_ns = sorted(((item["settlement_ns"], item["funding"]) for item in settled), key=lambda item: item[0])
+    path: list[tuple[int, Decimal]] = []
+    applied, funding = 0, Decimal(0)
+    for minute, value in points:
+        while applied < len(funding_by_ns) and funding_by_ns[applied][0] <= minute + MINUTE_NS:
             funding += funding_by_ns[applied][1]
             applied += 1
-        path.append((minute, balance + unrealized + funding))
+        path.append((minute, value + funding))
     return path, funding_by_ns
 
 
@@ -379,7 +386,6 @@ def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> t
                             and not any(item.get("integrity_findings") for item in instances),
         "denied_orders": sum(kind == "OrderDenied" for kind in ended.values()),
         "rejected_orders": sum(kind == "OrderRejected" for kind in ended.values()),
-        "strategy_uses_stop_loss": started.get("strategy_uses_stop_loss"),
         "closed_trades": len(closed), "winning_trades": sum((_decimal(line.get("realized_pnl")) or 0) > 0 for line in closed),
         "starting_balance_usdt": (summary.get("account") or {}).get("starting_balance_usdt"),
         "final_equity_usdt": str(_decimal(summary.get("balance_total"))),
@@ -391,9 +397,9 @@ def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> t
             last_bar[line["instrument_id"]] = max(line["ts_event"], last_bar.get(line["instrument_id"], 0))
     coverage = {"format": COVERAGE_FORMAT, "effective_config": window, "input_identity": {"market_day": row["market_day"]},
                 "membership": {"market_day": row["market_day"], "membership": membership},
-                "export_receipts": {symbol: {"pieces": [{"instrument_id": f"{symbol}-PERP.BINANCE",
+                "export_receipts": {symbol: {"pieces": [{"instrument_id": instrument_id(symbol),
                                                          "strategy_id": strategy_id(symbol),
-                                                         "last_bar_ns": last_bar.get(f"{symbol}-PERP.BINANCE")}],
+                                                         "last_bar_ns": last_bar.get(instrument_id(symbol))}],
                                              "assumed": {"maker_fee": fees.get("maker"), "taker_fee": fees.get("taker")}}
                                     for symbol in row["symbols"]}}
     return audited, coverage

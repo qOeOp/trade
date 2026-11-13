@@ -137,13 +137,13 @@ def native_case(root, case, mode="preclose"):
             raise AssertionError("native lifecycle callbacks did not consume the probe inputs")
         counts = {"instrument_status": sum(isinstance(event, InstrumentStatus) for event in lifecycle),
                   "instrument_close": sum(isinstance(event, InstrumentClose) for event in lifecycle)}
-        observer = SimpleNamespace(timestamps=7, findings=[], lifecycle={str(INSTRUMENT_ID): counts})
+        observer = SimpleNamespace(timestamps=7, findings=[], lifecycle={str(INSTRUMENT_ID): counts}, carried=[])
         replay = Replay(engine, engine.get_result(), observer, {"R1-AAA": START})
         window = parse_window(utc_text(START), None, utc_text(END))
         output = root / "reports"
         summary, _ = write_native_reports(
             output, replay, {"AAA": source}, [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "counts": {}, "catalog_path": root}],
-            {"strategy_uses_stop_loss": True, "market_day": "c" * 32},
+            {"market_day": "c" * 32},
             window, ACCOUNT_CONTRACT, [], 7)
         intervals = [[START, END]] if mode == "preclose" else [[START, cutoff]]
         if case in {"rejoin", "resting_rejoin"}:
