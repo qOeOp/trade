@@ -106,7 +106,7 @@ services:
   # The unattended import of Binance data (market/README.md, "Unattended upkeep"): bars of --bar-symbols daily,
   # metrics daily, aggTrades and quotes of --symbols monthly. The only writer of the market directory. It reaches
   # data.binance.vision and fapi.binance.com (bars). Unhealthy
-  # while anything is stopped or lagging, or when its status is a day old (docs/plans/monthly-market-import.zh.md).
+  # while anything is stopped or lagging, or when its status is a day old.
   market-import:
     <<: *product
     # TRADE_MARKET_ARGS in .env is this deployment's range, split by the shell (deploy/README.md); unset,

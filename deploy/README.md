@@ -42,10 +42,9 @@ Five services on one Docker engine:
 - **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes, and of containers
   only those `runtime/container.py` builds ([`docker-api/`](docker-api/), image `ghcr.io/qoeop/trade-docker-api`).
 
-The design is in [`docs/plans/paper-compose-deployment.zh.md`](../docs/plans/paper-compose-deployment.zh.md),
-[`docs/plans/ledger-compose-service.zh.md`](../docs/plans/ledger-compose-service.zh.md) and
-[`docs/plans/daily-metrics-import.zh.md`](../docs/plans/daily-metrics-import.zh.md) with
-[`docs/plans/monthly-market-import.zh.md`](../docs/plans/monthly-market-import.zh.md). The
+The design is in [`docs/plans/paper-compose-deployment.zh.md`](../docs/plans/paper-compose-deployment.zh.md)
+and [`docs/plans/ledger-compose-service.zh.md`](../docs/plans/ledger-compose-service.zh.md); the market import's
+rules are in [`market/README.md`](../market/README.md) ("Unattended upkeep"). The
 host directories are mounted at their own paths. `.env` beside the compose file names them and the
 user the services run as:
 
