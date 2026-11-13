@@ -25,7 +25,8 @@ untagged `main` build never touches it; each admission also records a GitHub dep
 says only that the version was admitted, since the host does not report back. A
 runtime carries forward only when its complete build inputs match the service source and its source
 still has successful CI and a retained tested artifact. Each candidate resolves that qualification afresh;
-without a match, a null image withholds admission. The image resolver and Paper controller also check
+without a match, a null image withholds admission. A commit a channel already admitted keeps its recorded
+digests while its checks stay green, so its expired artifacts are not read again. The image resolver and Paper controller also check
 the actual runtime image revision's inputs before accepting a pair. See the
 [runtime pairing contract](../../docs/plans/runtime-release-pairing.zh.md) for input coverage, retained
 artifact expiry and the installed-controller update. The host polls this public Git channel every

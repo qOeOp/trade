@@ -385,6 +385,14 @@ test('a newer untagged main build moves only main-ready, also while it is still 
   }
 });
 
+test('an admitted revision keeps its recorded digests after its artifacts expire; a first decision still needs them', async () => {
+  const f = fixture(); f.tags = [tag('v0.2.0', B)]; f.previous = admitted; f.production = admitted; f.context.payload = {};
+  f.artifact.expired = true; f.artifacts[12][0].expired = true;
+  await f.go(); assert.deepEqual(f.records, []); assert.deepEqual(f.deployed, []); assert.deepEqual(f.deployments, []);
+  const g = fixture(); g.tags = [tag('v0.2.0', B)]; g.production = withheld; g.context.payload = {}; g.artifact.expired = true;
+  await assert.rejects(g.go(), /no matching attempt artifact/); assert.deepEqual(g.deployed, []);
+});
+
 test('a rerun of the version commit withholds it on both channels and records no deployment', async () => {
   const f = fixture(); f.tags = [tag('v0.2.0', B)]; f.previous = admitted; f.production = admitted;
   f.runs.push(run('quality', 9, { workflow_id: 1, status: 'in_progress', conclusion: null }));
