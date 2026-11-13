@@ -7,6 +7,7 @@ It listens only on loopback inside the runner. No credential is accepted or supp
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -169,6 +170,11 @@ class NativeCache:
                 currency = Currency.from_str(ACCOUNT_CONTRACT["base_currency"])
                 data["balances"] = {key: str(getattr(value, f"balance_{key}")(currency))
                                     for key in ("total", "locked", "free")}
+            if "liquidity_side" in data and Decimal(str(data.get("filled_qty") or 0)) == 0:
+                # Without a fill an order has no liquidity side. rc7's Sandbox sets MAKER on a resting limit order
+                # without an event, and the order Redis rebuilds from its events has NO_LIQUIDITY_SIDE, so an unfilled
+                # limit order that expired or was canceled would keep every later checkpoint dirty.
+                data.pop("liquidity_side")
             found.append(json.dumps(data, sort_keys=True, default=str))
         return sorted(found)
 
