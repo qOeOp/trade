@@ -1,5 +1,5 @@
 """Out-of-sample validation (`registration.validation_register`, `registration.validation_bind`,
-`registration.membership_unchanged`, `registration.require_fresh`; `registration.require_current` for research).
+`registration.membership_unchanged`; the checkout gate is `registration.seams.require_fresh`).
 
 The user starts a validation: one candidate, a window that begins after the registration is both
 recorded and witnessed by an RFC 3161 token, a universe rule and a declared design. The one replay
@@ -12,9 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import dataclasses
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
-import subprocess
+from datetime import UTC, date, datetime, timedelta
 
 from ledger import db, execution, strategies, witness
 from ledger import trials
@@ -23,11 +21,8 @@ from shared.refusals import refuse
 from registration import register, seams
 
 
-EPOCH = datetime(1970, 1, 1)
-
-
 def _ns(moment: datetime) -> int:
-    delta = moment - EPOCH
+    delta = moment - trials.EPOCH
     return (delta.days * 86_400 + delta.seconds) * 10**9 + delta.microseconds * 1000
 
 
@@ -35,57 +30,19 @@ def _naive_utc(moment) -> datetime:
     return moment.astimezone(UTC).replace(tzinfo=None) if moment.tzinfo is not None else moment
 
 
+def _month_of(moment: datetime | date) -> str:
+    return f"{moment.year}-{moment.month:02d}"
+
+
 def _months(start: datetime, end: datetime) -> list[str]:
     """Every YYYY-MM month that [start, end) touches."""
-    months, month = [], seams.month_of(start)
-    last = seams.month_of(end - timedelta(microseconds=1))
+    months, month = [], _month_of(start)
+    last = _month_of(end - timedelta(microseconds=1))
     while month <= last:
         months.append(month)
-        month = seams.next_month(month)
+        year, number = int(month[:4]), int(month[5:7])
+        month = f"{year + number // 12}-{number % 12 + 1:02d}"
     return months
-
-
-def _git(root: Path, *argv: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(root), *argv], capture_output=True, text=True, check=False, timeout=120)
-
-
-def require_fresh(checkout: Path | None = None, remote: str = "origin") -> None:
-    """Refuse unless the product checkout's HEAD contains the remote's latest main commit; uncommitted
-    or untracked files in its work tree are not checked."""
-    root = Path(checkout) if checkout is not None else seams.current.checkout()
-
-    def stale(why: str):
-        return refuse("STALE_CHECKOUT", why, missing=(str(root),))
-    inside = _git(root, "rev-parse", "--is-inside-work-tree")
-    if inside.returncode or inside.stdout.strip() != "true":
-        raise stale(f"{root} is not a git work tree")
-    listed = _git(root, "ls-remote", remote, "refs/heads/main")
-    heads = [line.split()[0] for line in listed.stdout.splitlines() if line.strip()]
-    if listed.returncode or len(heads) != 1:
-        raise stale(f"the main commit of {remote} cannot be queried")
-    if _git(root, "merge-base", "--is-ancestor", heads[0], "HEAD").returncode:
-        raise stale(f"HEAD does not contain {remote} main {heads[0]}")
-
-
-def require_current(checkout: Path | None = None, remote: str = "origin") -> None:
-    """Research registration and replay: refuse unless the product checkout's HEAD is the locally fetched
-    `<remote>/main` and its work tree has no uncommitted or untracked file, so a run records the commit it ran
-    from. No network: the checkout fetches first."""
-    root = Path(checkout) if checkout is not None else seams.current.checkout()
-
-    def stale(why: str):
-        return refuse("STALE_CHECKOUT", why, missing=(str(root),), expected=f"HEAD = {remote}/main, clean work tree")
-    head = _git(root, "rev-parse", "HEAD")
-    main = _git(root, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/main")
-    if head.returncode:
-        raise stale(f"{root} is not a git work tree")
-    if main.returncode:
-        raise stale(f"{root} has no fetched {remote}/main")
-    if head.stdout.strip() != main.stdout.strip():
-        raise stale(f"HEAD {head.stdout.strip()[:9]} is not {remote}/main {main.stdout.strip()[:9]}")
-    changed = _git(root, "status", "--porcelain")
-    if changed.returncode or changed.stdout.strip():
-        raise stale(f"the work tree has uncommitted or untracked files: {' '.join(changed.stdout.split()[:6])}")
 
 
 def _by_month(rows) -> dict[str, list[tuple]]:
@@ -119,7 +76,7 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
     if identity.get("universe_rule") != registration["universe_rule"]:
         raise changed(f"universe rule {identity.get('universe_rule')} is not the registered "
                       f"{registration['universe_rule']}", "universe_rule")
-    registered_month = seams.month_of(registration["created_at"])
+    registered_month = _month_of(registration["created_at"])
     then = _by_month(adapter.universe_month(registration["market_day"]))
     now = _by_month(adapter.universe_month(identity["market_day"]))
     for month in sorted(set(then) | set(now)):
@@ -147,7 +104,7 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
             clipped = (max(lo, _ns(start)), min(hi, _ns(end)))
             if clipped[0] < clipped[1] and not _covered(clipped, given.get(symbol)):
                 raise changed(f"{symbol} is removed from or shortened in the strategy's membership",
-                              seams.month_of(EPOCH + timedelta(microseconds=clipped[0] // 1000)), symbol)
+                              _month_of(trials._utc(clipped[0])), symbol)
 
 
 def candidate_registrations(conn: db.LedgerConnection, source_sha256: str) -> list[dict]:
@@ -188,8 +145,7 @@ def _same_registration(conn: db.LedgerConnection, prior: Mapping, payload: Mappi
 
 def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: datetime, window_end: datetime,
                         universe_rule: str, market: str | None, design: Mapping, retry_of: int | None,
-                        op_id: str | None, *, market_profile, tsa_url: str | None = None,
-                        tsa_roots: Path | None = None) -> dict:
+                        op_id: str | None, *, market_profile, tsa_url: str | None = None) -> dict:
     """Write one validation registration in one commit, then witness that commit; a failed witness
     leaves the registration in place. The same op_id returns the existing registration.
 
@@ -251,7 +207,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                                (registration_id,))[0][0]
         commit = birth_commit(conn, registration_id)
         try:
-            stamped = witness.witness(conn, commit, tsa_url, tsa_roots)
+            stamped = witness.witness(conn, commit, tsa_url)
             result = ({"status": "stamped", "stamped_at": stamped["stamped_at"], "error": None}
                       if stamped["status"] in ("stamped", "already_stamped")
                       else {"status": "failed", "stamped_at": None, "error": stamped["reason"]})
@@ -273,15 +229,14 @@ def original_registration(conn: db.LedgerConnection, registration: dict) -> dict
 
 
 def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mapping, source_sha256: str,
-                    identity: Mapping, inspection: Mapping, *, market, checkout: Path | None = None,
-                    remote: str = "origin", tsa_roots: Path | None = None) -> dict:
+                    identity: Mapping, inspection: Mapping, *, market) -> dict:
     """Inside the validation trial's write, before its row: check everything against the registration, which
     the trial then consumes once.
 
     `row` is the trial row about to be written (open_trial's binder argument): its source, instruments, windows
     and coverage receipt (input identity, export receipts and effective configuration). `market` is the market
     profile the membership is reread from AS OF."""
-    require_fresh(checkout, remote)
+    seams.require_fresh()
     seams.current.require_main_build(dict(identity), dict(inspection))
     if row["purpose"] != "validation":
         raise refuse("BINDING_NOT_ALLOWED", f"a {row['purpose']} trial takes no validation binder")
@@ -314,7 +269,7 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mappin
         raise refuse("MEMBERSHIP_CHANGED", f"universe rule {row['universe_rule']} is not the registered "
                                            f"{registration['universe_rule']}", missing=("universe_rule",))
     start, end = registration["window_start"], registration["window_end"]
-    stamp = witness.registration_stamp(conn, origin["registration_id"], tsa_roots)
+    stamp = witness.registration_stamp(conn, origin["registration_id"])
     if stamp is None or not stamp[1] < start.replace(tzinfo=UTC):
         raise refuse("REGISTRATION_TOO_LATE", f"registration {origin['registration_id']} has no witness before the "
                                               f"window starts at {start}", missing=(str(origin["registration_id"]),))
@@ -361,7 +316,7 @@ class ValidationBinder:
     source_sha256: str
     identity: Mapping
     inspection: Mapping
-    options: Mapping
+    market: object
 
     @property
     def registration(self) -> dict:
@@ -369,9 +324,9 @@ class ValidationBinder:
 
     def __call__(self, conn: db.LedgerConnection, row: Mapping) -> dict:
         return validation_bind(conn, self.registration_id, row, self.source_sha256, self.identity, self.inspection,
-                               **self.options)
+                               market=self.market)
 
 
-def validation_binder(registration_id: int, source_sha256: str, identity: Mapping, inspection: Mapping,
-                      **options) -> ValidationBinder:
-    return ValidationBinder(registration_id, source_sha256, identity, inspection, options)
+def validation_binder(registration_id: int, source_sha256: str, identity: Mapping, inspection: Mapping, *,
+                      market) -> ValidationBinder:
+    return ValidationBinder(registration_id, source_sha256, identity, inspection, market)

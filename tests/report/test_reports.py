@@ -135,7 +135,7 @@ class ReportTests(unittest.TestCase):
         with db.read_as_of(self.profile) as conn:
             exc = refused(availability.require, conn, {"trial_id": self.bare["trial_id"]})
         self.assertEqual((exc.code, exc.missing[0]), ("ECONOMIC_EVIDENCE_UNAVAILABLE", str(self.bare["trial_id"])))
-        self.assertEqual(exc.availability["reasons"], bare["reasons"])
+        self.assertEqual(exc.missing[1:], tuple(bare["reasons"]))
 
     def test_native_reasons_name_failing_and_unrecorded_facts(self):
         report = {"activity": {"real_fills": {"passed": False, "code": "NO_FILLS"}}}

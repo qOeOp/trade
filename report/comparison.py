@@ -23,7 +23,7 @@ import numpy as np
 from ledger import db, metrics, strategies, witness
 from shared.errors import Refusal
 from shared.refusals import refuse
-from registration import availability, comparability, precheck, register, reproduction, validation
+from registration import availability, comparability, precheck, register, validation
 from report import attribution as report_attribution, measures, runs
 
 
@@ -370,34 +370,16 @@ def _grid_run(conn: db.LedgerConnection, registration_id: int, trial_id: int) ->
     return candidate
 
 
-def comparable_record(conn: db.LedgerConnection, trial_id: int) -> dict:
-    """A run with its trial's comparable identity and those of the trials that reproduced it: what
-    comparability.check_comparable reads."""
-    row = _run_row(conn, trial_id, "candidate")
-    trial = reproduction.trial_record(conn, trial_id)
-    assert trial is not None  # run.trial_id is a foreign key to trial
-    return {**row, **comparability.comparable_identity(trial), "reproductions": reproduction.reproductions(conn, trial_id)}
-
-
-def design_of(conn: db.LedgerConnection, design_id: int | None) -> dict | None:
-    """The comparison design row `design_id` as {DESIGN_KEYS}; None without one."""
-    if design_id is None:
-        return None
-    found = conn.one(f"SELECT {', '.join(register.DESIGN_KEYS)} FROM comparison_design WHERE design_id = %s",
-                     (design_id,))
-    assert found is not None  # a foreign key names it
-    return found
-
-
 def annual_return_interval(conn: db.LedgerConnection, trial_id: int) -> dict | None:
     """The annual return of a registered run with the block-bootstrap interval of its registration's declared
     design, on the trial's trading window; computed when read, no verdict. None for a run whose registration
     declares no design (no control), or for a run with no registration."""
-    design = design_of(conn, (conn.one(
-        "SELECT r.comparison_design_id FROM trial t JOIN research_registration r ON r.registration_id = "
-        "t.research_registration_id WHERE t.trial_id = %s", (trial_id,)) or {}).get("comparison_design_id"))
-    if design is None:
+    design_id = (conn.one("SELECT r.comparison_design_id FROM trial t JOIN research_registration r ON "
+                          "r.registration_id = t.research_registration_id WHERE t.trial_id = %s", (trial_id,))
+                 or {}).get("comparison_design_id")
+    if design_id is None:
         return None
+    design = register.read_design(conn, design_id)
     series = trade_window_series(measures.run_facts(conn, trial_id), "run")
     values = np.log1p(_series([value for _, value, _ in series], "returns"))
     days, block, resamples, alpha = len(values), design["block_days"], design["resamples"], design["alpha"]
@@ -423,8 +405,8 @@ def gather(conn: db.LedgerConnection, plan: Mapping, trial_id: int, *, checker: 
                      missing=("control_trial_id",))
     candidate = _grid_run(conn, registration_id, trial_id)
     control = _run_row(conn, plan["control_trial_id"], "control")
-    records = {side: comparable_record(conn, row["trial_id"]) for side, row in (("candidate", candidate),
-                                                                                 ("control", control))}
+    records = {side: register.control_trial(conn, row["trial_id"]) for side, row in (("candidate", candidate),
+                                                                                      ("control", control))}
     # A registration stores no window: its trading window is the line's, which binding held the grid run to, and its
     # input start the control's, which registering and binding compared.
     execution = {**plan["execution"], **{key: records["control"][key]
@@ -528,7 +510,7 @@ def _corner_run(conn: db.LedgerConnection, name: str, row: Mapping, execution: M
                                       "t.source_sha256 = %s AND t.purpose = 'research' AND r.status = 'passed' ORDER BY "
                                       "r.trial_id", (row["source_sha256"],)):
         try:
-            record = comparable_record(conn, candidate_run)
+            record = register.control_trial(conn, candidate_run)
             comparability.check_comparable(record, execution)
             availability.require(conn, record, checker=checker, records=reviews)
         except Refusal:
@@ -659,17 +641,6 @@ def _bound(conn: db.LedgerConnection, registration_id: int) -> tuple[dict | None
             "bound_at": trial["created_at"]}, run
 
 
-def _candidate_registrations(conn: db.LedgerConnection, source_sha256: str) -> list[dict]:
-    """Every out-of-sample registration of one candidate; status is the bound run's status, no verdict on returns."""
-    return [{"registration_id": item["registration_id"], "window_start": item["window_start"],
-             "window_end": item["window_end"], "universe_rule": item["universe_rule"], "retry_of": item["retry_of"],
-             "status": item["status"] or ("bound" if item["trial_id"] else "unbound")}
-            for item in conn.dicts("SELECT g.registration_id, g.window_start, g.window_end, g.universe_rule, g.retry_of, "
-                                   "t.trial_id, r.status FROM validation_registration g LEFT JOIN trial t ON "
-                                   "t.validation_registration_id = g.registration_id LEFT JOIN run r ON r.trial_id = "
-                                   "t.trial_id WHERE g.source_sha256 = %s ORDER BY g.registration_id", (source_sha256,))]
-
-
 def _single_of(conn: db.LedgerConnection, run: Mapping | None, design: dict, family_size: int) -> tuple[dict | None,
                                                                                                           str | None]:
     if run is None or run["status"] != "passed":
@@ -695,8 +666,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
         if row is None:
             raise refuse("REGISTRATION_UNKNOWN", f"no validation registration {registration_id} on this version",
                          missing=(str(registration_id),))
-        design = design_of(conn, row["comparison_design_id"])
-        assert design is not None  # comparison_design_id is NOT NULL
+        design = register.read_design(conn, row["comparison_design_id"])
         limitations = list(VALIDATION_LIMITATIONS)
         origin = validation.original_registration(conn, row)
         witness_commit = validation.birth_commit(conn, origin["registration_id"])
@@ -756,8 +726,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
         members = []
         for member in family_rows:
             _, member_run = _bound(conn, member["registration_id"])
-            own = design_of(conn, member["comparison_design_id"])
-            assert own is not None  # comparison_design_id is NOT NULL
+            own = register.read_design(conn, member["comparison_design_id"])
             tested, _ = (output["single"], None) if member["registration_id"] == registration_id else \
                 _single_of(conn, member_run, own, family_size)  # each member's p by its own registered design
             members.append({"registration_id": member["original"], "latest_attempt": member["registration_id"],
@@ -779,6 +748,6 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
                             "universe_rule": row["universe_rule"], "size": family_size,
                             "provisional": bool(missing_p), "missing_p": missing_p, "members": members,
                             "interval_coverage": 1 - design["alpha"] / family_size}
-        output["same_candidate_registrations"] = _candidate_registrations(conn, row["source_sha256"])
+        output["same_candidate_registrations"] = validation.candidate_registrations(conn, row["source_sha256"])
     output["limitations"] = runs.dedupe(limitations)
     return output
