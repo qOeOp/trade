@@ -175,12 +175,14 @@ async function channel(github, repo, branch) {
 }
 
 // The record of one main commit, or null when that commit built no product image.
-async function assess({ github, repo, readArchive, inputs }, sha) {
+async function assess({ github, repo, readArchive, inputs }, sha, previousRecord) {
   const values = await pushRuns(github, repo, sha);
   const built = values.find((run) => run.name === 'ide-image');
   if (!built) return null; // A documentation-only main commit has no new product image to release.
   const record = { revision: sha, image: null, service: null, runtime: null };
   if (await green(github, repo, sha, values)) {
+    // The channel record keeps the tested digests it admitted: artifacts expire after 30 days, the record does not.
+    if (previousRecord?.revision === sha && previousRecord.image) return previousRecord;
     const image = await testedArtifact(github, repo, built, 'web-image', sha, readArchive);
     if (!IMAGE.test(image.image) || !SERVICE.test(image.service)) throw Error('Native service/IDE artifact identity is invalid');
     record.runtime = await matchingRuntime(github, repo, sha, readArchive, inputs);
@@ -221,7 +223,7 @@ async function staging(job, subjectSha) {
       sha = previousRecord.revision;
       if (!await compare(github, repo, sha, main.data.object.sha)) return;
     }
-    const record = await assess(job, sha);
+    const record = await assess(job, sha, previousRecord);
     if (!record || (previousRecord && JSON.stringify(previousRecord) === JSON.stringify(record))) return;
     if (await append(github, repo, STAGING, previous, record)) {
       core.info(`${record.image ? 'Admitted' : 'Withheld'} main build ${sha} on ${STAGING}`);
@@ -246,7 +248,7 @@ async function production(job, trigger) {
       core.info(`${tag.name} (${tag.sha}) is behind ${PRODUCTION} ${previousRecord.revision}; nothing changed`);
       return;
     }
-    const record = await assess(job, tag.sha);
+    const record = await assess(job, tag.sha, previousRecord);
     if (!record) {
       core.warning(`${tag.name} (${tag.sha}) built no product image; ${PRODUCTION} unchanged`);
       return;

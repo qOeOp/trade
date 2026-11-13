@@ -50,7 +50,8 @@ source 保存 tree 与延迟计算的投影，不缓存相对某个目标的“�
 无合格匹配时追加 image/service/runtime 均为空的 withheld 记录。较早的 runtime 完成事件可以
 重新评估频道上较新的服务提交，但不能回退 source；频道 CAS 冲突后重读全部资格事实。
 历史记录保留。现有 artifact 保存期是 30 天，资格 artifact 过期后不能无限沿用旧 runtime；
-需要新的成功构建或可验证的成功重跑，不能据 mutable tag 猜测旧资格。
+需要新的成功构建或可验证的成功重跑，不能据 mutable tag 猜测旧资格。频道已准入的同一提交
+在检查仍全绿时沿用记录里的摘要，不再读已过期的 artifact。
 
 `deploy.images` 从实际镜像配置验证 revision、来源、平台和 manifest 后，再验证 runtime
 相对目标服务的输入。Paper 控制器也在实际 pull 和 OCI 标签验证后、创建候选和写切换事务前
