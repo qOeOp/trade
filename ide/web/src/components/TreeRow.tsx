@@ -17,7 +17,7 @@ export function TreeRow({ level, folder, expanded, selected, children, className
       {Array.from({ length: level }, (_, l) => (
         <span key={l} className="pointer-events-none absolute inset-y-0 w-px bg-guide" style={{ left: 8 + l * TREE_INDENT + 8 }} />
       ))}
-      <span data-chevron className={`grid w-4 shrink-0 place-items-center text-icon transition-transform ${expanded ? "rotate-90" : ""}`}>
+      <span className={`grid w-4 shrink-0 place-items-center text-icon transition-transform ${expanded ? "rotate-90" : ""}`}>
         {folder && <Icon name="chevron-right" />}
       </span>
       {children}

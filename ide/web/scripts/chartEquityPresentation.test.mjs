@@ -1,4 +1,4 @@
-// Real chart switch composition and shared equity reader, with controlled observations and layout.
+// Real chart switch composition and shared equity reader, with controlled observations.
 // These fixtures do not connect to services or invoke any run commands.
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { namespace } from "./load.mjs";
 
 const run = { paper_id: 777, live: { final_equity_usdt: "9876.54" } };
-let shown, stream, phone, landscape, layoutReads, moved = true;
+let shown, stream, moved = true;
 const empty = () => null;
 const fixtures = {
   "components/CoinMenu": { CoinChip: empty, CoinMenu: empty },
@@ -17,10 +17,6 @@ const fixtures = {
     "data-stage-selector": shown.stage, "data-backtest": backtest, "data-paper": paper,
   }) },
   "state/stage": { paperTab: { set() { throw new Error("Presentation cannot change the chart selection"); } } },
-  "state/phone": {
-    usePhone: () => { layoutReads.push("phone"); return phone; },
-    useLandscape: () => { layoutReads.push("landscape"); return landscape; },
-  },
   "state/shown": { useShown: () => shown },
   "state/paperStream": { useStream: () => stream },
   "lib/paperApi": { amount: Number, fixed: (value, digits) => Number(value).toFixed(digits) },
@@ -30,31 +26,22 @@ const fixtures = {
 };
 // Only the reading the switch shows is real; every other import is a fixture.
 const { ChartSwitches } = await namespace("widgets/paper/ChartSwitches.tsx", { stubs: fixtures, sources: ["widgets/paper/EquityReading"] });
-const render = (stage, { mobile = false, sideways = false, paper = true, streamId = 777, testing = stage === "backtest" } = {}) => {
+const render = (stage, { paper = true, streamId = 777, testing = stage === "backtest" } = {}) => {
   shown = { stage, run: paper ? run : null, chain: paper ? [run] : [] };
   stream = { paperId: streamId, readings: { final_equity_usdt: "8765.43" } };
-  phone = mobile; landscape = sideways; layoutReads = [];
   return renderToStaticMarkup(createElement(ChartSwitches, {
     testing, backtest: true, paper, view: "equity", symbols: ["BTCUSDT"], sides: new Map(), traded: new Set(), loose: null,
   }));
 };
 const noPaperReading = (html) => assert.doesNotMatch(html, /9876|8765|42%|USDT|Return/);
 
-test("Paper equity stays in the chart on desktop and landscape, and in the phone hero when upright", () => {
-  for (const [mobile, sideways] of [[false, false], [true, false], [true, true], [false, true]]) {
-    const html = render("paper", { mobile, sideways });
-    assert.match(html, /data-stage-selector="paper" data-backtest="true" data-paper="true"/);
-    assert.match(html, /data-choice="equity"/);
-    if (mobile && !sideways) noPaperReading(html);
-    else {
-      assert.match(html, /8765<\/span><span[^>]*>\.43/);
-      assert.match(html, /42%/);
-      assert.equal((html.match(/USDT/g) ?? []).length, 1);
-    }
-    // Both layout subscriptions must be read even on desktop; short-circuiting the latter changes
-    // the component's hook order when the same chart switches between phone and desktop layouts.
-    assert.deepEqual(layoutReads, ["phone", "landscape"]);
-  }
+test("Paper equity reads beside the chart's Equity tab", () => {
+  const html = render("paper");
+  assert.match(html, /data-stage-selector="paper" data-backtest="true" data-paper="true"/);
+  assert.match(html, /data-choice="equity"/);
+  assert.match(html, /8765<\/span><span[^>]*>\.43/);
+  assert.match(html, /42%/);
+  assert.equal((html.match(/USDT/g) ?? []).length, 1);
 });
 
 test("Backtest and Live cannot borrow retained Paper equity even without the caller's testing flag", () => {

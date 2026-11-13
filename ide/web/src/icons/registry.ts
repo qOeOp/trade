@@ -20,7 +20,6 @@ import rotateCcw from "lucide-static/icons/rotate-ccw.svg?raw";
 import refreshCw from "lucide-static/icons/refresh-cw.svg?raw";
 import pencil from "lucide-static/icons/pencil.svg?raw";
 import wrench from "lucide-static/icons/wrench.svg?raw";
-import info from "lucide-static/icons/info.svg?raw";
 import chartColumn from "lucide-static/icons/chart-column.svg?raw";
 import chartScatter from "lucide-static/icons/chart-scatter.svg?raw";
 import check from "lucide-static/icons/check.svg?raw";
@@ -99,7 +98,6 @@ export const ICONS = {
   "tool.news": { svg: newspaper },
   "tool.runs": { svg: chartCandlestick },
   "tool.history": { svg: calendarRange },
-  "tool.live": { svg: arrowRightLeft },
   "tool.trades": { svg: arrowRightLeft },
   warning: { svg: triangleAlert },
   // Run and stop drawn here as IntelliJ's new UI draws them: an outline at Lucide's stroke with a faint fill
@@ -112,7 +110,6 @@ export const ICONS = {
   sync: { svg: refreshCw },
   delete: { svg: trash },
   tool: { svg: wrench },
-  info: { svg: info },
   passed: { svg: circleCheck },
   failed: { svg: circleX },
   untested: { svg: circleDashed },

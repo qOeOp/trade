@@ -63,16 +63,8 @@ export function chooseRun(run: PaperRun): void {
   choose(version, { stage: "paper", run: run.paper_id });
 }
 
-/** A phone's Runs tab: `run` on its own, whichever line it is on, with no version selected and no page
- *  opened for its line. */
-export function showRun(run: PaperRun): void {
-  if (selection.get() !== null) deselect();
-  const tab = paperTab.get();
-  if (tab !== null && tab !== "equity" && !run.symbols.includes(tab)) paperTab.set(null);
-  choose(null, { stage: "paper", run: run.paper_id });
-}
-
-/** A phone's Runs tab, which draws no line: the backtest of `run`'s version (on `bundle`), on that version's page. */
+/** The Runs stage tabs, for a paper run whose version the drawn line does not hold: the backtest of `run`'s
+ *  version (on `bundle`), on that version's page. */
 export const openBacktest = (bundle: string, version: string, run: number) => window.location.assign(runHref(window.location.href, bundle, version, run, "backtest"));
 
 /** The run the address names (`run=`, left by chooseRun opening its line) and the stage (`stage=`, left by openBacktest). */

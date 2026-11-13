@@ -177,7 +177,7 @@
   /* the room a select leaves at its end for its chevron: 8px in, a 16px icon, 4px clear of the text */
   --field-chevron: 28px;
   --key-column: 8.5rem;
-  /* a form's reading width: its fields stop here however wide the column (the Live launch steps) */
+  /* a form's reading width: its fields stop here however wide the column (the first-run page) */
   --form-measure: 560px;
   /* the text sizes (--text-* below take them), which a phone sets larger */
   --size-value: 15px;
@@ -258,7 +258,6 @@
   --color-bar: var(--bar);
   --color-grid: var(--grid);
   --color-pnl-up: var(--pnl-up);
-  --color-equity: var(--equity);
   --color-event: var(--event);
   --color-pnl-down: var(--pnl-down);
   --color-cal-up-1: var(--cal-up-1);

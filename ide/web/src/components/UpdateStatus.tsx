@@ -12,9 +12,8 @@ const short = (commit: string | null) => commit?.slice(0, 8) ?? "the new head";
 
 /** The status bar's background task, as IntelliJ's: a turning ring (a still clock under reduced motion)
  *  and the stage of the update to a newer ledger head while the graph on screen stays; a failed refresh
- *  marked by its icon in the failure colour, its text as quiet as the rest of the bar. Where nothing hovers,
- *  on a phone, `spelled` writes out what the tip says. */
-export function UpdateStatus({ spelled = false }: { spelled?: boolean }) {
+ *  marked by its icon in the failure colour, its text as quiet as the rest of the bar. */
+export function UpdateStatus() {
   const wanted = useUpdate();
   const [seen, setSeen] = useState<Update | null>(null);
   const since = useRef(0);
@@ -49,6 +48,5 @@ export function UpdateStatus({ spelled = false }: { spelled?: boolean }) {
       <span className="truncate">Updating to {short(seen.commit)} · {STAGE[seen.stage]}</span>
     </span>
   );
-  if (spelled) return <>{said}<p className="mt-0.5 break-words">{why}</p></>;
   return <Tip content={why} side="top">{said}</Tip>;
 }

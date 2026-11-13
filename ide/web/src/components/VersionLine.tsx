@@ -12,7 +12,7 @@ export function VersionLine({ node, targets, dim = false }: {
   const [name, revision] = node.id.split("@");
   const fade = dim ? "opacity-40" : "";
   return (
-    <span data-version-line className="inline-flex items-center gap-(--vl-gap) whitespace-nowrap">
+    <span className="inline-flex items-center gap-(--vl-gap) whitespace-nowrap">
       <span data-part="mark" className="grid"><RoleMark role={node.role} /></span>
       {node.role !== "masked" && <ReadingBadge reading={node.reading} targets={targets} status={ROLE[node.role]?.short} hint={ROLE[node.role]?.label} />}
       <span data-part="pred" className={`grid w-(--pred-slot) shrink-0 place-items-center ${fade}`}><PredictionMark prediction={node.prediction} /></span>

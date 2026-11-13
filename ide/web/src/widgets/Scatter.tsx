@@ -14,6 +14,7 @@ import { useZoom } from "../components/hooks/useZoom";
 import { TextButton } from "../components/TextButton";
 import { ChartPill, PILL_H, pillWidth } from "../components/ChartPill";
 import { chartKeys } from "../components/chartKeys";
+import { tickCount } from "../components/ProgressLayout";
 import { Tip } from "../components/Tip";
 
 type Point = ScatterWidget["points"][number];
@@ -34,7 +35,7 @@ const R = 4, RING = 2;
 // non-dominated runs as a frontier (less drawdown and more return cannot both improve) named at its
 // ends and at the recommendation, and on hover or keyboard focus a crosshair read off both axes. Where
 // runs crowd, the wheel zooms in around the pointer and a drag pans; a double-click shows them all again.
-export function Scatter({ widget, onOpen }: { widget: ScatterWidget; onOpen?: (id: string) => void }) {
+export function Scatter({ widget }: { widget: ScatterWidget }) {
   const selected = useSelection();
   const [ref, { width, height }] = useSize();
   const hovered = useHovered();
@@ -42,10 +43,10 @@ export function Scatter({ widget, onOpen }: { widget: ScatterWidget; onOpen?: (i
   const glide = useGlide(widget);
   const t = widget.targets ?? {};
   const points = widget.points;
-  const m = width < 480 ? { ...M, top: 52 } : M;  // the legend takes two rows on a phone
+  const m = width < 480 ? { ...M, top: 52 } : M;  // the legend takes two rows when narrow
   const w = Math.max(0, width - m.left - m.right), h = Math.max(0, height - m.top - m.bottom);
   // As many return ticks as fit 28px apart, up to 8 (5% steps for a usual range).
-  const count = Math.max(3, Math.min(8, Math.floor(h / 28)));
+  const count = tickCount(h);
   // Two-decimal labels are about 40px wide: about 6 along the bottom, every other one dropped while they are under 56px apart.
   const xCount = Math.max(2, Math.min(6, Math.floor(w / 72)));
   const ys = [...points.map((p) => p.annual_return), t.annual_return ?? 0, 0];
@@ -98,7 +99,7 @@ export function Scatter({ widget, onOpen }: { widget: ScatterWidget; onOpen?: (i
           {front && <div className="text-fg-muted">On the Pareto frontier</div>}
           {p.eligible === false && <div className="text-fail-fg">Ineligible</div>}
           {more > 0 && <div className="text-fg-muted">{plural(more, "more run")} at the same point</div>}</div>}>
-        <g {...hoverProps(p.id)} data-keep={front ? "" : undefined} className="enter cursor-pointer" onClick={() => { if (onOpen) onOpen(p.id); else { select(p.id); requestFocus(p.id); } }}>
+        <g {...hoverProps(p.id)} data-keep={front ? "" : undefined} className="enter cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }}>
           <circle className={glide} cx={cx} cy={cy} r={R + (front ? RING : 1)} fill={v("island")} />
           {p.id === selected ? <circle className={glide} cx={cx} cy={cy} r={R} fill={v("selected-mark")} />
             : p.eligible === false ? <circle className={glide} cx={cx} cy={cy} r={R - 0.5} fill={v("island")} stroke={v("fg-faint")} strokeWidth={1} />

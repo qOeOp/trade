@@ -16,7 +16,7 @@ import { LINE, UNIT } from "./equityZones";
  *  (`Oct–Dec`; null when whole), the days covered, its return, the buy and hold's return (null without one)
  *  and its P&L by contract. */
 export type Year = { year: number; first: number; last: number; part: string | null; days: number; ret: number; hold: number | null; shares: readonly Share[] };
-export type YearLook = { font: string; label: string; quiet: string; meets: string; misses: string; halo: string; grid: string };
+export type YearLook = { font: string; label: string; quiet: string; meets: string; misses: string; halo: string };
 
 const YEAR_DAYS = 365, PAD = 6, INSET = 4, BARS = 32, SPACE = 8;  // the pace's year (equityStretches' YEAR_S); px: from the words to the bars, from a year's edges, the bars' least, a name's from its figure
 const month = (t: number) => new Date(t * 1000).toLocaleString("en-US", { month: "short", timeZone: "UTC" });
@@ -59,7 +59,7 @@ export function linesOf(y: Year, annual: number | null, look: YearLook, hold = f
 }
 
 /** Each year's edges (device px): half way to the next year's first point, the first's and last's at their points. */
-export const edgesOf = ({ x }: Frame, years: readonly Year[]) =>
+const edgesOf = ({ x }: Frame, years: readonly Year[]) =>
   years.map((y, k) => [k ? (x(years[k - 1]!.last) + x(y.first)) / 2 : x(y.first), k < years.length - 1 ? (x(y.last) + x(years[k + 1]!.first)) / 2 : x(y.last)] as const);
 
 /** The years' scorecards, each at the left of the part of its year in view; where each year's bars go (device

@@ -60,7 +60,7 @@ export function Ruler({ lineage, inset }: { lineage: LineageWidget; inset: numbe
           const here = t === at, trial = number.get(t);
           if (trial == null) return null;
           return (
-            <g key={t} data-ruler-trial={trial} pointerEvents="none">
+            <g key={t} pointerEvents="none">
               {here && <rect x={sx(t) - unit / 2 + 3} y={BLOCK_Y + 1} width={unit - 6} height={BLOCK_H - 2} rx={4} fill={v("fg")} />}
               <text x={sx(t)} y={NUM_Y} textAnchor="middle" fontSize={9.5}
                     fill={v(here ? "island" : anchors.has(t) ? "fg" : "fg-ghost")}>{trial}</text>
@@ -76,7 +76,7 @@ export function Ruler({ lineage, inset }: { lineage: LineageWidget; inset: numbe
               const name = DECISION[d.kind];
               return <EventTip key={d.ref ?? d.at} kind={name} version={d.ref} note={d.text?.trim().slice(name.length + 1).trim() || null} />;
             })}</div>}>
-              <g data-decision={group.map((d) => d.kind).join(" ")}>
+              <g>
                 <rect x={cx - 6} y={0} width={12} height={RULER} fill="transparent" />
                 <path d={diamond} fill="none" stroke={v("island")} strokeWidth={5} />
                 <path d={diamond} fill={v(line ? "fg" : "island")} stroke={v("fg")} strokeWidth={1.25} />

@@ -15,7 +15,7 @@ import { ordered, type Flag, type Gap } from "./candleEvents";
 import { downTags, drawDown, tagged, type Down, type DownLook } from "./downLook";
 import { spacing } from "./viewAnchor";
 
-export type FlagsLook = { restart: DownLook; warn: string; warnTag: string; text: string; edge: string; island: string; hatch: string; wash: string; font: string };
+export type FlagsLook = { restart: DownLook; warn: string; warnTag: string; text: string; hatch: string; wash: string; font: string };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 type Pill = { x: number; w: number; letters: string; warn: boolean; lines: Flag["lines"]; first: number; xs: number[]; warns: number[] };
 
@@ -23,7 +23,7 @@ export const STRIP = 18;                    // px: the strip along the foot the 
 const H = 14, PAD = 4, GAP = 3;             // px: a pill's height and padding, the least space between two marks
 const TICK = { w: 2, h: 6, hit: 8 };        // px: a routine event's tick, and how wide it is as a hover target
 const HATCH = 6;                            // px between hatching lines
-const TOP = 0.1;                            // of the pane: where the candles' scale starts (candleController's top margin)
+const TOP = 0.1;                            // of the pane: where the candles' scale starts (candleSeries.ts's top margin)
 
 export class EventFlags implements ISeriesPrimitive<Time> {
   private chart: IChartApi | null = null;

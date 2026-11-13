@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { expandAllFeature, hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature } from "@headless-tree/core";
 import { useTree } from "@headless-tree/react";
 import type { LineageNode, LineageWidget } from "../model/types";
@@ -17,9 +17,7 @@ const ROOT = "__root__";
 // The versions as a tree by lineage, like IntelliJ's Project view: indent guides, a chevron per
 // parent, each version's VersionLine and how many versions descend from it. Selecting a row (by click
 // or by moving with arrows, Home/End) selects the version everywhere and brings it into view on the canvas.
-// `onOpen` is a phone's: a row's tap opens its version's page, its chevron alone folds it, and the page is not
-// scrolled to follow the selection.
-export function VersionTree({ widget, onOpen }: { widget: LineageWidget; onOpen?: (id: string) => void }) {
+export function VersionTree({ widget }: { widget: LineageWidget }) {
   const structure = useMemo(() => lineageTree(widget), [widget]);
   const byId = useMemo(() => new Map(widget.nodes.map((n) => [n.id, n])), [widget]);
   const parents = useMemo(() => [...structure.children.keys()], [structure]);
@@ -51,7 +49,7 @@ export function VersionTree({ widget, onOpen }: { widget: LineageWidget; onOpen?
   const reveal = (id: string | null) => {
     if (!id || !byId.has(id)) return;
     setExpandedItems((open) => [...new Set([...open, ...ancestors(structure, id)])]);
-    if (!onOpen) requestAnimationFrame(() => { void tree.getItemInstance(id).scrollTo({ block: "nearest" }); });
+    requestAnimationFrame(() => { void tree.getItemInstance(id).scrollTo({ block: "nearest" }); });
   };
   useEffect(() => reveal(selected), [selected]);  // follow a selection made elsewhere
   useEffect(() => {
@@ -68,10 +66,6 @@ export function VersionTree({ widget, onOpen }: { widget: LineageWidget; onOpen?
         return (
           <VersionMenu key={id} id={id}>
           <TreeRow {...item.getProps()} {...hoverProps(id)} onDoubleClick={() => openSource(id)} className="group"
-                   {...(onOpen ? { onClick: (e: MouseEvent) => {
-                     if (!(e.target as Element).closest("[data-chevron]")) onOpen(id);
-                     else if (item.isExpanded()) item.collapse(); else item.expand();
-                   } } : {})}
                    level={level} folder={item.isFolder()} expanded={item.isExpanded()} selected={item.isSelected()}>
             <VersionLine node={node} targets={widget.targets} dim={node.role === "masked"} />
             {count > 0 && <span className="ml-1 text-fg-faint">{count}</span>}

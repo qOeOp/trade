@@ -121,7 +121,7 @@ export function FirstRun({ setup: initial, onReady, onOpen }: { setup: Setup; on
   };
   const page = (children: ReactNode) => (
     <div className="grid h-full place-items-center overflow-auto bg-frame p-6 text-ui text-fg">
-      <div className="w-full max-w-[560px]">{children}</div>
+      <div className="w-full max-w-(--form-measure)">{children}</div>
     </div>
   );
   const shown = chosen ?? setup.repository;

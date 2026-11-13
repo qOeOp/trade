@@ -542,7 +542,7 @@ test("a cycle still open at the window's end is held until that end, not closed 
                  realized_pnl: "-1", commissions: "1", funding: "0", price_pnl: "0", open_unrealized: "5", closing_order_type: null };
   const r = report();
   const b = backtest({ ...r, tables: { ...r.tables, positions: [...r.tables.positions, open] } });
-  assert.deepEqual([b.cycles[0].open, b.cycles[1].open, b.account.holding, b.account.trades.map((t) => t.id)], [true, false, 1, ["9:1"]], "its trades are the closed cycles");
+  assert.deepEqual([b.cycles[0].open, b.cycles[1].open, b.account.trades.map((t) => t.id)], [true, false, ["9:1"]], "its trades are the closed cycles");
   assert.deepEqual(b.cycles.map((c) => [c.id, c.closed]), [["9:2", (D0 + 3 * DAY) * 1000], ["9:1", (D0 + DAY + 3600) * 1000]], "newest first, open at the window's end");
   assert.deepEqual(b.days.map((d) => d.held), [1, 1, 1]);
   assert.deepEqual(cyclesHeld(b.cycles), [[(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000, true], [(D0 + 2 * DAY + 3600) * 1000, (D0 + 3 * DAY) * 1000, false]]);
@@ -702,10 +702,3 @@ test("20261106-01: actual closing fills are not labeled as interrupted valuation
   assert.equal(boxes[0].pnl, 100);
 });
 
-
-test("Live cannot borrow the version's Paper or backtest chart history", () => {
-  const paperHistory = [{ run: running(91), piece: { equity: [1, 2] } }];
-  const research = { minutes: [{ time: 1, value: 1 }] };
-  assert.deepEqual(stage.chartHistory("live", paperHistory, research), { stretches: [], backtest: null });
-  assert.equal(stage.stageOf("live", { backtest: true, paper: true, live: true }), "live");
-});

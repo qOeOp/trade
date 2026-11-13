@@ -8,10 +8,12 @@ import type { Backtest } from "./backtest";
 import type { Stretch } from "./stretches";
 
 export type Stage = "backtest" | "paper" | "live";
+/** The stages a version's chart draws: Live has its own canvas. */
+type Drawn = Exclude<Stage, "live">;
 
 /** Charts use the same stage as Details and Trades. A backtest never changes a paper account's basis. */
-export function chartHistory(stage: Stage, stretches: readonly Stretch[], backtest: Backtest | null): { stretches: readonly Stretch[]; backtest: Backtest | null } {
-  return stage === "backtest" ? { stretches: [], backtest } : { stretches: stage === "paper" ? stretches : [], backtest: null };
+export function chartHistory(stage: Drawn, stretches: readonly Stretch[], backtest: Backtest | null): { stretches: readonly Stretch[]; backtest: Backtest | null } {
+  return stage === "backtest" ? { stretches: [], backtest } : { stretches, backtest: null };
 }
 
 const startedNs = (r: PaperRun) => r.seal?.started_ns ?? r.live?.started_ns ?? createdNs(r);
@@ -44,7 +46,7 @@ export function shownRun(runs: readonly PaperRun[], version: string | null, chos
 
 /** The stage shown: the one picked while the version has it, else paper when it has a
  *  run, else its backtest; null when it has neither. */
-export function stageOf(chosen: Stage | null, has: { backtest: boolean; paper: boolean; live?: boolean }): Stage | null {
+export function stageOf(chosen: Drawn | null, has: { backtest: boolean; paper: boolean }): Drawn | null {
   if (chosen && has[chosen]) return chosen;
   return has.paper ? "paper" : has.backtest ? "backtest" : null;
 }
@@ -53,8 +55,7 @@ export function stageOf(chosen: Stage | null, has: { backtest: boolean; paper: b
 export const contracts = (symbols: readonly string[]) => (symbols.length > 2 ? `${symbols.length} contracts` : symbols.join(", "));
 
 /** The stage's name as the page writes it, after the version it belongs to: "Backtest · trial 200", "Paper · BTCUSDT". */
-export function stageName(stage: Stage, trial: Trial | null, run: PaperRun | null): string {
+export function stageName(stage: Drawn, trial: Trial | null, run: PaperRun | null): string {
   if (stage === "backtest") return `Backtest · trial ${trial?.trial_id ?? ""}`;
-  if (stage === "live") return "Live";
   return `Paper · ${run ? contracts(run.symbols) : "no run"}`;
 }

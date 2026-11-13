@@ -145,7 +145,7 @@ export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<str
     ? "The Live service cannot currently confirm that it is ready to accept new actions. Wait, then refresh observations. (LIVE_RELEASE_UNAVAILABLE)"
     : home.write_reason ?? "Live actions are unavailable in this deployment.";
   return {
-    availability: "ready", preview: false, notice: home.write_enabled ? null : unavailable,
+    availability: "ready", notice: home.write_enabled ? null : unavailable,
     reason: home.write_enabled ? null : home.write_reason ?? "LIVE_WRITE_DISABLED",
     credentials: home.credentials.map((item) => ({ ref: item.credential_ref, savedAt: item.observed_ns, selected: item.selected, available: item.available, removed: item.removed, runIds: item.referenced_runs })),
     sources: home.sources.map((item) => ({ id: item.source_id, candidate: item.candidate, sourceHash: item.source_sha256, entryClass: item.entry_class, purpose: item.purpose, symbols: item.symbols,

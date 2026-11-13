@@ -19,12 +19,12 @@ export function PhoneCard({ onClick, label, children }: { onClick: () => void; l
 }
 
 /** An amount as the equity reading shows it: the whole part large, cents and the unit faint. */
-export function Amount({ value, digits = 2, unit = "USDT", size = "large" }: { value: number | null; digits?: number; unit?: string; size?: "large" | "medium" }) {
-  const [whole = "–", cents = ""] = (value === null ? "" : fixed(value, digits) ?? "").split(".");
+export function Amount({ value, size = "large" }: { value: number | null; size?: "large" | "medium" }) {
+  const [whole = "–", cents = ""] = (value === null ? "" : fixed(value, 2) ?? "").split(".");
   return (
     <span className="whitespace-nowrap font-semibold tabular-nums leading-none tracking-tighter" style={{ fontSize: size === "large" ? 34 : 24 }}>
       {whole}{cents && <span className="text-fg-faint">.{cents}</span>}
-      <span className="ml-1.5 align-baseline text-dense font-normal tracking-normal text-fg-faint">{unit}</span>
+      <span className="ml-1.5 align-baseline text-dense font-normal tracking-normal text-fg-faint">USDT</span>
     </span>
   );
 }
@@ -64,10 +64,10 @@ export const Side = ({ long, word }: { long: boolean | null; word?: string }) =>
   : <span className={long ? "text-pnl-up" : "text-pnl-down"}>{word ?? (long ? "Long" : "Short")}</span>;
 
 /** A held position on one line: the contract, its side, size and entry, its open profit at the right. */
-export function HeldLine({ held, places = -1 }: { held: Held; places?: number }) {
+export function HeldLine({ held }: { held: Held }) {
   return (
     <span className="flex items-baseline gap-2 text-dense tabular-nums">
-      <span className="min-w-0 truncate"><span className="font-semibold">{held.symbol}</span> <Side long={held.long} /> {fixed(held.qty)} @ {fixed(held.entry, places) ?? "–"}</span>
+      <span className="min-w-0 truncate"><span className="font-semibold">{held.symbol}</span> <Side long={held.long} /> {fixed(held.qty)} @ {fixed(held.entry) ?? "–"}</span>
       {held.pnl != null && <span className={`ml-auto shrink-0 ${pnlClass(held.pnl)}`}>{signed(held.pnl)}</span>}
     </span>
   );

@@ -10,7 +10,7 @@ import { headOf, UNIT } from "./equityZones";
 import { yearText, type Year } from "./equityYears";
 
 /** The years, the annual return they are read against and whether the buy and hold is shown. */
-export type Rows = { years: readonly Year[]; annual: number | null; hold: boolean };
+type Rows = { years: readonly Year[]; annual: number | null; hold: boolean };
 
 export class EquityRows implements ISeriesPrimitive<Time> {
   private chart: IChartApi | null = null;

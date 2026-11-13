@@ -7,10 +7,10 @@ export function PhoneBar({ children }: { children: ReactNode }) {
 }
 
 /** A page's way back: the chevron and the name of what it returns to. */
-export function PhoneBack({ children, onClick, href }: { children: ReactNode; onClick?: () => void; href?: string }) {
-  const look = "inline-flex h-(--frame-control) min-w-0 items-center gap-1 rounded-control pl-1 pr-2 text-dense text-fg-muted active:bg-pressed";
-  const inner = <><span className="shrink-0 text-icon"><Icon name="chevron-left" size={20} /></span><span className="truncate">{children}</span></>;
-  return href ? <a href={href} className={look}>{inner}</a> : <button type="button" onClick={onClick} className={look}>{inner}</button>;
+export function PhoneBack({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return <button type="button" onClick={onClick} className="inline-flex h-(--frame-control) min-w-0 items-center gap-1 rounded-control pl-1 pr-2 text-dense text-fg-muted active:bg-pressed">
+    <span className="shrink-0 text-icon"><Icon name="chevron-left" size={20} /></span><span className="truncate">{children}</span>
+  </button>;
 }
 
 /** A phone's page under its bar: it scrolls down to its end and never sideways (a wide table scrolls in its own box). */

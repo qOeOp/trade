@@ -12,7 +12,7 @@ const YEAR_MS = 365 * 86_400_000;
 export type Account = {
   starting: number; equity: number | null; net: number | null; ret: number | null;
   /** Closed trades before fees, so that gross − fees + funding + open = net. */
-  gross: number | null; fees: number | null; funding: number | null; open: number | null; holding: number;
+  gross: number | null; fees: number | null; funding: number | null; open: number | null;
   drawdown: number | null; maxDrawdown: number | null; path: readonly [number, number][];
   start: number | null; end: number; trades: Closed[];
 };
@@ -33,7 +33,6 @@ export function account(lines: readonly JournalLine[], state: PaperState | null,
   return {
     starting, equity, net, ret: seal?.total_return ?? readings?.total_return ?? null,
     gross: net === null || open === null ? null : net + fees - funding - open, fees, funding, open,
-    holding: seal ? 0 : state?.positions.length ?? 0,
     drawdown: seal ? null : latest != null ? 1 - latest / peak : null, maxDrawdown: seal?.max_drawdown ?? readings?.max_drawdown ?? null,
     path, start: started === null ? null : started / 1e6, end: seal?.stopped_ns ? seal.stopped_ns / 1e6 : Date.now(), trades: trades(lines),
   };

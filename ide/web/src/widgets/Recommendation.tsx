@@ -5,7 +5,6 @@ import { meets, ROLE } from "../model/semantics";
 import { pct } from "../lib/format";
 import { Missing } from "../components/Missing";
 import { Tip } from "../components/Tip";
-import { usePhone } from "../state/phone";
 
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 const two = { minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
@@ -30,7 +29,7 @@ export function Recommendation({ widget }: { widget: SummaryWidget }) {
   const counts = widget.trial_counts;
   const num = (x: number | null | undefined, format: typeof percent | typeof two) => (x == null ? <Missing /> : <NumberFlow value={x} format={format} locales="en-US" />);
   return (
-    <div className={`flex min-w-0 flex-wrap items-center gap-x-4 text-dense ${usePhone() ? "gap-y-1" : "h-[1lh] overflow-hidden"}`}>
+    <div className="flex min-w-0 flex-wrap items-center gap-x-4 text-dense h-[1lh] overflow-hidden">
       {widget.status === "masked" && <Metric label="Now" miss tip={ROLE.masked.hint}>Ineligible</Metric>}
       <Metric label="Return" tip={`Target ≥ ${pct(t.annual_return)}`} miss={meets(r?.annual_return, t.annual_return, true) === false}>{num(r?.annual_return, percent)}</Metric>
       <Metric label="Drawdown" tip={`Target ≤ ${pct(t.max_drawdown)}`} miss={meets(r?.max_drawdown, t.max_drawdown, false) === false}>{num(r?.max_drawdown, percent)}</Metric>

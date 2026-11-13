@@ -13,7 +13,7 @@ import { useShown } from "../../state/shown";
 import { alarming, RunHealth, runOrder } from "../../widgets/paper/RunPicker";
 
 /** Runs' shared picker follows the selected stage, with Paper's health beside it. Paper's account
- *  readings are on its chart's Equity switch; each stage's actions are in ToolbarActions. A global
+ *  readings are on its chart's Equity switch; each stage's actions are in the main toolbar's action group (useRunActions). A global
  *  Paper warning is explicitly labelled as an alert outside that stage. */
 export function RunsWidget() {
   const service = usePaperService();
@@ -63,7 +63,6 @@ export function useRunActions(): ReactNode {
     <ActionButton icon="settings" onClick={openLiveCredentials}>Settings</ActionButton>
     <ActionButton icon="history" onClick={openLiveRequests}>Requests</ActionButton>
   </>;
-  const paper = service !== "present" ? null : stage === "paper" && run ? <><RunButton run={run} /><DeleteButton run={run} /></>
+  return service !== "present" ? null : stage === "paper" && run ? <><RunButton run={run} /><DeleteButton run={run} /></>
     : !run && version ? <StartButton candidate={version} /> : null;
-  return paper;
 }

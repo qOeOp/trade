@@ -71,20 +71,6 @@ export function DropdownItem({ icon, children, hint, onSelect, onHighlight, name
   );
 }
 
-/** A navigation item stays a real link, including open-in-new-tab and keyboard navigation. */
-export function DropdownLink({ href, children, hint, current = false }: {
-  href: string; children: ReactNode; hint?: ReactNode; current?: boolean;
-}) {
-  return <DropdownMenu.Item asChild>
-    <a href={href} aria-current={current ? "page" : undefined}
-       className="flex items-center gap-2 rounded-control min-h-6 px-2 py-0.5 outline-none data-highlighted:bg-selection">
-      <span className="grid w-4 shrink-0 place-items-center text-icon">{current && <Icon name="check" />}</span>
-      <span className="min-w-0 flex-1">{children}</span>
-      {hint != null && <span className="shrink-0 text-fg-faint">{hint}</span>}
-    </a>
-  </DropdownMenu.Item>;
-}
-
 export function DropdownRadio<T extends string>({ value, options, onChange }: {
   value: T; options: readonly { value: T; label: string }[]; onChange: (v: T) => void;
 }) {
@@ -125,7 +111,7 @@ export const DropdownGrid = ({ cols, children }: { cols: string; children: React
  *  while the menu scrolls, at the menu's edge over its 4px padding (`-top-1`), so no row shows above it. */
 export const DropdownGridLabel = ({ children, sticky = false }: { children: ReactNode; sticky?: boolean }) =>
   <DropdownMenu.Label className={`${GRID_ROW} items-start pb-1 pt-1.5 text-small text-fg-faint ${sticky ? "sticky -top-1 z-10 bg-popup" : ""}`}><span />{children}</DropdownMenu.Label>;
-/** A navigation row of the grid, a real link like DropdownLink. */
+/** A navigation row of the grid, a real link (open in new tab, keyboard). */
 export function DropdownGridLink({ href, current = false, children }: { href: string; current?: boolean; children: ReactNode }) {
   return <DropdownMenu.Item asChild>
     <a href={href} aria-current={current ? "page" : undefined}

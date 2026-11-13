@@ -36,8 +36,8 @@ await components.link(loader({ stubs: {
   "icons/Icon": { Icon: () => null },
   // SSR has no portal host. Inspect actual dialog contents; browser checks cover the Radix frame.
   "components/LiveDialogFrame": {
-    LiveDialogFrame: ({ open, title, description, children, footer, steps }) => open
-      ? createElement(Fragment, null, "[dialog]", title, description, steps, children, footer) : null,
+    LiveDialogFrame: ({ open, title, description, children, footer }) => open
+      ? createElement(Fragment, null, "[dialog]", title, description, children, footer) : null,
   },
 } }).link);
 await components.evaluate();
@@ -45,7 +45,7 @@ await components.evaluate();
 const render = (name, props) => renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(components.namespace[name], props)));
 const noOp = () => {};
 const blank = {
-  availability: "unavailable", preview: false, notice: "The Live service is not connected. No request will be sent.",
+  availability: "unavailable", notice: "The Live service is not connected. No request will be sent.",
   credentials: [], sources: [], planFields: [], runs: [], request: null,
 };
 const run = {

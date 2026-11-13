@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { change, funding, price, ratio, usd } from "../../lib/format";
 import { capOf, coinsAt, type Coin } from "../../model/market";
 import { marketCoin, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
-import { usePhone } from "../../state/phone";
 import { useOnMarketPage } from "../../state/shell";
 import { pnlClass } from "../../theme/roles";
 import { columns, DataTable, type Column } from "../../components/DataTable";
@@ -34,13 +33,6 @@ const COLUMNS: Column<Coin>[] = [
     cell: (c) => (c.getValue() ? usd(c.getValue()) : <Missing />) }) as Column<Coin>,
 ];
 
-// A phone's width: the coin, where it stands and what it pays; the rest are in its sheet.
-const PHONE_WIDTHS: Record<string, string | undefined> = { base: undefined, price: "w-24", change24h: "w-16", funding: "w-18" };
-const PHONE_COLUMNS = COLUMNS.flatMap((c) => {
-  const key = (c as { accessorKey?: string }).accessorKey ?? "";
-  return key in PHONE_WIDTHS ? [{ ...c, meta: { ...c.meta, width: PHONE_WIDTHS[key] } } as Column<Coin>] : [];
-});
-
 /** What the Coins and News windows say before the overview's first snapshot: not served, offline, or reading. */
 export function MarketPending() {
   const service = useOverviewService();
@@ -52,13 +44,13 @@ export function MarketPending() {
 /** The coins of the level the Market page shows, the folded tail included, as one sortable table; a row
  *  picks its coin as a tile does. Outside the Market page it says where it belongs. */
 export function CoinsWindow() {
-  const snapshot = useSnapshot(), { path, coin, size } = useMarketView(), page = useOnMarketPage(), phone = usePhone();
+  const snapshot = useSnapshot(), { path, coin, size } = useMarketView(), page = useOnMarketPage();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
   if (!page) return <p className="p-4 text-fg-faint">The coins of the Market page's level.</p>;
   if (!snapshot) return <MarketPending />;
   if (!coins.length) return <p className="p-4 text-fg-faint">{path.length ? "This level is not in the latest snapshot." : "No coins in this snapshot."}</p>;
   return (
-    <DataTable data={coins} columns={phone ? PHONE_COLUMNS : COLUMNS} rowId={(c) => c.symbol} selected={coin} fixed={phone}
+    <DataTable data={coins} columns={COLUMNS} rowId={(c) => c.symbol} selected={coin}
                initialSort={[{ id: "cap", desc: true }]} onRow={(c) => marketCoin.set(c.symbol)} />
   );
 }

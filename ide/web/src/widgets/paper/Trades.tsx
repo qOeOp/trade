@@ -8,7 +8,6 @@ import { holdings, span, trades, type Closed } from "../../model/trades";
 import { useNow } from "../../components/hooks/useNow";
 import { useAtom } from "../../state/atom";
 import { pickedTrade, type Stream } from "../../state/paperStream";
-import { usePhone } from "../../state/phone";
 import { pnlClass } from "../../theme/roles";
 
 const HOW: Record<Closed["how"], string> = { stop: "Stop", target: "Target", other: "Other" };
@@ -19,17 +18,12 @@ const CELL = "h-(--form-h) whitespace-nowrap px-3 border-t border-line";
 const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint";
 
 type Cell = ReactNode | [ReactNode, string];
-/** The columns as a phone orders them, the P&L (second to last) in sight after the side (`only`: no contract column). */
-const phoneOrder = <T,>(list: readonly T[], only: boolean): T[] => {
-  const at = only ? 1 : 2;
-  return [...list.slice(0, at), list.at(-2)!, ...list.slice(at, -2), list.at(-1)!];
-};
 function Row({ cells, open = false, picked = false }: { cells: (Cell | null)[]; open?: boolean; picked?: boolean }) {
-  const ref = useRef<HTMLTableRowElement>(null), phone = usePhone();
+  const ref = useRef<HTMLTableRowElement>(null);
   useEffect(() => { if (picked) ref.current?.scrollIntoView({ block: "nearest" }); }, [picked]);
   return (
     <tr ref={ref} data-selected={picked ? "" : undefined} className={open ? "bg-island-alt" : "transition-colors hover:bg-row-hover"}>
-      {(phone ? phoneOrder(cells.filter((c) => c !== null), cells[0] === null) : cells.filter((c) => c !== null)).map((c, i) => { const [body, extra] = Array.isArray(c) ? c : [c, ""]; return <td key={i} className={`${CELL} ${extra.includes("text-left") ? "" : "text-right"} ${extra}`}>{body}</td>; })}
+      {cells.filter((c) => c !== null).map((c, i) => { const [body, extra] = Array.isArray(c) ? c : [c, ""]; return <td key={i} className={`${CELL} ${extra.includes("text-left") ? "" : "text-right"} ${extra}`}>{body}</td>; })}
     </tr>
   );
 }
@@ -41,7 +35,7 @@ const Faint = ({ children }: { children: ReactNode }) => <span className="text-f
  *  trade picked on the equity chart is highlighted and scrolled into view. */
 export function Trades({ s, only }: { s: Stream; only: string | null }) {
   const now = useNow(30_000), zone = useTimeZone();
-  const picked = useAtom(pickedTrade), phone = usePhone();
+  const picked = useAtom(pickedTrade);
   const digits = useMemo(() => precisions(s.lines), [s.lines]);
   const book = useMemo(() => holdings(s.lines, s.state?.positions ?? null, s.state?.orders ?? [], !!s.seal), [s.lines, s.state, s.seal]);
   const stopped = useMemo(() => stoppedPositions(s.lines, observedCloses(s.bars, s.closes), s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : null), [s.lines, s.bars, s.closes, s.seal]);
@@ -64,7 +58,7 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
   return (
     <>
     <table className="w-full border-collapse text-dense tabular-nums">
-      <thead><tr>{phone ? phoneOrder(heads, !!only) : heads}</tr></thead>
+      <thead><tr>{heads}</tr></thead>
       <tbody>
         {open.map((o) => {
           const stop = o.orders.find((w) => w.kind === "stop"), target = o.orders.find((w) => w.kind === "target"), p = of(o.symbol);

@@ -3,7 +3,6 @@ import { CoinChip, CoinMenu, type Coin, type CoinGroup } from "../../components/
 import { Tabs } from "../../components/Tabs";
 import { sideOf } from "../../model/liveChart";
 import type { LiveRun } from "../../model/liveTrading";
-import { useLandscape, usePhone } from "../../state/phone";
 import { useTargets } from "../../state/shown";
 import { EquityChart } from "../paper/EquityChart";
 import { EquityReading } from "../paper/EquityReading";
@@ -12,13 +11,13 @@ import { liveLine, liveReading } from "./liveEquity";
 export type LiveView = "equity" | "coins";
 
 /** The live chart's switch, as the paper chart's (ChartSwitches): Equity, reading the run's account and its
- *  return on the budget beside its label (a phone held upright leaves them out), or Coins, holding the
+ *  return on the budget beside its label, or Coins, holding the
  *  contract `symbol` shown in a capsule with the side it holds; a run on several contracts picks another from
  *  its menu (holding, traded, not traded). */
 export function LiveSwitches({ run, view, symbol, onView, onSymbol }: {
   run: LiveRun; view: LiveView; symbol: string | null; onView: (view: LiveView) => void; onSymbol: (symbol: string) => void;
 }) {
-  const phone = usePhone(), landscape = useLandscape(), reading = liveReading(run.equity), symbols = run.symbols ?? [];
+  const reading = liveReading(run.equity), symbols = run.symbols ?? [];
   const coinOf = (s: string): Coin => ({ symbol: s, side: sideOf(run, s) });
   const traded = new Set((run.orders ?? []).filter((o) => o.event_type === "OrderFilled").map((o) => o.instrument_id));
   const held = symbols.filter((s) => sideOf(run, s)), rest = symbols.filter((s) => !sideOf(run, s));
@@ -28,7 +27,7 @@ export function LiveSwitches({ run, view, symbol, onView, onSymbol }: {
   const after = view !== "coins" || !symbol ? undefined
     : symbols.length > 1 ? <CoinMenu groups={groups} coin={coinOf(symbol)} onPick={onSymbol} /> : <CoinChip coin={coinOf(symbol)} />;
   return <Tabs label="Chart" value={view} onChange={onView} items={[
-    { id: "equity", label: reading && !(phone && !landscape) ? <>Equity<EquityReading equity={reading} /></> : "Equity" },
+    { id: "equity", label: reading ? <>Equity<EquityReading equity={reading} /></> : "Equity" },
     { id: "coins", label: "Coins", disabled: !symbol, hint: "No coins", after },
   ]} />;
 }

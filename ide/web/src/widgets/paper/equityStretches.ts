@@ -14,10 +14,11 @@
 // close, as a coarser step's point is (equityResolution.ts).
 import { amount, type PaperRun } from "../../lib/paperApi";
 import type { Backtest } from "../../model/backtest";
-import { dailyHold, equityReadings, type Reading } from "../../model/equityReadings";
+import { dailyHold, equityReadings, type DailyCloses, type Reading } from "../../model/equityReadings";
 import { days as daysOf, fills as fillsOf, restartsOf, type Restart } from "../../model/paper";
 import type { Stretch } from "../../model/stretches";
-import type { DayBar, EquityPoint } from "./equityLayers";
+import type { DayBar } from "./equityBands";
+import type { EquityPoint } from "./equityLayers";
 import type { Episode } from "./equityNotes";
 import { stepFor, withDowns } from "./equityResolution";
 
@@ -56,9 +57,6 @@ function paper({ chain, piece, selected, run }: Stretch): Segment {
     readings: () => equityReadings(ns, piece.lines, fillsOf(piece.lines), piece.closes, starting),
   };
 }
-
-/** Each contract's daily closes ([day start s, close]), by symbol: the backtest's buy and hold's. */
-export type DailyCloses = Readonly<Record<string, readonly (readonly [number, number])[]>>;
 
 function tested(b: Backtest, selected: boolean, closes: DailyCloses | null): Segment {
   const hold = closes && dailyHold(b.days.map((d) => d.time), closes, b.starting!);

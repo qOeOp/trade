@@ -85,7 +85,7 @@ export function describe(line: JournalLine, digits: ReadonlyMap<string, Precisio
 
 /** A stretch a chain was paused or offline, from the earlier run's stop to the next one's start (ms), with
  *  what happened at the stop and how the next run took over (ending.ts); "idle" when no run ran between the
- *  end of one chain and the start of the next (state/stretches.ts). */
+ *  end of one chain and the start of the next (model/stretches.ts). */
 export type Restart = { from: number; to: number; gap: "paused" | "offline" | "idle"; lead: string; resumed: string };
 /** The restarts a joined journal holds (model/chain.ts). */
 export const restartsOf = (lines: readonly JournalLine[]): Restart[] =>

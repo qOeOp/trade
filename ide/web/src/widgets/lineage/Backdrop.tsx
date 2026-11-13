@@ -17,7 +17,7 @@ export function Backdrop({ widget, inset }: { widget: LineageWidget; inset: numb
   const scope = widget.axis.scope_start;
   if (!viewport) return null;
   return createPortal(
-    <svg data-backdrop data-rows={widget.rows.length} width={width} height={height} className="pointer-events-none absolute -z-10" style={{ left, top }}>
+    <svg width={width} height={height} className="pointer-events-none absolute -z-10" style={{ left, top }}>
       {scope != null && <rect x={0} y={0} width={Math.max(0, Math.min(width, X(scope)))} height={height} fill={v("scope")} />}
       {[...new Map(widget.decisions.map((d) => [d.x, d.kind === "line_decision"])).entries()].map(([x, line]) => (
         <line key={x} x1={X(x) + 0.5} x2={X(x) + 0.5} y1={0} y2={height} stroke={v("line-strong")}

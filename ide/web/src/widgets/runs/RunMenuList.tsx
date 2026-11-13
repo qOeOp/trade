@@ -10,7 +10,7 @@ import { useLiveTrading } from "../../state/liveTrading";
 import { showLiveRun } from "../../state/liveWorkspace";
 import { usePaperRuns, usePaperService } from "../../state/paper";
 import { useShown } from "../../state/shown";
-import { chooseRun, showRun } from "../../state/stage";
+import { chooseRun } from "../../state/stage";
 import { RunList, runOrder } from "../paper/RunPicker";
 
 type Kind = "live" | "paper";
@@ -22,12 +22,12 @@ const PHASES: Record<Kind, readonly [Phase, string][]> = {
   paper: [["all", "All"], ["active", "Running"], ["ended", "Sealed"]],
 };
 
-/** The toolbar/sheet picker of runs to show. On top, beside its title, a box finding a run by version or ID
+/** The toolbar picker of runs to show. On top, beside its title, a box finding a run by version or ID
  *  (Enter shows the first match); under it the list it shows (Live or Paper, the shown stage's first) and its
  *  phases, each with its count; under them the runs, grouped by version. A live run is set up from the Live
  *  stage of a chosen version, not here. Both lists, whole, are also laid out unseen and zero high, so the
  *  picker is as wide as the wider of them and switching lists, phases or searching never changes its width. */
-export function RunMenuList({ close, phone = false }: { close: () => void; phone?: boolean }) {
+export function RunMenuList({ close }: { close: () => void }) {
   const paper = usePaperRuns()?.runs ?? [], service = usePaperService(), { run, liveRun, stage } = useShown();
   const { view } = useLiveTrading(), now = useNow();
   const [kind, setKind] = useState<Kind>(stage === "live" ? "live" : "paper"), [phase, setPhase] = useState<Phase>("all"), [query, setQuery] = useState("");
@@ -53,7 +53,7 @@ export function RunMenuList({ close, phone = false }: { close: () => void; phone
     </div>;
   };
   const paperList = (shown: typeof order, q: string) => paper.length
-    ? <RunList anyLine={phone} query={q} order={shown} runs={paper} front={run} now={now} pick={(item) => { (phone ? showRun : chooseRun)(item); close(); }} />
+    ? <RunList query={q} order={shown} runs={paper} front={run} now={now} pick={(item) => { chooseRun(item); close(); }} />
     : <p className="px-3 py-2 text-small text-fg-faint">{service === "absent" ? "Paper runs are not served" : "No paper runs available"}</p>;
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -70,7 +70,7 @@ export function RunMenuList({ close, phone = false }: { close: () => void; phone
           <span className="shrink-0 font-semibold">Runs</span>
           <label className="flex h-(--form-h) min-w-0 flex-1 items-center gap-1.5 rounded-control border border-line-strong bg-island px-2 focus-within:border-focus">
             <span className="flex text-fg-faint"><Icon name="search" size={12} /></span>
-            <input autoFocus={!phone} aria-label={kind === "live" ? "Find a live run" : "Find a paper run"} value={query} onChange={(event) => setQuery(event.target.value)}
+            <input autoFocus aria-label={kind === "live" ? "Find a live run" : "Find a paper run"} value={query} onChange={(event) => setQuery(event.target.value)}
               placeholder={kind === "live" ? "Version or run ID" : "Version or run number"}
               onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("[data-run-menu]")?.querySelector<HTMLElement>("[role=option]")?.click(); }}
               className="h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-fg-ghost" />

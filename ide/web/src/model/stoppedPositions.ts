@@ -1,8 +1,8 @@
 // Positions left open when a runner ended are observations, not closing fills or current holdings.
 import { amount, symbolOf, type JournalLine } from "../lib/paperApi";
+import type { DailyCloses } from "./equityReadings";
 import { eventMs } from "./paper";
 
-type Closes = Readonly<Record<string, readonly (readonly [number, number])[]>>;
 type StoppedPosition = {
   id: string; symbol: string; long: boolean; quantity: number; entry: number | null;
   last: number | null; pnl: number | null; opened: number; stopped: number; observed: number | null;
@@ -16,7 +16,7 @@ export function closeAt(closes: readonly (readonly [number, number])[], cutoff: 
 }
 
 /** Contract prices from an Account stream, or a contract stream's bars; neither writes a new fact. */
-export function observedCloses(bars: readonly JournalLine[], closes: Closes): Closes {
+export function observedCloses(bars: readonly JournalLine[], closes: DailyCloses): DailyCloses {
   const found: Record<string, [number, number][]> = {};
   for (const b of bars) {
     const price = amount(b.close);
@@ -27,7 +27,7 @@ export function observedCloses(bars: readonly JournalLine[], closes: Closes): Cl
 
 /** Every earlier runner's residual position at its restart, plus the latest one's if sealed. The ids
  *  in a joined journal are already namespaced. A flat or genuinely closed position produces no row. */
-export function stoppedPositions(lines: readonly JournalLine[], closes: Closes, stopped: number | null = null): StoppedPosition[] {
+export function stoppedPositions(lines: readonly JournalLine[], closes: DailyCloses, stopped: number | null = null): StoppedPosition[] {
   const held = new Map<string, { line: JournalLine; opened: number }>(), out: StoppedPosition[] = [];
   const finish = (at: number) => {
     for (const [id, { line, opened }] of held) {
