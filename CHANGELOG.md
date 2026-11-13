@@ -16,8 +16,9 @@ gh release create vX.Y.Z --target <merge-commit> --title vX.Y.Z --notes-file <en
 
 The tag push wakes `release-ready`, which admits the version once every check of its commit has passed and records
 a GitHub deployment to `production`; the host switches on its next release tick. A version on a commit behind the
-one the host runs is ignored. Its images are `ghcr.io/qoeop/trade-{ide,service,runtime}:sha-<merge-commit>`; going
-back to one is [Rolling back](deploy/remote/README.md#rolling-back).
+one the host runs is ignored. Its images are the digests `deploy-ready` records for it: the IDE, the service and the
+execution runtime `trade-runtime:exec-sha-<commit>` ([Image versions](deploy/README.md#image-versions)); going back to
+one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 

@@ -6,8 +6,8 @@ Report it privately through GitHub: **Security → Report a vulnerability** on t
 ([advisories/new](https://github.com/qOeOp/trade/security/advisories/new)). Do not open a public issue or pull
 request for it. Expect an answer within a week; this is a one-person project with no bounty.
 
-Fixes land on `main` and reach the author's host with the next checked build. The latest commit of `main` is the only
-supported version; older tags ([`CHANGELOG.md`](CHANGELOG.md)) get no fixes.
+Fixes land on `main` and reach the author's host with the next version ([`CHANGELOG.md`](CHANGELOG.md)). The latest
+version is the only supported one; older versions get no fixes.
 
 ## What it protects
 

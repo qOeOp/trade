@@ -12,7 +12,6 @@ target-version = "py314"
 extend-select = ["B"]
 ignore = [
   "E731",  # style: a short lambda bound to a local name reads as well as a def here
-  "E741",  # style: o, h, l, c are the bar's open, high, low and close
 ]
 
 [lint.per-file-ignores]

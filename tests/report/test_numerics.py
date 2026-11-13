@@ -35,7 +35,7 @@ class PairedTests(unittest.TestCase):
         left = [0.01, -0.02, 0.005, 0.0, 0.015, -0.01]
         right = [0.012, -0.01, 0.0, 0.004, 0.02, -0.012]
         found = comparison.paired(left, right, DESIGN, 1)
-        logs = [math.log1p(r) - math.log1p(l) for l, r in zip(left, right, strict=True)]
+        logs = [math.log1p(b) - math.log1p(a) for a, b in zip(left, right, strict=True)]
         self.assertAlmostEqual(found["mean_daily_log_difference"], sum(logs) / 6, places=15)
         annual = (math.exp(365 * sum(map(math.log1p, right)) / 6) - math.exp(365 * sum(map(math.log1p, left)) / 6))
         self.assertAlmostEqual(found["annual_return_difference"], annual, places=12)

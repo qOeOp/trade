@@ -154,8 +154,27 @@ class CiGateTests(unittest.TestCase):
         )
         return result.returncode == 0
 
+    def verdicts(self, command, cases, always=""):
+        """The gate's verdict on each NEEDS object from one jq run of the command's own filter, read as `jq -e`
+        reads it: pass only when the filter ends on a value other than false or null, without an error."""
+        program = command[command.index("'") + 1:command.rindex("'")]
+        result = subprocess.run(
+            ["jq", "-c", "--arg", "always", always, f"[try ({program}) catch false] | last | . != null and . != false"],
+            input="".join(json.dumps(needs) + "\n" for needs in cases), capture_output=True, text=True, check=True,
+        )
+        return [line == "true" for line in result.stdout.splitlines()]
+
+    def assert_verdicts(self, command, cases, always=""):
+        """`cases` is (subtest labels, NEEDS, expected verdict) for every combination; all go through one jq run."""
+        found = self.verdicts(command, [needs for _, needs, _ in cases], always)
+        self.assertEqual(len(found), len(cases))
+        for (labels, _, expected), verdict in zip(cases, found, strict=True):
+            with self.subTest(**labels):
+                self.assertEqual(verdict, expected)
+
     def assert_fails_closed(self, command, jobs, always=()):
         """Every selector state and job outcome: pass only on a clean selector with each job as it selected."""
+        cases = []
         for changed, selector_result, results in itertools.product(
             ("true", "false", "", "invalid"), self.OUTCOMES,
             itertools.product(self.OUTCOMES, repeat=len(jobs) + len(always)),
@@ -167,31 +186,36 @@ class CiGateTests(unittest.TestCase):
                 (changed == "true" and all(r == "success" for r in selected))
                 or (changed == "false" and all(r == "skipped" for r in selected))
             )
-            with self.subTest(changed=changed, selector=selector_result, results=results, always=always):
-                self.assertEqual(self.passes(command, needs, " ".join(always)), expected)
+            cases.append((dict(changed=changed, selector=selector_result, results=results, always=always), needs,
+                          expected))
+        self.assert_verdicts(command, cases, " ".join(always))
 
     def test_the_shared_gate_fails_closed_for_failed_cancelled_or_unexpectedly_skipped_jobs(self):
         command = textwrap.dedent(GATE.read_text().split("      run: |\n", 1)[1])
         self.assert_fails_closed(command, ("build",))
         self.assert_fails_closed(command, ("tests",), ("skill-names",))
         selector = {"result": "success", "outputs": {"changed": "true"}}
-        for needs, always in (
-            ({"changes": selector, "build": {"result": "success"}, "agent": {"result": "skipped"}}, ""),
-            ({"changes": selector, "tests": {"result": "success"}}, "skill-names"),  # a named job that is not needed
-            ({"changes": selector, "image": {"result": "success"}, "replay-image": {"result": "failure"}}, " image\n"),
+        # A few cases through the verbatim `bash -e` command, so its quoting and `jq -e` exit status stay tested.
+        for needs, always, expected in (
+            ({"changes": selector, "build": {"result": "success"}, "agent": {"result": "skipped"}}, "", False),
+            ({"changes": selector, "tests": {"result": "success"}}, "skill-names", False),  # a named job not needed
+            ({"changes": selector, "image": {"result": "success"}, "replay-image": {"result": "failure"}}, " image\n",
+             False),
+            ({"changes": selector, "tests": {"result": "success"}, "skill-names": {"result": "success"}},
+             "skill-names", True),
         ):
             with self.subTest(needs=needs, always=always):
-                self.assertFalse(self.passes(command, needs, always))
+                self.assertEqual(self.passes(command, needs, always), expected)
 
     def test_the_runtime_image_gate_requires_each_selected_image_and_skips_each_unselected_one(self):
         source = (ROOT / ".github/workflows/runtime-image.yml").read_text()
         command = textwrap.dedent(source.split("\n  gate:\n", 1)[1].split("        run: |\n", 1)[1])
         images = {"replay": ("replay-image", "replay-manifest"), "execution": ("image", "manifest")}
-        outcomes = ("success", "failure", "cancelled", "skipped")
+        cases = []
         for replay, execution, selector_result in itertools.product(
             ("true", "false", "invalid"), ("true", "false", ""), ("success", "failure")
         ):
-            for results in itertools.product(outcomes, repeat=4):
+            for results in itertools.product(self.OUTCOMES, repeat=4):
                 needs = {"changes": {"result": selector_result, "outputs": {"replay": replay, "execution": execution}}}
                 jobs = dict(zip((*images["replay"], *images["execution"]), results, strict=True))
                 needs.update({job: {"result": result} for job, result in jobs.items()})
@@ -201,8 +225,15 @@ class CiGateTests(unittest.TestCase):
                             or (changed == "false" and all(jobs[name] == "skipped" for name in names)))
                 expected = (selector_result == "success" and selected(replay, images["replay"])
                             and selected(execution, images["execution"]))
-                with self.subTest(replay=replay, execution=execution, selector=selector_result, results=results):
-                    self.assertEqual(self.passes(command, needs), expected)
+                cases.append((dict(replay=replay, execution=execution, selector=selector_result, results=results),
+                              needs, expected))
+        self.assert_verdicts(command, cases)
+        selector = {"result": "success", "outputs": {"replay": "true", "execution": "false"}}
+        for manifest, expected in (("success", True), ("cancelled", False)):
+            needs = {"changes": selector, "replay-image": {"result": "success"}, "replay-manifest": {"result": manifest},
+                     "image": {"result": "skipped"}, "manifest": {"result": "skipped"}}
+            with self.subTest(verbatim=manifest):
+                self.assertEqual(self.passes(command, needs), expected)
 
 
 class ReplaySelectorTests(unittest.TestCase):
@@ -264,6 +295,24 @@ class ReplaySelectorTests(unittest.TestCase):
         self.assertFalse(select(), "a release's version bump leaves the replay digest alone")
         write("0.3.0", dependency="1.1")
         self.assertTrue(select(), "a locked dependency is a replay input")
+
+    def test_a_change_only_to_the_build_backend_selects_no_build(self):
+        def write(modules, dependencies='["a"]'):
+            (self.repo / "pyproject.toml").write_text(
+                f'[project]\nname = "trade-research"\nversion = "0.2.0"\ndependencies = {dependencies}\n\n'
+                f'[build-system]\nrequires = ["uv_build>=0.12.1,<0.14"]\nbuild-backend = "uv_build"\n\n'
+                f'[tool.uv.build-backend]\nmodule-name = {modules}\n')
+            self.git("add", ".")
+            self.git("-c", "user.name=CI", "-c", "user.email=ci@example.com", "commit", "-qm", modules)
+            return self.git("rev-parse", "HEAD")
+        built = write('["cli", "engine"]')
+        self.selector.built_from = lambda image: built
+        def select():
+            return self.selector.changed("push", ["pyproject.toml", "uv.lock"], "", "registry.example/name:main")
+        write('["cli", "engine", "shared"]')
+        self.assertFalse(select(), "the image installs with --no-install-project and never builds the package")
+        write('["cli", "engine", "shared"]', dependencies='["a", "b"]')
+        self.assertTrue(select(), "a declared dependency is a replay input")
 
     def test_a_pull_request_compares_with_its_base_and_other_events_build(self):
         self.assertFalse(self.select("pull_request", base=self.built))
