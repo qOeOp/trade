@@ -13,6 +13,10 @@ from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_DAY, RUNTIME, SKIP, S
                                market, reviewed, sha, source, window)
 
 
+def open_names(conn) -> list[str]:
+    return [line["name"] for line in lines.lines(conn, open_only=True)]
+
+
 @unittest.skipUnless(BINARY, SKIP)
 class ResearchLineTests(unittest.TestCase):
     def setUp(self):
@@ -39,7 +43,7 @@ class ResearchLineTests(unittest.TestCase):
         return self.service.sql(self.profile, "SELECT seq FROM ledger_head")[0][0]
 
     def test_lines_are_named_by_slug_appended_and_read_back(self):
-        self.assertEqual(lines.open_lines(self.conn), [])
+        self.assertEqual(open_names(self.conn), [])
         self.assertEqual(self.open_code(), "RESEARCH_LINE_REQUIRED")
         before = db.head_commit(self.conn)
         first = self.select()
@@ -53,7 +57,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertTrue(second["created"])
         same_choice = self.select(slug="ema-trend-elsewhere")
         self.assertNotEqual(same_choice["line_id"], first["line_id"], "lines on one choice stay apart by name")
-        self.assertEqual(lines.open_lines(self.conn), ["ema-trend", "ema-trend-wider", "ema-trend-elsewhere"],
+        self.assertEqual(open_names(self.conn), ["ema-trend", "ema-trend-wider", "ema-trend-elsewhere"],
                          "selecting ends no line")
         self.assertEqual(self.open_code(), "LINE_AMBIGUOUS")
         read = lines.open_line(self.conn, "ema-trend-wider")
@@ -63,9 +67,9 @@ class ResearchLineTests(unittest.TestCase):
                           False))
         self.assertEqual(lines.read_line(self.conn, second["line_id"])["name"], "ema-trend-wider")
         with db.read_as_of(self.profile, self.first_commit(first["line_id"])) as pinned:
-            self.assertEqual(lines.open_lines(pinned), ["ema-trend"])
+            self.assertEqual(open_names(pinned), ["ema-trend"])
         with db.read_as_of(self.profile, before) as pinned:
-            self.assertEqual(lines.open_lines(pinned), [])
+            self.assertEqual(open_names(pinned), [])
         for line in ("none", 999):
             with self.subTest(line=line):
                 self.assertEqual(self.open_code(line), "LINE_UNKNOWN")
@@ -240,18 +244,18 @@ class ResearchLineTests(unittest.TestCase):
                          [(first["line_id"], summary.decode().strip())])
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM dolt_tags"), [(0,)])
         self.assertEqual(lines.read_line(self.conn, "ema-trend")["summary"], summary.decode().strip())
-        self.assertEqual(lines.open_lines(self.conn), ["ema-trend-wider"])
+        self.assertEqual(open_names(self.conn), ["ema-trend-wider"])
         self.assertEqual(lines.open_line(self.conn)["line_id"], second["line_id"])
         self.assertEqual(self.open_code("ema-trend"), "LINE_ENDED")
         with db.read_as_of(self.profile, closed["ledger_commit"]) as pinned:
-            self.assertEqual(lines.open_lines(pinned), ["ema-trend-wider"])
+            self.assertEqual(open_names(pinned), ["ema-trend-wider"])
         with db.read_as_of(self.profile, before) as pinned:
-            self.assertEqual(lines.open_lines(pinned), ["ema-trend", "ema-trend-wider"],
+            self.assertEqual(open_names(pinned), ["ema-trend", "ema-trend-wider"],
                              "open before its closing commit")
         later = self.select(market=market(market_day="2026-03-06"), slug="ema-later")
         self.assertTrue(lines.close_line(self.profile, "ema-trend", summary, MARKET_DAYS)["replayed"], "a later head too")
         self.assertEqual(self.close_code("ema-trend", b"another summary"), "LINE_CLOSED")
-        self.assertEqual(lines.open_lines(self.conn), ["ema-trend-wider", "ema-later"])
+        self.assertEqual(open_names(self.conn), ["ema-trend-wider", "ema-later"])
         self.assertTrue(self.select(slug="ema-trend-again")["created"], "a closed line's market and window are free")
         self.assertEqual(self.close_code("none", summary), "LINE_UNKNOWN")
         self.assertEqual(later["line"], "ema-later")

@@ -15,8 +15,9 @@ retry returns the original record), refuse a dirty working set, insert, bump the
 `ledger_head` row and `dolt_commit`. The schema's keys, CHECKs and foreign keys hold the records'
 rules (`ledger review` verifies the foreign keys a writer session could switch off). Two concurrent
 writers both change `ledger_head`, so Dolt refuses the later one (error 1213) instead of merging.
-A write that records what cannot recur (a replay's sealed capture or run) reruns its transaction
-a few times on that refusal; every other write returns it to the caller.
+A write whose checks are rerun on the new head (opening a trial, a registration, a sealed capture,
+run or reseal, a Paper source) reruns its transaction a few times on that refusal; every other write
+returns it to the caller.
 """
 
 from __future__ import annotations
@@ -450,11 +451,10 @@ def init(name: str, database: str, service_root: Path, kind: Literal["active", "
     profile = LedgerProfile(name=name, database=database, service_root=service_root, kind=kind,
                             backup_root=Path(backup_root).expanduser().absolute() if backup_root else None,
                             holds=holds)
-    _, commit = _provision(service_root, config, database,
-                           lambda cursor, accounts: _ledger_tables(cursor, database, accounts, holds),
-                           profile_directory.home() / f"{name}.json", profile.as_json())
-    return {"profile": profile, "accounts_created": list(ROLES), "branch_grant": BRANCH,
-            "schema_version": SCHEMAS[holds][1], "commit": commit}
+    _provision(service_root, config, database,
+               lambda cursor, accounts: _ledger_tables(cursor, database, accounts, holds),
+               profile_directory.home() / f"{name}.json", profile.as_json())
+    return {"profile": profile, "branch_grant": BRANCH, "schema_version": SCHEMAS[holds][1]}
 
 
 def _secure(cursor, config: dict) -> None:
@@ -474,10 +474,10 @@ def _account_name(database: str, role: str) -> str:
     return "lg-" + hashlib.sha256(f"{database}:{role}".encode()).hexdigest()[:29]
 
 
-def _provision(service_root: Path, config: dict, database: str, build: Callable[[object, dict], str],
-               profile_path: Path, profile: dict) -> tuple[dict, str]:
+def _provision(service_root: Path, config: dict, database: str, build: Callable[[object, dict], None],
+               profile_path: Path, profile: dict) -> None:
     """Create `database` on the running service with `build(cursor, accounts)` (its tables, its two
-    accounts and their grants; returns the creating commit), record the accounts in service.json and
+    accounts and their grants), record the accounts in service.json and
     write the profile. The service alone says whether the database exists: a service.json entry,
     branch grants or accounts left for a name it does not hold belong to a dropped database and are
     replaced. Any failure once the database is created removes what this call created (the database,
@@ -496,7 +496,7 @@ def _provision(service_root: Path, config: dict, database: str, build: Callable[
             cursor.execute(f"USE `{database}`")
             _clear(cursor, database, accounts)
             _secure(cursor, config)
-            commit = build(cursor, accounts)
+            build(cursor, accounts)
         config["secured"] = True
         config["databases"][database] = accounts
         recorded = True
@@ -511,7 +511,6 @@ def _provision(service_root: Path, config: dict, database: str, build: Callable[
         raise
     finally:
         conn.close()
-    return accounts, commit
 
 
 def _clear(cursor, database: str, accounts: dict) -> None:
@@ -538,22 +537,19 @@ def _remove(service_root: Path, config: dict, database: str, accounts: dict, rec
         profile_directory.private_write(service_root / "service.json", config)
 
 
-def ledger_schema(cursor, holds: str = "research") -> str:
-    """The tables of a new database holding `holds`, on the selected database; returns the creating commit."""
+def ledger_schema(cursor, holds: str = "research") -> None:
+    """The tables of a new database holding `holds`, on the selected database, committed."""
     schema, version = SCHEMAS[holds]
     for statement in _statements(schema.read_text(encoding="utf-8")):
         cursor.execute(statement)
     cursor.execute("INSERT INTO ledger_schema VALUES (1, %s)", (version,))
     cursor.execute("INSERT INTO ledger_head VALUES (1, 0, 'schema')")
     cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (f"schema:{version}",))
-    (commit,), = cursor.fetchall()
-    return commit
 
 
-def _ledger_tables(cursor, database: str, accounts: dict, holds: str = "research") -> str:
-    commit = ledger_schema(cursor, holds)
+def _ledger_tables(cursor, database: str, accounts: dict, holds: str = "research") -> None:
+    ledger_schema(cursor, holds)
     ledger_accounts(cursor, database, accounts, holds)
-    return commit
 
 
 def ledger_accounts(cursor, database: str, accounts: dict, holds: str = "research") -> None:
@@ -590,16 +586,13 @@ def _days(names: list[str], row: tuple) -> tuple:
 class LedgerConnection:
     """One command's connection to one database/branch, with its account role."""
 
-    def __init__(self, raw, profile: LedgerProfile, role: str, branch: str, schema_version: int):
-        self.raw, self._profile, self._role, self._branch = raw, profile, role, branch
-        self._schema_version = schema_version
+    def __init__(self, raw, profile: LedgerProfile, role: str):
+        self.raw, self._profile, self._role = raw, profile, role
         self.in_write = False
 
     profile = property(lambda self: self._profile)
     role = property(lambda self: self._role)
     database = property(lambda self: self._profile.database)
-    branch = property(lambda self: self._branch)
-    schema_version = property(lambda self: self._schema_version)
 
     def rows(self, statement: str, params=None) -> list[tuple]:
         try:
@@ -649,8 +642,8 @@ class LedgerConnection:
 class ReadConnection(LedgerConnection):
     """A reader connection pinned on the revision database of one exact commit."""
 
-    def __init__(self, raw, profile, branch, schema_version, resolved_commit: str):
-        super().__init__(raw, profile, "reader", branch, schema_version)
+    def __init__(self, raw, profile, resolved_commit: str):
+        super().__init__(raw, profile, "reader")
         self.resolved_commit = resolved_commit
 
 
@@ -710,7 +703,7 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"]) -> Ledger
                                  write_timeout=600, max_allowed_packet=1 << 30)
     except pymysql.MySQLError as exc:
         raise _connection_error(exc) from exc
-    conn = LedgerConnection(raw, profile, role, BRANCH, 0)
+    conn = LedgerConnection(raw, profile, role)
     try:
         version, expected = _schema_version(conn), SCHEMAS[profile.holds][1]
         if version != expected:
@@ -719,7 +712,6 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"]) -> Ledger
     except BaseException:
         conn.close()
         raise
-    conn._schema_version = version
     return conn
 
 
@@ -761,7 +753,7 @@ def read_as_of(profile: LedgerProfile, at: str | None = None) -> ReadConnection:
     except BaseException:
         base.close()
         raise
-    return ReadConnection(base.raw, profile, BRANCH, version, commit)
+    return ReadConnection(base.raw, profile, commit)
 
 
 def head_commit(conn: LedgerConnection) -> str:
@@ -846,8 +838,7 @@ def _write_once(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
                 insert: Callable[[LedgerConnection, str], Mapping],
                 replay: Callable[[LedgerConnection, Mapping], Mapping] | None, op_id: str | None,
                 key: str = "op_id") -> dict:
-    if (conn.role != "writer" or isinstance(conn, ReadConnection)
-            or conn.branch != BRANCH):
+    if conn.role != "writer":
         raise refuse("READ_ONLY_CONNECTION", "writes need the writer connection on the research branch")
     if not IDENTIFIER.fullmatch(table) or not IDENTIFIER.fullmatch(key):
         raise ValueError(f"invalid table or key name {table!r}, {key!r}")

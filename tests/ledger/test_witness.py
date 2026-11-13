@@ -51,7 +51,8 @@ class TokenTests(unittest.TestCase):
         self.assertEqual(self.code(b"", FIXTURE_COMMIT), "WITNESS_INVALID")
         authority = LocalAuthority()
         self.addCleanup(authority.close)
-        self.assertEqual(self.code(self.token, FIXTURE_COMMIT, authority.roots), "WITNESS_INVALID")
+        with patch.object(witness, "_roots", return_value=authority.roots):
+            self.assertEqual(self.code(self.token, FIXTURE_COMMIT), "WITNESS_INVALID")
         with patch.object(witness, "ROOTS_SHA256", "0" * 64):
             self.assertEqual(self.code(self.token, FIXTURE_COMMIT), "WITNESS_INVALID")
 
@@ -71,9 +72,10 @@ class WitnessLedgerTests(unittest.TestCase):
     def setUp(self):
         self.conn = db.connect(self.profile, "writer")
         self.addCleanup(self.conn.close)
-        self.posted = patch.object(witness, "_post", side_effect=self.authority.respond)
-        self.posted.start()
-        self.addCleanup(self.posted.stop)
+        for seam in (patch.object(witness, "_post", side_effect=self.authority.respond),
+                     patch.object(witness, "_roots", return_value=self.authority.roots)):
+            seam.start()
+            self.addCleanup(seam.stop)
 
     def register(self, label: str, retry_of: int | None = None, universe_rule: str = "pool-v1") -> str:
         """A validation registration row and its comparison design written directly (not through
@@ -93,7 +95,7 @@ class WitnessLedgerTests(unittest.TestCase):
         return db.write(self.conn, "validation_register", {"label": label}, "validation_registration", insert)["commit"]
 
     def stamp(self, commit, **kwargs):
-        return witness.witness(self.conn, commit, tsa_roots=self.authority.roots, **kwargs)
+        return witness.witness(self.conn, commit, **kwargs)
 
     def test_a_registration_commit_is_stamped_once_and_verified_on_read(self):
         commit = self.register("once")
@@ -102,18 +104,16 @@ class WitnessLedgerTests(unittest.TestCase):
         self.assertLess(abs(stamped["stamped_at"] - datetime.now(UTC)), timedelta(minutes=1))
         queries = self.authority.queries
         again = self.stamp(commit)
-        self.assertEqual((again["status"], again["stamped_at"], again["witness_commit"]),
-                         ("already_stamped", stamped["stamped_at"], stamped["witness_commit"]))
+        self.assertEqual((again["status"], again["stamped_at"]), ("already_stamped", stamped["stamped_at"]))
         self.assertEqual(self.authority.queries, queries)
-        self.assertEqual(witness.stamped_at(self.conn, commit, self.authority.roots), stamped["stamped_at"])
-        self.assertIsNone(witness.stamped_at(self.conn, "0" * 32, self.authority.roots))
+        self.assertEqual(witness.stamped_at(self.conn, commit), stamped["stamped_at"])
+        self.assertIsNone(witness.stamped_at(self.conn, "0" * 32))
         (registration_id,), = self.service.sql(self.profile, "SELECT registration_id FROM witness WHERE commit_hash = %s",
                                                (commit,))[0:1]
         self.assertEqual(self.service.sql(self.profile, "SELECT to_commit FROM dolt_diff_validation_registration "
                                                         "WHERE to_registration_id = %s", (registration_id,)), [(commit,)])
-        self.assertEqual(witness.registration_stamp(self.conn, registration_id, self.authority.roots),
-                         (commit, stamped["stamped_at"]))
-        self.assertIsNone(witness.registration_stamp(self.conn, 999_999, self.authority.roots))
+        self.assertEqual(witness.registration_stamp(self.conn, registration_id), (commit, stamped["stamped_at"]))
+        self.assertIsNone(witness.registration_stamp(self.conn, 999_999))
 
     def test_only_registration_commits_are_stamped(self):
         head = self.published  # a commit that added a candidate, not a registration
@@ -134,8 +134,8 @@ class WitnessLedgerTests(unittest.TestCase):
             self.assertEqual(self.stamp(commit)["status"], "failed")
         other = LocalAuthority()
         self.addCleanup(other.close)
-        with self.assertRaises(Refusal) as caught:
-            witness.witness(self.conn, commit, tsa_roots=other.roots)
+        with patch.object(witness, "_roots", return_value=other.roots), self.assertRaises(Refusal) as caught:
+            self.stamp(commit)
         self.assertEqual(caught.exception.code, "WITNESS_INVALID")
         with patch.object(witness, "CLOCK_TOLERANCE", timedelta(days=-1)), self.assertRaises(Refusal) as caught:
             self.stamp(commit)
@@ -157,13 +157,13 @@ class WitnessLedgerTests(unittest.TestCase):
 
         with patch.object(witness, "_post", side_effect=post):
             stamped = self.stamp(commit)
-        self.assertEqual((stamped["status"], stamped["tsa"]), ("stamped", witness.TSA_URLS[1]))
+        self.assertEqual(stamped["status"], "stamped")
         self.assertEqual(asked, list(witness.TSA_URLS[:2]))
-        self.assertEqual(witness.stamped_at(self.conn, commit, self.authority.roots), stamped["stamped_at"])
+        self.assertEqual(witness.stamped_at(self.conn, commit), stamped["stamped_at"])
         explicit = self.register("explicit")
         with patch.object(witness, "_post", side_effect=post):
             failed = self.stamp(explicit, tsa_url=witness.TSA_URLS[0])
-        self.assertEqual((failed["status"], failed["reason"], failed["tsa"]), ("failed", "WITNESS_UNAVAILABLE", None))
+        self.assertEqual((failed["status"], failed["reason"]), ("failed", "WITNESS_UNAVAILABLE"))
         self.assertEqual(asked[2:], [witness.TSA_URLS[0]])
 
     def test_a_retry_keeps_the_candidate_universe_and_window(self):
@@ -179,11 +179,15 @@ class WitnessLedgerTests(unittest.TestCase):
     def test_sync_stamps_every_registration_still_missing_a_token(self):
         first, second = self.register("sync-a"), self.register("sync-b")
         self.stamp(first)
-        synced = witness.sync_witness(self.conn, tsa_roots=self.authority.roots)
-        self.assertIn(second, synced["witnessed"])
-        self.assertNotIn(first, synced["witnessed"])
+        synced = witness.sync_witness(self.conn)
+        (registration_id,), = self.service.sql(self.profile, "SELECT to_registration_id FROM "
+                                                             "dolt_diff_validation_registration WHERE to_commit = %s",
+                                               (second,))
+        self.assertIn({"commit": second, "registration_ids": [registration_id],
+                       "stamped_at": witness.stamped_at(self.conn, second)}, synced["witnessed"])
+        self.assertNotIn(first, [item["commit"] for item in synced["witnessed"]])
         self.assertGreaterEqual(synced["already"], 1)
-        self.assertEqual(witness.sync_witness(self.conn, tsa_roots=self.authority.roots)["witnessed"], [])
+        self.assertEqual(witness.sync_witness(self.conn)["witnessed"], [])
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ PROFILE = db.LedgerProfile(name="t", database="t", service_root=Path("/nonexiste
 
 
 def pinned(commit: str) -> db.ReadConnection:
-    return db.ReadConnection(None, PROFILE, db.BRANCH, 0, commit)
+    return db.ReadConnection(None, PROFILE, commit)
 
 
 class PinnedReadTests(unittest.TestCase):
@@ -41,7 +41,7 @@ class PinnedReadTests(unittest.TestCase):
         self.assertEqual(self.calls, [("a" * 32, 1), ("b" * 32, 1), ("a" * 32, 1)])
 
     def test_an_unpinned_connection_and_a_refusal_are_read_every_time(self):
-        branch = db.LedgerConnection(None, PROFILE, "reader", db.BRANCH, 0)
+        branch = db.LedgerConnection(None, PROFILE, "reader")
         with db.reusing_pinned_reads():
             self.read(branch, 1)
             self.read(branch, 1)

@@ -319,13 +319,12 @@ def _mismatch(directory: Path, trial_id: int, why: str, *missing: str) -> Refusa
 def _differing_files(directory: Path, listed: Mapping) -> list[str]:
     """The report, audit and fingerprint files of `directory` that differ from the capture's manifest
     entries (by SHA-256), are missing although captured or hashed, or exist although not listed."""
-    root, base = (directory, directory / "reports") if (directory / "reports").is_dir() else (directory.parent,
-                                                                                               directory)
+    root, base = metrics.report_root(directory)
     wanted = {path: entry for path, entry in listed.items()
               if path.startswith("reports/") or path in (problems.AUDIT_RESULT, problems.FINGERPRINT_RESULT)}
     differs = []
     for path, entry in sorted(wanted.items()):
-        data = metrics._regular(base / path.removeprefix("reports/") if path.startswith("reports/") else root / path)
+        data = metrics.read_regular(base / path.removeprefix("reports/") if path.startswith("reports/") else root / path)
         status = entry.get("status") if isinstance(entry, Mapping) else None
         if status in ("captured", "hashed"):
             same = data is not None and hashlib.sha256(data).hexdigest() == entry.get("sha256")

@@ -188,8 +188,7 @@ def _same_registration(conn: db.LedgerConnection, prior: Mapping, payload: Mappi
 
 def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: datetime, window_end: datetime,
                         universe_rule: str, market: str | None, design: Mapping, retry_of: int | None,
-                        op_id: str | None, *, market_profile, tsa_url: str | None = None,
-                        tsa_roots: Path | None = None) -> dict:
+                        op_id: str | None, *, market_profile, tsa_url: str | None = None) -> dict:
     """Write one validation registration in one commit, then witness that commit; a failed witness
     leaves the registration in place. The same op_id returns the existing registration.
 
@@ -251,7 +250,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                                (registration_id,))[0][0]
         commit = birth_commit(conn, registration_id)
         try:
-            stamped = witness.witness(conn, commit, tsa_url, tsa_roots)
+            stamped = witness.witness(conn, commit, tsa_url)
             result = ({"status": "stamped", "stamped_at": stamped["stamped_at"], "error": None}
                       if stamped["status"] in ("stamped", "already_stamped")
                       else {"status": "failed", "stamped_at": None, "error": stamped["reason"]})
@@ -274,7 +273,7 @@ def original_registration(conn: db.LedgerConnection, registration: dict) -> dict
 
 def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mapping, source_sha256: str,
                     identity: Mapping, inspection: Mapping, *, market, checkout: Path | None = None,
-                    remote: str = "origin", tsa_roots: Path | None = None) -> dict:
+                    remote: str = "origin") -> dict:
     """Inside the validation trial's write, before its row: check everything against the registration, which
     the trial then consumes once.
 
@@ -314,7 +313,7 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mappin
         raise refuse("MEMBERSHIP_CHANGED", f"universe rule {row['universe_rule']} is not the registered "
                                            f"{registration['universe_rule']}", missing=("universe_rule",))
     start, end = registration["window_start"], registration["window_end"]
-    stamp = witness.registration_stamp(conn, origin["registration_id"], tsa_roots)
+    stamp = witness.registration_stamp(conn, origin["registration_id"])
     if stamp is None or not stamp[1] < start.replace(tzinfo=UTC):
         raise refuse("REGISTRATION_TOO_LATE", f"registration {origin['registration_id']} has no witness before the "
                                               f"window starts at {start}", missing=(str(origin["registration_id"]),))
