@@ -23,7 +23,7 @@ class KeyLimitsTests(unittest.TestCase):
         state.write_new(self.credentials, b'{"api_key":"example-key","api_secret":"example-secret"}')
         self.seen = []
 
-    def limits(self, answer, **options):
+    def limits(self, answer):
         def respond(_opener, request, timeout):
             self.seen.append(request)
             if request.full_url.endswith("/api/v3/time"):
@@ -33,7 +33,7 @@ class KeyLimitsTests(unittest.TestCase):
             return io.BytesIO(json.dumps(answer).encode())
 
         with patch("urllib.request.OpenerDirector.open", respond):
-            return key.require_limits(self.credentials, **options)
+            return key.require_limits(self.credentials)
 
     def refused(self, answer):
         with self.assertRaises(LiveRefusal) as caught:
@@ -51,14 +51,10 @@ class KeyLimitsTests(unittest.TestCase):
         self.assertEqual(read.get_header("X-mbx-apikey"), "example-key")
         self.assertNotIn("example-secret", read.full_url)
 
-    def test_no_ip_restriction_is_a_warning(self):
-        self.assertEqual(self.limits({**ALLOWED, "ipRestrict": False}), ["this API key has no IP restriction"])
-
-    def test_a_run_with_no_duration_needs_an_ip_restriction(self):
-        with self.assertRaises(LiveRefusal) as caught:
-            self.limits({**ALLOWED, "ipRestrict": False}, ip_restricted=True)
-        self.assertEqual(caught.exception.code, "LIVE_KEY_IP_UNRESTRICTED")
-        self.assertEqual(self.limits(ALLOWED, ip_restricted=True), [])
+    def test_every_run_needs_an_ip_restriction(self):
+        # The user, 2026-11-13: a timed run too, not only one with no duration.
+        self.assertEqual(self.refused({**ALLOWED, "ipRestrict": False}).code, "LIVE_KEY_IP_UNRESTRICTED")
+        self.assertEqual(self.limits(ALLOWED), [])
 
     def test_a_key_that_can_withdraw_is_refused(self):
         self.assertEqual(self.refused({**ALLOWED, "enableWithdrawals": True}).code, "LIVE_KEY_WITHDRAWAL")

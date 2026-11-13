@@ -139,6 +139,12 @@ test("a running run's entries are closed until its latest start warms up, then f
   assert.deepEqual(entries([restart("1", "warmup")]), { open: true, text: "Open" });
   assert.deepEqual(entries([restart("1", "warmup")], [gate("2", "entries_closed", ["disconnected"]), gate("3", "entries_closed", ["bars_missing"])]),
     { open: false, text: "Closed · connection lost, a bar is missing" });
+  assert.deepEqual(entries([restart("1", "warmup")], [gate("2", "entries_closed", ["contract_status"])]),
+    { open: false, text: "Closed · contract not trading" }, "an older control sends no status");
+  assert.deepEqual(entries([restart("1", "warmup")], [{ ...gate("2", "entries_closed", ["contract_status"]), status: "SETTLING" }]),
+    { open: false, text: "Closed · contract not trading (SETTLING)" });
+  assert.deepEqual(entries([restart("1", "warmup")], [{ ...gate("2", "entries_closed", ["disconnected"]), status: "SETTLING" }]),
+    { open: false, text: "Closed · connection lost" }, "a status shows only beside its own reason");
   assert.deepEqual(entries([restart("1", "warmup")], [gate("2", "entries_closed", ["disconnected"]), gate("3", "entries_opened", ["disconnected"])]),
     { open: true, text: "Open" });
   // a missing bar ends the start; the next one warms up again and trades

@@ -6,8 +6,9 @@ one still waiting for its account check, is held unsent (docs/plans/live-entry-h
 unchanged, when the gate reopens within HOLD_NS of its decision and before the source receives another bar of the
 type it decided on; otherwise the run ends as for any refused entry (rc7's Python Strategy has no native deny_order,
 and the source cannot see a product refusal). A gate closed for a reason a check cannot clear refuses at once, except a
-missing bar (the user, 2026-11-13): an entry staged then, and a new one while a position is held, are denied natively
-through the run's own ExecutionAlgorithm (OrderDenied, which the source receives), and the run goes on.
+missing bar and a contract not TRADING at Binance (the user, 2026-11-13): an entry staged then, and a new one (after a
+missing bar, while a position is held), are denied natively through the run's own ExecutionAlgorithm (OrderDenied, which
+the source receives), and the run goes on. So is an entry whose own account read finds the clock over its limit.
 Reductions, cancels and closes travel over REST and stay allowed, so the source keeps protecting and exiting its
 positions and the Observer can still stop.
 
@@ -26,6 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 import json
+import re
 import time
 from typing import Any
 
@@ -47,8 +49,10 @@ RENEW_AFTER_SECONDS = 23 * 3600  # Binance closes a connection after 24 h (desig
 RENEW_SECONDS = range(20, 41)  # seconds of the minute, away from the bar boundary
 # Reasons a check can clear; any other reason holds entries closed until the run ends.
 RECOVERABLE = frozenset({"disconnected", "unverified"})
-# Reasons a check cannot clear for which an entry is denied natively and the run goes on (the user, 2026-11-13).
-DENIABLE = frozenset({"bars_missing"})
+# Reasons a check cannot clear for which an entry is denied natively and the run goes on (the user, 2026-11-13): a
+# missing bar, and the contract not TRADING at Binance, which reopens once it trades again and a check passes.
+DENIABLE = frozenset({"bars_missing", "contract_status"})
+CONTRACT_SECONDS = 60  # while the contract is not TRADING, its status is read this often
 ORPHAN_NS = 600 * 10**9  # flat after a missing bar, reduce-only orders still at Binance this long: a notice
 ORPHAN_SLACK_NS = COMPARE_RETRY_SECONDS * 10**9  # reads PERIODIC_SECONDS apart land a little early or late
 HOLD_NS = 60_000_000_000  # an entry is held unsent at most this long after its decision
@@ -132,7 +136,7 @@ def deniable(session) -> bool:
     return bool(lasting) and lasting <= DENIABLE
 
 
-def deny(session, order, detail: str, held_ns: int | None = None) -> None:
+def deny(session, order, detail: str, held_ns: int | None = None, reason: str | None = None) -> None:
     """Deny an entry natively, never sent: the run's ExecutionAlgorithm gives the source's order OrderDenied in the
     native cache and its callbacks (engine.live_node). That OrderDenied is not a native failure (denied_entries). An
     order the cache already knows, or one submitted from within a denial's callbacks, is refused instead."""
@@ -146,7 +150,7 @@ def deny(session, order, detail: str, held_ns: int | None = None) -> None:
     session.denied.add(cid)  # before the call: its callbacks run at once
     session.denying = True
     try:
-        session.entry_gate.deny_order(order, gate_reason(session))
+        session.entry_gate.deny_order(order, reason or gate_reason(session))
     except BaseException:
         session.denied.discard(cid)
         raise
@@ -416,7 +420,7 @@ def tick(session, observer, now: float) -> None:
         return
     checking = bool(state.closed) and set(state.closed) <= RECOVERABLE or rewarm_pending(session, observer.cache)
     interval = (COMPARE_RETRY_SECONDS if state.agreed is None or not checking else COMPARE_SPACING_SECONDS) \
-        if checking or state.suspect else PERIODIC_SECONDS
+        if checking or state.suspect else CONTRACT_SECONDS if "contract_status" in state.closed else PERIODIC_SECONDS
     if now - state.last_compare >= interval:
         state.last_compare = now
         state.observation = commands.observe_account(session.account_reader, tuple(session.manifest["symbols"]),
@@ -425,8 +429,29 @@ def tick(session, observer, now: float) -> None:
         renew(session, observer, now)
 
 
+def contract(session, snapshot: dict) -> None:
+    """Binance's status of the run's contract, from a comparison's read or an entry's own (the user, 2026-11-13):
+    not TRADING closes entries, and an entry is then denied natively and the run goes on; working entries and
+    positions with their exchange stops stay. Back at TRADING, entries reopen once the account check passes."""
+    try:
+        status = snapshot["symbols"][session.manifest["symbols"][0]]["instrument"]["status"]
+    except (KeyError, TypeError, IndexError):
+        return  # an incomplete read says nothing about the contract
+    if not isinstance(status, str) or not re.fullmatch(r"[A-Z_]{1,40}", status):
+        return
+    state = session.connection
+    if status != "TRADING":
+        close_entries(session, "contract_status", withdraw=False, status=status)
+    elif "contract_status" in state.closed:
+        del state.closed["contract_status"]
+        state.closed.setdefault("unverified", time.monotonic())
+        state.agreed = None
+        session.event("entries_checking", strict=False, reasons=sorted(state.closed), status=status)
+
+
 def judge(session, cache, snapshot: dict) -> None:
     state = session.connection
+    contract(session, snapshot)
     found = compare(snapshot, cache, session.manifest)
     if state.reconnected is not None and not state.bar_since_reconnect:
         found.setdefault("bars", []).append("no bar since the reconnect")

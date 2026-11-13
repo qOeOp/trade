@@ -179,11 +179,31 @@ def dispatch_entry(session: Session) -> None:
             return
         observation = "entry-account-" + str(snapshot["observed_ns"]) + ".json"
         write_json(session.output / observation, snapshot)
-        require_clock(snapshot)  # each entry reads the venue's time too (design §3.9)
+        live_connection.contract(session, snapshot)
+        if not live_connection.entries_open(session):
+            return  # the contract is not TRADING: this entry and any behind it were denied natively
         equity = require_admission(snapshot, session.manifest, session.brake.budget, flat=False)
         require_entry(session, pending.order)
         require_entry_size(session, pending.order, equity)
         live_connection.require_send_time(pending)
+        try:
+            require_clock(snapshot)  # each entry reads the venue's time too (design §3.9)
+        except Refusal as exc:
+            if getattr(exc, "code", None) != "LIVE_CLOCK" or session.entry_gate is None:
+                raise
+            # Over the clock limit and nothing else: only this entry is denied, natively, and the run goes on (the
+            # user, 2026-11-13). Removed first, as before a submit: its callbacks run at once.
+            session.pending_entries.pop(0)
+            session.account_observation = None
+            held = time.time_ns() - pending.order.ts_init if pending.deadline_ns is not None else None
+            try:
+                live_connection.deny(session, pending.order, "entry_clock_skew", held, reason="clock")
+            except Exception as failed:
+                live_connection.refused(session, pending, getattr(failed, "code", type(failed).__name__), str(failed)[:1000])
+                raise
+            if session.pending_entries and session.account_observation is None:
+                start_observation(session, "entry")
+            return
         session.event("entry_verified", observation=observation)
         # Native submit may synchronously dispatch callbacks. Remove this
         # unsubmitted intent first; no retries or fabricated native events.

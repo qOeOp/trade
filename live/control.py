@@ -31,7 +31,7 @@ MESSAGES = {
     "LIVE_ACCOUNT_MODE": "The observed account settings do not match this Live configuration.",
     "LIVE_FUNDS": "Observed eligible USDT funds do not cover the run's cash floor (85% of the wallet at its first start).",
     "LIVE_KEY_WITHDRAWAL": "This API key permits withdrawals and cannot start this Live run.",
-    "LIVE_KEY_IP_UNRESTRICTED": "A run with no duration needs an API key restricted to this host's IP at Binance.",
+    "LIVE_KEY_IP_UNRESTRICTED": "A Live run needs an API key restricted to this host's IP at Binance.",
     "LIVE_KEY_UNVERIFIED": "The API key permissions could not be verified.",
     "LIVE_CLOCK": "The observed server clock bounds exceed the existing Live limits.",
     "LIVE_RUN_FORMAT": "This historical run uses an earlier manifest format, which the product no longer reads.",
@@ -264,10 +264,8 @@ def check_key_locked(root: Path, run_id: str, now: float) -> None:
         return
     _KEY_CHECKED[run_id] = now
     directory = state.directory(root, run_id)
-    _, manifest = runs._manifest(root, run_id)
     try:
-        key.require_limits(credentials.run_path_locked(root, run_id, "run"),
-                           ip_restricted=manifest["config"]["duration_seconds"] is None)
+        key.require_limits(credentials.run_path_locked(root, run_id, "run"))
         code = None
     except LiveRefusal as exc:
         code = exc.code

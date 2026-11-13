@@ -300,7 +300,8 @@ HELD = {"unknown_orders": "Binance holds orders this run does not know; every or
 
 def _gate_messages(run: dict, name: str) -> list[tuple[str, str]]:
     """Entries closed beyond a brief reconnect (engine.live_connection): a lost connection, a check that has not
-    passed for ten minutes, a reason that holds them closed for the run, and the reopening after a notice."""
+    passed for ten minutes, a reason that holds them closed for the run, the contract not trading, and the reopening
+    after a notice."""
     result, noticed = [], False
     for row in run.get("gate") or []:
         key = f"{run['run_id']}:gate:{row['observed_ns']}"
@@ -318,6 +319,11 @@ def _gate_messages(run: dict, name: str) -> list[tuple[str, str]]:
             result.append((key, f"{name}: a bar is missing from the feed, so entries are closed. Positions keep their "
                                 "exits; once the run holds nothing it starts again and warms up on Binance's complete "
                                 "bars (a minute or two), then trades."))
+        elif event == "entries_closed" and reasons and reasons[0] == "contract_status":
+            noticed = True
+            result.append((key, f"{name}: Binance lists its contract as {row.get('status') or 'not trading'}, so "
+                                "entries are closed: a new entry from the strategy is denied and the run goes on. "
+                                "Positions keep their exchange stops; entries reopen once it trades again."))
         elif event == "entries_closed" and reasons and reasons[0] in HELD:
             noticed = True
             result.append((key, f"{name}: entries are closed for the rest of the run: {HELD[reasons[0]]}. "

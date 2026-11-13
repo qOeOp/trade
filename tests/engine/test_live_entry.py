@@ -20,7 +20,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.common import LoggerConfig, LogLevel
+from nautilus_trader.common import LoggerConfig, LogLevel, SocketState
 from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.infrastructure import RedisCacheConfig
 from nautilus_trader.model import (
@@ -557,6 +557,189 @@ class NativeEntryTests(unittest.TestCase):
         self.assertEqual(self.session.pending_entries, [])
         self.assertEqual(self.read_events("entry_denied"), [])
         self.assertIsNone(self.engine.cache.order(entry.client_order_id))
+
+    # The user's decisions of 2026-11-13 ("按建议"): a clock over the limit at an entry, and a contract not TRADING.
+
+    def skewed(self, *clocks):
+        readings = iter(clocks)
+        self.reader.clock = lambda: next(readings)
+
+    def contract(self, status):
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["symbols"]["BTCUSDT"]["instrument"]["status"] = status
+        return snapshot
+
+    def ahead(self):
+        now = time.time_ns()
+        return [{"sent_ns": now, "server_ms": now // 1_000_000 - 10_000, "received_ns": now}]  # 10 s ahead
+
+    def test_an_entry_over_the_clock_limit_is_denied_natively_and_the_next_one_gets_its_own_read(self):
+        self.skewed(self.ahead(), venue_clock())
+        first, observation = self.submit_pending(self.limit(price="95.00"))
+        second = self.limit(price="96.00")
+        self.source.submit_order(second)
+        self.finish_read(observation)
+        commands.dispatch_entry(self.session)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(first.client_order_id).status, OrderStatus.DENIED)
+        self.assertFalse(self.session.stopping or self.session.failed or self.session.native_order_failure)
+        [row] = self.read_events("entry_denied")
+        self.assertEqual((row["client_order_id"], row["detail"], row["reasons"]),
+                         (str(first.client_order_id), "entry_clock_skew", []))
+        self.assertTrue(live_connection.entries_open(self.session))  # nothing closes: only that entry is denied
+        self.assertEqual([pending.order for pending in self.session.pending_entries], [second])
+        self.session.account_observation.result.result(timeout=2)  # its own read, with a good clock
+        commands.dispatch_entry(self.session)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(second.client_order_id).status, OrderStatus.ACCEPTED)
+        live_lifecycle.source_outcome(self.session, self.engine.cache)
+        self.assertFalse(self.session.failed)
+
+    def test_a_clock_entry_without_a_gate_or_without_a_server_time_still_ends_the_run(self):
+        # Negative controls: no native gate to deny with, and a read with no usable server time.
+        for clock, gate in ((self.ahead(), None), ([], self.session.entry_gate)):
+            with self.subTest(gate=gate is not None):
+                self.session.stopping = self.session.failed = False
+                self.session.entry_gate = gate
+                self.skewed(clock)
+                entry, observation = self.submit_pending(self.limit(price="95.00")) if gate is None else \
+                    (self.limit(price="94.00"), None)
+                if observation is None:
+                    self.source.submit_order(entry)
+                    observation = self.session.account_observation
+                self.finish_read(observation)
+                with self.assertRaises(LiveRefusal) as caught:
+                    commands.dispatch_entry(self.session)
+                self.assertEqual(caught.exception.code, "LIVE_CLOCK" if gate is None else "LIVE_ACCOUNT_RESPONSE")
+                self.assertTrue(self.session.failed and self.session.stopping)
+                self.assertIsNone(self.engine.cache.order(entry.client_order_id))
+        self.assertEqual(self.read_events("entry_denied"), [])
+
+    def test_a_clock_entry_that_fails_another_entry_check_still_ends_the_run(self):
+        # Negative control: only the clock is denied; an entry the other checks refuse ends the run as before.
+        self.skewed(self.ahead())
+        entry, observation = self.submit_pending(self.limit(quantity="3.500", price="95.00"))  # over 3 x equity
+        self.finish_read(observation)
+        with self.assertRaises(LiveRefusal) as caught:
+            commands.dispatch_entry(self.session)
+        self.assertEqual(caught.exception.code, "LIVE_BUDGET")
+        self.assertTrue(self.session.failed and self.session.stopping)
+        self.assertEqual(self.read_events("entry_denied"), [])
+        self.assertIsNone(self.engine.cache.order(entry.client_order_id))
+
+    def on_denied(self, act):
+        """The source acts from within its own OrderDenied callback."""
+        cls = type(self.source)
+        original = cls.on_order_event
+
+        def on_order_event(this, event):
+            original(this, event)
+            if type(event).__name__ == "OrderDenied":
+                act(this, event)
+        cls.on_order_event = on_order_event
+        self.addCleanup(setattr, cls, "on_order_event", original)
+
+    def test_an_entry_submitted_from_a_clock_denial_is_refused_and_ends_the_run(self):
+        made = []
+        self.on_denied(lambda source, event: made or (made.append(self.limit(price="93.00")), source.submit_order(made[0])))
+        self.skewed(self.ahead(), self.ahead())
+        first, observation = self.submit_pending(self.limit(price="95.00"))
+        self.finish_read(observation)
+        try:
+            commands.dispatch_entry(self.session)
+        except LiveRefusal:
+            pass
+        self.advance()
+        self.assertEqual(self.engine.cache.order(first.client_order_id).status, OrderStatus.DENIED)
+        [again] = made
+        self.assertTrue(self.session.failed and self.session.stopping)
+        self.assertEqual(self.session.pending_entries, [])
+        self.assertEqual(len(self.reader.calls), 1)  # no read for it: it never queues
+        [row] = self.read_events("entry_refused")
+        self.assertEqual((row["client_order_id"], row["code"]), (str(again.client_order_id), "LIVE_CONNECTION_UNVERIFIED"))
+
+    def test_an_entry_canceled_from_its_clock_denial_is_journalled_once(self):
+        self.on_denied(lambda source, event: source.cancel_order(source.cache.order(event.client_order_id)))
+        self.skewed(self.ahead())
+        first, observation = self.submit_pending(self.limit(price="95.00"))
+        self.finish_read(observation)
+        commands.dispatch_entry(self.session)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(first.client_order_id).status, OrderStatus.DENIED)
+        self.assertFalse(self.session.stopping or self.session.failed)
+        self.assertEqual(len(self.read_events("entry_denied")), 1)
+        self.assertEqual(self.read_events("entry_refused"), [])
+
+    def test_while_the_contract_is_not_trading_a_flat_entry_is_denied_natively_and_the_run_goes_on(self):
+        live_connection.contract(self.session, self.contract("SETTLING"))
+        [closed] = self.read_events("entries_closed")
+        self.assertEqual((closed["reason"], closed["status"]), ("contract_status", "SETTLING"))
+        entry = self.limit(price="95.00")
+        self.source.submit_order(entry)  # flat: denied all the same
+        self.advance()
+        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.DENIED)
+        self.assertFalse(self.session.stopping or self.session.failed)
+        self.assertEqual(self.read_events("entry_denied")[0]["detail"], "entry_while_contract_not_trading")
+        self.assertEqual(self.reader.calls, [])  # nothing was read for it
+        # Trading again: entries wait for the account check, as after a reconnect.
+        live_connection.contract(self.session, self.contract("TRADING"))
+        self.assertEqual(set(self.session.connection.closed), {"unverified"})
+        self.assertTrue(live_connection.holdable(self.session))
+
+    def test_a_working_entry_and_a_position_with_its_stop_stay_when_the_contract_stops_trading(self):
+        position = self.owned_position()
+        stop = self.stop()
+        working = self.limit(price="90.00")
+        self.source.submit_order(working)
+        self.session.account_observation.result.result(timeout=2)
+        commands.dispatch_entry(self.session)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(working.client_order_id).status, OrderStatus.ACCEPTED)
+        live_connection.contract(self.session, self.contract("SETTLING"))
+        self.advance()
+        self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [position])
+        self.assertEqual(self.engine.cache.order(stop.client_order_id).status, OrderStatus.ACCEPTED)
+        self.assertEqual(self.engine.cache.order(working.client_order_id).status, OrderStatus.ACCEPTED)
+        self.assertFalse(self.session.stopping or self.session.failed)
+
+    def test_entries_staged_or_held_when_the_contract_stops_trading_are_denied_natively(self):
+        staged, observation = self.submit_pending(self.limit(price="95.00"))
+        live_connection.contract(self.session, self.contract("SETTLING"))
+        self.assertIsNone(self.session.account_observation)
+        self.finish_read(observation)
+        commands.dispatch_entry(self.session)  # a late read sends nothing
+        # Held across a lost connection, then the contract stops trading: denied, not held 60 s and then refused.
+        self.session.connection.closed.clear()
+        live_connection.on_socket_state(self.session, SimpleNamespace(client_id="BINANCE", endpoint="user",
+                                                                      state=SocketState.DISCONNECTED))
+        held = self.limit(price="96.00")
+        self.source.submit_order(held)
+        self.assertEqual([pending.order for pending in self.session.pending_entries], [held])
+        live_connection.contract(self.session, self.contract("SETTLING"))
+        self.advance()
+        for entry in (staged, held):
+            self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.DENIED)
+        self.assertEqual(self.session.pending_entries, [])
+        self.assertFalse(self.session.stopping or self.session.failed)
+
+    def test_an_entrys_own_read_finding_the_contract_not_trading_denies_it_natively(self):
+        self.reader.snapshot_value = self.contract("PRE_SETTLE")
+        entry, observation = self.submit_pending(self.limit(price="95.00"))
+        self.finish_read(observation)
+        commands.dispatch_entry(self.session)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.DENIED)
+        self.assertEqual(set(self.session.connection.closed), {"contract_status"})
+        self.assertFalse(self.session.stopping or self.session.failed)
+
+    def test_a_contract_not_trading_and_unknown_orders_still_refuse_and_end_the_run(self):
+        # Negative control: a reason a check cannot clear, beside it, refuses as before.
+        live_connection.contract(self.session, self.contract("SETTLING"))
+        self.session.connection.closed["unknown_orders"] = 0.0
+        entry = self.limit(price="95.00")
+        self.assert_refused_unchanged("LIVE_CONNECTION_UNVERIFIED", lambda: self.source.submit_order(entry))
+        self.assertTrue(self.session.failed and self.session.stopping)
+        self.assertEqual(self.read_events("entry_denied"), [])
 
     def test_accepted_stop_for_the_whole_position_keeps_the_run_going(self):
         self.owned_position()

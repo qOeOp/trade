@@ -197,7 +197,7 @@ class LiveCustodyTests(LiveFixture):
         self.assertEqual(caught.exception.code, "LIVE_KEY_WITHDRAWAL")
         network.assert_not_called()
         self.assertFalse((self.root / "account.jsonl").exists())
-        self.key_limits.assert_called_once_with(self.credentials, ip_restricted=False)
+        self.key_limits.assert_called_once_with(self.credentials)  # a timed run's key is checked the same way
         self.key_limits.reset_mock()
         with self.assertRaises(LiveRefusal) as caught:
             launch(self.root, self.run_id, self.credentials, "reconcile", scope=self.scope)
@@ -456,16 +456,13 @@ class LiveCustodyTests(LiveFixture):
     def test_a_running_runs_key_is_checked_hourly_and_each_failure_and_recovery_journalled_once(self):
         from live import control
         control._KEY_CHECKED.pop(self.run_id, None)
-        manifest = state.read(self.directory / "inputs" / "manifest.json")
-        manifest["config"]["duration_seconds"] = None
-        (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(manifest))
-        refused = LiveRefusal("LIVE_KEY_IP_UNRESTRICTED", "no restriction")
+        refused = LiveRefusal("LIVE_KEY_IP_UNRESTRICTED", "no restriction")  # a timed run, as any other
         with patch.object(control.credentials, "run_path_locked", return_value=self.credentials):
             self.key_limits.side_effect = refused
             for now in (0.0, 10.0, 3600.0):  # the second is within the hour: no read
                 control.check_key_locked(self.root, self.run_id, now)
             self.assertEqual(self.key_limits.call_count, 2)
-            self.key_limits.assert_called_with(self.credentials, ip_restricted=True)
+            self.key_limits.assert_called_with(self.credentials)
             self.key_limits.side_effect = None
             control.check_key_locked(self.root, self.run_id, 7200.0)
             control.check_key_locked(self.root, self.run_id, 10800.0)
@@ -839,10 +836,10 @@ class LiveCustodyTests(LiveFixture):
         resources[("container", name)] = actual
         with patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, [])), \
                 patch.object(runs, "_network", return_value=names), patch.object(host_runtime, "checked", return_value="c" * 64):
-            self.key_limits.return_value = ["this API key has no IP restriction"]
+            self.key_limits.return_value = ["a key note"]
             launched = launch(self.root, self.run_id, self.credentials, "preflight", scope=self.scope)
             self.assertEqual(launched["state"], "starting")
-            self.assertEqual(launched["warnings"], ["this API key has no IP restriction"])
+            self.assertEqual(launched["warnings"], ["a key note"])
         request, started = runs._host_events(self.directory)[-2:]
         self.assertEqual(request["credentials_path"], str(self.credentials))
         self.assertEqual(started["container_id"], "c" * 64)

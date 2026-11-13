@@ -43,15 +43,16 @@ function heldNotice(run: LiveRunDto): string | null {
 const GATE_TEXT: Record<string, string> = {
   disconnected: "connection lost", unverified: "checking the account with Binance", unknown_orders: "unknown orders at Binance",
   bars_missing: "a bar is missing", account_mode: "account modes changed", foreign: "another symbol at Binance",
+  contract_status: "contract not trading",
 };
 // A process of the run ends at these, and the next one starts closed until it warms up (engine.live).
 const PROCESS_ENDS = new Set(["interrupted", "rewarming", "resuming"]);
 
-type Moment = { ns: bigint; kind: "gate" | "restart"; event: string; reasons: readonly string[]; held: boolean | null };
+type Moment = { ns: bigint; kind: "gate" | "restart"; event: string; reasons: readonly string[]; held: boolean | null; status: string | null };
 
 function moments(run: LiveRunDto): Moment[] {
-  return [...(run.gate ?? []).map((row) => ({ ns: BigInt(row.observed_ns), kind: "gate" as const, event: row.event, reasons: row.reasons, held: null })),
-    ...(run.restarts ?? []).map((row) => ({ ns: BigInt(row.observed_ns), kind: "restart" as const, event: row.event, reasons: [], held: row.held }))]
+  return [...(run.gate ?? []).map((row) => ({ ns: BigInt(row.observed_ns), kind: "gate" as const, event: row.event, reasons: row.reasons, held: null, status: row.status ?? null })),
+    ...(run.restarts ?? []).map((row) => ({ ns: BigInt(row.observed_ns), kind: "restart" as const, event: row.event, reasons: [], held: row.held, status: null }))]
     .sort((a, b) => (a.ns < b.ns ? -1 : a.ns > b.ns ? 1 : 0));
 }
 
@@ -59,18 +60,24 @@ function moments(run: LiveRunDto): Moment[] {
  *  then closed for each reason the gate gave since, until it reopened. */
 function entriesOf(run: LiveRunDto): LiveRun["entries"] {
   if (run.host.state !== "running" || run.host.mode !== "run" || !run.restarts) return null;
-  let warmed = false, held = false;
+  let warmed = false, held = false, status: string | null = null;
   const closed = new Set<string>();
   for (const moment of moments(run)) {
     if (moment.kind === "restart" && PROCESS_ENDS.has(moment.event)) { warmed = false; held = moment.event === "resuming" && moment.held === true; closed.clear(); }
     else if (moment.kind === "restart" && moment.event === "warmup") { warmed = true; held = false; }
-    else if (moment.event === "entries_closed" || moment.event === "connection_lost") moment.reasons.forEach((reason) => closed.add(reason));
+    else if (moment.event === "entries_closed" || moment.event === "connection_lost") {
+      moment.reasons.forEach((reason) => closed.add(reason));
+      if (moment.reasons.includes("contract_status")) status = moment.status;
+    }
     else if (moment.event === "entries_opened") closed.clear();
   }
   if (held) return { open: false, text: "Closed · inherited position" };
   if (!warmed) return { open: false, text: "Closed · warming up" };
   if (closed.size === 0) return { open: true, text: "Open" };
-  return { open: false, text: `Closed · ${[...closed].map((reason) => GATE_TEXT[reason] ?? reason.replaceAll("_", " ")).join(", ")}` };
+  // Binance's own status (SETTLING, DELIVERED, ...) tells a pause from a contract that will not trade again.
+  const reasonText = (reason: string) => reason === "contract_status" && status ? `${GATE_TEXT[reason]} (${status})`
+    : GATE_TEXT[reason] ?? reason.replaceAll("_", " ");
+  return { open: false, text: `Closed · ${[...closed].map(reasonText).join(", ")}` };
 }
 
 /** The latest entries_opened after a lost connection: when Binance and the run agreed again. */

@@ -599,8 +599,7 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, requ
     if mode == "reconcile" and not os.path.lexists(directory / "out" / "armed.json"):
         # Checked here too: a released run must not take the slot back only to be refused by its runner.
         raise state.fail("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
-    warnings = [] if mode == "reconcile" else key.require_limits(
-        credentials, ip_restricted=manifest["config"]["duration_seconds"] is None)
+    warnings = [] if mode == "reconcile" else key.require_limits(credentials)
     _recycle_others(root, run_id)
     if mode != "preflight" and _active(root) is None:
         state.append(root / "account.jsonl", "reserved", run_id)
