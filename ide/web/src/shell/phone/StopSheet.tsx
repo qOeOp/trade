@@ -10,7 +10,6 @@ import type { LiveRun } from "../../model/liveTrading";
 import { liveHeld, liveStatus, liveWorking, marked, type Held, type Working } from "../../model/phoneRuns";
 import { useLiveTrading } from "../../state/liveTrading";
 import { useSnapshot } from "../../state/market";
-import { textClass } from "../../theme/roles";
 import { Version } from "./RunCards";
 
 /** A working order that protects a held position: a trigger on the other side of its contract. */
@@ -62,7 +61,7 @@ export function StopSheet({ run, open, onClose }: { run: LiveRun; open: boolean;
         {sent ? <>
           <ul className="space-y-2 text-dense">
             {steps(run, request?.outcome, held, working).map((s, i) => (
-              <li key={i} className="flex gap-2"><span className={`mt-0.5 shrink-0 ${textClass(TONE[s.state])}`}><Icon name={ICON[s.state]} /></span>
+              <li key={i} className="flex gap-2"><span className="mt-0.5 shrink-0"><Icon name={ICON[s.state]} tone={TONE[s.state]} /></span>
                 <span className={s.state === "todo" ? "text-fg-muted" : ""}>{s.text}{s.state === "failed" && request?.code ? ` (${request.code})` : ""}</span></li>
             ))}
           </ul>
