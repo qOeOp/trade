@@ -43,6 +43,7 @@ with tempfile.TemporaryDirectory() as temporary:
     assert "OAUTH2_PROXY_GITHUB_USERS" not in oauth_env, "a username list beside the team"
     oauth_config = Path("deploy/remote/oauth2-proxy.cfg").read_text()
     assert 'scope = "user:email read:org"' in oauth_config
+    assert 'upstreams = ["http://ide-router:8765/"]' in oauth_config
     for name in set(services) - {"oauth2"}:
         assert not services[name].get("secrets"), f"OAuth secret leaked into {name}"
         assert not any("/run/dolthub" in mount["target"] for mount in services[name].get("volumes", [])), \
@@ -58,7 +59,7 @@ with tempfile.TemporaryDirectory() as temporary:
     assert {name for name, service in released.items() if service.get("ports")} == {"edge"}
     assert set(released["ide-router"]["networks"]) == {"frontend"}
     assert not released["ide-router"].get("secrets")
-    assert "--upstream=http://ide-router:8765/" in released["oauth2"]["command"]
+    assert released["oauth2"] == services["oauth2"]
     assert not {"ide", "paper"} & set(released)
     assert released["ledger"] == services["ledger"]
     print("Continuous Web routing preserves the existing authentication and execution boundaries")

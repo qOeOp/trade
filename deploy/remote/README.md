@@ -12,7 +12,7 @@ runs, the ledger or strategy containers. A merge to `main` is not a release: onl
 ([`CHANGELOG.md`](../../CHANGELOG.md)) moves this host. Install its reviewed control code once on a new host with
 `sh deploy/remote/install-release.sh`, after the whole-project `up` below (step 6). It creates the first
 Paper controller, Web and Agent from the newest admitted version, starts the internal Web and Paper
-routers and moves OAuth2 Proxy onto the Web router, waits until the first release is ready behind the OAuth
+routers that OAuth2 Proxy forwards to, waits until the first release is ready behind the OAuth
 allowlist, then enables `trade-release.timer`. Web switches reload the internal proxy.
 
 `release-ready` in GitHub Actions checks the same source's push workflows (except `docs-pages`: the
