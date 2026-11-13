@@ -24,6 +24,7 @@ from datetime import timedelta
 from ledger import db, execution, problems
 from shared.errors import Refusal
 from shared.refusals import refuse
+from registration import reproduction
 
 
 ITEMS = ("api", "causal", "activity", "readiness")
@@ -46,13 +47,11 @@ def digest_of(image_ref: object) -> str | None:
 
 
 def trial_identity(conn: db.LedgerConnection, trial_id) -> dict:
-    """A trial row with its image digest and its instruments as `symbols`; TRIAL_NOT_FOUND otherwise."""
-    row = conn.one(f"SELECT *, {db.IMAGE_DIGEST} FROM trial WHERE trial_id = %s", (trial_id,)) \
-        if isinstance(trial_id, int) else None
+    """reproduction.trial_record (a trial row with its image digest and its instruments as `symbols`);
+    TRIAL_NOT_FOUND otherwise."""
+    row = reproduction.trial_record(conn, trial_id) if isinstance(trial_id, int) else None
     if row is None:
         raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id!r}", missing=(str(trial_id),))
-    row["symbols"] = [symbol for (symbol,) in conn.rows("SELECT instrument_id FROM trial_instrument WHERE trial_id = %s "
-                                                        "ORDER BY instrument_id", (trial_id,))]
     return row
 
 
@@ -119,27 +118,25 @@ def _record(row: Mapping) -> dict:
     return record
 
 
+def _reviews(conn: db.LedgerConnection, where: str = "", args: tuple = ()) -> list[dict]:
+    columns = ", ".join(f"r.{column}" for column in REVIEW_COLUMNS)
+    return [_record(row) for row in conn.dicts(f"SELECT {columns}, {db.TRIAL_IMAGE_DIGEST} FROM source_review r "
+                                               f"JOIN trial t ON t.trial_id = r.trial_id{where} ORDER BY r.review_id",
+                                               args)]
+
+
 def review_records(conn: db.LedgerConnection, source_sha256: str | None = None) -> list[dict]:
     """Every source review (or those of one source), oldest first, as review records."""
-    where = " WHERE r.source_sha256 = %s" if source_sha256 is not None else ""
-    columns = ", ".join(f"r.{column}" for column in REVIEW_COLUMNS)
-    return [_record(row) for row in conn.dicts(
-        f"SELECT {columns}, {db.TRIAL_IMAGE_DIGEST} FROM source_review r "
-        f"JOIN trial t ON t.trial_id = r.trial_id{where} ORDER BY r.review_id",
-        (source_sha256,) if source_sha256 is not None else ())]
+    return _reviews(conn) if source_sha256 is None else _reviews(conn, " WHERE r.source_sha256 = %s", (source_sha256,))
 
 
 def read_review(conn: db.LedgerConnection, review_id) -> dict:
     """One source review record; SOURCE_PRECHECK_REQUIRED when there is none."""
-    found = [record for record in review_records(conn) if record["review_id"] == review_id] \
+    found = _reviews(conn, " WHERE r.review_id = %s", (review_id,)) \
         if isinstance(review_id, int) and not isinstance(review_id, bool) else []
     if not found:
         raise refuse("SOURCE_PRECHECK_REQUIRED", f"no source review {review_id!r}", missing=(str(review_id),))
     return found[0]
-
-
-def _stage_ok(stage) -> bool:
-    return isinstance(stage, Mapping) and stage.get("state") == "exited" and stage.get("exit_code") == 0
 
 
 def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: str, identity: Mapping) -> int:
@@ -156,8 +153,9 @@ def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: s
     stages, outcome = capture.get("stages"), capture.get("outcome")
     stages = stages if isinstance(stages, Mapping) else {}
     outcome = outcome if isinstance(outcome, Mapping) else {}
-    if (capture["status"] != "captured" or not _stage_ok(stages.get("native")) or not _stage_ok(stages.get("audit"))
-            or outcome.get("kind") != "completed" or capture["runtime_failures"]):
+    if (capture["status"] != "captured" or not execution.stage_ok(stages.get("native"))
+            or not execution.stage_ok(stages.get("audit")) or outcome.get("kind") != "completed"
+            or capture["runtime_failures"]):
         raise refuse("SOURCE_PRECHECK_FAILED", f"precheck trial {trial['trial_id']} did not complete cleanly",
                      missing=(f"trial {trial['trial_id']}",))
     differs = [key for key in PRECHECK_COLUMNS if trial[key] != identity.get(key)]

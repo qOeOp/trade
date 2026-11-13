@@ -1,4 +1,4 @@
-"""The registration seams: runner arguments and month paths."""
+"""The registration seams: runner arguments with their trade and metrics inputs, and the identity probe."""
 
 from __future__ import annotations
 
