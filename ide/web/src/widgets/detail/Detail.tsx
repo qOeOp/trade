@@ -88,7 +88,7 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
             ["Mean daily difference", cmp.mean_daily_log_difference != null
               ? <Tip content="The mean of the daily log return differences over the control, as a daily percent"><span>{daily(cmp.mean_daily_log_difference)}</span></Tip> : null],
             ["Detectable annual difference", <Tip content="The annual return difference over the control this sample detects with 80% power: a power reading, not a threshold"><span>{cmp.detectable?.toLocaleString("en-US", percent) ?? "-"}</span></Tip>],
-            ["Difference intervals", cmp.intervals_cross_zero == null ? null : <Tip content="The basic and studentized intervals of the mean daily log difference and the annual return difference interval: candidate and control are told apart when any of them excludes zero"><span>{cmp.intervals_cross_zero ? "All cross zero" : "Some exclude zero"}</span></Tip>],
+            ["Difference intervals", cmp.intervals_cross_zero == null ? null : <Tip content="The basic and studentized intervals of the mean daily log difference, the annual return difference interval and the maximum drawdown difference interval: candidate and control are told apart when any of them excludes zero"><span>{cmp.intervals_cross_zero ? "All cross zero" : "Some exclude zero"}</span></Tip>],
           ]} />
         ) : <p className="text-fg-faint">{compared.kind === "reading" ? "Computing the comparison…"
           : compared.kind === "failed" ? `The comparison could not be computed. ${compared.message}`
