@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import textwrap
 
-from cli.common import (CANDIDATE_HELP, EXECUTION_DEFAULT_HELP, _market_at, _market_option, _op_id,
+from cli.common import (CANDIDATE_HELP, EXECUTION_DEFAULT_HELP, _market_day, _market_option, _op_id,
                         _paper_option)
 from engine.config import ACCOUNT_CONTRACT
 from ledger import db
@@ -20,7 +20,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("paper", "start"): (
         "the candidate in the research ledger (reader; --research-ledger, default the active one, at "
         "--research-at, default its head); this Paper database's containers on Docker; the runtime image (a tag "
-        "is pulled); the market day --at (default the newest day) and its current-month membership",
+        "is pulled); the market day (--market-day, default the newest day) and its current-month membership",
         "the candidate's source copied into the Paper database (once per source) and one paper_run row; the run "
         "directory <service>/paper/<database>/<paper_id> (source, membership); an internal Docker network with "
         "the runner and the egress proxy, left running (the command returns at once); the same --op-id again "
@@ -44,7 +44,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("paper", "stop"): (
         "the paper run (reader); its runner container",
         "a STOP file for the runner (it cancels its orders and writes its summary), then SIGTERM after "
-        "--wait-seconds and SIGKILL 30 s later; then seals as paper seal. --request-only durably writes "
+        "60 s and SIGKILL 30 s later; then seals as paper seal. --request-only durably writes "
         "the final STOP request and returns without waiting; paper serve completes cancellation and sealing",
         "as paper seal; --request-only returns paper_id, state, write_status",
         "PAPER_RUN_UNKNOWN; as paper seal"),
@@ -79,7 +79,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "FORBIDDEN (a Host or origin not allowed), NOT_FOUND, USAGE_ERROR (a bad body), NO_LAST_REPLAY, and the "
         "start, stop and seal refusals"),
     ("paper", "reconcile"): (
-        "the sealed paper run, its source and its files (reader); the market at --at (default the newest day), exported "
+        "the sealed paper run, its source and its files (reader); the market at --market-day (default the newest day), exported "
         "into a reused cache under the temporary directory; the run's own runtime image",
         "nothing in any database (no trial, no exposure); the new --output directory (replay/ with the native "
         "reports and audit, reconcile.json)",
@@ -94,8 +94,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 def register(verbs, verb, runner) -> None:
     """Add the paper nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
-    paper = verbs("paper", "paper runs on live public market data with simulated fills: start, stop, seal, delete, list, "
-                           "reconcile, serve")
+    paper = verbs("paper", "paper runs on live public market data with simulated fills")
     command = verb(paper, "start", "declare a paper run of a candidate and start its containers")
     command.epilog = textwrap.fill(
         "Binance public market data and Nautilus Sandbox fills only, no credential (engine.paper); the runner "
@@ -103,13 +102,12 @@ def register(verbs, verb, runner) -> None:
         "is the current month's at the market day. Paper runs add no trial count and no exposure.", 100)
     _paper_option(command)
     _market_option(command)
-    _market_at(command)
+    _market_day(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     scope = command.add_mutually_exclusive_group(required=True)
     scope.add_argument("--symbols", nargs="+", help="Binance symbols such as BTCUSDT")
     scope.add_argument("--universe", choices=("pool",), help="every member of the current month among the contracts this deployment's market holds")
     command.add_argument("--runtime", help=EXECUTION_DEFAULT_HELP)
-    command.add_argument("--memory", help="the runner container's memory limit and reservation (default: sized by its contracts)")
     command.add_argument("--research-ledger", help="the research ledger the candidate is read from (default: the "
                                                   "active one)")
     command.add_argument("--research-at", help="read the candidate at this exact research commit")
@@ -126,8 +124,6 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command.add_argument("--request-only", action="store_true", help="persist the final STOP request and return; "
                          "the daemon completes cancellation and sealing")
-    command.add_argument("--wait-seconds", type=int, default=60, help="seconds the runner gets to cancel its orders "
-                                                                      "and write its summary before it is killed")
     command = verb(paper, "seal", "seal an ended paper run into the Paper database")
     _paper_option(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
@@ -146,7 +142,7 @@ def register(verbs, verb, runner) -> None:
         "exposure; nothing reaches the ledger (paper.reconcile, replay.reconcile).", 100)
     _paper_option(command)
     _market_option(command)
-    _market_at(command)
+    _market_day(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command.add_argument("--timeout-seconds", type=float, help="stop the replay after this long")
@@ -178,14 +174,14 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if args.verb == "start":
         if args.research_at and not db.COMMIT_HASH.fullmatch(args.research_at):
             raise refuse("USAGE_ERROR", "--research-at is a full commit hash")
-        return paper_runs.start(profile, profiles.market(args.market), args.at, args.candidate,
-                                None if args.universe else args.symbols, args.runtime, args.memory,
+        return paper_runs.start(profile, profiles.market(args.market), args.market_day, args.candidate,
+                                None if args.universe else args.symbols, args.runtime,
                                 args.duration_seconds, args.op_id, research=db.profile(args.research_ledger),
                                 research_at=args.research_at, leverage=args.leverage), 0
     if args.verb == "stop":
         if args.request_only:
             return paper_runs.request_stop(profile, args.paper_id), 0
-        return paper_runs.stop(profile, args.paper_id, args.wait_seconds), 0
+        return paper_runs.stop(profile, args.paper_id), 0
     if args.verb == "resume":
         from paper import recovery
         return recovery.resume(profile, profiles.market(args.market), args.paper_id), 0
@@ -197,7 +193,7 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return paper_runs.listing(profile), 0
     if args.verb == "reconcile":
         from paper import reconcile
-        return reconcile.reconcile(profile, profiles.market(args.market), args.at, args.paper_id, Path(args.output),
+        return reconcile.reconcile(profile, profiles.market(args.market), args.market_day, args.paper_id, Path(args.output),
                                    args.timeout_seconds), 0
     if args.verb == "serve":
         from paper import serve

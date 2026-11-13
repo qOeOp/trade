@@ -26,7 +26,7 @@ from live import configuration, key, requests, state
 
 
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
-                   "read validation report --registration-id N. A registration covers this candidate on its "
+                   "read validation report --validation N. A registration covers this candidate on its "
                    "universe_rule.")
 # The runner's flat events and the states they end a run in; venue_flat is the whole account at Binance only.
 FLAT = {"clean_stop": "clean_stopped", "reconciled_flat": "reconciled_flat", "venue_flat": "venue_flat"}
