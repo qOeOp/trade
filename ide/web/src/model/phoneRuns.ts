@@ -4,7 +4,7 @@
 // order's latest event while it has not ended. Paper's come from the listing (paper/serve.py held()).
 import type { LiveEventRow } from "../lib/liveTradingDto";
 import { plural } from "../lib/format";
-import { amount, symbolOf, type PaperRun } from "../lib/paperApi";
+import { amount, symbolOf, type Listing, type PaperRun } from "../lib/paperApi";
 import { START } from "./chain";
 import type { LiveRun } from "./liveTrading";
 import type { Coin } from "./market";
@@ -51,8 +51,10 @@ export function marked(held: readonly Held[], coins: readonly Coin[] | undefined
   });
 }
 
-/** The working order protecting a held position: a trigger on the other side of its contract. */
-export const stopFor = (h: Held, working: readonly Working[]) => working.find((o) => o.symbol === h.symbol && o.trigger !== null && o.buy === !h.long) ?? null;
+/** Whether a working order protects a held position: a trigger on the other side of its contract. */
+export const protects = (o: Working, held: readonly Held[]) => o.trigger !== null && held.some((h) => h.symbol === o.symbol && o.buy === !h.long);
+/** The working order protecting a held position. */
+export const stopFor = (h: Held, working: readonly Working[]) => working.find((o) => protects(o, [h])) ?? null;
 
 /** How far a stop's trigger is from the mark, as a share of the mark. */
 export const away = (trigger: number | null, mark: number | null) => (trigger === null || mark === null || !mark ? null : Math.abs(trigger - mark) / mark);
@@ -91,13 +93,19 @@ export function liveMoney(run: LiveRun): Money | null {
 /** The run's state as one coloured word, as the desktop's run picker says it. */
 export const stopRequested = (run: LiveRun) => factOf(run.ending, "Stop requested") === "Yes";
 export function liveStatus(run: LiveRun): LiveStatus {
-  const state = factOf(run.host, "State"), stopping = stopRequested(run);
+  const state = run.hostState, stopping = stopRequested(run);
   if (state === "unresolved") return { word: "Unresolved", tone: "fail" };
   if (run.running) return stopping ? { word: "Stopping", tone: "misses" }
     : run.heldNotice ? { word: "Holding", tone: "misses" } : { word: "Running", tone: "meets" };
   if (run.ended) return { word: "Ended", tone: "masked" };
   return { word: state ? state.replace(/_/g, " ") : "Unknown", tone: "misses" };
 }
+
+/** The Runs button's dot, on the desktop's stripe and the phone's tab: red while a Live run is unresolved or the
+ *  paper daemon does not answer, green while a Live or paper run runs. */
+export const runsDot = (live: readonly LiveRun[], paper: Listing | null, service: string): "fail" | "meets" | undefined =>
+  service === "offline" || live.some((r) => liveStatus(r).word === "Unresolved") ? "fail"
+    : live.some((r) => r.running) || (paper?.running ?? 0) > 0 ? "meets" : undefined;
 
 /** When the run was last observed: its account observation, else its terminal event, in ms. */
 export const liveObserved = (run: LiveRun) => {

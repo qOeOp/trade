@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { PhoneTabs, type PhoneTabItem } from "../../components/PhoneTabs";
-import { ACTIVE } from "../../model/chain";
+import { runsDot } from "../../model/phoneRuns";
 import { useAtom } from "../../state/atom";
 import { useLiveTrading } from "../../state/liveTrading";
 import { pricesWanted, useOverviewService } from "../../state/market";
@@ -18,12 +18,10 @@ import { RunsTab } from "./RunsTab";
 export function PhoneShell() {
   usePhoneRoot();
   const tab = useAtom(phoneTab), overview = useOverviewService(), market = overview === "present" || overview === "offline";
-  const paper = usePaperService(), runs = usePaperRuns()?.runs ?? [], live = useLiveTrading().view.runs;
+  const dot = runsDot(useLiveTrading().view.runs, usePaperRuns(), usePaperService());
   useEffect(() => { follow(null, null); pricesWanted.set(true); return () => pricesWanted.set(false); }, []);
-  const unresolved = live.some((r) => r.host.some((f) => f.label === "State" && f.value === "unresolved"));
-  const going = live.some((r) => r.running) || runs.some((r) => ACTIVE.has(r.state));
   const items: PhoneTabItem<PhoneTab>[] = [
-    { id: "runs", icon: "tool.runs", label: "Runs", dot: unresolved || paper === "offline" ? "fail" : going ? "meets" : undefined },
+    { id: "runs", icon: "tool.runs", label: "Runs", dot },
     ...(market ? [{ id: "market" as const, icon: "tool.market" as const, label: "Market", dot: overview === "offline" ? "fail" as const : undefined }] : []),
     { id: "research", icon: "tool.versions", label: "Research" },
   ];

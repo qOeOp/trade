@@ -22,9 +22,6 @@ export function account(lines: readonly JournalLine[], state: PaperState | null,
   const path = readings?.equity ?? [];
   const starting = amount(readings?.starting_balance_usdt) ?? START;
   const equity = amount(seal?.final_equity_usdt ?? readings?.final_equity_usdt);
-  let peak = starting;
-  for (const [, value] of path) peak = Math.max(peak, value);
-  const latest = path[path.length - 1]?.[1];
   // A sealed run's positions were booked at its stop: nothing is open any more.
   const open = seal ? 0 : state ? state.positions.reduce((sum, p) => sum + (amount(p.unrealized_pnl) ?? 0), 0) : null;
   const funding = amount(readings?.funding_usdt) ?? 0;
@@ -33,13 +30,34 @@ export function account(lines: readonly JournalLine[], state: PaperState | null,
   return {
     starting, equity, net, ret: seal?.total_return ?? readings?.total_return ?? null,
     gross: net === null || open === null ? null : net + fees - funding - open, fees, funding, open,
-    drawdown: seal ? null : latest != null ? 1 - latest / peak : null, maxDrawdown: seal?.max_drawdown ?? readings?.max_drawdown ?? null,
+    drawdown: seal ? null : drawdownNow(starting, path), maxDrawdown: seal?.max_drawdown ?? readings?.max_drawdown ?? null,
     path, start: started === null ? null : started / 1e6, end: seal?.stopped_ns ? seal.stopped_ns / 1e6 : Date.now(), trades: trades(lines),
   };
 }
 
-/** The return a minimum annual return asks for after the run's time so far, compounding. */
-export const neededReturn = (annual: number, a: Account) => (a.start === null ? null : (1 + annual) ** ((a.end - a.start) / YEAR_MS) - 1);
+/** How far below its highest (the starting balance or a later point) the equity is at the path's last point. */
+export function drawdownNow(starting: number, path: readonly (readonly [number, number])[]): number | null {
+  let peak = starting;
+  for (const [, value] of path) peak = Math.max(peak, value);
+  const latest = path.at(-1)?.[1];
+  return latest == null ? null : 1 - latest / peak;
+}
+
+/** The return a minimum annual return asks for after the run's time from `start` to `end` (ms), compounding. */
+export const neededReturn = (annual: number, start: number | null, end: number) => (start === null ? null : (1 + annual) ** ((end - start) / YEAR_MS) - 1);
+
+/** How far a return is ahead of what the minimum asks for by now, and that in USDT: by the difference of the two
+ *  figures as shown (four decimals), so the notes add up on screen. */
+export function pace(ret: number | null | undefined, needed: number | null, starting: number): { ahead: number | null; usdt: number | null } {
+  const shown = (n: number) => Math.round(n * 1e4) / 1e4;
+  const ahead = needed === null || ret == null ? null : shown(ret) - shown(needed);
+  return { ahead, usdt: ahead === null ? null : ahead * starting };
+}
+
+/** A paper run's return is annualized once it has run this long. */
+export const ANNUAL_DAYS = 30;
+/** A return over `days`, annualized once the run has run ANNUAL_DAYS days. */
+export const annualized = (ret: number | null | undefined, days: number) => (ret != null && days >= ANNUAL_DAYS ? (1 + ret) ** (365 / days) - 1 : null);
 
 type Side = { n: number; won: number; pnl: number };
 
