@@ -229,10 +229,10 @@ def _run_record(conn: db.LedgerConnection, trial_id: int) -> dict:
                                 "validation_registration": trial["validation_registration_id"]}}
 
 
-def export_history(profile: db.LedgerProfile, destination: Path, at: str | None = None, trial_ids: list | None = None,
-                   with_backup: bool = True) -> dict:
+def export_history(profile: db.LedgerProfile, destination: Path, at: str | None = None,
+                   trial_ids: list | None = None) -> dict:
     """Export the ledger at one exact version through the reader account: the full-history backup
-    (with_backup) and the reproduction manifest with candidate sources, run rows, sealed results,
+    and the reproduction manifest with candidate sources, run rows, sealed results,
     daily series, position cycles, registrations and judgments, and every run's replay identity."""
     destination = _check_destination(profile, destination)
     with db.read_as_of(profile, at) as conn:
@@ -272,10 +272,8 @@ def export_history(profile: db.LedgerProfile, destination: Path, at: str | None 
                 "files": {path: hashlib.sha256(data).hexdigest() for path, data in sorted(files.items())},
                 "check": "replay each run by its identity (replay.reproduce) and compare with engine.compare_reports"}
     encoded = _json(manifest)
-    backup = None
-    if with_backup:
-        backup = backup_path(profile, destination)
-        _sync_backup(profile, backup, head)
+    backup = backup_path(profile, destination)
+    _sync_backup(profile, backup, head)
     staging = destination / f".{REPRODUCE}.{os.getpid()}"
     shutil.rmtree(staging, ignore_errors=True)
     for path, data in {**files, MANIFEST: encoded}.items():
@@ -295,6 +293,6 @@ def export_history(profile: db.LedgerProfile, destination: Path, at: str | None 
         shutil.rmtree(staging, ignore_errors=True)
         raise
     shutil.rmtree(retired, ignore_errors=True)
-    return {"at": at, "commit": commit, "ledger_name": profile.name, "backup_path": str(backup) if backup else None,
+    return {"at": at, "commit": commit, "ledger_name": profile.name, "backup_path": str(backup),
             "candidates": len(listed), "runs": len(records), "images": images, "market_days": market_days,
             "manifest_path": str(final / MANIFEST), "content_hash": hashlib.sha256(encoded).hexdigest()}

@@ -45,7 +45,6 @@ class IdentityTests(unittest.TestCase):
         for contract in ("replay-contract@v5", "r1-native-v6"):
             with self.subTest(contract=contract):
                 refused(self, "RUNTIME_UNSUPPORTED", image.layout, contract)
-        self.assertEqual(set(image.layout(None)), {"replay-contract@v8"})
 
 
 class ProbeTests(unittest.TestCase):

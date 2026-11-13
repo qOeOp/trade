@@ -1,5 +1,5 @@
 """Trials (`ledger.open_trial`) and the sealed runs of research and validation trials (`ledger.ingest_run`,
-`ledger.ingest_capture_refusal`).
+`ledger.ingest_capture_refusal`, `ledger.reseal_reading`).
 
 Every replay writes one trial row before its container starts: purpose, the executed source's content
 hash, the pinned runtime image, its line and registration, and the execution identity read from the
@@ -239,7 +239,7 @@ def _verified_files(capture: Mapping, trial_id: int, workdir: Path) -> dict[str,
             if target.exists() or target.is_symlink():
                 differs.append(path)
             continue
-        data = metrics._regular(target)
+        data = metrics.read_regular(target)
         if status == "captured_empty":
             same = data == b""
         else:
@@ -378,6 +378,40 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
     written = db.write(conn, "ingest_run", payload, "run", insert, lambda c, row: run_record(row),
                        attempts=db.WRITE_ATTEMPTS)
     return {**written["record"], "replayed": written["replayed"], "ledger_commit": written["commit"]}
+
+
+RESEAL = "reseal"  # the write kind of a reseal: db.write commits it as `reseal:<op_id>` (report.review checks it)
+
+
+def reseal_reading(conn: db.LedgerConnection, trial_id: int, reproduction_id: int, workdir: Path,
+                   input_identity: Mapping, checkout: Path | None) -> dict:
+    """Replace the reading of the passed run `trial_id` with the report the current metrics code (`checkout`'s HEAD)
+    computes from the verified files of its reproduction `reproduction_id` in `workdir`, in one `reseal:<op_id>`
+    commit; a reading the current code computes alike is left as it is. Returns {product_commit,
+    previous_product_commit, resealed, ledger_commit[, op_id]}."""
+    files = _verified_files(execution.read_capture(conn, reproduction_id), reproduction_id, workdir)
+    reasons, sealed = _sealed_report(conn, trial_id, files, input_identity, checkout)
+    if reasons:
+        raise refuse("REPORT_UNREADABLE", f"the current metrics code cannot read the reproduction of run "
+                     f"{trial_id}: " + "; ".join(item["message"] for item in reasons), missing=(str(trial_id),))
+    revision, report = sealed[0], sealed[1]
+    before = conn.one("SELECT report, product_commit FROM run_reading WHERE trial_id = %s", (trial_id,))
+    assert before is not None  # the caller reseals only a passed run, which has its reading
+    previous = json.loads(before["report"]) if isinstance(before["report"], (str, bytes)) else before["report"]
+    result = {"product_commit": revision, "previous_product_commit": before["product_commit"]}
+    # compared as values: the stored JSON comes back as Dolt normalized it (1.0 as 1, for one)
+    if revision == before["product_commit"] and json.loads(db.canonical_json(report)) == previous:
+        return {**result, "resealed": False, "ledger_commit": None}
+    payload = {"trial_id": trial_id, "product_commit": revision,
+               "report_sha256": hashlib.sha256(db.canonical_json(report).encode()).hexdigest()}
+
+    def update(c, op_id):
+        c.rows("UPDATE run_reading SET report = %s, product_commit = %s, op_id = %s WHERE trial_id = %s",
+               (db.canonical_json(report), revision, op_id, trial_id))
+        return {"trial_id": trial_id}
+
+    written = db.write(conn, RESEAL, payload, "run_reading", update, attempts=db.WRITE_ATTEMPTS)
+    return {**result, "resealed": True, "ledger_commit": written["commit"], "op_id": written["op_id"]}
 
 
 def run_record(row: Mapping) -> dict:

@@ -48,26 +48,25 @@ class ProblemTests(unittest.TestCase):
         return root
 
     def test_audit_problems_list_every_failure_without_reading_logs(self):
-        reasons, audit = entry.audit_problems(self.directory(), 3, None)
-        self.assertEqual((codes(reasons), audit), (["NATIVE_EXIT_NONZERO", "AUDIT_NOT_RUN", "AUDIT_RESULT_MISSING"], None))
-        reasons, _ = entry.audit_problems(self.directory("{not json"), 0, 1)
-        self.assertEqual(codes(reasons), ["AUDIT_EXIT_NONZERO", "AUDIT_RESULT_UNREADABLE"])
-        reasons, audit = entry.audit_problems(self.directory({"passed": False, "findings": ["fill F-1 unmatched",
-                                                                                            "order O-2 naked"]}), 0, 1)
+        self.assertEqual(codes(entry.audit_problems(self.directory(), 3, None)),
+                         ["NATIVE_EXIT_NONZERO", "AUDIT_NOT_RUN", "AUDIT_RESULT_MISSING"])
+        self.assertEqual(codes(entry.audit_problems(self.directory("{not json"), 0, 1)),
+                         ["AUDIT_EXIT_NONZERO", "AUDIT_RESULT_UNREADABLE"])
+        reasons = entry.audit_problems(self.directory({"passed": False, "findings": ["fill F-1 unmatched",
+                                                                                     "order O-2 naked"]}), 0, 1)
         self.assertEqual([reason["locator"] for reason in reasons if reason["code"] == "AUDIT_FINDINGS"],
                          ["fill F-1 unmatched", "order O-2 naked"])
-        self.assertEqual(audit["passed"], False)
-        self.assertEqual(entry.audit_problems(self.directory({"passed": True, "findings": []}), 0, 0)[0], [])
+        self.assertEqual(entry.audit_problems(self.directory({"passed": True, "findings": []}), 0, 0), [])
 
     def test_runtime_failure_receipts_invalidate_even_a_clean_exit(self):
         passed = {"passed": True, "findings": []}
         structured = json.dumps({"stage": "on_bar", "exception_type": "KeyError", "instrument_id": "AAAUSDT-PERP"})
-        reasons, _ = entry.audit_problems(self.directory(passed, structured + "\n"), 0, 0)
+        reasons = entry.audit_problems(self.directory(passed, structured + "\n"), 0, 0)
         self.assertEqual([(reason["code"], reason["locator"]) for reason in reasons],
                          [("RUNTIME_FAILURE_RECORDED", "on_bar:AAAUSDT-PERP")])
-        self.assertEqual(codes(entry.audit_problems(self.directory(passed, '{"callback": "on_bar"}\n'), 0, 0)[0]),
+        self.assertEqual(codes(entry.audit_problems(self.directory(passed, '{"callback": "on_bar"}\n'), 0, 0)),
                          ["RUNTIME_FAILURE_MALFORMED"])
-        self.assertEqual(codes(entry.audit_problems(self.directory(passed, "Traceback ...\n"), 0, 0)[0]),
+        self.assertEqual(codes(entry.audit_problems(self.directory(passed, "Traceback ...\n"), 0, 0)),
                          ["RUNTIME_FAILURE_UNREADABLE"])
 
     def test_the_native_summary_must_carry_the_trial_identity(self):
@@ -213,16 +212,15 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                 return entry.precheck(self.world.profile, self.world.market, MARKET_DAY, published["candidate"], None,
                                       WEEK, self.world.output(name))
         other = {**IDENTITY, "image_ref": "localhost:15000/trade-runtime@" + IDENTITY["image_digest"]}
-        unlabelled = {"RepoDigests": [IDENTITY["image_ref"]], "Config": {"Labels": {}}}
         with tempfile.TemporaryDirectory() as scratch:
             checkout, side = branch_build(Path(scratch))
-            with patch("runtime.image.CHECKOUT", checkout), patch("runtime.image._image", return_value=unlabelled), \
+            with patch("runtime.image.CHECKOUT", checkout), \
                     registration_seams.use(require_ci_build=registration_seams.DEFAULT.require_ci_build,
-                                           inspect_runtime=probe), \
-                    seams.use(build_revision=lambda identity: side):
+                                           inspect_runtime=probe,
+                                           resolve_runtime=lambda ref: {**IDENTITY, "build_revision": side}):
                 for purpose, call in (("explore", self.explore), ("precheck", prechecked)):
                     cases = {"another-registry": registration_seams.use(resolve_runtime=lambda ref: dict(other)),
-                             "no-revision-label": seams.use(build_revision=lambda identity: None),
+                             "no-revision-label": registration_seams.use(resolve_runtime=lambda ref: dict(IDENTITY)),
                              "changed-code": patch.dict(files, {"uv.lock": b"another lock"})}
                     for case, change in cases.items():
                         with self.subTest(purpose=purpose, case=case):

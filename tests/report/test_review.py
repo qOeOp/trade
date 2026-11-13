@@ -52,7 +52,7 @@ class TamperTests(unittest.TestCase):
         cls.addClassCleanup(world.close)
         cls.authority = LocalAuthority()
         cls.addClassCleanup(cls.authority.close)
-        roots = patch.object(witness, "_roots", lambda tsa_roots: cls.authority.roots)
+        roots = patch.object(witness, "_roots", lambda: cls.authority.roots)
         roots.start()
         cls.addClassCleanup(roots.stop)
         cls.registration = world.register(world.body(["rsi@1"], {"rsi@1": world.prechecked(source("root"))}))[
@@ -109,8 +109,8 @@ class TamperTests(unittest.TestCase):
             backed = review.review_all(conn)
         self.assertEqual((backed["history"]["status"], backed["limitations"]), ("current", []))
         self.assertNotIn("BACKUP_BEHIND", codes(backed))
-        again = admin.export_history(self.profile, self.profile.backup_root, trial_ids=[self.fixture_run],
-                                     with_backup=False)
+        with patch.object(admin, "_sync_backup"):
+            again = admin.export_history(self.profile, self.profile.backup_root, trial_ids=[self.fixture_run])
         self.assertEqual(again["runs"], 1, "an earlier export of this ledger is refreshed")
         self.admin_sql("CALL DOLT_COMMIT('--allow-empty', '-m', 'a later commit')")
         with self.reader() as conn:
@@ -124,10 +124,11 @@ class TamperTests(unittest.TestCase):
         foreign = self.backups / "foreign"
         foreign.mkdir()
         self.assertEqual(refused(admin.export_history, self.profile, foreign).code, "EXPORT_PATH_INVALID")
-        self.assertEqual(refused(admin.export_history, self.profile, self.backups / "new", trial_ids=[999],
-                                 with_backup=False).code, "UNKNOWN_RUN")
+        self.assertEqual(refused(admin.export_history, self.profile, self.backups / "new", trial_ids=[999]).code,
+                         "UNKNOWN_RUN")
         broken = self.backups / "broken"
-        admin.export_history(self.profile, broken, trial_ids=[self.fixture_run], with_backup=False)
+        with patch.object(admin, "_sync_backup"):
+            admin.export_history(self.profile, broken, trial_ids=[self.fixture_run])
         (broken / "backup").write_text("not a backup directory")
         self.assertEqual(refused(admin.export_history, self.profile, broken, trial_ids=[self.fixture_run]).code,
                          "DOLT_BACKUP")
@@ -266,7 +267,10 @@ class SealedTamperTests(unittest.TestCase):
 
     def test_3_an_export_replaced_while_failing_keeps_the_earlier_one(self):
         destination = self.backups / "export"
-        first = admin.export_history(self.world.profile, destination, with_backup=False)
+        no_backup = patch.object(admin, "_sync_backup")
+        no_backup.start()
+        self.addCleanup(no_backup.stop)
+        first = admin.export_history(self.world.profile, destination)
         original = Path.rename
 
         def failing(self_path, target):
@@ -275,10 +279,10 @@ class SealedTamperTests(unittest.TestCase):
             return original(self_path, target)
 
         with patch.object(Path, "rename", failing), self.assertRaises(OSError):
-            admin.export_history(self.world.profile, destination, with_backup=False)
+            admin.export_history(self.world.profile, destination)
         manifest = json.loads((destination / "reproduce" / "manifest.json").read_text())
         self.assertEqual(manifest["commit"], first["commit"], "the earlier export is still in place")
-        again = admin.export_history(self.world.profile, destination, with_backup=False)
+        again = admin.export_history(self.world.profile, destination)
         self.assertEqual(sorted(path.name for path in destination.iterdir()), ["reproduce"])
         self.assertEqual(again["runs"], 2)
 

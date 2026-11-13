@@ -105,7 +105,7 @@ def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: 
             raise refuse("PHASE_FAILED", f"stage {name} of trial {trial_id} did not exit 0 (exit code {code})",
                          missing=(name,))
     started = capture.get("input_coverage_bytes")
-    coverage = execution._json(started)
+    coverage = problems.json_object(started)
     # The capture hashes the receipt the container read; its bytes are the start receipt's.
     if (started is None or hashlib.sha256(started).hexdigest() != sealed or not isinstance(coverage, Mapping)
             or coverage.get("input_identity") != capture["start"].get("input_identity")):
@@ -114,4 +114,4 @@ def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: 
     if not isinstance(coverage, Mapping) or coverage.get("input_identity") != input_identity:
         raise refuse("INPUT_IDENTITY_MISMATCH", f"the sealed coverage receipt of trial {trial_id} names other "
                                                 "inputs than the stored input identity", missing=("input_identity",))
-    return verify_coverage(coverage, execution._json(files[problems.SUMMARY]))
+    return verify_coverage(coverage, problems.json_object(files[problems.SUMMARY]))

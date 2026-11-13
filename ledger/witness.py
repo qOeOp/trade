@@ -26,8 +26,7 @@ from shared.refusals import refuse
 
 
 # The default authorities, tried in order until one grants a token: each chains to a root pinned in
-# `tsa-roots.pem` (DigiCert Trusted Root G4, USERTrust RSA). Seam: the design reads them from the
-# ledger configuration, which no profile field holds yet.
+# `tsa-roots.pem` (DigiCert Trusted Root G4, USERTrust RSA).
 TSA_URLS = ("https://timestamp.digicert.com", "https://timestamp.sectigo.com")
 ROOTS = Path(__file__).with_name("tsa-roots.pem")
 ROOTS_SHA256 = "c2dc4afb1860e6f3a219951b3524f9105bcebaf0ee41bcb08708d70f595c1cee"
@@ -45,19 +44,17 @@ def _invalid(commit: str, why: str) -> Refusal:
     return refuse("WITNESS_INVALID", f"the timestamp token for {commit} {why}", missing=(str(commit),))
 
 
-def _roots(tsa_roots: Path | None) -> Path:
-    if tsa_roots is not None:
-        return Path(tsa_roots)
+def _roots() -> Path:
     if hashlib.sha256(ROOTS.read_bytes()).hexdigest() != ROOTS_SHA256:
         raise refuse("WITNESS_INVALID", "the shipped timestamp roots differ from their pinned hash")
     return ROOTS
 
 
-def token_time(token: bytes, commit: str, tsa_roots: Path | None = None, expected_nonce: int | None = None) -> datetime:
+def token_time(token: bytes, commit: str, expected_nonce: int | None = None) -> datetime:
     """Verify a TimeStampToken (DER) for `commit` offline against the pinned roots; return its genTime (UTC)."""
     if not isinstance(token, bytes) or not token or not isinstance(commit, str) or not COMMIT.fullmatch(commit):
         raise _invalid(str(commit), "or its commit is malformed")
-    roots = _roots(tsa_roots)
+    roots = _roots()
     with tempfile.TemporaryDirectory() as directory:
         data, path = Path(directory, "commit"), Path(directory, "token.der")
         data.write_text(commit, encoding="ascii")
@@ -123,14 +120,7 @@ def _stored(conn: db.LedgerConnection, commit: str) -> dict | None:
     return conn.one("SELECT token FROM witness WHERE commit_hash = %s", (commit,))
 
 
-def _witness_commit(conn: db.LedgerConnection, commit: str) -> str | None:
-    found = conn.rows("SELECT to_commit FROM dolt_diff_witness WHERE to_commit_hash = %s AND diff_type = 'added' "
-                      "LIMIT 1", (commit,))
-    return found[0][0] if found else None
-
-
-def witness(conn: db.LedgerConnection, commit: str | None, tsa_url: str | None = None,
-            tsa_roots: Path | None = None) -> dict:
+def witness(conn: db.LedgerConnection, commit: str | None, tsa_url: str | None = None) -> dict:
     """Timestamp one validation registration commit and store the token; idempotent per commit.
 
     Without `tsa_url` the default authorities are asked in order and the first granted token is
@@ -145,11 +135,10 @@ def witness(conn: db.LedgerConnection, commit: str | None, tsa_url: str | None =
     if commit is None or registered is None:
         raise refuse("NOT_REGISTRATION_COMMIT", f"commit {commit!r} added no validation registration",
                      missing=(str(commit),))
-    result: dict = {"commit": commit, "tsa": None, "reason": None}
+    result: dict = {"commit": commit, "reason": None}
     stored = _stored(conn, commit)
     if stored is not None:
-        return {**result, "status": "already_stamped",
-                "stamped_at": token_time(bytes(stored["token"]), commit, tsa_roots), "witness_commit": _witness_commit(conn, commit)}
+        return {**result, "status": "already_stamped", "stamped_at": token_time(bytes(stored["token"]), commit)}
     query, nonce = _query(commit)
     token = None
     for url in urls:
@@ -158,12 +147,10 @@ def witness(conn: db.LedgerConnection, commit: str | None, tsa_url: str | None =
         except (OSError, urllib.error.URLError, http.client.HTTPException):
             token = None
         if token is not None:
-            result["tsa"] = url
             break
     if token is None:
-        return {**result, "status": "failed", "stamped_at": None, "witness_commit": None,
-                "reason": "WITNESS_UNAVAILABLE"}
-    moment = token_time(token, commit, tsa_roots, nonce)
+        return {**result, "status": "failed", "stamped_at": None, "reason": "WITNESS_UNAVAILABLE"}
+    moment = token_time(token, commit, nonce)
     registration_id, created_at = registered
     earliest = created_at.replace(tzinfo=UTC)
     if moment.microsecond == 0:  # a whole-second genTime is compared at its own resolution
@@ -180,45 +167,44 @@ def witness(conn: db.LedgerConnection, commit: str | None, tsa_url: str | None =
         written = db.write(conn, "witness", {"commit": commit}, "witness", insert, op_id=commit, key="commit_hash")
     except Refusal as exc:
         if exc.code == "CONCURRENT_WRITE" and _stored(conn, commit) is not None:
-            return witness(conn, commit, tsa_url, tsa_roots)
+            return witness(conn, commit, tsa_url)
         raise
     if written["replayed"]:
-        return witness(conn, commit, tsa_url, tsa_roots)
-    return {**result, "status": "stamped", "stamped_at": moment, "witness_commit": written["commit"]}
+        return witness(conn, commit, tsa_url)
+    return {**result, "status": "stamped", "stamped_at": moment}
 
 
-def stamped_at(conn: db.LedgerConnection, commit: str, tsa_roots: Path | None = None) -> datetime | None:
+def stamped_at(conn: db.LedgerConnection, commit: str) -> datetime | None:
     """The verified genTime of the commit's stored token, or None when it has none."""
     stored = _stored(conn, commit)
-    return None if stored is None else token_time(bytes(stored["token"]), commit, tsa_roots)
+    return None if stored is None else token_time(bytes(stored["token"]), commit)
 
 
-def registration_stamp(conn: db.LedgerConnection, registration_id: int,
-                       tsa_roots: Path | None = None) -> tuple[str, datetime] | None:
+def registration_stamp(conn: db.LedgerConnection, registration_id: int) -> tuple[str, datetime] | None:
     """(commit, verified genTime) of the witness of a validation registration, or None when it has none: a
     witness row counts only when its commit is the one that added this registration."""
     found = conn.one("SELECT commit_hash, token FROM witness WHERE registration_id = %s", (registration_id,))
     if found is None or (_registered(conn, found["commit_hash"]) or (None,))[0] != registration_id:
         return None
-    return found["commit_hash"], token_time(bytes(found["token"]), found["commit_hash"], tsa_roots)
+    return found["commit_hash"], token_time(bytes(found["token"]), found["commit_hash"])
 
 
-def sync_witness(conn: db.LedgerConnection, tsa_url: str | None = None, tsa_roots: Path | None = None) -> dict:
-    """Timestamp the commit of every validation registration that has no token yet, oldest first."""
-    commits = [commit for (commit,) in conn.rows(
-        "SELECT d.to_commit FROM dolt_diff_validation_registration d WHERE d.diff_type = 'added' AND NOT EXISTS "
-        "(SELECT 1 FROM witness w WHERE w.registration_id = d.to_registration_id) ORDER BY d.to_registration_id")]
+def sync_witness(conn: db.LedgerConnection, tsa_url: str | None = None) -> dict:
+    """Timestamp the commit of every validation registration that has no token yet, oldest first; each
+    witnessed or failed commit comes with the registration it added."""
+    pending = conn.rows(
+        "SELECT d.to_commit, d.to_registration_id FROM dolt_diff_validation_registration d WHERE d.diff_type = 'added' "
+        "AND NOT EXISTS (SELECT 1 FROM witness w WHERE w.registration_id = d.to_registration_id) "
+        "ORDER BY d.to_registration_id")
     (already,), = conn.rows("SELECT COUNT(*) FROM witness")
     witnessed, failed = [], []
-    for commit in commits:
-        if _stored(conn, commit) is not None:
-            already += 1
-            continue
-        outcome = witness(conn, commit, tsa_url, tsa_roots)
+    for commit, registration_id in pending:
+        outcome = witness(conn, commit, tsa_url)
         if outcome["status"] == "stamped":
-            witnessed.append(commit)
+            witnessed.append({"commit": commit, "registration_ids": [registration_id],
+                              "stamped_at": outcome["stamped_at"]})
         elif outcome["status"] == "already_stamped":
             already += 1
         else:
-            failed.append({"commit": commit, "reason": outcome["reason"]})
+            failed.append({"commit": commit, "reason": outcome["reason"], "registration_ids": [registration_id]})
     return {"witnessed": witnessed, "already": already, "failed": failed}

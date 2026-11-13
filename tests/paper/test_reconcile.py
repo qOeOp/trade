@@ -196,12 +196,11 @@ class ExportTests(unittest.TestCase):
 
         exported = {"root": "/tmp/export", "fresh": True}
         with tempfile.TemporaryDirectory() as name, \
-                mock.patch.object(entry, "_resolve", return_value={"runtime_contract": "c"}), \
-                mock.patch.object(entry.seams, "current", mock.Mock(layout=mock.Mock(return_value={}))), \
                 mock.patch.object(entry, "_export", return_value=({}, exported)) as export, \
                 mock.patch.object(entry.registration_seams, "current",
-                                  mock.Mock(inspect_runtime=mock.Mock(side_effect=RuntimeError("stop")))), \
-                mock.patch.object(entry, "_cleanup") as cleanup:
+                                  mock.Mock(resolve_runtime=mock.Mock(return_value={"runtime_contract": "c"}),
+                                            inspect_runtime=mock.Mock(side_effect=RuntimeError("stop")))), \
+                mock.patch.object(entry.registration_inputs, "cleanup") as cleanup:
             with self.assertRaises(RuntimeError):
                 entry.replay_unrecorded({}, "c" * 40, b"", "S", "image", [], Path(name) / "out", "name")
         self.assertIs(export.call_args.args[3], True)

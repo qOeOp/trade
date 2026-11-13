@@ -91,9 +91,9 @@ def json_object(data: bytes | None):
 
 
 def audit_problems(native_exit: int | None, audit_exit: int | None, audit: bytes | None,
-                   failures: bytes | None) -> tuple[list[dict], dict | None]:
+                   failures: bytes | None) -> list[dict]:
     """Reasons from the exit codes, the audit result bytes and the runtime failure receipt bytes
-    (None: the file is missing); returns (reasons, parsed audit result or None)."""
+    (None: the file is missing)."""
     reasons = []
     if native_exit is None:
         reasons.append(reason("NATIVE_NOT_EXITED", "the native runner did not exit", "native"))
@@ -103,7 +103,6 @@ def audit_problems(native_exit: int | None, audit_exit: int | None, audit: bytes
         reasons.append(reason("AUDIT_NOT_RUN", "the independent audit did not run", "audit"))
     elif audit_exit:
         reasons.append(reason("AUDIT_EXIT_NONZERO", f"the independent audit exited {audit_exit}", "audit"))
-    parsed = None
     if audit is None:
         reasons.append(reason("AUDIT_RESULT_MISSING", "the audit result is missing", AUDIT_RESULT))
     else:
@@ -130,7 +129,7 @@ def audit_problems(native_exit: int | None, audit_exit: int | None, audit: bytes
             else:
                 for group in failure_groups(lines):
                     reasons.append(_failure_reason(group))
-    return cause_first(reasons), parsed
+    return cause_first(reasons)
 
 
 def cause_first(reasons: list[dict]) -> list[dict]:
@@ -246,9 +245,8 @@ def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, co
     if outcome.get("kind") != "completed":
         reasons.append(reason("EXECUTION_NOT_COMPLETED", f"the replay ended {outcome.get('kind')}: "
                                                          f"{outcome.get('detail')}", "outcome"))
-    found, _ = audit_problems(_exit(stages.get("native")), _exit(stages.get("audit")), sealed(capture, AUDIT_RESULT),
+    reasons += audit_problems(_exit(stages.get("native")), _exit(stages.get("audit")), sealed(capture, AUDIT_RESULT),
                               sealed(capture, RUNTIME_ERRORS))
-    reasons += found
     summary = sealed(capture, SUMMARY)
     parsed = json_object(summary)
     if summary is not None and parsed is None:

@@ -70,10 +70,8 @@ PROBE_FIELDS = ("runtime_contract", "engine_version", "python_version", "depende
                 "audit_source_sha256")
 
 
-def layout(runtime_contract: str | None) -> dict:
-    """The image layout of one runtime contract; None gives every contract's layout."""
-    if runtime_contract is None:
-        return {name: _copy(value) for name, value in LAYOUTS.items()}
+def layout(runtime_contract: str) -> dict:
+    """The image layout of one runtime contract."""
     found = LAYOUTS.get(runtime_contract) if isinstance(runtime_contract, str) else None
     if found is None:
         raise refuse("RUNTIME_UNSUPPORTED", f"runtime contract {runtime_contract!r} has no image layout",
@@ -370,9 +368,7 @@ def _require_build(identity: dict, inspection: dict, code: str, on_main: bool) -
     if repository(identity["image_ref"]) != REPOSITORY:
         raise refuse(code, f"{identity['image_ref']} is not in {REPOSITORY}, where this repository's CI pushes "
                            "its images")
-    revision = identity.get("build_revision")
-    if revision is None:
-        revision = _labels(_image(identity["image_ref"])).get(REVISION_LABEL)
+    revision = identity.get("build_revision")  # runtime.resolve read it from the image's label
     if not isinstance(revision, str) or not REVISION.fullmatch(revision):
         raise refuse(code, f"runtime image {identity['image_ref']} has no build source revision label",
                      missing=(REVISION_LABEL,))

@@ -1,4 +1,4 @@
-"""Fixed v7 source layouts are selected by trusted Git, including direct main checks."""
+"""Fixed v8 source layouts are selected by trusted Git, including direct main checks."""
 
 from copy import deepcopy
 import hashlib

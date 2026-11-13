@@ -22,16 +22,10 @@ EGRESS_ARGV = ("--port", "3128", "--log", "/reports/egress.log")
 EGRESS_MEMORY = "256m"
 
 
-
-DOCKER_ENV = ("PATH", "HOME", "TMPDIR", "USER", "LANG", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT",
-              "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY")
-
-
-
 def docker(*argv: str, timeout: float = 60) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(["docker", *argv], capture_output=True, text=True, check=False, timeout=timeout,
-                              env={key: os.environ[key] for key in DOCKER_ENV if key in os.environ})
+                              env={key: os.environ[key] for key in container.DOCKER_ENV if key in os.environ})
     except subprocess.TimeoutExpired as exc:
         raise state.fail("LIVE_DOCKER_UNAVAILABLE", "Docker did not answer; account custody remains unresolved") from exc
     except OSError as exc:

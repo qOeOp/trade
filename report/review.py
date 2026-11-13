@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 import json
 
-from ledger import admin, db, execution, metrics, witness
+from ledger import admin, db, execution, metrics, trials, witness
 from report import measures, profit
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -50,7 +50,6 @@ FINDINGS = {
 # Not commitments: the write coordination row and the one replaceable reading per run (checked apart).
 UNCHECKED = ("ledger_head", "run_reading")
 READINGS = "run_reading"
-RESEAL = "reseal"  # the write kind of a reseal (db.write commits it as `reseal:<op_id>`)
 HISTORY_UNCHECKED = ("HISTORY_UNCHECKED: no readable backup, so whether a commit was rewritten (an amended last "
                      "commit) was not checked")
 
@@ -277,7 +276,7 @@ def _reading_findings(conn: db.LedgerConnection, new: str, since: tuple) -> list
             since):
         others = [name for (name,) in conn.rows("SELECT table_name FROM dolt_diff WHERE commit_hash = %s AND "
                                                 "table_name NOT IN (%s, 'ledger_head')", (to_commit, READINGS))]
-        if diff_type != "modified" or op_id is None or message != f"{RESEAL}:{op_id}" or others:
+        if diff_type != "modified" or op_id is None or message != f"{trials.RESEAL}:{op_id}" or others:
             found.append(_finding("READING_REPLACED_OUTSIDE_RESEAL", READINGS, trial_id, to_commit,
                                   f"the reading of run {trial_id} was {diff_type} by a commit with message "
                                   f"{message!r}" + (f" that also changed {', '.join(sorted(others))}" if others else "")))

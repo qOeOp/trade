@@ -1,31 +1,18 @@
-"""The places replay reaches the runtime package and the report package: the runtime layout, the
-isolated container command, running and stopping a named container, the build revision of an image
-and the unverified directory report.
+"""The places replay starts containers: the isolated stage command (`runtime.container_command`) and
+running and stopping a named container.
 
-`current` holds the implementations in force: `runtime.image`, `runtime.container` and
-`report.runs`. Tests swap them with `use(...)` (stand-in containers). The fingerprint stage runs
-the in-image semantic fingerprint (engine.compare) the layout names.
+`current` holds the implementations in force; tests swap them with `use(...)` (stand-in containers).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from pathlib import Path
 import subprocess
 import threading
 
-from ledger.execution import IDENTITY_FIELDS
-from runtime import container, image
-
-
-def _container_command(identity: Mapping, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str],
-                       name: str) -> list[str]:
-    """runtime.container_command, the container named `name` so an interrupt can stop it."""
-    identity = {key: identity[key] for key in IDENTITY_FIELDS}
-    return container.container_command(identity, [(Path(host), target, readonly) for host, target, readonly in mounts],
-                                       module, list(argv), name)
+from runtime import container
 
 
 def _copy(pipe, sink) -> None:
@@ -96,22 +83,14 @@ def _stop(name: str) -> None:
                    timeout=60)
 
 
-def _build_revision(identity: Mapping) -> str | None:
-    """The image's build source revision (runtime.resolve's build_revision); None without one."""
-    return identity.get("build_revision")
-
-
 @dataclass(frozen=True)
 class Seams:
-    layout: Callable[[str], dict]
-    container_command: Callable[[Mapping, list, str, list[str], str], list[str]]
+    container_command: Callable[[dict, list, str, list[str], str], list[str]]
     run: Callable[[list[str], object, object, float | None], int]
     stop: Callable[[str], None]
-    build_revision: Callable[[Mapping], str | None]
 
 
-DEFAULT = Seams(layout=image.layout, container_command=_container_command, run=_run, stop=_stop,
-                build_revision=_build_revision)
+DEFAULT = Seams(container_command=container.container_command, run=_run, stop=_stop)
 current = DEFAULT
 
 
