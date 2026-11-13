@@ -27,7 +27,7 @@ from typing import TypeGuard
 
 from ledger import db, evidence, metrics, problems
 from shared.errors import Refusal
-from ledger.metrics import _regular
+from ledger.metrics import read_regular
 from shared.refusals import refuse
 
 
@@ -91,7 +91,7 @@ def write_marker(workdir: Path, trial_id: int, op_id: str) -> None:
 
 def require_marker(workdir: Path, trial: Mapping) -> None:
     """Refuse EXECUTION_IDENTITY unless `workdir` holds the marker of this trial's start write."""
-    marker = _json(_regular(Path(workdir) / WORKDIR_MARKER))
+    marker = _json(read_regular(Path(workdir) / WORKDIR_MARKER))
     if marker != {"trial_id": trial["trial_id"], "op_id": trial["op_id"]}:
         raise refuse("EXECUTION_IDENTITY", f"{workdir} is not the working directory trial {trial['trial_id']} started "
                                            "in", missing=(WORKDIR_MARKER,))
@@ -295,7 +295,7 @@ def listed_sha256(capture: Mapping, path: str) -> str | None:
 def read_files(workdir: Path, paths) -> dict[str, bytes]:
     """The regular files of `paths` under `workdir` (never through a link); a missing one is left out.
     A reader checks them against the capture's hashes (problems.sealed)."""
-    return {path: data for path in paths if (data := _regular(Path(workdir) / path)) is not None}
+    return {path: data for path in paths if (data := read_regular(Path(workdir) / path)) is not None}
 
 
 # Sealing (seal_capture) and recovery (recover_capture, recovery_material)
@@ -371,12 +371,12 @@ def _capture_files(workdir: Path, purpose: str, facts: Mapping,
     their original reports. This storage choice does not change precheck admission requirements.
     """
     names = list(CAPTURE_FILES)
-    audit = _json(_regular(workdir / problems.AUDIT_RESULT) or b"")
+    audit = _json(read_regular(workdir / problems.AUDIT_RESULT) or b"")
     cacheable = (purpose == "precheck" and (outcome or {}).get("kind") == "completed"
                  and all(stage_ok(facts.get(stage)) for stage in STAGES)
-                 and isinstance(_json(_regular(workdir / problems.FINGERPRINT_RESULT) or b""), dict)
+                 and isinstance(_json(read_regular(workdir / problems.FINGERPRINT_RESULT) or b""), dict)
                  and isinstance(audit, dict) and audit.get("passed") is True
-                 and not (_regular(workdir / problems.RUNTIME_ERRORS) or b"").strip())
+                 and not (read_regular(workdir / problems.RUNTIME_ERRORS) or b"").strip())
     hashed = HASHED_INPUTS + (REPORT_OUTPUTS if cacheable
                              else () if purpose == "precheck" else HASHED_OUTPUTS)
     reports = workdir / "reports"
@@ -392,7 +392,7 @@ def _capture_files(workdir: Path, purpose: str, facts: Mapping,
         if name in not_started:
             listed[name] = {"status": "not_started"}
             continue
-        data = _regular(workdir / name)
+        data = read_regular(workdir / name)
         if data is None:
             listed[name] = {"status": "missing"}
         elif name in hashed:
@@ -436,7 +436,7 @@ def recovery_bundles(conn: db.LedgerConnection, trial_id: int) -> list[str]:
 
 def _require_process(workdir: Path, trial_id: int, argv: list, facts: Mapping) -> None:
     """The stages must be the ones the entry's process record holds, its runner command the trial's argv."""
-    process = _json(_regular(workdir / PROCESS) or b"")
+    process = _json(read_regular(workdir / PROCESS) or b"")
     commands = process.get("commands") if isinstance(process, dict) else None
     recorded = process.get("stages") if isinstance(process, dict) else None
     argv = argv if isinstance(argv, list) else []
@@ -452,14 +452,14 @@ def _require_process(workdir: Path, trial_id: int, argv: list, facts: Mapping) -
 
 
 def _require_coverage(workdir: Path, trial_id: int, coverage: bytes) -> None:
-    if _regular(workdir / problems.COVERAGE) != coverage:
+    if read_regular(workdir / problems.COVERAGE) != coverage:
         raise refuse("COVERAGE_MISMATCH", f"the coverage receipt of trial {trial_id} in {workdir} is not the one its "
                                           "start bundle holds", missing=(problems.COVERAGE,))
 
 
 def _table_hashes(workdir: Path) -> dict[str, str] | None:
     """{table: semantic hash} of the fingerprint in the working directory, None without one."""
-    tables = _json(_regular(workdir / problems.FINGERPRINT_RESULT) or b"")
+    tables = _json(read_regular(workdir / problems.FINGERPRINT_RESULT) or b"")
     if not isinstance(tables, dict):
         return None
     return {table: entry["sha256"] for table, entry in tables.items()
@@ -526,7 +526,7 @@ def seal_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, stages:
                        row["outcome_kind"], row["outcome_detail"])
         same = (stored_head == head[:-1] and c.rows("SELECT trial_id, path, status, sha256, length FROM trial_file WHERE trial_id = %s ORDER BY "
                        "path", (trial_id,)) == [tuple(item) for item in rows]
-                and (evidence._stored(c, bundle) or {}) == digests)
+                and (evidence.bundle_digests(c, bundle) or {}) == digests)
         if not same:
             raise refuse("BUNDLE_EXISTS", f"trial {trial_id} already has another execution capture", missing=(bundle,))
         return {"bundle": bundle}
@@ -563,7 +563,7 @@ def recovery_material(conn: db.LedgerConnection, trial_id: int, workdir: Path, h
     bytes) and the host error. `ledger.ingest_capture_refusal` writes it with the trial's invalid run."""
     workdir = Path(workdir)
     trial = _recovery_start(conn, trial_id, workdir, dict(host_error) if isinstance(host_error, Mapping) else None)
-    process = _json(_regular(workdir / PROCESS) or b"")
+    process = _json(read_regular(workdir / PROCESS) or b"")
     stages = process.get("stages") if isinstance(process, dict) else None
     facts = _stage_facts(stages) if _stages_valid(stages) else {name: None for name in STAGES}
     listed, stored = _capture_files(workdir, trial["purpose"], facts)
@@ -583,7 +583,7 @@ def recover_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, fail
     """
     workdir = Path(workdir)
     with db.connect(ledger, "writer") as conn:
-        receipt_bytes = _regular(Path(failure_receipt))
+        receipt_bytes = read_regular(Path(failure_receipt))
         receipt = _json(receipt_bytes or b"")
         trial = conn.one("SELECT trial_id, purpose FROM trial WHERE trial_id = %s", (trial_id,))
         if trial is not None and trial["purpose"] != "precheck":
@@ -597,7 +597,7 @@ def recover_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, fail
                 "WHERE r.trial_id = %s", (trial_id,)):
             raise refuse("RECOVERY_NOT_APPLICABLE", f"trial {trial_id} has a run or a registration relies on it",
                          missing=(str(trial_id),))
-        process = _json(_regular(workdir / PROCESS) or b"")
+        process = _json(read_regular(workdir / PROCESS) or b"")
         stages = process.get("stages") if isinstance(process, dict) else None
         if not _stages_valid(stages):
             raise refuse("RECOVERY_INCOMPLETE", f"{workdir / PROCESS} holds no valid stage facts", missing=(PROCESS,))

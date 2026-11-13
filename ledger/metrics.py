@@ -162,7 +162,7 @@ def _unreadable(name: str, exc: Exception):
                   missing=(name,))
 
 
-def _report_root(directory: Path) -> tuple[Path, Path]:
+def report_root(directory: Path) -> tuple[Path, Path]:
     """(replay working directory, report directory) of a working directory or a report directory."""
     directory = Path(directory)
     if (directory / "reports").is_dir():
@@ -170,7 +170,7 @@ def _report_root(directory: Path) -> tuple[Path, Path]:
     return directory.parent, directory
 
 
-def _regular(path: Path) -> bytes | None:
+def read_regular(path: Path) -> bytes | None:
     """The bytes of a regular file, never through a link; None when there is none."""
     try:
         return path.read_bytes() if path.is_file() and not path.is_symlink() else None
@@ -189,11 +189,11 @@ def load_directory(directory: Path) -> Reports:
     Only regular files count (a link is missing); the audit result is audit/audit.json beside
     reports/ and nothing else.
     """
-    root, base = _report_root(directory)
+    root, base = report_root(directory)
     files = {}
     for name in WORKDIR_FILES:
         path = base / name.removeprefix(f"{REPORTS_DIR}/") if name.startswith(f"{REPORTS_DIR}/") else root / name
-        data = _regular(path)
+        data = read_regular(path)
         if data is not None:
             files[name] = data
     return load_files(files)

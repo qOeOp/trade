@@ -16,7 +16,6 @@ from datetime import date, datetime
 from pathlib import Path
 import subprocess
 
-from ledger import db as ledger_db
 from ledger.execution import IDENTITY_FIELDS
 from shared import paths
 from shared.refusals import refuse
@@ -213,7 +212,7 @@ class Market:
         from market import store
         from market.sources import MarketError
         try:
-            return store.freshness(self.profile, ledger_db.check_ref(market_day))
+            return store.freshness(self.profile, market_day)
         except MarketError as exc:
             raise refuse("MARKET_DAY_UNRESOLVED", f"market day {market_day} has no complete day ({exc.code})",
                          missing=(str(market_day),)) from exc
@@ -225,11 +224,11 @@ class Market:
 
     def universe_rule(self, market_day: str) -> str:
         from market import universe
-        return universe.rule_of(self._open(), ledger_db.check_ref(market_day))
+        return universe.rule_of(self._open(), market_day)
 
     def universe_month(self, market_day: str) -> list[tuple[str, str]]:
         from market import universe
-        found = universe.months_of(self._open(), ledger_db.check_ref(market_day))
+        found = universe.months_of(self._open(), market_day)
         return [(month.isoformat()[:7], symbol) for month, symbol in found]
 
     def membership_path(self, market_day: str, window_end: int) -> dict:

@@ -238,12 +238,10 @@ class ValidationTests(unittest.TestCase):
         environment.start()
         cls.addClassCleanup(environment.stop)
         cls.enterClassContext(seams.use(checkout=lambda: product))
-        roots = patch.object(witness, "_roots", lambda tsa_roots: cls.authority.roots)
-        roots.start()
-        cls.addClassCleanup(roots.stop)
-        posted = patch.object(witness, "_post", side_effect=cls.authority.respond)
-        posted.start()
-        cls.addClassCleanup(posted.stop)
+        for seam in (patch.object(witness, "_post", side_effect=cls.authority.respond),
+                     patch.object(witness, "_roots", return_value=cls.authority.roots)):
+            seam.start()
+            cls.addClassCleanup(seam.stop)
         # The validated candidate's research run: the account terms the validation must keep.
         review = world.prechecked(source("root"))
         root = world.register(world.body(["rsi@1"], {"rsi@1": review}))["registration_id"]
@@ -504,63 +502,62 @@ class ValidationTests(unittest.TestCase):
             return [item for item in audited["findings"] if item["code"].startswith("WITNESS_")
                     and item["record_id"] in registrations]
 
-        with patch.object(witness, "_roots", return_value=self.authority.roots):
-            expected = comparison.validation_report(self.world.profile, original["registration_id"])["witness"]
-            self.assertEqual((expected["registration_id"], expected["commit_hash"], expected["verified"]),
-                             (original["registration_id"], commit, True))
-            self.assertEqual(expected["stamped_at"], original["witness"]["stamped_at"])
-            self.assertLess(expected["stamped_at"], start)
-            historical = db.head_commit(self.conn)
-            for index in range(2):
-                label = f"witness-retry-{index}"
-                post = self.authority.respond if index == 0 else OSError("offline")
-                with patch.object(witness, "_post", side_effect=post):
-                    retry = self.register(label, retry_of=previous["registration_id"],
-                                          window_start=start, window_end=end)
-                if index == 0:
-                    self.assertEqual(retry["witness"]["status"], "stamped")
-                    self.assertGreaterEqual(retry["witness"]["stamped_at"], start)
-                else:
-                    self.assertEqual(retry["witness"]["status"], "failed")
-                self.registered[label], self.windows[label] = retry, (start, end)
-                registrations.add(str(retry["registration_id"]))
-                trial_id = self.bind(label)
-                capture(self.conn, trial_id, source("root"), purpose="validation", outcome="interrupted")
-                with patch.object(witness, "_post", side_effect=AssertionError("report must verify offline")):
-                    found = comparison.validation_report(self.world.profile, retry["registration_id"])
-                    self.assertEqual(audit_findings(), [])
-                self.assertEqual(found["witness"], expected)
-                self.assertEqual(found["registration"]["retry_of"], previous["registration_id"])
-                self.assertEqual(found["binding"]["trial_id"], trial_id)
-                self.assertFalse(any(item.startswith("UNWITNESSED") for item in found["limitations"]))
-                previous = retry
-            with patch.object(witness, "token_time", side_effect=Refusal("WITNESS_INVALID", "invalid fixture",
-                                                                       write_status="not_written")):
-                invalid = comparison.validation_report(self.world.profile, previous["registration_id"])
-            self.assertEqual(invalid["witness"], {**expected, "verified": False, "stamped_at": None})
-            self.assertTrue(any(item.startswith("UNWITNESSED") for item in invalid["limitations"]))
-            # A report at the original ledger version uses that version's existing relationship.
-            self.assertEqual(comparison.validation_report(self.world.profile, original["registration_id"],
-                                                          historical)["witness"], expected)
-            self.assertEqual(audit_findings(historical), [])
-            read_stamp = witness.stamped_at
-            for stamp, code in ((None, "WITNESS_MISSING"), (start, "WITNESS_LATE"),
-                                (start + timedelta(microseconds=1), "WITNESS_LATE"),
-                                (Refusal("WITNESS_INVALID", "invalid original token", write_status="not_written"),
-                                 "WITNESS_MISSING")):
-                with self.subTest(original_stamp=stamp):
-                    def original_stamp(conn, target, *args, **kwargs):
-                        if target != commit:
-                            return read_stamp(conn, target, *args, **kwargs)
-                        if isinstance(stamp, Refusal):
-                            raise stamp
-                        return stamp
-                    with patch.object(witness, "stamped_at", side_effect=original_stamp):
-                        findings = audit_findings()
-                    self.assertEqual({item["record_id"] for item in findings}, registrations)
-                    self.assertTrue(all(item["code"] == code and item["commit"] == commit for item in findings))
-                    self.assertTrue(all(f"original registration {original['registration_id']}" in item["detail"]
-                                        for item in findings))
+        expected = comparison.validation_report(self.world.profile, original["registration_id"])["witness"]
+        self.assertEqual((expected["registration_id"], expected["commit_hash"], expected["verified"]),
+                         (original["registration_id"], commit, True))
+        self.assertEqual(expected["stamped_at"], original["witness"]["stamped_at"])
+        self.assertLess(expected["stamped_at"], start)
+        historical = db.head_commit(self.conn)
+        for index in range(2):
+            label = f"witness-retry-{index}"
+            post = self.authority.respond if index == 0 else OSError("offline")
+            with patch.object(witness, "_post", side_effect=post):
+                retry = self.register(label, retry_of=previous["registration_id"],
+                                      window_start=start, window_end=end)
+            if index == 0:
+                self.assertEqual(retry["witness"]["status"], "stamped")
+                self.assertGreaterEqual(retry["witness"]["stamped_at"], start)
+            else:
+                self.assertEqual(retry["witness"]["status"], "failed")
+            self.registered[label], self.windows[label] = retry, (start, end)
+            registrations.add(str(retry["registration_id"]))
+            trial_id = self.bind(label)
+            capture(self.conn, trial_id, source("root"), purpose="validation", outcome="interrupted")
+            with patch.object(witness, "_post", side_effect=AssertionError("report must verify offline")):
+                found = comparison.validation_report(self.world.profile, retry["registration_id"])
+                self.assertEqual(audit_findings(), [])
+            self.assertEqual(found["witness"], expected)
+            self.assertEqual(found["registration"]["retry_of"], previous["registration_id"])
+            self.assertEqual(found["binding"]["trial_id"], trial_id)
+            self.assertFalse(any(item.startswith("UNWITNESSED") for item in found["limitations"]))
+            previous = retry
+        with patch.object(witness, "token_time", side_effect=Refusal("WITNESS_INVALID", "invalid fixture",
+                                                                   write_status="not_written")):
+            invalid = comparison.validation_report(self.world.profile, previous["registration_id"])
+        self.assertEqual(invalid["witness"], {**expected, "verified": False, "stamped_at": None})
+        self.assertTrue(any(item.startswith("UNWITNESSED") for item in invalid["limitations"]))
+        # A report at the original ledger version uses that version's existing relationship.
+        self.assertEqual(comparison.validation_report(self.world.profile, original["registration_id"],
+                                                      historical)["witness"], expected)
+        self.assertEqual(audit_findings(historical), [])
+        read_stamp = witness.stamped_at
+        for stamp, code in ((None, "WITNESS_MISSING"), (start, "WITNESS_LATE"),
+                            (start + timedelta(microseconds=1), "WITNESS_LATE"),
+                            (Refusal("WITNESS_INVALID", "invalid original token", write_status="not_written"),
+                             "WITNESS_MISSING")):
+            with self.subTest(original_stamp=stamp):
+                def original_stamp(conn, target, *args, **kwargs):
+                    if target != commit:
+                        return read_stamp(conn, target, *args, **kwargs)
+                    if isinstance(stamp, Refusal):
+                        raise stamp
+                    return stamp
+                with patch.object(witness, "stamped_at", side_effect=original_stamp):
+                    findings = audit_findings()
+                self.assertEqual({item["record_id"] for item in findings}, registrations)
+                self.assertTrue(all(item["code"] == code and item["commit"] == commit for item in findings))
+                self.assertTrue(all(f"original registration {original['registration_id']}" in item["detail"]
+                                    for item in findings))
 
     def test_the_same_op_id_with_other_content_conflicts(self):
         start, end = self.windows["bound"]

@@ -211,7 +211,7 @@ def research_status(ledger, at: str | None = None, line: str | None = None) -> d
         found = counted_trials(conn)
         excluded = {"reproductions": found["reproductions"],
                     "stopped_before_strategy": found["stopped_before_strategy"]}
-        opened = lines.open_lines(conn)
+        opened = [item["name"] for item in lines.lines(conn, open_only=True)]
         scope = [lines.read_line(conn, line)["name"]] if line is not None else opened
         attempts = conn.dicts("SELECT t.research_registration_id, t.trial_id, r.status FROM trial t JOIN research_line l "
                               "ON l.line_id = t.line_id LEFT JOIN run r ON r.trial_id = t.trial_id WHERE "

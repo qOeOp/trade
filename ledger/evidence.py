@@ -12,9 +12,7 @@ its identity: it is never replaced.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 import hashlib
-import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -103,16 +101,11 @@ def _read_sources(sources: list[Path]) -> dict[str, bytes]:
     return files
 
 
-def encode(record: Mapping) -> bytes:
-    """A stored JSON file's bytes: sorted keys, indented, one final newline."""
-    return (json.dumps(record, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-
-
 def digests(files: dict[str, bytes]) -> dict[str, str]:
     return {name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items())}
 
 
-def _stored(conn: db.LedgerConnection, bundle: str) -> dict[str, str] | None:
+def bundle_digests(conn: db.LedgerConnection, bundle: str) -> dict[str, str] | None:
     if not conn.rows("SELECT 1 FROM evidence_bundle WHERE bundle = %s", (bundle,)):
         return None
     return dict(conn.rows("SELECT path, sha256 FROM evidence WHERE bundle = %s ORDER BY path", (bundle,)))
@@ -136,7 +129,7 @@ def write_files(conn: db.LedgerConnection, bundle: str, files: dict[str, bytes],
             _path_refused(str(name), problem)
         _check_content(name, data)
     hashes = digests(files)
-    stored = _stored(conn, bundle)
+    stored = bundle_digests(conn, bundle)
     if stored is not None:
         if stored == hashes:
             return {"bundle": bundle, "files": hashes}
@@ -166,12 +159,12 @@ def add_bundle(conn: db.LedgerConnection, bundle: str, sources: list[Path], op_i
     op = op_id or db.derive_op_id("evidence", {"bundle": bundle, "files": hashes})
 
     def insert(c, operation):
-        if _stored(c, bundle) is not None:
+        if bundle_digests(c, bundle) is not None:
             raise refuse("BUNDLE_EXISTS", f"bundle {bundle} already exists with other content", missing=(bundle,))
         return write_files(c, bundle, files, kind="agent", op_id=operation)
 
     def replay(c, row):
-        stored = _stored(c, row["bundle"])
+        stored = bundle_digests(c, row["bundle"])
         if row["bundle"] != bundle or stored != hashes:
             raise refuse("OP_ID_CONFLICT", f"operation {row['op_id']} already names another bundle or content",
                          missing=(row["op_id"],))

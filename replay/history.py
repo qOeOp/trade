@@ -42,9 +42,7 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
     first_day, latest = source.days(market_day)
     after_last = latest + timedelta(days=1)
     with db.connect(ledger, "reader") as conn:
-        record = lines.read_line(conn, line)
-        if record["closed"]:
-            raise refuse("LINE_ENDED", f"{record['name']} is closed", missing=(record["name"],))
+        record = lines.open_line(conn, line)
         plan = lines.history_plan(conn, record["line_id"], first_day, after_last)
         order = {trial_id: _sharpe(conn, trial_id) for trial_id in {item["trial_id"] for item in plan}}
     todo = [item for item in plan if item["window"] is not None and item["done"] is None]
@@ -53,10 +51,7 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
     for item in todo[:limit]:
         with db.connect(ledger, "reader") as conn:
             stored = metrics.load_run(conn, item["trial_id"])
-            found = conn.one("SELECT strategy_id, revision FROM candidate WHERE source_sha256 = %s",
-                             (item["source_sha256"],))
-            assert found is not None  # a research run's source is a published candidate
-            revision = strategies.read_candidate(conn, f"{found['strategy_id']}@{found['revision']}")
+            revision = strategies.candidate_by_sha(conn, item["source_sha256"])
         window = item["window"]
         recorded, runner_argv, (quotes, trades, metric_rows) = reproduce.runner_inputs(
             stored, window["input_start"], window["trade_start"], window["trade_end"])

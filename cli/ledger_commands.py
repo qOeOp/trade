@@ -39,11 +39,10 @@ def ledger_init(name: str, kind: Kind, service_root: Path, backup_root: Path | N
     database = name.replace("-", "_") if isinstance(name, str) else name
     created = db.init(name, database, Path(service_root), kind, backup_root, holds=holds)
     profile = created["profile"]
-    with db.read_as_of(profile) as conn:
-        version = conn.rows("SELECT version FROM ledger_schema WHERE singleton = 1")
+    with db.read_as_of(profile) as conn:  # refuses SCHEMA_MISMATCH on any other schema version
         head = conn.rows("SELECT seq, op_id FROM ledger_head WHERE singleton = 1")
         commit = conn.resolved_commit
-    if version != [(db.SCHEMAS[holds][1],)] or [tuple(row) for row in head] != [(0, "schema")]:
+    if [tuple(row) for row in head] != [(0, "schema")]:
         raise refuse("LEDGER_CORRUPT", f"ledger {name} does not read back as initialized", missing=(name,))
     accounts = (db._service(profile.service_root) or {}).get("databases", {}).get(profile.database, {})
     return {"profile": str(profiles.home() / f"{name}.json"), "name": name, "database": profile.database,
@@ -175,15 +174,7 @@ def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict:
 def ledger_witness(conn: db.LedgerConnection, tsa_url: str | None) -> dict:
     """ledger witness: timestamp every out-of-sample registration commit that has none yet."""
     synced = witness.sync_witness(conn, tsa_url)
-    registrations: dict[str, list[int]] = {}
-    for commit, registration_id in conn.rows("SELECT to_commit, to_registration_id FROM dolt_diff_validation_registration "
-                                             "WHERE diff_type = 'added'"):
-        registrations.setdefault(commit, []).append(registration_id)
-    return {"checked": len(synced["witnessed"]) + synced["already"] + len(synced["failed"]),
-            "already": synced["already"],
-            "witnessed": [{"commit": commit, "registration_ids": registrations.get(commit, []),
-                           "stamped_at": witness.stamped_at(conn, commit)} for commit in synced["witnessed"]],
-            "failed": [{**item, "registration_ids": registrations.get(item["commit"], [])} for item in synced["failed"]]}
+    return {"checked": len(synced["witnessed"]) + synced["already"] + len(synced["failed"]), **synced}
 
 
 def ledger_review(conn: db.LedgerConnection, at: str | None, since: str | None) -> dict:
@@ -208,7 +199,7 @@ def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: 
                          missing=("backup",))
         target = Path(profile.backup_root)
     created = not target.exists()
-    exported = admin.export_history(profile, target, at, trial_ids, with_backup=True)
+    exported = admin.export_history(profile, target, at, trial_ids)
     manifest = Path(exported["manifest_path"])
     if hashlib.sha256(manifest.read_bytes()).hexdigest() != exported["content_hash"]:
         if created:
