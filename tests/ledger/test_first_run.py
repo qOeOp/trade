@@ -19,8 +19,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from cli import first_run, service
-from ledger import db, publish
+from ledger import db, first_run, publish, service
 from shared import paths, profiles
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -276,7 +275,7 @@ class FirstStartTests(unittest.TestCase):
 
     def test_a_later_start_opens_no_setup_port(self):
         self.first_start(self.empty.as_uri(), lambda: self.until("done"))
-        config = db._service(self.service_root)
+        config = db.service_config(self.service_root)
         self.assertIsNotNone(config)
         with patch.object(first_run, "serve", side_effect=AssertionError("a later start asked the page")), \
                 patch.object(service, "start", return_value=(subprocess.Popen(["true"]), config)):

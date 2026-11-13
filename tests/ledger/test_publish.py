@@ -28,8 +28,8 @@ from unittest.mock import patch
 import pymysql
 
 from cli import main as cli
-from cli import service as ledger_service
 from ledger import db, publish, strategies
+from ledger import service as ledger_service
 from shared.errors import Refusal
 from shared.refusals import refuse
 from tests.ledger.dolt import BINARY, SKIP, Service, source

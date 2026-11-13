@@ -1,7 +1,7 @@
 """The public copy of a database on its `origin` remote (`ledger.publish`, `ledger.set_remote`).
 
 The research ledger is public: it is pushed to its DoltHub repository by the service administrator,
-in the compose ledger service's rounds (`cli/service.py`) or by `ledger publish`; commands that change it only
+in the compose ledger service's rounds (`ledger/service.py`) or by `ledger publish`; commands that change it only
 commit locally. A publish pushes the branch without force and then
 fetches to check that the remote's head contains the local one read before the push: it is that head,
 or descends from it when another writer on the same service committed between the head read and the
@@ -37,7 +37,9 @@ from shared.refusals import refuse
 
 REMOTE = "origin"
 PUBLISH_WAIT = 300  # seconds a publish waits for another publish of the database; a DoltHub push takes ~10 s
-DOLTHUB = re.compile(r"https://doltremoteapi\.dolthub\.com/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+")
+HOST = "https://doltremoteapi.dolthub.com/"
+REPOSITORY = r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+"  # owner/repository
+DOLTHUB = re.compile(re.escape(HOST) + REPOSITORY)  # the one DoltHub remote form: publish and the mirror accept it
 BRANCHES = f"refs/heads/*:refs/remotes/{REMOTE}/*"  # the default fetch spec, named so a missing branch fails
 
 
@@ -50,13 +52,8 @@ def _admin(profile: db.LedgerProfile):
                      + (f": {exc.args[1]}" if isinstance(exc, db.NoAnswer) else "")) from exc
 
 
-def _rows(cursor, statement: str, arguments=()) -> list[tuple]:
-    cursor.execute(statement, arguments)
-    return list(cursor.fetchall())
-
-
 def _origin(cursor) -> str | None:
-    found = _rows(cursor, "SELECT url FROM dolt_remotes WHERE name = %s", (REMOTE,))
+    found = db.cursor_rows(cursor, "SELECT url FROM dolt_remotes WHERE name = %s", (REMOTE,))
     return found[0][0] if found else None
 
 
@@ -137,7 +134,7 @@ def install_key(service_root: Path, source: Path) -> tuple[str, bool]:
 
 
 def _managed(profile: db.LedgerProfile) -> bool:
-    config = db._service(profile.service_root)
+    config = db.service_config(profile.service_root)
     return config is not None and db.managed(config)
 
 
@@ -149,7 +146,7 @@ def _key_after_start(profile: db.LedgerProfile) -> bool:
     try:
         key = json.loads((home / "config_global.json").read_text(encoding="utf-8"))["user.creds"]
         installed = max((home / "creds" / f"{key}.jwk").stat().st_mtime, (home / "config_global.json").stat().st_mtime)
-        return db._pid(root) is not None and installed > (root / "server.pid").stat().st_mtime
+        return db.server_pid(root) is not None and installed > (root / "server.pid").stat().st_mtime
     except (OSError, ValueError, KeyError, TypeError):
         return False
 
@@ -218,7 +215,8 @@ def unpublished(profile: db.LedgerProfile) -> bool:
 
 
 def _remote_head(cursor) -> str | None:
-    found = _rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s", (f"remotes/{REMOTE}/{db.BRANCH}",))
+    found = db.cursor_rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s",
+                           (f"remotes/{REMOTE}/{db.BRANCH}",))
     return found[0][0] if found else None
 
 
@@ -237,7 +235,7 @@ def _fetch(cursor, url: str) -> str | None:
 
 def _ancestor(cursor, older: str, newer: str) -> bool:
     try:
-        return _rows(cursor, "SELECT DOLT_MERGE_BASE(%s, %s)", (older, newer))[0][0] == older
+        return db.cursor_rows(cursor, "SELECT DOLT_MERGE_BASE(%s, %s)", (older, newer))[0][0] == older
     except pymysql.MySQLError:  # unrelated histories have no merge base
         return False
 
@@ -268,10 +266,10 @@ def publish(profile: db.LedgerProfile) -> dict:
                 raise refuse("REMOTE_UNSET", f"{profile.database} has no {REMOTE} remote", missing=(REMOTE,))
             _allowed(profile, url)
             serial = f"{profile.database}/publish"
-            if timed("lock", _rows, cursor, "SELECT GET_LOCK(%s, %s)", (serial, PUBLISH_WAIT))[0][0] != 1:
+            if timed("lock", db.cursor_rows, cursor, "SELECT GET_LOCK(%s, %s)", (serial, PUBLISH_WAIT))[0][0] != 1:
                 raise refuse("PUBLISH_FAILED", f"another publish of {profile.database} held {serial} for "
                              f"{PUBLISH_WAIT} s; nothing was published", missing=(serial,))
-            (head,), = _rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (db.BRANCH,))
+            (head,), = db.cursor_rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (db.BRANCH,))
             before = _remote_head(cursor)
             # A head another publish has pushed is confirmed by a fetch.
             published = timed("fetch", _fetch, cursor, url) if before == head else before

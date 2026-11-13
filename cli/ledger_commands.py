@@ -44,7 +44,7 @@ def ledger_init(name: str, kind: Kind, service_root: Path, backup_root: Path | N
         commit = conn.resolved_commit
     if [tuple(row) for row in head] != [(0, "schema")]:
         raise refuse("LEDGER_CORRUPT", f"ledger {name} does not read back as initialized", missing=(name,))
-    accounts = (db._service(profile.service_root) or {}).get("databases", {}).get(profile.database, {})
+    accounts = (db.service_config(profile.service_root) or {}).get("databases", {}).get(profile.database, {})
     return {"profile": str(profiles.home() / f"{name}.json"), "name": name, "database": profile.database,
             "kind": profile.kind, "holds": profile.holds, "service_root": str(profile.service_root),
             "accounts": {role: accounts.get(role, {}).get("user") for role in db.ROLES},
@@ -54,7 +54,7 @@ def ledger_init(name: str, kind: Kind, service_root: Path, backup_root: Path | N
 
 def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
     """ledger service start | stop | status."""
-    config = db._service(profile.service_root)
+    config = db.service_config(profile.service_root)
     if action == "stop":
         if config is None:
             return {"action": action, "running": False}
@@ -82,7 +82,7 @@ def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
         published = publication.state(profile)
     except Refusal:
         return {"action": action, "running": False, "address": address}
-    return {"action": action, "running": True, "pid": db._pid(profile.service_root),
+    return {"action": action, "running": True, "pid": db.server_pid(profile.service_root),
             "address": address, "branch": db.BRANCH, "ledger_commit": commit, **published}
 
 
@@ -165,7 +165,7 @@ def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict:
             try:
                 cursor.execute(query.strip().rstrip(";"))
             except pymysql.MySQLError as exc:
-                raise db._sql_error(exc, statement=True) from exc
+                raise db.sql_error(exc, statement=True) from exc
             columns = [column[0] for column in cursor.description or ()]
             found = [list(row) for row in cursor.fetchall()]
         return {"at": at, "ledger_commit": conn.resolved_commit, "columns": columns, "rows": found}
@@ -403,11 +403,11 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("ledger", "temp"):
         return ledger_temp(args.root), 0
     if key == ("ledger", "mirror"):
-        from cli import replica
+        from ledger import replica
         return replica.run(args.service_root, args.data_dir, args.backup_root, args.research_origin, args.port,
                            args.readers, args.controllers, args.http_host, args.http_port, args.hosts)
     if key == ("ledger", "service") and args.action in ("run", "check"):
-        from cli import service
+        from ledger import service
         if args.action == "check":
             return service.check(db.profile(args.ledger)), 0
         if not (args.service_root and args.data_dir and args.backup_root):

@@ -116,7 +116,7 @@ class LedgerBaseTests(unittest.TestCase):
 
     def test_init_result_holds_no_password(self):
         result = db.init("nopass", "test_nopass", self.profile.service_root, "isolated", dolt_binary=BINARY)
-        config = db._service(self.profile.service_root)
+        config = db.service_config(self.profile.service_root)
         secrets = {config["root_password"], *(item["password"] for item in config["databases"]["test_nopass"].values())}
         dumped = json.dumps(result, default=str) + json.dumps(db.load_profile("nopass").as_json())
         self.assertFalse(any(secret in dumped for secret in secrets))
@@ -124,7 +124,7 @@ class LedgerBaseTests(unittest.TestCase):
     def test_long_database_names_have_distinct_private_accounts(self):
         profiles = [db.init(f"long-{suffix}", "x" * 63 + suffix, self.profile.service_root, "isolated",
                             dolt_binary=BINARY)["profile"] for suffix in ("a", "b")]
-        config = db._service(self.profile.service_root)
+        config = db.service_config(self.profile.service_root)
         names = [config["databases"][profile.database][role]["user"]
                  for profile in profiles for role in db.ROLES]
         self.assertEqual(len(set(names)), 4)
@@ -188,7 +188,7 @@ class LedgerBaseTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "LEDGER_UNKNOWN")
         stopped = Path(tempfile.mkdtemp(prefix="lgx-", dir="/tmp"))
         self.addCleanup(__import__("shutil").rmtree, stopped, ignore_errors=True)
-        config = db._service(self.profile.service_root)
+        config = db.service_config(self.profile.service_root)
         (stopped / "service.json").write_text(json.dumps({**config, "socket": str(stopped / "none.sock")}))
         self.assertEqual(self.code(lambda: db.connect(db.LedgerProfile(**{**self.profile.__dict__,
                                                                            "service_root": stopped}), "reader")),
@@ -206,7 +206,7 @@ class LedgerBaseTests(unittest.TestCase):
         with db.connect(self.profile, "reader") as conn:
             self.assertEqual(conn.raw._read_timeout, 600)
             self.assertEqual(conn.rows("SELECT 1"), [(1,)])
-        root = db._admin(db._service(self.profile.service_root))
+        root = db._admin(db.service_config(self.profile.service_root))
         self.addCleanup(root.close)
         self.assertIsNone(root._read_timeout)
 
@@ -226,7 +226,7 @@ class LedgerBaseTests(unittest.TestCase):
         self.assertEqual(self.code(lambda: reader.rows(
             "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('r', 'agent', 'r')")), "LEDGER_PERMISSION")
         self.service.sql(self.profile, "CALL DOLT_BRANCH('side', 'main')")
-        config = db._service(self.profile.service_root)
+        config = db.service_config(self.profile.service_root)
         account = config["databases"][self.profile.database]["writer"]
         raw = pymysql.connect(unix_socket=config["socket"], user=account["user"], password=account["password"],
                               database=f"{self.profile.database}/side", autocommit=True)
@@ -463,7 +463,7 @@ class OverTcpTests(unittest.TestCase):
         service = Service()
         self.addCleanup(service.close)
         ledger = service.ledger("research")
-        config = db._service(service.service_root)
+        config = db.service_config(service.service_root)
         with patch.dict("os.environ", {db.DOLT_HOST: "127.0.0.1"}):
             with db.connect(ledger, "writer") as writer:
                 self.assertEqual((writer.raw.unix_socket, writer.raw.port), (None, config["port"]))
@@ -561,7 +561,7 @@ class InitRecoveryTests(unittest.TestCase):
         self.addCleanup(self.service.close)
 
     def admin(self, statement: str, params=None, database: str | None = None) -> list[tuple]:
-        conn = db._admin(db._service(self.service.service_root), database=database)
+        conn = db._admin(db.service_config(self.service.service_root), database=database)
         try:
             with conn.cursor() as cursor:
                 cursor.execute(statement, params)
@@ -578,7 +578,7 @@ class InitRecoveryTests(unittest.TestCase):
         users = {user for (user,) in self.admin("SELECT user FROM mysql.user") if user in accounts}
         grants = self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s", (database,), "lookout")
         return {"database": database in databases, "users": users, "grants": grants,
-                "recorded": database in db._service(self.service.service_root)["databases"],
+                "recorded": database in db.service_config(self.service.service_root)["databases"],
                 "profile": (self.service.home / f"{profile}.json").exists()}
 
     def init(self, name: str, database: str) -> dict:
@@ -612,7 +612,7 @@ class InitRecoveryTests(unittest.TestCase):
     def test_a_database_dropped_by_the_administrator_is_rebuilt_under_the_same_name(self):
         name = database = "rebuilt"
         self.init(name, database)
-        old = db._service(self.service.service_root)["databases"][database]
+        old = db.service_config(self.service.service_root)["databases"][database]
         self.admin(f"DROP DATABASE `{database}`")
         (self.service.home / f"{name}.json").rename(self.service.home / f"{name}.archived")
         self.assertTrue(self.left(database, name)["users"])
@@ -621,7 +621,7 @@ class InitRecoveryTests(unittest.TestCase):
         state = self.left(database, name)
         self.assertEqual(len(state["grants"]), 1)
         self.assertEqual(state["users"], {db._account_name(database, role) for role in db.ROLES})
-        new = db._service(self.service.service_root)["databases"][database]
+        new = db.service_config(self.service.service_root)["databases"][database]
         self.assertNotEqual(old["writer"]["password"], new["writer"]["password"])
         with db.connect(db.load_profile(name), "writer") as writer:
             written = db.write(writer, "probe", {"bundle": "again"}, "evidence_bundle", bundle_insert("again"))

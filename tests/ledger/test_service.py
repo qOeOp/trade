@@ -23,8 +23,7 @@ from unittest.mock import patch
 
 import pymysql
 
-from cli import service
-from ledger import admin, db, publish, strategies
+from ledger import admin, db, publish, service, strategies
 from shared import profiles
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, source
@@ -42,13 +41,13 @@ class RunTests(unittest.TestCase):
             ledger = cls.source.ledger("research")
             strategies.publish_candidate(ledger, source("cloned"), "cloned", "Fixture", "published before the clone")
             cls.origin = (cls.remotes / "research").as_uri()
-            conn = db._admin(db._service(ledger.service_root), database=ledger.database)
+            conn = db._admin(db.service_config(ledger.service_root), database=ledger.database)
             with conn.cursor() as cursor:
                 cursor.execute("CALL DOLT_BRANCH('legacy-x')")
             conn.close()
             publish.set_remote(ledger, cls.origin)
             publish.publish(ledger)
-            conn = db._admin(db._service(ledger.service_root), database=ledger.database)
+            conn = db._admin(db.service_config(ledger.service_root), database=ledger.database)
             with conn.cursor() as cursor:
                 cursor.execute("CALL DOLT_PUSH('origin', 'legacy-x')")
             conn.close()
@@ -95,7 +94,7 @@ class RunTests(unittest.TestCase):
 
     def test_a_first_start_bootstraps_the_ledger_from_its_public_copy(self):
         server, config = self.start()
-        written = db._service(self.service_root)
+        written = db.service_config(self.service_root)
         self.assertNotIn("socket", written)
         self.assertTrue(db.managed(written))
         self.assertEqual(written["port"], self.port)
@@ -142,7 +141,7 @@ class RunTests(unittest.TestCase):
         server, _ = self.start()
         self.assertIsNone(server.poll(), "a checked service serves")
         service._stop(server)
-        config = db._service(self.service_root)
+        config = db.service_config(self.service_root)
         profiles.private_write(self.service_root / "service.json",
                           {**config, "databases": {**config["databases"], "gone": config["databases"]["research"]}})
         self.assertEqual(self.code(self.start), "SERVICE_CHECK_FAILED")
@@ -178,7 +177,7 @@ class RunTests(unittest.TestCase):
         with db.read_as_of(ledger) as conn:
             self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)])
         self.assertEqual(self.code(db.connect, ledger, "writer"), "LEDGER_UNKNOWN")
-        for administrator in (admin._admin, publish._admin):
+        for administrator in (publish._admin, lambda profile: admin._sync_backup(profile, self.root / "backup", "")):
             self.assertEqual(self.code(administrator, ledger), "LEDGER_UNKNOWN", "nor the service administrator")
         with db.read_as_of(ledger) as conn:
             for statement in (f"SELECT strategy_id FROM candidate INTO OUTFILE '{self.root / 'cloned.txt'}'",
@@ -207,7 +206,7 @@ class RunTests(unittest.TestCase):
         with db.read_as_of(research) as conn:
             self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)])
         self.assertEqual(self.code(db.connect, research, "writer"), "LEDGER_UNKNOWN")
-        for administrator in (admin._admin, publish._admin):
+        for administrator in (publish._admin, lambda profile: admin._sync_backup(profile, self.root / "backup", "")):
             self.assertEqual(self.code(administrator, research), "LEDGER_UNKNOWN", "nor the service administrator")
         execution = db.LedgerProfile(name="paper", database="paper", service_root=controllers, kind="isolated",
                                      holds="paper")

@@ -154,7 +154,7 @@ def profile(ledger: LedgerProfile | str | None, holds: str | None = "research") 
     return found
 
 
-def _service(root: Path) -> dict | None:
+def service_config(root: Path) -> dict | None:
     try:
         return json.loads((Path(root) / "service.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -163,7 +163,7 @@ def _service(root: Path) -> dict | None:
 
 def _known_service(root: Path) -> dict:
     """The service configuration of `root`; a directory without a readable one is no ledger service."""
-    config = _service(root)
+    config = service_config(root)
     if config is None:
         raise refuse("LEDGER_UNKNOWN", f"{root} is not a ledger service directory")
     return config
@@ -208,7 +208,7 @@ def _binary(given: Path | str | None) -> str:
     return str(binary)
 
 
-def _pid(root: Path) -> int | None:
+def server_pid(root: Path) -> int | None:
     pid_file = root / "server.pid"
     if not pid_file.exists():
         return None
@@ -297,6 +297,12 @@ def _admin(config: dict, password: str | None = None, database: str | None = Non
                            database=database, autocommit=True, connect_timeout=5, max_allowed_packet=1 << 30)
 
 
+def cursor_rows(cursor, statement: str, arguments=()) -> list[tuple]:
+    """The rows of one statement on a raw (administrator) cursor."""
+    cursor.execute(statement, arguments)
+    return list(cursor.fetchall())
+
+
 def start_service(root: Path) -> dict:
     """Start the service of `root` unless it runs; wait until it accepts connections. A service compose
     runs is only waited for."""
@@ -315,7 +321,7 @@ def start_service(root: Path) -> dict:
         raise refuse("LEDGER_START", f"the Dolt service compose runs does not accept connections at {address(config)}",
                      expected="the user starting the ledger service (`docker compose start ledger`); then rerun "
                      "the same command")
-    pid = _pid(root)
+    pid = server_pid(root)
     if pid is None:
         environment = {**os.environ, "DOLT_ROOT_PATH": str(root / "home")}
         # The service outlives this process: a shell in a new session starts it in the background and
@@ -333,7 +339,7 @@ def start_service(root: Path) -> dict:
             print(f"ledger service log: {root / 'server.log'}", file=sys.stderr)
             raise refuse("LEDGER_START", exc.args[1]) from exc
         except pymysql.MySQLError:
-            if _pid(root) is None:
+            if server_pid(root) is None:
                 break
             time.sleep(0.1)
     print(f"ledger service log: {root / 'server.log'}", file=sys.stderr)
@@ -342,11 +348,11 @@ def start_service(root: Path) -> dict:
 
 def stop_service(root: Path) -> dict:
     root = Path(root)
-    config = _service(root)
+    config = service_config(root)
     if config is not None and managed(config):
         raise refuse("SERVICE_MANAGED", f"the Dolt service at {root} is run by compose, not by this host",
                      expected="`docker compose stop ledger`")
-    pid = _pid(root)
+    pid = server_pid(root)
     if pid is None:
         return {"running": False, "service": str(root)}
     os.kill(pid, signal.SIGTERM)
@@ -604,7 +610,7 @@ class LedgerConnection:
                     cursor.fetchall()
                 return result
         except pymysql.MySQLError as exc:
-            raise _sql_error(exc) from exc
+            raise sql_error(exc) from exc
 
     def dicts(self, statement: str, params=None) -> list[dict]:
         try:
@@ -613,7 +619,7 @@ class LedgerConnection:
                 names = [column[0] for column in cursor.description or ()]
                 return [dict(zip(names, _days(names, row), strict=True)) for row in cursor.fetchall()]
         except pymysql.MySQLError as exc:
-            raise _sql_error(exc) from exc
+            raise sql_error(exc) from exc
 
     def one(self, statement: str, params=None) -> dict | None:
         found = self.dicts(statement, params)
@@ -624,7 +630,7 @@ class LedgerConnection:
             with self.raw.cursor() as cursor:
                 cursor.executemany(statement, rows)
         except pymysql.MySQLError as exc:
-            raise _sql_error(exc) from exc
+            raise sql_error(exc) from exc
 
     def close(self) -> None:
         try:
@@ -692,7 +698,7 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"]) -> Ledger
     """Open a writer or reader connection on `BRANCH`."""
     if role not in ROLES:
         raise refuse("INVALID_ROLE", f"role must be writer or reader, got {role!r}", expected="writer | reader")
-    config = _service(profile.service_root) or {}
+    config = service_config(profile.service_root) or {}
     accounts = config.get("databases", {}).get(profile.database)
     if accounts is None or role not in accounts:
         raise refuse("LEDGER_UNKNOWN", f"the service of {profile.name} has no accounts for {profile.database}")
@@ -784,7 +790,7 @@ def _error_text(exc: pymysql.MySQLError) -> str:
     return str(exc.args[1]) if len(exc.args) > 1 else str(exc)
 
 
-def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None, statement: bool = False) -> Refusal:
+def sql_error(exc: pymysql.MySQLError, operation_id: str | None = None, statement: bool = False) -> Refusal:
     """The refusal of a server error; `statement`: the error of a caller's own read statement (`ledger sql`)."""
     code = exc.args[0] if exc.args else None
     text = _error_text(exc)
@@ -876,7 +882,7 @@ def _write_once(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
                     (commit,), = cursor.fetchall()
                 raw.commit()
             except pymysql.MySQLError as exc:
-                raise _sql_error(exc, operation_id=op) from exc
+                raise sql_error(exc, operation_id=op) from exc
         except BaseException:
             try:
                 raw.rollback()
@@ -890,6 +896,6 @@ def _write_once(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
             except pymysql.MySQLError:
                 pass
     except pymysql.MySQLError as exc:
-        raise _sql_error(exc, operation_id=op) from exc
+        raise sql_error(exc, operation_id=op) from exc
     return {"record": record, "op_id": op, "commit": commit, "replayed": False, "write_status": "written"}
 

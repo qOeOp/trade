@@ -31,7 +31,7 @@ Every start of a writable service (not a mirror, which makes its own) also makes
 (ledger/paper.sql, an isolated profile) when the service lacks it: Paper's execution records never enter the
 research ledger.
 With --setup, a first start that lacks or fails on the repository or the key waits on the IDE's page instead of
-exiting (`cli.first_run`); a later start is unchanged.
+exiting (`ledger.first_run`); a later start is unchanged.
 
 While it serves, `run` publishes the ledger every PUBLISH_RETRY seconds when origin is behind it: commands that
 change the ledger only commit locally, so these rounds (and `ledger publish`) are what publishes, and the public copy
@@ -54,12 +54,10 @@ import time
 
 import pymysql
 
-from cli import first_run
-from cli.first_run import _log
-from ledger import admin, db, publish
+from ledger import admin, db, first_run, publish
+from ledger.first_run import _log
 from shared import paths, profiles
 from shared.errors import Refusal
-from ledger.publish import _rows
 from shared.refusals import refuse
 
 PORT = 13330
@@ -145,7 +143,7 @@ def _root_admin(cursor) -> None:
 
 def _check_database(cursor, database: str, holds: str = "research") -> None:
     """The database's schema version is the one this code reads."""
-    version, expected = _rows(cursor, f"SELECT version FROM `{database}`.ledger_schema WHERE singleton = 1"), \
+    version, expected = db.cursor_rows(cursor, f"SELECT version FROM `{database}`.ledger_schema WHERE singleton = 1"), \
         db.SCHEMAS[holds][1]
     if version != [(expected,)]:
         raise refuse("SERVICE_CHECK_FAILED", f"{database} holds schema version {version[0][0] if version else None}, "
@@ -224,8 +222,8 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                     raise refuse("BOOTSTRAP_FAILED", f"{origin} does not hold a research ledger: {exc.args[-1]}",
                                  missing=(origin,)) from exc
                 cursor.execute(f"USE `{LEDGER}`")
-                local = {branch for (branch,) in _rows(cursor, "SELECT name FROM dolt_branches")}
-                for (remote,) in _rows(cursor, "SELECT name FROM dolt_remote_branches"):
+                local = {branch for (branch,) in db.cursor_rows(cursor, "SELECT name FROM dolt_branches")}
+                for (remote,) in db.cursor_rows(cursor, "SELECT name FROM dolt_remote_branches"):
                     branch = remote.removeprefix(f"remotes/{publish.REMOTE}/")
                     if branch not in local:
                         cursor.execute("CALL DOLT_BRANCH(%s, %s)", (branch, f"{publish.REMOTE}/{branch}"))
@@ -270,12 +268,12 @@ def _check_service(service_root: Path, config: dict) -> None:
     conn = db._admin(config)
     try:
         with conn.cursor() as cursor:
-            (group,), = _rows(cursor, "SELECT @@GLOBAL.dolt_commit_verification_groups")
+            (group,), = db.cursor_rows(cursor, "SELECT @@GLOBAL.dolt_commit_verification_groups")
             if group:
                 raise refuse("SERVICE_CHECK_FAILED", f"the service's commit verification group is {group!r}, not "
                                                      "empty; `ledger init` of a new database clears it",
                              missing=("dolt_commit_verification_groups",))
-            present = {name.lower() for (name,) in _rows(cursor, "SHOW DATABASES")}
+            present = {name.lower() for (name,) in db.cursor_rows(cursor, "SHOW DATABASES")}
             missing = sorted(name for name in config.get("databases", {}) if name.lower() not in present)
             if missing:
                 raise refuse("SERVICE_CHECK_FAILED", f"service.json records databases the service does not hold: "
@@ -343,7 +341,7 @@ def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Pa
     if controllers is not None and kind is None:
         raise refuse("USAGE_ERROR", "--controllers needs a writable service, which holds the Paper database")
     binary = db._binary(binary)
-    config = db._service(service_root)
+    config = db.service_config(service_root)
     if config is None:
         server, config = bootstrap(service_root, data_dir, backup_root, credentials, origin, port, binary, kind, log,
                                    say)
@@ -396,7 +394,7 @@ def _serve_readers(server: subprocess.Popen, readers: Path | None, controllers: 
 
 def _first_start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
                  port: int, readers: Path | None, setup: str, controllers: Path | None = None) -> subprocess.Popen:
-    """The server of a first start the IDE's page finishes (`cli.first_run`)."""
+    """The server of a first start the IDE's page finishes (`ledger.first_run`)."""
     if credentials is None:
         raise refuse("USAGE_ERROR", "ledger service run --setup needs --credentials, the directory of the DoltHub key")
     binary = db._binary(None)
@@ -456,19 +454,27 @@ def run(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path
         port: int = PORT, readers: Path | None = None, setup: str | None = None,
         controllers: Path | None = None) -> tuple[dict, int]:
     """ledger service run: serve until the server exits; SIGTERM and SIGINT are passed to it."""
-    if setup is not None and db._service(Path(service_root).absolute()) is None:
+    if setup is not None and db.service_config(Path(service_root).absolute()) is None:
         server = _first_start(service_root, data_dir, backup_root, credentials, origin, port, readers, setup,
                               controllers)
     else:
         server, _ = start(service_root, data_dir, backup_root, credentials, origin, port, readers=readers,
                           controllers=controllers)
+    return serve("run", server)
+
+
+def serve(action: str, server: subprocess.Popen, publishing: bool = True,
+          *work: Callable[[threading.Event], None]) -> tuple[dict, int]:
+    """Wait on the server with SIGTERM and SIGINT passed to it, keep_backed_up (`publishing`) and each of `work`
+    running beside it until it exits; a signalled exit is a clean one."""
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda received, frame: server.send_signal(received))
     stop = threading.Event()
-    threading.Thread(target=keep_backed_up, args=(stop,), daemon=True).start()
+    for target in (lambda stop: keep_backed_up(stop, publishing), *work):
+        threading.Thread(target=target, args=(stop,), daemon=True).start()
     code = server.wait()
     stop.set()
-    return {"action": "run", "server_exit": code}, 0 if code in (0, -signal.SIGTERM, -signal.SIGINT) else 1
+    return {"action": action, "server_exit": code}, 0 if code in (0, -signal.SIGTERM, -signal.SIGINT) else 1
 
 
 def check(ledger: db.LedgerProfile) -> dict:
