@@ -97,7 +97,9 @@ class LiveCache:
              str(loaders[0]), "--library-path", str(REDIS / "lib"), str(REDIS / "redis-server"),
              "--bind", "127.0.0.1", "--port", str(port), "--protected-mode", "yes",
              "--dir", str(self.root), "--appendonly", "yes", "--appendfsync", "always",
-             "--save", "", "--auto-aof-rewrite-percentage", "0"],
+             # A never-ending run: Redis rewrites the AOF once it doubles past 64 MB, so the expired health
+             # probes and superseded values stop growing the file (design §3.9). Nautilus's own lists stay whole.
+             "--save", "", "--auto-aof-rewrite-percentage", "100", "--auto-aof-rewrite-min-size", "64mb"],
             stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT,
             env={"PATH": os.defpath, "LANG": "C"},
         )

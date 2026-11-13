@@ -15,7 +15,7 @@ from unittest import mock
 
 from nautilus_trader.common import SocketState
 from nautilus_trader.infrastructure import RedisCacheConfig
-from nautilus_trader.model import InstrumentId, OrderSide, OrderStatus, OrderType, Price, Quantity
+from nautilus_trader.model import AccountId, InstrumentId, OrderSide, OrderStatus, OrderType, Price, Quantity
 
 from engine import live
 from engine import live_commands as commands, live_lifecycle, live_node, live_session, live_source as live_source_runtime
@@ -290,6 +290,51 @@ class LiveTests(unittest.TestCase):
         finally:
             node.dispose()
             session.node, session.source, session.entry_gate = None, None, None
+
+    def test_a_run_node_purges_account_states_in_memory_and_keeps_orders_and_positions(self):
+        loaded = live.source_for_run(self.manifest)
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
+        configs, native_config = [], live_node.LiveExecutionEngineConfig
+        def config(**fields):
+            configs.append(native_config(**fields))
+            return configs[-1]
+        with mock.patch.object(live_node, "LiveExecutionEngineConfig", side_effect=config):
+            node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
+        try:
+            [native] = configs
+            self.assertEqual(native.purge_account_events_interval_mins, 60)
+            self.assertEqual(native.purge_account_events_lookback_mins, 24 * 60)
+            # Every start's reports read the whole run's orders and positions from the cache (live compare).
+            self.assertIsNone(native.purge_closed_orders_interval_mins)
+            self.assertIsNone(native.purge_closed_positions_interval_mins)
+        finally:
+            node.dispose()
+            session.node, session.source, session.entry_gate = None, None, None
+
+    def test_the_native_account_is_refreshed_every_minute(self):
+        session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)
+        session.node = mock.Mock()
+        observer = SimpleNamespace(session=session, last_query=0.0, cache=mock.Mock(), query_account=mock.Mock())
+        for now, calls in ((100.0, 1), (159.0, 1), (160.0, 2)):
+            with mock.patch.object(live.time, "monotonic", return_value=now):
+                live_lifecycle.Observer.observe(observer)
+            self.assertEqual(observer.query_account.call_count, calls, now)
+
+    def test_an_entrys_own_account_read_also_refreshes_the_native_account(self):
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
+        session.source = object()
+        with mock.patch.object(commands, "Strategy") as native, mock.patch.object(commands, "observe_account"):
+            commands.start_observation(session, "connected")  # the start's own check: no entry to admit
+            native.query_account.assert_not_called()
+            session.account_observation = None
+            commands.start_observation(session, "entry")
+            native.query_account.assert_called_once_with(session.source, AccountId(self.manifest["account_id"]))
+            session.account_observation, native.query_account.side_effect = None, RuntimeError("closed")
+            commands.start_observation(session, "entry")  # a failed refresh never refuses the entry
+        self.assertIsNotNone(session.account_observation)
+        rows = [json.loads(line) for line in (self.output / "events.jsonl").read_text().splitlines()]
+        self.assertEqual([row["failure_type"] for row in rows if row["event"] == "account_refresh_failed"],
+                         ["RuntimeError"])
 
     def test_pending_stop_is_applied_before_next_observer_tick(self):
         loaded = live.source_for_run(self.manifest)

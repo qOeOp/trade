@@ -605,6 +605,16 @@ in ten minutes, entries closed for the run or for a missing bar, a start again t
 reduce-only orders left after a missing bar, and the reopening after such a notice are Telegram notices. No custom
 reconciliation engine or second trading client is used.
 
+A run never ends by itself, so its native cache must not grow without bound (design §3.9). Redis rewrites its AOF once
+it has doubled past 64 MB, dropping the expired health probes and replaced values; Nautilus's own lists (orders,
+positions, account states) stay whole, since every start reloads them and its reports read the whole run. The
+Observer refreshes the native account every 60 seconds, and each entry's own account read refreshes it too: Nautilus's
+risk engine checks an entry's margin against the native free balance, which a canceled or expired order leaves reduced
+until a REST refresh (Binance's stream sends no account update for it). rc7 appends each state, about 0.85 KB, to a
+Redis list it never trims and reads whole at each start: about 0.45 GB a year, against 2.6 GB at the earlier 10
+seconds. In memory, Nautilus purges account states older than a day each hour, starting an hour after the start, so a
+start still loads the whole list first.
+
 An Observer failure sends the same one cancel per working entry and ends the run unresolved. A source that leaves
 the running state by itself (`stop`, `fault`, `degrade`) enters the normal STOP path, marked failed.
 
@@ -726,7 +736,8 @@ Each Live run keeps what a replay of its source needs for comparison in `evidenc
 - `reports-<ns>/`, written when the node stops in `run` and `reconcile`: `orders.csv`, `fills.csv`,
   `positions.csv`, `account.csv` and `order_events.jsonl.gz` from the native cache, through the same writers a
   replay uses (`engine.write_reports`), and the native instruments the venue client loaded (`instruments.json`).
-  A reconciliation resumes the run's cache, so its reports cover the whole run.
+  A reconciliation resumes the run's cache, so its reports cover the whole run; `account.csv` does too for a node that
+  ran under an hour, and otherwise holds the last day of account states (the native purge above).
 
 The account, its settings, the wallet and Binance's instrument terms and commission at start are the
 `preflight-*.json` and `connected-account-*.json` observations beside it. Recording never changes the run: a failed

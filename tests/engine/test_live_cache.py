@@ -93,6 +93,27 @@ class LiveCacheTests(unittest.TestCase):
         cache.process.send_signal.assert_not_called()
         self.assertTrue(cache.log.closed)
 
+    def test_the_native_cache_rewrites_its_aof_and_fsyncs_every_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Path(directory) / "redis"
+            (runtime / "lib").mkdir(parents=True)
+            (runtime / "ld-musl-x86_64.so.1").touch()
+            (runtime / "redis-server").touch()
+            good = b"aof_enabled:1\r\naof_last_write_status:ok\r\n"
+            with mock.patch.object(live_cache, "REDIS", runtime), \
+                    mock.patch.object(live_cache.subprocess, "Popen") as start, \
+                    mock.patch.object(live_cache, "redis_command",
+                                      side_effect=[b"PONG", good, [b"appendfsync", b"always"], b"OK", good]):
+                start.return_value.poll.return_value = None
+                cache = live_cache.LiveCache(Path(directory), resume=False)
+                cache.log.close()
+        argv = start.call_args.args[0]
+        options = dict(zip(argv[argv.index("--bind")::2], argv[argv.index("--bind") + 1::2], strict=True))
+        self.assertEqual({key: options[key] for key in ("--appendonly", "--appendfsync", "--save",
+                                                        "--auto-aof-rewrite-percentage", "--auto-aof-rewrite-min-size")},
+                         {"--appendonly": "yes", "--appendfsync": "always", "--save": "",
+                          "--auto-aof-rewrite-percentage": "100", "--auto-aof-rewrite-min-size": "64mb"})
+
     def test_missing_runtime_cache_does_not_fall_back_to_host_redis(self):
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(live_cache, "REDIS", Path(directory) / "absent"), \

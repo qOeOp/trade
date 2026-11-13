@@ -21,6 +21,8 @@ from engine.live_session import Session
 from engine.live_source import live_source
 
 ENTRY_GATE = ExecAlgorithmId("LIVE-GATE")
+ACCOUNT_PURGE_MINUTES = 60
+ACCOUNT_LOOKBACK_MINUTES = 24 * 60  # a start's account.csv keeps the last day of account states
 
 
 def build_node(session: Session, credentials: Credentials, cache_config, loaded=None,
@@ -47,7 +49,10 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
     builder.with_reconciliation(True)
     builder.with_exec_engine_config(LiveExecutionEngineConfig(
         load_cache=True, reconciliation=True, reconciliation_instrument_ids=instrument_ids,
-        filter_unclaimed_external_orders=True, open_check_interval_secs=10.0, position_check_interval_secs=30.0))
+        filter_unclaimed_external_orders=True, open_check_interval_secs=10.0, position_check_interval_secs=30.0,
+        # Account states in memory only (rc7 never trims Redis); orders and positions stay whole for the reports.
+        purge_account_events_interval_mins=ACCOUNT_PURGE_MINUTES,
+        purge_account_events_lookback_mins=ACCOUNT_LOOKBACK_MINUTES))
     builder.with_data_engine_config(data)
     # The native per-order notional cap also blocks reductions. Each
     # entry is valued at the admission boundary; all remaining native risk stays on.

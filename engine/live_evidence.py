@@ -80,7 +80,8 @@ class Evidence:
     def reports(self, cache, venue) -> None:
         """Every order, fill, position and account state in the native cache as a replay writes them, and the
         native instruments the run traded, into ``reports-<observed_ns>/``. A reconciliation resumes the run's
-        cache, so its reports hold the whole run."""
+        cache, so its reports hold the whole run; the account states only the last day once the node ran an hour
+        (the native purge, engine.live_node)."""
         try:
             import pandas as pd
             from nautilus_trader.analysis import ReportProvider
