@@ -6,6 +6,5 @@ through the one qualification view (registration.availability); none carries a s
 the ledger, and only history gives a verdict: whether a candidate meets the user's targets.
 
 The research-chain chapters state the rules; `report.<name>` in them is the function or module
-`<name>` in this package. Market reads, reproduction and the engine's report comparison are
-reached through `report.seams`.
+`<name>` in this package. Market reads go through `report.seams`.
 """

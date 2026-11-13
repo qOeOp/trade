@@ -4,7 +4,7 @@ Everything here is computed from what the ledger stores for a sealed run (its po
 daily series and its reading) plus, for the market exposure and the volatility regimes, the
 market's daily returns. A measure's definition is the product commit's; a measure that cannot be given
 is None with a named reason; nothing is guessed.
-`run_facts` reads one run's stored facts; the functions below it are pure.
+`run_facts` and `runs_facts` read stored facts and `market_for` the market; the other functions are pure.
 """
 
 from __future__ import annotations
@@ -381,11 +381,8 @@ def breakeven_multiple(difference: Decimal, fee_difference: Decimal) -> tuple[fl
 def expectancy_split(control: Mapping, candidate: Mapping) -> dict | None:
     """Expectancy E = w W + (1 - w) L split into a win-rate part and a payoff part, each the mean of
     its marginal effect over both orders of change (Shapley); the parts sum to the difference."""
-    try:
-        w0, w1 = control["win_rate"], candidate["win_rate"]
-        p0, p1 = (control["avg_win"], control["avg_loss"]), (candidate["avg_win"], candidate["avg_loss"])
-    except KeyError:
-        return None
+    w0, w1 = control["win_rate"], candidate["win_rate"]
+    p0, p1 = (control["avg_win"], control["avg_loss"]), (candidate["avg_win"], candidate["avg_loss"])
     if None in (w0, w1, *p0, *p1):
         return None
 
