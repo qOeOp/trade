@@ -686,5 +686,5 @@ def replay(market: dict, market_day: str, source: bytes, entry_class: str, image
     reports = Path(replayed["path"]) / entry.REPORTS
     events_file = reports / "order_events.jsonl.gz"
     events = [json.loads(raw) for raw in gzip.open(events_file)] if events_file.is_file() else None
-    return ({key: replayed[key] for key in ("status", "problems", "path")}, events,
+    return (replayed, events,
             reports if (reports / "account.csv").is_file() else None)

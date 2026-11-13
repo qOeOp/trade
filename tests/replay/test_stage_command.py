@@ -12,7 +12,7 @@ from unittest.mock import patch
 from engine.config import RUNTIME_CONTRACT
 from shared.errors import Refusal
 from replay import entry, seams
-from runtime import container
+from runtime import container, image
 
 
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
@@ -26,7 +26,7 @@ class StageCommandTests(unittest.TestCase):
         self.root = Path(temp.name)
         for name in ("reports", "audit"):
             (self.root / name).mkdir()
-        self.layout = seams.current.layout(RUNTIME_CONTRACT)
+        self.layout = image.layout(RUNTIME_CONTRACT)
 
     def command(self, mounts, module=None, argv=("--run", "/native/reports")):
         return seams.current.container_command(IDENTITY, mounts, module or self.layout["audit_module"], list(argv),
@@ -122,7 +122,7 @@ class RealContainerMemoryLimitTests(unittest.TestCase):
             (root / "audit").mkdir()
             name = f"replay-memory-limit-test-{root.name}".lower()
             command = seams.current.container_command(identity, [(root / "audit", "/reports", False)],
-                                                      seams.current.layout(identity["runtime_contract"])["audit_module"],
+                                                      image.layout(identity["runtime_contract"])["audit_module"],
                                                       [], name)
             self.assertIn("64m", command)
             # the stage's own options and image; a workload that holds 512 MiB instead of the module

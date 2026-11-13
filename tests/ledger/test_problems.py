@@ -16,7 +16,7 @@ PASSED = json.dumps({"passed": True, "findings": []}).encode()
 
 def reasons(*receipts: dict) -> list[dict]:
     data = "".join(json.dumps(item) + "\n" for item in receipts).encode()
-    return problems.audit_problems(0, 0, PASSED, data)[0]
+    return problems.audit_problems(0, 0, PASSED, data)
 
 
 class RuntimeFailureTests(unittest.TestCase):
@@ -35,7 +35,7 @@ class RuntimeFailureTests(unittest.TestCase):
                 "code": "CONTENT_HASH_MISMATCH", "instrument_id": "unconstructed",
                 "message": "CONTENT_HASH_MISMATCH: strategy bytes do not match the expected SHA-256"}
         data = (json.dumps(load) + "\n").encode()
-        found, _ = problems.audit_problems(1, None, None, data)
+        found = problems.audit_problems(1, None, None, data)
         self.assertEqual([item["code"] for item in found],
                          ["RUNNER_REFUSED", "NATIVE_EXIT_NONZERO", "AUDIT_NOT_RUN", "AUDIT_RESULT_MISSING"])
         self.assertEqual((found[0]["locator"], found[0]["message"]),

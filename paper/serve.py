@@ -38,6 +38,7 @@ from ledger import db, paper as records, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
 from paper import reconcile, runs
+from runtime import container
 
 
 PREFIX = "/api/paper"
@@ -50,7 +51,7 @@ HEARTBEAT_SECONDS = 15.0
 CLI_SECONDS = 900
 RECONCILE_SECONDS = 3600  # an uncalibrated example value: a reconciliation's replay is stopped after this long
 # What a command line child gets of this process's environment: the docker client's and the product's own.
-CHILD_ENV = (*runs.DOCKER_ENV, runs.BUDGET_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH", db.DOLT_HOST)
+CHILD_ENV = (*container.DOCKER_ENV, runs.BUDGET_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH", db.DOLT_HOST)
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 # Docker writes this file into every container: there the daemon may listen beyond loopback.
 CONTAINER_MARK = Path("/.dockerenv")

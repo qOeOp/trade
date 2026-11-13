@@ -23,26 +23,22 @@ from tests.replay import world
 
 
 def _command(identity, mounts, module, argv, name):
-    kind = "audit" if module.endswith("audit") else "fingerprint" if module == "fingerprint" else "runner"
+    kind = "audit" if module.endswith("audit") else "fingerprint" if module.endswith("compare") else "runner"
     spec = {"module": kind, "mounts": {target: str(host) for host, target, _ in mounts}, "argv": list(argv),
             "scenario": json.loads(os.environ.get("CLI_STANDIN_SCENARIO") or "{}"),
             "fingerprint": world.DEFAULT_FINGERPRINT, "name": name}
     return [sys.executable, "-c", world.RUNNER, json.dumps(spec), *argv]
 
 
-def _layout(runtime_contract: str) -> dict:
-    return {**replay_seams.DEFAULT.layout(runtime_contract), "fingerprint_module": "fingerprint"}
-
-
 def main() -> int:
     from cli import main as cli
     checkout = Path(os.environ["CLI_STANDIN_CHECKOUT"])
     entry.WORK_ROOT = tempfile.gettempdir()
-    with registration_seams.use(resolve_runtime=lambda reference: dict(IDENTITY), inspect_runtime=world.inspect,
+    with registration_seams.use(resolve_runtime=lambda reference: {**IDENTITY, "build_revision": world.BUILD_REVISION},
+                                inspect_runtime=world.inspect,
                                 require_ci_build=lambda identity, inspection: world.BUILD_REVISION,
                                 checkout=lambda: checkout), january(), \
-            replay_seams.use(container_command=_command, build_revision=lambda identity: world.BUILD_REVISION,
-                             layout=_layout, stop=lambda name: None):
+            replay_seams.use(container_command=_command, stop=lambda name: None):
         return cli.main(sys.argv[1:])
 
 

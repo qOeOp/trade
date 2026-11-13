@@ -56,14 +56,11 @@ STOP_KILL_SECONDS = container.PAPER_STOP_SECONDS  # SIGTERM to SIGKILL
 DOCKER_SECONDS = 120
 EGRESS_START_SECONDS = 3
 LOG_TAIL_LINES = "20000"
-# The docker client's own variables; nothing else of the host's environment reaches it.
-DOCKER_ENV = ("PATH", "HOME", "TMPDIR", "USER", "LANG", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT",
-              "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY")
 LABEL = "trade.paper"
 
 
 def _docker(*argv: str, timeout: float = DOCKER_SECONDS) -> subprocess.CompletedProcess:
-    env = {name: os.environ[name] for name in DOCKER_ENV if name in os.environ}
+    env = {name: os.environ[name] for name in container.DOCKER_ENV if name in os.environ}
     try:
         return subprocess.run(["docker", *argv], capture_output=True, check=False, timeout=timeout, env=env)
     except subprocess.TimeoutExpired as exc:
@@ -399,7 +396,7 @@ def stop(profile: db.LedgerProfile, paper_id: int, wait_seconds: int = STOP_SECO
     named = names(profile, paper_id)
     if _running(named["runner"]):
         (run_dir(profile, paper_id) / "out" / "STOP").touch()
-        env = {name: os.environ[name] for name in DOCKER_ENV if name in os.environ}
+        env = {name: os.environ[name] for name in container.DOCKER_ENV if name in os.environ}
         try:
             subprocess.run(["docker", "wait", named["runner"]], capture_output=True, check=False,
                            timeout=wait_seconds, env=env)

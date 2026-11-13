@@ -21,7 +21,7 @@ from engine import config as engine_config
 from registration import seams as registration_seams
 from replay import entry, seams
 from tests.registration.world import FakeMarket, World, inspect_stand_in, months_rows
-from tests.ledger.dolt import MARKET_DAY
+from tests.ledger.dolt import IDENTITY, MARKET_DAY
 
 
 BUILD_REVISION = "c" * 40
@@ -181,11 +181,11 @@ class ReplayWorld(World):
             self.commands: list[dict] = []
             self.stopped: list[str] = []
             # A stand-in CI build: tests/replay/test_entry.py checks explorations and prechecks with the real check.
-            self._inspect = registration_seams.use(inspect_runtime=inspect,
-                                                   require_ci_build=lambda identity, inspection: BUILD_REVISION)
+            self._inspect = registration_seams.use(
+                resolve_runtime=lambda reference: {**IDENTITY, "build_revision": BUILD_REVISION},
+                inspect_runtime=inspect, require_ci_build=lambda identity, inspection: BUILD_REVISION)
             self._inspect.__enter__()
-            self._replay = seams.use(container_command=self.command, build_revision=lambda identity: BUILD_REVISION,
-                                     layout=self.layout, stop=self.stopped.append)
+            self._replay = seams.use(container_command=self.command, stop=self.stopped.append)
             self._replay.__enter__()
             self._root = patch.object(entry, "WORK_ROOT", str(self.tmp))
             self._root.start()
@@ -202,12 +202,8 @@ class ReplayWorld(World):
                 getattr(self, name).__exit__(None, None, None)
         super().close()
 
-    def layout(self, runtime_contract: str) -> dict:
-        found = seams.DEFAULT.layout(runtime_contract)
-        return {**found, "fingerprint_module": "fingerprint"}
-
     def command(self, identity, mounts, module, argv, name):
-        kind = "audit" if module.endswith("audit") else "fingerprint" if module == "fingerprint" else "runner"
+        kind = "audit" if module.endswith("audit") else "fingerprint" if module.endswith("compare") else "runner"
         spec = {"module": kind, "mounts": {target: str(host) for host, target, _ in mounts}, "argv": list(argv),
                 "scenario": self.scenario, "fingerprint": self.fingerprint, "name": name}
         self.commands.append(spec)

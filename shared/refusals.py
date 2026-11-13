@@ -597,8 +597,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                    ("Mount every input read-only; only the stage's output directory is /reports.",)),
     "REPORTS_MOUNT_MISSING": ("The stage has no writable /reports mount.",
                               ("Mount the stage's output directory writable at /reports.",)),
-    "ARGV_INVALID": ("A container argument is not a string.",
-                     ("Pass the runner's arguments as strings.",)),
+    "ARGV_INVALID": ("A container argument is not a string, or a Paper or Live container's network, memory or CPU "
+                     "limit, name, labels or credential mount is malformed.",
+                     ("Pass the runner's arguments as strings and the container settings in the form the message "
+                      "names.",)),
     "STAGE_MEMORY_LIMIT": ("A replay stage's container was killed at its memory limit (runtime.container.STAGE_MEMORY); "
                            "a trial's capture is sealed as a host failure naming this code.",
                            ("Reduce what the run holds in memory (a shorter window, fewer contracts or orders), or "

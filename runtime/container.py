@@ -1,12 +1,12 @@
 """The isolated container of every replay stage and of the identity probe (`runtime.container_command`),
-and the paper run's containers (`runtime.paper_command`).
+and the Paper and Live runs' containers (`runtime.paper_command`, `runtime.live_command`).
 
 Digest-pinned, never pulled, no network, read-only root, every capability dropped, no privilege
 escalation, a process limit, the current user and a private /tmp. Only declared inputs are mounted,
 read-only; a replay stage's single writable mount is its own output directory at /reports. A replay stage
 also has a memory limit (STAGE_MEMORY) and is kept after it exits, so replay.seams can read whether the kernel
-killed it at that limit before removing it. A paper container differs in its network (a named Docker network,
-never the host's), its own memory limit, and running detached.
+killed it at that limit before removing it. A Paper or Live container differs in its network (a named Docker
+network, never the host's), its own memory limit, labels, and running detached.
 """
 
 from __future__ import annotations
@@ -32,6 +32,10 @@ REPORTS = "/reports"
 # SIGTERM to SIGKILL when Docker stops a paper container, `paper stop` or a Docker or host restart: Docker's
 # default 10 s cut the runner off while it cancelled its orders and wrote its summary (paper run 4, 2026-10-31).
 PAPER_STOP_SECONDS = 30
+LIVE_STOP_SECONDS = 120  # a Live runner is never force-stopped early (live.host)
+# The docker client's own variables; nothing else of the host's environment reaches a Paper or Live docker call.
+DOCKER_ENV = ("PATH", "HOME", "TMPDIR", "USER", "LANG", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT",
+              "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY")
 # A stage mount may not cover the root, the container's scratch space or the image's own code.
 PROTECTED_TARGETS = ("/tmp", "/opt/trade")
 
@@ -42,9 +46,9 @@ def _covers(target: str, protected: str) -> bool:
             or protected.startswith(target.rstrip("/") + "/"))
 
 
-def _modules(identity: dict, keys=("runner_module", "audit_module", "fingerprint_module")) -> set[str]:
+def _modules(identity: dict) -> set[str]:
     found = image.layout(identity["runtime_contract"])
-    return {found[key] for key in keys}
+    return {found[key] for key in ("runner_module", "audit_module", "fingerprint_module")}
 
 
 def _execution_modules(identity: dict, keys: tuple[str, ...]) -> set[str]:
@@ -97,77 +101,73 @@ def _run(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv
 
 
 def command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str], *,
-            name: str | None = None, require_reports: bool = False) -> list[str]:
-    """The docker run argument list; the checks of `container_command` without requiring /reports
-    (the identity probe writes nothing)."""
+            name: str) -> list[str]:
+    """The identity probe's docker run argument list: the checks of `container_command` without requiring
+    /reports (the probe writes nothing), removed on exit."""
     identity = image.validate_identity(identity)
-    return _run(identity, mounts, module, argv, _modules(identity), require_reports,
-                [*(["--name", name] if name else []), "--rm", "--network", "none"])
+    return _run(identity, mounts, module, argv, _modules(identity), False,
+                ["--name", name, "--rm", "--network", "none"])
 
 
 def container_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str],
-                      name: str | None = None) -> list[str]:
+                      name: str) -> list[str]:
     """One replay stage's command: a module the contract's layout declares, existing absolute host
     paths, distinct normalized absolute targets clear of /, /tmp and the image's code, and exactly one
     writable mount, /reports. `name` names the container so an interrupt can stop it and its exit state can be
     read; it has STAGE_MEMORY and no swap, and is not removed on exit (replay.seams removes it)."""
     identity = image.validate_identity(identity)
     return _run(identity, mounts, module, argv, _modules(identity), True,
-                [*(["--name", name] if name else []), "--network", "none", "--memory", STAGE_MEMORY,
-                 "--memory-swap", STAGE_MEMORY])
+                ["--name", name, "--network", "none", "--memory", STAGE_MEMORY, "--memory-swap", STAGE_MEMORY])
 
 
-def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str], *,
-                  name: str, network: str, memory: str, labels: dict[str, str],
-                  cpus: str | None = None) -> list[str]:
-    """A paper container's command: the contract layout's paper runner or egress proxy, started detached
-    on one named Docker network (never `host`, `bridge` or `none`: the caller creates it) with a memory
-    limit (and a CPU limit when given) and PAPER_STOP_SECONDS to stop, and the stage checks of `container_command`. It is kept after it exits, so its exit code and
-    log stay readable until the caller removes it."""
-    identity = image.validate_identity(identity)
+def _detached(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str],
+              modules: tuple[str, ...], *, name: str, network: str, memory: str, labels: dict[str, str],
+              stop_seconds: int, cpus: str | None = None) -> list[str]:
+    """A detached Paper or Live container: one of the contract's `modules` (execution_modules), on one named
+    Docker network (never `host`, `bridge` or `none`: the caller creates it), with a memory limit (and a CPU limit
+    when given), `stop_seconds` to stop, string labels, and the stage checks of `container_command`. It is kept
+    after it exits, so its exit code and log stay readable until the caller removes it."""
     if not NETWORK.fullmatch(network) or network in ("host", "bridge", "none", "default"):
-        raise refuse("ARGV_INVALID", f"paper network {network!r} is not a named Docker network")
+        raise refuse("ARGV_INVALID", f"network {network!r} is not a named Docker network")
     if not re.fullmatch(r"[1-9][0-9]{0,5}[mg]", memory):
         raise refuse("ARGV_INVALID", f"memory limit {memory!r} is not a size such as 4g")
-    if not NETWORK.fullmatch(name) or any(not isinstance(value, str) or "\n" in value or "=" in key
-                                          for key, value in labels.items()):
-        raise refuse("ARGV_INVALID", "the paper container name or labels are malformed")
+    if not NETWORK.fullmatch(name) or any(not isinstance(key, str) or not isinstance(value, str) or "=" in key
+                                          or "\n" in key + value for key, value in labels.items()):
+        raise refuse("ARGV_INVALID", "the container name or labels are malformed")
     options = ["--detach", "--name", name, "--network", network, "--memory", memory, "--memory-swap", memory,
                "--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
-               "--stop-timeout", str(PAPER_STOP_SECONDS)]
+               "--stop-timeout", str(stop_seconds)]
     if cpus is not None:
         if not re.fullmatch(r"(0\.[0-9]{1,2}|[1-9][0-9]?(\.[0-9]{1,2})?)", cpus):
             raise refuse("ARGV_INVALID", f"cpu limit {cpus!r} is not a number of CPUs such as 0.5")
         options += ["--cpus", cpus]
     for key, value in sorted(labels.items()):
         options += ["--label", f"{key}={value}"]
-    return _run(identity, mounts, module, argv, _execution_modules(identity, ("paper_module", "egress_module")), True,
-                options)
+    return _run(identity, mounts, module, argv, _execution_modules(identity, modules), True, options)
+
+
+def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str], *,
+                  name: str, network: str, memory: str, labels: dict[str, str],
+                  cpus: str | None = None) -> list[str]:
+    """A paper container's command: the contract layout's paper runner or egress proxy (`_detached`), with
+    PAPER_STOP_SECONDS to stop."""
+    identity = image.validate_identity(identity)
+    return _detached(identity, mounts, module, argv, ("paper_module", "egress_module"), name=name, network=network,
+                     memory=memory, labels=labels, stop_seconds=PAPER_STOP_SECONDS, cpus=cpus)
 
 
 def live_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str], *,
                  name: str, network: str, memory: str, labels: dict[str, str]) -> list[str]:
-    """A separate private Live runner or egress container; Paper's allowlist is unchanged.
+    """A separate private Live runner or egress container (`_detached`), with LIVE_STOP_SECONDS to stop.
 
     A trading credential is a read-only file mounted at one fixed path. No host environment
     values are forwarded. A runner is never force-stopped; containers stay until the run has ended.
     """
     identity = image.validate_identity(identity)
-    if not NETWORK.fullmatch(network) or network in ("host", "bridge", "none", "default"):
-        raise refuse("ARGV_INVALID", "Live requires its own named Docker network")
-    if not re.fullmatch(r"[1-9][0-9]{0,5}[mg]", memory) or not NETWORK.fullmatch(name):
-        raise refuse("ARGV_INVALID", "the Live name or memory limit is malformed")
-    if any(not isinstance(key, str) or not isinstance(value, str) or "=" in key or "\n" in key + value
-           for key, value in labels.items()):
-        raise refuse("ARGV_INVALID", "the Live labels are malformed")
     secrets = [(path, target, readonly) for path, target, readonly in mounts if target == "/run/secrets/binance.json"]
     if module == "engine.live" and (len(secrets) != 1 or not secrets[0][2] or not secrets[0][0].is_file()):
         raise refuse("ARGV_INVALID", "Live requires one read-only Binance credential file mount")
     if module == "engine.egress" and secrets:
         raise refuse("ARGV_INVALID", "the Live egress proxy cannot mount exchange credentials")
-    options = ["--detach", "--name", name, "--network", network, "--memory", memory, "--memory-swap", memory,
-               "--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
-               "--stop-timeout", "120"]
-    for key, value in sorted(labels.items()):
-        options += ["--label", f"{key}={value}"]
-    return _run(identity, mounts, module, argv, _execution_modules(identity, ("live_module", "egress_module")), True, options)
+    return _detached(identity, mounts, module, argv, ("live_module", "egress_module"), name=name, network=network,
+                     memory=memory, labels=labels, stop_seconds=LIVE_STOP_SECONDS)
