@@ -47,7 +47,7 @@ A `DOLT_BINARY` refusal on the host means the command reads a Dolt backup: run i
 | Code | What to do |
 |---|---|
 | `SOURCE_UNREACHABLE` | Binance or its archives did not answer. HTTP 451 or 403 means Binance refuses your region or hosting provider: no retry helps; the host must change. Otherwise the next round retries; nothing was committed. |
-| `MARKET_EMPTY`, `WINDOW_OUT_OF_COVERAGE`, `UNIVERSE_NOT_COVERING_WINDOW` | The market does not hold that period yet. Wait for the import, or widen `TRADE_MARKET_ARGS` and restart market-import. |
+| `MARKET_EMPTY`, `UNIVERSE_NOT_COVERING_WINDOW` | The market does not hold that period yet. Wait for the import, or widen `TRADE_MARKET_ARGS` and restart market-import. |
 | `MONTH_EXISTS` | That month is already stored; months are never rewritten. A lost `funding/` file needs the recompute in [The host's command line](../../deploy/README.md#the-hosts-command-line). |
 | `CONCURRENT_IMPORT` | Another import holds the lock. Wait. |
 

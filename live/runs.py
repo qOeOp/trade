@@ -28,13 +28,14 @@ from live import configuration, key, requests, state
 
 
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
-                   "read validation report <registration_id>. A registration covers this candidate on its "
+                   "read validation report --registration-id N. A registration covers this candidate on its "
                    "universe_rule.")
 # The runner's flat events and the states they end a run in; venue_flat is the whole account at Binance only.
 FLAT = {"clean_stop": "clean_stopped", "reconciled_flat": "reconciled_flat", "venue_flat": "venue_flat"}
 ENDED = {*FLAT.values(), "not_armed", "preflight_complete", "preflight_failed"}
 UNRESOLVED_NOTE = ("Exposure may remain at Binance and nothing will close it: follow 'Unresolved Live runs' in "
-                   "engine/README.md now (live stop, close and cancel at Binance, then live reconcile).")
+                   "engine/README.md now (live stop, close and cancel at Binance, then Reconcile account on the "
+                   "Live page).")
 REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
 # The runner's events that end a run (engine.live.ENDED_EVENTS). An armed run whose latest start ended in none of them,
 # with no stop asked for, was interrupted: it keeps its slot, positions and exchange stops, and starts again as itself.

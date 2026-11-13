@@ -79,7 +79,7 @@ Back up the Live root after each run ([Backing up the Live root](../../deploy/re
 
 | What | Where it lives | Copy |
 |---|---|---|
-| Ledger | the `trade-ide_trade-dolt-data` volume | DoltHub, after every change (retried every 5 minutes); a local backup when you run `ledger export --kind backup` |
+| Ledger | the `trade-ide_trade-dolt-data` volume | DoltHub, within 5 minutes of a change (the ledger service's publish round; `ledger publish` at once); a local backup when you run `ledger export --kind backup` |
 | Market directory | `$TRADE_DATA/market` | none: market-import recomputes it from Binance's archives |
 | Agent settings and API keys, chat threads | the `trade-ide_trade-ide-agent` volume | none |
 | Paper runs | the `paper` database in the same volume; run directories in `$TRADE_DATA/dolt/paper` | a local backup of the database in `$TRADE_DATA/dolt-backups/paper`, synced every 5 minutes while the service runs; never published |

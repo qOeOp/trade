@@ -1,8 +1,7 @@
 """Read-only evidence of Live containers outside the installed execution scope.
 
 Discovery neither creates ownership nor adopts resources. Inaccessible foreign
-history stays unavailable; installation cutover must separately inspect known
-legacy roots even when their containers have already disappeared.
+history stays unavailable.
 """
 
 from pathlib import Path
