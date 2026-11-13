@@ -1,11 +1,11 @@
 ---
-description: Rule check — with the skill, a recommendation gives the deflated Sharpe range that research status reads for the recommended run at the two trial counts, beside those counts, as a range and never as a single value or a gate.
+description: Rule check — with the skill, a recommendation gives the trial counts research status reads (effective to with sweeps), names the other lines whose windows overlap, open or closed, and gives the recommended run's deflated Sharpe range at those counts beside them, as a range and never as a single value or a gate.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究线 `mr-btc-1h`。`hypothesis compare` 结果：候选 `mr-root@7`（trial 204）对对照 `mr-root@5`（trial 188），年化差 +4.1%，区间 [+0.4%, +7.9%]，p = 0.03；年化 19%，最大回撤 17%，Sharpe 1.6（目标：回撤不超过 20%，年化不低于 15%）。这是账本里唯一开着的线。
+研究线 `mr-btc-1h`。`hypothesis compare` 结果：候选 `mr-root@7`（trial 204）对对照 `mr-root@5`（trial 188），年化差 +4.1%，区间 [+0.4%, +7.9%]，p = 0.03；年化 19%，最大回撤 17%，Sharpe 1.6（目标：回撤不超过 20%，年化不低于 15%）。同一合约上窗口与它重叠的还有两条线：开着的 `trend-btc-4h`（18 次试验，重叠 2024-01-01 至 2025-06-30）和已关闭的 `breakout-btc-1h`（8 次，重叠 2023-07-01 至 2024-12-31）。
 
 `research status --line mr-btc-1h` 输出（ledger_commit `q7m2c1d`，节选）：
 
