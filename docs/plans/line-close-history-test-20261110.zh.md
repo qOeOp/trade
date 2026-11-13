@@ -18,7 +18,7 @@
 - 试验计数、`search_exposure` 判断、折扣夏普，都只描述同一个开发窗口里的搜索强度。它们不检验窗口之外的表现，也不挡任何决定。
 - 配对比较只比同一窗口里的两个版本。
 - 正式样本外只有未来窗口的验证登记，要等半年，而且一次只验一个候选。
-- `explore` 回放可以在任何时间段跑任何候选，所以开发期之外的历史随时可能被看过。产品没有历史隔离，见 [historical-window-validation-boundary](historical-window-validation-boundary.zh.md)，10-25 定的。
+- `explore` 回放可以在任何时间段跑任何候选，所以开发期之外的历史随时可能被看过。产品没有历史隔离，见 [historical-window-validation-boundary](https://github.com/qOeOp/trade/blob/241f59af10873000364e79cb733650b31f2e8263/docs/plans/historical-window-validation-boundary.zh.md)，10-25 定的。
 
 那次会话还暴露了区间对不齐的问题。每条线的开发窗口由用户在开线时各自选定，结束月份有 10 月也有 11 月。逐年回测只能按各线自己的月份切分，跨线比较不了。
 
