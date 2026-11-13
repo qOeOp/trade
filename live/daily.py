@@ -45,7 +45,7 @@ STAGE_PREFIX = "trade-live-compare-"
 CONTAINER_MARK = Path("/.dockerenv")
 
 
-def _day(ns: int) -> str:
+def utc_day(ns: int) -> str:
     return datetime.fromtimestamp(ns // 10**9, timezone.utc).date().isoformat()
 
 
@@ -210,7 +210,7 @@ def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path)
     target = _target(pack, status, today)
     if target is None:
         return None
-    day = _day(target)
+    day = utc_day(target)
     previous = read_record(directory) or {}
     if previous.get("day", "") > day or (previous.get("day") == day and previous.get("state") in FINAL):
         return None
@@ -375,7 +375,7 @@ def launch(root: Path, market_root: Path, now: int, offered: str | None = None) 
     try:
         found = json.loads(subprocess.run(["docker", "inspect", "--type", "container", identity], capture_output=True,
                                           text=True, timeout=60, check=True).stdout)[0]
-        argv = launch_argv(found, root, market_root, _day(now), offered)
+        argv = launch_argv(found, root, market_root, utc_day(now), offered)
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError):
         return "uninspected"
     name = argv[argv.index("--name") + 1]

@@ -47,21 +47,21 @@ class ReplayEvidenceTests(LiveFixture):
         described = lambda identity, _: CODE if identity["image_ref"] == IDENTITY["image_ref"] else evidence_code
         with patch("engine.load.read_universe"), \
                 patch.object(runs.image, "resolve",
-                             side_effect=lambda ref: IDENTITY if ref == runs.image.EXECUTION else {"image_ref": ref}), \
+                             side_effect=lambda ref: IDENTITY if ref == IDENTITY["image_ref"] else {"image_ref": ref}), \
                 patch.object(runs.image, "inspect_runtime", side_effect=described), \
                 patch.object(runs.image, "require_main_build"):
             return prepare(self.root, run_id, self.world.profile, db.head_commit(self.world.conn),
-                           self.candidate["candidate"], ["AAAUSDT"], universe, self.credentials, None,
+                           self.candidate["candidate"], ["AAAUSDT"], universe, self.credentials, IDENTITY["image_ref"],
                            scope=self.scope, drawdown_brake="0.15", duration_seconds=60,
                            memory="2g", leverage="3", market_root=Path("unused"))
 
     def read_ahead(self) -> list[dict]:
         """runs.replay_evidence, which the page shows before preparing, on the same images as prepare."""
         with patch.object(runs.image, "resolve",
-                          side_effect=lambda ref: IDENTITY if ref == runs.image.EXECUTION else {"image_ref": ref}), \
+                          side_effect=lambda ref: IDENTITY if ref == IDENTITY["image_ref"] else {"image_ref": ref}), \
                 patch.object(runs.image, "inspect_runtime", side_effect=lambda identity, _: CODE):
             return runs.replay_evidence(self.world.profile, db.head_commit(self.world.conn),
-                                        hashlib.sha256(self.candidate["source"]).hexdigest(), ["AAAUSDT"], None)
+                                        hashlib.sha256(self.candidate["source"]).hexdigest(), ["AAAUSDT"], IDENTITY["image_ref"])
 
     def refused(self, run_id: str, **options) -> str:
         with self.assertRaises(LiveRefusal) as caught:

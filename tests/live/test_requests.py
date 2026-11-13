@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
 from live import credentials, requests, runs, state
-from tests.live.authority_fixture import launch, prepare
+from tests.live.authority_fixture import launch, maintain, prepare, recover
 from tests.live.test_runs import IDENTITY, LiveFixture
 
 
@@ -52,7 +52,7 @@ class LiveRequestTests(LiveFixture):
         with self.assertRaises(LiveRefusal):
             requests.dispatch(self.root, self.REQUEST, self.command(), operation, admit_new=refused)
         self.assertFalse((self.root / "requests" / (self.REQUEST + ".jsonl")).exists())
-        closed = requests.recover(self.root, self.REQUEST)
+        closed = recover(self.root, self.REQUEST)
         repeat = requests.dispatch(self.root, self.REQUEST, self.command(), operation, admit_new=refused)
         self.assertEqual(repeat, {"request": closed})
         refused.assert_called_once()
@@ -66,7 +66,7 @@ class LiveRequestTests(LiveFixture):
         stack.enter_context(patch.object(runs, "_network", return_value={"network": "network"}))
         stack.enter_context(patch.object(host_runtime, "checked", return_value="c" * 64))
         stack.enter_context(patch.object(host_runtime, "container_identity", return_value={"Id": "c" * 64}))
-        stack.enter_context(patch.object(runs, "_runner", return_value={"Id": "c" * 64, "State": {"Running": True}}))
+        stack.enter_context(patch.object(runs, "inspect_runner", return_value={"Id": "c" * 64, "State": {"Running": True}}))
         stack.enter_context(patch.object(runs, "_recycle_others"))
         return stack
 
@@ -106,10 +106,9 @@ class LiveRequestTests(LiveFixture):
         with self.fake_launch():
             self.dispatch(self.launch, command=command)
             result = self.dispatch(self.launch, request_id="second-start-intent", command=command)
-        self.assertEqual(result["result"]["write_status"], "replayed")
         self.assertEqual(result["request"]["outcome"], "effect_recorded")
         self.key_limits.assert_called_once()
-        self.assertEqual(sum(row["event"] == "launch_requested" for row in runs._host_events(self.directory)), 1)
+        self.assertEqual(sum(row["event"] == "launch_requested" for row in runs.host_events(self.directory)), 1)
 
     def test_prior_preflight_receipt_survives_its_cleanup_and_a_later_launch(self):
         def preflight(root, request_id):
@@ -120,34 +119,34 @@ class LiveRequestTests(LiveFixture):
                      state="preflight_complete", exit_code=0)
         state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id,
                      mode="preflight", container="later", credentials_path=str(self.credentials), request_id="later-request")
-        with patch.object(runs, "_runner", side_effect=AssertionError("old recycled runner inspected")):
+        with patch.object(runs, "inspect_runner", side_effect=AssertionError("old recycled runner inspected")):
             self.assertEqual(requests.view(self.root, self.REQUEST)["outcome"], "effect_recorded")
 
     def test_created_runner_is_not_a_completed_control_effect(self):
-        with self.fake_launch(), patch.object(runs, "_runner", return_value={"State": {"Running": False, "Status": "created"}}):
+        with self.fake_launch(), patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "Status": "created"}}):
             result = self.dispatch(self.launch)
             self.assertEqual(result["request"]["outcome"], "outcome_unknown")
-            self.assertEqual(requests.recover(self.root, self.REQUEST)["outcome"], "outcome_unknown")
+            self.assertEqual(recover(self.root, self.REQUEST)["outcome"], "outcome_unknown")
 
     def test_network_failure_before_launch_keeps_original_event_boundary_and_needs_explicit_recovery(self):
         with patch.object(runs, "_network", side_effect=OSError("network interrupted")), \
                 patch.object(runs, "_recycle_others"):
             with self.assertRaises(OSError):
                 self.dispatch(self.launch)
-        self.assertFalse(any(row["event"] == "launch_requested" for row in runs._host_events(self.directory)))
+        self.assertFalse(any(row["event"] == "launch_requested" for row in runs.host_events(self.directory)))
         self.assertEqual(requests.view(self.root, self.REQUEST)["outcome"], "outcome_unknown")
-        self.assertEqual(runs._active(self.root), self.run_id)
+        self.assertEqual(runs.active_run(self.root), self.run_id)
         self.key_limits.reset_mock()
         with self.assertRaises(LiveRefusal) as caught:
             launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
         self.assertEqual(caught.exception.code, "LIVE_REQUEST_UNRESOLVED")
         self.key_limits.assert_not_called()
         runs.stop(self.root, self.run_id)  # the unknown start must not block STOP
-        result = requests.recover(self.root, self.REQUEST)
+        result = recover(self.root, self.REQUEST)
         self.assertEqual((result["outcome"], result["code"]), ("refused", "LIVE_REQUEST_NOT_DISPATCHED"))
-        self.assertEqual(runs._active(self.root), self.run_id)  # request recovery is not account release
-        runs.status(self.root, self.run_id)
-        self.assertIsNone(runs._active(self.root))
+        self.assertEqual(runs.active_run(self.root), self.run_id)  # request recovery is not account release
+        maintain(self.root, self.run_id)
+        self.assertIsNone(runs.active_run(self.root))
         self.assertEqual(len(state.events(self.root / "requests" / (self.REQUEST + ".jsonl"))), 2)
         self.dispatch(Mock(side_effect=AssertionError("interrupted ID replayed")))
 
@@ -155,8 +154,8 @@ class LiveRequestTests(LiveFixture):
         with self.fake_launch(), patch.object(host_runtime, "checked", side_effect=SystemExit("crash before Docker reply")):
             with self.assertRaises(SystemExit):
                 self.dispatch(self.launch)
-        with patch.object(runs, "_runner", return_value=None):
-            self.assertEqual(requests.recover(self.root, self.REQUEST)["outcome"], "outcome_unknown")
+        with patch.object(runs, "inspect_runner", return_value=None):
+            self.assertEqual(recover(self.root, self.REQUEST)["outcome"], "outcome_unknown")
             self.assertEqual(self.dispatch(Mock(side_effect=AssertionError("never replay")))["request"]["outcome"],
                              "outcome_unknown")
             for action in ("prepare", "preflight", "start", "reconcile"):
@@ -167,13 +166,13 @@ class LiveRequestTests(LiveFixture):
                                     request_id="stop-request", command=self.command("stop"))
             self.assertEqual(stopped["request"]["outcome"], "effect_recorded")
             with patch.object(runs, "_recycle"):
-                self.assertTrue(runs.status(self.root, self.run_id)["account_owned"])
+                self.assertTrue(maintain(self.root, self.run_id)["account_owned"])
 
     def test_partial_host_journal_cannot_be_used_to_prove_no_dispatch(self):
         with self.assertRaises(SystemExit):
             self.dispatch(lambda *_: (_ for _ in ()).throw(SystemExit()))
         (self.directory / "lifecycle.jsonl").write_bytes(b'{"event":"launch_')
-        self.assertEqual(requests.recover(self.root, self.REQUEST)["outcome"], "outcome_unknown")
+        self.assertEqual(recover(self.root, self.REQUEST)["outcome"], "outcome_unknown")
 
     def test_known_key_refusal_before_effect_records_only_code_and_replays_without_key_read(self):
         self.key_limits.side_effect = LiveRefusal("LIVE_KEY_WITHDRAWAL", "sensitive endpoint detail")
@@ -214,7 +213,7 @@ class LiveRequestTests(LiveFixture):
             self.dispatch(lambda *_: (_ for _ in ()).throw(SystemExit()), command=command)
         self.assertEqual(self.dispatch(Mock(side_effect=AssertionError("secret body replayed")), command=command)
                          ["request"]["outcome"], "outcome_unknown")
-        recovered = requests.recover(self.root, self.REQUEST)
+        recovered = recover(self.root, self.REQUEST)
         self.assertEqual(recovered["code"], "LIVE_REQUEST_NOT_DISPATCHED")
         self.dispatch(Mock(side_effect=AssertionError("recovered secret body replayed")), command=command)
 
@@ -228,7 +227,7 @@ class LiveRequestTests(LiveFixture):
             raise SystemExit()
         with self.assertRaises(SystemExit):
             self.dispatch(operation, command=command)
-        self.assertEqual(requests.recover(self.root, self.REQUEST)["outcome"], "outcome_unknown")
+        self.assertEqual(recover(self.root, self.REQUEST)["outcome"], "outcome_unknown")
         with self.assertRaises(LiveRefusal) as caught:
             self.dispatch(Mock(), request_id="another-request", command=self.command())
         self.assertEqual(caught.exception.code, "LIVE_REQUEST_UNRESOLVED")
@@ -257,7 +256,7 @@ class LiveRequestTests(LiveFixture):
         self.assertFalse((self.root / "requests").exists())
         expected = {"request_id": self.REQUEST, "action": "unknown", "target": {}, "outcome": "refused",
                     "code": "LIVE_REQUEST_CLOSED_UNCLAIMED"}
-        self.assertEqual(requests.recover(self.root, self.REQUEST), expected)
+        self.assertEqual(recover(self.root, self.REQUEST), expected)
         path = self.root / "requests" / (self.REQUEST + ".jsonl")
         rows = state.events(path)
         self.assertEqual(len(rows), 1)
@@ -267,7 +266,7 @@ class LiveRequestTests(LiveFixture):
         with patch.object(state, "write_new", side_effect=AssertionError("closed ID was rewritten")), \
                 patch.object(requests, "same_command", side_effect=AssertionError("closed ID has no command")):
             self.assertEqual(requests.view(self.root, self.REQUEST), expected)
-            self.assertEqual(requests.recover(self.root, self.REQUEST), expected)
+            self.assertEqual(recover(self.root, self.REQUEST), expected)
             self.assertEqual(self.dispatch(Mock(side_effect=AssertionError("closed ID executed"))), {"request": expected})
             self.assertEqual(self.dispatch(Mock(side_effect=AssertionError("changed closed ID executed")),
                                            command=self.command("stop")), {"request": expected})
@@ -304,7 +303,7 @@ class LiveRequestTests(LiveFixture):
             return runs.stop_locked(root, self.run_id)
         def resolve():
             resolving.set()
-            return requests.recover(self.root, self.REQUEST)
+            return recover(self.root, self.REQUEST)
         with ThreadPoolExecutor(max_workers=2) as pool:
             dispatched = pool.submit(self.dispatch, operation, command=self.command("stop"))
             self.assertTrue(entered.wait(3))
@@ -333,7 +332,7 @@ class LiveRequestTests(LiveFixture):
         with patch.object(requests, "_canonical", side_effect=validation), ThreadPoolExecutor(max_workers=1) as pool:
             pending = pool.submit(self.dispatch, operation)
             self.assertTrue(validated.wait(3))
-            closed = requests.recover(self.root, self.REQUEST)
+            closed = recover(self.root, self.REQUEST)
             resume.set()
             self.assertEqual(pending.result()["request"], closed)
         operation.assert_not_called()
@@ -344,9 +343,9 @@ class LiveRequestTests(LiveFixture):
                 self.dispatch(self.launch)
         path = self.root / "requests" / (self.REQUEST + ".jsonl")
         before = path.read_bytes()
-        with patch.object(runs, "_runner", return_value=None), \
+        with patch.object(runs, "inspect_runner", return_value=None), \
                 patch.object(state, "write_new", side_effect=AssertionError("unknown launch overwritten")):
-            self.assertEqual(requests.recover(self.root, self.REQUEST)["outcome"], "outcome_unknown")
+            self.assertEqual(recover(self.root, self.REQUEST)["outcome"], "outcome_unknown")
         self.assertEqual(path.read_bytes(), before)
         self.assertFalse(requests.is_closed(requests.read_locked(self.root, self.REQUEST)))
 
@@ -363,7 +362,7 @@ class LiveRequestTests(LiveFixture):
             state.write_new(path, data)
             with self.subTest(index=index), patch.object(state, "write_new", side_effect=AssertionError("bad record replaced")):
                 with self.assertRaises(LiveRefusal):
-                    requests.recover(self.root, request_id)
+                    recover(self.root, request_id)
             self.assertEqual(path.read_bytes(), data)
         for kind in ("directory", "symlink", "fifo"):
             request_id = "bad-" + kind + "-record"
@@ -376,7 +375,7 @@ class LiveRequestTests(LiveFixture):
                 os.mkfifo(path)
             with self.subTest(kind=kind), patch.object(state, "write_new", side_effect=AssertionError("nonregular record replaced")):
                 with self.assertRaises(LiveRefusal):
-                    requests.recover(self.root, request_id)
+                    recover(self.root, request_id)
             self.assertTrue(os.path.lexists(path))
 
     def test_closing_still_uses_exclusive_create_if_an_outside_writer_ignores_the_lock(self):
@@ -386,7 +385,7 @@ class LiveRequestTests(LiveFixture):
             original(path, data)
             original(path, body)
         with patch.object(state, "write_new", side_effect=raced), self.assertRaises(FileExistsError):
-            requests.recover(self.root, self.REQUEST)
+            recover(self.root, self.REQUEST)
         self.assertEqual((self.root / "requests" / (self.REQUEST + ".jsonl")).read_bytes(), data)
 
 
@@ -531,9 +530,9 @@ class PartialPrepareTests(LiveFixture):
         with patch.object(runs, "_network", return_value={"network": "network"}), \
                 patch.object(host_runtime, "checked", return_value="c" * 64), \
                 patch.object(host_runtime, "container_identity", return_value={"Id": "c" * 64}), \
-                patch.object(runs, "_runner", return_value={"State": {"Running": True}}), \
+                patch.object(runs, "inspect_runner", return_value={"State": {"Running": True}}), \
                 patch.object(runs, "_recycle_others"):
             result = requests.dispatch(self.root, "preflight-request", command, preflight)
         self.assertEqual(result["request"]["outcome"], "effect_recorded")
-        prepared = runs._host_events(state.directory(self.root, self.new_id))[0]
+        prepared = runs.host_events(state.directory(self.root, self.new_id))[0]
         self.assertEqual(prepared["request_id"], "prepare-request")

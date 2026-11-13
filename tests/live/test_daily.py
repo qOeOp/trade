@@ -104,7 +104,7 @@ class Daily(unittest.TestCase):
         self.assertIsNone(self.day())
 
     def test_failures_count_days_in_a_row_and_a_killed_attempt_is_a_failure_not_retried_forever(self):
-        self.results = {1: compare.fail("LIVE_IDENTITY_CHANGED", "changed")}
+        self.results = {1: state.fail("LIVE_IDENTITY_CHANGED", "changed")}
         self.assertEqual((self.day()["code"], self.day("2026-11-12"), self.day("2026-11-13")["failures"]),
                          ("LIVE_IDENTITY_CHANGED", None, 2))
         directory = self.root / "runs" / self.pack.run_id

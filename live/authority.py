@@ -86,15 +86,17 @@ class Authority:
             yield root
 
 
-def retained(config: configuration.Configuration, binding: release.Binding | None) -> Authority:
+def retained(config: configuration.Configuration | None, binding: release.Binding | None) -> Authority:
+    """The binding's installed snapshot, read once; it must equal `config` when one is given."""
     try:
         if binding is None:
             raise unavailable()
         file = path(binding)
         value = installed.snapshot(file, file.parent / "socket/control.sock")
-        if configuration.load(file) != config:
+        found = configuration.parse(value)
+        if config is not None and found != config:
             raise unavailable()
-        return Authority(binding, config, value, *_identity(config.root))
+        return Authority(binding, found, value, *_identity(found.root))
     except (OSError, ValueError, RuntimeError, KeyError, TypeError):
         raise unavailable() from None
 
@@ -102,7 +104,7 @@ def retained(config: configuration.Configuration, binding: release.Binding | Non
 def from_file(file: Path, binding: release.Binding | None) -> Authority:
     if binding is None or file != path(binding):
         raise unavailable()
-    return retained(configuration.load(file), binding)
+    return retained(None, binding)
 
 
 def inspection(file: Path) -> Authority:

@@ -25,9 +25,9 @@ class _KeyRead(BinanceReadOnly):
     PRIVATE = frozenset({RESTRICTIONS})
 
 
-def require_limits(credentials: Path) -> list[str]:
+def require_limits(credentials: Path) -> None:
     """Refuses a key that can withdraw, has no IP restriction (every run, the user 2026-11-13; design §3.9) or whose
-    permissions cannot be read; returns no warnings."""
+    permissions cannot be read."""
     try:
         found = _KeyRead(read_credentials(credentials)).get(RESTRICTIONS)
         withdrawals, restricted = found["enableWithdrawals"], found["ipRestrict"]
@@ -43,4 +43,3 @@ def require_limits(credentials: Path) -> list[str]:
     if not restricted:
         raise state.fail("LIVE_KEY_IP_UNRESTRICTED", "a Live run needs an API key restricted to this host's IP; "
                                                      "set one at Binance")
-    return []

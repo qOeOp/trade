@@ -15,7 +15,7 @@ import stat
 import time
 
 from engine.live_errors import LiveRefusal
-from live import runs, state
+from live import configuration, runs, state
 
 
 REF = re.compile(r"[0-9a-f]{32}\Z")
@@ -115,8 +115,8 @@ def _runs(root: Path, *, exclude_run_id: str | None = None) -> list[tuple[str, P
                 raise ValueError
             if item.name == exclude_run_id:
                 continue  # Only the explicitly proved local partial-prepare target may be excluded.
-            run_dir, manifest = runs._manifest(root, item.name)
-            events = runs._host_events(run_dir)
+            run_dir, manifest = runs.read_manifest(root, item.name)
+            events = runs.host_events(run_dir)
             prepared = [row for row in events if row.get("event") == "prepared"]
             if len(prepared) != 1:
                 raise ValueError
@@ -137,24 +137,24 @@ def _in_use(root: Path, item: tuple[str, Path, dict, list[dict], str | None], ac
     if not launches:
         return (os.path.lexists(directory / "out" / "armed.json")
                 or bool(state.events(directory / "out" / "events.jsonl")))
-    recycled = runs._recycled(directory)
+    recycled = runs.recycled(directory)
     if recycled and recycled.get("state") in runs.ENDED:
         return False  # Original cleanup verified all retained runners before recording this fact.
     for launch in launches:
-        actual = runs._runner(root, run_id, directory, manifest, launch)
+        actual = runs.inspect_runner(root, run_id, directory, manifest, launch)
         if (actual is None or actual["State"].get("Status") != "exited"
                 or actual["State"].get("Running") is not False):
             return True  # Includes an earlier, timed-out preflight even when it owned no slot.
     if launches[-1]["mode"] == "preflight":
         return False
-    return runs._settled(root, run_id, launches[-1]) is None
+    return runs.settled_state(root, run_id, launches[-1]) is None
 
 
 def _require_idle(root: Path, *, credential_ref: str | None = None, legacy_only: bool = False,
                   exclude_run_id: str | None = None) -> None:
     """No state repair: mutation is blocked until the original host path resolves it."""
     try:
-        active = runs._active(root)
+        active = runs.active_run(root)
         retained = _runs(root, exclude_run_id=exclude_run_id)
         if active is not None and active not in {item[0] for item in retained}:
             raise ValueError
@@ -276,7 +276,7 @@ def resolve_prepare_path_locked(root: Path, run_id: str, credential_ref: str, re
     claim = requests.read_locked(root, request_id)
     required = {"research_at", "candidate", "symbols", "source_sha256", "entry_class", "universe_sha256",
                 "runtime", "config", "source_id", "universe_file"}
-    config_fields = {"drawdown_brake", "duration_seconds", "leverage", "memory"}
+    config_fields = configuration.CONFIG_KEYS | {"memory"}
     try:
         if (claim is None or requests.is_closed(claim) or claim["disposition"] is not None
                 or claim["command"]["action"] != "prepare"

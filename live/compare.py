@@ -5,7 +5,7 @@ The run is read from its private directory: the source and manifest it was prepa
 (out/events.jsonl: the warm-up's T, the account observation it started from, its position events and each minute's
 result) and its evidence pack (out/evidence/: the bars, warm-up bars and funding settlements its source received,
 and the native reports of its last process). The replay runs that source on the run's image over the minutes the
-source received, warmed at the same T, on the run's contract at its leverage, starting from the USDT wallet the
+source received, warmed at the same T, on the run's contracts at its leverage, starting from the USDT wallet the
 run started with. Nothing reaches a ledger: the comparison stays in a new temporary directory, and Live's execution
 records never leave the private root (AGENTS.md).
 
@@ -35,7 +35,6 @@ import math
 from pathlib import Path
 import secrets
 
-from engine.live_errors import LiveRefusal
 from ledger import paper as records
 from live import state
 from replay import reconcile as shared
@@ -46,10 +45,6 @@ from shared.refusals import refuse
 EVIDENCE = "evidence"
 MARKET = "market.jsonl"
 ORDER_EVENTS = "order_events.jsonl.gz"
-
-
-def fail(code: str, message: str) -> LiveRefusal:
-    return LiveRefusal(code, message)
 
 
 def _lines(path: Path) -> list[dict]:
@@ -79,9 +74,9 @@ def read_pack(directory: Path) -> dict:
         manifest = json.loads((inputs / "manifest.json").read_text(encoding="utf-8"))
         source = (inputs / "strategy.py").read_bytes()
     except (OSError, ValueError) as exc:
-        raise fail("LIVE_RECORD_UNAVAILABLE", "the run's inputs cannot be read") from exc
+        raise state.fail("LIVE_RECORD_UNAVAILABLE", "the run's inputs cannot be read") from exc
     if hashlib.sha256(source).hexdigest() != manifest["source"]["source_sha256"]:
-        raise fail("LIVE_IDENTITY_CHANGED", "the captured source does not match the manifest")
+        raise state.fail("LIVE_IDENTITY_CHANGED", "the captured source does not match the manifest")
     events = _lines(out / "events.jsonl")
     reports = _reports(out / EVIDENCE)
     if reports is not None and (reports / ORDER_EVENTS).is_file():

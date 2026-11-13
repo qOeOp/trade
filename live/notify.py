@@ -25,7 +25,7 @@ import time
 import urllib.parse
 
 from deploy.telegram import TOKEN, Failure, settings as saved_settings, telegram
-from live import configuration, runs, state, views
+from live import configuration, daily, runs, state
 
 
 ACTIONS = frozenset({"notify_save", "notify_test", "notify_remove"})
@@ -41,7 +41,6 @@ DAILY = "@daily:"  # a run ID never holds "@", so a run's "<run_id>:" keys never
 FINAL = frozenset({"clean_stopped", "reconciled_flat", "venue_flat", "not_armed"})
 NAMES = {"clean_stopped": "stopped flat", "reconciled_flat": "reconciled flat", "venue_flat": "flat at Binance",
          "not_armed": "ended before arming, no order placed"}
-DAY_NS = 86_400 * 10**9
 PAGE = re.compile(r"https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?\Z")  # TRADE_PAGE, set by the release on the control
 
 
@@ -206,17 +205,17 @@ def execute(config: configuration.Configuration, action: str, body: dict, *, cal
 
 def _source_name(config: configuration.Configuration, run: dict) -> str:
     """The candidate version the page shows for this run's source; a controlled test says so."""
-    source, candidate = run.get("source") or {}, run.get("candidate") or {}
-    found = next((item for item in config.sources.values()
-                  if item.source_sha256 == source.get("source_sha256") and item.entry_class == source.get("entry_class")),
-                 None)
+    candidate = run.get("candidate") or {}
+    found = configuration.source_of(config.sources, run.get("source") or {})
     if found is not None:
         return found.candidate + (", controlled test" if found.purpose == "controlled" else "")
     return f"{candidate.get('strategy_id') or 'unknown'}@{candidate.get('revision') or '?'}"
 
 
 def collect(config: configuration.Configuration, skip: set[str]) -> list[dict]:
-    """The browser-safe view of each retained run not yet closed, with its source id and safe stop reason."""
+    """The browser-safe view of each retained run not yet closed (control.run_view), with its source name and safe stop
+    reason."""
+    from live import control  # control imports this module
     directory = config.root / "runs"
     if directory.is_symlink() or not directory.is_dir():
         return []
@@ -225,14 +224,11 @@ def collect(config: configuration.Configuration, skip: set[str]) -> list[dict]:
         if path.name in skip or not state.RUN_ID.fullmatch(path.name):
             continue
         try:
-            run = views.run_view(config.root, path.name)
-            reason = runs._stop_reason(path)
+            run = control.run_view(config, path.name, review=False)
+            reason = runs.stop_reason(path)
         except Exception:
             continue  # unknown this tick; never a reason to stop the others
         run["source_name"] = _source_name(config, run)
-        if run.get("switch") is not None:
-            from live import control  # control imports this module
-            run["switch"]["offered"] = control._offered(config, run, None, None)
         run["stop_reason"] = reason if isinstance(reason, str) and REASON.fullmatch(reason) else (
             None if reason is None else "other")
         result.append(run)
@@ -369,7 +365,6 @@ def _brake_and_key_messages(run: dict, name: str) -> list[tuple[str, str]]:
     return result
 
 
-COMPARED = frozenset({"done", "failed", "empty"})  # live.daily.FINAL
 COMPARE_GRACE_DAYS = 3  # an ended run is read this long for a comparison that never ends (live.daily)
 
 
@@ -415,7 +410,7 @@ def _compare_messages(run: dict, name: str) -> list[tuple[str, str]]:
 def _compared(run: dict, last: str | None, newest: str) -> bool:
     """Whether the comparison of an ended run's last day is final, or no longer awaited."""
     record = run.get("compare") or {}
-    if last is None or (record.get("state") in COMPARED and isinstance(record.get("day"), str)
+    if last is None or (record.get("state") in daily.FINAL and isinstance(record.get("day"), str)
                         and record["day"] >= last):
         return True
     return DAILY + (date.fromisoformat(last) + timedelta(days=COMPARE_GRACE_DAYS)).isoformat() < newest
@@ -501,10 +496,6 @@ def _ns(value) -> int | None:
     return int(value) if isinstance(value, str) and value.isdigit() else None
 
 
-def _day(ns: int) -> str:
-    return datetime.fromtimestamp(ns / 1e9, timezone.utc).date().isoformat()
-
-
 def _wallet(facts: list[dict]) -> tuple[int, str, str] | None:
     """The newest observed USDT wallet among the runs read: (observed_ns, wallet, run_id)."""
     observed = [(ns, account["usdt_wallet"], run["run_id"]) for run in facts
@@ -529,7 +520,8 @@ def _summary(facts: list[dict], day: str) -> str:
         open_rows += [f"{run['run_id']} {row.get('instrument_id') or row['position_id']} {row.get('side') or '?'} "
                       f"{row.get('quantity') or '?'}" for row in latest.values() if row.get("event_type") != "PositionClosed"]
     lines.append("Open positions (no recorded close): " + ("; ".join(open_rows) if open_rows else "none"))
-    fills = sum(1 for run in facts for row in _fills(run) if (ns := _ns(row.get("ts_event"))) and _day(ns) == day)
+    fills = sum(1 for run in facts for row in _fills(run)
+                if (ns := _ns(row.get("ts_event"))) and daily.utc_day(ns) == day)
     lines.append(f"Fills: {fills}")
     return "\n".join(lines)
 
@@ -538,7 +530,7 @@ def _last_day(run: dict) -> str | None:
     """The run's latest day with a fill or its terminal event; it is read until the summary after that day."""
     found = [ns for ns in (_ns((run.get("terminal") or {}).get("observed_ns")),
                            *(_ns(row.get("ts_event")) for row in _fills(run))) if ns is not None]
-    return _day(max(found)) if found else None
+    return daily.utc_day(max(found)) if found else None
 
 
 def step(record: dict, facts: list[dict], now: int, send: Callable[[str], object],
@@ -548,7 +540,7 @@ def step(record: dict, facts: list[dict], now: int, send: Callable[[str], object
     The first pass after enabling (no summary key in `done` yet) records the current facts as history, unsent.
     """
     done = set(record["done"])
-    today = DAILY + _day(now)
+    today = DAILY + daily.utc_day(now)
     candidates = [pair for run in facts for pair in messages(run)]
     if not any(key.startswith(DAILY) for key in done):
         done.update(key for key, _ in candidates)
@@ -562,7 +554,7 @@ def step(record: dict, facts: list[dict], now: int, send: Callable[[str], object
             if (attempt and attempt["next_ns"] > now) or stop() or sent >= MAX_PER_TICK:
                 break  # strict order: nothing overtakes a message still waiting
             if text is None:  # every earlier message is sent, so the previous day's fills are all counted
-                text = _summary(facts, _day(now - DAY_NS))
+                text = _summary(facts, daily.utc_day(now - daily.DAY_NS))
             try:
                 send(text[:4000])
             except Failure as exc:

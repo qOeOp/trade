@@ -31,7 +31,6 @@ ORDER_EVENTS = frozenset({"OrderInitialized", "OrderDenied", "OrderEmulated", "O
                          "OrderPendingUpdate", "OrderPendingCancel", "OrderModifyRejected", "OrderCancelRejected",
                          "OrderUpdated", "OrderFilled"})
 POSITION_EVENTS = frozenset({"PositionOpened", "PositionChanged", "PositionClosed"})
-TERMINALS = frozenset({"clean_stop", "reconciled_flat", "venue_flat", "reconcile_stopped", "unresolved"})
 OBSERVATION_PREFIXES = {"preflight": ("preflight",), "started": ("connected-account",),
                         "reconciled": ("connected-account",), "held": ("connected-account",), "entry_verified": ("entry-account",),
                         "clean_stop": ("final-account",), "reconciled_flat": ("final-account",),
@@ -188,15 +187,13 @@ def _identity(manifest):
     source, candidate, runtime, config = (manifest.get(key) for key in ("source", "candidate", "runtime", "config"))
     source, candidate, runtime, config = (item if isinstance(item, dict) else {} for item in
                                          (source, candidate, runtime, config))
-    image = runtime.get("image_ref")
-    digest = image.rsplit("@", 1)[-1] if isinstance(image, str) else ""
     symbols = manifest.get("symbols")
     return {
         "source": {"source_sha256": _text(source.get("source_sha256"), HASH),
                    "entry_class": _text(source.get("entry_class"), re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z"))},
         "candidate": {"strategy_id": _text(candidate.get("strategy_id")),
                       "revision": _integer(candidate.get("revision"))},
-        "runtime": {"digest": digest if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) else None,
+        "runtime": {"digest": _image(runtime)["digest"],
                     "platform": _enum(runtime.get("platform"), {"linux/amd64", "linux/arm64"})},
         "symbols": [value for value in symbols if _text(value, re.compile(r"[A-Z0-9]{2,24}USDT\Z"))]
                    if isinstance(symbols, list) else None,
@@ -341,7 +338,7 @@ def _key_checks(lifecycle):
         return None
     return [{"event": row["event"], "code": row.get("code") if row.get("code") in REFUSALS else None,
              "observed_ns": str(row["observed_ns"])}
-            for row in lifecycle if row.get("event") in {"key_check_failed", "key_check_passed"}
+            for row in lifecycle if row.get("event") in runs.KEY_EVENTS
             and type(row.get("observed_ns")) is int][-MAX_ROWS:]
 
 
@@ -357,7 +354,7 @@ def _account(sample: _Sample | None, reference, native_rows, latest_launch_ns):
     # Only the product's successful terminal event asserts require_flat passed;
     # an arbitrary saved preflight snapshot is not a newly computed admission.
     row = native_rows[reference]
-    flat = True if (row["event"] in {"clean_stop", "reconciled_flat", "venue_flat"}
+    flat = True if (row["event"] in runs.FLAT
                     and type(row.get("observed_ns")) is int
                     and latest_launch_ns is not None and row["observed_ns"] >= latest_launch_ns) else None
     return {"observation_ref": {"source": sample.source, "cursor": sample.cursor},
@@ -456,7 +453,7 @@ def run_view(root: Path, run_id: str) -> dict:
             terminal = next(({"event": row["event"], "observed_ns": _integer(row.get("observed_ns")),
                               "source_failed": _boolean(row.get("source_failed")),
                               "event_ref": _ref(samples["native"], index)}
-                             for index, row in reversed(list(enumerate(native))) if row.get("event") in TERMINALS
+                             for index, row in reversed(list(enumerate(native))) if row.get("event") in runs.RUN_ENDED
                              and type(row.get("observed_ns")) is int
                              and row["observed_ns"] >= latest_launch_ns), None)
         stop_requested = None

@@ -18,7 +18,7 @@ def _unavailable():
 
 def _identity(found: dict) -> tuple[Path, str, str]:
     labels = (found.get("Config") or {}).get("Labels") or {}
-    run_id, role = labels.get("trade.live.run"), labels.get("trade.live.role")
+    run_id, role = labels.get(f"{host_runtime.LABEL}.run"), labels.get(f"{host_runtime.LABEL}.role")
     if not isinstance(run_id, str) or not state.RUN_ID.fullmatch(run_id) or role not in {"runner", "egress"}:
         raise _unavailable()
     reports = [m for m in found.get("Mounts", []) if m.get("Type") == "bind" and m.get("Destination") == "/reports"]
@@ -32,12 +32,12 @@ def _identity(found: dict) -> tuple[Path, str, str]:
 
 
 def _verified(root: Path, run_id: str, role: str, found: dict) -> None:
-    directory, manifest = runs._manifest(root, run_id)
+    directory, manifest = runs.read_manifest(root, run_id)
     name = found.get("Name", "").removeprefix("/")
     if role == "runner":
-        launch = next((row for row in runs._host_events(directory)
+        launch = next((row for row in runs.host_events(directory)
                        if row.get("event") == "launch_requested" and row.get("container") == name), None)
-        actual = runs._runner(root, run_id, directory, manifest, launch) if launch else None
+        actual = runs.inspect_runner(root, run_id, directory, manifest, launch) if launch else None
     else:
         actual = host_runtime.container_identity(root, run_id, directory, manifest, name, "egress")
     if actual is None or actual.get("Id") != found.get("Id"):
@@ -47,7 +47,8 @@ def _verified(root: Path, run_id: str, role: str, found: dict) -> None:
 def require_clear(root: Path) -> None:
     """Caller holds canonical account.lock; never wait on a foreign account lock."""
     try:
-        ids = host_runtime.checked("ps", "-aq", "--no-trunc", "--filter", "label=trade.live.run").splitlines()
+        ids = host_runtime.checked("ps", "-aq", "--no-trunc", "--filter",
+                                   f"label={host_runtime.LABEL}.run").splitlines()
         if len(ids) != len(set(ids)) or any(not re.fullmatch(r"[0-9a-f]{64}", item) for item in ids):
             raise _unavailable()
         for identity in ids:

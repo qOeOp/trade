@@ -25,9 +25,10 @@ from live import authority, configuration, control, credentials, daily, notify, 
 
 
 MAX_BODY = 64 * 1024
-RUN = r"([a-z0-9][a-z0-9-]{0,23})"
-REQUEST = r"([a-z0-9][a-z0-9-]{7,63})"
-REF = r"([0-9a-f]{32})"
+# Capture groups of the module patterns: only these reach the fixed CLI's --target.
+RUN, REQUEST, REF = ("(" + pattern.pattern.removesuffix(r"\Z") + ")"
+                     for pattern in (state.RUN_ID, requests.REQUEST_ID, credentials.REF))
+ACTION = "(" + "|".join(sorted(requests.RUN_ACTIONS)) + ")"
 NOTIFY = {"/api/live/notify/telegram": "notify_save", "/api/live/notify/test": "notify_test",
           "/api/live/notify/remove": "notify_remove"}
 
@@ -90,8 +91,7 @@ def write_route(path: str) -> tuple[str, str | None]:
     match = re.fullmatch(r"/api/live/requests/" + REQUEST + r"/resolve", path)
     if match:
         return "resolve", match[1]
-    match = re.fullmatch(r"/api/live/runs/" + RUN + r"/(preflight|start|stop|reconcile|maintain|runtime_switch"
-                         r"|runtime_switch_cancel)", path)
+    match = re.fullmatch(r"/api/live/runs/" + RUN + "/" + ACTION, path)
     if match:
         return match[2], match[1]
     raise configuration.fail()
@@ -101,11 +101,6 @@ def read(config: configuration.Configuration, path: str, *, binding: release.Bin
          evidence: control.Evidence | None = None) -> dict:
     if path == "/api/live":
         return control.listing(config, binding=binding, evidence=evidence)
-    if path == "/api/live/credentials":
-        if not config.root.exists():
-            return {"credentials": []}
-        with state.reading(config.root) as root:
-            return {"credentials": credentials.listing_locked(root)}
     match = re.fullmatch(r"/api/live/requests/" + REQUEST, path)
     if match:
         return requests.view(config.root, match[1])
@@ -237,7 +232,7 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
         try:
             scope = authority.retained(config, binding)
             with scope.mutation(maintenance=True) as root:
-                observed = runs._status_view(root, path.name, maintain=False)
+                observed = runs.observe_locked(root, path.name)
                 if observed["state"] in ("running", "interrupted") and observed.get("mode") == "run":
                     try:  # the next month's membership, before a start reads it (engine.membership)
                         runs.write_months_locked(root, path.name, config.market_root, time.time_ns())
@@ -249,7 +244,7 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
                     control.check_key_locked(root, path.name, time.monotonic())
                     runs.sync_switch_locked(root, path.name, time.time_ns())
                 elif observed["state"] != "running":
-                    runs._status_view(root, path.name, maintain=True)
+                    runs.maintain_locked(root, path.name)
         except Exception:
             pass  # Unknown remains retained; the page can request explicit maintenance.
 

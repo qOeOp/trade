@@ -207,7 +207,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         # Real custody folding refuses even without a currently discoverable container. The credential
         # version is not under test here (test_credentials).
         with patch.object(runs, "_bound_credential"), patch.object(runs, "_credentials"), \
-                patch.object(runs, "_runner", return_value=None):
+                patch.object(runs, "inspect_runner", return_value=None):
             self.refused(start, "LIVE_ACCOUNT_OWNED")
         retained_files = {path.relative_to(self.root): path.read_bytes()
                           for path in self.root.rglob("*") if path.is_file() and path.name != "account.lock"}
@@ -228,10 +228,10 @@ class InstalledAuthorityTests(unittest.TestCase):
         current_root, current_lock = self.root.stat(), (self.root / "account.lock").stat()
         self.assertNotEqual((original_root.st_dev, original_root.st_ino), (current_root.st_dev, current_root.st_ino))
         self.assertEqual((original_lock.st_dev, original_lock.st_ino), (current_lock.st_dev, current_lock.st_ino))
-        self.assertEqual(runs._active(previous), "old-owner")
-        self.assertIsNone(runs._active(self.root))
+        self.assertEqual(runs.active_run(previous), "old-owner")
+        self.assertIsNone(runs.active_run(self.root))
         self.assertFalse((self.root / "account.jsonl").exists())
         self.assertEqual((previous / "account.jsonl").read_bytes(), retained_account)
         self.assertEqual(retained_files, {path.relative_to(previous): path.read_bytes()
                                          for path in previous.rglob("*") if path.is_file()})
-        self.assertEqual([row["event"] for row in runs._host_events(self.root / "runs/original")], ["prepared"])
+        self.assertEqual([row["event"] for row in runs.host_events(self.root / "runs/original")], ["prepared"])

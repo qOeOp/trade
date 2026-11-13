@@ -13,7 +13,6 @@ import time
 
 from .release_host import (BACKEND, READERS, REVISION, RUNTIME_REF, SERVICE_REF, UNPRIVILEGED, WEB, ahead, contained,
                            durable_json, revision, until_ready)
-from .live_configuration import DECLARATION as DECLARATION
 from .live_configuration import (CONTROL, OPERATOR_FIELDS, absolute, declaration, read_object, snapshot)
 
 

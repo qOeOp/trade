@@ -44,7 +44,7 @@ class ForeignInventoryTests(unittest.TestCase):
         found = self.found if found is None else found
         with patch.object(host_runtime, "checked", return_value="a" * 64) as listed, \
                 patch.object(host_runtime, "inspect", return_value=found), \
-                patch.object(runs, "_runner", return_value=found) as runner:
+                patch.object(runs, "inspect_runner", return_value=found) as runner:
             inventory.require_clear(self.canonical)
         listed.assert_called_once_with("ps", "-aq", "--no-trunc", "--filter", "label=trade.live.run")
         return runner
