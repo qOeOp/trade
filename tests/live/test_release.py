@@ -162,7 +162,7 @@ class LiveReleaseMetadataTests(unittest.TestCase):
 class LiveReleaseTests(LiveFixture):
     def setUp(self):
         super().setUp()
-        state.append(self.directory / "lifecycle.jsonl", "prepared", self.run_id)
+        state.append(self.directory / "lifecycle.jsonl", "prepared", self.run_id, credential_ref="a" * 32)
         with state.serialized(self.root):
             pass
         self.release_state = self.root / "release-fixture"

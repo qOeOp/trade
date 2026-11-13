@@ -535,8 +535,8 @@ def replay_evidence(research: db.LedgerProfile, research_at: str, source_sha256:
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: Path, credentials: Path, runtime: str, *,
                     drawdown_brake: str, duration_seconds: int | None, memory: str, leverage: str,
-                    market_root: Path, source_sha256: str | None = None, request_id: str | None = None,
-                    credential_ref: str | None = None, recover_partial: bool = False) -> dict:
+                    market_root: Path, credential_ref: str, source_sha256: str | None = None,
+                    request_id: str | None = None, recover_partial: bool = False) -> dict:
     """Capture immutable source inputs using the reader, before any account effect. The source is the candidate's
     own, read from the ledger; `source_sha256`, when the declaration names it, must be that candidate's."""
     requests.require_clear(root, request_id)
@@ -647,8 +647,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
             state.write_new(path, data)
     if not prior_events:
         state.append(directory / "lifecycle.jsonl", "prepared", run_id,
-                     **({"request_id": request_id} if request_id is not None else {}),
-                     **({"credential_ref": credential_ref} if credential_ref is not None else {}))
+                     **({"request_id": request_id} if request_id is not None else {}), credential_ref=credential_ref)
     return manifest
 
 
