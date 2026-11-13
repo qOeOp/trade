@@ -87,4 +87,12 @@ class RunnerContractTests(LiveFixture):
         self.assertEqual(reading(self, sample), {"state": "interrupted", "stop_reason": None, "exit_code": 3,
                                                  "starts_again": True})
         self.assertNotIn("rewarming", runner.ENDED_EVENTS)
+        # A failed warm-up after it starts the run once more (the user, 2026-11-13): the same reading.
+        self.setUp()
+        sample["events"] = [{"event": "connecting", "mode": "run"},
+                            {"event": "warmup_refused", "code": "WARMUP_NOT_ADJACENT", "retry": True},
+                            {"event": "stopping", "reason": "rewarming", "source_reason": None},
+                            {"event": "rewarming", "mode": "run", "retry": True}]
+        self.assertEqual(reading(self, sample), {"state": "interrupted", "stop_reason": None, "exit_code": 3,
+                                                 "starts_again": True})
 

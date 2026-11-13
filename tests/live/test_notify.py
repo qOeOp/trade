@@ -237,6 +237,23 @@ class Sending(Base):
         self.assertIn("starts again to warm up", sent[0][1])
         self.assertIn("entries are open", sent[1][1])
 
+    def test_a_failed_warm_up_started_once_more_and_reduce_only_orders_left_are_noticed(self):
+        restarts = [{"event": "rewarming", "observed_ns": "2", "held": None, "retry": False},
+                    {"event": "resuming", "observed_ns": "3", "held": False, "retry": False},
+                    {"event": "rewarming", "observed_ns": "4", "held": None, "retry": True},
+                    {"event": "resuming", "observed_ns": "5", "held": False, "retry": False},
+                    {"event": "warmup", "observed_ns": "6", "held": None, "retry": False}]
+        sent = [(key, text) for key, text in notify.messages(run(restarts=restarts)) if ":restart:" in key]
+        self.assertEqual([key for key, _ in sent], ["run-a:restart:rewarming:2", "run-a:restart:rewarming:4",
+                                                    "run-a:restart:warmup:6"])
+        self.assertIn("could not warm up again after the missing bar; it starts once more", sent[1][1])
+        self.assertIn("If that warm-up fails too, the run ends", sent[1][1])
+        gate = [{"event": "orphan_orders", "observed_ns": "7", "reasons": [], "socket": None}]
+        [(key, text)] = [(key, text) for key, text in notify.messages(run(gate=gate)) if ":gate:" in key]
+        self.assertEqual(key, "run-a:gate:7")
+        self.assertIn("Binance has kept its reduce-only orders for over ten minutes", text)
+        self.assertIn("cancel them at Binance if nothing needs them", text)
+
     def test_the_brake_and_a_failed_key_check_and_its_recovery_are_noticed(self):
         facts = run(brake={"peak": "104", "fired": {"equity": "88", "peak": "104", "drawdown": "0.1538",
                                                     "observed_ns": "3"}},

@@ -114,6 +114,25 @@ def resumable(output: Path) -> bool:
     return not any(row.get("event") in ENDED_EVENTS for row in rows[starts[-1] if starts else 0:])
 
 
+def warmup_retry(output: Path) -> bool:
+    """The latest start ended to warm up again after a missing bar (rewarming), not as the retry of a failed warm-up:
+    if this start's warm-up fails, the run starts once more (the user, 2026-11-13). Read before this start writes."""
+    try:
+        rows = [json.loads(line) for line in read_regular_file(output / "events.jsonl").decode().splitlines() if line]
+    except (OSError, ValueError, Refusal):
+        return False
+    starts = [index for index, row in enumerate(rows) if row.get("event") == "preflight" and row.get("mode") == "run"]
+    ended = next((row for row in rows[starts[-1]:] if row.get("event") == "rewarming"), None) if starts else None
+    return ended is not None and not ended.get("retry")
+
+
+def start_ended(session: Session) -> None:
+    """The event of a start that ends without ending the run; a rewarming after a failed warm-up says it is the retry
+    (warmup_retry)."""
+    session.event("held_flat" if session.held_flat else "rewarming" if session.rewarming else "interrupted",
+                  mode=session.mode, **({"retry": True} if session.rewarming and session.warmup_retried else {}))
+
+
 def bind_manifest(output: Path, manifest: dict) -> None:
     """A directory can never be rebound to a different account, source or image."""
     path = output / "manifest.json"
@@ -164,7 +183,7 @@ def execute(args) -> int:
         resuming = args.mode == "run" and (args.output / "armed.json").is_file()
         if resuming and not resumable(args.output):  # judged before this start writes its own events
             raise Refusal("LIVE_COLD_RESTART", "this run ended or was asked to stop; it can only reconcile")
-        session = Session(manifest, args.output, args.mode)
+        session = Session(manifest, args.output, args.mode, warmup_retry=resuming and warmup_retry(args.output))
         observer = BinanceReadOnly(credentials, proxy_url=manifest["config"].get("proxy_url"))
         session.account_reader = observer
         clock = observer.clock() if args.mode in ("preflight", "run") else None
@@ -256,7 +275,7 @@ def execute(args) -> int:
                 if node is not None:
                     session.evidence.reports(node.cache, Venue("BINANCE"))
                     node.dispose()
-                session.node, session.source = None, None
+                session.node, session.source, session.entry_gate = None, None, None
                 if session.warmup_catalog is not None:
                     shutil.rmtree(session.warmup_catalog, ignore_errors=True)
             finally:
@@ -276,8 +295,7 @@ def execute(args) -> int:
             return 1 if session.failed else 0
         if (session.interrupting or session.held_flat or session.rewarming) and not session.failed:
             # Positions and their exchange stops stay; the control starts this run again (live.runs).
-            session.event("held_flat" if session.held_flat else "rewarming" if session.rewarming else "interrupted",
-                          mode=session.mode)
+            start_ended(session)
             return INTERRUPTED
         if session.mode == "run":
             session.event("unresolved", mode=args.mode)

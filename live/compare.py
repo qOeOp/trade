@@ -212,8 +212,10 @@ GATE_REASONS = frozenset({"disconnected", "unverified", "unknown_orders", "accou
 
 def gate(events: list[dict]) -> dict:
     """The entries Live's entry gate changed (engine.live_connection), as replay.reconcile attributes them: those sent
-    after a hold, those withdrawn when the gate closed, and the decision times of those refused after a hold."""
+    after a hold, those withdrawn when the gate closed, those it denied natively, and the decision times of those
+    refused after a hold."""
     return {"released": [row["client_order_id"] for row in events if row.get("event") == "entry_released"],
+            "denied": [row["client_order_id"] for row in events if row.get("event") == "entry_denied"],
             "withdrawn": [row["client_order_id"] for row in events if row.get("event") == "entry_cancel_requested"
                           and row.get("reason") in GATE_REASONS],
             "refused": [row["ts_init"] for row in events if row.get("event") == "entry_refused"
@@ -267,7 +269,7 @@ def measures(compared: Mapping, events: list[dict], since: int | None = None, un
     text = shared._text
     run, replay = (_change(compared["equity"][side], since, until) for side in ("run", "replay"))
     held = [row for row in events if row.get("event") == "entry_held" and inside(row.get("ts_init"))]
-    ended = [row["held_ns"] for row in events if row.get("event") in ("entry_released", "entry_refused")
+    ended = [row["held_ns"] for row in events if row.get("event") in ("entry_released", "entry_refused", "entry_denied")
              and isinstance(row.get("held_ns"), int) and inside(row.get("ts_init"))]
     return {"groups": sum(inside(group["at_ns"]) for group in compared["groups"] or []),
             "entries_unfilled": sum(row["role"] == "entry" and bool(row["run"]) and not row["run"]["fill"]

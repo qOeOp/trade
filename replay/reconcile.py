@@ -482,10 +482,11 @@ def _within(closes: Iterable[int], since: int, until: int) -> list[int]:
 
 
 def _gated(group: Mapping, gate: Mapping) -> bool:
-    """Live's entry gate (engine.live_connection) changed this group: its run entry was sent after a hold or withdrawn
-    at a closed gate, decided as the replay's and filled otherwise, or the replay alone decided an entry Live refused after
-    holding it (gate: {released, withdrawn: run client order IDs; refused: the decision times of those entries})."""
-    gated = {*gate.get("released", ()), *gate.get("withdrawn", ())}
+    """Live's entry gate (engine.live_connection) changed this group: its run entry was sent after a hold, withdrawn
+    or denied at a closed gate, decided as the replay's and filled otherwise, or the replay alone decided an entry Live
+    refused after holding it (gate: {released, withdrawn, denied: run client order IDs; refused: the decision times of
+    those entries})."""
+    gated = {*gate.get("released", ()), *gate.get("withdrawn", ()), *gate.get("denied", ())}
     entry = next((row for row in group["orders"] if row["run"] and row["run"]["order"] in gated), None)
     if entry is not None:
         return entry["stage"] == "fill"  # decided as the replay did, filled otherwise; what follows is its consequence

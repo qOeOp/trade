@@ -14,8 +14,12 @@ def source_outcome(session: Session, cache) -> None:
     """Keep native failures authoritative and label the source's own declared findings."""
     if session.mode != "run":
         return  # Old source failures do not invalidate a later successful flat reconciliation.
+    # An entry the entry gate denied in any start (engine.live_connection.deny) is no native failure.
+    gated = live_connection.denied_entries(session)
     denied = session.native_order_failure or any(
-        order.status in {OrderStatus.DENIED, OrderStatus.REJECTED} for order in cache.orders())
+        order.status == OrderStatus.REJECTED
+        or order.status == OrderStatus.DENIED and str(order.client_order_id) not in gated
+        for order in cache.orders())
     session.failed = session.failed or denied
     if session.source is None:
         return

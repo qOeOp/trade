@@ -29,7 +29,7 @@ from nautilus_trader.model import (
     StrategyId, Symbol, Venue,
 )
 from nautilus_trader.risk import RiskEngineConfig
-from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy, StrategyConfig
 
 from engine import history, live, live_brake
 from engine import live_commands as commands, live_connection, live_lifecycle, live_node, live_session, live_source as live_source_runtime
@@ -133,6 +133,9 @@ class NativeEntryTests(unittest.TestCase):
         # A distinct real native strategy provides foreign ownership fixture state.
         self.foreign = Strategy(StrategyConfig(strategy_id=StrategyId("FOREIGN-001"), oms_type=OmsType.NETTING))
         self.engine.add_strategy(self.foreign)
+        # The native entry gate engine.live_node registers (engine.live_connection.deny).
+        self.session.entry_gate = ExecutionAlgorithm(ExecutionAlgorithmConfig(exec_algorithm_id=live_node.ENTRY_GATE))
+        self.engine.add_exec_algorithm(self.session.entry_gate)
         self.ts = time.time_ns() + 1_000_000_000
         self.advance()
         self.ts = history.STATES[str(self.source.strategy_id)]["at"]  # the runner starts the source at its T
@@ -142,7 +145,7 @@ class NativeEntryTests(unittest.TestCase):
         # After native end/dispose, release Python owners on the creating thread.
         # Mirrors Nautilus's collect_node_cycles fixture; do not defer these
         # unsendable wrappers to a later web request thread's cyclic GC.
-        self.session.source = self.session.node = None
+        self.session.source = self.session.node = self.session.entry_gate = None
         self.source = self.foreign = self.engine = None
         gc.collect()
 
@@ -446,6 +449,114 @@ class NativeEntryTests(unittest.TestCase):
         live_lifecycle.Observer.observe(observer)
         self.session.node.handle().stop.assert_called_once()  # nothing to close: this start ends as it is
         self.assertFalse(self.session.native_flat or self.session.failed)
+
+    def bars_missing(self):
+        live_connection.close_entries(self.session, "bars_missing", bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL",
+                                      after_ns=0, received_ns=1)
+
+    def test_with_a_position_held_after_a_missing_bar_a_new_entry_is_denied_natively_and_the_run_goes_on(self):
+        position = self.owned_position()
+        stop = self.stop()
+        self.bars_missing()
+        self.source.observed.clear()
+        entry = self.limit(price="95.00")
+        self.source.submit_order(entry)  # no refusal reaches the source
+        self.advance()
+        denied = self.engine.cache.order(entry.client_order_id)
+        self.assertEqual(denied.status, OrderStatus.DENIED)
+        self.assertEqual(self.source.observed, ["order", "order"])  # OrderInitialized, OrderDenied: native callbacks
+        self.assertEqual(self.reader.calls, [("BTCUSDT",)])  # the first entry's read only: nothing else was read
+        self.assertFalse(self.session.stopping or self.session.failed or self.session.native_order_failure)
+        self.assertEqual(self.session.pending_entries, [])
+        # The position and its exchange stop are untouched.
+        self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [position])
+        self.assertEqual(self.engine.cache.order(stop.client_order_id).status, OrderStatus.ACCEPTED)
+        [row] = self.read_events("entry_denied")
+        self.assertEqual((row["client_order_id"], row["reasons"], row["detail"]),
+                         (str(entry.client_order_id), ["bars_missing"], "entry_while_bars_missing"))
+        live_lifecycle.source_outcome(self.session, self.engine.cache)
+        self.assertFalse(self.session.failed)  # the gate's own denial is no native failure
+        self.assertEqual(self.read_events("source_findings")[-1]["denied_or_rejected_native_orders"], False)
+
+    def test_a_denied_entry_is_no_failure_in_a_later_start_whose_cache_still_holds_it(self):
+        self.owned_position()
+        self.bars_missing()
+        entry = self.limit(price="95.00")
+        self.source.submit_order(entry)
+        self.advance()
+        self.session.denied.clear()  # the next start: the reloaded native cache holds the DENIED order
+        live_lifecycle.source_outcome(self.session, self.engine.cache)
+        self.assertFalse(self.session.failed)
+        (self.root / "events.jsonl").write_text("")  # negative control: without the journal it is a failure
+        live_lifecycle.source_outcome(self.session, self.engine.cache)
+        self.assertTrue(self.session.failed)
+
+    def test_an_entry_the_entry_checks_refuse_is_refused_not_denied_after_a_missing_bar(self):
+        self.owned_position()
+        self.bars_missing()
+        market = self.source.order_factory.market(self.iid, OrderSide.BUY, Quantity.from_str("100.000"))
+        self.assert_refused_unchanged("LIVE_ORDER_UNSUPPORTED", lambda: self.source.submit_order(market))
+        self.assertTrue(self.session.failed and self.session.stopping)
+        self.assertEqual(self.read_events("entry_denied"), [])
+
+    def test_resubmitting_an_order_the_cache_holds_is_refused_not_denied_after_a_missing_bar(self):
+        opening = self.engine.cache.orders(strategy_id=self.source.strategy_id)
+        self.owned_position()
+        self.bars_missing()
+        [filled] = [order for order in self.engine.cache.orders(strategy_id=self.source.strategy_id)
+                    if order not in opening and order.status == OrderStatus.FILLED]
+        with self.assertRaises(LiveRefusal):
+            self.source.submit_order(filled)
+        self.assertTrue(self.session.failed and self.session.stopping)
+        self.assertEqual(self.read_events("entry_denied"), [])
+
+    def test_a_denial_the_gate_did_not_make_still_ends_the_run(self):
+        # Negative control: an OrderDenied the gate did not make is a native failure, as before.
+        self.owned_position()
+        entry = self.limit(price="95.00")
+        self.session.entry_gate.deny_order(entry, "not the entry gate")
+        self.advance()
+        self.assertTrue(self.session.native_order_failure and self.session.failed and self.session.stopping)
+
+    def test_a_missing_bar_with_another_lasting_reason_or_while_flat_still_refuses_and_ends_the_run(self):
+        # Negative controls: only a missing bar alone, with a position held, denies and goes on.
+        self.bars_missing()
+        entry = self.limit(price="95.00")
+        self.assert_refused_unchanged("LIVE_CONNECTION_UNVERIFIED", lambda: self.source.submit_order(entry))
+        self.assertTrue(self.session.failed and self.session.stopping)
+        self.assertEqual(self.read_events("entry_denied"), [])
+
+    def test_a_missing_bar_and_unknown_orders_refuse_an_entry_with_a_position_held(self):
+        self.owned_position()
+        self.bars_missing()
+        self.session.connection.closed["unknown_orders"] = 0.0
+        entry = self.limit(price="95.00")
+        self.assert_refused_unchanged("LIVE_CONNECTION_UNVERIFIED", lambda: self.source.submit_order(entry))
+        self.assertTrue(self.session.failed and self.session.stopping)
+
+    def test_an_entry_staged_when_a_bar_goes_missing_is_denied_natively_and_the_run_goes_on(self):
+        entry, observation = self.submit_pending(self.limit(price="95.00"))
+        self.bars_missing()
+        self.assertIsNone(self.session.account_observation)  # its account check is dropped
+        self.finish_read(observation)
+        commands.dispatch_entry(self.session)  # a late read sends nothing
+        self.assertEqual(self.session.pending_entries, [])
+        self.advance()
+        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.DENIED)
+        self.assertFalse(self.session.stopping or self.session.failed or self.session.native_order_failure)
+        self.assertEqual([row["client_order_id"] for row in self.read_events("entry_denied")], [str(entry.client_order_id)])
+        self.assertEqual(self.read_events("entry_refused"), [])
+        # Flat, nothing open and nothing staged: the run may warm up again (engine.live_connection.rewarm_pending).
+        self.assertTrue(live_connection.rewarm_pending(self.session, self.engine.cache))
+
+    def test_an_entry_staged_when_entries_close_for_good_still_ends_the_run(self):
+        # Negative control: unknown orders at Binance refuse the staged entry and end the run, as before.
+        entry, observation = self.submit_pending(self.limit(price="95.00"))
+        live_connection.close_entries(self.session, "unknown_orders")
+        self.assertTrue(self.session.failed and self.session.stopping)
+        self.assertEqual(self.session.pending_entries, [])
+        self.assertEqual(self.read_events("entry_denied"), [])
+        self.assertIsNone(self.engine.cache.order(entry.client_order_id))
 
     def test_accepted_stop_for_the_whole_position_keeps_the_run_going(self):
         self.owned_position()

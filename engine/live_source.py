@@ -80,10 +80,18 @@ class _LiveConfigured(history.Warming):
         pending = PendingEntry(order, super().submit_order, client_id, self._live.deciding)
         try:
             closed = self._live.account_verified and not live_connection.entries_open(self._live)
-            if closed and not live_connection.holdable(self._live):
+            denied = closed and not live_connection.holdable(self._live) and live_connection.deniable(self._live) \
+                and bool(Strategy.cache.__get__(self, type(self)).positions_open(
+                    strategy_id=source_strategy_id(self._live.manifest)))
+            if closed and not live_connection.holdable(self._live) and not denied:
                 live_connection.refuse(self._live, live_connection.gate_reason(self._live))
             commands.require_entry(self._live, order)
             self._orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
+            if denied:
+                # A missing bar with a position held: only this entry, which passed every entry check, is denied,
+                # natively (the user, 2026-11-13).
+                live_connection.deny(self._live, order, "entry_while_bars_missing")
+                return None
             if closed:
                 live_connection.hold(self._live, pending)
             else:
@@ -148,10 +156,17 @@ class _LiveConfigured(history.Warming):
         self._live.begin_stop("source_shutdown", source_reason=str(reason)[:1000] if reason is not None else None)
 
     def _warming_failed(self, code: str, text: str) -> None:
-        """No order went out before the warm-up (engine.order_rules.WARMING): the run stops."""
-        self._live.failed = True
-        self._live.event("warmup_refused", strict=False, code=code, detail=text[:1000])
-        self._live.begin_stop("warmup_failed")
+        """No order went out before the warm-up (engine.order_rules.WARMING): the run stops. The first failure after a
+        start to warm up again after a missing bar starts the run once more (the user, 2026-11-13)."""
+        live = self._live
+        retry = live.warmup_retry and not live.stopping
+        live.event("warmup_refused", strict=False, code=code, detail=text[:1000], retry=retry)
+        if retry:
+            live.warmup_retry, live.warmup_retried, live.rewarming = False, True, True
+            live.begin_stop("rewarming")
+            return
+        live.failed = True
+        live.begin_stop("warmup_failed")
 
     def _warming_begin(self) -> None:
         state = self._warming_state()
@@ -237,7 +252,8 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     for name in ("on_order_event", "on_position_event"):
         original = callbacks.get(name)
         def wrapped(self, event, _original=original, _name=name):
-            if _name == "on_order_event" and type(event).__name__ in {"OrderDenied", "OrderRejected"}:
+            if _name == "on_order_event" and type(event).__name__ in {"OrderDenied", "OrderRejected"} and not (
+                    type(event).__name__ == "OrderDenied" and str(event.client_order_id) in self._live.denied):
                 self._live.native_order_failure, self._live.failed = True, True
                 self._live.begin_stop("native_order_failure")
             try:

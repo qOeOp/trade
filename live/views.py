@@ -228,7 +228,7 @@ def _minute_results(rows):
 
 
 GATE_EVENTS = frozenset({"entries_closed", "entries_checking", "entries_opened", "entries_held", "connection_lost",
-                         "connection_renewed", "entry_held", "entry_released", "entry_refused"})
+                         "connection_renewed", "entry_held", "entry_released", "entry_refused", "orphan_orders"})
 GATE_REASONS = frozenset({"disconnected", "unverified", "unknown_orders", "bars_missing", "account_mode", "foreign",
                           "open"})
 
@@ -253,9 +253,9 @@ def _restarts(native, lifecycle):
     if native is None or lifecycle is None:
         return None
     rows = [{"event": row["event"], "observed_ns": str(row["observed_ns"]),
-             "held": row.get("held") if isinstance(row.get("held"), bool) else None}
+             "held": row.get("held") if isinstance(row.get("held"), bool) else None, "retry": row.get("retry") is True}
             for row in native if row.get("event") in RESTART_EVENTS and type(row.get("observed_ns")) is int]
-    rows += [{"event": "restart_limited", "observed_ns": str(row["observed_ns"]), "held": None}
+    rows += [{"event": "restart_limited", "observed_ns": str(row["observed_ns"]), "held": None, "retry": False}
              for row in lifecycle if row.get("event") == "restart_limited" and type(row.get("observed_ns")) is int]
     return sorted(rows, key=lambda row: int(row["observed_ns"]))[-MAX_ROWS:]
 
