@@ -10,7 +10,6 @@ import { ending } from "../../model/ending";
 import { historyOf, startedMs, type Step } from "../../model/paperHistory";
 import { health } from "../../components/RunTile";
 import { TextButton } from "../../components/TextButton";
-import { usePhone } from "../../state/phone";
 import { useTimeZone } from "../../state/timeZone";
 
 
@@ -28,10 +27,9 @@ function Rail({ kind, live, last }: { kind: Step["kind"]; live?: boolean; last: 
 
 /** `runs`: the strategy's runs, oldest first; `all`: the whole listing; `pick` shows one of them (only a
  *  chain's latest run links: an earlier one shows as its chain, model/stage.ts). Times on the
- *  timeline are short (no year in the current one, the zone once, in the header). On a phone it opens under
- *  the strategy's own row, so it leaves the name out. */
+ *  timeline are short (no year in the current one, the zone once, in the header). */
 export function PaperHistory({ runs, all, now, pick }: { runs: readonly PaperRun[]; all: readonly PaperRun[]; now: number; pick: (run: PaperRun) => void }) {
-  const zone = useTimeZone(), phone = usePhone(), year = displayDay(now, zone).slice(0, 5);
+  const zone = useTimeZone(), year = displayDay(now, zone).slice(0, 5);
   const at = (ms: number | null) => { if (ms === null) return "?"; const day = displayDay(ms, zone); return `${day.startsWith(year) ? day.slice(5) : day} ${clockTime(ms, zone)}`; };
   const h = historyOf(runs, all), head = runs[runs.length - 1]!, [name, revision] = (head.candidate ?? "").split("@");
   const since = startedMs(runs[0]!) ?? createdNs(runs[0]!) / 1e6;
@@ -58,7 +56,7 @@ export function PaperHistory({ runs, all, now, pick }: { runs: readonly PaperRun
   };
   return (
     <div className="min-w-0 text-dense">
-      {!phone && <p className="flex min-w-0 font-mono font-semibold"><span className="truncate">{name || "No version declared"}</span>{revision && <span className="shrink-0 font-normal text-fg-faint">@{revision}</span>}</p>}
+      <p className="flex min-w-0 font-mono font-semibold"><span className="truncate">{name || "No version declared"}</span>{revision && <span className="shrink-0 font-normal text-fg-faint">@{revision}</span>}</p>
       <p className="mt-0.5 text-small text-fg-faint">{contracts(head.symbols)}{` · since ${dateTime(since, zone, "minute")}`}</p>
       <p className="mt-2 text-small text-fg-muted">{facts.join(" · ")}</p>
       <ol className="mt-3 flex flex-col">

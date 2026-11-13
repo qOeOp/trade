@@ -8,7 +8,7 @@ import { sideOf } from "../../model/liveChart";
 import { liveReading } from "./liveEquity";
 import { GROUP } from "../paper/ChartSwitches";
 import { TextButton } from "../../components/TextButton";
-import { useLiveCanvas, type LiveCanvasView } from "../../state/liveRun";
+import { useLiveCanvas } from "../../state/liveRun";
 import { openLiveRequests } from "../../state/liveWorkspace";
 import { LiveLaunch } from "./LiveLaunch";
 import { RunStages } from "../runs/RunStages";
@@ -21,10 +21,7 @@ import { textClass } from "../../theme/roles";
  *  canvas is the launch page (LiveLaunch), drawn greyed where Live cannot take a run; a retained run is picked in
  *  the toolbar. */
 export function LiveRunCanvas() {
-  return <LiveRunCanvasView {...useLiveCanvas()} />;
-}
-
-function LiveRunCanvasView({ run, version, view, actions, first, backtestAvailable, paperAvailable }: LiveCanvasView) {
+  const { run, version, view, actions, first, backtestAvailable, paperAvailable } = useLiveCanvas();
   const action = useLiveAction();
   // Until one is picked, Equity only when at least one minute has a known result.
   const [picked, setPicked] = useState<LiveView | null>(null), chart: LiveView = picked ?? (liveReading(run?.equity) ? "equity" : "coins");
@@ -38,14 +35,12 @@ function LiveRunCanvasView({ run, version, view, actions, first, backtestAvailab
         <span className={GROUP}><RunStages backtest={backtestAvailable} paper={paperAvailable} /></span>
         {run && !first && <span className={`${GROUP} min-w-0`}><LiveSwitches run={run} view={chart} symbol={symbol} onView={setPicked} onSymbol={setCoin} /></span>}
       </div></div>
-      {view.preview && <span className="text-small text-fg-faint">Preview · sample data</span>}
       {/* Review run… is the toolbar's; stopping stays beside the run it stops. */}
       {run && !first && <TextButton size="form" className="ml-auto" disabled={!actions.stop || run.ended || action.busy} onClick={() => void action.submit(() => actions.stop?.(run.id))}>Request stop</TextButton>}
     </div>
     {first || !run ? <div className="min-h-0 flex-1"><LiveLaunch version={version} view={view} actions={actions} /></div>
       : <div className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0 space-y-2 border-b border-line px-3 py-2">
-        {view.preview && <p className="text-small text-fg-faint">Fictional observations for layout review. No venue actions are available.</p>}
         {view.notice && <p role="status" className="text-dense text-fg-muted">{view.notice}</p>}
         <LiveRunIdentity run={run} operation />
         {run.heldNotice && <p role="status" className={`text-dense ${textClass("misses")}`}>{run.heldNotice}</p>}

@@ -32,8 +32,8 @@ const number = (places: number) => {
   return (x: number) => f.format(x);
 };
 /** A series' price format: thousands separators and `places` decimals (81,190.50), the axis ticks with
- *  `ticks` decimals. Set on each series, since a chart-wide formatter would also take over the drawdown
- *  pane's percent. */
+ *  `ticks` decimals. Set on each series, since a chart-wide formatter would also take over the series on
+ *  scales of their own (volume, exposure). */
 export const priceFormat = (places: number, ticks = places) => ({
   type: "custom" as const, minMove: 10 ** -places, formatter: number(places),
   tickmarksFormatter: (prices: readonly number[]) => prices.map(number(ticks)),
@@ -47,8 +47,8 @@ const CANDLES: DeepPartial<TimeScaleOptions> = { rightOffset: 6, barSpacing: 7, 
 
 /** A new chart: its look, and the spacing of its time scale (a candle's by default), which the user's
  *  zoom then owns. */
-export function chartOptions(spacing: DeepPartial<TimeScaleOptions> = CANDLES, zone: TimeZone = "UTC"): DeepPartial<ChartOptions> {
-  const look = chartLook(zone);
+export function chartOptions(spacing: DeepPartial<TimeScaleOptions> = CANDLES): DeepPartial<ChartOptions> {
+  const look = chartLook();
   return { ...look, timeScale: { ...look.timeScale, ...spacing } };
 }
 
@@ -98,11 +98,11 @@ export function seriesColors(dark = false) {
   // the faintest grey in light), fine edges, and its tag as the value axis's neutral ones.
   const restart = { wash: dark ? canvasTint("line-shadow", 11) : canvasTint("fg", 5.5), edge: canvasColor("fg", dark ? 0.12 : 0.13), text: canvasColor("fg"), tag: canvasColor("line-strong"), font: font.replace(/^11px/, "12px") };
   const flags = {
-    restart, warn: canvasColor("event"), warnTag: canvasTint("event", 14), text: canvasColor("fg-muted"), edge: canvasColor("line-strong"), island: canvasColor("island"),
+    restart, warn: canvasColor("event"), warnTag: canvasTint("event", 14), text: canvasColor("fg-muted"),
     hatch: canvasColor("event", dark ? 0.36 : 0.32), wash: canvasColor("event", dark ? 0.06 : 0.05), font,
   };
   return {
-    island: canvasColor("island"), fg: canvasColor("fg"), muted: canvasColor("fg-muted"), faint: canvasColor("fg-faint"), ghost: canvasColor("fg-ghost"),
+    island: canvasColor("island"), fg: canvasColor("fg"), muted: canvasColor("fg-muted"), ghost: canvasColor("fg-ghost"),
     up: canvasColor("candle-up"), down: canvasColor("candle-down"), upVolume: canvasTint("candle-up", dark ? 24 : 22), downVolume: canvasTint("candle-down", dark ? 24 : 22),
     pnlUp: canvasColor("pnl-up"), pnlDown: canvasColor("pnl-down"), upTag: canvasTint("pnl-up", 16), downTag: canvasTint("pnl-down", 16),
     limit: canvasColor("recommended"), limitTag: canvasTint("recommended", 16), position: canvasColor("fg", 0.8), tag: canvasColor("line-strong"),
@@ -119,7 +119,7 @@ export function seriesColors(dark = false) {
       ceiling: canvasColor("fg-faint", dark ? 0.8 : 0.75), flat: canvasColor("fg", dark ? 0.035 : 0.04), column: canvasColor("fg", dark ? 0.05 : 0.035),
       up: canvasColor("pnl-up", dark ? 0.42 : 0.4), down: canvasColor("pnl-down", dark ? 0.42 : 0.4), upStrong: canvasColor("pnl-up", 0.9), downStrong: canvasColor("pnl-down", 0.9),
       grid: canvasColor("grid", 0.45), restart,
-      rows: { font, label: canvasColor("fg-muted"), quiet: canvasColor("fg-faint"), meets: canvasColor("meets-fg"), misses: canvasColor("misses-fg"), halo: canvasColor("island"), grid: canvasColor("grid", 0.45) },
+      rows: { font, label: canvasColor("fg-muted"), quiet: canvasColor("fg-faint"), meets: canvasColor("meets-fg"), misses: canvasColor("misses-fg"), halo: canvasColor("island") },
       shares: { series: (["series-1", "series-2", "series-3", "series-4", "series-5"] as const).map((r) => canvasColor(r)), other: canvasColor("fg-faint", 0.7), ink: canvasColor("fg"), paper: canvasColor("island"), track: canvasColor("grid", 0.3), font },
     },
     notes: {

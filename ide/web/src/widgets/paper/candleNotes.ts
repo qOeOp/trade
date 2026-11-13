@@ -13,7 +13,7 @@ import { atom } from "../../state/atom";
 import { highlighted, tradesTab } from "../../state/paperStream";
 import { fillTip, flags, flagTip, gaps, type Tip } from "./candleEvents";
 import { CycleBand, type CycleLook } from "./cycleBand";
-import { downRows, type Down } from "./downLook";
+import { downRow, type Down } from "./downLook";
 import { EventFlags, type FlagsLook } from "./eventFlags";
 import type { TradeBox } from "./tradeBoxes";
 import type { Levels } from "./levels";
@@ -77,7 +77,7 @@ export class CandleNotes {
     if (!n || !point || (!f.length && !pill && !off)) { if (this.tip.get()) this.tip.set(null); return; }
     const same = this.tip.get();
     if (!refresh && same && same.x === point.x && same.y === point.y) return;
-    if (off) { this.tip.set({ x: point.x, y: point.y, title: off.label, rows: downRows(off, this.zone).map((text) => ({ text, faint: false })) }); return; }
+    if (off) { this.tip.set({ x: point.x, y: point.y, title: off.label, rows: [{ text: downRow(off, this.zone), faint: false }] }); return; }
     // An exit's arrow also tells the trade it closed: the box ending on its candle.
     const box = f.some((x) => x.opening === false) ? n.boxes.find((b) => !b.open && b.to === candleOpen(f[0]!.ms * 1e6, n.minutes)) : undefined;
     this.tip.set(f.length ? fillTip(f, n.events, digits, point.x, point.y, box, this.zone) : flagTip(pill!.lines, new Map(pill!.lines.map((l) => [symbolOf(l.instrument_id), digits])), point.x, point.y, this.zone));

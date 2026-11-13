@@ -7,7 +7,6 @@ import { pricesWanted, useOverviewService } from "../../state/market";
 import { usePaperRuns, usePaperService } from "../../state/paper";
 import { follow } from "../../state/paperStream";
 import { phoneTab, usePhoneRoot, type PhoneTab } from "../../state/phone";
-import { showMarketPage } from "../../state/shell";
 import { MarketTab } from "./MarketTab";
 import { ResearchTab } from "./ResearchTab";
 import { RunsTab } from "./RunsTab";
@@ -21,7 +20,6 @@ export function PhoneShell() {
   const tab = useAtom(phoneTab), overview = useOverviewService(), market = overview === "present" || overview === "offline";
   const paper = usePaperService(), runs = usePaperRuns()?.runs ?? [], live = useLiveTrading().view.runs;
   useEffect(() => { follow(null, null); pricesWanted.set(true); return () => pricesWanted.set(false); }, []);
-  useEffect(() => { if (tab === "market") showMarketPage(); }, [tab]);
   const unresolved = live.some((r) => r.host.some((f) => f.label === "State" && f.value === "unresolved"));
   const going = live.some((r) => r.running) || runs.some((r) => ACTIVE.has(r.state));
   const items: PhoneTabItem<PhoneTab>[] = [

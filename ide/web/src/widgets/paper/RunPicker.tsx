@@ -57,12 +57,12 @@ const OTHER_LINE = "Not a version of this line";
  *  runs, stops and failed starts beside it (PaperHistory); its contracts too where its version runs on other
  *  contracts as well; a strategy whose version is not on this line says which line it is on; only those whose
  *  version or the number of one of its runs holds the caller's `query`, picking that run when the query is its number.
- *  ↑ ↓ move between rows. `anyLine`: no line is named (a phone's list, which draws no line). */
-export function RunList({ order, runs: all, front, now, pick, query, anyLine = false }: { order: readonly PaperRun[]; runs: readonly PaperRun[]; front: PaperRun | null; now: number; pick: (r: PaperRun) => void; query: string; anyLine?: boolean }) {
+ *  ↑ ↓ move between rows. */
+export function RunList({ order, runs: all, front, now, pick, query }: { order: readonly PaperRun[]; runs: readonly PaperRun[]; front: PaperRun | null; now: number; pick: (r: PaperRun) => void; query: string }) {
   const { lines } = useResearchLines();
   const note = (r: PaperRun) => {
     const twin = order.some((o) => o.candidate === r.candidate && strategyKey(o) !== strategyKey(r)) ? contracts(r.symbols) : null;
-    if (r.candidate === null || anyLine || isKnown(r.candidate)) return twin ?? undefined;
+    if (r.candidate === null || isKnown(r.candidate)) return twin ?? undefined;
     const line = lineOf(lines, r.candidate), on = line ? `Line ${line.name}` : OTHER_LINE;
     return twin ? `${twin} · ${on}` : on;
   };

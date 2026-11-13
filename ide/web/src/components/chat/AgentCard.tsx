@@ -6,7 +6,6 @@ import { BRAND_TONE } from "../../icons/brands";
 import { BrandMark, Icon } from "../../icons/Icon";
 import type { IconName } from "../../icons/registry";
 import type { DataRole, TextRole } from "../../theme/roles";
-import { usePhone } from "../../state/phone";
 import { IconButton } from "../IconButton";
 import { FormButton } from "./Field";
 
@@ -49,7 +48,7 @@ export function AgentCard({ agent, testing, onTest, onEdit, onDelete }: {
   agent: Agent; testing: boolean; onTest: () => void; onEdit: () => void; onDelete: () => void;
 }) {
   const zone = useTimeZone();
-  const status = STATUS[agent.status], phone = usePhone();
+  const status = STATUS[agent.status];
   const tested = agent.probe && agent.status !== "untested";
   const provider = PROVIDER_LABEL[agent.provider];
   return (
@@ -59,8 +58,8 @@ export function AgentCard({ agent, testing, onTest, onEdit, onDelete }: {
         <span className="truncate font-semibold">{agent.name}</span>
         {!agent.name.startsWith(provider) && <span className="shrink-0 text-dense text-fg-faint">{provider}</span>}
         <span className="ml-auto flex shrink-0 gap-0.5">
-          <IconButton frame={phone} glyph={16} icon="edit" label="Edit" onClick={onEdit} />
-          <IconButton frame={phone} glyph={16} icon="delete" label="Delete" onClick={onDelete} />
+          <IconButton icon="edit" label="Edit" onClick={onEdit} />
+          <IconButton icon="delete" label="Delete" onClick={onDelete} />
         </span>
       </div>
       <div className="flex min-w-0 items-center gap-1.5 text-dense text-fg-muted">

@@ -10,6 +10,7 @@
 // share wide enough carries its name, in the text colour on a patch of the island's; the tooltip (`tipOf`)
 // names every share.
 import { baseAsset } from "../../lib/paperApi";
+import type { DailyCloses } from "../../model/equityReadings";
 import type { Tip } from "./candleEvents";
 import { span, type Frame } from "./equityBands";
 
@@ -19,20 +20,18 @@ export type ShareLook = { series: readonly string[]; other: string; ink: string;
 /** Where a share is drawn (px from the pane's left and top) and of which year. */
 export type Hit = { x0: number; x1: number; y0: number; y1: number; year: number; share: Share; of: number };
 
-export const SLOTS = 5;
+const SLOTS = 5;
 const GAP = 4, PAD = 3, TALL = 9, NAME = 9, LEAN = 4;  // px: between shares, around a name, a bar's height, its names' font size, the stripes' pitch
 const OTHER = "Other";
 
 type Cycle = { symbol: string; opened: number; closed: number; pnl: number | null; gross: number };
-/** A contract's daily closes, oldest first: each day's start (s) and its close. */
-export type Closes = Readonly<Record<string, readonly (readonly [number, number])[]>>;
 const DAY_S = 86_400, MOVE = 0.1;  // the least price move (a share of the price) a cycle is marked over
 
 /** A cycle's P&L by UTC year (its open and close in ms). Its price move (`gross`) is marked at each year's end
  *  it was held across by how far its contract's close had got from the close before it opened to the close
  *  before it closed (no entry price or size is stored for a cycle); the rest falls in the year it closed. All
  *  of it there without the closes or where the price moved less than MOVE, which leaves the mark unsteady. */
-export function piecesOf(c: Cycle, closes: Closes | null): [number, number][] {
+export function piecesOf(c: Cycle, closes: DailyCloses | null): [number, number][] {
   const pnl = c.pnl ?? 0, first = new Date(c.opened).getUTCFullYear(), last = new Date(c.closed).getUTCFullYear(), days = closes?.[c.symbol] ?? [];
   const at = (s: number) => days.filter(([t]) => t + DAY_S <= s).at(-1)?.[1] ?? null;
   const from = at(c.opened / 1000), to = at(c.closed / 1000);
@@ -49,7 +48,7 @@ export function piecesOf(c: Cycle, closes: Closes | null): [number, number][] {
 }
 
 /** Each year's shares (the cycles' P&L by year, piecesOf), in the bar's order. */
-export function sharesOf(cycles: readonly Cycle[], closes: Closes | null = null, slots = SLOTS): Map<number, Share[]> {
+export function sharesOf(cycles: readonly Cycle[], closes: DailyCloses | null = null, slots = SLOTS): Map<number, Share[]> {
   const moved = new Map<string, number>(), years = new Map<number, Map<string, [number, number]>>();
   for (const c of cycles) {
     moved.set(c.symbol, (moved.get(c.symbol) ?? 0) + Math.abs(c.pnl ?? 0));

@@ -1,6 +1,7 @@
 import { dateTime, type TimeZone } from "../lib/time";
 // The current runner's phase and the historical data drawn beside it are distinct facts.
 import type { JournalLine, PaperRun } from "../lib/paperApi";
+import type { DailyCloses } from "./equityReadings";
 import { warmupAt } from "./paper";
 
 export const LAG_MS = 2 * 60_000;
@@ -15,7 +16,7 @@ export const waitingText = (until: number, now: number, zone: TimeZone = "UTC") 
     ? `No first bar · scheduled start ${utcMinute(until, zone)}` : `Starting after warm-up · scheduled ${utcMinute(until, zone)}`;
 
 /** A chart's last observed bar, distinct from its coarser candle's open and from the wall clock. */
-export function observedThrough(bars: readonly JournalLine[], closes: Readonly<Record<string, readonly (readonly [number, number])[]>>): number | null {
+export function observedThrough(bars: readonly JournalLine[], closes: DailyCloses): number | null {
   const times = [...Object.values(closes).map((c) => c.at(-1)?.[0] ?? 0), Number(bars.at(-1)?.ts_event ?? 0)];
   const last = Math.max(...times);
   return last ? last / 1e6 : null;

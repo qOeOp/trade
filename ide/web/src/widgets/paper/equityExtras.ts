@@ -1,4 +1,4 @@
-// What the Account chart shows beside equity and its layers (equityReadings.ts): what fees and funding
+// What the Equity chart shows beside equity and its layers (equityReadings.ts): what fees and funding
 // took as a raised band over the line and the open profit and loss as a filled block between the balance
 // and the line, and on request an equal-weight buy and hold of the run's contracts as an area (equityFills.ts), the
 // band in the value axis's fit as far as `reach` lets it, the buy and hold kept out of it (so a market

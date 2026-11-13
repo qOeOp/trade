@@ -9,7 +9,7 @@ import { select } from "../state/selection";
 import { useGlide } from "../components/hooks/useGlide";
 import { useSize } from "../components/hooks/useSize";
 import { ChartPill, PILL_H } from "../components/ChartPill";
-import { progressGutter, VALUE_GUTTER as GUTTER } from "../components/ProgressLayout";
+import { progressGutter, tickCount, VALUE_GUTTER as GUTTER } from "../components/ProgressLayout";
 import { chartKeys } from "../components/chartKeys";
 import { EventTip } from "../components/EventTip";
 import { Tip } from "../components/Tip";
@@ -47,7 +47,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
   const values = [...points.map((p) => p.annual_return), target ?? 0, 0];
   const floor = Math.max(TOP + 1, height - BOTTOM);
   // As many ticks as fit 28px apart, up to 8 (5% steps for a usual range), the frame ending on them.
-  const count = Math.max(3, Math.min(8, Math.floor((floor - TOP) / 28)));
+  const count = tickCount(floor - TOP);
   const y = scaleLinear<number>({ domain: valueDomain(Math.min(...values), Math.max(...values), count), range: [floor, TOP] });
   const ticks = y.ticks(count);
   const left = progressGutter(widget);

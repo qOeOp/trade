@@ -19,7 +19,7 @@ export type LiveCredential = {
 };
 /** Telegram notifications: whether a bot token and its chat are saved, the last delivery and the last failure. */
 export type LiveNotify = { configured: boolean; lastSentNs: string | null; lastError: { code: string; atNs: string | null } | null; dropped: number };
-export type LivePlanField = { id: string; label: string; value: string; hint?: string };
+export type LivePlanField = { id: string; label: string; value: string };
 export type LiveAccountCheck = { state: "running" | "passed" | "failed" | "unknown"; readAt: string | null };
 export type LiveRun = {
   id: string; candidate: string; purpose: "natural" | "controlled" | "unknown"; sourceHash: string | null; entryClass: string | null;
@@ -39,7 +39,7 @@ export type LiveRun = {
   compared?: { day: string; text: string; attention: boolean } | null;
   /** How the run has kept running: since when it trades, its warm-up, entries, last reconnect, latest comparison. */
   continuity?: readonly LiveFact[];
-  /** A runtime image the release offers this running run, or the switch it waits for (model/liveTradingMap.ts
+  /** A runtime image the release offers this running run, or the switch it waits for (model/liveRuntimeMap.ts
    *  runtimeOf); null when there is neither. */
   runtime?: LiveRuntime | null;
   /** When the account was observed and the run's native terminal event, as ns; whether it executes now. */
@@ -60,7 +60,7 @@ export type LiveRuntime = {
   pending: { build: string | null; sinceNs: string } | null;
 };
 export type LiveTradingView = {
-  availability: "unavailable" | "ready"; preview: boolean; notice: string | null;
+  availability: "unavailable" | "ready"; notice: string | null;
   /** Why new actions are refused now, as a code (a failed read, or the service's write reason); null when they are
    *  accepted. The launch page words it plainly. */
   reason?: string | null;
@@ -99,7 +99,7 @@ export const labelUnit = (label: string): readonly [string, string | null] => {
 };
 
 export const LIVE_UNAVAILABLE: LiveTradingView = {
-  availability: "unavailable", preview: false, reason: "LIVE_UNAVAILABLE",
+  availability: "unavailable", reason: "LIVE_UNAVAILABLE",
   notice: "The Live service is not connected to this IDE. No request will be sent.",
   credentials: [], sources: [], planFields: [], runs: [], request: null,
 };

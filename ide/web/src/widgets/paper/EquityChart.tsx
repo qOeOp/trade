@@ -11,7 +11,7 @@ import { equityApi, type Api, type Now } from "./equityApi";
 import { EquityExtras } from "./equityExtras";
 import { EquityLegend } from "./EquityLegend";
 import { ChartTip } from "./ChartTip";
-import { FEW } from "./equityLayers";
+import { FEW } from "./equityBands";
 import type { Close } from "./equityCloses";
 import type { Leaning } from "../../model/held";
 import { resample, STEPS } from "./equityResolution";

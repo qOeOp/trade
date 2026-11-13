@@ -2,7 +2,6 @@ import type { MouseEvent } from "react";
 import { Icon } from "../icons/Icon";
 import { useAtom } from "../state/atom";
 import { activeRun, full, startDialog, starting, stopDialog, stopping, usePaperRuns, usePaperService } from "../state/paper";
-import { usePhone } from "../state/phone";
 import { useNow } from "./hooks/useNow";
 import { waited } from "./PaperStartStatus";
 import { Tip } from "./Tip";
@@ -11,12 +10,12 @@ import { Tip } from "./Tip";
  *  contracts (its last research replay's to start with); on a running version it is a red ■, which asks to stop.
  *  It shows while its row or node is hovered (a `group`), and only when the page reaches a paper daemon. */
 export function PaperButton({ id }: { id: string }) {
-  const service = usePaperService(), phone = usePhone();
+  const service = usePaperService();
   const listing = usePaperRuns();
   const since = useAtom(starting).get(id), pendingStart = since !== undefined;
   const run = activeRun(listing, id), limit = full(listing);
   const pendingStop = useAtom(stopping).has(run?.paper_id ?? -1) || run?.state === "stopping";
-  if (service !== "present" || phone) return null;
+  if (service !== "present") return null;
   const busy = pendingStart || pendingStop;
   const click = (e: MouseEvent) => {
     e.stopPropagation();
@@ -39,9 +38,9 @@ export function PaperButton({ id }: { id: string }) {
 
 
 /** A turning ring, a still clock under reduced motion: the ▶ while its start is in flight. */
-function Spinner({ size = 12 }: { size?: 12 | 16 }) {
-  return <><Icon name="loading" size={size} className="text-icon motion-safe:animate-spin motion-reduce:hidden" />
-    <Icon name="history" size={size} className="text-icon motion-safe:hidden" /></>;
+function Spinner() {
+  return <><Icon name="loading" size={12} className="text-icon motion-safe:animate-spin motion-reduce:hidden" />
+    <Icon name="history" size={12} className="text-icon motion-safe:hidden" /></>;
 }
 
 /** The tip of a ▶ whose start is in flight: how long it has waited and what the server is doing. */

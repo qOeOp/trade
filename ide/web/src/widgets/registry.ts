@@ -1,4 +1,4 @@
-// One renderer per view-model widget type: its title and component. Where each appears (toolbar,
+// The named renderers of view-model widgets: a title and a component each. Where each appears (toolbar,
 // editor, a tool window) is the shell's business (shell/toolWindows.ts). The view model is unchanged.
 import type { ComponentType } from "react";
 import type { Widget } from "../model/types";

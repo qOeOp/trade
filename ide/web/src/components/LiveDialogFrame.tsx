@@ -3,14 +3,13 @@ import { Dialog } from "radix-ui";
 import { FormButton } from "./chat/Field";
 
 /** One scroll body; the same dialog becomes a full-screen form on a phone. */
-export function LiveDialogFrame({ open, close, title, description, children, footer, narrow = false, focusKey }: {
-  open: boolean; close: () => void; title: string; description: string; children: ReactNode; footer: ReactNode;
-  narrow?: boolean; focusKey?: string | number;
+export function LiveDialogFrame({ open, close, title, description, children, footer, narrow = false }: {
+  open: boolean; close: () => void; title: string; description: string; children: ReactNode; footer: ReactNode; narrow?: boolean;
 }) {
   const heading = useRef<HTMLHeadingElement>(null), body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (open) { heading.current?.focus(); if (body.current) body.current.scrollTop = 0; }
-  }, [open, focusKey]);
+  }, [open]);
   return <Dialog.Root open={open} onOpenChange={(next) => { if (!next) close(); }}>
     <Dialog.Portal>
       <Dialog.Overlay className="fixed inset-0 z-40 bg-scrim" />

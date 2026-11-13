@@ -45,7 +45,7 @@ const fixtures = {
   },
 };
 const graph = loader({ stubs: fixtures,
-  sources: ["shell/MainToolbar", "shell/toolbar/RunsWidget", "shell/toolbar/ToolbarActions", "components/ActionGroup"] });
+  sources: ["shell/MainToolbar", "shell/toolbar/RunsWidget", "components/ActionGroup"] });
 const { MainToolbar } = await graph.namespace("shell/MainToolbar.tsx");
 const render = (stage, { paper = true, paperService = "present", warning = false, retainedStream = true,
   onRuns = true, version = "selected-research@2", live = true } = {}) => {

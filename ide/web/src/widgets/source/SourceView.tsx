@@ -29,7 +29,7 @@ export function SourceBar({ id, diff, widget }: { id: string; diff: boolean; wid
         <Icon name={comparing ? "diff" : "file.python"} className="shrink-0 text-icon" />
         {/* short of room, the parent's name gives way before the open file's */}
         {comparing && <><FileName id={parent!.id} className="shrink-[100] text-fg-muted" /><Icon name="chevron-right" size={12} className="shrink-0 text-icon" /></>}
-        <FileName id={id} data-file />
+        <FileName id={id} />
         <span className="ml-auto" />
         {/* in a narrow editor the actions keep only their icons */}
         {item?.source != null && parent?.source != null
@@ -45,7 +45,7 @@ export function SourceBar({ id, diff, widget }: { id: string; diff: boolean; wid
 /** A version's file name, cut in the middle to the room it is given so `@<revision>.py` stays: the whole
  *  name on hover. An invisible copy of the whole name keeps its place in the row (how far it shrinks); the
  *  face is monospace, so the cut is a count of characters and the ellipsis meets the kept end. */
-function FileName({ id, className = "", ...rest }: { id: string; className?: string; "data-file"?: boolean }) {
+function FileName({ id, className = "" }: { id: string; className?: string }) {
   const name = `${id}.py`, keep = name.slice(name.lastIndexOf("@"));
   const [ref, { width }] = useSize<HTMLSpanElement>();
   const whole = useRef<HTMLSpanElement>(null);
@@ -54,7 +54,7 @@ function FileName({ id, className = "", ...rest }: { id: string; className?: str
   const shown = room >= name.length ? name : `${name.slice(0, Math.max(1, room - keep.length - 1))}…${keep}`;
   return (
     // never narrower than its shortest form, a first letter, the ellipsis and the kept end
-    <span ref={ref} title={name} style={{ minWidth: `${keep.length + 2}ch` }} className={`relative overflow-hidden font-mono ${className}`} {...rest}>
+    <span ref={ref} title={name} style={{ minWidth: `${keep.length + 2}ch` }} className={`relative overflow-hidden font-mono ${className}`}>
       <span ref={whole} aria-hidden className="invisible inline-block">{name}</span>
       <span className="absolute inset-0">{shown}</span>
     </span>

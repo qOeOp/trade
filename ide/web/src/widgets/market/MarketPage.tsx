@@ -6,7 +6,6 @@ import { hoverAt, ripple } from "../../model/ripple/layout";
 import { marketCoin, marketColor, marketSize, openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
 import { Breadcrumbs, type Crumb } from "../../components/Breadcrumbs";
 import { Dropdown, DropdownRadio } from "../../components/Dropdown";
-import { usePhone } from "../../state/phone";
 import { HeatLegend } from "../../components/HeatLegend";
 import { HeatTile } from "../../components/HeatTile";
 import { TextButton } from "../../components/TextButton";
@@ -44,7 +43,7 @@ const crumbs = (path: readonly string[], labels: readonly string[]): Crumb[] => 
  *  leave, which a growing tile and its shrinking neighbours would set off back and forth. */
 function Heatmap({ nodes, color, path, coin }: { nodes: readonly Node[]; color: Color; path: readonly string[]; coin: string | null }) {
   const [ref, { width, height }] = useSize();
-  const [hovered, setHovered] = useState<number | null>(null), phone = usePhone();
+  const [hovered, setHovered] = useState<number | null>(null);
   const tiles = useMemo(() => layout(nodes, width, height), [nodes, width, height]);
   const shown = useMemo(() => (hovered === null ? tiles : ripple(tiles, hovered, width, height)), [tiles, hovered, width, height]);
   const areas = tiles.map((t) => t.width * t.height);
@@ -55,7 +54,7 @@ function Heatmap({ nodes, color, path, coin }: { nodes: readonly Node[]; color: 
     setHovered((h) => hoverAt(tiles, shown, h, x, y));
   };
   return (
-    <div ref={ref} className="relative mx-2 mb-2 min-h-0 flex-1" onMouseMove={phone ? undefined : point} onMouseLeave={() => setHovered(null)}>
+    <div ref={ref} className="relative mx-2 mb-2 min-h-0 flex-1" onMouseMove={point} onMouseLeave={() => setHovered(null)}>
       {shown.map((t, i) => (
         <HeatTile key={`${t.data.kind}:${t.data.name}`} tile={t} frame={frame} color={color} hovered={i === hovered}
                   selected={t.data.kind === "coin" && t.data.coins[0]?.symbol === coin} onPick={() => pick(t.data)} />
@@ -76,7 +75,6 @@ export function MarketPage() {
   const labels = useMemo(() => path.map((p, i) => (p === MORE && snapshot ? level(snapshot, path.slice(0, i), size, color).at(-1)?.name ?? "More" : p)),
                          [snapshot, path, size, color]);
   const count = useMemo(() => (snapshot ? coinsAt(snapshot, path, size).length : 0), [snapshot, path, size]);
-  const phone = usePhone();
   if (service === "absent") return <Empty title="Market data is not served by this IDE" />;
   if (!snapshot) return service === "offline"
     ? <Empty title="Market data offline">Can't reach the market overview service. Reconnecting automatically.</Empty>
@@ -84,10 +82,10 @@ export function MarketPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* The island's 12px inset less a breadcrumb's own 8px padding, so the first crumb's text sits on the inset. */}
-      <div className={`flex shrink-0 items-center gap-x-3 pr-3 pl-1 text-dense ${phone ? "flex-wrap py-1" : "h-(--header-h)"}`}>
+      <div className="flex h-(--header-h) shrink-0 items-center gap-x-3 pr-3 pl-1 text-dense">
         <Breadcrumbs items={crumbs(path, labels)} />
         <span className="shrink-0 whitespace-nowrap text-fg-faint">{plural(nodes.length, path.length ? "tile" : "sector")} · {plural(count, "contract")}</span>
-        <span className={`flex items-center gap-3 ${phone ? "w-full flex-wrap pl-0.5 [&>[aria-label='Colour_scale']]:w-full [&>[aria-label='Colour_scale']]:pl-1.5" : "ml-auto"}`}>
+        <span className="ml-auto flex items-center gap-3">
           <Choice<Size> name="Size" options={SIZES} value={size} onChange={marketSize.set} />
           <Choice<Color> name="Colour" options={COLORS} value={color} onChange={marketColor.set} />
           <HeatLegend color={color} />
@@ -96,7 +94,7 @@ export function MarketPage() {
       {nodes.length ? <Heatmap nodes={nodes} color={color} path={path} coin={coin} />
         : path.length ? <Empty title={`The ${labels.at(-1)} ${path.length === 1 ? "sector" : "group"} is not in this snapshot`}><TextButton onClick={() => openPath([])}>Back to All</TextButton></Empty>
         : <Empty title="No coins in this snapshot">The overview service read no perpetual contracts; it reads again every 30 seconds.</Empty>}
-      <p className={`shrink-0 px-3 pb-1.5 text-small text-fg-faint ${phone ? "" : "text-right"}`}>Prices, open interest and funding: Binance · Other exchanges: Bybit, OKX, Bitget, Gate, Hyperliquid · Market cap and categories: CoinGecko</p>
+      <p className="shrink-0 px-3 pb-1.5 text-right text-small text-fg-faint">Prices, open interest and funding: Binance · Other exchanges: Bybit, OKX, Bitget, Gate, Hyperliquid · Market cap and categories: CoinGecko</p>
     </div>
   );
 }

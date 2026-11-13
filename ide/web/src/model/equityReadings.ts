@@ -1,4 +1,4 @@
-// What the Account chart reads beside equity, each minute, from the journal (paper.equity_path's minutes):
+// What the Equity chart reads beside equity, each minute, from the journal (paper.equity_path's minutes):
 // the balance (equity less the open profit then), equity before costs (fees and funding added back), the
 // margin in use (balance less free balance) and the gross exposure (each contract's size held, at its
 // close then, summed), both as shares of equity, and an equal-weight buy and hold of the run's contracts
@@ -9,7 +9,8 @@ import type { Fill } from "./paper";
 
 /** `positions`: a backtest day's, the cycles it held. */
 export type Reading = { balance: number | null; before: number | null; margin: number | null; exposure: number | null; hold: number | null; positions?: number };
-type Closes = Readonly<Record<string, readonly (readonly [number, number])[]>>;
+/** Each contract's daily closes by symbol, oldest first: each day's start (s) and its close. */
+export type DailyCloses = Readonly<Record<string, readonly (readonly [number, number])[]>>;
 const MINUTE_NS = 60e9;
 
 /** A settlement's funding cash flow (ledger/paper.py _funding): a positive rate moves money from longs to shorts. */
@@ -19,7 +20,7 @@ const funding = (l: JournalLine) => {
 };
 
 /** The readings at each minute of `path` ([minute ns, equity]), by the minute in seconds. */
-export function equityReadings(path: readonly (readonly [number, number])[], lines: readonly JournalLine[], fills: readonly Fill[], closes: Closes, starting: number): Map<number, Reading> {
+export function equityReadings(path: readonly (readonly [number, number])[], lines: readonly JournalLine[], fills: readonly Fill[], closes: DailyCloses, starting: number): Map<number, Reading> {
   const snapshots = new Map(lines.filter((l) => l.kind === "snapshot").map((l) => [Number(l.minute_ns), l]));
   const costs = [
     ...lines.filter((l) => l.kind === "order" && l.type === "OrderFilled").map((l) => [Number(l.ts_event), amount(l.commission) ?? 0] as const),
@@ -59,7 +60,7 @@ export function equityReadings(path: readonly (readonly [number, number])[], lin
  *  `closes` each contract's daily closes ([day start s, close], in order), each contract bought for an
  *  equal share of `starting` at its first close on or before the first day, or, with none then, held as
  *  cash until its first close; never rebalanced, price only (no fees or funding). Null with no closes. */
-export function dailyHold(days: readonly number[], closes: Closes, starting: number): Map<number, number> | null {
+export function dailyHold(days: readonly number[], closes: DailyCloses, starting: number): Map<number, number> | null {
   const symbols = Object.keys(closes).filter((s) => closes[s]!.length);
   if (!symbols.length) return null;
   const share = starting / symbols.length, at = symbols.map(() => 0), last: (number | null)[] = symbols.map(() => null), base = [...last];

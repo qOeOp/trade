@@ -10,7 +10,7 @@ export function Island({ id, header, children }: { id: string; header?: ReactNod
   return (
     // Half the gap on every side, so neighbouring islands sit one gap apart whatever divides them.
     <div className="h-full p-(--half-gap)">
-      <section data-island={id} data-island-active={active ? "" : undefined} onPointerDownCapture={() => activeIsland.set(id)}
+      <section data-island-active={active ? "" : undefined} onPointerDownCapture={() => activeIsland.set(id)}
                className="flex h-full min-h-0 flex-col overflow-hidden rounded-island bg-island">
         {header}
         <ScrollArea className="min-h-0 flex-1">{children}</ScrollArea>

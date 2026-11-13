@@ -27,7 +27,7 @@ export function Crosshair({ x, y, width, height, reticle = true }: { x: number; 
   const stroke = { stroke: v("crosshair"), strokeOpacity: 0.75 };
   if (!viewport) return null;
   return createPortal(
-    <svg data-crosshair-lines width={width} height={height} className="pointer-events-none absolute -z-5" style={{ left: -tx, top: -ty }}>
+    <svg width={width} height={height} className="pointer-events-none absolute -z-5" style={{ left: -tx, top: -ty }}>
       {runs(0, height, Y).map(([a, b, d]) => <line key={`v${a}`} x1={X} x2={X} y1={a} y2={b} strokeDasharray={d} {...stroke} />)}
       {Y != null && runs(0, width, X).map(([a, b, d]) => <line key={`h${a}`} x1={a} x2={b} y1={Y} y2={Y} strokeDasharray={d} {...stroke} />)}
       {Y != null && reticle && <>

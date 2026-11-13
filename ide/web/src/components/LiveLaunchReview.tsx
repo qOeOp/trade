@@ -9,7 +9,7 @@ import { LiveRunId, liveRunStatus } from "./LiveRunIdentity";
 
 /** The plan a run froze at prepare, in one label column: what runs, its limits (each unit faint after its
  *  value), then the credential version bound to it. */
-export function LiveFrozenPlan({ run, credentials, confirming = false }: { run: LiveRun; credentials: readonly LiveCredential[]; confirming?: boolean }) {
+export function LiveFrozenPlan({ run, credentials }: { run: LiveRun; credentials: readonly LiveCredential[] }) {
   const zone = useTimeZone();
   const versions = credentials.filter((item) => item.runIds.includes(run.id));
   const bound = versions.length === 1 ? versions[0] : undefined;
@@ -23,12 +23,9 @@ export function LiveFrozenPlan({ run, credentials, confirming = false }: { run: 
       ["Contracts", run.symbols?.join(", ") ?? null], ...limits]} />
     <KeyValues stackNarrow labels="fixed" items={[["Bound credential", bound?.ref.slice(0, 8) ?? "Unknown"],
       ...bound ? [["Saved", saved], ["Local copy", bound.available === null ? "Unknown" : bound.available ? "Available" : "Unavailable"]] as const : []]} />
-    {confirming ? <div className="space-y-2 rounded-card border border-line bg-island-alt px-3 py-2">
-      <p className="text-small text-fg-muted">The exact source you are confirming</p>
-      <p className="break-all font-mono text-small">{run.sourceHash}</p>
-    </div> : <details className="text-small text-fg-faint"><summary className="cursor-pointer">Frozen source and runtime</summary>
+    <details className="text-small text-fg-faint"><summary className="cursor-pointer">Frozen source and runtime</summary>
       <div className="mt-2 space-y-2 break-all font-mono"><p>Source · {run.sourceHash ?? "Unknown"}</p><p>Runtime · {run.runtimeDigest ?? "Unknown"}</p></div>
-    </details>}
+    </details>
   </div>;
 }
 

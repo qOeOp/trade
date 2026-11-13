@@ -75,7 +75,6 @@ function accountOf(r: TrialReport, starting: number, days: readonly Day[], cycle
   return {
     starting, equity, net: equity - starting, ret: equity / starting - 1, gross: sliced(r, "profit_bridge", "price"),
     fees: fee === null ? null : -fee, funding: sliced(r, "profit_bridge", "funding"), open: sliced(r, "profit_bridge", "open_mark"),
-    holding: cycles.filter((c) => c.open).length,
     drawdown: 1 - equity / peak, maxDrawdown: deepest, path: days.map((d) => [d.time * 1e9, d.equity]),
     start: window[0], end: window[1], trades: cycles.filter((c) => !c.open),
   };

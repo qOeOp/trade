@@ -7,12 +7,12 @@ globalThis.window = { location: { search: "" }, localStorage: { getItem: (key) =
 const { namespace, loaded } = loader();
 const state = await namespace("state/shell.ts");
 const { toolPage, bottomToolOnPage } = loaded("model/toolScope.ts");
-const visible = () => ["progress", "readings", "table", "gaps", "trades", "coins", "news", "unknown:future@1"]
+const visible = () => ["progress", "readings", "table", "gaps", "trades", "coins", "news"]
   .filter((id) => bottomToolOnPage(id, toolPage(state.shell.get().last.left)));
 
 test("20261106-07: bottom tools follow Market, Runs and research across repeated navigation", () => {
   state.resetShell();
-  assert.deepEqual(visible(), ["progress", "readings", "table", "gaps", "unknown:future@1"]);
+  assert.deepEqual(visible(), ["progress", "readings", "table", "gaps"]);
   for (let visit = 0; visit < 2; visit++) {
     state.showMarketPage();
     assert.deepEqual(visible(), ["coins", "news"]);
@@ -25,7 +25,7 @@ test("20261106-07: bottom tools follow Market, Runs and research across repeated
     state.toggleSide("bottom");
     assert.equal(state.shell.get().open.bottom, "trades", "the side shortcut reopens a tool on the current page");
     state.showToolWindow("versions", "left");
-    assert.deepEqual(visible(), ["progress", "readings", "table", "gaps", "unknown:future@1"]);
+    assert.deepEqual(visible(), ["progress", "readings", "table", "gaps"]);
     assert.equal(state.shell.get().open.bottom, "progress");
     state.toggleToolWindow("sources", "left");
     assert.equal(state.shell.get().open.bottom, "progress");

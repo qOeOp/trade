@@ -26,14 +26,14 @@ function reading(key: Measure, higher: boolean, target: number | null | undefine
 
 // Every version in one sortable table, like an experiment tracker's runs table: the version leads,
 // readings that miss a target are marked; clicking a row selects the version and brings it into view.
-export function VersionTable({ widget, onOpen }: { widget: TableWidget; onOpen?: (id: string) => void }) {
+export function VersionTable({ widget }: { widget: TableWidget }) {
   const selected = useSelection();
   const t = widget.targets ?? {};
   // A cell's function is its component: a new one each render would rebuild every cell.
   const cols = useMemo((): Column<TableRow>[] => [
     col.accessor("id", {
       header: "Version", sortFn: "alphanumeric",
-      cell: (c) => <span data-version-name className="inline-flex items-center gap-1.5"><RoleMark role={c.row.original.role} size={12} />{c.getValue()}</span>,
+      cell: (c) => <span className="inline-flex items-center gap-1.5"><RoleMark role={c.row.original.role} size={12} />{c.getValue()}</span>,
     }) as Column<TableRow>,
     col.accessor("first_trial", { header: "First trial", meta: { numeric: true }, sortUndefined: "last", cell: (c) => c.getValue() ?? <Missing /> }) as Column<TableRow>,
     col.accessor("runs", { header: "Runs", meta: { numeric: true } }) as Column<TableRow>,
@@ -49,7 +49,7 @@ export function VersionTable({ widget, onOpen }: { widget: TableWidget; onOpen?:
   ], [widget.targets]);
   return (
     <DataTable data={widget.rows} columns={cols} rowId={(r) => r.id} version={(r) => r.id} selected={selected}
-               initialSort={[{ id: "first_trial", desc: true }]} onRow={(r) => { if (onOpen) onOpen(r.id); else { select(r.id); requestFocus(r.id); } }}
+               initialSort={[{ id: "first_trial", desc: true }]} onRow={(r) => { select(r.id); requestFocus(r.id); }}
                wrapRow={(r, tr) => <VersionMenu id={r.id}>{tr}</VersionMenu>} />
   );
 }

@@ -244,7 +244,7 @@ and the theme are kept in browser storage when it is available. The renderer reb
 the page whenever the sources under `web/` differ from the ones it was
 built from (`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs
 JavaScript, so it opens in a browser. A new widget type is a renderer in `web/src/widgets/registry.ts` and a tool window in
-`web/src/shell/toolWindows.ts`; a type the page does not know becomes a bottom tool window that names it.
+`web/src/shell/toolWindows.ts`.
 
 ### Code layout and rules (`web/src`)
 

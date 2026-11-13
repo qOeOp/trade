@@ -12,13 +12,11 @@ const media = (query: string) => {
   return a;
 };
 const narrow = media("(max-width: 767px), (pointer: coarse) and (max-height: 500px)");
-const landscape = media("(pointer: coarse) and (max-height: 500px)");
 const DESKTOP_KEY = "rg-desktop-layout";
 export const desktopLayout = atom(tabStorage.get(DESKTOP_KEY) !== null);
 desktopLayout.subscribe(() => tabStorage.set(DESKTOP_KEY, desktopLayout.get() ? "1" : null));
 
 export const useNarrow = () => useAtom(narrow);
-export const useLandscape = () => useAtom(landscape);
 export const usePhone = () => {
   const small = useAtom(narrow), asked = useAtom(desktopLayout);
   return small && !asked;
@@ -73,7 +71,6 @@ export function desktopHref(href: string, run: PhoneRun | null, line: string | n
 type ViewStatus = { text: string; busy: boolean; choices?: { label: string; href: string }[]; next?: string[] };
 export const viewStatus = atom<ViewStatus>({ text: "", busy: true });
 
-const keyboard = atom(false);
 /** Marks the page a phone's, for the sizes of theme/tokens.css, while this shell shows, and keeps the page on the
  *  part of the screen an open keyboard leaves (Safari leaves the layout the screen's size and scrolls it instead). */
 export function usePhoneRoot(): void {
@@ -87,7 +84,6 @@ export function usePhoneRoot(): void {
       if (screen && screen.width !== wide) { wide = screen.width; tall = 0; }
       tall = Math.max(tall, screen?.height ?? 0);
       const typing = !!screen && screen.scale < 1.01 && tall - screen.height > 150 && !!document.activeElement?.matches("input, textarea");
-      keyboard.set(typing);
       root.style.setProperty("--page-h", typing ? `${screen.height}px` : "100dvh");
       root.style.setProperty("--page-top", typing ? `${screen.offsetTop}px` : "0px");
     };

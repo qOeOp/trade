@@ -1,6 +1,5 @@
 // The tool windows: what each shows (a renderer fed by a view-model widget type), where it docks,
-// its stripe icon and shortcut, and its header actions. A widget type with no tool window and no
-// other place becomes a bottom tool window that names it. Some are fed by the page instead of the view:
+// its stripe icon and shortcut, and its header actions. Some are fed by the page instead of the view:
 // Trades, the stage the Runs page shows (state/shown.ts), Coins and News, the Market page's level (with an
 // overview service), and the Agent, by the chat service, so it appears only when the page's server has
 // one. Bottom tools belong to the editor page that supplies their context.

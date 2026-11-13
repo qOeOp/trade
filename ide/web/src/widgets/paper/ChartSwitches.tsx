@@ -6,7 +6,6 @@ import { equityMoved } from "../../model/chain";
 import { useShown } from "../../state/shown";
 import { paperTab } from "../../state/stage";
 import { RunStages } from "../runs/RunStages";
-import { useLandscape, usePhone } from "../../state/phone";
 import { EquityReading, useEquity } from "./EquityReading";
 
 // A group of tabs with a rule 8px before it, in the middle of the 16px between groups; it takes no width.
@@ -17,9 +16,9 @@ export const GROUP = "relative flex items-center before:absolute before:-left-2 
  *  shown, or the only one; otherwise an arrow and the menu open, and closing it without a pick stays on the
  *  chart as it was. While a coin shows, Coins holds it in a small capsule, with LONG or SHORT while it
  *  holds a position (`sides`: long or not), which picks another. On the Paper stage, Equity reads the run's
- *  equity and return beside its label (a phone held upright reads them above the chart instead); until the
- *  run's equity moves it is greyed, the chart staying on a coin. `loose`: a run shown with no version drawn (a
- *  phone's Runs tab), whose Backtest opens its version's page. Both are text tabs (components/Tabs.tsx), as the
+ *  equity and return beside its label; until the
+ *  run's equity moves it is greyed, the chart staying on a coin. `loose`: a run shown with no version drawn,
+ *  whose Backtest opens its version's page. Both are text tabs (components/Tabs.tsx), as the
  *  Trades window's below, a rule between them. The row is pulled left by a tab's own padding, so the first
  *  tab's text sits on the island's inset; a group that starts a line (the row wraps when narrow) has its rule
  *  clipped and never hangs at a line's end. */
@@ -28,7 +27,7 @@ export function ChartSwitches({ testing, backtest, paper, view, symbols, sides, 
   view: string; symbols: readonly string[]; sides: ReadonlyMap<string, boolean>; traded: ReadonlySet<string>;
 }) {
   const [picking, setPicking] = useState(false), last = useRef<string | null>(null);
-  const equity = useEquity(), phone = usePhone(), landscape = useLandscape(), upright = phone && !landscape;
+  const equity = useEquity();
   const { chain, stage } = useShown(), flat = stage === "paper" && paper && symbols.length > 0 && !equityMoved(chain);
   const shown = view === "equity" ? null : view;
   if (shown) last.current = shown;
@@ -49,7 +48,7 @@ export function ChartSwitches({ testing, backtest, paper, view, symbols, sides, 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <span className={GROUP}><RunStages backtest={backtest} paper={paper} loose={loose} /></span>
         <span className={`${GROUP} min-w-0`}><Tabs label="Chart" value={shown || picking ? "coins" : "equity"} onChange={(id) => { if (id === "coins") coins(); else { setPicking(false); paperTab.set("equity"); } }} items={[
-        { id: "equity", label: !testing && equity && !upright && !flat ? <>Equity<EquityReading equity={equity} /></> : "Equity", disabled: flat, hint: "No change in equity yet" },
+        { id: "equity", label: !testing && equity && !flat ? <>Equity<EquityReading equity={equity} /></> : "Equity", disabled: flat, hint: "No change in equity yet" },
         { id: "coins", label: "Coins", disabled: !symbols.length, hint: "No coins", after },
       ]} /></span>
       </div>

@@ -1,8 +1,8 @@
 // The Live launch page as rows (widgets/live/LiveLaunch.tsx draws them): three columns, each row a value, where it
 // comes from, whether the user may change it here, and whether it passes, with a plain reason when it does not.
 // Start opens only when every required row has a value and passes. The server still checks everything again and
-// refuses as before; these rows only show its conditions earlier. Opening a setting is EDITABLE plus the server
-// accepting a value other than its default.
+// refuses as before; these rows only show its conditions earlier. A row the user may change here is marked
+// editable, and the server still has to accept a value other than its default.
 import type { LiveCredential, LiveRun, LiveSource, LiveTradingView } from "./liveTrading";
 import { unavailableReason } from "./liveLaunchText";
 export { refusalText, restText, SPAN_UNITS, spanText, unavailableReason } from "./liveLaunchText";
@@ -18,10 +18,10 @@ export type LaunchRow = {
 };
 export type LaunchColumn = { id: "strategy" | "account" | "limits"; title: string; rows: LaunchRow[] };
 
-/** The run settings the server takes (live/configuration.py CONFIG_KEYS). Editable where the run needs the user's own
- *  choice: its duration (none: until stopped) and a drawdown brake tighter than the target. Leverage is the Live
- *  settings' value (it must equal the contract's on Binance). The cash floor is no setting: 85% of the wallet. */
-export const EDITABLE: Readonly<Record<string, boolean>> = { drawdown_brake: true, duration_seconds: true, leverage: false };
+/* Of the run settings the server takes (live/configuration.py CONFIG_KEYS), the rows let the user change those
+ * that need the user's own choice: its duration (none: until stopped) and a drawdown brake tighter than the target.
+ * Leverage is the Live settings' value (it must equal the contract's on Binance). The cash floor is no setting: 85%
+ * of the wallet. */
 /** engine/live_brake.py: the loosest brake (the drawdown target), and the cash floor from a wallet (85%, to the cent). */
 export const BRAKE_MAX_PERCENT = 15, cashFloor = (wallet: string) => (Math.floor(Number(wallet) * 85 + 1e-9) / 100).toFixed(2);
 export type LaunchInput = {
@@ -74,7 +74,7 @@ function strategy({ view, source, reading, targets }: LaunchInput, closed: strin
       editable: false, required: true, mark: source ? "shown" : "fail", reason: source ? `Entry class ${source.entryClass}` : missing },
     { id: "contracts", label: "Contracts", value: source?.symbols.join(", ") ?? null, source: SETTINGS, editable: false, required: false,
       mark: "shown", reason: !source ? missing : source.symbols.length > 1 ? "One strategy instance on each contract." : null },
-    { id: "leverage", label: "Leverage", value: leverage, unit: leverage === null ? null : "×", source: SETTINGS, editable: EDITABLE.leverage ?? false,
+    { id: "leverage", label: "Leverage", value: leverage, unit: leverage === null ? null : "×", source: SETTINGS, editable: false,
       required: true, mark: leverage === null ? "fail" : "shown",
       reason: leverage === null ? closed ?? missing : `Must equal ${source && source.symbols.length > 1 ? "each contract's" : "this contract's"} leverage at Binance, with cross margin; the account check compares them.` },
     !source || !evidence ? { id: "evidence", label: "Replay evidence", value: source ? "Checked when the account is checked" : null,
@@ -151,13 +151,13 @@ function limits({ view, edits, checked }: LaunchInput, closed: string | null): L
   const notify = view.notify;
   return [
     { id: "drawdown_brake", label: "Drawdown brake", value: brake, unit: "%", source: "Your maximum-drawdown target, or tighter",
-      editable: EDITABLE.drawdown_brake ?? false, required: true,
+      editable: true, required: true,
       mark: percentage !== null && percentage > 0 && percentage <= BRAKE_MAX_PERCENT ? "pass" : "fail",
       reason: brake === null ? closed ?? "Not set."
         : percentage === null || !(percentage > 0) ? "A percentage above 0." : percentage > BRAKE_MAX_PERCENT ? `At most ${BRAKE_MAX_PERCENT} %; only tighter.`
         : "Once equity (wallet plus open result, fees and funding counted) falls this far below its highest, the run closes, stops and is not started again." },
-    { id: "duration_seconds", label: "Stop after", value: duration, span: true, source: EDITABLE.duration_seconds ? "" : SETTINGS,
-      editable: EDITABLE.duration_seconds ?? false, required: false, mark: "shown",
+    { id: "duration_seconds", label: "Stop after", value: duration, span: true, source: "",
+      editable: true, required: false, mark: "shown",
       reason: duration === null ? closed : seconds < 1 ? "Empty: runs until you stop it." : null },
     { id: "notify", label: "Notifications", source: "Settings", editable: false, required: false, mark: "shown",
       value: notify ? notify.configured ? "Telegram on" : "Off" : null,

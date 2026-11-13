@@ -23,8 +23,7 @@ const EDGE_TYPES = { elbow: Elbow };
 
 // The lineage on the trial axis at a fixed scale: the canvas pans but never zooms. A version sits at
 // its first research run on its lineage row; the ruler above and the progress chart below share the x.
-// `onOpen`: a tap on a version opens it (a phone), where a click selects and a double-click opens its source.
-export function Lineage({ widget, onOpen }: { widget: LineageWidget; onOpen?: (id: string) => void }) {
+export function Lineage({ widget }: { widget: LineageWidget }) {
   const progress = useWidget<ProgressWidget>("progress");
   const inset = (progress ? progressGutter(progress) : 0) + UNIT / 2;
   // The size the canvas measured of each version, handed back with it: a node without one is hidden, its
@@ -88,7 +87,7 @@ export function Lineage({ widget, onOpen }: { widget: LineageWidget; onOpen?: (i
                        const id = selection.get(), p = id ? positions.get(id) : undefined, r = box.current?.getBoundingClientRect();
                        void flow.setViewport({ ...(p && r ? centredOn(widget, p, r.width, r.height, inset) : home(widget, inset)), zoom: 1 });
                      }}
-                     onNodeClick={(_, node) => (onOpen ?? select)(node.id)} onNodeDoubleClick={onOpen ? undefined : (_, node) => openSource(node.id)}>
+                     onNodeClick={(_, node) => select(node.id)} onNodeDoubleClick={(_, node) => openSource(node.id)}>
             <Backdrop widget={widget} inset={inset} />
             <AxisDriver widget={widget} positions={positions} inset={inset} />
             {at != null && <Crosshair x={x0 + at * UNIT} y={pointer?.y ?? null} width={size.width} height={size.height} reticle={!pointer?.onVersion} />}

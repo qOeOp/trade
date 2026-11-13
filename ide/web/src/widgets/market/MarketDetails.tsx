@@ -2,7 +2,6 @@ import { useTimeZone } from "../../state/timeZone";
 import { useMemo } from "react";
 import { change, plural, usd, when } from "../../lib/format";
 import { coinsAt, group, MORE, splits, subsectorLevel, type Coin, type Snapshot } from "../../model/market";
-import { usePhone } from "../../state/phone";
 import { openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
 import { columns, DataTable, type Column } from "../../components/DataTable";
 import { KeyValues } from "../../components/KeyValues";
@@ -58,10 +57,9 @@ function Sources({ snapshot }: { snapshot: Snapshot }) {
 
 /** Details on the Market page: the picked coin, then the level the heatmap shows: at All the whole market
  *  first; its breadth, its sectors (at All) or sub-sectors (in a split sector) with their changes, its
- *  liquidations, its movers and below All the paper runs trading its coins; and when each source was last read.
- *  A phone shows the coin (`level` false) in a sheet over the level. */
-export function MarketDetails({ level = true }: { level?: boolean }) {
-  const snapshot = useSnapshot(), service = useOverviewService(), { path, coin, size } = useMarketView(), phone = usePhone();
+ *  liquidations, its movers and below All the paper runs trading its coins; and when each source was last read. */
+export function MarketDetails() {
+  const snapshot = useSnapshot(), service = useOverviewService(), { path, coin, size } = useMarketView();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
   if (!snapshot) return <p className="p-4 text-fg-faint">{service === "offline" ? "Market data offline. Reconnecting automatically." : "Reading the market…"}</p>;
   const picked = coin ? snapshot.coins.find((c) => c.symbol === coin) : undefined;
@@ -72,8 +70,7 @@ export function MarketDetails({ level = true }: { level?: boolean }) {
     : sub ? subsectorLevel(path[0]!, coins, "marketCap", "change24h").map((n) => row(n.name, n.coins)) : [];
   return (
     <div className="space-y-3 px-2 pb-3 text-dense">
-      {picked && (level ? !phone : true) && <CoinDetails c={picked} snapshot={snapshot} />}
-      {!level ? null : <>
+      {picked && <CoinDetails c={picked} snapshot={snapshot} />}
       {!path.length && <CardGroup title="Crypto market"><GlobalMarket g={snapshot.global} /></CardGroup>}
       <CardGroup title={title}>
         <Section title="Breadth"><KeyValues labels="fixed" items={breadth(coins, title)} /></Section>
@@ -88,7 +85,6 @@ export function MarketDetails({ level = true }: { level?: boolean }) {
         {!!path.length && <MarketRuns symbols={coins.map((c) => c.symbol)} />}
       </CardGroup>
       <CardGroup title="Sources"><Section title="Last read" open={false}><Sources snapshot={snapshot} /></Section></CardGroup>
-      </>}
     </div>
   );
 }

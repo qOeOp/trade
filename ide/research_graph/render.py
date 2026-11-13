@@ -1,7 +1,6 @@
 """The built page of ide/web, which `ide.py serve` serves.
 
-The page is one self-contained HTML file (a pannable and zoomable lineage canvas with a summary
-bar, a detail drawer and a dock) that reads its view from the service. It is rebuilt with npm
+The page is one self-contained HTML file that reads its view from the service. It is rebuilt with npm
 whenever the web sources differ from the ones it was built from, so the service never shows a stale
 page.
 """

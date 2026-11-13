@@ -112,17 +112,4 @@ body {
 :root[data-phone] [data-compact] [role="tab"]::before { content: ""; position: absolute; inset: -8px 0; }
 :root[data-phone] header button { position: relative; }
 :root[data-phone] header button::after { content: ""; position: absolute; inset: -4px; }
-:root[data-phone] [data-page-table="sticky"] [data-version-name] { width: 9.5rem; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
-:root[data-phone] [data-chevron] { position: relative; }
-:root[data-phone] [data-chevron]::before { content: ""; position: absolute; inset: -12px; }
-:root[data-phone] [data-page-table] :is(th, td):first-child { padding-left: calc(var(--spacing) * 3); }
-:root[data-phone] [data-page-table] p { padding-inline: calc(var(--spacing) * 3); }
-:root[data-phone] [data-page-table="sticky"] :is(th, td):first-child { position: sticky; left: 0; z-index: 2; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; background: var(--island); }
-:root[data-phone] [data-page-table="sticky"] [data-selected] > :first-child { background: var(--selection); }
-/* With no scrollbars, a table wider than the page fades at its right edge until it has been scrolled to its end. */
-@property --table-fade { syntax: "<length>"; inherits: false; initial-value: 0px; }
-@keyframes table-fade { from, 95% { --table-fade: 28px; } to { --table-fade: 0px; } }
-@supports (animation-timeline: scroll()) {
-  :root[data-phone] [data-page-table] { mask-image: linear-gradient(to left, transparent, black var(--table-fade)); animation: table-fade linear; animation-timeline: scroll(self inline); }
-}
 :root[data-phone] * { scrollbar-width: none; -webkit-tap-highlight-color: transparent; }

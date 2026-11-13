@@ -7,7 +7,7 @@ import { deepestDrawdown } from "../../model/joined";
 import { TextButton } from "../../components/TextButton";
 import { pnlClass } from "../../theme/roles";
 import { during } from "./chartTheme";
-import { downRows, type Down } from "./downLook";
+import { downRow, type Down } from "./downLook";
 import type { EquityPoint } from "./equityLayers";
 import type { Placed } from "./equityStretches";
 
@@ -49,7 +49,7 @@ export function EquityLegend({ name, point, stretch, named, minutes, offline, re
     <div className="flex shrink-0 items-center gap-x-4 whitespace-nowrap text-small tabular-nums @max-md/page:flex-col @max-md/page:items-start @max-md/page:gap-y-1">
       <div className="flex min-h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-3 gap-y-1 leading-5 text-fg @max-md/page:self-stretch">
         {named ? <About s={named} minutes={minutes} />
-          : offline ? <><span className="text-fg">{offline.label}</span>{downRows(offline, zone).map((r) => <span key={r} className="whitespace-normal break-words">· {r}</span>)}</>
+          : offline ? <><span className="text-fg">{offline.label}</span><span className="whitespace-normal break-words">· {downRow(offline, zone)}</span></>
           : point && <>
             {name && <span>{name}</span>}
             <span className="text-fg-faint" title={`${point.day ? "UTC daily interval · " : ""}${dateTime(point.time * 1000, zone, "minute")} → ${dateTime((point.time + (point.day ? 86_400 : step)) * 1000, zone, "minute")}`}>{during(point.time, point.day ? 86_400 : step, zone)}</span>

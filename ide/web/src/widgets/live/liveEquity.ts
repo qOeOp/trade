@@ -1,5 +1,5 @@
 // A live run's account as the equity chart's one line: its budget plus its result at the venue's mark, a point
-// a minute (engine/live.py record_minute), with the pace the minimum annual return asks for from the budget
+// a minute (engine/live_session.py record_minute), with the pace the minimum annual return asks for from the budget
 // over the time the run has run. A minute whose result is unknown (a position open without a price) is left
 // out, so the line runs across it.
 import type { Equity } from "../paper/EquityReading";
