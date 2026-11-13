@@ -75,7 +75,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "replay {status, problems, path}",
         "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_COMPARE_EMPTY (no warm-up, no such trading start, no "
         "start observation or whole minute); LIVE_COMPARE_UNCOVERED (the market lacks the run's minutes); "
-        "LIVE_RUN_ID; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); RUNTIME_UNAVAILABLE"),
+        "LIVE_RUN_ID; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); RUNTIME_UNAVAILABLE; REPLAY_TIMEOUT (--timeout-seconds)"),
     ("live", "compare-daily"): (
         "each launched run's private inputs, journal, evidence pack and compare.json; the market directory "
         "(--market-root); Binance's published funding rates; each run's own runtime image",

@@ -603,6 +603,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            "a trial's capture is sealed as a host failure naming this code.",
                            ("Reduce what the run holds in memory (a shorter window, fewer contracts or orders), or "
                             "report the stage and its measured peak so the limit can be retuned.",)),
+    "REPLAY_TIMEOUT": ("An unrecorded replay (paper reconcile, live compare) passed its --timeout-seconds; the "
+                       "running stage's container was stopped; nothing reached a ledger.",
+                       ("Rerun with a longer --timeout-seconds or a shorter interval.",)),
     # Runtime (runtime/image.py)
     "RUNTIME_UNAVAILABLE": ("The runtime image could not be pulled, inspected or pinned to one digest.",
                             ("Check the image reference and the container runtime, then rerun. A pull that never "
