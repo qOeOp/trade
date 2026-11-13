@@ -102,7 +102,8 @@ stop: when a recommendation first does, tell the user once that validation is th
 only a window after its registration counts, then keep working, asking nothing.
 A change of approach is due when the last `review_every` research runs in a row each
 leave candidate and control undistinguished (none of `mean_log_basic_interval`,
-`mean_log_studentized_interval` and `annual_return_difference_interval` excludes zero;
+`mean_log_studentized_interval`, `annual_return_difference_interval` and
+`max_drawdown_difference_interval` excludes zero;
 [feedback.md](references/feedback.md)), whether or not the recommendation moved among them.
 `research state` lists these runs (`undistinguished_runs`) beside `review_every`. Count only runs
 after the line's latest change of approach, yours or the user's: a priority judgment whose body

@@ -37,9 +37,10 @@ class ComparisonIntervalTests(unittest.TestCase):
 
     def test_candidate_and_control_are_told_apart_when_any_interval_excludes_zero(self):
         crossing = [-1.0, 1.0]
-        for name in ("mean_log_basic_interval", "mean_log_studentized_interval", "annual_return_difference_interval"):
-            intervals = {"mean_log_basic_interval": crossing, "mean_log_studentized_interval": crossing,
-                         "annual_return_difference_interval": crossing}
+        names = ("mean_log_basic_interval", "mean_log_studentized_interval", "annual_return_difference_interval",
+                 "max_drawdown_difference_interval")
+        for name in names:
+            intervals = dict.fromkeys(names, crossing)
             self.assertIs(self.crosses(**intervals), True)
             self.assertIs(self.crosses(**{**intervals, name: [0.1, 1.0]}), False, name)
             self.assertIs(self.crosses(**{**intervals, name: [-1.0, -0.1]}), False, name)
