@@ -343,6 +343,12 @@ new connections before their effects. All keys accepted by this installation sha
 run/reconcile custody. REST-only preflights retain their existing overlap behavior and do not certify a later
 start's account state.
 
+Once an hour from 00:30 UTC the Live control starts a comparison container of its own image (2 GiB, one CPU,
+removed when it exits) that replays each run's previous day on the market directory and keeps a summary in
+`LIVE_ROOT/runs/<run>/compare.json`; its replay stages have the research replay's memory limit and work in
+`LIVE_ROOT/compare-tmp/` ([daily comparison](../../docs/plans/live-continuous-step7b-daily-compare-20261113.zh.md)).
+A Live contract outside `TRADE_MARKET_ARGS` is never covered, so its comparison waits.
+
 Keep that fixed private root (`LIVE_ROOT`) outside `TRADE_DATA`, the Paper directories and Git, with the universe
 file the declaration names beside it. Saved credentials have private versions under `LIVE_ROOT/credentials/`.
 

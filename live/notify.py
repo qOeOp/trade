@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import contextmanager
 import copy
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import fcntl
 import os
 from pathlib import Path
@@ -272,6 +272,7 @@ def _messages(run: dict) -> list[tuple[str, str]]:
     result.extend(_gate_messages(run, name))
     result.extend(_restart_messages(run, name))
     result.extend(_brake_and_key_messages(run, name))
+    result.extend(_compare_messages(run, name))
     for row in _fills(run):
         result.append((_fill_key(run, row), f"{name} fill: {row.get('order_side') or 'side unknown'} "
                        f"{row.get('last_qty') or '?'} {row.get('instrument_id') or ''} at {row.get('last_px') or '?'}."))
@@ -351,6 +352,58 @@ def _brake_and_key_messages(run: dict, name: str) -> list[tuple[str, str]]:
         else:
             result.append((key, f"{name}: its API key passes the periodic check again."))
     return result
+
+
+COMPARED = frozenset({"done", "failed", "empty"})  # live.daily.FINAL
+COMPARE_GRACE_DAYS = 3  # an ended run is read this long for a comparison that never ends (live.daily)
+
+
+def _seconds(ns) -> str:
+    return f"{ns / 1e9:.0f} s" if isinstance(ns, int) else "none"
+
+
+def _compare_messages(run: dict, name: str) -> list[tuple[str, str]]:
+    """The control's daily comparison with a replay (live.daily): decisions it does not explain, the week's measures
+    on Sundays' comparisons, and a comparison failing two days running. Nothing here stops a run."""
+    record, run_id = run.get("compare") or {}, run["run_id"]
+    day, current = record.get("day"), record.get("state")
+    if not isinstance(day, str):
+        return []
+    result = []
+    if current == "done" and record.get("unexplained_count"):
+        first = (record.get("unexplained") or [{}])[0].get("at") or "?"
+        result.append((f"{run_id}:compare:{day}",
+                       f"{name}: replayed to the end of {day}, {record['unexplained_count']} of its decisions differ "
+                       f"from the replay's with no known cause (the first at {first}). The run goes on; "
+                       f"`live compare` shows each one."))
+    if current == "done" and date.fromisoformat(day).weekday() == 6:
+        measures = record.get("measures") or {}
+        holds = measures.get("holds") or {}
+        slippage = measures.get("adverse_slippage_bps")
+        result.append((f"{run_id}:compare-week:{day}",
+                       f"{name}, the week to {day} against its replay: {measures.get('groups', 0)} decisions, "
+                       f"{record.get('unexplained_week', 0)} unexplained; entries the replay filled and Live did not: "
+                       f"{measures.get('entries_unfilled', 0)}; partial fills: {measures.get('partial_fills', 0)}; "
+                       f"mean adverse slippage: {'none' if slippage is None else f'{slippage:.1f} bps'}; "
+                       f"fees Live less replay: {(measures.get('fees') or {}).get('difference') or 'none'} USDT; "
+                       f"equity change Live less replay: "
+                       f"{(measures.get('equity_change') or {}).get('difference') or 'none'} USDT; held entries: "
+                       f"{holds.get('held', 0)} (median {_seconds(holds.get('held_ns_median'))}, "
+                       f"p90 {_seconds(holds.get('held_ns_p90'))})."))
+    if current == "failed" and (record.get("failures") or 0) >= 2:
+        result.append((f"{run_id}:compare-failed:{day}",
+                       f"{name}: its daily comparison with a replay has failed {record['failures']} days running "
+                       f"({record.get('code') or 'unknown'}). The run is not affected."))
+    return result
+
+
+def _compared(run: dict, last: str | None, newest: str) -> bool:
+    """Whether the comparison of an ended run's last day is final, or no longer awaited."""
+    record = run.get("compare") or {}
+    if last is None or (record.get("state") in COMPARED and isinstance(record.get("day"), str)
+                        and record["day"] >= last):
+        return True
+    return DAILY + (date.fromisoformat(last) + timedelta(days=COMPARE_GRACE_DAYS)).isoformat() < newest
 
 
 def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
@@ -483,6 +536,7 @@ def step(record: dict, facts: list[dict], now: int, send: Callable[[str], object
         run_id, last = run["run_id"], _last_day(run)
         if ((run.get("host") or {}).get("state") in FINAL and (run.get("custody") or {}).get("archived") is True
                 and all(key in done for key, _ in messages(run)) and (last is None or DAILY + last < newest)
+                and _compared(run, last, newest)
                 and not (wallet and wallet[2] == run_id)):
             record["closed"] = sorted({*record["closed"], run_id})
             done = {key for key in done if not key.startswith(run_id + ":")}

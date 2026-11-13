@@ -115,6 +115,7 @@ Nautilus 原生的 `request_bars`，请求 81 根 15 分钟原生 K 线（`EXTER
 - 每天归档出来后，用实盘时段重跑回测，先比 K 线再比决策。要核实 Live 是否保存了它实际看到的每根 K 线。
 - 同一份 Live 版本源码同时在 Paper 上跑，实盘成交和 Sandbox 成交的差别当天可见。
 - 重启后按交易启动分段对照，汇总见 `live-continuous-step7a-segments-20261113.zh.md`。
+- 控制每天自动对照、留记录、发通知，见 `live-continuous-step7b-daily-compare-20261113.zh.md`。缺陷时关闭入场还没做，要升级 runner 合同，先问用户。
 
 ### 3.7 通知
 

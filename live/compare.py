@@ -13,7 +13,9 @@ A run that restarts trades in segments: each trading start (a process that warme
 inherited position did not) rebuilds the source from its own T. A segment is compared on its own: its warm-up's T,
 the wallet it started from, the evidence and journal lines of its process and the orders it initialized. Its result is
 the native cache's since that process began (the cache outlives processes), and `measures` sums the comparison in a
-time window for the weekly report (docs/plans/live-continuous-operation-design-20261110.zh.md §3.6).
+time window for the weekly report (docs/plans/live-continuous-operation-design-20261110.zh.md §3.6). A comparison may
+end before the run's evidence does (`until`, --to): a running run's evidence reaches this minute while the market's
+archive reaches only its last whole day (docs/plans/live-continuous-step7b-daily-compare-20261113.zh.md).
 
 Live's funding is the run's settlements at Binance's published rates, as a replay settles them; what Binance
 actually charged is not in the evidence pack. Its equity path is that wallet plus each minute's result (native
@@ -31,6 +33,7 @@ import itertools
 import json
 import math
 from pathlib import Path
+import secrets
 
 from engine.live_errors import LiveRefusal
 from ledger import paper as records
@@ -141,6 +144,18 @@ def segment(pack: Mapping, number: int | None) -> tuple[dict, dict]:
     return ({**pack, "events": lines, "market": [row for row in pack["market"] if inside(row.get("wall_ns"))],
              "orders": [event for event in pack["orders"] if event.get("client_order_id") in initialized]},
             {"number": number, "of": len(found)})
+
+
+def cut(pack: Mapping, until: int) -> dict:
+    """The pack as it stood at `until`: journal lines observed, minutes, evidence rows (by event time when they have
+    one) and order events initialized before it."""
+    def before(row: Mapping, *keys: str) -> bool:
+        ns = next((row[key] for key in keys if isinstance(row.get(key), int)), None)
+        return ns is None or ns < until
+
+    events = [row for row in pack["events"] if before(row, "minute_ns", "observed_ns")]
+    return {**pack, "events": events, "market": [row for row in pack["market"] if before(row, "ts_event", "wall_ns")],
+            "orders": [event for event in pack["orders"] if before(event, "ts_init", "ts_event")]}
 
 
 def window(pack: Mapping) -> tuple[int, int]:
@@ -266,7 +281,7 @@ def measures(compared: Mapping, events: list[dict], since: int | None = None, un
                      "difference": text(fees["run"] - fees["replay"])},
             "equity_change": {"run": text(run), "replay": text(replay),
                               "difference": text(run - replay) if run is not None and replay is not None else None},
-            "holds": {"held": len(held), "held_ns_median": _percentile(ended, 0.5),
+            "holds": {"held": len(held), "held_ns": sorted(ended), "held_ns_median": _percentile(ended, 0.5),
                       "held_ns_p90": _percentile(ended, 0.9),
                       "ended_runs": sum(row.get("event") == "entry_refused" and isinstance(row.get("held_ns"), int)
                                         and inside(row.get("ts_init")) for row in events)}}
@@ -274,10 +289,14 @@ def measures(compared: Mapping, events: list[dict], since: int | None = None, un
 
 def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path, timeout: float | None = None,
             number: int | None = None, since: int | None = None, until: int | None = None) -> dict:
-    """live compare: replay one trading start of a Live run (the latest by default) on the archive and write
-    reconcile.json, with its measures over [since, until) (the whole segment by default)."""
+    """live compare: replay one trading start of a Live run (the latest by default) up to `until` (its last minute by
+    default) on the archive and write reconcile.json, with its measures over [since, until). Its result also lists
+    the decisions the comparison could not explain (cause unexplained, at the decision stage), so a caller never
+    reads reconcile.json."""
     from market import files, instrument
     pack, numbered = segment(read_pack(state.directory(root, run_id)), number)
+    if until is not None:
+        pack = cut(pack, until)
     manifest = pack["manifest"]
     symbols = list(manifest["symbols"])
     start, end = window(pack)
@@ -296,7 +315,7 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     replayed, events, reports = shared.replay(
         market, market_day, pack["source"], manifest["source"]["entry_class"], manifest["runtime"]["image_ref"],
         symbols, start, end, manifest["config"]["leverage"], balance, output / "replay",
-        f"trade-live-compare-{run_id}", timeout)
+        f"trade-live-compare-{run_id}-{secrets.token_hex(4)}", timeout)
     compared = shared.compare(run, events, archive, reports, start, end, archived_warmup=archived,
                               replay_terms=replay_terms,
                               replay_fees={"maker": instrument.ASSUMED["maker_fee"],
@@ -309,5 +328,9 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
                            "to": shared._utc(until) if until is not None else None,
                            **measures(compared, pack["events"], since, until)}}
     (output / "reconcile.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
-    return {"path": str(output / "reconcile.json"), "segment": numbered, "summary": result["summary"],
-            "measures": result["measures"], "replay": result["replay"]}
+    unexplained = [{"at": group.get("at"), "at_ns": group["at_ns"], "class": group["class"]}
+                   for group in compared["groups"] or []
+                   if group.get("cause") == "unexplained" and group.get("stage") == "decision"]
+    return {"path": str(output / "reconcile.json"), "segment": numbered, "window": result["window"],
+            "market_day": market_day, "summary": result["summary"], "measures": result["measures"],
+            "replay": result["replay"], "unexplained": unexplained}

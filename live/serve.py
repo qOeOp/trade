@@ -21,7 +21,7 @@ import time
 from urllib.parse import urlsplit
 
 from engine.live_errors import LiveRefusal
-from live import authority, configuration, control, credentials, notify, release, requests, runs, state
+from live import authority, configuration, control, credentials, daily, notify, release, requests, runs, state
 
 
 MAX_BODY = 64 * 1024
@@ -273,12 +273,28 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
             evidence.check(config)
             done.wait(60)
 
+    def comparer():
+        # Its own thread and its own container (live.daily): a day's comparison never delays maintenance or a
+        # request, and its memory is never the control's.
+        last = None
+        while not done.is_set():
+            now = time.time_ns()
+            if daily.due(now, last):
+                last = now
+                try:
+                    daily.launch(config.root, config.market_root, now)
+                except Exception:
+                    pass  # the run's record says what the comparison found; the next hour tries again
+            done.wait(60)
+
     previous = {}
     try:
         with listener(config, config_file, binding=binding, evidence=evidence) as server:
             worker = threading.Thread(target=maintain)
             sender = threading.Thread(target=notifier)
             checker = threading.Thread(target=reader, daemon=True)
+            # A daemon: a release that drains this control does not wait for a comparison, which holds its own lock.
+            comparing = threading.Thread(target=comparer, daemon=True)
             stopping = threading.Event()
             shutdown_thread: threading.Thread | None = None
 
@@ -297,6 +313,7 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
             worker.start()
             sender.start()
             checker.start()
+            comparing.start()
             try:
                 server.serve_forever()
             finally:

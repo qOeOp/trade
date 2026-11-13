@@ -3,7 +3,7 @@ import json
 from unittest.mock import patch
 
 from live import host as host_runtime
-from live import runs, state, views
+from live import daily, runs, state, views
 from tests.live.test_runs import LiveFixture
 
 
@@ -101,6 +101,12 @@ class LiveViewTests(LiveFixture):
                          {"equity": "88", "peak": "104", "drawdown": "0.1538"})
         self.assertEqual([(row["event"], row["code"]) for row in result["key_checks"]], [("key_check_failed", None)])
         self.assertNotIn("SECRET", json.dumps(result))
+
+    def test_the_daily_comparison_shows_its_latest_record(self):
+        self.assertIsNone(views.run_view(self.root, self.run_id)["compare"])
+        daily._write(self.root, self.run_id, {"day": "2026-11-11", "state": "done", "unexplained_count": 0})
+        self.assertEqual(views.run_view(self.root, self.run_id)["compare"],
+                         {"format": daily.FORMAT, "day": "2026-11-11", "state": "done", "unexplained_count": 0})
 
     def test_restarts_show_interruptions_starts_again_and_the_control_limit(self):
         self.native("interrupted")
