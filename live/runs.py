@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 import hashlib
+from datetime import UTC, datetime
 import os
 from pathlib import Path
 import re
@@ -158,6 +159,36 @@ def _launch_runtime_locked(directory: Path, run_id: str, manifest: dict, latest:
     return target, pending["request_id"], [("runtime_switched", {"request_id": pending["request_id"],
                                                                  "image_ref": target["image_ref"],
                                                                  "previous": current["image_ref"]})]
+
+
+def write_months_locked(root: Path, run_id: str, market_root: Path, now_ns: int) -> list[str]:
+    """inputs/membership/<YYYY-MM>.json for each month after the run's market day that the market holds, as Paper's
+    (market.universe.month_files): the runner reads a month's file once the month has begun and, until it is there,
+    denies entries on the contract. The market is read only once a month after the last written has begun; a
+    written file is never rewritten. Returns the months written."""
+    from engine.membership import MONTHS
+    from market.universe import month_files
+    directory, manifest = _manifest(root, run_id)
+    folder = directory / "inputs" / MONTHS
+    written = sorted(path.stem for path in folder.glob("*.json")) if folder.is_dir() else []
+    last = max([str(manifest["market"]["market_day"])[:7], *written])
+    year, month = map(int, last.split("-"))
+    due = datetime(year + month // 12, month % 12 + 1, 1, tzinfo=UTC)
+    if now_ns < int(due.timestamp()) * 10**9:
+        return []
+    state.private_directory(folder)
+    found = []
+    for name, data in month_files({"holds": "market", "root": str(market_root)}, list(manifest["symbols"]),
+                                  last).items():
+        path, partial = folder / f"{name}.json", folder / f"{name}.partial"
+        if path.exists():
+            continue
+        if partial.exists():
+            partial.unlink()
+        state.write_new(partial, data)
+        os.replace(partial, path)  # whole, as the runner reads it
+        found.append(name)
+    return found
 
 
 def sync_switch_locked(root: Path, run_id: str, now_ns: int) -> None:

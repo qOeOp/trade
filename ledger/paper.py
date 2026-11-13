@@ -347,7 +347,7 @@ def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> t
     window runs from the input start (a recovery keeps its run's, so the first started line holds it) to the minute
     after the last stop was asked (the stop's own cancels are no gap), every instance trading from it. Entry membership
     is the declaration's (inputs/universe.json, from the input start to that month's end) and each later month the
-    journal says the runner read with the contract a member (engine.paper.Membership); each contract's data ends at
+    journal says the runner read with the contract a member (engine.membership.Membership); each contract's data ends at
     the last bar the journal took (stamped at its close, as the export's last_bar_ns); the fees are the declared
     ones; the clock is live (Sandbox stamps a fill's account update after the fill). The counts the audit holds the reports to come from the journal and the runner's summary, not from the
     reports (both from the one native event stream)."""

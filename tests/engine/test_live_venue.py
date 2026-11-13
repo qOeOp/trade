@@ -1,5 +1,6 @@
 """Observed account modes and v2 cash must be checked before fresh entry."""
 import copy
+from datetime import UTC, datetime
 from decimal import Decimal
 import io
 import json
@@ -21,6 +22,10 @@ def venue_clock() -> list[dict]:
     """A reading of the venue's time with no offset, as BinanceReadOnly.clock returns it."""
     now = time.time_ns()
     return [{"sent_ns": now, "server_ms": now // 1_000_000, "received_ns": now}]
+
+
+# The run's market day: today, so its month holds the tests' wall clock (engine.membership).
+MARKET_DAY = datetime.now(UTC).date().isoformat()
 
 
 def fixture():
@@ -47,7 +52,7 @@ def fixture():
     }
     manifest = {"symbols": ["BTCUSDT"], "credential_binding": credentials.binding,
                 "config": {"drawdown_brake": "0.15", "leverage": "50"},
-                "market": {"market_day": "2026-11-09", "terms": {"BTCUSDT": {
+                "market": {"market_day": MARKET_DAY, "terms": {"BTCUSDT": {
                     "price_increment": "0.1", "size_increment": "0.0010", "min_notional": "50"}}}}
     return snapshot, manifest
 

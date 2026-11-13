@@ -238,6 +238,11 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
             scope = authority.retained(config, binding)
             with scope.mutation(maintenance=True) as root:
                 observed = runs._status_view(root, path.name, maintain=False)
+                if observed["state"] in ("running", "interrupted") and observed.get("mode") == "run":
+                    try:  # the next month's membership, before a start reads it (engine.membership)
+                        runs.write_months_locked(root, path.name, config.market_root, time.time_ns())
+                    except Exception:
+                        pass  # until it is written the runner denies entries on the contract; the next pass retries
                 if observed["state"] == "interrupted":
                     control.restart_interrupted_locked(root, path.name, time.time_ns())
                 elif observed["state"] == "running" and observed["mode"] == "run":

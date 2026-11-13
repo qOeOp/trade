@@ -23,6 +23,7 @@ from engine.config import Refusal
 from engine.live_errors import LiveRefusal
 from engine.live_records import strategy_ids
 from engine.live_venue import Credentials
+from tests.engine.test_live_venue import MARKET_DAY
 
 
 SOURCE = '''from nautilus_trader.trading import Strategy
@@ -69,7 +70,7 @@ class LiveTests(unittest.TestCase):
             "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
                         "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v8"},
             "config": {"drawdown_brake": "0.15", "duration_seconds": 30, "leverage": "50"},
-            "market": {"market_day": "2026-11-09", "terms": {"BTCUSDT": {
+            "market": {"market_day": MARKET_DAY, "terms": {"BTCUSDT": {
                 "price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}},
             "strategy_file": str(self.strategy), "universe_file": str(self.universe),
             "universe_sha256": hashlib.sha256(self.universe.read_bytes()).hexdigest(),

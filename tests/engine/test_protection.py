@@ -20,6 +20,7 @@ from engine.protection import ALLOWANCE_NS, Gaps, Order, stop_quantity
 from engine.run import ACCOUNT_CONTRACT, add_venue
 from tests.engine import test_fill_model as fixture
 from tests.engine.test_order_rules import Probe
+from tests.engine.test_live_venue import MARKET_DAY
 
 MINUTE_NS = 60_000_000_000
 
@@ -102,7 +103,7 @@ class Source(Strategy):
         manifest = dict(run_id="contract", symbols=["AAAUSDT"], strategy_file=str(path), account_id="BINANCE-001",
                         universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                         source=dict(entry_class="Source", source_sha256=hashlib.sha256(self.SOURCE.encode()).hexdigest()),
-                        config=dict(duration_seconds=3600, drawdown_brake="0.15"))
+                        config=dict(duration_seconds=3600, drawdown_brake="0.15"), market=dict(market_day=MARKET_DAY))
         self.session = live.Session(manifest, self.output, "run", account_verified=True)
         self.session.node = Mock()
         self.session.sources = live_source_runtime.live_source(live.source_for_run(manifest), self.session)

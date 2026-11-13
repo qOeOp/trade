@@ -1150,5 +1150,50 @@ class LiveRecycleTests(LiveFixture):
             runs._recycle_others(self.root, self.run_id)
 
 
+class LiveMonthFileTests(LiveFixture):
+    """The control writes each month after the run's market day for the runner (engine.membership), as Paper's."""
+
+    def setUp(self):
+        super().setUp()
+        manifest = {**self.manifest, "market": MARKET}
+        (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(manifest))
+        patcher = patch("market.universe.month_files", return_value={"2026-12": b'{"members":["BTCUSDT"]}'})
+        self.month_files = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def at(self, day):
+        return int(datetime.fromisoformat(day + "T00:00:00+00:00").timestamp()) * 10**9
+
+    def test_a_month_is_written_once_it_has_begun_whole_and_the_market_is_read_once_a_month(self):
+        folder = self.directory / "inputs" / "membership"
+        self.assertEqual(runs.write_months_locked(self.root, self.run_id, self.root / "market", self.at("2026-11-30")), [])
+        self.month_files.assert_not_called()  # the market day's month: the universe file holds it
+        self.assertFalse(folder.exists())
+        state.private_directory(folder)
+        (folder / "2026-12.partial").write_bytes(b"left by a write that died")
+        self.assertEqual(runs.write_months_locked(self.root, self.run_id, self.root / "market", self.at("2026-12-01")),
+                         ["2026-12"])
+        self.month_files.assert_called_once_with({"holds": "market", "root": str(self.root / "market")}, ["BTCUSDT"],
+                                                 "2026-11")
+        self.assertEqual(sorted(path.name for path in folder.iterdir()), ["2026-12.json"])
+        self.assertEqual((folder / "2026-12.json").read_bytes(), b'{"members":["BTCUSDT"]}')
+        self.assertEqual((folder / "2026-12.json").stat().st_mode & 0o777, 0o600)
+        # Written: not read again, nor rewritten, until the next month begins.
+        self.assertEqual(runs.write_months_locked(self.root, self.run_id, self.root / "market", self.at("2026-12-31")), [])
+        self.assertEqual(self.month_files.call_count, 1)
+        self.month_files.return_value = {"2027-01": b'{"members":[]}'}
+        self.assertEqual(runs.write_months_locked(self.root, self.run_id, self.root / "market", self.at("2027-01-01")),
+                         ["2027-01"])
+        self.assertEqual(self.month_files.call_args.args[2], "2026-12")
+        self.assertEqual((folder / "2026-12.json").read_bytes(), b'{"members":["BTCUSDT"]}')
+
+    def test_a_month_the_market_does_not_hold_yet_is_read_again_on_the_next_pass(self):
+        self.month_files.return_value = {}
+        for _ in range(2):
+            self.assertEqual(runs.write_months_locked(self.root, self.run_id, self.root / "market",
+                                                      self.at("2026-12-02")), [])
+        self.assertEqual(self.month_files.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
