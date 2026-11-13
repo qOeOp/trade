@@ -11,10 +11,11 @@ research conclusions and experiment selection belong to `research-round`.
 
 ## Boundaries
 
-- Read only: transcripts, the checkout, CI logs, `ledger sql`, `ledger review`, `research status`,
-  `research state`, `research graph` and `--help`, plus a temporary ledger and an IDE of the audit's
-  own for page states ([lenses.md](references/lenses.md#product-contracts-and-delivery)). Never write the ledger or the market (`replay
-  reproduce` records an explore trial). Never read `dolt/service.json` under the data directory
+- Read only: transcripts, the checkout, CI logs, commands whose `--help` `writes` line names
+  nothing in the ledger or market (`research state` also pulls the main runtime image, moving the
+  local `main` tag), plus a temporary ledger and an IDE of the audit's own for page states
+  ([lenses.md](references/lenses.md#product-contracts-and-delivery)). Never write the ledger or the
+  market (`replay reproduce` records an explore trial). Never read `dolt/service.json` under the data directory
   (passwords) or fetch a running IDE's home page (paper token): `ledger review` gives the backup head.
 - AGENTS.md owns common authority and implementation boundaries; reference it rather than copying
   its rules. This skill additionally retains item-by-item user authority for stored-field changes.
@@ -37,15 +38,13 @@ report evidence, attribution or remaining uncertainty, and the next action. Use 
 Convergence only when the task calls for overall product or session quality. Failure, delay or unresolved attribution alone does not expand the scope.
 
 Attach mode keeps, read-only and from another session on either host, the evidence of a running
-research session that its transcript cannot show ([attach.md](references/attach.md)). It is never
-a full audit: it diagnoses as it reads and keeps the diagnoses on disk, and when the session ends
-the full audit still runs in a fresh session with every step, starting from them.
+research session that its transcript cannot show ([attach.md](references/attach.md)).
 
 ## Steps
 
 1. **Pin scope and evidence.** Identify session paths, hosts and times, checkout and ledger
-   commits; read open items and misses in `docs/plans/doctor/index.zh.md` (a full audit reruns their
-   proofs, [record.md](references/record.md)). Judge current product
+   commits; read open items and misses in `docs/plans/doctor/index.zh.md` (a full audit reruns the proofs
+   [record.md](references/record.md) names). Judge current product
    behavior on a checkout at the current `origin/main` (after `git fetch origin main`), use its current names in findings, and compare
    it with the session's checkout before calling anything a defect: a fix the session lacked is
    not a new finding. Recheck an attach session's diagnoses first (step 4). Build a shared /tmp

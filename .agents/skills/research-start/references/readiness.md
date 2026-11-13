@@ -36,11 +36,9 @@ not a substitute for the disposition.
 3. **Resumption state.** State the line, candidate, pinned inputs and existing registrations or
    runs retained for resuming; do not consume a registration, overwrite a run or write a new line
    while presenting options. Missing coverage does not make the candidate failed or the line invalid.
-4. **User choice.** First import a missing month the archive holds of contracts and kinds the line
-   already uses and the `market-import` service does not keep yourself (below; quotes for a month
-   whose bars the market holds through `market import-quotes`), name it in the round's message
-   (a metrics import also holds the market's latest day back, `market/README.md`) and cite it in
-   the next priority judgment; the line's pinned market day reads it once imported and does not
+4. **User choice.** First import a missing month the archive holds yourself (below), name it in
+   the round's message (a metrics import also holds the market's latest day back,
+   `market/README.md`) and cite it in the next priority judgment; the line's pinned market day reads it once imported and does not
    move, so it needs no new line record. Ask only about an anomaly that would stop or distort the replay and no import fills: a gap the
    replay's treatment above fails the run on or leaves unvalued (a MARK gap beyond the carry where a
    position may be open), missing funding after the trading start, a missing month or a refused
@@ -75,9 +73,10 @@ not a substitute for the disposition.
   names it) and status file (`docker exec NAME cat /tmp/market-import/status.json`), and report a
   gap with the state there (`waiting`, `lagging`, or `stopped` with its refusal; months it
   `skipped` are archive gaps no import fills). Other contracts and kinds, and months before its
-  range, are supplied through `market import`, `market import-quotes` or `market import-metrics`
-  (part 4: yourself for what the line already uses, a new contract or kind only with a chosen line's
-  start), after checking free memory and disk, run in that container (`docker exec NAME python -m cli.main
+  range, you import yourself through `market import`, `market import-quotes` (quotes for a month whose
+  bars the market holds) or `market import-metrics`: at once for what the line already uses, a new
+  contract or kind only with a chosen line's start. Check free memory and disk first, and run them in
+  that container (`docker exec NAME python -m cli.main
   market ... --market /run/trade/market-import.json`: the import lock holds only there), except
   bars in a month the market holds: `MONTH_EXISTS` whichever `--symbols`, and no command adds
   them, so name the contracts `market coverage` holds.

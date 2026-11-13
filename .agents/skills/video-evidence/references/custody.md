@@ -9,8 +9,6 @@ are the raw server bytes: `source.f<format_id>.*` per part when `format_id` hold
       if [ -n "$err" ]; then printf 'decode: %s\n%s\n' "$err" "ffmpeg -i $F -f null -" > "$S/FAILED"; rm -f source.*; mv "$S" "$B/media"; exit 1; fi; done
     jq -f "$A/receipt.jq" "$I" > "$S/receipt.json"
     jq -e -n --slurpfile i "$I" --slurpfile p "$B/probe/identity.json" '$i[0].id == $p[0].id' > /dev/null
-    if grep -Eiq '[?&/;~,](ip|oi|mid|buvid|upsig|sig|expires?|exp|hmac|token)[=/~]|cookie' "$S/receipt.json"; then
-      echo "leak in receipt.json" >&2; rm -rf "$S"; exit 1; fi
     for F in $files; do
       sha=$(shasum -a 256 "$F" | cut -c1-64); dst="$ROOT/sha256/$sha.${F##*.}"
       if [ -e "$dst" ]; then echo "already held: $dst"

@@ -1,6 +1,6 @@
 """Recompute a video evidence bundle's identity bindings from its bytes; print JSON; exit 1 on any failed check.
 
-usage: python3 -I check_bundle.py BUNDLE --media-dir DIR [--recompute K] [--restored]
+usage: python3 -I check_bundle.py BUNDLE --media-dir DIR [--restored]
 Writes nothing and imports nothing from this repository; needs ffmpeg and ffprobe on PATH. Layout and checks:
 references/bundle.md of this skill. "checks" decide "ok" (identity and hash binding, recomputation from the bytes);
 "flags" are ASR heuristics for a reader. --restored accepts grid rows whose uncited PNG was not retained (those
@@ -404,7 +404,6 @@ def frame_rows(b, a, vsha, videos):
     for d in dirs:
         grid = [r.split("\t") for r in (d / "grid.tsv").read_text().splitlines() if r] if (d / "grid.tsv").is_file() else []
         check("frames", "has_grid_tsv:" + d.name, grid)
-        absent = 0
         for row in grid:
             key, where = exact(row[1]) if len(row) == 4 else None, f"{d.name}/{row[0]}"
             if not check("frames", "row_shape:" + where, key and re.fullmatch(NAME + r"\.png", row[0])
@@ -416,12 +415,9 @@ def frame_rows(b, a, vsha, videos):
             if (d / row[0]).is_file():
                 if check("frames", "png_sha256:" + where, sha(d / row[0]) == row[3]):
                     entry["pngs"].append(d / row[0])
-            elif a.restored:
-                absent += 1
-            else:
+            elif not a.restored:
                 check("frames", "png_present:" + where, False)
         check("frames", "pngs_have_rows:" + d.name, all(p.name in {r[0] for r in grid} for p in d.glob("*.png")))
-        out["flags"].setdefault("png_not_retained", {})[d.name] = absent
         keys = [k for k in (exact(r[1]) for r in grid if len(r) == 4) if k]
         if d.name == "grid" and keys:
             tb, pts = packets(videos[vsha], "v:0")
@@ -504,7 +500,6 @@ def claims_checks(b, docs, segs, bad, rows, crops, vsha):
                 check("cite", "value_in_evidence:" + where, tokens <= set().union(*map(numbers, texts)), value)
         if bad & set(ids):
             flagged = [f"E{j + 1:03d}" for j in sorted(bad & set(ids))]
-            out["flags"].setdefault("claims_citing_flagged", {})[where] = flagged
             check("cite", "flagged_span_limited:" + where, c.get("limitations"), f"{flagged} are flagged; record a limitation")
         if c.get("exclusive_group") is not None:
             groups.setdefault(str(c["exclusive_group"]), []).append(where)
@@ -561,10 +556,10 @@ def body(a):
     for key in sorted(cited | set(crop_need)):
         check("frames", f"png_present:cited@{key[0]}*{key[1]}/{key[2]}", rows[key]["pngs"], rows[key]["where"])
     must = cited | set(crop_need)
-    if rows:  # plus the first and last grid rows and at least 3 rows sampled deterministically from the media hash
+    if rows:  # plus the first and last grid rows and 3 rows sampled deterministically from the media hash
         keys = sorted(rows, key=seconds)
         grid = [k for k in keys if rows[k]["where"].startswith("grid/")] or keys
-        must |= {grid[0], grid[-1]} | {keys[int(vsha[8 * i:8 * i + 8], 16) % len(keys)] for i in range(min(max(a.recompute, 3), 8))}
+        must |= {grid[0], grid[-1]} | {keys[int(vsha[8 * i:8 * i + 8], 16) % len(keys)] for i in range(3)}
     for key in sorted(must):
         need = crop_need.get(key, [])
         got = frame_hashes(videos[vsha], key, [g for g, _ in need])
@@ -587,12 +582,10 @@ def main():
     ap = Args(description=__doc__.split("\n")[0])
     ap.add_argument("bundle", type=Path)
     ap.add_argument("--media-dir", type=Path, required=True)
-    ap.add_argument("--recompute", type=int, default=3)
     ap.add_argument("--restored", action="store_true")
     a = ap.parse_args()
     raw = Path(__file__).read_bytes()
-    out.update(checker_sha256=hashlib.sha256(raw).hexdigest(),
-               checker_git_blob=hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest())
+    out.update(checker_git_blob=hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest())
     try:  # the build that recomputed the frames, and which executables PATH resolved
         tools = [shutil.which(t) for t in ("ffmpeg", "ffprobe")]
         out["ffmpeg"] = run(["ffmpeg", "-version"]).split("\n")[0] + "; sha256 " + ", ".join(

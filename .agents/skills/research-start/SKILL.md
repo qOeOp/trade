@@ -16,15 +16,15 @@ select`); its development period follows from the date and the start's contracts
   /tmp/research-<session id> origin/main`, every command run from it), so other sessions' work in
   the main checkout cannot block it; profiles, `.env` and outputs resolve as from the main checkout.
   Read skill files from this worktree, not through the Skill tool, which loads the main checkout's.
-- At every start, return from an interruption and `registration add`, check that worktree first:
-  after `git fetch origin main`, `HEAD` is the current `origin/main` (`git rev-parse HEAD` equals
-  `git rev-parse origin/main`) and the working tree is clean (`git status --porcelain` prints nothing). Fixes reach
-  a session only through its checkout, and sealing records the checkout's commit as the revision of
-  its readings. If `HEAD` is an older commit on `origin/main` and the tree is clean, move it there
-  (`git checkout --detach origin/main`) and say so in one line, then read again each skill file the
-  move changed before using it (the session holds the old text). Otherwise never register or
-  replay from it and never stash, commit or delete in it: create a fresh worktree the same way,
-  continue there, and name the old path and its uncommitted paths once.
+- Run `git fetch origin main` in that worktree at every start, return from an interruption,
+  `registration add` and research `replay run`: both refuse (`STALE_CHECKOUT`) unless `HEAD` is
+  the fetched `origin/main` and the tree is clean, since fixes reach a session only through its
+  checkout and sealing records its commit as the revision of its readings. At a start or return, if
+  `HEAD` is an older commit on `origin/main` and the tree is clean, move it there (`git checkout
+  --detach origin/main`) and say so in one line, then read again each skill file the move changed
+  before using it (the session holds the old text). Otherwise never stash, commit or delete in it:
+  create a fresh worktree the same way, continue there, and name the old path and its uncommitted
+  paths once.
 - Then read the ledger before anything else: whether
   the service is up (`ledger service status`), the candidates (`candidate list`), the counts
   (`research status`) and the research state (`research state`): its `open_lines`, and for each
