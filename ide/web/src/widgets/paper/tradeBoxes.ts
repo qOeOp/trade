@@ -9,6 +9,7 @@
 // from its first entry to its last exit, whatever the period drawn.
 import { candleOpen, type Candle } from "../../lib/bars";
 import { amount, type JournalLine } from "../../lib/paperApi";
+import { lastAtOrBefore } from "../../lib/search";
 import { closeAt } from "../../model/stoppedPositions";
 import type { Fill, Held, Restart } from "../../model/paper";
 
@@ -18,9 +19,8 @@ const EPS = 1e-12;
 
 /** The highest high and lowest low of the one-minute `bars` (oldest first) that overlap `from`–`to` (ms). */
 function reach(bars: readonly JournalLine[], from: number, to: number): { high: number; low: number } | null {
-  let lo = 0, hi = bars.length, high = -Infinity, low = Infinity;
-  while (lo < hi) { const mid = (lo + hi) >> 1; if (Number(bars[mid]!.ts_event) / 1e6 <= from) lo = mid + 1; else hi = mid; }
-  for (let i = lo; i < bars.length && Number(bars[i]!.ts_event) / 1e6 - 60_000 < to; i++) {
+  let high = -Infinity, low = Infinity;
+  for (let i = lastAtOrBefore(bars.length, (k) => Number(bars[k]!.ts_event) / 1e6, from) + 1; i < bars.length && Number(bars[i]!.ts_event) / 1e6 - 60_000 < to; i++) {
     high = Math.max(high, amount(bars[i]!.high) ?? -Infinity);
     low = Math.min(low, amount(bars[i]!.low) ?? Infinity);
   }

@@ -3,7 +3,7 @@
 // segments fall in (shared, so lines compare), then the development period, the holdout and the forward part.
 // Everything shown is read from the command; nothing is derived here but layout, order and colour.
 import type { HistoryCell, HistoryLine, HistoryRow } from "../lib/historyApi";
-import type { Step } from "./heat";
+import { rangesOf, stepOf, type Step } from "./heat";
 
 export type Metric = "annual_return" | "mark_max_drawdown" | "sharpe_365";
 export type Order = "development" | "median" | "meeting";
@@ -33,12 +33,8 @@ export function meetsBoth(cell: HistoryCell | null, targets: HistoryLine["target
 
 const EDGES = [0.02, 0.15, 0.4] as const;
 /** The colour step of an annual return: grey within ±2%, then ±1 to ±3 at 15% and 40%. */
-export function returnStep(value: number | null | undefined): Step | null {
-  if (value == null) return null;
-  const size = Math.abs(value), k = size < EDGES[0] ? 0 : size < EDGES[1] ? 1 : size < EDGES[2] ? 2 : 3;
-  return (value < 0 && k ? -k : k) as Step;
-}
-export const RETURN_RANGES = ["below −40%", "−40% to −15%", "−15% to −2%", "−2% to +2%", "+2% to +15%", "+15% to +40%", "above +40%"] as const;
+export const returnStep = (value: number | null | undefined): Step | null => stepOf(value, EDGES);
+export const RETURN_RANGES = rangesOf(EDGES, (v) => `${Math.round(v * 100)}%`);
 
 /** A row with no edge, hidden unless asked for (3.7, P3): its whole veto years' median annual return is at most 0. */
 export const noEdge = (row: HistoryRow) => (row.summary?.veto.median_annual_return ?? Infinity) <= 0;

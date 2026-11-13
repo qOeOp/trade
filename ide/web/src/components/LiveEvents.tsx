@@ -5,6 +5,7 @@ import { liveEventTime } from "../model/liveEventTime";
 import { useTimeZone } from "../state/timeZone";
 import { DataTable, columns } from "./DataTable";
 import { Section } from "./Section";
+import { MISSING } from "../lib/format";
 
 const col = columns<LiveEventRow>();
 function TimeHeader() { return <>Time ({TIME_ZONE_LABEL[useTimeZone()]})</>; }
@@ -12,7 +13,7 @@ function EventTime({ row }: { row: LiveEventRow }) {
   const zone = useTimeZone(), time = liveEventTime(row);
   return time ? <time dateTime={new Date(time.ms).toISOString()} title={`${time.source === "event" ? "Native event" : "System observation"} · ${time.ns} ns`}>
     {dateTime(time.ms, zone, "millisecond")}{time.source === "observed" && <span className="text-fg-faint"> · observed</span>}
-  </time> : <>—</>;
+  </time> : <>{MISSING}</>;
 }
 const eventColumns = (side: (row: LiveEventRow) => string | null | undefined) => [
   col.accessor((row) => liveEventTime(row)?.ns, { id: "time", header: TimeHeader, sortFn: (a, b) => {
@@ -22,11 +23,11 @@ const eventColumns = (side: (row: LiveEventRow) => string | null | undefined) =>
   col.accessor("event_type", { header: "Native event" }),
   col.accessor("instrument_id", { header: "Instrument", cell: ({ getValue }) => getValue() ?? "Unknown" }),
   col.accessor(side, { id: "side", header: "Side", cell: ({ getValue }) => getValue() === undefined ? "—" : getValue() ?? "Unknown" }),
-  col.accessor("quantity", { header: "Quantity", cell: ({ getValue }) => getValue() ?? "—" }),
-  col.accessor("last_qty", { header: "Last fill qty", cell: ({ getValue }) => getValue() ?? "—" }),
-  col.accessor("last_px", { header: "Last fill price", cell: ({ getValue }) => getValue() ?? "—" }),
-  col.accessor("client_order_id", { header: "Client order ID", cell: ({ getValue }) => getValue() ?? "—" }),
-  col.accessor("position_id", { header: "Position ID", cell: ({ getValue }) => getValue() ?? "—" }),
+  col.accessor("quantity", { header: "Quantity", cell: ({ getValue }) => getValue() ?? MISSING }),
+  col.accessor("last_qty", { header: "Last fill qty", cell: ({ getValue }) => getValue() ?? MISSING }),
+  col.accessor("last_px", { header: "Last fill price", cell: ({ getValue }) => getValue() ?? MISSING }),
+  col.accessor("client_order_id", { header: "Client order ID", cell: ({ getValue }) => getValue() ?? MISSING }),
+  col.accessor("position_id", { header: "Position ID", cell: ({ getValue }) => getValue() ?? MISSING }),
 ];
 
 export function LiveEvents({ kind, rows, embedded = false }: { kind: "Order" | "Position"; rows: readonly LiveEventRow[] | null | undefined; embedded?: boolean }) {

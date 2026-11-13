@@ -6,6 +6,13 @@ import { CoinLogo } from "./CoinLogo";
 export type Coin = { symbol: string; side: "LONG" | "SHORT" | null };
 export type CoinGroup = { title: string; coins: readonly Coin[] };
 
+/** The menu's groups of `symbols`: holding (a side), traded, not traded; an empty group is left out. */
+export function coinGroups(symbols: readonly string[], side: (symbol: string) => Coin["side"], traded: (symbol: string) => boolean): CoinGroup[] {
+  const held = symbols.filter((s) => side(s)), rest = symbols.filter((s) => !side(s));
+  return [{ title: "Holding", list: held }, { title: "Traded", list: rest.filter(traded) }, { title: "Not traded", list: rest.filter((s) => !traded(s)) }]
+    .filter((g) => g.list.length).map((g) => ({ title: g.title, coins: g.list.map((symbol) => ({ symbol, side: side(symbol) })) }));
+}
+
 const FIND = 6;  // a list longer than this opens with a box to find a coin by name
 const LABEL = 52;  // px: from the segment's left edge to the arrow, which the menu's left edge goes back over
 

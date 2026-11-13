@@ -25,7 +25,7 @@ export function PaperButton({ id }: { id: string }) {
   };
   const label = pendingStart ? "Starting paper…" : pendingStop ? "Stopping paper…" : run ? "Stop and seal" : "Run paper…";
   const tip = pendingStart ? <Waiting since={since} />
-    : run || busy ? label : limit ? `${limit}; stop one first` : label;
+    : run || busy ? label : limit ?? label;
   return (
     <Tip side="bottom" content={tip}>
       <button type="button" aria-label={label} aria-busy={busy} aria-disabled={busy} onClick={click} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}

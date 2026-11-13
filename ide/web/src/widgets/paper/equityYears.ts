@@ -7,8 +7,10 @@
 // and meets the pace's share of the annual target over those days (as the dashed pace line asks for). Each
 // year is a unit of its own, INSET px in from its edges; its names give way first where they would leave its
 // bars less than BARS px.
+import { signedPct } from "../../lib/format";
 import { meets } from "../../model/semantics";
-import { DAY_S, type Frame } from "./equityBands";
+import { DAY_S, YEAR_S } from "../../lib/time";
+import type { Frame } from "./equityBands";
 import type { Share } from "./equityShares";
 import { LINE, UNIT } from "./equityZones";
 
@@ -18,7 +20,7 @@ import { LINE, UNIT } from "./equityZones";
 export type Year = { year: number; first: number; last: number; part: string | null; days: number; ret: number; hold: number | null; shares: readonly Share[] };
 export type YearLook = { font: string; label: string; quiet: string; meets: string; misses: string; halo: string };
 
-const YEAR_DAYS = 365, PAD = 6, INSET = 4, BARS = 32, SPACE = 8;  // the pace's year (equityStretches' YEAR_S); px: from the words to the bars, from a year's edges, the bars' least, a name's from its figure
+const PAD = 6, INSET = 4, BARS = 32, SPACE = 8;  // px: from the words to the bars, from a year's edges, the bars' least, a name's from its figure
 const month = (t: number) => new Date(t * 1000).toLocaleString("en-US", { month: "short", timeZone: "UTC" });
 const yearOf = (t: number) => new Date(t * 1000).getUTCFullYear();
 
@@ -45,17 +47,15 @@ export function yearsOf(points: readonly { time: number; value: number }[], open
 /** Whether a year's return meets `annual` (a whole year's), a part of a year its share over the days it
  *  covers; null without a target. */
 export const yearMeets = (y: Year, annual: number | null): boolean | null =>
-  annual === null ? null : meets(y.ret, y.part === null ? annual : (1 + annual) ** (y.days / YEAR_DAYS) - 1, true);
-
-const signed = (v: number) => { const s = (+(v * 100).toFixed(1) || 0).toFixed(1); return `${+s > 0 ? "+" : ""}${s}%`.replace(/^-/, "−"); };
+  annual === null ? null : meets(y.ret, y.part === null ? annual : (1 + annual) ** ((y.days * DAY_S) / YEAR_S) - 1, true);
 
 /** A line of a year's scorecard: its name and its figure, each a text and its colour. */
 export type Line = { name: [string, string]; figure: [string, string] };
 
 /** A year's lines: the year and its return, then the buy and hold's (when `hold`). */
 export function linesOf(y: Year, annual: number | null, look: YearLook, hold = false): Line[] {
-  const ok = yearMeets(y, annual), ret: Line = { name: [`${y.year}`, look.label], figure: [signed(y.ret), ok === null ? look.label : ok ? look.meets : look.misses] };
-  return [ret, ...(hold && y.hold !== null ? [{ name: ["hold", look.quiet], figure: [signed(y.hold), look.quiet] } as Line] : [])];
+  const ok = yearMeets(y, annual), ret: Line = { name: [`${y.year}`, look.label], figure: [signedPct(y.ret, 1), ok === null ? look.label : ok ? look.meets : look.misses] };
+  return [ret, ...(hold && y.hold !== null ? [{ name: ["hold", look.quiet], figure: [signedPct(y.hold, 1), look.quiet] } as Line] : [])];
 }
 
 /** Each year's edges (device px): half way to the next year's first point, the first's and last's at their points. */

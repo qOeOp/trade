@@ -8,6 +8,7 @@
 // the first starting balance, counts add up and the start is the first run's.
 import { brief, clockSpan } from "../lib/format";
 import { amount, type JournalLine, type Live, type PaperRun, type RuntimeFailure, type Seal } from "../lib/paperApi";
+import { START } from "./chain";
 import { ending } from "./ending";
 
 /** What a stream holds of one run: the Runs page's Stream has these and more; an earlier run of a chain
@@ -17,7 +18,6 @@ export type Piece = {
   readings: Live | null; seal: Seal | null; failures: RuntimeFailure[]; status?: PaperRun["status"];
 };
 
-const START = 100_000;
 const IDS = ["position_id", "client_order_id", "venue_order_id", "trade_id", "opening_order_id", "closing_order_id", "parent_order_id", "order_list_id"] as const;
 const COUNTS = ["fills", "orders_submitted", "positions_closed", "missing_bars", "late_bars", "protection_gaps", "bars", "exceptions"] as const;
 

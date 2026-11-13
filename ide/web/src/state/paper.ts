@@ -113,8 +113,8 @@ async function checkStart(p: PendingStart): Promise<void> { // an earlier page's
 export const activeRun = (listing: Listing | null, candidate: string) =>
   listing?.runs.find((r) => r.candidate === candidate && ACTIVE.has(r.state));
 
-/** Why another run does not fit the paper memory as the listing last said (model/paperMemory.ts), or null. */
-export const full = (listing: Listing | null) => fullMemory(listing?.memory);
+/** Why another run does not fit the paper memory as the listing last said (model/paperMemory.ts), and what to do; or null. */
+export const full = (listing: Listing | null) => { const why = fullMemory(listing?.memory); return why && `${why}; stop one first`; };
 
 /** Starts a run of `candidate`: with the contracts of its last research replay, or the ones given; the
  *  Runs page then shows it. */
@@ -126,7 +126,7 @@ export async function startPaper(candidate: string, scope: Scope = {}): Promise<
     type Started = { paper_id: number; symbols: string[] };
     const prior = await paperApi<{ run: Started | null }>(`/starts?op_id=${encodeURIComponent(pending.op_id)}`);
     // A start this page asked for before may have been accepted already; a new one is not sent while nothing fits.
-    const limit = prior.run ? null : full(paperRuns.get());
+    const limit = prior.run ? null : fullMemory(paperRuns.get()?.memory);
     if (limit) throw new ApiError("PAPER_MEMORY_FULL", `${limit}. Stop one on the Runs page, then start this again.`);
     const run = prior.run ?? await paperApi<Started>("/runs", { method: "POST", body: { candidate, ...scope, op_id: pending.op_id } });
     confirmStart(pending.op_id);

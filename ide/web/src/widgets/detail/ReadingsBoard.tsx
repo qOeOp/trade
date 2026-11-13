@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { meets } from "../../model/semantics";
-import { span } from "../../model/trades";
+import { duration } from "../../lib/format";
 import { signed } from "../../lib/paperApi";
 import { pnlClass } from "../../theme/roles";
 import { Missing } from "../../components/Missing";
@@ -63,7 +63,7 @@ const num = (n: N, text: (n: number) => string, u?: string): Pick<Row, "n" | "u"
  *  unit in a faint column after it; what a target asks and the verdict stand indented under it. */
 function Ledger({ f }: { f: Facts }) {
   const { account: a, stats: t } = f, dd = meets(f.mdd, f.limit, false), yearly = meets(f.annual, f.minimum, true);
-  const hold = t?.hold == null ? null : span(t.hold);
+  const hold = t?.hold == null ? null : duration(t.hold);
   const groups: Group[] = [
     { title: "Targets", rows: [
       { name: <Drawdown f={f} />, ...num(f.mdd, digits, "%"), track: track(f) },
@@ -138,7 +138,7 @@ function Strip({ f }: { f: Facts }) {
     ...t ? [
       { title: "Trades", aside: "USDT", cells: [{ name: "Average win", value: amount(t.avgWin) }, { name: "Average loss", value: amount(t.avgLoss) },
         { name: "Per trade", value: amount(t.perTrade) }, { name: "Losing streak", value: shown(t.streak, (n) => `${n}`) }].map((c) => ({ ...c, stale: t.stale })) },
-      { title: "Time", cells: [{ name: "Average hold", value: shown(t.hold, span) }, { name: "In market", value: shown(t.inMarket, pct) }].map((c) => ({ ...c, stale: t.stale })) },
+      { title: "Time", cells: [{ name: "Average hold", value: shown(t.hold, duration) }, { name: "In market", value: shown(t.inMarket, pct) }].map((c) => ({ ...c, stale: t.stale })) },
     ] : [],
   ];
   return (

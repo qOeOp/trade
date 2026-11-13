@@ -7,17 +7,15 @@
 // was created after that one stopped. The chain's latest run stands for it; its return compounds across the
 // runs, each run's account picking up where the one before it ended.
 import { amount, type PaperRun } from "../lib/paperApi";
+import { utcInstant } from "../lib/time";
 import { hasReturn } from "./ending";
 
-const START = 100_000;  // USDT: a run's starting balance where its readings do not say
+export const START = 100_000;  // USDT: a run's starting balance where its readings do not say (engine/config.py)
 /** States of a run that has not been sealed yet: it still has (or had) containers. */
 export const ACTIVE = new Set(["running", "stopping", "ended", "unsealed"]);
 
 /** When the run was created (ns): the ledger writes UTC without a zone. */
-export function createdNs(run: PaperRun): number {
-  const text = run.created_at.trim().replace(" ", "T");
-  return Date.parse(/(Z|[+-]\d\d:?\d\d)$/i.test(text) ? text : `${text}Z`) * 1e6;
-}
+export const createdNs = (run: PaperRun): number => (utcInstant(run.created_at) ?? Number.NaN) * 1e6;
 
 const sameContracts = (a: PaperRun, b: PaperRun) => { const set = new Set(a.symbols); return set.size === new Set(b.symbols).size && b.symbols.every((x) => set.has(x)); };
 /** Whether a run had an account: every run but a sealed one with no start time. */

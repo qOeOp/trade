@@ -1,6 +1,6 @@
 import { amount, fixed } from "../../lib/paperApi";
 import { chainEquity, chainReturn } from "../../model/chain";
-import { signedPct } from "../../components/RunTile";
+import { signedPct } from "../../lib/format";
 import { useShown } from "../../state/shown";
 import { useStream } from "../../state/paperStream";
 import { pnlClass } from "../../theme/roles";

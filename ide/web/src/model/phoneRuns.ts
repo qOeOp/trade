@@ -3,7 +3,9 @@
 // are its native events as they are (live/views.py keeps the last of them): a position's latest event, an
 // order's latest event while it has not ended. Paper's come from the listing (paper/serve.py held()).
 import type { LiveEventRow } from "../lib/liveTradingDto";
+import { plural } from "../lib/format";
 import { amount, symbolOf, type PaperRun } from "../lib/paperApi";
+import { START } from "./chain";
 import type { LiveRun } from "./liveTrading";
 import type { Coin } from "./market";
 
@@ -116,17 +118,16 @@ export function paperHeld(run: PaperRun): Held[] {
 export function paperIssues(run: PaperRun): { text: string; tone: "misses" | "fail" }[] {
   const l = run.live, issues: { text: string; tone: "misses" | "fail" }[] = [];
   if (!l) return issues;
-  const n = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-  if (l.protection_gaps) issues.push({ text: n(l.protection_gaps, "protection gap"), tone: "fail" });
-  if (l.missing_bars) issues.push({ text: n(l.missing_bars, "missing bar"), tone: "misses" });
-  if (l.late_bars) issues.push({ text: n(l.late_bars, "late bar"), tone: "misses" });
-  if (l.exceptions) issues.push({ text: n(l.exceptions, "exception"), tone: "fail" });
+  if (l.protection_gaps) issues.push({ text: plural(l.protection_gaps, "protection gap"), tone: "fail" });
+  if (l.missing_bars) issues.push({ text: plural(l.missing_bars, "missing bar"), tone: "misses" });
+  if (l.late_bars) issues.push({ text: plural(l.late_bars, "late bar"), tone: "misses" });
+  if (l.exceptions) issues.push({ text: plural(l.exceptions, "exception"), tone: "fail" });
   return issues;
 }
 
 /** A paper run's equity now and its outline as [seconds, equity], from the listing. */
 export function paperEquity(run: PaperRun): { starting: number; equity: number | null; ret: number | null; points: [number, number][] } {
-  const l = run.live, starting = amount(l?.starting_balance_usdt) ?? 100_000;
+  const l = run.live, starting = amount(l?.starting_balance_usdt) ?? START;
   const points = (l?.outline ?? []).map(([ns, v]) => [Math.floor(ns / 1e9), v] as [number, number]);
   return { starting, equity: amount(l?.final_equity_usdt ?? run.seal?.final_equity_usdt), ret: l?.total_return ?? run.total_return ?? null, points };
 }

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { CoinChip, CoinMenu, type Coin, type CoinGroup } from "../../components/CoinMenu";
+import { CoinChip, CoinMenu, coinGroups, type Coin } from "../../components/CoinMenu";
 import { Tabs } from "../../components/Tabs";
 import type { PaperRun } from "../../lib/paperApi";
 import { equityMoved } from "../../model/chain";
@@ -31,10 +31,8 @@ export function ChartSwitches({ testing, backtest, paper, view, symbols, sides, 
   const { chain, stage } = useShown(), flat = stage === "paper" && paper && symbols.length > 0 && !equityMoved(chain);
   const shown = view === "equity" ? null : view;
   if (shown) last.current = shown;
-  const coinOf = (symbol: string): Coin => ({ symbol, side: !sides.has(symbol) ? null : sides.get(symbol) ? "LONG" : "SHORT" });
-  const held = symbols.filter((x) => sides.has(x)), done = symbols.filter((x) => !sides.has(x) && traded.has(x)), rest = symbols.filter((x) => !sides.has(x) && !traded.has(x));
-  const groups: CoinGroup[] = [{ title: "Holding", list: held }, { title: "Traded", list: done }, { title: "Not traded", list: rest }]
-    .filter((g) => g.list.length).map((g) => ({ title: g.title, coins: g.list.map(coinOf) }));
+  const side = (symbol: string): Coin["side"] => (!sides.has(symbol) ? null : sides.get(symbol) ? "LONG" : "SHORT");
+  const coinOf = (symbol: string): Coin => ({ symbol, side: side(symbol) }), groups = coinGroups(symbols, side, (s) => traded.has(s));
   const pick = (symbol: string) => { setPicking(false); paperTab.set(symbol); };
   const coins = () => {
     if (shown) return;

@@ -1,3 +1,4 @@
+import { DAY_MS } from "../../lib/time";
 import type { Candidate, Targets } from "../../model/types";
 import { neededReturn, type Account, type TradeStats } from "../../model/account";
 import { useBacktest } from "../../state/backtest";
@@ -9,7 +10,6 @@ import { Eased } from "../../components/Eased";
 import { useHeld } from "../../components/hooks/useHeld";
 import { ANNUAL_DAYS, Board, type Facts } from "./ReadingsBoard";
 
-const DAY_MS = 86_400_000;
 
 // What a max drawdown is measured on: a sealed run's equity marked at bar closes, a paper run's minute snapshots.
 const SEALED = "Measured on mark-to-market equity at bar closes", MINUTES = "Measured on the account's minute snapshots";
