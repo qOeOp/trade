@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an interpretation names the slice and measure behind each conclusion and states for every registered prediction whether it held, giving the reason when one cannot be checked.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

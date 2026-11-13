@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, the agent does not support a rationale with its own recollection of how the development window moved; it names that as model-memory look-ahead, asks for a retained source or a diagnosis of a run of this line, and states whether the event was knowable beforehand.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

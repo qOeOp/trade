@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a judgment cites bundle names, run or registration ids and the ledger commit without copying measures, counts or eligibility, and material outside the ledger (handoff files, an unentered paper) is entered before it is cited or not used.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

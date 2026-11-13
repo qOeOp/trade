@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a root header's F5 line says what a held position does when its entry conditions stop holding, not only what happens when the contract leaves the universe.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

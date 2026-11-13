@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, capital use is given as the four readings (time-weighted average notional over every bar with its share of equity, per-bar sampled peak notional, peak locked margin from the account, time in market) without revaluing positions or inferring from the account alone, and a run without exposure readings gets no capital answer.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

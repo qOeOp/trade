@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an analysis outside the measure catalogue stays in /tmp and is not entered in an evidence bundle or a judgment's text, and the number that drives the next hypothesis is cited by its inputs and ledger commit and recomputed by another agent.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

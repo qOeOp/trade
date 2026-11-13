@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, publishing a new revision of the same strategy ID states in its description what it fixes from the previous revision and why, while the difference stays relative to the parent.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

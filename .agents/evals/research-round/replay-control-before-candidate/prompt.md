@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, after the execution identity changes and moving the runs is refused, the recommended candidate and its control are rebuilt under the new identity, control first, and the recommendation is made again from new-identity evidence only, without carrying the old p or reasons forward.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

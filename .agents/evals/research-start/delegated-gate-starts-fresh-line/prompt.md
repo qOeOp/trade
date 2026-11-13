@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, when the user delegated in this session the replacement of a line that cannot continue and a gate no research step lifts stops it, the Agent selects its top-ranked never-run start (not another open line), keeps the old targets, records a "Line decision." priority judgment before any registration, leaves the old line open and asks nothing.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

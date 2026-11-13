@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, the five-outcome map in a registration's prediction is written before registering, is not rewritten after the replay, and later additions go into a judgment.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

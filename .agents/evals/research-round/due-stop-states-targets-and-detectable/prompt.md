@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a due change of approach gives this line's annual return and maximum drawdown against the user's targets and the annual difference the counted runs could detect, so undistinguished runs are not read as no better, and chooses an approach inside this line itself rather than offering the other candidates' lines.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

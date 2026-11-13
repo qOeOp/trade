@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, five focused questions asked inside the research session that together cover the session are treated as a full audit, so it stops and gives the handover steps for a fresh session.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a session blocked by a refusal that already carries several per-case exemptions gets a remedy weighed over the whole refusal (none, a restatement around the risk it guards that merges the exemptions) instead of one more exemption, the refusal change is an authority item, and the answer states the net change in branches and rules.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a question about which paper states a specific claim goes to Semantic Scholar snippet search, and the paper is read before it is cited.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

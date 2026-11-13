@@ -1,6 +1,5 @@
 ---
 description: Rule check — the brief for a fresh source reviewer keeps it away from host or session memory, which carries earlier sessions' review conclusions, even when a colleague asks to add it for consistency.
-tags: [method, source-review]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

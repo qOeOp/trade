@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, after a product update a line's runs move to the new image with replay reproduce --image; a run with the same result keeps its standing, a run whose result changed is listed for the user as history, and a changed account or order table decides nothing.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

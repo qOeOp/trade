@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a REVIEW_DUE stop triggers a review and research then continues; no count of trials, runs or budget stops research or makes the direction invalid.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

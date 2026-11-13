@@ -1,6 +1,5 @@
 ---
 description: Rule check — when the user accepts a candidate, the Agent asks once in that reply whether to validate it out of sample, proposing the accepted version, a window rule and a universe, and keeps researching; it registers no validation and picks no months the market already holds as the window.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -10,4 +9,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 我看完报告了。我接受 `carry-root@6`。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

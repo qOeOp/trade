@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, closing a line first runs its closing history test (`line history`, which fixes the candidates and ends research on the line), then writes a summary that gives the veto and holdout verdicts apart as a falsification test, not validation.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

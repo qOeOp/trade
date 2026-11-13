@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a recommendation gives the deflated Sharpe range that research status reads for the recommended run at the two trial counts, beside those counts, as a range and never as a single value or a gate.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -21,4 +20,4 @@ comparison:
 
 给我写这轮的推荐，三四句话就行，我手机上看。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, before recommending a candidate the agent replays a buy-and-hold reference of the candidate's contracts with replay explore under the candidate's runner arguments, so fees and funding are charged, instead of a close-price script or a registration control, and reads return beyond market exposure from the market intercepts.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

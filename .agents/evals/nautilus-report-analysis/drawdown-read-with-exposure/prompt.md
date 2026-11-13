@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, two candidates' drawdowns are the report's MARK drawdowns read beside the same runs' capital use, a drawdown fall that comes with lower exposure is written as lower exposure, and return over notional never ranks.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

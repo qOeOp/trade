@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a contract the market lacks cannot get bars in months the market already holds, so the agent says `market import` refuses them (`MONTH_EXISTS`), offers no such import and names the contracts held; it leaves the choice to the user and proposes no change to the check.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

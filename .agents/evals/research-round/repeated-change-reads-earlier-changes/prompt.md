@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a third change of approach reads the line's earlier change-of-approach judgments, does not re-choose an approach they chose, states how many changes the line has recorded and that the recommendation did not move, leaves a scale-only run out of the count with its reason, and goes on without asking.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

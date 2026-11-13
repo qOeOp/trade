@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, research does not wait on the main checkout; when another session has left it on an unmerged branch, the agent leaves it alone and continues from a worktree of its own detached at origin/main (checking it there, reading skill files from it), instead of stopping, switching the other session's branch or registering from that branch.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a paywalled paper that decides something is searched for an author, institution, repository or working-paper copy on the web before the user is asked for it; no shadow library is used; lecture notes that restate the method are recorded as secondary and not as reading the original.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

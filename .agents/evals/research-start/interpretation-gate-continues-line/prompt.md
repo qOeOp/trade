@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a new session whose open line shows only an INTERPRETATION_REQUIRED gate treats it as research-round's next step, not a stop - it offers continuing the line with interpreting that trial as the next step, does not call the line stopped or offer only closing it, and writes nothing before the user answers.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

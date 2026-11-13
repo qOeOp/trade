@@ -1,6 +1,5 @@
 ---
-description: Use evidence matching each rule responsibility and inspect actual behavior rather than treating replay visibility or an eval vote as decisive.
-tags: [method]
+description: Rule check — with the skill, a removal test asks for evidence matching each rule's responsibility; a rule is not deleted because native replay or the ledger cannot see it, an eval majority vote does not mark it verified, and not every rule moves into a code check.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — a source reviewer tracing when each price input is known reads the stored prices with `market bars` at the precheck's market day, not with a script importing the market package, `ledger sql` on the market or an exploration replay.
-tags: [method, source-review]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

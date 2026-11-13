@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a delegation to replace a line that cannot continue does not cover poor results; after repeated changes of approach with no gate, the Agent records the next change of approach inside the line and does not select another line.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

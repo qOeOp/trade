@@ -1,6 +1,5 @@
 ---
-description: Honor an explicitly chosen bounded formal research scope without imposing full-pool runs, then distinguish later expansion identity and evidence.
-tags: [method]
+description: Rule check — with the skill, a bounded formal scope the user chose is registered and replayed as the root's first report without forcing a full pool or asking again; the result holds for that scope only, and a later expansion needs a new registration.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

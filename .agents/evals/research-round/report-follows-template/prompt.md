@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a comparison report has every section of the report template in its order, and an empty section is kept with the reason it is empty.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

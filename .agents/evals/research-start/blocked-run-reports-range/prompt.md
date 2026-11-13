@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a replay blocked by a missing market month and a contract whose coverage cannot be read is reported as the exact block, the runnable range and the kept resume state, ending with a question; the Agent may import the missing month itself, but no coin is dropped, no window shortened, no market day switched and the candidate or line is not called failed.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

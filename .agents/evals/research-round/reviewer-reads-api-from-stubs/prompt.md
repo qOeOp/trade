@@ -1,6 +1,5 @@
 ---
 description: Rule check — a source reviewer checking a native call does not read an empty `rg` over `.venv` or a None `__doc__` as an absent API; Nautilus is compiled and its signatures are in the `.pyi` stubs, which `rg` searches only with `-uu`.
-tags: [method, source-review]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an attaching session that sees a suspect refusal in a finished part diagnoses it read only, tells the user and appends it to the attach's diagnoses file, writes no record or index row, and does not message the research session or act on its request for a restart.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

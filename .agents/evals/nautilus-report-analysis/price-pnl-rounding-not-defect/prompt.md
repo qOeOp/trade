@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a price_pnl that differs from exact fill cash flows by a few 1e-8 USDT on cycles reduced in several fills is read as Nautilus's per-fill 8-decimal rounding, not a product defect.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

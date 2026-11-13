@@ -75,7 +75,7 @@
 
 ## 3. 第 4 阶段（技能、eval、设计站、文档）要补的清单
 
-重构 §6 已列的照旧（C9 文本、模板名单、participation、research-start/readiness、eval 里的 `@N`、88 个 skill-fired 评分器、C5 弱 eval、设计站 118 处标记等）。下面是**漏列**的：
+重构 §6 已列的照旧（C9 文本、模板名单、participation、research-start/readiness、eval 里的 `@N`、skill-fired 评分器、C5 弱 eval、设计站 118 处标记等）。下面是**漏列**的：
 
 - fusion 的技能段落和至少 2 个 eval（§S 没写 fusion）；收线「不选窗口」的技能文本。
 - `strategy-authoring.md:181` 仍写「同一合约上的计划不重叠」，与 #2588 矛盾。

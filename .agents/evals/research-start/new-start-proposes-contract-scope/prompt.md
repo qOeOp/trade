@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, each proposed new start states its contract scope and why from its hypothesis or the coverage, inside the one line choice; the contracts are not left as a question of their own and not inherited from the current line.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

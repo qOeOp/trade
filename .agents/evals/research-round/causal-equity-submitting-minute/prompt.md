@@ -1,6 +1,5 @@
 ---
 description: Rule check — equity read in the submitting minute is an order input like a price; it must come from an event strictly earlier than submission, so a source that sizes from equity read at submission fails causal and reads equity at its earlier decision event instead.
-tags: [method, source-review, causal-input-clock]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -34,4 +33,4 @@ def on_bar(self, bar):
 
 causal 该判什么、依据是什么？如果不判通过，源码怎么改？请给出结论和理由。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

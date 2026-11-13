@@ -1,6 +1,5 @@
 ---
 description: Rule check — a source reviewer checking a quantity's rounding and minimum-notional test reads the contract terms from `market coverage`'s `terms` at the precheck's market day, not by grepping product source or guessing a `market terms` command.
-tags: [method, source-review]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

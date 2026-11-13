@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, the readiness check before a session's first replay confirms that the checkout is the current origin/main and the working tree is clean; on a feature-branch checkout the agent holds the replay until that check passes, tells the user the branch or commit, and proposes no product refusal or change to a check.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

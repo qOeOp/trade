@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a month the market-import service skipped is an archive gap no import fills, so neither waiting nor a manual import is offered and the user gets a data or scope choice.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -16,4 +15,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 2021-05 这个月怎么办？写这次就绪检查给我的回答。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

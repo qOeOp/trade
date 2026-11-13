@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an unfavourable out-of-sample result is reported as it is and brought to the user at once, with no new validation registration on another window or universe, no development measures in place of out-of-sample ones, and the rule's source named when asked.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

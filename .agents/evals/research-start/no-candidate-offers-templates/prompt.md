@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an empty ledger brings up template roots as starting options, each marked as not yet replayed on the development window, with no estimated or borrowed performance figures.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

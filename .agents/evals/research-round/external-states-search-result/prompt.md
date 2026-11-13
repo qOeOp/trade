@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, rationale.external always holds either a citation bearing on the changed mechanism or the statement that the named research-sources queries found no prior work, citing the bundle with that search log; a source that does not bear on the change never stands in for that search, and a negative search result is never moved into rationale.local or left out with empty sources.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -16,4 +15,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 请按本仓库的研究流程，直接写出这次登记体的 `rationale` 和 `sources`。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

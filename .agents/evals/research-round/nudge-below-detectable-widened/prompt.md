@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a planned one-constant nudge inside a range whose neighbours already read alike is replaced by a change aimed at the comparison's detectable difference, such as a grid spread far enough to reach it, and the detectable difference is stated.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

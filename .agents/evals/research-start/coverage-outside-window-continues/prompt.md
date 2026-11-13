@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a coverage anomaly that lies outside the development window and touches no input the strategy reads is reported with the full disposition (fact, unproven cause, runnable range, kept state) and the line continues without a data/scope question; no coin, window or commit is changed.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

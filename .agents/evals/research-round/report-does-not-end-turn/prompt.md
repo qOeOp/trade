@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a report, interpretation or priority never ends the turn; after recording the priority the response goes on to publish, precheck, review, register and replay the next experiment in the same turn.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

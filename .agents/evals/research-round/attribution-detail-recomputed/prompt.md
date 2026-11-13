@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a per-contract table is computed from the run's report tables with totals matching the report's slice measure, and the number that drives the next hypothesis is recomputed by another agent before it is used.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a whole-product Human use review opens the IDE pages on its own server over a temporary ledger in their empty, offline and reloaded states, never the user's running IDE, instead of judging them from source.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

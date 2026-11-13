@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a figure from a famous paper is not supplied from memory even as an approximation; it comes from the text with its location, or the claim is marked unread and the file requested.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

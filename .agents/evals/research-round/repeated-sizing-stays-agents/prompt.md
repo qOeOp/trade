@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a sizing value the Agent proposed in a line option stays the Agent's design variable after the user repeats it; the Agent does not record it as user-selected and may still rank a sizing change.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

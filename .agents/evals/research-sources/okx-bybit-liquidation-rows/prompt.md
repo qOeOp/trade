@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, OKX CryptoHFTData sizes are contracts, price is the bankruptcy price, late rows need hours past the window, a 404 may be a gap, and a changed hash may be a correction.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

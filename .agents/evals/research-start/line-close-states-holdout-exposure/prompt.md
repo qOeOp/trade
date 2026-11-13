@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a line's close summary states the holdout's earlier searches (`holdout_prior_trials` and those outside this ledger) and the date of the forward read, after which only Paper and later data are unseen.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

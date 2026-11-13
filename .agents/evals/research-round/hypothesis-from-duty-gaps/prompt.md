@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, the next hypothesis connects relevant strategy policies with attribution evidence and declares its actual changed duties.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

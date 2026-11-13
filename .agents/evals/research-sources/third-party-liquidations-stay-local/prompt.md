@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, CryptoHFTData liquidation files stay out of the ledger and Git (only statistics with file identities are kept), their Binance counts are read as a lower bound knowable at received_time, the finding stays a hypothesis rather than a replay input, and the key is exchanged for a header token instead of going into the URL.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

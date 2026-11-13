@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a result that is negative before fees only lowers the direction in a priority judgment, with its grounds and a re-evaluation condition, and never closes the direction or excludes the candidate.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

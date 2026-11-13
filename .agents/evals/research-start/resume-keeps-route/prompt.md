@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a resumed session reads the ledger first (service, candidates, counts, research state), continues the recorded line without asking again, and does not use handoff or session-memory conclusions the ledger does not hold.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

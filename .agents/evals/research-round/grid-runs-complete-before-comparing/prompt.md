@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, every point of a registered grid is replayed once before any performance measure is read or the next batch is registered, and a new point goes into a new registration.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

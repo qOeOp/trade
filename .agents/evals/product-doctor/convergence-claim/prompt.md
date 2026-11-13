@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, fewer findings, shorter skills and fewer reviewers do not support a claim of progress, and `fixed` does not show that a repair holds.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

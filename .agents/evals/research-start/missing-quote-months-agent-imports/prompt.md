@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, when a chosen quote-execution line's window needs quote months the market holds bars for but no quotes, and the market-import service does not keep those months, the Agent imports them itself with `market import-quotes`, which the pinned market day then reads with no new line record, and adds no acceptance step or licence condition of its own before the import.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

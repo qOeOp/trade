@@ -1,6 +1,5 @@
 ---
 description: Rule check — among four fixed teaching cases, the agent says that a refused validation retry binding (case B, with a changed seed and a membership check against a newer market version) writes nothing and does not consume the registration. Cases A, C and D are context and are not graded.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

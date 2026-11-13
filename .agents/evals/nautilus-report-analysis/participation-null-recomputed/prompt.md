@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, when capital.participation is null (its limitations give the reason), the reading is computed from the kept directory's fills over the one-minute LAST bar at the run's market day, floored to the minute, with the weighting stated.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

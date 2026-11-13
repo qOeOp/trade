@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, among versions differing only in one constant whose comparisons leave them undistinguished, the recommendation picks one whose neighbours on that constant also hold up rather than the highest reading, and gives the neighbours' range of Sharpe and annual return.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

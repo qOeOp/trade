@@ -1,6 +1,5 @@
 ---
-description: Report concrete full-scope blockers without silently replacing the selected first report with a profitable subset run.
-tags: [method]
+description: Rule check — with the skill, concrete blockers of the authorized full formal scope are reported with the scope they affect, a profitable unregistered subset exploration does not replace the formal first report, and narrowing the formal scope waits for the user.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

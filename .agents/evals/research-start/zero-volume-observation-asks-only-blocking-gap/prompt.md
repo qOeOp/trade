@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, zero-volume minutes are reported as official observations without re-verification or a question, MARK gaps of at most 60 minutes are reported as carried at the latest MARK, and only a MARK gap long enough to fail the run with a position open gets the data/scope question; no coin, window or commit is changed and nothing is filled.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

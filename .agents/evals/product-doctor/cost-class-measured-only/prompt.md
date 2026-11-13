@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a finding whose cost nobody measured takes the cost class `unknown`, and a colleague's estimate stays apart from it.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

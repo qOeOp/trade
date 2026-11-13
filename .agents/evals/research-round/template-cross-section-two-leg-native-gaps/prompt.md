@@ -1,6 +1,5 @@
 ---
-description: Require the native evidence relevant to the proposed cross-sectional or paired template, not just simultaneous contracts or ordinary paired fills.
-tags: [method]
+description: Rule check — with the skill, a cross-sectional or paired template needs native evidence of its own joint behavior (joint selection and capital allocation; one leg filling first or alone), not simultaneous contracts or ordinary paired fills, and is not used before the user admits it.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

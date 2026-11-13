@@ -1,6 +1,5 @@
 ---
-description: Review order-input clocks when the daily signal is earlier but the submission-minute close feeds specification checks or sizing.
-tags: [method, causal-input-clock]
+description: Rule check — with the skill, an earlier daily signal does not make an order causal when the submission-minute close feeds a specification check or the quantity; neither candidate passes causal review, and each repair keeps its declared sizing policy and goes through a new revision, precheck and review.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — a source reviewer judges readiness from the source's indicator warm-up (not from research-start's input-coverage check) and activity from whether this precheck filled orders on the order path the change alters, keeping the source-property items apart from the per-run one.
-tags: [method, source-review]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -30,4 +29,4 @@ def on_bar(self, bar):
 
 这两项我各该判什么、依据是什么？请给出结论和理由。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

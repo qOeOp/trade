@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a child header changes only the lines of the duties whose own rule changes; lines whose rule is unchanged are not edited to restate or cite the new rule, and changed_duties names only the changed lines.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

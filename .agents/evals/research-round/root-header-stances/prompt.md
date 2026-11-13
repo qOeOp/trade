@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a root header marks a rule the implementer added as adopted, a method the strategy leaves unused as default rather than not applicable, and what the engine does without a strategy rule as default.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

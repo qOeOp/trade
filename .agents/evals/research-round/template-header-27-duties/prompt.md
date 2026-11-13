@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a root's header starts with the verifiable source and its bundle, then gives all 27 duty lines with a source label each, labelling rules carried to another market or timeframe as 研究者.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a candidate is changed by exporting it to /tmp, editing the copy and publishing it, even when the user proposes editing it in a Git branch.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

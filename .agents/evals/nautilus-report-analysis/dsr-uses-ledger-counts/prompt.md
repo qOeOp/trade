@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a deflated Sharpe takes the effective trial count and the all-purpose trial count of the line's multiple_testing reading in research status as the two ends of a range, with its Sharpe variance, uses skewness and raw kurtosis of the run's daily returns, lists the raw counts, and is never a single value or a gate.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

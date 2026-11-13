@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, the interpretation of a not-significant, losing and zero-fill result states the conditions it was obtained under and when to re-evaluate it, is written before the next registration, and never becomes an exclusion or a claim beyond the registered conditions.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

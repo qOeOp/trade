@@ -1,6 +1,5 @@
 ---
-description: Scoped inferred-quote suitability and explicit evidence limits for low-activity contracts.
-tags: [method]
+description: Rule check — with the skill, complete quote files and a passing native replay show inferred quotes runnable, not suitable for high-leverage KNC liquidation in the stated period; BTC samples do not extend to it, trade gaps are a diagnostic rather than quote age, no uncalibrated cutoff drops coins or days, and the evidence gap goes to the user.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

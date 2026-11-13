@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a source that moves its reduce-only stop to break-even cancels the old stop and submits the new one for the position on its OrderCanceled, never with modify_order or by submitting the new one first (the position's stops would hold more than its quantity, ORDER_RULE); it handles a rejected cancel (the old stop keeps working) and a new stop that is rejected or already past its trigger (close with a reduce-only order), reports any rejection it leaves unhandled through replay_integrity_findings, and does not read a passing audit or an empty hook return as proof that the stop moved.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

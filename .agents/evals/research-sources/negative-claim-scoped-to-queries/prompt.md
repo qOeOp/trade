@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an absence of prior work is written only as "not found by these queries" with the queries and date, and an access failure or unreadable full text is recorded as a search limitation, not as absence.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

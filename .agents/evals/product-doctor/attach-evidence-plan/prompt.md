@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an attach session keeps logs as increments, process samples, ledger heads and output files with time and SHA-256, closes with collectors stopped and a manifest, and names encrypted briefs as a gap instead of inferring them.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

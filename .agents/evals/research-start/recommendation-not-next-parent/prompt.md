@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, the recommendation names the version, its readings and trade-offs, while the next experiment's parent and control get their own reasons; the recommended candidate is not the parent by default and the control is an economically available run.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

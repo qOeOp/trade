@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a research session's first question to the user is checked option by option along the consumer path (can the option register now on the pinned market day and window, does `research state` gate it); findings are reported by measured cost with one id per root cause, and the user-first item names the workstream that missed it.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

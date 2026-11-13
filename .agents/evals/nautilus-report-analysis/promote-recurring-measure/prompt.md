@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a dynamic measure that drove several decisions is proposed for the measure catalogue as a design change with its definition, population and the decisions it drove, and is not used as a fixed measure before that.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

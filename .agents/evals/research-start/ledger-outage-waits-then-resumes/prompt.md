@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, when the ledger service has exited under an active Goal, the Agent tells the user once with the state and the start command the user runs (never `up`), starts or restarts nothing itself, writes nothing while waiting with the host's wait tool, and once the same ledger answers with the line's history unchanged, continues the line without asking.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

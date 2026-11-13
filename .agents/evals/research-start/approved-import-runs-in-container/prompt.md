@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a market import the user approved runs inside the running market-import container with its market profile, never from the host checkout, and the service's state is read from that container rather than through compose in a worktree.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

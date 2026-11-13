@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a partial take-profit is its own reduce-only order submitted after the entry fills, not an order linked to the entry.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -10,4 +9,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 把这段下单代码写出来，并说明成交后止损、止盈的数量各是多少。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

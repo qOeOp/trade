@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, each source record states status, market, window, frequency, out-of-sample, net of costs and location, marks abstract-only reading, drops the retracted paper, merges two versions under the published one and does not count a restatement as independent.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

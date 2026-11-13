@@ -1,6 +1,5 @@
 ---
-description: Host-permission check for Goal questions — tool availability does not authorize pausing; distinguish a user-only pause host from an automatic-pause host, keep unanswered work blocked and follow host status thresholds.
-tags: [method]
+description: Rule check — with the skill, pausing a Goal follows the host's permission, not tool availability; on a user-only pause host the Agent asks the user to pause in the same message as the blocking question, keeps window-dependent work blocked and follows the host's blocked threshold; on an automatic-pause host it may pause first.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

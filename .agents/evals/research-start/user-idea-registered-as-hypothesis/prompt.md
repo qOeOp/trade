@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an idea the user adds when choosing a line becomes one ordinary hypothesis with classified reasons, precheck, independent source review and registration before its replay against a control, never a direct source edit and replay.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

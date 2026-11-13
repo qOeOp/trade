@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, free text written into the ledger (here a registration's conjecture) is in English although the user writes Chinese, and a text longer than two sentences is structured into a lead sentence and short paragraphs or a list.
-tags: [records]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

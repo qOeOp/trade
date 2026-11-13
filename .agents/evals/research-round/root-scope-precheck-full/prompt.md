@@ -1,6 +1,5 @@
 ---
-description: Choose technical prechecks without return selection, then complete the formal first report on the user-selected full scope.
-tags: [method]
+description: Rule check — with the skill, a root's technical precheck is the smallest scenario that exercises the defect, not the best-return week or a full-pool run, and the formal first report still covers the selected full scope after independent review and registration.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

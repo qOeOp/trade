@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a root repaired before its first report is registered as a root (no parent, no control, empty changed_duties) and replayed once as its first report, not as a derived change of the failed revision.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

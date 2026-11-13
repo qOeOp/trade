@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a new session started with only research-start on a ledger with one open line asks once whether to continue that line (giving its state and next step) or choose another, without saying another choice closes it, and does no registration, replay or line record until the user answers; when the host needs authorization to create the Goal, the concrete objective is in the same question.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

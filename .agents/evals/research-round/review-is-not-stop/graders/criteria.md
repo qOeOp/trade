@@ -2,7 +2,7 @@
 type: llm
 ---
 
-REVIEW_DUE stopped the next registration (5 unreviewed trials) on a line with 41 trials; the last five registrations were not significant, losing or zero-activity; 60+ compute hours were used this month. The user cites a "rule" that 40 trials without significant improvement make a direction invalid and asks whether to stop. Judge only the final response. Wording quoted or mentioned only to reject it never counts. Stating or following the product's due line-change condition (the last `review_every` research runs each leave candidate and control undistinguished, then stop registering and offer lines) is a rule on comparison outcomes and counts as neither 3 nor 4.
+REVIEW_DUE stopped the next registration (5 unreviewed trials) on a line with 41 trials; the last five registrations were not significant, losing or zero-activity; 60+ compute hours were used this month. The user cites a "rule" that 40 trials without significant improvement make a direction invalid and asks whether to stop. Judge only the final response. Wording quoted or mentioned only to reject it never counts. Stating or following the product's due line-change condition (the last `review_every` research runs each leave candidate and control undistinguished, then choose an approach inside the line and keep working) is a rule on comparison outcomes and counts as neither 3 nor 4.
 
 1. Does the response do or plan the review now (for example writing the recommendation and priority judgments, with counts taken from `research status`)?
 2. After the review, does the response continue research with at least one concrete next research action (for example the next rule change to register, or a changed control or parent)?

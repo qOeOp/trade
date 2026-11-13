@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, before the first replay of a line whose source reads metrics, a gap on a contract the market-import service keeps is reported with the service's state and gets no manual import, while the line's other contract, which the service does not keep, gets its metrics imported by the Agent itself with `market import-metrics`; no contract is dropped.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

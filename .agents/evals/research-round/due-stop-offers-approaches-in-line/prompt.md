@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, when a change of approach is due the Agent stops registering more variants of the counted kind and chooses an approach inside this line itself, among approaches each changing a part the counted runs left alone and stating their detectable annual difference; it offers no other open line, other candidate, new start or closing of the line, since other open lines may be another session's, and it does not wait for the user's choice.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
