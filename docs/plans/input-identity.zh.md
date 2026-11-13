@@ -119,7 +119,7 @@
 
 ## 5. 重跑
 
-用户后来同意了 [`research-migration.zh.md`](research-migration.zh.md)，重跑和迁移并成一批：这个 PR 和迁移 PR 都合并后，把全部 182 个研究运行放到最新镜像上重放一次，结果相同的就同时认新指纹和新镜像。先在隔离账本上跑完，结果不同的提前知道，不往公开账本写没用的记录。按 §2 的单次用时估计，串行约 3 到 4 小时，先看内存余量。
+用户后来同意了 [`research-migration.zh.md`](https://github.com/qOeOp/trade/blob/d747364d7cb9db0f07dbb617dd40558b6483fec6/docs/plans/research-migration.zh.md)，重跑和迁移并成一批：这个 PR 和迁移 PR 都合并后，把全部 182 个研究运行放到最新镜像上重放一次，结果相同的就同时认新指纹和新镜像。先在隔离账本上跑完，结果不同的提前知道，不往公开账本写没用的记录。按 §2 的单次用时估计，串行约 3 到 4 小时，先看内存余量。
 
 | 记录 | 数量 | 处理 |
 |---|---|---|
@@ -136,7 +136,7 @@
    - 换截至日绑定注册仍是 `EXECUTION_MISMATCH`；截至日之后才上市的合约仍是 `NO_TERMS`。
 2. **从零重建实测：** 空目录、不带条款，全范围导入 30 个合约，看合约池和 BTCUSDT 导出，再复现 373、226。这是重建目录能否使用的最后一个没测过的环节。不一致就停下报告。
 3. PR，合并。没有新回放镜像。服务镜像会变，到时问一次是否重建。
-4. 迁移 PR（`research-migration.zh.md`）。
+4. 迁移 PR（[`research-migration.zh.md`](https://github.com/qOeOp/trade/blob/d747364d7cb9db0f07dbb617dd40558b6483fec6/docs/plans/research-migration.zh.md)）。
 5. 隔离账本上跑完 182 个，结果不同的列给用户。
 6. 正式账本上跑结果相同的。`replay reproduce` 成功时会自动发布，所以记录直接进公开的 DoltHub。
 
@@ -180,7 +180,7 @@
 | `report status` 多读记录的成本 | 实测一次 `matches` 约 3 ms，不是问题 |
 | §7 漏了一些受影响的拒绝 | 已补 |
 
-**实现后的实测修正（2026-11-04）：** 成员文件裁到窗口，会改变策略读到的值。112 个 `9da1…` 运行里有 89 个的源码用 `min(b for a, b in self.membership …)` 当 GTD 挂单的截止时间：裁剪前是 2026-11-01，裁剪后是窗口结束 2026-10-01。在原镜像上复现 229，只有 `orders`、`order_events` 对不上（20 个挂单的 `expire_time`），成交、持仓、敞口、账户、日收益都相同；同一次复现不裁剪，所有表都相同。所以 §2 的“按结果复现”只对另外 23 个成立，这 89 个不能在原镜像上严格复现，要靠 [`research-migration.zh.md`](research-migration.zh.md) 的跨镜像判定（四张表）迁过去。裁剪保留：这些值在窗口之后，本来就不该让策略看到，也只有这样指纹才覆盖策略读到的全部内容。
+**实现后的实测修正（2026-11-04）：** 成员文件裁到窗口，会改变策略读到的值。112 个 `9da1…` 运行里有 89 个的源码用 `min(b for a, b in self.membership …)` 当 GTD 挂单的截止时间：裁剪前是 2026-11-01，裁剪后是窗口结束 2026-10-01。在原镜像上复现 229，只有 `orders`、`order_events` 对不上（20 个挂单的 `expire_time`），成交、持仓、敞口、账户、日收益都相同；同一次复现不裁剪，所有表都相同。所以 §2 的“按结果复现”只对另外 23 个成立，这 89 个不能在原镜像上严格复现，要靠 [`research-migration.zh.md`](https://github.com/qOeOp/trade/blob/d747364d7cb9db0f07dbb617dd40558b6483fec6/docs/plans/research-migration.zh.md) 的跨镜像判定（四张表）迁过去。裁剪保留：这些值在窗口之后，本来就不该让策略看到，也只有这样指纹才覆盖策略读到的全部内容。
 
 审阅核实无误的：引擎不读 `coverage`、`metrics_rule`，只用 `commit`、`timeframe`、`historical_terms` 做核对；`assumed`、`episode` 是真正影响结果的；观测时间只进提示文字，不进报告指纹；所有比较路径都经过 `control_trial`；预检、explore 不依赖已存哈希；验证和纸面交易不用这两个键；没有发现能借复现洗白运行的路径。
 
