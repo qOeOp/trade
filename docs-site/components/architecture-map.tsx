@@ -143,7 +143,8 @@ export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
   const nodeLabel = (id: string) => items.get(id)?.title ?? id;
   const related = selectedItem ? productArchitectureEdges.filter(e => e.source === selectedItem.id || e.target === selectedItem.id) : [];
   const description = selectedItem?.description?.[locale] ?? selectedRelation?.description[locale];
-  const docsRoute = selectedItem?.docsRoute ?? selectedRelation?.docsRoute;
+  // Relations are explained on the platform architecture page.
+  const docsRoute = selectedItem?.docsRoute ?? (selectedRelation ? 'platform-architecture' : undefined);
 
   return <section className="docs-architecture-shell" aria-label={locale === 'zh' ? '产品架构' : 'Product architecture'}>
     <div ref={canvasRef} className={`docs-map-canvas${ready ? ' is-ready' : ''}${zoomed ? ' is-zoomed' : ''}${dragging ? ' is-dragging' : ''}`}
@@ -200,8 +201,8 @@ export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
           className={`docs-map-text tone-${t.tone}${t.relations.includes(activeRelation ?? '') ? ' is-active' : ''}`}>{t.text}</text>)}
         {layout.targets.map(target => <g key={`${target.node}-${target.texts.join()}`} className={`docs-map-target${selectedItem?.id === target.node ? ' is-selected' : ''}`}
           data-map-node={target.node} role="button" tabIndex={0} aria-label={nodeLabel(target.node)}
-          onClick={event => { event.stopPropagation(); selectNode(target.node, target.region); }}
-          onKeyDown={event => activate(event, () => selectNode(target.node, target.region))}>
+          onClick={event => { event.stopPropagation(); selectNode(target.node); }}
+          onKeyDown={event => activate(event, () => selectNode(target.node))}>
           <rect x={target.x} y={target.y} width={target.width} height={target.height} rx={3} />
         </g>)}
         {layout.references.map(target => <g key={target.texts.join()} data-map-reference={target.relation}

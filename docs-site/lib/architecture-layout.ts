@@ -21,10 +21,10 @@ export function createArchitectureLayout(metrics: ReadonlyMap<string, TextMetric
     const r = union(ids.map(id => glyphs.get(id)!));
     return { x: r.x - padding, y: r.y - padding, width: r.width + padding * 2, height: r.height + padding * 2 };
   };
-  const targets: MapTarget[] = textTargets.map(t => ({ ...t, ...hitArea(t.texts, 8), region: false }));
+  const targets: MapTarget[] = textTargets.map(t => ({ ...t, ...hitArea(t.texts, 8) }));
   const references = referenceTargets.map(t => ({ ...t, ...hitArea(t.texts, 6) }));
   return { texts: mapTexts, surfaces: mapSurfaces, routes: mapRoutes, rules: mapRules,
-    decorations: mapDecorations, targets, references, glyphs };
+    decorations: mapDecorations, targets, references };
 }
 
 /** Rounded orthogonal corners retain room for the straight approach to each port. */

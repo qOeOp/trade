@@ -6,7 +6,7 @@ set -euo pipefail
 
 git fetch --quiet origin main
 newest=$(git log -1 --format=%H FETCH_HEAD -- \
-  .github/workflows/docs-pages.yml docs/rd docs/index.mdx docs/index.zh.mdx docs/assets docs-site \
+  .github/workflows/docs-pages.yml docs/rd docs/index.zh.mdx docs/assets docs-site \
   ide/web/fonts .github/actions/ci-paths \
   .github/scripts/ci-paths.py .github/scripts/docs-pages-current.sh)
 if git merge-base --is-ancestor "$newest" "$GITHUB_SHA"; then

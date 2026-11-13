@@ -3,7 +3,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { publishedPages } from './lib/docs-pages.mjs';
+import { entries } from './lib/docs-entries.mjs';
 import { basePath, docsRoute, parentNavigationRoute } from './lib/docs-routes.mjs';
 import { containsNavigationHref, internalDocumentRoutes, navigationMarkup } from './lib/static-navigation.mjs';
 
@@ -93,14 +93,13 @@ try {
     .sort();
   if (routes.length === 0) throw new Error('No exported routes found in docs-site/out');
 
-  const { english, chinese } = await publishedPages();
+  const locales = ['en', 'zh'];
   const expectedRoutes = new Set([
     `${basePath}/`,
     `${basePath}/en/`,
     `${basePath}/zh/`,
     `${basePath}/api/search`,
-    ...[...english].map((page) => docsRoute('en', page)),
-    ...[...chinese].map((page) => docsRoute('zh', page)),
+    ...locales.flatMap((locale) => entries.map(([slug]) => docsRoute(locale, slug))),
   ]);
   const routeSet = new Set(routes);
   const missingRoutes = [...expectedRoutes].filter((route) => !routeSet.has(route)).sort();
@@ -131,24 +130,16 @@ try {
     } else if (body.length === 0) failures.push(`${route}: response body is empty`);
   }
 
-  for (const [locale, pages] of [
-    ['en', english],
-    ['zh', chinese],
-  ]) {
-    for (const page of pages) {
-      const childRoute = docsRoute(locale, page);
-      const parentRoute = parentNavigationRoute(locale, page);
+  for (const locale of locales) {
+    for (const [slug] of entries) {
+      const childRoute = docsRoute(locale, slug);
+      const parentRoute = parentNavigationRoute(locale);
       const parentBody = responseBodies.get(parentRoute);
       if (!parentBody) {
         failures.push(`${childRoute}: navigation parent was not exported (${parentRoute})`);
         continue;
       }
-      const markup = navigationMarkup({
-        body: parentBody,
-        parentRoute,
-        localeHomeRoute: `${basePath}/${locale}/`,
-        childRoute,
-      });
+      const markup = navigationMarkup(parentBody);
       if (!markup) {
         failures.push(`${childRoute}: navigation container missing from ${parentRoute}`);
       } else if (!containsNavigationHref(markup, childRoute, parentRoute)) {
@@ -171,7 +162,7 @@ try {
     throw new Error(`Static route check failed:\n${failures.join('\n')}`);
   }
   console.log(
-    `Static route check passed: ${expectedRoutes.size} expected routes and ${routes.length} exported routes returned non-404 data; ${english.size + chinese.size} localized pages are linked from their navigation parent.`,
+    `Static route check passed: ${expectedRoutes.size} expected routes and ${routes.length} exported routes returned non-404 data; ${locales.length * entries.length} localized pages are linked from their navigation parent.`,
   );
 } finally {
   await new Promise((resolvePromise, reject) =>

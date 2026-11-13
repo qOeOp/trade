@@ -1,7 +1,6 @@
 export const basePath = '/trade';
 
-export function docsRoute(locale, page) {
-  const slug = page.replace(/\.md$/, '');
+export function docsRoute(locale, slug) {
   return `${basePath}/${locale}/docs/${slug === 'index' ? '' : `${slug}/`}`;
 }
 

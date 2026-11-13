@@ -280,7 +280,7 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 /* Reference preview popup: the IDE's popup, hairline and two-layer shadow. */
 .rd-ref-popup { border: 1px solid var(--popup-border); border-radius: var(--radius-popup); background: var(--popup); box-shadow: var(--shadow-popup); }
 
-/* ---------- Research map (home, chapter pages) ---------- */
+/* ---------- Research map (chapter pages) ---------- */
 :root {
   --rd-canvas: var(--island);
   --rd-node: var(--island);
@@ -288,7 +288,6 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
   --rd-node-muted: var(--fg-faint);
   --rd-tile: var(--island-alt);
   --rd-edge: var(--edge-path);
-  --rd-stage-edge: var(--primary);
 }
 .rd-map { position: relative; }
 .rd-map .react-flow { --xy-background-color: var(--rd-canvas); background: var(--rd-canvas); }
@@ -298,9 +297,6 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 .rd-map .react-flow__edges { position: relative; z-index: 0; }
 .rd-handle { opacity: 0 !important; width: 6px !important; height: 6px !important; min-width: 0 !important; min-height: 0 !important; border: 0 !important; }
 .rd-map .rd-edge-flow .react-flow__edge-path { stroke: var(--rd-edge); stroke-width: 1.1; }
-.rd-map .rd-edge-loop .react-flow__edge-path { stroke: var(--rd-stage-edge); stroke-width: 1.4; }
-.rd-map .react-flow__edge-text { fill: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; }
-.rd-map .react-flow__edge-textbg { fill: var(--rd-canvas); }
 .rd-map .react-flow__controls { box-shadow: none; border: 1px solid var(--line-strong); border-radius: var(--radius-control); overflow: hidden; }
 .rd-map .react-flow__controls button { width: 26px; height: 26px; background: var(--island); border-color: var(--line); color: var(--fg-muted); }
 .rd-map .react-flow__controls button:hover { background: var(--hover); }
@@ -308,11 +304,6 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 .rd-map .react-flow__node { transition: opacity var(--t-fast) var(--ease); }
 
 .rd-box-id { font-family: var(--font-mono); font-size: 11px; font-weight: 400; color: var(--rd-node-muted); }
-.rd-col-label { display: flex; align-items: baseline; gap: 0.5rem; height: 100%; padding: 0 0.25rem; color: var(--rd-node-text); font-size: 13px; font-weight: 600; text-decoration: none; }
-.rd-col-label:hover > span:last-child { color: var(--link); }
-/* a chapter's tile: the alternate island on a hairline */
-.rd-tile { width: 100%; height: 100%; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--rd-tile); }
-.rd-tile-head { height: auto; padding: 10px 12px 0; }
 /* a function: a hairline box on the island */
 .rd-func {
   position: relative; width: 100%; height: 100%; border: 1px solid var(--line-strong); border-radius: var(--radius-control);
@@ -322,9 +313,6 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 .rd-func-on { background: color-mix(in oklab, var(--selection) 45%, var(--rd-node)); }
 .rd-func-head { display: flex; align-items: baseline; gap: 0.5rem; padding: 8px 10px 0; color: var(--rd-node-text); text-decoration: none; }
 .rd-func-title { font-size: 12px; font-weight: 600; line-height: 1.3; }
-.rd-func-compact .rd-func-head { padding-top: 0; height: 100%; align-items: center; }
-.rd-func-compact .rd-func-title { font-weight: 400; }
-.rd-func-dim { opacity: 0.4; }
 .rd-func-out { position: absolute; right: 10px; top: 8px; font-size: 11px; color: var(--rd-node-muted); }
 .rd-comp { width: 100%; height: 100%; border-radius: var(--radius-control); background: var(--rd-tile); }
 .rd-comp-head { display: flex; gap: 0.35rem; align-items: baseline; padding: 5px 8px 0; font-size: 11px; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -339,22 +327,6 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 .rd-cap-card:hover, .rd-cap-card.rd-fn-on { border-color: var(--focus); background: color-mix(in oklab, var(--selection) 45%, var(--rd-node)); }
 .rd-fn-dim { opacity: 0.3; }
 .rd-cap-title { font-size: 11px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.rd-map-hint { position: absolute; left: 12px; bottom: 44px; margin: 0; font-size: 11px; color: var(--fg-faint); pointer-events: none; }
-
-/* Chapter detail maps keep their own view switcher. */
-.docs-scenario-tabs {
-  position: relative; z-index: 6; display: flex; flex: 0 0 auto; width: max-content; max-width: calc(100% - 1.5rem);
-  gap: 2px; margin: 0 auto 10px; padding: 2px; overflow-x: auto;
-  border-radius: var(--radius-card); background: var(--frame); scrollbar-width: none;
-}
-.docs-scenario-tabs::-webkit-scrollbar { display: none; }
-.docs-scenario-tabs button {
-  flex: 0 0 auto; height: 24px; padding: 0 10px; border: 0; border-radius: var(--radius-control);
-  color: var(--fg-muted); font-size: 12px; white-space: nowrap;
-  transition: color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
-}
-.docs-scenario-tabs button:hover { color: var(--fg); background: var(--hover); }
-.docs-scenario-tabs button.is-active { background: var(--island); color: var(--fg); font-weight: 600; box-shadow: var(--shadow-raised); }
 
 /* Chapter map: static in the page, full screen on demand. */
 .rd-chapter-map { margin: 1rem 0 1.5rem; }

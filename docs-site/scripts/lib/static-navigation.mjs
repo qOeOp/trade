@@ -8,17 +8,8 @@ function elementMarkup(body, openingMarker, closingTag) {
   return body.slice(start, end + closingTag.length);
 }
 
-export function navigationContainerSelector({ parentRoute, localeHomeRoute, childRoute }) {
-  if (parentRoute === localeHomeRoute) return 'body';
-  const guideRoot = `${localeHomeRoute}docs/guide/`;
-  if (parentRoute === guideRoot && childRoute && !childRoute.startsWith(guideRoot)) return '#nd-page';
-  return '#nd-sidebar, #nd-page';
-}
-
-export function navigationMarkup({ body, parentRoute, localeHomeRoute, childRoute }) {
-  const selector = navigationContainerSelector({ parentRoute, localeHomeRoute, childRoute });
-  if (selector === 'body') return elementMarkup(body, '<body', '</body>');
-  if (selector === '#nd-page') return elementMarkup(body, '<article id="nd-page"', '</article>');
+/** The sidebar and page markup of a docs page, where every chapter must be linked. */
+export function navigationMarkup(body) {
   const containers = [
     elementMarkup(body, '<aside id="nd-sidebar"', '</aside>'),
     elementMarkup(body, '<article id="nd-page"', '</article>'),

@@ -16,8 +16,8 @@ import { useTheme } from 'next-themes';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Locale } from '@/lib/i18n';
 import {
-  CAP_GAP, CAP_H, COMP_GAP, COMP_HEAD, COMP_PAD, FN_GAP, FN_HEAD, FN_PAD, FN_W, LABEL_H,
-  data, flowEdges, flows, mapCopy,
+  CAP_GAP, CAP_H, COMP_GAP, COMP_HEAD, COMP_PAD, FN_HEAD, FN_PAD, FN_W,
+  data, outsideLabel,
   type MapCapability, type MapChapter, type MapComponent, type MapFunction, type Side,
 } from '@/lib/research-map';
 import { packSkyline, packToAspect } from '@/lib/bento';
@@ -35,36 +35,26 @@ function Handles() {
   );
 }
 
-const fnIndex = new Map<string, { fn: MapFunction; chapter: MapChapter }>();
+const functions = new Set<string>();
 const capFn = new Map<string, string>();
 for (const ch of data.chapters) for (const fn of ch.functions) {
-  fnIndex.set(fn.path, { fn, chapter: ch });
+  functions.add(fn.path);
   for (const comp of fn.components) for (const cap of comp.caps) capFn.set(cap.path, fn.path);
 }
 
-type LabelData = { chapter: MapChapter; locale: Locale };
-type FnData = { fn: MapFunction; slug: string; locale: Locale; state: string; outside?: number; compact?: boolean; chapter?: string };
+type FnData = { fn: MapFunction; slug: string; locale: Locale; state: string; outside?: number };
 type CompData = { comp: MapComponent };
 type CapData = { cap: MapCapability; slug: string; locale: Locale; state: string };
 
-function ChapterLabelNode({ data: d }: NodeProps<Node<LabelData>>) {
-  return (
-    <Link href={`/${d.locale}/docs/${d.chapter.slug}/`} className="rd-col-label">
-      <span className="rd-box-id">{d.chapter.num}</span>
-      <span>{d.chapter.title}</span>
-    </Link>
-  );
-}
-
 function FunctionNode({ data: d }: NodeProps<Node<FnData>>) {
   return (
-    <div className={`rd-func rd-func-${d.state} ${d.compact ? 'rd-func-compact' : ''}`}>
+    <div className={`rd-func rd-func-${d.state}`}>
       <Handles />
       <Link href={`/${d.locale}/docs/${d.slug}/#${anchorOf(d.fn.path)}`} className="rd-func-head">
         <span className="rd-box-id">{d.fn.label}</span>
         <span className="rd-func-title">{d.fn.title}</span>
       </Link>
-      {d.outside ? <span className="rd-func-out">{mapCopy.outside[d.locale]} {d.outside}</span> : null}
+      {d.outside ? <span className="rd-func-out">{outsideLabel[d.locale]} {d.outside}</span> : null}
     </div>
   );
 }
@@ -86,22 +76,9 @@ function CapabilityNode({ data: d }: NodeProps<Node<CapData>>) {
   );
 }
 
-function TileNode({ data: d }: NodeProps<Node<LabelData>>) {
-  return (
-    <div className="rd-tile">
-      <Link href={`/${d.locale}/docs/${d.chapter.slug}/`} className="rd-col-label rd-tile-head">
-        <span className="rd-box-id">{d.chapter.num}</span>
-        <span>{d.chapter.title}</span>
-      </Link>
-    </div>
-  );
-}
+const nodeTypes = { func: FunctionNode, comp: ComponentNode, cap: CapabilityNode };
 
-const nodeTypes = { label: ChapterLabelNode, tile: TileNode, func: FunctionNode, comp: ComponentNode, cap: CapabilityNode };
-
-const COMPACT_H = 48;
 const OUTER_GAP = 26;
-const TILE_PAD = 12;
 const base = { draggable: false, selectable: false } as const;
 type Rect = { x: number; y: number; w: number; h: number };
 
@@ -121,33 +98,9 @@ function unitsFor(fn: MapFunction) {
   return capsOf(fn) > 7 && fn.components.length > 1 ? 2 : 1;
 }
 
-// Overview: each chapter is a tile holding compact function cards in one or two columns.
-function overviewLayout(locale: Locale, aspect: number) {
-  const chapters = data.chapters;
-  const cols = (ch: MapChapter) => (ch.functions.length > 3 ? 2 : 1);
-  const tileH = (ch: MapChapter) => LABEL_H + Math.ceil(ch.functions.length / cols(ch)) * (COMPACT_H + FN_GAP / 2) + TILE_PAD;
-  const board = packToAspect(chapters.map((ch) => ({ id: ch.prefix, units: cols(ch), height: tileH(ch) })), FN_W, OUTER_GAP, aspect);
-  const nodes: Node[] = [];
-  const rects = new Map<string, Rect>();
-  for (const p of board.placed) {
-    const ch = chapters.find((c) => c.prefix === p.id)!;
-    nodes.push({ id: `tile-${ch.prefix}`, type: 'tile', position: { x: p.x, y: p.y }, data: { chapter: ch, locale }, style: { width: p.width, height: p.height }, width: p.width, height: p.height, zIndex: -1, ...base });
-    const k = cols(ch);
-    const cardW = (p.width - 2 * TILE_PAD - (k - 1) * TILE_PAD) / k;
-    ch.functions.forEach((fn, i) => {
-      const x = TILE_PAD + (i % k) * (cardW + TILE_PAD);
-      const y = LABEL_H + Math.floor(i / k) * (COMPACT_H + FN_GAP / 2);
-      nodes.push({ id: fn.path, type: 'func', parentId: `tile-${ch.prefix}`, extent: 'parent', position: { x, y }, data: { fn, slug: ch.slug, locale, state: 'idle', compact: true }, style: { width: cardW, height: COMPACT_H }, width: cardW, height: COMPACT_H, zIndex: 2, ...base });
-      rects.set(fn.path, { x: p.x + x, y: p.y + y, w: cardW, h: COMPACT_H });
-    });
-  }
-  return { nodes, rects };
-}
-
-// A flow: its functions as bento tiles; big functions take two columns and lay their components out side by side.
-function flowLayout(fnPaths: string[], locale: Locale, outside: Map<string, number>, aspect: number) {
-  const entries = fnPaths.map((p) => fnIndex.get(p)).filter(Boolean) as { fn: MapFunction; chapter: MapChapter }[];
-  const sized = entries.map(({ fn }) => {
+// A chapter: its functions as bento tiles; big functions take two columns and lay their components out side by side.
+function chapterLayout(chapter: MapChapter, locale: Locale, outside: Map<string, number>, aspect: number) {
+  const sized = chapter.functions.map((fn) => {
     const units = unitsFor(fn);
     const width = units * FN_W + (units - 1) * OUTER_GAP;
     return { fn, units, width, inner: functionLayout(fn, width, units) };
@@ -157,8 +110,7 @@ function flowLayout(fnPaths: string[], locale: Locale, outside: Map<string, numb
   const rects = new Map<string, Rect>();
   for (const p of board.placed) {
     const s = sized.find((x) => x.fn.path === p.id)!;
-    const { chapter } = fnIndex.get(p.id)!;
-    nodes.push({ id: s.fn.path, type: 'func', position: { x: p.x, y: p.y }, data: { fn: s.fn, slug: chapter.slug, chapter: chapter.prefix, locale, state: 'idle', outside: outside.get(s.fn.path) }, style: { width: p.width, height: p.height }, width: p.width, height: p.height, zIndex: -1, ...base });
+    nodes.push({ id: s.fn.path, type: 'func', position: { x: p.x, y: p.y }, data: { fn: s.fn, slug: chapter.slug, locale, state: 'idle', outside: outside.get(s.fn.path) }, style: { width: p.width, height: p.height }, width: p.width, height: p.height, zIndex: -1, ...base });
     rects.set(s.fn.path, { x: p.x, y: p.y, w: p.width, h: p.height });
     for (const cp of s.inner.packed.placed) {
       const comp = s.fn.components.find((c) => c.path === cp.id)!;
@@ -183,18 +135,12 @@ function facing(a: Rect, b: Rect): { from: Side; to: Side } {
   return dy >= 0 ? { from: 'b', to: 't' } : { from: 't', to: 'b' };
 }
 
-// `chapter` draws one chapter's sections only (chapter pages); `interactive` enables pan and zoom.
-export function ResearchMap({ locale, chapter, interactive = true }: { locale: Locale; chapter?: string; interactive?: boolean }) {
+// One chapter's functions, components and capabilities; `interactive` enables pan and zoom.
+export function ResearchMap({ locale, chapter, interactive = true }: { locale: Locale; chapter: string; interactive?: boolean }) {
   const { resolvedTheme } = useTheme();
-  const [tab, setTab] = useState<string>(chapter ? 'chapter' : 'overview');
   const [hovered, setHovered] = useState<string | null>(null);
   const [aspect, setAspect] = useState(1.8);
   const box = useRef<HTMLDivElement>(null);
-  const chapterFlow = useMemo(() => {
-    const ch = chapter ? data.chapters.find((c) => c.prefix === chapter) : undefined;
-    return ch ? { id: 'chapter', title: { zh: ch.title, en: ch.title }, functions: ch.functions.map((f) => f.path) } : undefined;
-  }, [chapter]);
-  const flow = chapterFlow ?? flows.find((f) => f.id === tab);
 
   useEffect(() => {
     const el = box.current;
@@ -207,32 +153,28 @@ export function ResearchMap({ locale, chapter, interactive = true }: { locale: L
   }, []);
 
   const { baseNodes, rects, links } = useMemo(() => {
-    if (!flow) {
-      const o = overviewLayout(locale, aspect);
-      return { baseNodes: o.nodes, rects: o.rects, links: [] as [string, string][] };
-    }
-    const inFlow = new Set(flow.functions);
+    const ch = data.chapters.find((c) => c.prefix === chapter)!;
+    const inChapter = new Set(ch.functions.map((f) => f.path));
     const inside: [string, string][] = [];
     const outside = new Map<string, number>();
     for (const [a, b] of data.links) {
       const fa = capFn.get(a)!, fb = capFn.get(b)!;
-      if (inFlow.has(fa) && inFlow.has(fb)) inside.push([a, b]);
-      else if (inFlow.has(fa)) outside.set(fa, (outside.get(fa) ?? 0) + 1);
-      else if (inFlow.has(fb)) outside.set(fb, (outside.get(fb) ?? 0) + 1);
+      if (inChapter.has(fa) && inChapter.has(fb)) inside.push([a, b]);
+      else if (inChapter.has(fa)) outside.set(fa, (outside.get(fa) ?? 0) + 1);
+      else if (inChapter.has(fb)) outside.set(fb, (outside.get(fb) ?? 0) + 1);
     }
-    const l = flowLayout(flow.functions, locale, outside, aspect);
+    const l = chapterLayout(ch, locale, outside, aspect);
     return { baseNodes: l.nodes, rects: l.rects, links: inside };
-  }, [flow, locale, aspect]);
+  }, [chapter, locale, aspect]);
 
   const lit = useMemo(() => {
     if (!hovered) return null;
     const ids = new Set<string>([hovered]);
-    const isFn = fnIndex.has(hovered);
+    const isFn = functions.has(hovered);
     for (const [a, b] of links) {
       const hit = isFn ? capFn.get(a) === hovered || capFn.get(b) === hovered : a === hovered || b === hovered;
       if (hit) { ids.add(a); ids.add(b); }
     }
-    for (const e of flowEdges) if (e.source === hovered || e.target === hovered) { ids.add(e.source); ids.add(e.target); }
     return ids;
   }, [hovered, links]);
 
@@ -244,41 +186,27 @@ export function ResearchMap({ locale, chapter, interactive = true }: { locale: L
 
   const edges = useMemo<Edge[]>(() => {
     const out: Edge[] = [];
-    const curve = (id: string, a: string, b: string, cls: string, color: string, on: boolean, label?: string): Edge | null => {
+    for (const [a, b] of links) {
       const ra = rects.get(a), rb = rects.get(b);
-      if (!ra || !rb) return null;
+      if (!ra || !rb) continue;
       const f = facing(ra, rb);
-      return ({
-        id, source: a, target: b, sourceHandle: `s-${f.from}`, targetHandle: `t-${f.to}`, type: 'smoothstep', pathOptions: { borderRadius: 10, offset: 18 }, className: cls,
-        // the edge layer sits between the boxes and the cards (global.css), so a line never runs through a label
+      const on = !lit || (lit.has(a) && lit.has(b));
+      out.push({
+        id: `link-${a}-${b}`, source: a, target: b, sourceHandle: `s-${f.from}`, targetHandle: `t-${f.to}`, type: 'smoothstep', pathOptions: { borderRadius: 10, offset: 18 }, className: 'rd-edge-flow',
+        // the edge layer sits between the boxes and the cards (global.css), so a line never runs through a card
         zIndex: 0,
-        // labels only for the edges of what is hovered; at rest the curves stay quiet
-        label: hovered && on ? label : undefined, markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color },
-        style: { opacity: !hovered ? 0.35 : on ? 1 : 0.06 }, labelBgPadding: [5, 2] as [number, number], labelBgBorderRadius: 4,
-      }) as Edge;
-    };
-    if (!flow) {
-      for (const e of flowEdges) {
-        const loop = e.kind === 'loop';
-        const on = !hovered || e.source === hovered || e.target === hovered;
-        const edge = curve(`flow-${e.source}-${e.target}`, e.source, e.target, loop ? 'rd-edge-loop' : 'rd-edge-flow', loop ? 'var(--rd-stage-edge)' : 'var(--rd-edge)', on, e.label[locale]);
-        if (edge) out.push(edge);
-      }
-    } else {
-      for (const [a, b] of links) {
-        const on = !lit || (lit.has(a) && lit.has(b));
-        const edge = curve(`link-${a}-${b}`, a, b, 'rd-edge-flow', 'var(--rd-edge)', on);
-        if (edge) out.push(edge);
-      }
+        markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: 'var(--rd-edge)' },
+        style: { opacity: !hovered ? 0.35 : on ? 1 : 0.06 },
+      } as Edge);
     }
     return out;
-  }, [flow, links, rects, hovered, lit, locale]);
+  }, [links, rects, hovered, lit]);
 
   return (
     <div className="rd-map flex h-full w-full flex-col">
       <div ref={box} className="min-h-0 flex-1">
       <ReactFlow
-        key={`${tab}-${Math.round(aspect * 4)}`}
+        key={Math.round(aspect * 4)}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -302,16 +230,6 @@ export function ResearchMap({ locale, chapter, interactive = true }: { locale: L
         {interactive ? <Controls showInteractive={false} position="bottom-right" /> : null}
       </ReactFlow>
       </div>
-      {chapter ? null : <>
-      <div className="docs-scenario-tabs" role="tablist" aria-label={mapCopy.overview[locale]}>
-        {[{ id: 'overview', title: mapCopy.overview }, ...flows].map((f) => (
-          <button key={f.id} type="button" role="tab" aria-selected={tab === f.id} className={tab === f.id ? 'is-active' : ''} onClick={() => { setTab(f.id); setHovered(null); }}>
-            {f.title[locale]}
-          </button>
-        ))}
-      </div>
-      <p className="rd-map-hint">{mapCopy.hover[locale]}</p>
-      </>}
     </div>
   );
 }

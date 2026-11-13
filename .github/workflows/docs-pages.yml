@@ -67,7 +67,6 @@ jobs:
           cache: npm
           cache-dependency-path: docs-site/package-lock.json
       - run: npm ci --prefix docs-site
-      - run: npm run check:i18n --prefix docs-site
       - run: npm run build --prefix docs-site
       - run: npm run check:routes --prefix docs-site
       - if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { Locale } from '@/lib/i18n';
 
 type Field = {
   type: ReactNode;
@@ -7,7 +8,7 @@ type Field = {
 };
 
 /** Static field reference: keep the explanation beside the name and type. */
-export function TypeTable({ type, lang = 'en' }: { type: Record<string, Field>; lang?: string }) {
+export function TypeTable({ type, lang }: { type: Record<string, Field>; lang: Locale }) {
   const labels = lang === 'zh'
     ? { field: '字段', type: '类型', description: '说明', optional: '可选' }
     : { field: 'Field', type: 'Type', description: 'Description', optional: 'Optional' };
