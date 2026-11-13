@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import { CoinChip, type Coin } from "../../components/CoinMenu";
+import { CoinChip, CoinMenu, type Coin, type CoinGroup } from "../../components/CoinMenu";
 import { Tabs } from "../../components/Tabs";
+import { sideOf } from "../../model/liveChart";
 import type { LiveRun } from "../../model/liveTrading";
 import { useLandscape, usePhone } from "../../state/phone";
 import { useTargets } from "../../state/shown";
@@ -10,20 +11,25 @@ import { liveLine, liveReading } from "./liveEquity";
 
 export type LiveView = "equity" | "coins";
 
-/** The side the run's contract holds, from its latest native position event: none once the run ended. */
-function sideOf(run: LiveRun, symbol: string): Coin["side"] {
-  const last = run.ended ? null : (run.positions ?? []).filter((p) => p.instrument_id === `${symbol}-PERP.BINANCE`).at(-1);
-  return last && last.event_type !== "PositionClosed" && (last.side === "LONG" || last.side === "SHORT") ? last.side : null;
-}
-
 /** The live chart's switch, as the paper chart's (ChartSwitches): Equity, reading the run's account and its
  *  return on the budget beside its label (a phone held upright leaves them out), or Coins, holding the
- *  run's one contract in a capsule with the side it holds. */
-export function LiveSwitches({ run, view, onView }: { run: LiveRun; view: LiveView; onView: (view: LiveView) => void }) {
-  const phone = usePhone(), landscape = useLandscape(), reading = liveReading(run.equity), symbol = run.symbols?.[0] ?? null;
+ *  contract `symbol` shown in a capsule with the side it holds; a run on several contracts picks another from
+ *  its menu (holding, traded, not traded). */
+export function LiveSwitches({ run, view, symbol, onView, onSymbol }: {
+  run: LiveRun; view: LiveView; symbol: string | null; onView: (view: LiveView) => void; onSymbol: (symbol: string) => void;
+}) {
+  const phone = usePhone(), landscape = useLandscape(), reading = liveReading(run.equity), symbols = run.symbols ?? [];
+  const coinOf = (s: string): Coin => ({ symbol: s, side: sideOf(run, s) });
+  const traded = new Set((run.orders ?? []).filter((o) => o.event_type === "OrderFilled").map((o) => o.instrument_id));
+  const held = symbols.filter((s) => sideOf(run, s)), rest = symbols.filter((s) => !sideOf(run, s));
+  const groups: CoinGroup[] = [{ title: "Holding", list: held }, { title: "Traded", list: rest.filter((s) => traded.has(`${s}-PERP.BINANCE`)) },
+    { title: "Not traded", list: rest.filter((s) => !traded.has(`${s}-PERP.BINANCE`)) }]
+    .filter((g) => g.list.length).map((g) => ({ title: g.title, coins: g.list.map(coinOf) }));
+  const after = view !== "coins" || !symbol ? undefined
+    : symbols.length > 1 ? <CoinMenu groups={groups} coin={coinOf(symbol)} onPick={onSymbol} /> : <CoinChip coin={coinOf(symbol)} />;
   return <Tabs label="Chart" value={view} onChange={onView} items={[
     { id: "equity", label: reading && !(phone && !landscape) ? <>Equity<EquityReading equity={reading} /></> : "Equity" },
-    { id: "coins", label: "Coins", disabled: !symbol, hint: "No contract", after: view === "coins" && symbol ? <CoinChip coin={{ symbol, side: sideOf(run, symbol) }} /> : undefined },
+    { id: "coins", label: "Coins", disabled: !symbol, hint: "No coins", after },
   ]} />;
 }
 

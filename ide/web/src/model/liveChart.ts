@@ -1,4 +1,4 @@
-// What a live run's chart draws: its contract's minutes around the run and the run's own native fills. Live
+// What a live run's chart draws: one of its contracts' minutes around the run and the run's own native fills there. Live
 // keeps no equity or bar series, so the window is read from the run's observations: its first native
 // event or account observation to its terminal one, or now while it runs.
 import { symbolOf } from "../lib/paperApi";
@@ -11,10 +11,16 @@ const MINUTE = 60_000, PAD = 60 * MINUTE, LONGEST = 3 * 24 * 60 * MINUTE;
 const ms = (ns: string | null | undefined) => (ns ? Number(ns) / 1e6 : NaN);
 const decimals = (v: unknown) => (typeof v === "string" && v.includes(".") ? v.split(".")[1]!.length : 0);
 
-/** The chart of `run` at `now` (ms), or null while nothing places it in time. */
-export function liveChart(run: LiveRun, now: number): LiveChart | null {
-  const symbol = run.symbols?.[0];
-  if (!symbol) return null;
+/** The side `run` holds on contract `symbol`, from its latest native position event: none once the run ended. */
+export function sideOf(run: LiveRun, symbol: string): "LONG" | "SHORT" | null {
+  const last = run.ended ? null : (run.positions ?? []).filter((p) => p.instrument_id === `${symbol}-PERP.BINANCE`).at(-1);
+  return last && last.event_type !== "PositionClosed" && (last.side === "LONG" || last.side === "SHORT") ? last.side : null;
+}
+
+/** The chart of `run`'s contract `symbol` (its first by default) at `now` (ms), or null while nothing places it in
+ *  time. The window is the run's, on every contract. */
+export function liveChart(run: LiveRun, now: number, symbol: string | null = run.symbols?.[0] ?? null): LiveChart | null {
+  if (!symbol || !run.symbols?.includes(symbol)) return null;
   const events = [...(run.orders ?? []), ...(run.positions ?? [])];
   const times = [...events.map((e) => ms(e.ts_event ?? e.observed_ns)), ms(run.observedNs?.account)].filter(Number.isFinite);
   if (!times.length) return null;
@@ -29,7 +35,8 @@ export function liveChart(run: LiveRun, now: number): LiveChart | null {
     return o.event_type === "OrderFilled" && symbolOf(o.instrument_id) === symbol && Number.isFinite(at) && o.last_px != null && o.last_qty != null && px > 0
       ? [{ ms: at, symbol, buy: o.order_side === "BUY", px, qty, opening: null, exit: null, line: { kind: "order", wall_ns: at * 1e6, ...o } }] : [];
   });
-  const priced = (run.orders ?? []).flatMap((o) => [o.last_px, o.price, o.trigger_price]);
+  const own = (run.orders ?? []).filter((o) => symbolOf(o.instrument_id) === symbol);
   return { symbol, from, to, running, fills: shown,
-           places: Math.max(1, ...priced.map(decimals)), size: Math.max(0, ...(run.orders ?? []).flatMap((o) => [o.last_qty, o.quantity]).map(decimals)) };
+           places: Math.max(1, ...own.flatMap((o) => [o.last_px, o.price, o.trigger_price]).map(decimals)),
+           size: Math.max(0, ...own.flatMap((o) => [o.last_qty, o.quantity]).map(decimals)) };
 }

@@ -10,12 +10,12 @@ import { CandleChart } from "../paper/CandleChart";
 const NONE: never[] = [];
 const MINUTE = 60_000;
 
-/** A live run's contract as the paper chart draws one: Binance's public one-minute candles around the run
+/** One contract of a live run as the paper chart draws one: Binance's public one-minute candles around the run
  *  and its own native fills as arrows, unnetted, so no position box. Live keeps no equity series, so there
- *  is no equity view; while the run executes the minutes are read again each minute. Mounted per run. */
-export function LiveChart({ run }: { run: LiveRun }) {
+ *  is no equity view; while the run executes the minutes are read again each minute. Mounted per run and contract. */
+export function LiveChart({ run, symbol }: { run: LiveRun; symbol: string | null }) {
   const [now, setNow] = useState(() => Date.now()), [tries, setTries] = useState(0);
-  const plan = useMemo(() => liveChart(run, now), [run, now]);
+  const plan = useMemo(() => liveChart(run, now, symbol), [run, now, symbol]);
   const [read, setRead] = useState<{ key: string; got: FetchedMinutes } | null>(null);
   // The last window read whole: kept drawn while the next is read, and when a read fails.
   const [drawn, setDrawn] = useState<{ head: string; bars: JournalLine[] } | null>(null);
