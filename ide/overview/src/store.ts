@@ -49,8 +49,7 @@ export class Store {
   funding = new Map<string, number>();
   intervals = new Map<string, number>();
   interest = new Map<string, Interest>();
-  moves = new Map<string, Moves>();
-  lines = new Map<string, Line>();
+  moves = new Map<string, Moves & { line: Line }>();
   ratios = new Map<string, number>();
   ids = new Map<string, string>();
   caps = new Map<string, Cap>();
@@ -97,7 +96,7 @@ export class Store {
    *  Binance first; null for a contract not in the list. */
   coin(symbol: string): CoinDetail | null {
     const contract = this.contracts.find((c) => c.symbol === symbol);
-    return contract ? { symbol, line: this.lines.get(symbol) ?? [], venues: this.venueRows(contract, this.liquidations.byCoin()) } : null;
+    return contract ? { symbol, line: this.moves.get(symbol)?.line ?? [], venues: this.venueRows(contract, this.liquidations.byCoin()) } : null;
   }
 
   /** The last week's headlines, the newest first, each with the contracts of the coins it names: by

@@ -13,7 +13,7 @@ import type { CoinDetail, NewsItem, Snapshot } from "./store.ts";
 export type Reads = { snapshot(): Snapshot; coin(symbol: string): CoinDetail | null; news(): NewsItem[] };
 export type Minutes = { read(symbol: string, from: number, to: number): Promise<Minute[]> };
 
-export function app(hosts: ReadonlySet<string>, reads: Reads, minutes: Minutes | null = null) {
+export function app(hosts: ReadonlySet<string>, reads: Reads, minutes: Minutes) {
   return async (request: IncomingMessage, response: ServerResponse) => {
     const send = (status: number, body: unknown) => {
       const text = JSON.stringify(body);
@@ -31,7 +31,7 @@ export function app(hosts: ReadonlySet<string>, reads: Reads, minutes: Minutes |
       const symbol = url.searchParams.get("symbol") ?? "", coin = reads.coin(symbol);
       return coin ? send(200, coin) : send(404, { code: "UNKNOWN_SYMBOL", message: `no contract ${symbol}` });
     }
-    if (path === "/api/overview/minutes" && minutes) {
+    if (path === "/api/overview/minutes") {
       const q = url.searchParams, symbol = q.get("symbol") ?? "", from = Number(q.get("from")), to = Number(q.get("to"));
       if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || to <= from || to - from > MAX_MINUTES * 60_000)
         return send(400, { code: "BAD_REQUEST", message: `from and to are ms, to after from, at most ${MAX_MINUTES} minutes apart` });

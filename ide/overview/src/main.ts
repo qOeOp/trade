@@ -49,8 +49,10 @@ const bybitHost = new Host("https://api.bybit.com"), okxHost = new Host("https:/
 type Rows = Record<string, unknown>[];
 type Klines = unknown[][];
 void every(HOUR, async () => {
-  await store.refresh("contracts", async () => { store.contracts = contracts(await binance.json("/fapi/v1/exchangeInfo")); });
-  await store.refresh("funding", async () => { store.intervals = fundingIntervals(await binance.json<Rows>("/fapi/v1/fundingInfo")); });
+  await store.refresh("contracts", async () => {
+    store.contracts = contracts(await binance.json("/fapi/v1/exchangeInfo"));
+    store.intervals = fundingIntervals(await binance.json<Rows>("/fapi/v1/fundingInfo"));
+  });
 }, binance);
 void every(MINUTE, async () => {
   await store.refresh("quotes", async () => { store.quotes = quotes(await binance.json<Rows>("/fapi/v1/ticker/24hr")); });
@@ -74,7 +76,7 @@ void (async () => {
       await store.refresh("moves", async () => {
         const read = moves(await binance.json<Klines>(`/fapi/v1/klines?symbol=${s}&interval=5m&limit=49`),
                            await binance.json<Klines>(`/fapi/v1/klines?symbol=${s}&interval=1h&limit=169`));
-        store.moves.set(symbol, read); store.lines.set(symbol, read.line);
+        store.moves.set(symbol, read);
       });
       if (round % 2 === 0) await store.refresh("ratios", async () => {
         const ratio = longShort(await binance.json<Rows>(`/futures/data/globalLongShortAccountRatio?symbol=${s}&period=5m&limit=1`));
@@ -86,17 +88,15 @@ void (async () => {
   }
 })();
 
-// The other exchanges: tickers every 5 minutes, after the contract details that give Bitget's and Gate's
-// funding periods when those are an hour old or have not arrived.
+// The other exchanges: tickers every 5 minutes, and with them, when an hour old or not yet arrived, the
+// contract details that give Bitget's and Gate's funding periods (read before their tickers) and OKX's
+// contract sizes for its liquidations (read after its tickers). A failure of either shows as that
+// exchange's.
 let bitgetContracts: Rows = [], gateContracts: Rows = [], okxValues = new Map<string, number>(), contractsAt = -Infinity;
 const data = <T,>(body: { data?: T }) => body.data ?? ([] as T);
 void every(5 * MINUTE, async () => {
-  if (Date.now() - contractsAt >= HOUR || !bitgetContracts.length || !gateContracts.length || !okxValues.size) {
-    contractsAt = Date.now();
-    await store.refresh("bitget", async () => { bitgetContracts = data(await bitgetHost.json<{ data?: Rows }>("/api/v2/mix/market/contracts?productType=USDT-FUTURES")); });
-    await store.refresh("gate", async () => { gateContracts = await gateHost.json<Rows>("/api/v4/futures/usdt/contracts"); });
-    await store.refresh("okx", async () => { okxValues = okxContractValues(await okxHost.json("/api/v5/public/instruments?instType=SWAP")); });
-  }
+  const due = Date.now() - contractsAt >= HOUR || !bitgetContracts.length || !gateContracts.length || !okxValues.size;
+  if (due) contractsAt = Date.now();
   await store.refresh("bybit", async () => {
     const list = (await bybitHost.json<{ result?: { list?: Rows } }>("/v5/market/tickers?category=linear")).result?.list ?? [];
     store.venues.set("Bybit", bybit(list));
@@ -106,11 +106,16 @@ void every(5 * MINUTE, async () => {
   await store.refresh("okx", async () => {
     store.venues.set("OKX", okx(data(await okxHost.json<{ data?: Rows }>("/api/v5/public/open-interest?instType=SWAP")),
                                 data(await okxHost.json<{ data?: Rows }>("/api/v5/public/funding-rate?instId=ANY"))));
+    if (due) okxValues = okxContractValues(await okxHost.json("/api/v5/public/instruments?instType=SWAP"));
   });
   await store.refresh("bitget", async () => {
+    if (due) bitgetContracts = data(await bitgetHost.json<{ data?: Rows }>("/api/v2/mix/market/contracts?productType=USDT-FUTURES"));
     store.venues.set("Bitget", bitget(data(await bitgetHost.json<{ data?: Rows }>("/api/v2/mix/market/tickers?productType=USDT-FUTURES")), bitgetContracts));
   });
-  await store.refresh("gate", async () => { store.venues.set("Gate", gate(await gateHost.json<Rows>("/api/v4/futures/usdt/tickers"), gateContracts)); });
+  await store.refresh("gate", async () => {
+    if (due) gateContracts = await gateHost.json<Rows>("/api/v4/futures/usdt/contracts");
+    store.venues.set("Gate", gate(await gateHost.json<Rows>("/api/v4/futures/usdt/tickers"), gateContracts));
+  });
   await store.refresh("hyperliquid", async () => { store.venues.set("Hyperliquid", hyperliquid(await hyperliquidHost.json("/info", { type: "metaAndAssetCtxs" }))); });
 });
 

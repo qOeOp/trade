@@ -10,7 +10,7 @@ node and npm:
 python3 ide/ide.py check GRAPH.json
 python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z
 uv run --frozen python ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE]
-node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
+node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--host=127.0.0.1] [--port=8766]
 node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
 ```
 
@@ -68,9 +68,8 @@ the agents (provider, key, models, last test) in `DIR/agents.json` (mode 0600, n
 the page sees the key's last four characters) and the threads in `DIR/threads/`. An agent is
 active once a model passes its test: the key lists models, the model replies, and it calls a tool
 and uses the result. Its tools are the product's read-only commands, run as `uv run python -m
-cli.main` with `--ledger=PROFILE` (`research state`, `research status`, `candidate list`,
-`candidate show`, `replay report`, `ledger sql`, `market coverage`); `agent/src/tools.ts` is the
-list, and the model can do nothing else. It checks the same Host and cross-site rules and takes
+cli.main` with `--ledger=PROFILE`; `agent/src/tools.ts` is the list, and the model can do nothing
+else. It checks the same Host and cross-site rules and takes
 only JSON bodies. `npm test` and `npm run check` in `agent/`. Design:
 [`docs/plans/product-agent-chat-design.zh.md`](../docs/plans/product-agent-chat-design.zh.md).
 
@@ -99,7 +98,8 @@ Hyperliquid's read-only `info` query, which that host takes as a POST, plus the 
 Binance, Bybit and OKX push over public WebSockets), and the headlines of six crypto RSS feeds, Binance
 Square and the announcements of Binance, Bybit, OKX and Bithumb, and for the whole market alternative.me,
 DefiLlama's stablecoins, Coinbase, Binance spot, Kraken, Upbit and Deribit; it keeps everything in memory, and answers
-`/api/overview/health`, `/api/overview/snapshot`, `/api/overview/coin?symbol=` and `/api/overview/news`.
+`/api/overview/health`, `/api/overview/snapshot`, `/api/overview/coin?symbol=`, `/api/overview/news` and
+`/api/overview/minutes?symbol=&from=&to=` (a contract's one-minute klines for a live run's chart).
 `npm test` and `npm run check` in `overview/`. Design:
 [`docs/plans/ide-market-overview.zh.md`](../docs/plans/ide-market-overview.zh.md).
 
