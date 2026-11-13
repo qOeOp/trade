@@ -10,8 +10,7 @@ function filled() {
   store.funding = new Map([["BTCUSDT", 0.0001]]);
   store.ids = new Map([["BTCUSDT", "bitcoin"]]);
   store.caps = new Map([["bitcoin", { name: "Bitcoin", marketCap: 1.57e12, fdv: 1.6e12 }]]);
-  store.moves = new Map([["BTCUSDT", { back1h: 62344, back4h: null, back7d: 77930 * 2 }]]);  // the windows measured against the latest price
-  store.lines = new Map([["BTCUSDT", [[1793000000, 76000], [1793003600, 77000]]]]);
+  store.moves = new Map([["BTCUSDT", { back1h: 62344, back4h: null, back7d: 77930 * 2, line: [[1793000000, 76000], [1793003600, 77000]] }]]);  // the windows measured against the latest price
   store.interest = new Map([["BTCUSDT", { oi: 8e9, oiChange24h: 2.5 }]]);
   store.ratios = new Map([["BTCUSDT", 1.8]]);
   store.intervals = new Map([["NEWUSDT", 4]]);

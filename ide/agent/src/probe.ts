@@ -4,10 +4,9 @@
 import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 import { fingerprint, type Agent, type Probe, type Step } from "./agents.ts";
-import { languageModel, listModels } from "./providers.ts";
+import type { listModels } from "./providers.ts";
 
 export type ProbeDeps = { list: typeof listModels; model: (agent: Agent, model: string) => LanguageModel };
-const DEFAULTS: ProbeDeps = { list: listModels, model: languageModel };
 const TOKEN = "pong-7319";
 const TIMEOUT = 90_000;
 
@@ -27,7 +26,7 @@ const ping = tool({
   execute: async () => ({ token: TOKEN }),
 });
 
-export async function probe(agent: Agent, deps: ProbeDeps = DEFAULTS): Promise<Probe> {
+export async function probe(agent: Agent, deps: ProbeDeps): Promise<Probe> {
   const steps: Step[] = [];
   const usable: string[] = [];
   const key = await step("key", null, async () => `${(await deps.list(agent)).length} models listed`);

@@ -18,7 +18,7 @@ const get = (port: number, path: string, method: string, host: string) => new Pr
   }).on("error", reject).end();
 });
 
-async function serving(run: (call: (path: string, init?: { method?: string; host?: string }) => Promise<Answer>) => Promise<void>, minutes: Minutes | null = null) {
+async function serving(run: (call: (path: string, init?: { method?: string; host?: string }) => Promise<Answer>) => Promise<void>, minutes = new Minutes(klines([]))) {
   const server: Server = createServer(app(new Set(["127.0.0.1:8768"]), store(), minutes));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
@@ -47,7 +47,7 @@ const MIN = 60_000;
 /** Binance's klines for a request path, `n` minutes from startTime, never past endTime. */
 const klines = (asked: string[], fail = false) => ({ json: async <T>(path: string): Promise<T> => {
   asked.push(path);
-  if (fail) throw new HttpError(429, "https://fapi.binance.com answered 429, paused 60 s");
+  if (fail) throw new HttpError("https://fapi.binance.com answered 429, paused 60 s");
   const q = new URLSearchParams(path.split("?")[1]), from = Number(q.get("startTime")), end = Number(q.get("endTime")), limit = Number(q.get("limit"));
   const rows = [];
   for (let t = from; t <= end && rows.length < limit; t += MIN) rows.push([t, "1", "3", "0.5", "2", "10", t + MIN - 1]);

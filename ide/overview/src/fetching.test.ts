@@ -6,7 +6,7 @@ test("a 429 or 418 pauses every request to that host for its Retry-After, at lea
   let now = 0, calls = 0;
   const answers = [new Response("", { status: 418, headers: { "retry-after": "120" } }), new Response("{\"ok\":1}")];
   const host = new Host("https://fapi.example", async () => { calls++; return answers.shift()!; }, () => now);
-  await assert.rejects(host.json("/a"), (e) => e instanceof HttpError && e.status === 418);
+  await assert.rejects(host.json("/a"), (e) => e instanceof HttpError && /answered 418, paused 120 s/.test(e.message));
   assert.equal(host.wait(), 120_000);
   await assert.rejects(host.json("/b"), /paused/);
   assert.equal(calls, 1);  // the paused request never left

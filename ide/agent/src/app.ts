@@ -8,7 +8,6 @@ import { z } from "zod";
 import { KeyRequired, PROVIDERS, publicAgent, type AgentStore } from "./agents.ts";
 import { chat, ChatRefusal, type ChatDeps } from "./chat.ts";
 import { probe, type ProbeDeps } from "./probe.ts";
-import { ProviderError } from "./providers.ts";
 import type { ThreadStore } from "./threads.ts";
 
 export type Deps = { agents: AgentStore; threads: ThreadStore; hosts: ReadonlySet<string>; chat: Omit<ChatDeps, "store">; probe: ProbeDeps };
@@ -82,7 +81,7 @@ export function app(deps: Deps): Hono {
     try {
       return c.json({ models: await deps.probe.list(agent) });
     } catch (error) {
-      return refuse(c, 502, "PROVIDER_REFUSED", error instanceof ProviderError ? error.message : String(error));
+      return refuse(c, 502, "PROVIDER_REFUSED", error instanceof Error ? error.message : String(error));
     }
   });
   api.post("/agents/:id/test", async (c) => {
