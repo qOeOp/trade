@@ -14,6 +14,7 @@ from live import state
 SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 RUNTIME = re.compile(r"ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}\Z")
+SYMBOL = re.compile(r"[A-Z0-9]+USDT\Z")
 DEFAULT_KEYS = frozenset({"duration_seconds", "leverage"})  # the operator's defaults
 # A run's choices: also its drawdown brake, which defaults to the user's maximum-drawdown target and can only be
 # tighter (engine.live_brake). Its cash floor is a share of the wallet at its first arming, not a choice.
@@ -71,16 +72,18 @@ def run_config(value, keys: frozenset = CONFIG_KEYS) -> dict:
 @dataclass(frozen=True)
 class Source:
     """A candidate Live may run: preparation reads its bytes from the research ledger at research_at and refuses
-    any other source hash or entry class (live.runs.prepare_locked)."""
+    any other source hash or entry class (live.runs.prepare_locked). `symbols` are the contracts it trades, one
+    instance each: those of its replay evidence (the user, 2026-11-13)."""
     source_id: str
     candidate: str
     source_sha256: str
     entry_class: str
     purpose: str
+    symbols: tuple[str, ...]
 
     def view(self) -> dict:
         return {"source_id": self.source_id, "candidate": self.candidate, "source_sha256": self.source_sha256,
-                "entry_class": self.entry_class, "purpose": self.purpose}
+                "entry_class": self.entry_class, "purpose": self.purpose, "symbols": list(self.symbols)}
 
 
 @dataclass(frozen=True)
@@ -91,7 +94,6 @@ class Configuration:
     research_at: str
     runtime: str
     universe_file: Path
-    symbols: list[str]
     sources: dict[str, Source]
     defaults: dict
     memory: str
@@ -100,29 +102,28 @@ class Configuration:
 
 def load(path: Path) -> Configuration:
     value = fields(state.read(path), {"format", "root", "socket", "research_ledger", "research_at", "runtime",
-                                     "universe_file", "symbols", "sources", "defaults", "memory", "market_root"})
+                                     "universe_file", "sources", "defaults", "memory", "market_root"})
     if value["format"] != "live-control-v1":
         raise fail()
-    symbols = value["symbols"]
-    if not isinstance(symbols, list) or len(symbols) != 1:
-        raise fail()
-    text(symbols[0], re.compile(r"[A-Z0-9]+USDT\Z"))
     rows = value["sources"]
     if not isinstance(rows, list) or not rows:
         raise fail()
     sources = {}
     for row in rows:
-        row = fields(row, {"source_id", "candidate", "source_sha256", "entry_class", "purpose"})
+        row = fields(row, {"source_id", "candidate", "source_sha256", "entry_class", "purpose", "symbols"})
         source_id = text(row["source_id"], SOURCE_ID)
-        if source_id in sources or row["purpose"] not in ("natural", "controlled"):
+        symbols = row["symbols"]
+        if source_id in sources or row["purpose"] not in ("natural", "controlled") or not isinstance(symbols, list) \
+                or not symbols or len(set(symbols)) != len(symbols):
             raise fail()
         sources[source_id] = Source(source_id, text(row["candidate"], re.compile(r"[a-zA-Z0-9_.-]+@[1-9][0-9]*\Z")),
                                     text(row["source_sha256"], DIGEST),
-                                    text(row["entry_class"], re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")), row["purpose"])
+                                    text(row["entry_class"], re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")), row["purpose"],
+                                    tuple(text(symbol, SYMBOL) for symbol in symbols))
     return Configuration(root=absolute(value["root"]), socket=absolute(value["socket"]),
                          research_ledger=absolute(value["research_ledger"]),
                          research_at=text(value["research_at"], re.compile(r"[0-9a-v]{32}\Z")),
                          runtime=text(value["runtime"], RUNTIME), universe_file=absolute(value["universe_file"]),
-                         symbols=symbols, sources=sources, defaults=run_config(value["defaults"], DEFAULT_KEYS),
+                         sources=sources, defaults=run_config(value["defaults"], DEFAULT_KEYS),
                          memory=text(value["memory"], re.compile(r"[1-9][0-9]*[mg]\Z")),
                          market_root=absolute(value["market_root"]))

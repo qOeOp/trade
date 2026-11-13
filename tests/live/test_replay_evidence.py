@@ -112,7 +112,7 @@ class EvidenceReadAheadTests(unittest.TestCase):
 
     def test_listing_reports_checking_then_the_answer_and_rereads_only_an_unknown_one(self):
         self.assertNotIn("evidence", control.listing(self.config)["sources"][0])  # no reader: as an older control
-        self.assertEqual(control.listing(self.config)["symbols"], ["BTCUSDT"])
+        self.assertEqual(control.listing(self.config)["sources"][0]["symbols"], ["BTCUSDT"])
         evidence = control.Evidence()
         self.assertEqual(control.listing(self.config, evidence=evidence)["sources"][0]["evidence"],
                          {"state": "checking", "replays": [], "tolerance": str(EVIDENCE_TOLERANCE)})

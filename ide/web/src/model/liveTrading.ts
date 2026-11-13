@@ -9,6 +9,8 @@ export type LiveEvidence = { source: string; cursor: string | null; observedNs: 
 export type LiveSource = {
   id: string; candidate: string; sourceHash: string; entryClass: string;
   purpose: "natural" | "controlled";
+  /** The contracts it trades, one strategy instance each. */
+  symbols: readonly string[];
   /** Replay evidence read ahead of preparation; undefined when this Live service does not report it. */
   evidence?: { state: "checking" | "found" | "missing" | "unknown"; replays: readonly { trialId: number; balance: string }[]; tolerance: string };
 };
@@ -62,8 +64,6 @@ export type LiveTradingView = {
   /** Why new actions are refused now, as a code (a failed read, or the service's write reason); null when they are
    *  accepted. The launch page words it plainly. */
   reason?: string | null;
-  /** The contracts a run trades; null when this Live service does not report them. */
-  symbols?: readonly string[] | null;
   credentials: readonly LiveCredential[]; sources: readonly LiveSource[]; planFields: readonly LivePlanField[];
   runs: readonly LiveRun[]; request: LiveRequest | null; requests?: readonly LiveRequest[];
   notify?: LiveNotify | null;

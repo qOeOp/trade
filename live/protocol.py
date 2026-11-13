@@ -12,4 +12,4 @@ record the new number's baseline in place of the old one. tests/live/test_protoc
 ide/web/scripts/liveProtocol.test.mjs hold the code to it.
 """
 
-PROTOCOL = 6
+PROTOCOL = 7

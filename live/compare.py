@@ -159,16 +159,14 @@ def cut(pack: Mapping, until: int) -> dict:
 
 
 def window(pack: Mapping) -> tuple[int, int]:
-    """[start, end): from the warm-up's T to the close of the last one-minute bar the source received (none is
-    recorded after a stop was asked for)."""
+    """[start, end): from the warm-up's T to the close of the last one-minute bar the sources received on any
+    contract (none is recorded after a stop was asked for)."""
     warmed = next((row for row in pack["events"] if row.get("event") == "warmup" and isinstance(row.get("at_ns"), int)),
                   None)
     if warmed is None:
         raise refuse("LIVE_COMPARE_EMPTY", "the run's journal has no warm-up: its source never started",
                      missing=("warmup",))
-    symbol = pack["manifest"]["symbols"][0]
-    minute = f"{symbol}-PERP.BINANCE-{shared.MINUTE_BAR}"
-    closes = [row["ts_event"] for row in pack["market"] if row.get("kind") == "bar" and row.get("bar_type") == minute]
+    closes = [row["ts_event"] for row in pack["market"] if row.get("kind") == "bar" and row.get("bar_type") in _minutes(pack)]
     start = warmed["at_ns"]
     end = max(closes, default=start) + shared.MILLISECOND_NS
     if end <= start + shared.MINUTE_NS:
@@ -188,20 +186,27 @@ def wallet(pack: Mapping) -> tuple[str, dict]:
     return format(value.normalize(), "f"), snapshot
 
 
-def _fees(snapshot: Mapping, symbol: str) -> dict | None:
-    rates = ((snapshot.get("symbols") or {}).get(symbol) or {}).get("commission") or {}
-    if "makerCommissionRate" not in rates or "takerCommissionRate" not in rates:
-        return None
-    return {"maker": rates["makerCommissionRate"], "taker": rates["takerCommissionRate"]}
+def _minutes(pack: Mapping) -> set[str]:
+    """The one-minute bar type of each of the run's contracts."""
+    return {f"{symbol}-PERP.BINANCE-{shared.MINUTE_BAR}" for symbol in pack["manifest"]["symbols"]}
+
+
+def _fees(snapshot: Mapping, symbols: list[str]) -> dict:
+    """{symbol: {maker, taker}}: the account's commission on each contract the observation reported."""
+    found = {}
+    for symbol in symbols:
+        rates = ((snapshot.get("symbols") or {}).get(symbol) or {}).get("commission") or {}
+        if "makerCommissionRate" in rates and "takerCommissionRate" in rates:
+            found[symbol] = {"maker": rates["makerCommissionRate"], "taker": rates["takerCommissionRate"]}
+    return found
 
 
 def journal(pack: Mapping, start: int) -> list[dict]:
-    """The pack as a Paper journal's lines, for ledger.paper's funding: the start, the one-minute bars and the
-    position events, in the order they were written."""
-    symbol = pack["manifest"]["symbols"][0]
-    minute = f"{symbol}-PERP.BINANCE-{shared.MINUTE_BAR}"
+    """The pack as a Paper journal's lines, for ledger.paper's funding: the start, each contract's one-minute bars and
+    the position events, in the order they were written."""
+    minutes = _minutes(pack)
     rows = [(row.get("wall_ns") or 0, {**row, "kind": "bar"}) for row in pack["market"]
-            if row.get("kind") == "bar" and row.get("bar_type") == minute]
+            if row.get("kind") == "bar" and row.get("bar_type") in minutes]
     rows += [(row.get("observed_ns") or 0, {**row["native"], "kind": "position"}) for row in pack["events"]
              if row.get("event") == "position" and isinstance(row.get("native"), dict)]
     return [{"kind": "started", "input_start_ns": start}] + [line for _, line in sorted(rows, key=lambda item: item[0])]
@@ -224,7 +229,6 @@ def gate(events: list[dict]) -> dict:
 
 def run_record(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dict]) -> dict:
     """The pack as replay.reconcile.compare reads a run."""
-    symbol = pack["manifest"]["symbols"][0]
     funding = sorted((item["settlement_ns"], item["funding"]) for item in settled)
     equity, applied, paid = [], 0, Decimal(0)
     for row in sorted((row for row in pack["events"] if row.get("event") == "minute_result"
@@ -237,7 +241,7 @@ def run_record(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dic
     return {"bars": [row for row in pack["market"] if row.get("kind") == "bar"], "gate": gate(pack["events"]),
             "warmup": shared.received_warmup(row for row in pack["market"] if row.get("kind") == "historical_bar"),
             "events": pack["orders"], "settlements": settled, "equity": equity,
-            "terms": dict((pack["manifest"].get("market") or {}).get("terms") or {}), "fees": _fees(snapshot, symbol)}
+            "terms": dict((pack["manifest"].get("market") or {}).get("terms") or {}), "fees": _fees(snapshot, list(pack["manifest"]["symbols"]))}
 
 
 def _percentile(values: list[int], share: float) -> int | None:

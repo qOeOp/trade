@@ -637,7 +637,7 @@ class LiveHostBoundaryTests(unittest.TestCase):
         for path in self.inputs:
             path.write_text("{}")
         self.declared = {"format": DECLARATION, "root": str(self.root), "research_ledger": str(self.inputs[0]),
-                         "research_at": "a" * 32, "universe_file": str(self.inputs[1]), "symbols": ["BTCUSDT"],
+                         "research_at": "a" * 32, "universe_file": str(self.inputs[1]),
                          "sources": [{"source_id": "example"}],
                          "defaults": {}, "memory": "2g", "market_root": str(self.base)}
         self.web = DockerHost(Config(state=self.base / "release"))

@@ -46,12 +46,12 @@ class LiveWebControlTests(unittest.TestCase):
                     "socket": str(self.directory / "socket" / "live.sock"),
                     "research_ledger": str(self.directory / "unused-reader.json"), "research_at": "a" * 32,
                     "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64,
-                    "universe_file": str(self.universe), "symbols": ["BTCUSDT"], "memory": "2g",
+                    "universe_file": str(self.universe), "memory": "2g",
                     "defaults": {"duration_seconds": 8100, "leverage": "3"}, "market_root": "/unused-market",
                     "sources": [{"source_id": "example", "candidate": "example@1",
                                  "entry_class": "Example",
                                  "source_sha256": hashlib.sha256(self.source.read_bytes()).hexdigest(),
-                                 "purpose": "controlled"}]}
+                                 "purpose": "controlled", "symbols": ["BTCUSDT"]}]}
         self.authority = install(self, self.root, self.raw, release_state=self.directory / "i")
         self.config_file, self.config, self.raw = self.authority.file, self.authority.config, self.authority.raw
         self.binding = self.authority.binding
@@ -309,6 +309,21 @@ class LiveWebControlTests(unittest.TestCase):
         duplicate = copy.deepcopy(self.raw)
         duplicate["sources"].append(duplicate["sources"][0])
         self.config_file.write_bytes(state.encode(duplicate))
+        with self.assertRaises(ValueError):
+            configuration.load(self.config_file)
+
+    def test_each_source_names_its_own_distinct_contracts_and_the_declaration_none(self):
+        two = copy.deepcopy(self.raw)
+        two["sources"][0]["symbols"] = ["BTCUSDT", "ETHUSDT"]
+        self.config_file.write_bytes(state.encode(two))
+        self.assertEqual(configuration.load(self.config_file).sources["example"].symbols, ("BTCUSDT", "ETHUSDT"))
+        for symbols in ([], ["BTCUSDT", "BTCUSDT"], ["btcusdt"], "BTCUSDT"):
+            wrong = copy.deepcopy(self.raw)
+            wrong["sources"][0]["symbols"] = symbols
+            self.config_file.write_bytes(state.encode(wrong))
+            with self.subTest(symbols=symbols), self.assertRaises(ValueError):
+                configuration.load(self.config_file)
+        self.config_file.write_bytes(state.encode({**self.raw, "symbols": ["BTCUSDT"]}))
         with self.assertRaises(ValueError):
             configuration.load(self.config_file)
 

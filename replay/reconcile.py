@@ -464,15 +464,20 @@ def warmup(received: Mapping[str, Mapping[str, Mapping]], archived: Mapping[str,
 
 
 def terms(symbols: Iterable[str], run_terms: Mapping[str, Mapping], replay_terms: Mapping[str, Mapping],
-          run_fees: Mapping | None, replay_fees: Mapping | None) -> dict:
-    """Per contract, the run's contract terms and the account's fee rates against the replay's: {differs: [...]
-    (engine.terms_changed, the replay's as the market's), fees: [...]}; terms either side lacks are not compared."""
+          run_fees: Mapping[str, Mapping] | None, replay_fees: Mapping | None) -> dict:
+    """Per contract, the run's contract terms and its fee rates on that contract ({symbol: {maker, taker}}) against
+    the replay's: {differs: [...] (engine.terms_changed, the replay's as the market's), fees: [...]}; terms either
+    side lacks are not compared."""
     from engine.config import terms_changed
-    fees = [f"{name}: run {(run_fees or {}).get(name)}, replay {(replay_fees or {}).get(name)}"
-            for name in ("maker", "taker") if run_fees and replay_fees
-            and Decimal(str(run_fees[name])) != Decimal(str(replay_fees[name]))]
+
+    def fees(symbol: str) -> list[str]:
+        run = (run_fees or {}).get(symbol)
+        return [f"{name}: run {run.get(name)}, replay {replay_fees.get(name)}"
+                for name in ("maker", "taker") if run and replay_fees
+                and Decimal(str(run[name])) != Decimal(str(replay_fees[name]))]
     return {symbol: {"differs": terms_changed(dict(replay_terms[symbol]), dict(run_terms[symbol]))
-                     if symbol in run_terms and symbol in replay_terms else [], "fees": fees} for symbol in symbols}
+                     if symbol in run_terms and symbol in replay_terms else [], "fees": fees(symbol)}
+            for symbol in symbols}
 
 
 # Attribution
@@ -598,7 +603,7 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
             reports: Path | None, start: int, end: int, *, archived_warmup: Mapping | None = None,
             replay_terms: Mapping | None = None, replay_fees: Mapping | None = None) -> dict:
     """A run against its replay. `run`: {bars, warmup ({instrument: {period: digest}}), events (native order
-    events), settlements (funding), equity ([(minute, value)]), terms ({symbol: terms}), fees ({maker, taker})}.
+    events), settlements (funding), equity ([(minute, value)]), terms ({symbol: terms}), fees ({symbol: {maker, taker}})}.
     `replay_events` None means the replay wrote no order events: its orders are unknown, not none."""
     found = bars(run.get("bars") or [], archive, start, end)
     warmed = warmup(run.get("warmup") or {}, archived_warmup or {})

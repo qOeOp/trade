@@ -143,9 +143,9 @@ export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<str
     : home.write_reason ?? "Live actions are unavailable in this deployment.";
   return {
     availability: "ready", preview: false, notice: home.write_enabled ? null : unavailable,
-    reason: home.write_enabled ? null : home.write_reason ?? "LIVE_WRITE_DISABLED", symbols: home.symbols ?? null,
+    reason: home.write_enabled ? null : home.write_reason ?? "LIVE_WRITE_DISABLED",
     credentials: home.credentials.map((item) => ({ ref: item.credential_ref, savedAt: item.observed_ns, selected: item.selected, available: item.available, removed: item.removed, runIds: item.referenced_runs })),
-    sources: home.sources.map((item) => ({ id: item.source_id, candidate: item.candidate, sourceHash: item.source_sha256, entryClass: item.entry_class, purpose: item.purpose,
+    sources: home.sources.map((item) => ({ id: item.source_id, candidate: item.candidate, sourceHash: item.source_sha256, entryClass: item.entry_class, purpose: item.purpose, symbols: item.symbols,
       ...item.evidence ? { evidence: { state: item.evidence.state, tolerance: item.evidence.tolerance,
         replays: item.evidence.replays.map((row) => ({ trialId: row.trial_id, balance: row.starting_balance_usdt })) } } : {} })),
     planFields: [

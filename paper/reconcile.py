@@ -111,7 +111,9 @@ def reconcile(profile: db.LedgerProfile, market: dict, at: str | None, paper_id:
         output / "replay", f"trade-paper-reconcile-{runs.ledger_key(profile)}-{paper_id}", timeout)
     settled = records.settlements(lines, records.published_settlements(lines, seal.get("stopped_ns")))
     compared = compare(lines, events, archive, reports, start, end, settled, terms=run_terms,
-                       fees=row["config"].get("fees"), **context)
+                       # The account's one rate on each contract it ran.
+                       fees={symbol: row["config"]["fees"] for symbol in symbols} if row["config"].get("fees") else None,
+                       **context)
     result = {"format": FORMAT, "kind": "paper", "paper_id": paper_id, "candidate": row["config"]["candidate"],
               "source_sha256": row["source_sha256"], "image_ref": row["image_ref"], "market_day": market_day,
               "window": {"start": _utc(start), "end": _utc(end)}, "fees": row["config"].get("fees"),

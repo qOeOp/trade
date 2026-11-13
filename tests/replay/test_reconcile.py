@@ -214,7 +214,7 @@ class Attribution(unittest.TestCase):
     def test_fee_rates_unlike_the_replays_explain_only_a_fee_difference(self):
         run = bracket("p", close_of(1), close_of(1), "P")
         run[1] = {**run[1], "commission": "0.09 USDT"}
-        fees = {"fees": {"maker": "0.00018", "taker": "0.00045"}, "replay_fees": {"maker": "0.0002", "taker": "0.0005"}}
+        fees = {"fees": {"BTCUSDT": {"maker": "0.00018", "taker": "0.00045"}}, "replay_fees": {"maker": "0.0002", "taker": "0.0005"}}
         group = compared(run, bracket("r", close_of(1), close_of(1), "R"), **fees)["groups"][0]
         self.assertEqual((group["stage"], group["cause"]), ("fee", "contract_terms"))
         group = compared(bracket("p", close_of(1), close_of(1), "P", px="100.5"), bracket("r", close_of(1), close_of(1), "R"),
