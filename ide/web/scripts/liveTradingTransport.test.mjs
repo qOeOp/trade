@@ -269,7 +269,7 @@ test("an explicit closed receipt clears the stale missing-request notice", async
   } }));
   await h.state.liveTrading.get().actions.resolveRequest("unclaimed-request");
   const view = h.state.liveTrading.get().view;
-  assert.equal(view.request.code, "LIVE_REQUEST_CLOSED_UNCLAIMED");
+  assert.equal(view.requests.at(-1).code, "LIVE_REQUEST_CLOSED_UNCLAIMED");
   assert.doesNotMatch(view.notice ?? "", /LIVE_REQUEST_MISSING/);
   assert.equal(h.pending.pendingLiveRequests().length, 0);
   assert.equal(h.calls.filter((call) => call.method === "POST").length, 1);

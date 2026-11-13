@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import { ANNUAL_DAYS } from "../../model/account";
 import { meets } from "../../model/semantics";
 import { duration } from "../../lib/format";
 import { signed } from "../../lib/paperApi";
@@ -22,8 +23,6 @@ export type Facts = {
   stats?: { pf: N; avgWin: N; avgLoss: N; perTrade: N; hold: N; inMarket: N; streak: N; stale: boolean };
 };
 
-/** A paper run's return is annualized once it has run this long. */
-export const ANNUAL_DAYS = 30;
 const digits = (n: number) => (Math.abs(n) * 100).toFixed(2);
 const pct = (n: number, places = 2) => `${(Math.abs(n) * 100).toFixed(places)}%`;
 const sign = (n: number, plus = true) => (n > 0 && plus ? "+" : n < 0 ? "−" : "");

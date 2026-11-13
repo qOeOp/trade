@@ -40,7 +40,7 @@ export function Shell() {
   const overview = useOverviewService(), market = overview === "present" || overview === "offline";
   const { open, size, last } = useShell(), page = toolPage(last.left);
   const windows = useMemo(() => toolWindows(view.widgets, agent, market, page), [view.widgets, agent, market, page]);
-  const actions = useMemo(() => commands(windows), [windows]);
+  const actions = useMemo(() => commands(windows, market), [windows, market]);
   useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.whileTyping }] : []))), [actions]);
   const shown = (side: Side) => windows.find((w) => w.side === side && w.id === open[side]);
   const left = shown("left"), right = shown("right"), bottom = shown("bottom");
@@ -62,7 +62,7 @@ export function Shell() {
       <RunDriver />
       <MainToolbar />
       <div className="flex min-h-0 min-w-0">
-        <Stripe side="left" windows={windows} />
+        <Stripe side="left" windows={windows} actions={actions} />
         <Group orientation="horizontal" className="min-w-0 flex-1" onLayoutChanged={keep}>
           {left && <>{side("left", left)}<Separator /></>}
           <Panel id="centre" minSize={EDITOR_MIN}>
@@ -75,7 +75,7 @@ export function Shell() {
           </Panel>
           {right && <><Separator />{side("right", right)}</>}
         </Group>
-        <Stripe side="right" windows={windows} />
+        <Stripe side="right" windows={windows} actions={actions} />
       </div>
       <StatusBar />
       <CommandPalette lineage={lineage} actions={actions} />

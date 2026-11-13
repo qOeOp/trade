@@ -24,7 +24,7 @@ export function PaperButton({ id }: { id: string }) {
     else startDialog.set(id);
   };
   const label = pendingStart ? "Starting paper…" : pendingStop ? "Stopping paper…" : run ? "Stop and seal" : "Run paper…";
-  const tip = pendingStart ? <Waiting since={since} />
+  const tip = pendingStart ? <StartWait since={since} />
     : run || busy ? label : limit ?? label;
   return (
     <Tip side="bottom" content={tip}>
@@ -44,7 +44,7 @@ function Spinner() {
 }
 
 /** The tip of a ▶ whose start is in flight: how long it has waited and what the server is doing. */
-function Waiting({ since }: { since: number }) {
+function StartWait({ since }: { since: number }) {
   const now = useNow(1000);
   return <span>Starting paper · {waited(now - since)} <span className="text-fg-faint">· preparing image and containers; the Runs page opens when it is accepted</span></span>;
 }

@@ -14,7 +14,7 @@ const found = { state: "found", replays: [{ trialId: 12, balance: "95" }], toler
 const source = (evidence) => ({ id: "s", candidate: "rsi@4", sourceHash: HASH, entryClass: "Rsi", purpose: "natural", symbols: ["BTCUSDT"], ...evidence === undefined ? {} : { evidence } });
 const key = { ref: "abcdef0123456789", savedAt: null, selected: true, available: true, runIds: [] };
 const view = (over = {}) => ({ availability: "ready", notice: null, reason: null, credentials: [key], sources: [source(found)],
-  planFields: fields, runs: [], request: null, notify: { configured: true, lastSentNs: null, lastError: null, dropped: 0 }, ...over });
+  planFields: fields, runs: [], requests: [], notify: { configured: true, lastSentNs: null, lastError: null, dropped: 0 }, ...over });
 const checked = (over = {}) => ({ id: "web-check", candidate: "rsi@4", sourceHash: HASH, config, host: [], running: false, ended: true,
   hostState: "preflight_complete", accountOwned: false, accountCheck: { state: "passed", readAt: null },
   venue: { canTrade: true, hedgeMode: true, multiAssets: true, wallet: "100", available: "98" }, ...over });

@@ -7,13 +7,10 @@ import { useLiveAction, LiveActionFailure } from "../../components/LiveActionSta
 import { Icon } from "../../icons/Icon";
 import { fixed } from "../../lib/paperApi";
 import type { LiveRun } from "../../model/liveTrading";
-import { liveHeld, liveStatus, liveWorking, marked, type Held, type Working } from "../../model/phoneRuns";
+import { liveHeld, liveStatus, liveWorking, marked, protects, type Held, type Working } from "../../model/phoneRuns";
 import { useLiveTrading } from "../../state/liveTrading";
 import { useSnapshot } from "../../state/market";
 import { Version } from "./RunCards";
-
-/** A working order that protects a held position: a trigger on the other side of its contract. */
-const protects = (o: Working, held: readonly Held[]) => o.trigger !== null && held.some((h) => h.symbol === o.symbol && o.buy === !h.long);
 
 type Step = { text: ReactNode; state: "done" | "doing" | "todo" | "failed" };
 const ICON = { done: "passed", doing: "loading", todo: "untested", failed: "failed" } as const;
@@ -49,7 +46,7 @@ function steps(run: LiveRun, outcome: string | undefined, held: readonly Held[],
 export function StopSheet({ run, open, onClose }: { run: LiveRun; open: boolean; onClose: () => void }) {
   const { view, actions } = useLiveTrading(), action = useLiveAction(), [sent, setSent] = useState(false);
   const held = marked(liveHeld(run), useSnapshot()?.coins), working = liveWorking(run);
-  const request = [...(view.requests ?? [])].reverse().find((r) => r.action === "stop" && r.target.run_id === run.id);
+  const request = [...view.requests].reverse().find((r) => r.action === "stop" && r.target.run_id === run.id);
   const send = () => { setSent(true); void action.submit(() => actions.stop?.(run.id)); };
   return (
     <Sheet open={open} onClose={onClose} title={sent ? "Stopping the Live run" : "Stop this Live run?"}>

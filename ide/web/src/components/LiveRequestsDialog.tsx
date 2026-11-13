@@ -7,7 +7,7 @@ import { useLiveAction } from "./LiveActionState";
 export function LiveRequestsDialog({ view, actions, close, selectRun }: {
   view: LiveTradingView; actions: LiveTradingActions; close: () => void; selectRun: (id: string) => void;
 }) {
-  const reading = useLiveAction(), requests = view.requests ?? (view.request ? [view.request] : []);
+  const reading = useLiveAction(), requests = view.requests;
   return <LiveDialogFrame open close={close} title="Live request status" description="Review earlier actions without submitting them again."
     footer={<FormButton disabled={!actions.refresh || reading.busy} onClick={() => { if (actions.refresh) void reading.submit(actions.refresh); }}>{reading.busy ? "Reading…" : "Refresh status"}</FormButton>}>
     <div className="space-y-3">
