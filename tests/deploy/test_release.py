@@ -520,6 +520,12 @@ class PruneTests(unittest.TestCase):
             live = LiveHost(web, Mock())
             with patch.object(LiveHost, "declaration_value", return_value={"root": str(custody)}):
                 self.assertEqual(live.runtimes(), {"r-a", "r-b", "r-c", "r-d", "r-run"}, "a Live run never pulls again")
+                # A confirmed switch's image and each image a launch ran on stay too (design §3.8); a partial last
+                # line names nothing yet.
+                (custody / "runs" / "live-1" / "lifecycle.jsonl").write_text(
+                    json.dumps({"event": "runtime_switch_requested", "runtime": {"image_ref": "r-new"}}) + "\n"
+                    + json.dumps({"event": "launch_requested", "image_ref": "r-launched"}) + "\n" + '{"event": "lau')
+                self.assertEqual(live.runtimes(), {"r-a", "r-b", "r-c", "r-d", "r-run", "r-new", "r-launched"})
             LiveHost(web, Mock()).prune({A})
             web.managed.assert_called_once_with(LIVE)
             self.assertEqual(sorted(path.name for path in root.iterdir()),

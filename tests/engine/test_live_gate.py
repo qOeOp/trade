@@ -518,6 +518,76 @@ class GateTests(unittest.TestCase):
         live.start_ended(self.session)
         self.assertEqual([row.get("retry") for row in self.events_named("rewarming")], [None, True])
 
+    def test_a_confirmed_runtime_switch_ends_a_warmed_flat_start_after_two_agreeing_comparisons(self):
+        # Design §3.8: SWITCH (live.runs) takes the rewarm path; nothing closes and the start says `switch`.
+        self.assertFalse(live_connection.rewarm_pending(self.session, Cache()))  # negative control: no SWITCH
+        (self.session.output / live_connection.SWITCH).write_text("")
+        self.assertTrue(live_connection.rewarm_pending(self.session, Cache()))
+        self.assertFalse(live_connection.rewarm_pending(self.session, Cache(orders=[order(1, strategy=self.strategy)])))
+        held = SimpleNamespace(strategy_id=self.strategy, is_open=True)
+        self.assertFalse(live_connection.rewarm_pending(self.session, Cache(positions=[held])))
+        self.session.pending_entries.append(object())
+        self.assertFalse(live_connection.rewarm_pending(self.session, Cache()))
+        self.session.pending_entries.clear()
+        with mock.patch.object(live_connection, "WARMING", {str(self.strategy)}):  # still warming up: not yet
+            self.assertFalse(live_connection.rewarm_pending(self.session, Cache()))
+        self.session.connection.closed["foreign"] = 0.0  # a reason no restart clears ends the run instead
+        self.assertFalse(live_connection.rewarm_pending(self.session, Cache()))
+        del self.session.connection.closed["foreign"]
+        self.agree_twice(Cache(), found={})
+        self.assertTrue(self.session.rewarming and self.session.switching and self.session.stopping)
+        self.assertFalse(self.session.failed)
+        live.start_ended(self.session)
+        self.assertEqual([row.get("switch") for row in self.events_named("rewarming")], [True])
+        self.assertEqual([row["reason"] for row in self.events_named("stopping")], ["rewarming"])
+
+    def test_a_disagreeing_comparison_does_not_end_a_start_for_a_switch(self):
+        (self.session.output / live_connection.SWITCH).write_text("")
+        self.agree_twice(Cache(), found={"orders": ["unknown"]})
+        self.assertFalse(self.session.rewarming or self.session.stopping)
+
+    def test_a_flat_source_sees_no_bar_once_a_switch_waits_and_one_with_a_position_does(self):
+        seen = []
+        on_bar = live_source._gated("on_bar", lambda source, bar: seen.append(bar))
+        source = SimpleNamespace(_live=self.session)
+        self.session.evidence = mock.Mock()
+        with mock.patch.object(live_connection, "bar"):
+            with mock.patch.object(live_source, "Strategy", native(Cache())):
+                on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=60_000_000_000))  # negative control
+                self.assertEqual(len(seen), 1)
+                (self.session.output / live_connection.SWITCH).write_text("")
+                on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=2 * 60_000_000_000))
+            self.assertEqual(len(seen), 1)
+            held = Cache(positions=[SimpleNamespace(strategy_id=self.strategy, is_open=True)])
+            with mock.patch.object(live_source, "Strategy", native(held)):
+                on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=3 * 60_000_000_000))
+        self.assertEqual(len(seen), 2)  # with a position the source trades on as before
+
+    def test_a_cancel_after_a_bar_was_withheld_for_a_switch_still_ends_the_start(self):
+        # Review: a source that missed a bar must not decide again with the next one; the start ends and warms up.
+        seen = []
+        on_bar = live_source._gated("on_bar", lambda source, bar: seen.append(bar))
+        source = SimpleNamespace(_live=self.session)
+        self.session.evidence = mock.Mock()
+        with mock.patch.object(live_connection, "bar"), mock.patch.object(live_source, "Strategy", native(Cache())):
+            (self.session.output / live_connection.SWITCH).write_text("")
+            on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=60_000_000_000))
+            (self.session.output / live_connection.SWITCH).unlink()  # the user canceled before the comparisons
+            on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=2 * 60_000_000_000))
+        self.assertEqual(seen, [])
+        self.agree_twice(Cache(), found={})
+        self.assertTrue(self.session.rewarming and self.session.switching)
+
+    def test_a_stop_asked_for_while_a_switch_waits_ends_the_run(self):
+        (self.session.output / live_connection.SWITCH).write_text("")
+        live_connection.rewarm(self.session)
+        (self.session.output / "STOP").write_text("")
+        self.assertTrue(self.session.observe_stop_intent())
+        self.assertFalse(self.session.rewarming)
+        self.assertEqual([row["reason"] for row in self.events_named("stopping")], ["rewarming", "requested"])
+        live.start_ended(self.session)
+        self.assertEqual(self.events_named("rewarming"), [])
+
     def test_only_a_start_after_a_rewarm_that_was_not_itself_a_retry_may_retry_its_warm_up(self):
         path = self.session.output / "events.jsonl"
 

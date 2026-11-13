@@ -45,11 +45,11 @@ from engine.live_node import build_node
 
 INTERRUPTED = 3  # the exit status of a run that starts again as itself
 # What a paired control reads from this runner: the arguments it starts it with (live/host.py runner_args), the
-# events and files it judges a start by (live/runs.py: RUN_ENDED, FLAT, `stopping`, `connecting`, armed.json, STOP)
-# and the exit statuses. A new control takes over a running runner only of the same number, read from Git by the
+# events and files it judges a start by (live/runs.py: RUN_ENDED, FLAT, `stopping`, `connecting`, armed.json, STOP),
+# the files it writes for the runner (STOP; SWITCH, from 2: engine.live_connection.SWITCH) and the exit statuses. A new control takes over a running runner only of the same number, read from Git by the
 # release host (deploy/release.py); raise it with a new baseline (tests/live/runner-contract-N.json) whenever that
 # reading changes (docs/plans/live-continuous-step6-adopt-20261113.zh.md).
-RUNNER_CONTRACT = 1
+RUNNER_CONTRACT = 2
 IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}\Z")
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -130,7 +130,8 @@ def start_ended(session: Session) -> None:
     """The event of a start that ends without ending the run; a rewarming after a failed warm-up says it is the retry
     (warmup_retry)."""
     session.event("held_flat" if session.held_flat else "rewarming" if session.rewarming else "interrupted",
-                  mode=session.mode, **({"retry": True} if session.rewarming and session.warmup_retried else {}))
+                  mode=session.mode, **({"retry": True} if session.rewarming and session.warmup_retried else {}),
+                  **({"switch": True} if session.rewarming and session.switching else {}))
 
 
 def bind_manifest(output: Path, manifest: dict) -> None:

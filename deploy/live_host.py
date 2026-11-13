@@ -312,12 +312,25 @@ class LiveHost:
         return not self._retired(name, identifier)["running"]
 
     def runtimes(self) -> set[str]:
-        """The runtime images the retained Live snapshots and every Live run name. A Live run launches with
-        `--pull never` (runtime/container.py), so whatever its state its image stays."""
+        """The runtime images the retained Live snapshots and every Live run name: its manifest's, and each one a
+        confirmed switch named or a launch ran on (lifecycle.jsonl, live/runs.py). A Live run launches with
+        `--pull never` (runtime/container.py), so whatever its state its images stay."""
         found = {read_object(path)["runtime"] for path in (self.state / "live").glob("*/configuration.json")
                  if REVISION.fullmatch(path.parent.name)}
         runs = absolute(self.declaration_value()["root"]) / "runs"
         found |= {read_object(path)["runtime"]["image_ref"] for path in runs.glob("*/inputs/manifest.json")}
+        for path in runs.glob("*/lifecycle.jsonl"):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    row = json.loads(line)
+                except ValueError:  # an incomplete last line names nothing yet
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                if row.get("event") == "launch_requested" and isinstance(row.get("image_ref"), str):
+                    found.add(row["image_ref"])
+                elif row.get("event") == "runtime_switch_requested" and isinstance(row.get("runtime"), dict):
+                    found.add(row["runtime"]["image_ref"])
         return found
 
     def prune(self, kept: set[str]) -> None:

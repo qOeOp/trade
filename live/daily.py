@@ -126,6 +126,73 @@ def _target(pack: dict, status: dict, today: int) -> int | None:
     return min(max(ended) // DAY_NS * DAY_NS, yesterday)
 
 
+def _week(root: Path, market: dict, run_id: str, pack: dict, since: int, bound: int, fresh: int, output: Path,
+          image_ref: str | None = None) -> tuple[list[dict], list[dict], str | None, int]:
+    """Replay every trading start that reaches into [since, bound), cut at `bound`, on the image each ran on (or on
+    `image_ref`): (segments, decisions not explained since `fresh`, market day, decisions not explained in the week)."""
+    from live import compare
+    segments, unexplained, market_day, week = [], [], None, 0
+    for number, item in enumerate(compare.segments(pack), 1):
+        if item["start"] >= bound or (item["until"] is not None and item["until"] <= since):
+            continue
+        try:
+            result = compare.compare(root, run_id, market, None, output / f"{run_id}-{number}", SEGMENT_SECONDS,
+                                     number, since, bound, image_ref=image_ref)
+        except Refusal as exc:
+            if exc.code == "LIVE_COMPARE_EMPTY":
+                continue  # no whole minute before the cut
+            raise
+        market_day = result["market_day"]
+        segments.append({"number": number, "of": result["segment"]["of"], "window": result["window"],
+                         "summary": result["summary"], "replay": {"status": result["replay"]["status"]},
+                         "measures": result["measures"]})
+        week += sum(since <= row["at_ns"] < bound for row in result["unexplained"])
+        unexplained += [row for row in result["unexplained"] if fresh <= row["at_ns"] < bound]
+    return segments, unexplained, market_day, week
+
+
+def pair_run(root: Path, market: dict, run_id: str, offered: str, output: Path) -> dict | None:
+    """The paired replay of a runtime image offered to a running run (design §3.8 rule 10): the run's latest compared
+    day again, every trading start on `offered` instead of its own image. Shown beside that day's comparison before
+    the user confirms a switch; it never blocks one (the user, 2026-11-13). Once per offered image and day: the
+    run's record with `paired`, or None when there is nothing to pair."""
+    from live import compare
+    try:
+        status = runs.observe(root, run_id)
+    except LiveRefusal:
+        return None
+    if status.get("state") != "running" or status.get("mode") != "run" or status.get("image_ref") == offered:
+        return None
+    directory = state.directory(root, run_id)
+    record = read_record(directory)
+    if record is None or record.get("state") != "done":
+        return None
+    paired = record.get("paired") or {}
+    if paired.get("image_ref") == offered and paired.get("day") == record["day"]:
+        if paired.get("state") != "running":
+            return None
+        return {**record, "paired": {**paired, "state": "failed", "code": "stopped"}}  # the last attempt died
+    target = _ns(record["day"])
+    since, bound = target - (WEEK - 1) * DAY_NS, target + DAY_NS
+    base = {"image_ref": offered, "day": record["day"], "attempted_ns": time.time_ns()}
+    _write(root, run_id, {**record, "paired": {**base, "state": "running"}})
+    pack = compare.read_pack(directory)
+    try:
+        segments, _, _, week = _week(root, market, run_id, pack, since, bound, bound, output / "paired",
+                                     image_ref=offered)
+    except (Refusal, LiveRefusal) as exc:
+        return {**record, "paired": {**base, "state": "failed", "code": exc.code}}
+    except Exception:
+        return {**record, "paired": {**base, "state": "failed", "code": "error"}}
+    if not segments:
+        return {**record, "paired": {**base, "state": "empty", "code": None}}
+    return {**record, "paired": {**base, "state": "done", "code": None,
+                                 "measures": combine([item["measures"] for item in segments]),
+                                 "unexplained_week": week,
+                                 "look_ahead_suspects": sum(item["summary"].get("look_ahead_suspects") or 0
+                                                            for item in segments)}}
+
+
 def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path) -> dict | None:
     """Compare one run's day Y and return its new record, or None when it has nothing new to compare."""
     from live import compare
@@ -161,24 +228,8 @@ def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path)
     base = {"day": day, "attempted_ns": time.time_ns(), "done": done_day,
             "window": {"from": shared._utc(since), "to": shared._utc(bound)}}
     _write(root, run_id, {**base, "state": "running", "failures": streak})
-    segments, unexplained, market_day, week = [], [], None, 0
     try:
-        for number, item in enumerate(compare.segments(pack), 1):
-            if item["start"] >= bound or (item["until"] is not None and item["until"] <= since):
-                continue
-            try:
-                result = compare.compare(root, run_id, market, None, output / f"{run_id}-{number}", SEGMENT_SECONDS,
-                                         number, since, bound)
-            except Refusal as exc:
-                if exc.code == "LIVE_COMPARE_EMPTY":
-                    continue  # no whole minute before the cut
-                raise
-            market_day = result["market_day"]
-            segments.append({"number": number, "of": result["segment"]["of"], "window": result["window"],
-                             "summary": result["summary"], "replay": {"status": result["replay"]["status"]},
-                             "measures": result["measures"]})
-            week += sum(since <= row["at_ns"] < bound for row in result["unexplained"])
-            unexplained += [row for row in result["unexplained"] if fresh <= row["at_ns"] < bound]
+        segments, unexplained, market_day, week = _week(root, market, run_id, pack, since, bound, fresh, output)
     except Refusal as exc:
         code = exc.code
         if code == "LIVE_COMPARE_UNCOVERED":
@@ -239,8 +290,9 @@ def _scratch(root: Path) -> Path:
     return scratch
 
 
-def run(root: Path, market_root: Path, today: str) -> dict:
-    """live compare-daily: one pass over the account's runs; {state, runs: {run_id: record state}}."""
+def run(root: Path, market_root: Path, today: str, offered: str | None = None) -> dict:
+    """live compare-daily: one pass over the account's runs; {state, runs: {run_id: record state}}. With `offered`
+    (the control's paired runtime image), each running run on another image then gets its paired replay."""
     root = Path(root).expanduser().absolute()
     with state.reading(root) as root:
         directory = root / "runs"
@@ -268,12 +320,21 @@ def run(root: Path, market_root: Path, today: str) -> dict:
                         found[run_id] = record["state"]
                 except Exception:
                     found[run_id] = "unreadable"  # never a reason to skip the others
+            for run_id in listed:
+                if offered is None:
+                    break
+                try:
+                    record = pair_run(root, market, run_id, offered, attempt)
+                    if record is not None:
+                        _write(root, run_id, record)
+                except Exception:
+                    pass  # the record keeps its own comparison; the next pass tries again
         finally:
             shutil.rmtree(attempt, ignore_errors=True)
     return {"state": "done", "runs": found}
 
 
-def launch_argv(container: dict, root: Path, market_root: Path, today: str) -> list[str]:
+def launch_argv(container: dict, root: Path, market_root: Path, today: str, offered: str | None = None) -> list[str]:
     """`docker run` of a comparison container: this control's image, user, groups, capabilities, security options,
     network and mounts (--volumes-from), with its own memory and CPU limits, removed when it exits."""
     config, host = container["Config"], container["HostConfig"]
@@ -295,7 +356,8 @@ def launch_argv(container: dict, root: Path, market_root: Path, today: str) -> l
         if value is not None:
             argv += ["--env", f"{name}={value}"]
     return [*argv, "--entrypoint", "python", container["Image"], "-m", "cli.main", "live", "compare-daily",
-            "--root", str(root), "--market-root", str(market_root), "--today", today]
+            "--root", str(root), "--market-root", str(market_root), "--today", today,
+            *(["--offered-runtime", offered] if offered else [])]
 
 
 def due(now: int, last: int | None) -> bool:
@@ -304,7 +366,7 @@ def due(now: int, last: int | None) -> bool:
     return now % DAY_NS >= WAKE_NS and (last is None or last // (3600 * 10**9) != hour)
 
 
-def launch(root: Path, market_root: Path, now: int) -> str:
+def launch(root: Path, market_root: Path, now: int, offered: str | None = None) -> str:
     """Start one comparison container and wait for it; what happened, for tests and logs. Outside a container
     (the control run by hand) it does nothing."""
     identity = os.environ.get("HOSTNAME", "")
@@ -313,7 +375,7 @@ def launch(root: Path, market_root: Path, now: int) -> str:
     try:
         found = json.loads(subprocess.run(["docker", "inspect", "--type", "container", identity], capture_output=True,
                                           text=True, timeout=60, check=True).stdout)[0]
-        argv = launch_argv(found, root, market_root, _day(now))
+        argv = launch_argv(found, root, market_root, _day(now), offered)
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError):
         return "uninspected"
     name = argv[argv.index("--name") + 1]

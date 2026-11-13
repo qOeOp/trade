@@ -598,7 +598,9 @@ no position, order or held entry, its source sees no further bar, and after two 
 without closing anything (`rewarming`, exit status 3). The control starts the run again, whose warm-up reads Binance's
 complete bars (decision `docs/plans/live-bars-missing-rewarm-20261113.zh.md`). If that warm-up fails, the start ends the
 same way once more (`rewarming` with `retry`; it counts toward the control's three starts an hour); a second failure ends
-the run. Flat with only reduce-only orders left at Binance, the run waits with entries closed and cancels nothing. Once
+the run. A new runtime image the user confirmed for the run (the control writes `SWITCH` beside `STOP`, runner
+contract 2) takes the same path once the warmed-up strategy holds nothing: `rewarming` with `switch`, and the control
+starts the run again on that image (decision `docs/plans/live-continuous-step8-runtime-switch-20261113.zh.md`). Flat with only reduce-only orders left at Binance, the run waits with entries closed and cancels nothing. Once
 agreeing comparisons (every five minutes) have seen them at Binance for ten minutes, the user is told
 (`orphan_orders`): 10 to 20 minutes after the account went flat. The comparison also
 runs every five minutes while entries are open; two disagreeing reads in a row close them.

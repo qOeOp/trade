@@ -38,7 +38,7 @@ from nautilus_trader.trading import Strategy
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_records import source_strategy_id, write_json
 from engine.live_venue import require_account_mode, require_clock, require_own_symbol
-from engine.order_rules import GTD_MINIMUM_NS
+from engine.order_rules import GTD_MINIMUM_NS, WARMING
 
 COMPARE_SPACING_SECONDS = 31  # one native position check (30 s) and open-order check (10 s) between the two reads
 COMPARE_RETRY_SECONDS = 10
@@ -313,13 +313,31 @@ def bar(session, bar) -> None:
         close_entries(session, "bars_missing", bar_type=kind, after_ns=previous, received_ns=bar.ts_event)
 
 
-def rewarm_pending(session, cache) -> bool:
-    """A missing bar closed entries, nothing else holds them closed that a restart's own checks would not clear, and
-    this strategy holds nothing: no position, no order, no entry waiting to be sent. Its source decides on nothing more
-    (it is rebuilt by the next start) and the venue comparison decides the restart (design §3.2 item 3)."""
+SWITCH = "SWITCH"  # the control's file for a confirmed new runtime image (engine.live RUNNER_CONTRACT 2)
+
+
+def switch_requested(session) -> bool:
+    """The user confirmed a new runtime image (live.control runtime_switch): the run takes it at its next flat moment
+    (design §3.8, the user 2026-11-13). The control writes and removes SWITCH beside STOP."""
+    return (session.output / SWITCH).exists()
+
+
+def rewarm_due(session) -> bool:
+    """rewarm_pending without the cache: the reason to end this start once the strategy holds nothing."""
     closed = session.connection.closed
-    if session.mode != "run" or session.stopping or session.pending_entries or "bars_missing" not in closed \
+    if session.mode != "run" or session.stopping or session.pending_entries \
             or not set(closed) - {"bars_missing"} <= RECOVERABLE:
+        return False
+    return "bars_missing" in closed or session.switch_withheld or (
+        str(source_strategy_id(session.manifest)) not in WARMING and switch_requested(session))
+
+
+def rewarm_pending(session, cache) -> bool:
+    """A missing bar closed entries, or the user asked for a new runtime image once the warmed-up source holds nothing
+    (switch_requested); nothing else holds entries closed that a restart's own checks would not clear, and this
+    strategy holds nothing: no position, no order, no entry waiting to be sent. Its source decides on nothing more (it
+    is rebuilt by the next start) and the venue comparison decides the restart (design §3.2 item 3, §3.8)."""
+    if not rewarm_due(session):
         return False
     strategy = source_strategy_id(session.manifest)
     return not cache.positions_open(strategy_id=strategy) and not any(
@@ -327,9 +345,10 @@ def rewarm_pending(session, cache) -> bool:
 
 
 def rewarm(session) -> None:
-    """End this start without closing anything; the control starts the run again (engine.live INTERRUPTED) and its
-    warm-up reads Binance's complete bars: the data is not patched."""
+    """End this start without closing anything; the control starts the run again (engine.live INTERRUPTED), on the new
+    runtime image if one was asked for, and its warm-up reads Binance's complete bars: the data is not patched."""
     session.rewarming = True
+    session.switching = session.switch_withheld or switch_requested(session)
     session.begin_stop("rewarming")
 
 

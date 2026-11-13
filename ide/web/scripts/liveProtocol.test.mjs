@@ -10,7 +10,7 @@ import { namespace } from "./load.mjs";
 const root = new URL("../../../", import.meta.url);
 const protocol = Number(/^PROTOCOL = ([1-9][0-9]*)$/m.exec(readFileSync(new URL("live/protocol.py", root), "utf8"))[1]);
 const baseline = () => JSON.parse(readFileSync(new URL(`tests/live/protocol-${protocol}.json`, root), "utf8"));
-const { liveHomePresentation } = await namespace("model/liveTradingMap.ts", { sources: [], packages: [] });
+const { liveHomePresentation } = await namespace("model/liveTradingMap.ts", { sources: ["model/liveRuntimeMap"], packages: [] });
 
 test("the oldest answers of this protocol show their run with Request stop available", () => {
   const view = liveHomePresentation(baseline(), new Map());

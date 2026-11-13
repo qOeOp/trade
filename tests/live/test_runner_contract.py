@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from engine import live as runner
+from engine import live_connection
 from engine.live import RUNNER_CONTRACT
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
@@ -75,6 +76,11 @@ class RunnerContractTests(LiveFixture):
                 self.setUp()
                 self.assertEqual(reading(self, sample), sample["reading"], RAISE)
                 self.assertFalse(os.path.lexists(self.directory / "out" / "STOP") and sample["reading"]["starts_again"])
+
+    def test_the_control_and_the_runner_name_the_same_control_files(self):
+        files = self.baseline["control_files"]
+        self.assertEqual(files, {"stop": "STOP", "switch": live_connection.SWITCH}, RAISE)
+        self.assertEqual(runs.SWITCH, files["switch"], RAISE)
 
     def test_a_start_that_ended_to_warm_up_again_is_an_interruption_that_starts_again(self):
         # engine.live_connection.rewarm: a non-ending event and the interrupted status, so this number holds.
