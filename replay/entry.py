@@ -200,8 +200,8 @@ def audit_problems(workdir: Path, native_exit: int | None, audit_exit: int | Non
     """Invalidity reasons from the exit codes, the audit result and the structured runtime failures
     of a working directory (ledger.audit_problems on its regular files)."""
     workdir = Path(workdir)
-    return problems.audit_problems(native_exit, audit_exit, metrics._regular(workdir / problems.AUDIT_RESULT),
-                                   metrics._regular(workdir / problems.RUNTIME_ERRORS))
+    return problems.audit_problems(native_exit, audit_exit, metrics.read_regular(workdir / problems.AUDIT_RESULT),
+                                   metrics.read_regular(workdir / problems.RUNTIME_ERRORS))
 
 
 def _directory_report(directory: Path) -> dict:

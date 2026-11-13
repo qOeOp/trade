@@ -77,12 +77,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
             stored = metrics.load_run(conn, trial_id)
             expected = stored["run"]["fingerprints"]
         trial = stored["trial"]
-        found = conn.one("SELECT strategy_id, revision FROM candidate WHERE source_sha256 = %s",
-                         (trial["source_sha256"],))
-        if found is None:
-            raise refuse("UNKNOWN_CANDIDATE", f"the source of run {trial_id} is no published candidate",
-                         missing=(trial["source_sha256"],))
-        revision = strategies.read_candidate(conn, f"{found['strategy_id']}@{found['revision']}")
+        revision = strategies.candidate_by_sha(conn, trial["source_sha256"])
         reached = reproduction.reproductions(conn, trial_id)
     window = {"start": metrics.moment_ns(trial["input_start"]), "trade_start": metrics.moment_ns(trial["trade_start"]),
               "end": metrics.moment_ns(trial["trade_end"])}

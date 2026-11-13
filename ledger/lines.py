@@ -1,4 +1,4 @@
-"""Research lines (`ledger.select_line`, `ledger.open_lines`, `ledger.open_line`, `ledger.read_line`,
+"""Research lines (`ledger.select_line`, `ledger.open_line`, `ledger.read_line`,
 `ledger.line_trials`, `ledger.close_line`).
 
 A research line is the user's choice of start candidate (a revision whose source review passed) and
@@ -58,11 +58,6 @@ def read_line(conn: db.LedgerConnection, line: str | int) -> dict:
     if not found:
         raise refuse("LINE_UNKNOWN", f"no research line {line!r}", missing=(str(line),))
     return _record(found[0])
-
-
-def open_lines(conn: db.LedgerConnection) -> list[str]:
-    """The names of the research lines open on what the connection sees, oldest first."""
-    return [line["name"] for line in lines(conn, open_only=True)]
 
 
 def open_line(conn: db.LedgerConnection, line: str | int | None = None) -> dict:
@@ -335,9 +330,7 @@ class HistoryBinder:
         self.registration = {"history_line_id": line_id}
 
     def __call__(self, conn: db.LedgerConnection, row) -> dict:
-        record = read_line(conn, self.line_id)
-        if record["closed"]:
-            raise refuse("LINE_ENDED", f"{record['name']} is closed", missing=(record["name"],))
+        open_line(conn, self.line_id)
         return {"line_id": self.line_id}
 
 
