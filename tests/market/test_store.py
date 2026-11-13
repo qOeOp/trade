@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from market import coverage, export, files, follow, instrument, lifecycle, read, series, store, universe
+from market import coverage, export, files, follow, instrument, lifecycle, read, series, sources, store, universe
 from market.sources import MarketError
 from paper import runs
 from registration import inputs
@@ -646,6 +646,15 @@ class LaterImportTests(unittest.TestCase):
         drop = ("seconds",)
         self.assertEqual([{k: v for k, v in r.items() if k not in drop} for r in many],
                          [{k: v for k, v in r.items() if k not in drop} for r in one])
+
+    def test_one_contract_prepared_here_keeps_this_process_pace(self):
+        profile, cache = directory(self.addCleanup), Path(tempfile.mkdtemp(prefix="market-cache-"))
+        self.addCleanup(shutil.rmtree, cache, True)
+        with serving(exchange()), patch.object(sources, "REST_INTERVAL", 0.001), \
+                patch.object(sources, "FUNDING_INTERVAL", 0.002):
+            for month in (JAN, FEB):  # one job: no pool, whatever the workers
+                store.import_month(profile, month, cache, 4, ["BTCUSDT"], log=lambda line: None)
+            self.assertEqual((sources.REST_INTERVAL, sources.FUNDING_INTERVAL), (0.001, 0.002))
 
 
 class BackfillTests(unittest.TestCase):

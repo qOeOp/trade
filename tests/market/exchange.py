@@ -171,13 +171,14 @@ def serving(exchange: Exchange):
         yield exchange
 
 
-def serve_in_worker(exchange: Exchange) -> None:
-    """A pool worker's initializer: the worker serves `exchange` (its copy taken when the pool starts)."""
+def serve_in_worker(exchange: Exchange, initializer, initargs: tuple) -> None:
+    """A pool worker's initializer: the import's own, then the worker serves `exchange` (its copy taken when the pool
+    starts)."""
+    initializer(*initargs)
     sources._get = exchange.get
-    sources.REST_INTERVAL = sources.FUNDING_INTERVAL = 0.0
 
 
-def worker_pool(max_workers: int) -> ProcessPoolExecutor:
+def worker_pool(max_workers: int, initializer, initargs: tuple) -> ProcessPoolExecutor:
     """A stand-in for the import's process pool: spawned workers serve the exchange this process serves."""
     return ProcessPoolExecutor(max_workers, mp_context=multiprocessing.get_context("spawn"),
-                               initializer=serve_in_worker, initargs=(sources._get.__self__,))
+                               initializer=serve_in_worker, initargs=(sources._get.__self__, initializer, initargs))
