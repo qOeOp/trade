@@ -199,7 +199,7 @@ def build_view(graph: dict) -> dict:
     priority = next((e for e in reversed(graph["events"]) if e["kind"] in PRIORITY_KINDS), None)
     widgets = [
         {"id": "summary", "type": "summary", "slot": "top", "targets": targets,
-         "recommended": current, "reading": {k: best[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "win_rate")}
+         "recommended": current, "reading": {k: best[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "plan_win_rate")}
          if best else None, "status": status_of.get(current) if current else None,
          "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak,
          "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and place[r["trial_id"]] > held_since),
@@ -231,7 +231,7 @@ def build_view(graph: dict) -> dict:
         {"id": "versions", "type": "table", "slot": "main", "title": "Version table", "targets": targets,
          "rows": [{"id": c["id"], "parent": c.get("parent"), "role": c.get("status"), "status": status_of[c["id"]],
                    "prediction": prediction_of[c["id"]], "first_trial": first_trial(c), "runs": len(research_runs(c)),
-                   **{k: (research_runs(c)[-1:] or [{}])[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "win_rate")}}
+                   **{k: (research_runs(c)[-1:] or [{}])[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "plan_win_rate")}}
                   for c in candidates]},
         {"id": "gaps", "type": "notes", "slot": "main", "title": "What this data lacks", "items": graph["gaps"]},
         {"id": "details", "type": "candidate-detail", "slot": "side",

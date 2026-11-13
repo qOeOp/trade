@@ -11,8 +11,8 @@ import { Missing } from "../components/Missing";
 import { VersionMenu } from "../components/VersionMenu";
 
 const col = columns<TableRow>();
-type Measure = "annual_return" | "max_drawdown" | "sharpe" | "win_rate";
-const HEADER: Record<Measure, string> = { annual_return: "Return", max_drawdown: "Drawdown", sharpe: "Sharpe", win_rate: "Win rate" };
+type Measure = "annual_return" | "max_drawdown" | "sharpe" | "plan_win_rate";
+const HEADER: Record<Measure, string> = { annual_return: "Return", max_drawdown: "Drawdown", sharpe: "Sharpe", plan_win_rate: "Plan win rate" };
 
 function reading(key: Measure, higher: boolean, target: number | null | undefined, format: (x: number) => string): Column<TableRow> {
   return col.accessor(key, {
@@ -40,7 +40,7 @@ export function VersionTable({ widget, onOpen }: { widget: TableWidget; onOpen?:
     reading("annual_return", true, t.annual_return, pct),
     reading("max_drawdown", false, t.max_drawdown, pct),
     reading("sharpe", true, null, ratio),
-    reading("win_rate", true, null, pct),
+    reading("plan_win_rate", true, null, pct),
     col.accessor("prediction", {
       header: "Prediction", cell: (c) => c.row.original.prediction === "none" ? <Missing /> : <PredictionMark prediction={c.row.original.prediction} size={16} />,
     }) as Column<TableRow>,

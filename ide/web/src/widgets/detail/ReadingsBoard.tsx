@@ -15,8 +15,9 @@ type N = number | null | undefined;
 export type Facts = {
   basis: string; limit: number | null; minimum: number | null;
   mdd: N; annual: N; short?: number;
-  /** Absent where the page cannot compute them (a phone's paper run): the Ratios group then stays out. */
-  sharpe?: N; winRate?: N;
+  /** Absent where the page cannot compute them (a phone's paper run): the Ratios group then stays out.
+   *  `plans`: the win rate is a sealed run's plan win rate, not the share of closed trades that won. */
+  sharpe?: N; winRate?: N; plans?: boolean;
   account?: { ret: N; needed: N; ahead: N; usdt: N; dd: N | "stop"; ended: boolean; stale: boolean };
   stats?: { pf: N; avgWin: N; avgLoss: N; perTrade: N; hold: N; inMarket: N; streak: N; stale: boolean };
 };
@@ -80,7 +81,7 @@ function Ledger({ f }: { f: Facts }) {
     ...f.sharpe === undefined && f.winRate === undefined && !t ? [] : [{ title: "Ratios", rows: [
       { name: "Sharpe", ...num(f.sharpe ?? null, (n) => `${sign(n, false)}${Math.abs(n).toFixed(2)}`) },
       ...t ? [{ name: "Profit factor", ...num(t.pf, (n) => n.toFixed(2)), stale: t.stale }] : [],
-      { name: "Win rate", ...num(f.winRate ?? null, digits, "%") },
+      { name: f.plans ? "Plan win rate" : "Win rate", ...num(f.winRate ?? null, digits, "%") },
     ] }],
     ...t ? [
       { title: "Trades", aside: "USDT", rows: [{ name: "Average win", n: amount(t.avgWin) }, { name: "Average loss", n: amount(t.avgLoss) }, { name: "Per trade", n: amount(t.perTrade) }].map((r) => ({ ...r, stale: t.stale })) },
@@ -133,7 +134,7 @@ function Strip({ f }: { f: Facts }) {
   const groups: { title: string; aside?: string; cells: Cell[] }[] = [
     { title: "Returns", aside: f.minimum === null ? undefined : `minimum ${pct(f.minimum, 0)} a year`, cells: [
       { name: "Annual return", value: annual }, { name: "Sharpe", value: shown(f.sharpe ?? null, (n) => `${sign(n, false)}${Math.abs(n).toFixed(2)}`) },
-      ...t ? [{ name: "Profit factor", value: shown(t.pf, (n) => n.toFixed(2)), stale: t.stale }] : [], { name: "Win rate", value: shown(f.winRate ?? null, pct) }] },
+      ...t ? [{ name: "Profit factor", value: shown(t.pf, (n) => n.toFixed(2)), stale: t.stale }] : [], { name: f.plans ? "Plan win rate" : "Win rate", value: shown(f.winRate ?? null, pct) }] },
     ...t ? [
       { title: "Trades", aside: "USDT", cells: [{ name: "Average win", value: amount(t.avgWin) }, { name: "Average loss", value: amount(t.avgLoss) },
         { name: "Per trade", value: amount(t.perTrade) }, { name: "Losing streak", value: shown(t.streak, (n) => `${n}`) }].map((c) => ({ ...c, stale: t.stale })) },

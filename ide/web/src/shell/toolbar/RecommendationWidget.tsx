@@ -13,6 +13,7 @@ export function RecommendationWidget() {
   const lineage = useWidget<LineageWidget>("lineage");
   if (!summary?.recommended || !lineage) return null;
   const nodes = new Map(lineage.nodes.map((n) => [n.id, n]));
+  const number = new Map(lineage.trials.map((t) => [t.x, t.trial_id]));  // x is a trial's place on the line
   const history = [...lineage.trail].reverse();
   const ineligible = summary.status === "masked";
   return (
@@ -26,7 +27,7 @@ export function RecommendationWidget() {
         const node = nodes.get(t.candidate);
         return node && (
           <DropdownItem key={`${t.candidate}-${i}`} onSelect={() => select(t.candidate, { reveal: true })}
-                        hint={`from trial ${t.x0 == null ? "-" : Math.floor(t.x0)} · ${plural(t.judgments.length, "judgment")}`}>
+                        hint={`from trial ${(t.x0 == null ? null : number.get(Math.floor(t.x0))) ?? "-"} · ${plural(t.judgments.length, "judgment")}`}>
             <VersionLine node={node} targets={lineage.targets} />
           </DropdownItem>
         );
