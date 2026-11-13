@@ -15,6 +15,6 @@
 
 ## Evidence and limitations
 
-<!-- Link related issues/PRs and, for research, attempt/run IDs and retained evidence.
+<!-- Link related issues/PRs and, for research, trial IDs and retained evidence.
      Distinguish temporary reports, exposed development results and independent validation.
      Include material limitations or migration steps; omit this section if inapplicable. -->

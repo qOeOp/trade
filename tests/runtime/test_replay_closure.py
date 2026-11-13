@@ -118,8 +118,8 @@ class ReplayClosureTests(unittest.TestCase):
         self.assertEqual(selectors, [".github/scripts/replay-changed.py"])
 
     def test_pyproject_holds_only_the_project_and_its_dependencies(self):
-        # pyproject.toml is copied into the replay image, so its bytes are research's identity: tool configuration
-        # (ruff.toml, mypy.ini) stays out of it, and a change to it means a change to the project or its dependencies.
+        # pyproject.toml is copied into the replay image, so a change to it selects a replay build unless only its
+        # version or build backend changed (replay-changed.py): tool configuration (ruff.toml, mypy.ini) stays out.
         tables = {line.strip("[] ") for line in (ROOT / "pyproject.toml").read_text().splitlines()
                   if line.startswith("[")}
         self.assertEqual(tables, {"project", "dependency-groups", "build-system", "tool.uv.build-backend"})
