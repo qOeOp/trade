@@ -6,7 +6,7 @@ from decimal import Decimal
 import threading
 import time
 from typing import Any, Callable, TYPE_CHECKING
-from nautilus_trader.model import OrderStatus, TimeInForce
+from nautilus_trader.model import AccountId, OrderStatus, TimeInForce
 from nautilus_trader.trading import Strategy
 from engine import live_connection
 from engine.live_errors import LiveRefusal as Refusal
@@ -76,6 +76,14 @@ def start_observation(session: Session, purpose: str) -> None:
     if session.account_observation is not None:
         raise Refusal("LIVE_ENTRY_STOPPED", "only one account observation may be outstanding")
     session.account_observation = observe_account(session.account_reader, tuple(session.manifest["symbols"]), purpose)
+    if purpose == "entry" and session.source is not None:
+        # Nautilus's risk engine checks the entry's margin against the native free balance, which a canceled or expired
+        # order leaves reduced until the next REST refresh (Binance's stream sends no account update for it). The entry
+        # is dispatched on a later Observer tick, after its own read: refresh the native account with that read.
+        try:
+            Strategy.query_account(session.source, AccountId(session.manifest["account_id"]))
+        except Exception as exc:  # the periodic refresh (engine.live_lifecycle) still follows
+            session.event("account_refresh_failed", strict=False, failure_type=type(exc).__name__)
 
 
 def discard_observation(session: Session, code: str = "LIVE_ENTRY_STOPPED", detail: str | None = None) -> None:

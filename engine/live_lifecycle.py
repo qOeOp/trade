@@ -10,6 +10,12 @@ from engine.cadence import Cadence
 from engine.live_commands import pending_orders
 from engine.live_session import MARK_SECONDS, MINUTE_NS, Session, STOP_GRACE_SECONDS
 
+# The periodic native account refresh. rc7's Redis cache appends every account state (about 0.85 KB) to a list it never
+# trims and reads whole at each start: every 10 s that is about 2.6 GB a year, every 60 s about 0.45 GB. Each entry's
+# own account read refreshes it too (engine.live_commands.start_observation), so the native risk engine checks an entry's
+# margin against a fresh free balance; the run's own checks read Binance over REST.
+ACCOUNT_QUERY_SECONDS = 60
+
 def source_outcome(session: Session, cache) -> None:
     """Keep native failures authoritative and label the source's own declared findings."""
     if session.mode != "run":
@@ -133,7 +139,7 @@ class Observer(Strategy):
             except Exception:
                 session.lose_connection("connected_account_unverified")
                 return
-        if healthy and now - self.last_query >= 10:
+        if healthy and now - self.last_query >= ACCOUNT_QUERY_SECONDS:
             self.query_account(AccountId(session.manifest["account_id"]))
             self.last_query = now
         if not session.observe_stop_intent():
