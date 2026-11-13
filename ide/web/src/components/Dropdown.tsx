@@ -89,6 +89,18 @@ export function DropdownRadio<T extends string>({ value, options, onChange }: {
   );
 }
 
+/** A compact menu of one choice, its trigger naming what it sets (`name`) and the chosen option. */
+export function DropdownChoice<T extends string>({ name, label, options, value, onChange }: {
+  name: string; label: string; options: readonly { value: T; label: string }[]; value: T; onChange: (v: T) => void;
+}) {
+  return (
+    <Dropdown variant="compact" align="end" label={label}
+              trigger={<span className="whitespace-nowrap"><span className="text-fg-faint">{name}</span> {options.find((o) => o.value === value)?.label}</span>}>
+      <DropdownRadio value={value} options={options} onChange={onChange} />
+    </Dropdown>
+  );
+}
+
 export const DropdownLabel = ({ children }: { children: ReactNode }) => <DropdownMenu.Label className="px-2 pb-1 pt-1.5 text-small text-fg-faint">{children}</DropdownMenu.Label>;
 export const DropdownSeparator = () => <DropdownMenu.Separator className="my-1 h-px bg-line-strong" />;
 

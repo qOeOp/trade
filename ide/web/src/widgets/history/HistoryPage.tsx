@@ -3,9 +3,10 @@ import { MISSING, pct, plural, ratio } from "../../lib/format";
 import type { HistoryCell, HistoryLine, HistoryRow } from "../../lib/historyApi";
 import { cellAt, columns, meetsBoth, noEdge, ordered, RETURN_RANGES, returnStep, type Column, type Metric, type Order } from "../../model/history";
 import { useHistory } from "../../state/history";
-import { Dropdown, DropdownRadio } from "../../components/Dropdown";
+import { DropdownChoice } from "../../components/Dropdown";
 import { HistoryTile } from "../../components/HistoryTile";
 import { Tip } from "../../components/Tip";
+import { Empty } from "../../components/Waiting";
 
 const METRICS = [{ value: "annual_return", label: "Annual return" }, { value: "mark_max_drawdown", label: "Max drawdown" },
                  { value: "sharpe_365", label: "Sharpe" }] as const;
@@ -13,21 +14,6 @@ const ORDERS = [{ value: "development", label: "Development Sharpe" }, { value: 
                 { value: "meeting", label: "Years meeting targets" }] as const;
 const KIND: Record<HistoryCell["kind"], string> = { veto: "Veto year", control: "Development period, replayed", holdout: "Holdout",
                                                     forward: "Forward", development: "Development period (the research run)" };
-
-function Choice<T extends string>({ name, options, value, onChange }: { name: string; options: readonly { value: T; label: string }[]; value: T; onChange: (v: T) => void }) {
-  return (
-    <Dropdown variant="compact" align="end" label={name}
-              trigger={<span className="whitespace-nowrap"><span className="text-fg-faint">{name}</span> {options.find((o) => o.value === value)?.label}</span>}>
-      <DropdownRadio value={value} options={options} onChange={onChange} />
-    </Dropdown>
-  );
-}
-
-const Empty = ({ title, children }: { title: string; children?: ReactNode }) => (
-  <div className="grid h-full place-items-center p-6 text-center text-dense">
-    <div className="max-w-md"><p className="font-semibold text-fg">{title}</p>{children && <p className="mt-2 text-balance text-fg-muted">{children}</p>}</div>
-  </div>
-);
 
 const day = (iso: string) => iso.slice(0, 10);
 const shown = (metric: Metric, m: NonNullable<HistoryCell["measures"]>) => (metric === "sharpe_365" ? ratio(m[metric]) : pct(m[metric]));
@@ -144,8 +130,8 @@ export function HistoryPage() {
         <span className="text-fg-faint">{plural(lines.length, "line")} · each cell replayed from flat{reading ? " · reading…" : ""}{error ? ` · ${error}` : ""}</span>
         <span className="ml-auto flex items-center gap-3">
           <label className="flex items-center gap-1.5 text-fg-muted"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />Rows with no edge</label>
-          <Choice<Metric> name="Show" options={METRICS} value={metric} onChange={setMetric} />
-          <Choice<Order> name="Order" options={ORDERS} value={order} onChange={setOrder} />
+          <DropdownChoice<Metric> name="Show" label="Show" options={METRICS} value={metric} onChange={setMetric} />
+          <DropdownChoice<Order> name="Order" label="Order" options={ORDERS} value={order} onChange={setOrder} />
         </span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">

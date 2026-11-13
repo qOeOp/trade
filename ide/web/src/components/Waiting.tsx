@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { NextSteps } from "./NextSteps";
 import { Typing } from "./Typing";
 
@@ -19,3 +20,10 @@ export function Waiting({ text, busy, choices, next }: { text: string; busy: boo
     </div>
   );
 }
+
+/** A page with nothing to draw: its title in the middle, and why or what to do under it. */
+export const Empty = ({ title, children }: { title: string; children?: ReactNode }) => (
+  <div className="grid h-full place-items-center p-6 text-center text-dense">
+    <div className="max-w-md"><p className="font-semibold text-fg">{title}</p>{children && <p className="mt-2 text-balance text-fg-muted">{children}</p>}</div>
+  </div>
+);

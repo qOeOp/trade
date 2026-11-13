@@ -1,6 +1,6 @@
 """Registration (`registration.plan_schema`, `registration.validate_design`, `registration.register`,
-`registration.binder`, `registration.load_registration`, `registration.registrations`,
-`registration.require_line_records`, `registration.retryable`, `registration.control_trial`).
+`registration.binder`, `registration.load_registration`, `registration.require_line_records`,
+`registration.retryable`, `registration.control_trial`).
 
 A registration locks one hypothesis before any replay of it: the pre-registered text (prediction, changed
 duties, rationale, sources, conditions), the control run and comparison design, the registration it retries,
@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import copy
 import dataclasses
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 import hashlib
 import json
 import math
@@ -47,7 +47,6 @@ REQUIRED = ("prediction", "changed_duties", "control_trial_id", "rationale", "so
             "prechecks", "conditions")
 BODY_KEYS = ("prediction", "conditions", "changed_duties", "rationale", "sources")  # research_registration.body
 OUTCOMES = ("improved", "not_significant", "loss", "zero_activity", "invalid")
-EPOCH = datetime(1970, 1, 1)
 
 _TEXT = {"type": "string", "pattern": r"\S", "maxLength": TEXT_LIMIT}
 _PROSE = {"type": "string", "maxLength": TEXT_LIMIT}
@@ -212,7 +211,7 @@ def _check_prediction(body: Mapping, root: bool) -> None:
     catalogue = duties.slice_measures()
     every = frozenset().union(*catalogue.values())
     changed = set(body["changed_duties"])
-    allowed = set(duties.DUTIES) if root else changed  # a root changes no duty, predicts any
+    allowed = duties.DUTIES if root else changed  # a root changes no duty, predicts any
     predicted = set()
     for index, item in enumerate(body["prediction"]["mechanism"]):
         where = f"prediction.mechanism[{index}]"
@@ -560,10 +559,6 @@ def _source_bundles(source_files: list[Path]) -> list[tuple[str, dict[str, bytes
     return bundles
 
 
-def _utc(ns: int) -> datetime:
-    return EPOCH + timedelta(microseconds=ns // 1000)
-
-
 def write_design(conn: db.LedgerConnection, design: Mapping | None) -> int | None:
     """Inside a write: the design_id of a new comparison_design row holding `design` (validate_design's)."""
     if design is None:
@@ -580,8 +575,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
     open line `line` (default: the only open line, ledger.open_line) in one write, which checks again that the
     line is open; the same body and execution identity again is an idempotent replay."""
     _check_shape(body)
-    from registration import validation  # validation imports this module
-    validation.require_current(seams.current.checkout())
+    seams.require_current()
     body = copy.deepcopy(dict(body))
     sources = _source_bundles(source_files or [])
     with db.connect(profile, "writer") as conn:
@@ -604,8 +598,9 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
                      "universe_rule": inputs["universe_rule"], "lifecycle_bundle": inputs.get("lifecycle_bundle"),
                      "export_sha256": inputs["export_content_sha256"],
                      "comparable_config_sha256": trials.comparable_config_sha256(inspection.get("effective_config")),
-                     "input_start": _utc(runner["window"]["start"]),
-                     "trade_start": _utc(runner["window"]["trade_start"]), "trade_end": _utc(runner["window"]["end"]),
+                     "input_start": trials._utc(runner["window"]["start"]),
+                     "trade_start": trials._utc(runner["window"]["trade_start"]),
+                     "trade_end": trials._utc(runner["window"]["end"]),
                      "symbols": sorted(set(inputs.get("symbols") or ()))}
         body["sources"] = list(dict.fromkeys([*body["sources"], *(name for name, _ in sources)]))
         if body["rationale"]["external"].strip() and not body["sources"]:
@@ -665,57 +660,38 @@ def read_design(conn: db.LedgerConnection, design_id: int) -> dict:
     return row
 
 
-def registrations(conn: db.LedgerConnection, line_id: int | None = None) -> list[dict]:
-    """Every research registration (or those of one line), oldest first: {registration_id, line_id, retry_of,
-    control_trial_id, comparison (the design's DESIGN_KEYS, or None), execution {image_ref, image_digest,
-    market_day, universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256}, body, grid
-    [{candidate, source_sha256, source_review_id}], parent (strategy_id@revision or None), change, created_at}."""
-    where, args = (" WHERE line_id = %s", (line_id,)) if line_id is not None else ("", ())
-    rows = conn.dicts(f"SELECT {', '.join(REGISTRATION_COLUMNS)} FROM research_registration{where} "
-                      "ORDER BY registration_id", args)
-    if not rows:
-        return []
-    designs = {row["design_id"]: {key: row[key] for key in DESIGN_KEYS}
-               for row in conn.dicts("SELECT * FROM comparison_design WHERE design_id IN (SELECT comparison_design_id "
-                                     f"FROM research_registration{where})", args)}
-    grid: dict[int, list[dict]] = {}
-    for row in conn.dicts("SELECT g.registration_id, g.source_sha256, g.source_review_id, c.strategy_id, c.revision, "
-                          "c.parent_source_sha256, c.difference FROM registration_grid_point g JOIN candidate c ON "
-                          "c.source_sha256 = g.source_sha256 WHERE g.registration_id IN (SELECT registration_id FROM "
-                          f"research_registration{where}) ORDER BY g.registration_id, c.strategy_id, c.revision", args):
-        grid.setdefault(row["registration_id"], []).append(row)
-    found = []
-    for row in rows:
-        points = grid.get(row["registration_id"], [])
-        first = points[0] if points else {}
-        parent = strategies.candidate_by_sha(conn, first["parent_source_sha256"]) \
-            if first.get("parent_source_sha256") else None
-        body = json.loads(row["body"]) if isinstance(row["body"], (str, bytes)) else row["body"]
-        found.append({"registration_id": row["registration_id"], "line_id": row["line_id"], "retry_of": row["retry_of"],
-                      "control_trial_id": row["control_trial_id"],
-                      "comparison": designs.get(row["comparison_design_id"]),
-                      "execution": {**{key: row[key] for key in ("image_ref", "market_day", "universe_rule",
-                                                                 "lifecycle_bundle", "export_sha256",
-                                                                 "comparable_config_sha256")},
-                                    "image_digest": precheck.digest_of(row["image_ref"])},
-                      "body": body,
-                      "grid": [{"candidate": f"{point['strategy_id']}@{point['revision']}",
-                                "source_sha256": point["source_sha256"], "source_review_id": point["source_review_id"]}
-                               for point in points],
-                      "parent": strategies.name(parent) if parent is not None else None,
-                      "change": first.get("difference"), "created_at": row["created_at"]})
-    return found
-
-
 def load_registration(conn: db.LedgerConnection, registration_id) -> dict:
-    """One research registration as `registrations` gives it; REGISTRATION_INVALID when there is none."""
+    """One research registration: {registration_id, line_id, retry_of, control_trial_id, comparison (the
+    design's DESIGN_KEYS, or None), execution {image_ref, image_digest, market_day, universe_rule,
+    lifecycle_bundle, export_sha256, comparable_config_sha256}, body, grid [{candidate, source_sha256,
+    source_review_id}], parent (strategy_id@revision or None), change, created_at}; REGISTRATION_INVALID when
+    there is none."""
     if not isinstance(registration_id, int) or isinstance(registration_id, bool):
         raise _invalid(f"{registration_id!r} is no registration_id", str(registration_id))
-    found = [item for item in registrations(conn) if item["registration_id"] == registration_id] \
-        if conn.rows("SELECT 1 FROM research_registration WHERE registration_id = %s", (registration_id,)) else []
-    if not found:
+    row = conn.one(f"SELECT {', '.join(REGISTRATION_COLUMNS)} FROM research_registration WHERE registration_id = %s",
+                   (registration_id,))
+    if row is None:
         raise _invalid(f"no research registration {registration_id}", str(registration_id))
-    return found[0]
+    points = conn.dicts("SELECT g.source_sha256, g.source_review_id, c.strategy_id, c.revision, c.parent_source_sha256, "
+                        "c.difference FROM registration_grid_point g JOIN candidate c ON c.source_sha256 = "
+                        "g.source_sha256 WHERE g.registration_id = %s ORDER BY c.strategy_id, c.revision",
+                        (registration_id,))
+    first = points[0] if points else {}
+    parent = strategies.candidate_by_sha(conn, first["parent_source_sha256"]) \
+        if first.get("parent_source_sha256") else None
+    design_id = row["comparison_design_id"]
+    return {"registration_id": registration_id, "line_id": row["line_id"], "retry_of": row["retry_of"],
+            "control_trial_id": row["control_trial_id"],
+            "comparison": read_design(conn, design_id) if design_id is not None else None,
+            "execution": {**{key: row[key] for key in ("image_ref", "market_day", "universe_rule", "lifecycle_bundle",
+                                                       "export_sha256", "comparable_config_sha256")},
+                          "image_digest": precheck.digest_of(row["image_ref"])},
+            "body": json.loads(row["body"]) if isinstance(row["body"], (str, bytes)) else row["body"],
+            "grid": [{"candidate": f"{point['strategy_id']}@{point['revision']}",
+                      "source_sha256": point["source_sha256"], "source_review_id": point["source_review_id"]}
+                     for point in points],
+            "parent": strategies.name(parent) if parent is not None else None,
+            "change": first.get("difference"), "created_at": row["created_at"]}
 
 
 def bind(conn: db.LedgerConnection, registration_id: int, source_sha256: str, row: Mapping) -> dict:

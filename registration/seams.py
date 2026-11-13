@@ -1,7 +1,8 @@
-"""The one place registration reaches code of other packages: runtime images (`runtime.image`),
-runner arguments, market reads and export (`market`), and economic-evidence qualification.
+"""Registration's seams: runtime images (`runtime.image`) with the runner arguments they are probed with,
+the product checkout and its git gates (`require_current` for research, `require_fresh` for validation),
+market reads and export (`market`), and economic-evidence qualification (`registration.availability`).
 
-`current` holds the implementations in force; tests swap them with `use(...)` (stand-in images,
+`current` holds the implementations in force; tests swap them with `use(...)` (stand-in images, checkouts,
 markets and qualification). Nothing here is reimplemented.
 """
 
@@ -13,6 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
+import subprocess
 
 from ledger.execution import IDENTITY_FIELDS
 from shared import paths
@@ -101,6 +103,49 @@ def _checkout() -> Path:
     return paths.REPOSITORY
 
 
+def _git(root: Path, *argv: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(root), *argv], capture_output=True, text=True, check=False, timeout=120)
+
+
+def require_fresh() -> None:
+    """Validation: refuse unless the product checkout's HEAD contains origin's latest main commit; uncommitted
+    or untracked files in its work tree are not checked."""
+    root = current.checkout()
+
+    def stale(why: str):
+        return refuse("STALE_CHECKOUT", why, missing=(str(root),))
+    inside = _git(root, "rev-parse", "--is-inside-work-tree")
+    if inside.returncode or inside.stdout.strip() != "true":
+        raise stale(f"{root} is not a git work tree")
+    listed = _git(root, "ls-remote", "origin", "refs/heads/main")
+    heads = [line.split()[0] for line in listed.stdout.splitlines() if line.strip()]
+    if listed.returncode or len(heads) != 1:
+        raise stale("the main commit of origin cannot be queried")
+    if _git(root, "merge-base", "--is-ancestor", heads[0], "HEAD").returncode:
+        raise stale(f"HEAD does not contain origin main {heads[0]}")
+
+
+def require_current() -> None:
+    """Research registration and replay: refuse unless the product checkout's HEAD is the locally fetched
+    `origin/main` and its work tree has no uncommitted or untracked file, so a run records the commit it ran
+    from. No network: the checkout fetches first."""
+    root = current.checkout()
+
+    def stale(why: str):
+        return refuse("STALE_CHECKOUT", why, missing=(str(root),), expected="HEAD = origin/main, clean work tree")
+    head = _git(root, "rev-parse", "HEAD")
+    main = _git(root, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/main")
+    if head.returncode:
+        raise stale(f"{root} is not a git work tree")
+    if main.returncode:
+        raise stale(f"{root} has no fetched origin/main")
+    if head.stdout.strip() != main.stdout.strip():
+        raise stale(f"HEAD {head.stdout.strip()[:9]} is not origin/main {main.stdout.strip()[:9]}")
+    changed = _git(root, "status", "--porcelain")
+    if changed.returncode or changed.stdout.strip():
+        raise stale(f"the work tree has uncommitted or untracked files: {' '.join(changed.stdout.split()[:6])}")
+
+
 # Runner arguments (engine.parse_window and the runner's selection flags)
 
 def _ns(text: str) -> int:
@@ -172,10 +217,6 @@ class Market:
             raise refuse("MARKET_DAY_UNRESOLVED", f"market day {market_day} has no complete day ({exc.code})",
                          missing=(str(market_day),)) from exc
 
-    def latest_complete_day(self, market_day: str):
-        """market.freshness's latest complete UTC day at `market_day`."""
-        return self._freshness(market_day)["latest_complete_day"]
-
     def days(self, market_day: str):
         """(first day of the market's first universe month, latest complete UTC day) at `market_day`."""
         found = self._freshness(market_day)
@@ -205,7 +246,7 @@ class Market:
     def export_catalogs(self, market_day: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
                         fresh: bool, *, include_quotes: bool = True, include_trades: bool = False,
                         include_metrics: bool = False) -> dict:
-        """{market_day, root, exported, reused, receipts}."""
+        """{root, receipts}."""
         from market import export
         from market.sources import MarketError
         try:
@@ -216,8 +257,7 @@ class Market:
             if exc.code == "LIFECYCLE_INPUT":
                 raise refuse("LIFECYCLE_INPUT", exc.message) from exc
             raise
-        return {"market_day": done["market_day"], "root": Path(done["root"]), "exported": done["exported"],
-                "reused": done["cached"], "receipts": done["receipts"]}
+        return {"root": Path(done["root"]), "receipts": done["receipts"]}
 
     def validate_lifecycle(self, body: dict, market_day: str, files: Mapping[str, bytes]) -> dict:
         """market.validate_lifecycle, its refusal as LIFECYCLE_INPUT."""
@@ -228,8 +268,7 @@ class Market:
             raise refuse("LIFECYCLE_INPUT", exc.message) from exc
 
 
-# Economic-evidence qualification (registration.require, registration.assess); imported late because
-# availability reads this module.
+# Economic-evidence qualification (registration.require, registration.assess)
 
 def _qualification_require(conn, run: Mapping) -> dict:
     from registration import availability
@@ -270,12 +309,3 @@ def use(**overrides) -> Iterator[Seams]:
         yield current
     finally:
         current = previous
-
-
-def month_of(moment: datetime | date) -> str:
-    return f"{moment.year}-{moment.month:02d}"
-
-
-def next_month(month: str) -> str:
-    year, number = int(month[:4]), int(month[5:7])
-    return f"{year + number // 12}-{number % 12 + 1:02d}"

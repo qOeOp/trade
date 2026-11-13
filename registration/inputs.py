@@ -179,8 +179,8 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
 
     `market` is the market profile (the seam turns it into an adapter); `window` holds start,
     trade_start and end in UTC nanoseconds; `selection` is {"universe": True} or {"symbols": [...]}.
-    Returns {identity, root, membership_file, symbols, receipts, exported{exported, reused},
-    fresh}; the membership path handed to the strategy is the membership file, cut to the input window.
+    Returns {identity, root, membership_file, symbols, fresh}; the membership path handed to the strategy is the
+    membership file, cut to the input window. The export receipts stay under root (<symbol>/RECEIPT).
     """
     universe = isinstance(selection, Mapping) and selection.get("universe") is True
     symbols = selection.get("symbols") if isinstance(selection, Mapping) else None
@@ -231,5 +231,4 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
                 "selection": chosen, "symbols": list(symbols), **fingerprint}
     if lifecycle_bundle is not None:
         identity["lifecycle_bundle"] = lifecycle_bundle
-    return {"identity": identity, **inputs, "symbols": list(symbols), "receipts": receipts,
-            "exported": {key: exported.get(key) for key in ("exported", "reused")}, "fresh": fresh}
+    return {"identity": identity, **inputs, "symbols": list(symbols), "fresh": fresh}

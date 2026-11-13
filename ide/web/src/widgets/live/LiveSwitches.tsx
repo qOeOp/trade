@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { CoinChip, CoinMenu, coinGroups, type Coin } from "../../components/CoinMenu";
 import { Tabs } from "../../components/Tabs";
+import { symbolOf } from "../../lib/paperApi";
 import { sideOf } from "../../model/liveChart";
 import type { LiveRun } from "../../model/liveTrading";
 import { useTargets } from "../../state/shown";
@@ -19,8 +20,8 @@ export function LiveSwitches({ run, view, symbol, onView, onSymbol }: {
 }) {
   const reading = liveReading(run.equity), symbols = run.symbols ?? [];
   const side = (s: string) => sideOf(run, s), coinOf = (s: string): Coin => ({ symbol: s, side: side(s) });
-  const traded = new Set((run.orders ?? []).filter((o) => o.event_type === "OrderFilled").map((o) => o.instrument_id));
-  const groups = coinGroups(symbols, side, (s) => traded.has(`${s}-PERP.BINANCE`));
+  const traded = new Set((run.orders ?? []).filter((o) => o.event_type === "OrderFilled").map((o) => symbolOf(o.instrument_id)));
+  const groups = coinGroups(symbols, side, (s) => traded.has(s));
   const after = view !== "coins" || !symbol ? undefined
     : symbols.length > 1 ? <CoinMenu groups={groups} coin={coinOf(symbol)} onPick={onSymbol} /> : <CoinChip coin={coinOf(symbol)} />;
   return <Tabs label="Chart" value={view} onChange={onView} items={[

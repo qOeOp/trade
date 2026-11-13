@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Checklist, FieldLabel, FormButton, TextField } from "../../components/chat/Field";
 import { Segmented } from "../../components/Segmented";
-import { agentApi, ApiError, PROVIDER_LABEL, PROVIDERS, type Agent, type Provider } from "../../lib/agentApi";
+import { agentApi, errorText, PROVIDER_LABEL, PROVIDERS, type Agent, type Provider } from "../../lib/agentApi";
 import { replaceAgent } from "../../state/agent";
 import { BRAND_TONE } from "../../icons/brands";
 import { BrandMark } from "../../icons/Icon";
@@ -29,7 +29,7 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
   const moved = saved !== null && (provider !== saved.provider || (baseURL.trim() || null) !== saved.baseURL);
   const run = async (work: () => Promise<void>) => {
     setBusy(true); setError(null);
-    try { await work(); } catch (e) { setError(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e)); } finally { setBusy(false); }
+    try { await work(); } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   };
   const fields = () => ({ name: name.trim() || PROVIDER_LABEL[provider], provider, baseURL: baseURL.trim() || null, models: [...models], defaultModel: star });
   // Saving the credentials first lets the service ask the provider for its models with the stored key.

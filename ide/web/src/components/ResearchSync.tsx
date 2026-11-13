@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
-import { Popover } from "radix-ui";
 import { MISSING, shortSha, when } from "../lib/format";
 import { placeOf } from "../model/about";
 import { useAtom } from "../state/atom";
 import { readResearchSync, researchSync, syncError, type ResearchSyncMove } from "../state/researchSync";
 import { columns, DataTable } from "./DataTable";
 import { DropdownItem } from "./Dropdown";
+import { StatusPopover, StatusTable } from "./StatusPopover";
 import { Retype } from "./Typing";
+
+type Status = ReturnType<typeof researchSync.get>;
+/** Why the last sync failed, from the page's own request or the sync's state; null when it did not. */
+const failureOf = (status: Status, error: string | null) => error ?? status?.error?.message ?? null;
 
 /** Whether this IDE follows research from DoltHub: its server says so in the page. */
 const researchSyncEnabled = () => !!document.querySelector('meta[name="trade-research-sync"]');
@@ -26,7 +30,7 @@ export function useResearchSync() {
     return () => { closed = true; clearTimeout(timer); };
   }, [enabled, status?.state === "syncing"]);
   if (!enabled) return null;
-  const failure = error ?? status?.error?.message ?? null;
+  const failure = failureOf(status, error);
   return { origin: status?.origin ?? null, failure, busy: status?.state === "syncing" && !failure };
 }
 
@@ -54,13 +58,9 @@ const MOVES = [
   col.accessor("ledger_commit", { header: "To", enableSorting: false, cell: (c) => <Commit sha={c.getValue()} /> }),
 ];
 
-/** The sync's state in one line, and the failure when it failed. */
-function syncText(status: ReturnType<typeof researchSync.get>, error: string | null) {
-  const failure = error ?? status?.error?.message ?? null;
-  const text = failure ?? (status?.state === "syncing" ? "Fetching research from DoltHub…"
-    : status?.state === "ready" ? status.changed ? "DoltHub research updated" : "Research is up to date" : "DoltHub research");
-  return { text, failure };
-}
+/** The sync's state in one line: its failure when it failed. */
+const syncText = (status: Status, failure: string | null) => failure ?? (status?.state === "syncing" ? "Fetching research from DoltHub…"
+  : status?.state === "ready" ? status.changed ? "DoltHub research updated" : "Research is up to date" : "DoltHub research");
 
 /** The phone's Research tab line for the research mirror's sync (CF-31): the same state as the status bar's, the
  *  commit it is at and when it last moved, read only (the phone starts no sync). Polls as the desktop's widget does;
@@ -68,7 +68,7 @@ function syncText(status: ReturnType<typeof researchSync.get>, error: string | n
 export function ResearchSyncLine() {
   const sync = useResearchSync(), status = useAtom(researchSync), error = useAtom(syncError);
   if (!sync || (!status && !error)) return null;
-  const { text, failure } = syncText(status, error), last = status?.history?.[0]?.at;
+  const { failure } = sync, text = syncText(status, failure), last = status?.history?.[0]?.at;
   return (
     <p role="status" className={`flex flex-wrap justify-between gap-x-3 border-b border-line px-3 py-1.5 text-small ${failure ? "text-fail-fg" : "text-fg-muted"}`}>
       <span>{text}</span>
@@ -82,28 +82,17 @@ export function ResearchSyncLine() {
 export function ResearchSyncStatus() {
   const status = useAtom(researchSync), error = useAtom(syncError);
   if (!status && !error) return null;
-  const { text, failure } = syncText(status, error);
+  const failure = failureOf(status, error), text = syncText(status, failure);
   const moves = status?.history ?? [], place = status?.origin ? placeOf(status.origin) : null;
   return (
-    <Popover.Root onOpenChange={(open) => { if (open) void readResearchSync(); }}>
-      <Popover.Trigger aria-label={`${text}. Show the latest research syncs`}
-        className={`-mx-1.5 max-w-72 truncate rounded-control px-1.5 transition-colors hover:bg-hover active:bg-pressed data-[state=open]:bg-pressed ${failure ? "text-fail-fg" : "text-fg-muted"}`}>
-        {text}
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content side="top" align="end" sideOffset={4} collisionPadding={8}
-          className="z-50 max-h-[min(440px,var(--radix-popover-content-available-height))] w-max max-w-[min(720px,var(--radix-popover-content-available-width))] overflow-auto rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-popup outline-none">
-          <div className="flex flex-col gap-0.5 px-2 pt-1 pb-2 text-fg-muted">
-            {place && <p>From {place.name}{status?.ledger_commit && <> · at <Commit sha={status.ledger_commit} /></>}</p>}
-            {failure && <p className="text-fail-fg">{failure}</p>}
-          </div>
-          {moves.length ? (
-            <div className="[&_tbody_tr:last-child_td]:border-b-0">
-              <DataTable data={moves} columns={MOVES} rowId={(m) => `${m.at}/${m.ledger_commit}`} sticky={false} />
-            </div>
-          ) : <p className="px-2 pb-1 text-fg-muted">No sync recorded</p>}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+    <StatusPopover label={`${text}. Show the latest research syncs`} onOpen={() => void readResearchSync()}
+      className={`max-w-72 truncate ${failure ? "text-fail-fg" : "text-fg-muted"}`} trigger={text}>
+      <div className="flex flex-col gap-0.5 px-2 pt-1 pb-2 text-fg-muted">
+        {place && <p>From {place.name}{status?.ledger_commit && <> · at <Commit sha={status.ledger_commit} /></>}</p>}
+        {failure && <p className="text-fail-fg">{failure}</p>}
+      </div>
+      {moves.length ? <StatusTable><DataTable data={moves} columns={MOVES} rowId={(m) => `${m.at}/${m.ledger_commit}`} sticky={false} /></StatusTable>
+        : <p className="px-2 pb-1 text-fg-muted">No sync recorded</p>}
+    </StatusPopover>
   );
 }

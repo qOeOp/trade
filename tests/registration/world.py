@@ -67,11 +67,8 @@ class FakeMarket:
     def universe_rule(self, market_day):
         return "pool-v1"
 
-    def latest_complete_day(self, market_day):
-        return date(2026, 3, 31)
-
     def days(self, market_day):
-        return date.fromisoformat(min(month for month, _ in self.market_days[market_day]) + "-01"), self.latest_complete_day(market_day)
+        return date.fromisoformat(min(month for month, _ in self.market_days[market_day]) + "-01"), date(2026, 3, 31)
 
     def universe_month(self, market_day):
         return list(self.market_days[market_day])
@@ -95,8 +92,7 @@ class FakeMarket:
         for name, data in (lifecycle_files or {}).items():
             (root / "lifecycle-evidence" / name).parent.mkdir(parents=True, exist_ok=True)
             (root / "lifecycle-evidence" / name).write_bytes(data)
-        return {"market_day": market_day, "root": root, "exported": len(symbols), "reused": 0,
-                "receipts": receipts}
+        return {"root": root, "receipts": receipts}
 
     def validate_lifecycle(self, body, market_day, files):
         if not isinstance(body, dict) or body.get("market_day") != market_day:

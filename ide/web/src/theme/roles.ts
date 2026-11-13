@@ -33,6 +33,9 @@ const TEXT_CLASS: Record<TextRole | DataRole, string> = {
   recommended: "text-recommended-fg", meets: "text-meets-fg", misses: "text-misses-fg", fail: "text-fail-fg", masked: "text-masked",
 };
 export const textClass = (role: TextRole | DataRole) => TEXT_CLASS[role];
+/** The Tailwind background class of a data role, for its status dot. */
+const DOT_CLASS: Record<DataRole, string> = { recommended: "bg-recommended", meets: "bg-meets", misses: "bg-misses", fail: "bg-fail", masked: "bg-masked" };
+export const dotClass = (role: DataRole) => DOT_CLASS[role];
 /** The class of a signed amount's text: profit, loss, or the secondary colour at zero or unknown. */
 export const pnlClass = (n: number | null | undefined) => (n == null || n === 0 ? "text-fg-muted" : n > 0 ? "text-pnl-up" : "text-pnl-down");
 

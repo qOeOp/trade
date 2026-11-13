@@ -29,8 +29,8 @@ export function LiveFrozenPlan({ run, credentials }: { run: LiveRun; credentials
   </div>;
 }
 
-export function LiveLaunchReview({ run, credentials, actions, action: check }: { run: LiveRun; credentials: readonly LiveCredential[]; actions: LiveTradingActions; action: ReturnType<typeof useLiveAction> }) {
-  const stopping = useLiveAction();
+export function LiveLaunchReview({ run, credentials, actions }: { run: LiveRun; credentials: readonly LiveCredential[]; actions: LiveTradingActions }) {
+  const check = useLiveAction(), stopping = useLiveAction();
   return <div className="space-y-4">
     <div className="space-y-3">
       <KeyValues stackNarrow labels="fixed" items={[["Run ID", <LiveRunId id={run.id} />], ...liveRunStatus(run)]} />
@@ -41,8 +41,8 @@ export function LiveLaunchReview({ run, credentials, actions, action: check }: {
       {run.accountCheck ? <LiveAccountCheck check={run.accountCheck} startAvailable={Boolean(actions.start && run.sourceHash)} />
         : <p className="text-small text-fg-muted">No account-check result for the current run phase. Startup checks the account before trading.</p>}
       <div className="flex flex-wrap gap-2">
-        <FormButton disabled={!actions.preflight || check.busy} onClick={() => { if (actions.preflight) void check.submit(() => actions.preflight!(run.id)); }}>{check.busy ? "Submitting check…" : "Check account"}</FormButton>
-        <FormButton disabled={!actions.stop || run.ended || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
+        <FormButton disabled={!actions.preflight || check.busy} onClick={() => void check.submit(() => actions.preflight?.(run.id))}>{check.busy ? "Submitting check…" : "Check account"}</FormButton>
+        <FormButton disabled={!actions.stop || run.ended || stopping.busy} onClick={() => void stopping.submit(() => actions.stop?.(run.id))}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
       </div>
       <p className="text-small text-fg-faint">Check account opens a read-only exchange connection. A stop request still waits for exit and account verification.</p>
       <LiveActionFailure failed={check.failed || stopping.failed} />

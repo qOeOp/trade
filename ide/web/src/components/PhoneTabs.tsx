@@ -2,8 +2,7 @@ import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";
 import type { IconName } from "../icons/registry";
 import type { DataRole } from "../theme/roles";
-
-const DOT: Record<DataRole, string> = { recommended: "bg-recommended", meets: "bg-meets", misses: "bg-misses", fail: "bg-fail", masked: "bg-masked" };
+import { CornerDot } from "./StripeButton";
 
 export type PhoneTabItem<T> = { id: T; icon: IconName; label: string; dot?: DataRole };
 
@@ -19,7 +18,7 @@ export function PhoneTabs<T extends string>({ items, value, onChange, accessory 
                   className={`flex min-h-12 min-w-16 flex-col items-center gap-0.5 text-small ${on ? "text-fg" : "text-fg-muted"}`}>
             <span className={`relative grid size-7 place-items-center rounded-popup transition-colors ${on ? "bg-pressed text-fg" : "text-icon"}`}>
               <Icon name={tab.icon} size={20} />
-              {tab.dot && <span className={`absolute right-1 top-1 size-1.5 rounded-full ring-2 ring-frame ${DOT[tab.dot]}`} />}
+              {tab.dot && <CornerDot role={tab.dot} />}
             </span>
             {tab.label}
           </button>

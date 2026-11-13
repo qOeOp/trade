@@ -9,7 +9,7 @@ export function LiveRecovery({ runId, actions }: { runId: string; actions: LiveT
   return <div className="space-y-2">
     <div className="flex flex-wrap gap-2">
       <FormButton disabled={!actions.reconcile || action.busy} onClick={() => setOpen(true)}>Reconcile account…</FormButton>
-      <FormButton disabled={!actions.maintain || action.busy} onClick={() => { if (actions.maintain) void action.submit(() => actions.maintain!(runId)); }}>Retry local cleanup</FormButton>
+      <FormButton disabled={!actions.maintain || action.busy} onClick={() => void action.submit(() => actions.maintain?.(runId))}>Retry local cleanup</FormButton>
     </div>
     <p className="text-small text-fg-faint">Normal cleanup is automatic. Local cleanup only checks retained host state and resources; it does not contact the exchange.</p>
     <LiveActionFailure failed={action.failed} />

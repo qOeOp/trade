@@ -21,6 +21,9 @@ export class ApiError extends Error {
   }
 }
 
+/** An error in one line: a refusal as `CODE: message`. */
+export const errorText = (e: unknown) => (e instanceof ApiError ? `${e.code}: ${e.message}` : String(e));
+
 /** One JSON request to the chat service; throws its refusal as an ApiError. */
 export async function agentApi<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   let response: Response;

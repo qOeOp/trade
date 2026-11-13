@@ -53,7 +53,7 @@ class ReplayEvidenceTests(LiveFixture):
             return prepare(self.root, run_id, self.world.profile, db.head_commit(self.world.conn),
                            self.candidate["candidate"], ["AAAUSDT"], universe, self.credentials, IDENTITY["image_ref"],
                            scope=self.scope, drawdown_brake="0.15", duration_seconds=60,
-                           memory="2g", leverage="3", market_root=Path("unused"))
+                           memory="2g", leverage="3", market_root=Path("unused"), credential_ref="a" * 32)
 
     def read_ahead(self) -> list[dict]:
         """runs.replay_evidence, which the page shows before preparing, on the same images as prepare."""

@@ -1,8 +1,6 @@
 import type { ReactNode } from "react";
-import type { DataRole } from "../theme/roles";
+import { dotClass, type DataRole } from "../theme/roles";
 import { Tip } from "./Tip";
-
-const DOT: Record<DataRole, string> = { recommended: "bg-recommended", meets: "bg-meets", misses: "bg-misses", fail: "bg-fail", masked: "bg-masked" };
 
 type Tab<T> = { id: T; label: ReactNode; dot?: DataRole; hint?: string; disabled?: boolean; after?: ReactNode };
 
@@ -29,7 +27,7 @@ export function Tabs<T extends string | null>({ items, value, onChange, label, c
           <button key={String(tab.id)} type="button" role="tab" aria-selected={on} aria-disabled={tab.disabled || undefined} tabIndex={tab.disabled ? -1 : undefined}
                   onClick={tab.disabled ? undefined : () => onChange(tab.id)} className={look}>
             {tab.label}
-            {tab.dot && <span className={`size-1.5 rounded-full ${DOT[tab.dot]}`} />}
+            {tab.dot && <span className={`size-1.5 rounded-full ${dotClass(tab.dot)}`} />}
           </button>
         );
         const tipped = <Tip key={String(tab.id)} content={tab.hint}>{button}</Tip>;

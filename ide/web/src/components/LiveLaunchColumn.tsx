@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";
 import { spanText, type LaunchColumn, type LaunchRow, type Mark } from "../model/liveLaunch";
 import { LiveDurationField } from "./LiveDurationField";
+import { Spinner } from "./Spinner";
 import { MISSING } from "../lib/format";
 
 /** A row's mark before its label, so the answer reads first: a green check or red cross for a start condition, the
@@ -10,7 +11,7 @@ import { MISSING } from "../lib/format";
 function RowMark({ mark, required, busy }: { mark: Mark; required: boolean; busy: boolean }) {
   if (mark === "shown") return <span aria-hidden="true" className="size-4" />;
   if (mark === "wait") return busy
-    ? <><Icon name="loading" size={16} className="text-icon motion-safe:animate-spin motion-reduce:hidden" /><Icon name="untested" size={16} className="text-fg-faint motion-safe:hidden" /></>
+    ? <Spinner size={16} still="untested" className="text-icon" />
     : <Icon name="untested" size={16} className="text-fg-faint" />;
   return mark === "pass" ? <Icon name="passed" size={16} tone="meets" />
     : <Icon name="failed" size={16} tone={required ? "fail" : "misses"} />;

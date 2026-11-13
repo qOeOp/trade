@@ -8,38 +8,10 @@ a prediction can only name what the reports measure.
 
 from __future__ import annotations
 
-import copy
 
-
-DUTIES = {
-    "A1": "Investable objects and eligibility",
-    "A2": "Dynamic selection and replacement",
-    "A3": "Market structure the mechanism needs / conditional filter",
-    "B1": "Expected return / relative mispricing",
-    "B2": "Forecast horizon and decay",
-    "B3": "Signal combination and estimate updates",
-    "C1": "First entry and trigger",
-    "C2": "Not acting, re-entry and path dependence",
-    "D1": "Single-leg / multi-leg economic configuration",
-    "D2": "Hedging and nonlinear exposure",
-    "E1": "Risk and size of one opportunity",
-    "E2": "Portfolio exposure, concentration and common risk",
-    "E3": "Risk budget after equity changes",
-    "E4": "Allocation across opportunities / strategies",
-    "F1": "Active scaling in",
-    "F2": "Active reduction and position path",
-    "F3": "Dynamic protection / profit boundaries",
-    "F4": "Full exit, timed exit and cleanup",
-    "F5": "Holdings when membership or the model changes",
-    "G1": "Economic execution style and price",
-    "G2": "Waiting, refreshing and post-fill feedback",
-    "G3": "Impact, capacity and implementation speed",
-    "H1": "Cash, financing and carrying cost",
-    "H2": "Margin, collateral and buffer",
-    "H3": "Short availability and financing interruption",
-    "I1": "Contract / event lifecycle",
-    "I2": "Exit feasibility and future resources",
-}
+# The duty IDs; their titles are the duty directory's (research-round references/duty-directory.md).
+DUTIES = frozenset(("A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "D1", "D2", "E1", "E2", "E3", "E4", "F1", "F2", "F3",
+                    "F4", "F5", "G1", "G2", "G3", "H1", "H2", "H3", "I1", "I2"))
 
 # Slices in report order, each with its measures and a broad index of related responsibilities.
 # These duty links locate policies to investigate; they do not identify a cause or constrain the
@@ -70,7 +42,7 @@ _SLICES = (
 def measure_catalogue() -> dict:
     """{slices: [{id, title, duties, measures}]}: the fixed catalogue, a new copy on every call."""
     return {"slices": [{"id": slice_id, "title": title, "duties": list(duties), "measures": list(measures)}
-                       for slice_id, title, duties, measures in copy.deepcopy(_SLICES)]}
+                       for slice_id, title, duties, measures in _SLICES]}
 
 
 def slice_measures() -> dict[str, frozenset[str]]:

@@ -19,7 +19,7 @@ import functools
 import hashlib
 from pathlib import Path
 
-from ledger import db, metrics, problems, review_activity
+from ledger import db, execution, metrics, problems, review_activity
 from shared.refusals import refuse
 from registration import precheck
 from registration.comparability import COMPARABLE_PURPOSES
@@ -40,9 +40,8 @@ LIMITATION = (f"Economic evidence is a read-time view under check {CHECK}; it re
               "result")
 NOT_EVALUATED = ("{fact} was not recorded when the run was sealed; reproduce the run (replay.reproduce) to evaluate it "
                  "under this criterion")
-# Every performance key a report reader may carry; mask empties all of them for a run without evidence.
-PERFORMANCE_KEYS = ("headline", "measures", "slices", "closed_by_year", "dev_years", "drawdown", "capital",
-                    "cost_basis", "metrics", "single", "exposures_table", "account")
+# Every performance key a masked report (report.runs) may carry; mask empties all of them for a run without evidence.
+PERFORMANCE_KEYS = ("headline", "slices", "closed_by_year", "dev_years", "drawdown", "capital", "cost_basis", "account")
 # What a masked run keeps of each sealed activity fact: whether it held, why not, and its count.
 MASKED_FACT_KEYS = ("passed", "code", "count")
 
@@ -83,16 +82,10 @@ def native_reasons(reports: Mapping | None) -> list[str]:
 
 
 def _stage_failures(capture: Mapping) -> list[str]:
+    """The recorded stages that did not exit 0 (a stage without a record is not named)."""
     stages = capture.get("stages")
-    if not isinstance(stages, Mapping):
-        stages = {}
-    failed = []
-    for name, stage in sorted(stages.items()):
-        if not isinstance(stage, Mapping):
-            continue
-        if stage.get("state") != "exited" or stage.get("exit_code") != 0:
-            failed.append(name)
-    return failed
+    stages = stages if isinstance(stages, Mapping) else {}
+    return [name for name, stage in sorted(stages.items()) if isinstance(stage, Mapping) and not execution.stage_ok(stage)]
 
 
 def _capture_view(capture: Mapping) -> dict:
@@ -159,13 +152,11 @@ def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None =
 
 def require(conn: db.LedgerConnection, run: Mapping, **options) -> dict:
     """The availability of a run that has economic evidence; ECONOMIC_EVIDENCE_UNAVAILABLE otherwise.
-    The refusal carries every reason (and the whole view as `availability`); `options` are assess's."""
+    The refusal carries every reason; `options` are assess's."""
     value = assess(conn, run, **options)
     if not value["economic_evidence_available"]:
-        exc = refuse("ECONOMIC_EVIDENCE_UNAVAILABLE", f"run {run['trial_id']} has no economic evidence: "
+        raise refuse("ECONOMIC_EVIDENCE_UNAVAILABLE", f"run {run['trial_id']} has no economic evidence: "
                      + "; ".join(value["reasons"]), missing=(str(run["trial_id"]), *value["reasons"]))
-        exc.availability = value  # type: ignore[attr-defined]  # ledger.Refusal declares no view field
-        raise exc
     return value
 
 

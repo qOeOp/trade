@@ -111,9 +111,9 @@ class CredentialStoreTests(unittest.TestCase):
             self.resolve_partial_path()
         self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_BUSY")
 
-    def test_partial_prepare_does_not_skip_unknown_legacy_execution(self):
+    def test_partial_prepare_does_not_skip_an_unknown_execution(self):
         self.save()
-        other = self.prepared()
+        other = self.prepared(ref=self.ref)
         self.launch(other)
         self.partial_prepare()
         with patch.object(runs, "inspect_runner", return_value=None), self.assertRaises(LiveRefusal) as caught:
@@ -460,13 +460,6 @@ class CredentialStoreTests(unittest.TestCase):
         with state.serialized(self.root), self.assertRaises(LiveRefusal) as caught:
             credentials.run_path_locked(self.root, directory.name, "reconcile")
         self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_UNMANAGED")
-
-    def test_unresolved_legacy_history_blocks_first_managed_save(self):
-        directory = self.prepared()
-        self.launch(directory)
-        with patch.object(runs, "inspect_runner", return_value=None), self.assertRaises(LiveRefusal):
-            self.save()
-        self.assertFalse((self.root / "credentials").exists())
 
     def test_new_start_uses_current_version_but_reconcile_keeps_original(self):
         self.save()

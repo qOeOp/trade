@@ -357,6 +357,11 @@ def _ran(stage) -> bool:
     return isinstance(stage, Mapping) and stage.get("state") in STATES
 
 
+def stage_ok(stage) -> bool:
+    """Whether a capture stage ran and exited 0."""
+    return isinstance(stage, Mapping) and stage.get("state") == "exited" and stage.get("exit_code") == 0
+
+
 def _capture_files(workdir: Path, purpose: str, facts: Mapping,
                    outcome: Mapping | None = None) -> tuple[dict, dict[str, bytes]]:
     """(manifest entries, stored bytes) of what exists in the working directory, by the capture rule.
@@ -368,8 +373,7 @@ def _capture_files(workdir: Path, purpose: str, facts: Mapping,
     names = list(CAPTURE_FILES)
     audit = _json(read_regular(workdir / problems.AUDIT_RESULT) or b"")
     cacheable = (purpose == "precheck" and (outcome or {}).get("kind") == "completed"
-                 and all(isinstance(facts.get(stage), Mapping) and facts[stage].get("state") == "exited"
-                         and facts[stage].get("exit_code") == 0 for stage in STAGES)
+                 and all(stage_ok(facts.get(stage)) for stage in STAGES)
                  and isinstance(_json(read_regular(workdir / problems.FINGERPRINT_RESULT) or b""), dict)
                  and isinstance(audit, dict) and audit.get("passed") is True
                  and not (read_regular(workdir / problems.RUNTIME_ERRORS) or b"").strip())

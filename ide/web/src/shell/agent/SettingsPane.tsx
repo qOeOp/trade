@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AgentCard } from "../../components/chat/AgentCard";
 import { FormButton } from "../../components/chat/Field";
-import { agentApi, ApiError, type Agent } from "../../lib/agentApi";
+import { agentApi, errorText, type Agent } from "../../lib/agentApi";
 import { agents, refreshAgents, replaceAgent, useAgents } from "../../state/agent";
 import { AgentEditor } from "./AgentEditor";
 
@@ -16,13 +16,16 @@ export function SettingsPane() {
   const test = async (agent: Agent) => {
     setTesting(agent.id); setError(null);
     try { replaceAgent(await agentApi<Agent>(`/agents/${agent.id}/test`, { method: "POST", body: {} })); }
-    catch (e) { setError(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e)); }
+    catch (e) { setError(errorText(e)); }
     finally { setTesting(null); }
   };
   const remove = async (agent: Agent) => {
     if (!window.confirm(`Delete ${agent.name} and its stored key?`)) return;
-    await agentApi(`/agents/${agent.id}`, { method: "DELETE" });
-    agents.set(agents.get().filter((a) => a.id !== agent.id));
+    setError(null);
+    try {
+      await agentApi(`/agents/${agent.id}`, { method: "DELETE" });
+      agents.set(agents.get().filter((a) => a.id !== agent.id));
+    } catch (e) { setError(errorText(e)); }
   };
   const done = (saved: Agent | null) => {
     setEditing(null);

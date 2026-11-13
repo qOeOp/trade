@@ -399,7 +399,7 @@ class PartialPrepareTests(LiveFixture):
         self.config = {"drawdown_brake": "0.15", "leverage": "3",
                        "duration_seconds": 8100, "memory": "2g"}
         self.ref = "a" * 32
-        state.append(self.directory / "lifecycle.jsonl", "prepared", self.run_id)
+        state.append(self.directory / "lifecycle.jsonl", "prepared", self.run_id, credential_ref=self.ref)
         with state.serialized(self.root) as root:
             credentials.save_locked(root, self.ref, "example-key", "example-secret")
         self.credentials = self.root / "credentials" / (self.ref + ".json")
@@ -515,7 +515,7 @@ class PartialPrepareTests(LiveFixture):
         def legacy(commit):
             return prepare(self.root, self.new_id, object(), commit, "original@1", ["BTCUSDT"], self.universe,
                                 self.credentials, IDENTITY["image_ref"], scope=self.scope, **self.config,
-                                market_root=Path("unused"))
+                                market_root=Path("unused"), credential_ref=self.ref)
         self.assertEqual(legacy("a" * 32)["run_id"], self.new_id)
         with self.assertRaises(LiveRefusal) as caught:
             legacy("b" * 32)

@@ -61,7 +61,7 @@ export function LiveRequestStatus({ request, run, viewRun, resolve }: {
       {closed && <p className="text-small text-fg-muted">This request ID is permanently closed. A late submission with this ID cannot execute.</p>}
       {request.outcome === "outcome_unknown" && <div className="space-y-2 pt-2">
         <p className="text-small text-fg-faint">Check retained local facts or permanently close an unaccepted request ID. This does not repeat the original action or connect to the exchange.</p>
-        <FormButton disabled={!resolve || action.busy} onClick={() => { if (resolve) void action.submit(() => resolve(request.request_id)); }}>{action.busy ? "Checking…" : "Resolve local request"}</FormButton>
+        <FormButton disabled={!resolve || action.busy} onClick={() => void action.submit(() => resolve?.(request.request_id))}>{action.busy ? "Checking…" : "Resolve local request"}</FormButton>
       </div>}
     </div>
   );

@@ -3,6 +3,7 @@ import { dateTime, utcInstant } from "../lib/time";
 import { useTimeZone } from "../state/timeZone";
 import { Icon } from "../icons/Icon";
 import type { LiveAccountCheck as AccountCheck } from "../model/liveTrading";
+import { Spinner } from "./Spinner";
 
 const TEXT = {
   running: ["Account check in progress", "Refresh observations to read its result. Checking the account does not start trading."],
@@ -16,7 +17,7 @@ const TEXT = {
 const MARK: Record<AccountCheck["state"], ReactNode> = {
   passed: <Icon name="passed" size={16} tone="meets" />,
   failed: <Icon name="failed" size={16} tone="fail" />,
-  running: <><Icon name="loading" size={16} className="text-icon motion-safe:animate-spin motion-reduce:hidden" /><Icon name="untested" size={16} className="text-icon motion-safe:hidden" /></>,
+  running: <Spinner size={16} still="untested" className="text-icon" />,
   unknown: <Icon name="untested" size={16} className="text-fg-faint" />,
 };
 

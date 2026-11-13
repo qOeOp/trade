@@ -1,16 +1,15 @@
 // Everything the user can do by name: the palette lists these and the keyboard binds them.
-import type { IconName } from "../icons/registry";
 import { cycleTheme, theme, THEME_LABEL } from "../state/theme";
 import { requestFocus } from "../state/linking";
 import { showLineage } from "../state/editors";
-import { overviewService } from "../state/market";
 import { activeIsland, hideSide, paletteOpen, shell, showHistoryPage, showLivePage, showMarketPage, showRunsPage, SIDES, toggleSide, toggleToolWindow, type Side } from "../state/shell";
 import type { ToolWindow } from "./toolWindows";
 import { openLiveCredentials, openLiveLaunch } from "../state/liveWorkspace";
 
-export type Action = { id: string; label: string; icon?: IconName; keys?: string; binding?: string; whileTyping?: boolean; run: () => void };
+export type Action = { id: string; label: string; keys?: string; binding?: string; whileTyping?: boolean; run: () => void };
 
-export function commands(windows: readonly ToolWindow[]): Action[] {
+/** `market`: the page's server has market data, so the Market page can open. */
+export function commands(windows: readonly ToolWindow[], market: boolean): Action[] {
   return [
     { id: "palette", label: "Go to a version or run a command", keys: "⌘K", binding: "$mod+KeyK", whileTyping: true, run: () => paletteOpen.set(!paletteOpen.get()) },
     // From anywhere, without tabbing through every island first.
@@ -18,24 +17,24 @@ export function commands(windows: readonly ToolWindow[]): Action[] {
       run: () => document.querySelector<HTMLElement>("#main-toolbar button:not([disabled])")?.focus() },
     { id: "axis-start", label: "Back to the axis start", keys: "Home", binding: "Home", run: () => requestFocus("") },
     ...windows.map((w): Action => ({
-      id: `tool:${w.id}`, label: `Toggle ${w.renderer.title}`, icon: w.icon, keys: w.shortcut?.keys, binding: w.shortcut?.binding,
+      id: `tool:${w.id}`, label: `Toggle ${w.renderer.title}`, keys: w.shortcut?.keys, binding: w.shortcut?.binding,
       run: () => toggleToolWindow(w.id, w.side),
     })),
-    ...(overviewService.get() === "absent" ? [] : [{ id: "market", label: "Toggle Market page", icon: "tool.market" as const,
-      run: () => (shell.get().last.left === "market" ? showLineage() : showMarketPage()) }]),
-    { id: "runs", label: "Toggle Runs page", icon: "tool.runs", keys: "⌥8", binding: "Alt+Digit8",
+    ...(market ? [{ id: "market", label: "Toggle Market page",
+      run: () => (shell.get().last.left === "market" ? showLineage() : showMarketPage()) }] : []),
+    { id: "runs", label: "Toggle Runs page", keys: "⌥8", binding: "Alt+Digit8",
       run: () => (shell.get().last.left === "runs" ? showLineage() : showRunsPage()) },
-    { id: "history", label: "Toggle Line-close history page", icon: "tool.history",
+    { id: "history", label: "Toggle Line-close history page",
       run: () => (shell.get().last.left === "history" ? showLineage() : showHistoryPage()) },
-    { id: "live", label: "Open live runs", icon: "tool.runs", run: showLivePage },
-    { id: "live:new", label: "New live run", icon: "run", run: openLiveLaunch },
+    { id: "live", label: "Open live runs", run: showLivePage },
+    { id: "live:new", label: "New live run", run: openLiveLaunch },
     { id: "live:credentials", label: "Live settings…", run: openLiveCredentials },
-    { id: "side:right", label: "Toggle right tool windows", icon: "panel-right", keys: "⌘B", binding: "$mod+KeyB", run: () => toggleSide("right") },
-    { id: "side:bottom", label: "Toggle bottom tool windows", icon: "panel-bottom", keys: "⌘J", binding: "$mod+KeyJ", run: () => toggleSide("bottom") },
+    { id: "side:right", label: "Toggle right tool windows", keys: "⌘B", binding: "$mod+KeyB", run: () => toggleSide("right") },
+    { id: "side:bottom", label: "Toggle bottom tool windows", keys: "⌘J", binding: "$mod+KeyJ", run: () => toggleSide("bottom") },
     { id: "hide-active", label: "Hide active tool window", keys: "⇧Esc", binding: "Shift+Escape", run: () => {
       const side = activeIsland.get() as Side;
       if (SIDES.includes(side)) { hideSide(side); activeIsland.set("editor"); }
     } },
-    { id: "theme", label: `Switch theme (now: ${THEME_LABEL[theme.get()]})`, icon: "theme", run: cycleTheme },
+    { id: "theme", label: `Switch theme (now: ${THEME_LABEL[theme.get()]})`, run: cycleTheme },
   ];
 }

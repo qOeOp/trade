@@ -43,10 +43,10 @@ def checkout(root: Path) -> tuple[Path, Path]:
     return remote, clone
 
 
-def stale(checkout_root, remote="origin") -> str:
-    with patch.dict(os.environ, GIT_ENV):
+def stale(checkout_root) -> str:
+    with patch.dict(os.environ, GIT_ENV), seams.use(checkout=lambda: checkout_root):
         try:
-            validation.require_fresh(checkout_root, remote)
+            seams.require_fresh()
         except Refusal as exc:
             return exc.code
     return "fresh"
@@ -75,16 +75,17 @@ class FreshCheckoutTests(unittest.TestCase):
         self.assertEqual(stale(self.clone), "STALE_CHECKOUT")
         git(self.clone, "pull", "-q", "--ff-only")
         self.assertEqual(stale(self.clone), "fresh")
-        self.assertEqual(stale(self.clone, "nowhere"), "STALE_CHECKOUT")
+        git(self.clone, "remote", "set-url", "origin", str(self.root / "nowhere"))
+        self.assertEqual(stale(self.clone), "STALE_CHECKOUT")
         plain = self.root / "plain"
         plain.mkdir()
         self.assertEqual(stale(plain), "STALE_CHECKOUT")
 
 
 def current(checkout_root) -> str:
-    with patch.dict(os.environ, GIT_ENV):
+    with patch.dict(os.environ, GIT_ENV), seams.use(checkout=lambda: checkout_root):
         try:
-            validation.require_current(checkout_root)
+            seams.require_current()
         except Refusal as exc:
             return exc.code
     return "current"
@@ -197,8 +198,11 @@ def _ns(moment: datetime) -> int:
 
 
 def with_file(inputs: dict) -> dict:
-    """market_inputs' result with its membership file's content as `membership`, as the coverage receipt holds it."""
-    return {**inputs, "membership": json.loads(Path(inputs["membership_file"]).read_text(encoding="utf-8"))}
+    """market_inputs' result with its membership file's content as `membership` and the export receipts under its root
+    as `receipts`, as the coverage receipt holds them (replay.input_coverage)."""
+    return {**inputs, "membership": json.loads(Path(inputs["membership_file"]).read_text(encoding="utf-8")),
+            "receipts": {symbol: json.loads((Path(inputs["root"]) / symbol / registration_inputs.RECEIPT).read_text())
+                         for symbol in inputs["symbols"]}}
 
 
 def members_of(inputs: dict, membership: dict) -> dict:
@@ -229,10 +233,11 @@ class ValidationTests(unittest.TestCase):
         cls.addClassCleanup(cls.authority.close)
         cls.git_root = Path(tempfile.mkdtemp(prefix="product-", dir="/tmp"))
         cls.addClassCleanup(shutil.rmtree, cls.git_root, ignore_errors=True)
-        cls.remote, cls.checkout = checkout(cls.git_root)
+        cls.remote, product = checkout(cls.git_root)
         environment = patch.dict(os.environ, GIT_ENV)
         environment.start()
         cls.addClassCleanup(environment.stop)
+        cls.enterClassContext(seams.use(checkout=lambda: product))
         for seam in (patch.object(witness, "_post", side_effect=cls.authority.respond),
                      patch.object(witness, "_roots", return_value=cls.authority.roots)):
             seam.start()
@@ -283,7 +288,7 @@ class ValidationTests(unittest.TestCase):
                                                            selection or {"universe": True}, None, True))
 
     def bind(self, label: str, data: bytes | None = None, inputs: dict | None = None, inspection: dict | None = None,
-             identity: dict | None = None, start=None, end=None, checkout_root=None, binder_source=None,
+             identity: dict | None = None, start=None, end=None, binder_source=None,
              purpose: str = "validation") -> int:
         """Open a validation trial whose start receipt records `inputs` and the effective configuration
         of `inspection`, bound to the registration `label`."""
@@ -296,7 +301,7 @@ class ValidationTests(unittest.TestCase):
         binder = validation.validation_binder(
             self.registered[label]["registration_id"] if label in self.registered else label,
             sha(binder_source if binder_source is not None else data), identity or dict(IDENTITY), inspection,
-            market=self.world.market, checkout=checkout_root or self.checkout)
+            market=self.world.market)
         with seams.use(require_main_build=lambda identity, inspection: "a" * 40):
             return trials.open_trial(self.conn, purpose, sha(data), RUNTIME,
                                      receipt(inputs, inspection["effective_config"]),
@@ -606,11 +611,12 @@ class ValidationTests(unittest.TestCase):
         root = source("root")
         plain = self.git_root / "plain"
         plain.mkdir()
-        self.assertEqual(self.refused_bind("checks", checkout_root=plain), "STALE_CHECKOUT")
+        with seams.use(checkout=lambda: plain):
+            self.assertEqual(self.refused_bind("checks"), "STALE_CHECKOUT")
         with seams.use(require_main_build=lambda identity, inspection: (_ for _ in ()).throw(
                 Refusal("RUNTIME_NOT_MAIN", "not a main build", write_status="not_written"))):
             self.assertEqual(self.code(validation.validation_bind, self.conn, 1, {}, sha(root), IDENTITY, {},
-                                       market=self.world.market, checkout=self.checkout), "RUNTIME_NOT_MAIN")
+                                       market=self.world.market), "RUNTIME_NOT_MAIN")
         other_image = {**IDENTITY, "image_digest": "sha256:" + "c" * 64}
         self.assertEqual(self.refused_bind("checks", identity=other_image), "RUNTIME_NOT_MAIN")
         self.assertEqual(self.refused_bind(999_999), "REGISTRATION_UNKNOWN")

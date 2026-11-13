@@ -12,14 +12,13 @@ export function LiveRunReviewDialog({ run, open, close, view, actions, requests 
   run: LiveRun; open: boolean; close: () => void; view: LiveTradingView; actions: LiveTradingActions; requests: () => void;
 }) {
   const reading = useLiveAction(), stopping = useLiveAction();
-  return <LiveDialogFrame open={open} close={close} title="Review live run"
+  return <LiveDialogFrame notice={view.notice} open={open} close={close} title="Review live run"
     description="Review the retained run, its account observations and completion. Closing this window does not change the run."
     footer={<>
-      <FormButton disabled={!actions.refresh || reading.busy} onClick={() => { if (actions.refresh) void reading.submit(actions.refresh); }}>{reading.busy ? "Reading…" : "Refresh observations"}</FormButton>
-      <FormButton icon="stop" disabled={!actions.stop || run.ended || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
+      <FormButton disabled={!actions.refresh || reading.busy} onClick={() => void reading.submit(() => actions.refresh?.())}>{reading.busy ? "Reading…" : "Refresh observations"}</FormButton>
+      <FormButton icon="stop" disabled={!actions.stop || run.ended || stopping.busy} onClick={() => void stopping.submit(() => actions.stop?.(run.id))}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
     </>}>
     <div className="space-y-4">
-      {view.notice && <p role="status" className="text-small text-misses-fg">{view.notice}</p>}
       <header className="space-y-3">
         <div><p className="mb-1 text-small text-fg-faint">{livePurposeLabel(run.purpose)}</p><h2 className="break-words font-semibold">{run.candidate}</h2></div>
         <LiveRunIdentity run={run} />

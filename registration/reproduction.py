@@ -62,9 +62,8 @@ def fingerprint_hash(capture: Mapping) -> str | None:
     stages = capture.get("stages") or {}
     audit = problems.json_object(problems.sealed(capture, problems.AUDIT_RESULT))
     if (capture.get("status") != "captured" or (capture.get("outcome") or {}).get("kind") != "completed"
-            or capture.get("runtime_failures") or audit is None or audit.get("passed") is not True or any(
-                not isinstance(stages.get(stage), Mapping) or stages[stage].get("state") != "exited"
-                or stages[stage].get("exit_code") != 0 for stage in execution.STAGES)):
+            or capture.get("runtime_failures") or audit is None or audit.get("passed") is not True
+            or any(not execution.stage_ok(stages.get(stage)) for stage in execution.STAGES)):
         return None
     entry = (capture.get("listed") or {}).get(problems.FINGERPRINT_RESULT) or {}
     return entry.get("sha256") if entry.get("status") in ("captured", "hashed") else None
@@ -151,8 +150,8 @@ def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_tria
     """A successful explore with the earlier trial's source, contracts, window and result, whatever its inputs.
 
     On the same image: the same configuration and the same whole fingerprint. On another image, for a sealed run and
-    a reproduction that recorded its table hashes (only `replay reproduce` does, on a main build): the configuration
-    whole configuration and the semantic hashes of RESULT_TABLES.
+    a reproduction that recorded its table hashes (only `replay reproduce` does, on a main build): the same
+    configuration and the semantic hashes of RESULT_TABLES.
 
     Callers decide which original trials are eligible anchors (for example the precheck actually
     cited by a registration). Equal hashes alone never grant a general exposure exemption.

@@ -36,8 +36,8 @@ await components.link(loader({ stubs: {
   "icons/Icon": { Icon: () => null },
   // SSR has no portal host. Inspect actual dialog contents; browser checks cover the Radix frame.
   "components/LiveDialogFrame": {
-    LiveDialogFrame: ({ open, title, description, children, footer }) => open
-      ? createElement(Fragment, null, "[dialog]", title, description, children, footer) : null,
+    LiveDialogFrame: ({ open, title, description, notice, children, footer }) => open
+      ? createElement(Fragment, null, "[dialog]", title, description, notice, children, footer) : null,
   },
 } }).link);
 await components.evaluate();
@@ -46,7 +46,7 @@ const render = (name, props) => renderToStaticMarkup(createElement(Tooltip.Provi
 const noOp = () => {};
 const blank = {
   availability: "unavailable", notice: "The Live service is not connected. No request will be sent.",
-  credentials: [], sources: [], planFields: [], runs: [], request: null,
+  credentials: [], sources: [], planFields: [], runs: [], requests: [],
 };
 const run = {
   id: "run-fixture", candidate: "fixture-strategy@1", purpose: "controlled", sourceHash: "a".repeat(64), entryClass: "FixtureStrategy",
@@ -139,7 +139,7 @@ test("a prepared run's review shows its account check and starts nothing", () =>
 });
 
 test("the current run and its review expose the full copyable identity without expanding details", () => {
-  canvasRun = { ...run, id: "web-0123456789abcdef012", host: [{ label: "State", value: "running" }, { label: "Mode", value: "run" }] };
+  canvasRun = { ...run, id: "web-0123456789abcdef012", hostState: "running", host: [{ label: "Mode", value: "run" }] };
   for (const html of [render("LiveRunCanvas", {}), render("LiveRunIdentity", { run: canvasRun }),
     render("LiveRunReview", { runId: canvasRun.id, open: true, close: noOp, requests: noOp,
       view: { ...blank, runs: [canvasRun] }, actions: {} })]) {
@@ -154,7 +154,7 @@ test("the current run and its review expose the full copyable identity without e
 test("executed and reconciled runs show observation review instead of preparation controls", () => {
   for (const [mode, state] of [["run", "running"], ["run", "clean_stopped"], ["run", "unresolved"], ["reconcile", "running"], ["reconcile", "reconciled_flat"]]) {
     const ended = state.endsWith("_stopped") || state.endsWith("_flat");
-    const observed = { ...run, ended, host: [{ label: "State", value: state }, { label: "Mode", value: mode }],
+    const observed = { ...run, ended, hostState: state, host: [{ label: "Mode", value: mode }],
       account: [{ label: "USDT available", value: "73.4001" }], execution: [{ label: "Native terminal", value: null }] };
     const html = wizard({ ...blank, runs: [observed] }, { start: noOp, preflight: noOp, stop: noOp, refresh: noOp });
     assert.match(html, /Review live run/);
@@ -173,7 +173,7 @@ test("executed and reconciled runs show observation review instead of preparatio
 });
 
 test("controlled purpose stays in the review header while the frozen plan is collapsed", () => {
-  const observed = { ...run, purpose: "controlled", host: [{ label: "State", value: "running" }, { label: "Mode", value: "run" }] };
+  const observed = { ...run, purpose: "controlled", hostState: "running", host: [{ label: "Mode", value: "run" }] };
   const html = wizard({ ...blank, runs: [observed] });
   const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0];
   assert.ok(header);
@@ -186,7 +186,7 @@ test("controlled purpose stays in the review header while the frozen plan is col
 
 test("prepared runs and all preflight phases keep Check account in review, never a start", () => {
   for (const [mode, state] of [[null, "prepared"], ["preflight", "running"], ["preflight", "preflight_failed"], ["preflight", "preflight_complete"]]) {
-    const prepared = { ...run, host: [{ label: "State", value: state }, { label: "Mode", value: mode }] };
+    const prepared = { ...run, hostState: state, host: [{ label: "Mode", value: mode }] };
     const html = wizard({ ...blank, runs: [prepared] }, { start: noOp, preflight: noOp });
     const button = html.match(/<button[^>]*>Check account<\/button>/)?.[0];
     assert.ok(button);
@@ -197,7 +197,7 @@ test("prepared runs and all preflight phases keep Check account in review, never
 
 test("run review preserves action availability and names phases without inventing observations", () => {
   for (const [mode, label] of [["run", "Live execution"], ["reconcile", "Reconciliation"]]) {
-    const observed = { ...run, host: [{ label: "State", value: null }, { label: "Mode", value: mode }] };
+    const observed = { ...run, hostState: null, host: [{ label: "Mode", value: mode }] };
     const html = wizard({ ...blank, runs: [observed] });
     assert.match(html, new RegExp(`Phase</dt><dd[^>]*>${label}`));
     assert.match(html, /Status<\/dt><dd[^>]*><span[^>]*>Unknown/);

@@ -1,12 +1,13 @@
 import { useTimeZone } from "../state/timeZone";
 import { useMemo } from "react";
-import { Popover } from "radix-ui";
 import { Icon } from "../icons/Icon";
 import { when, MISSING } from "../lib/format";
 import { position, rows, summary, type Entry, type Refusal, type Reply, type Row } from "../model/marketImport";
 import { readMarketImport, useMarketImport } from "../state/marketImport";
 import { textClass } from "../theme/roles";
 import { columns, DataTable } from "./DataTable";
+import { Spinner } from "./Spinner";
+import { StatusPopover, StatusTable } from "./StatusPopover";
 import { Tip } from "./Tip";
 
 // Only the states the healthcheck fails on are coloured; the refusal beside them keeps the text colour.
@@ -49,9 +50,7 @@ function Details({ reply }: { reply: Reply }) {
         <p>Last round {at(status.at)}{status.running_since ? ` · running since ${at(status.running_since)}` : ` · next ${at(status.next_round)}`}</p>
         <Line label="Round refused:" refusal={status.round_refusal} />
       </div>
-      <div className="[&_tbody_tr:last-child_td]:border-b-0">
-        <DataTable data={data} columns={TABLE} rowId={(r) => `${r.kind}/${r.contract}`} sticky={false} />
-      </div>
+      <StatusTable><DataTable data={data} columns={TABLE} rowId={(r) => `${r.kind}/${r.contract}`} sticky={false} /></StatusTable>
     </>
   );
 }
@@ -64,21 +63,13 @@ export function MarketImportStatus() {
   if (service.kind === "checking" || service.kind === "absent") return null;
   const said = service.kind === "ready" ? summary(service.reply) : { text: "Market: no status", tone: "fail" as const, running: false };
   const icon = said.tone ? <Icon name="warning" size={12} tone={said.tone} />
-    : said.running ? <><Icon name="loading" size={12} className="motion-safe:animate-spin motion-reduce:hidden" /><Icon name="history" size={12} className="motion-safe:hidden" /></>
+    : said.running ? <Spinner />
       : null;
   return (
-    <Popover.Root onOpenChange={(open) => { if (open) void readMarketImport(); }}>
-      <Popover.Trigger aria-label={`${said.text}${said.running ? ", importing" : ""}. Show the market import's status`}
-        className="-mx-1.5 flex min-w-0 items-center gap-1.5 rounded-control px-1.5 text-fg-muted transition-colors hover:bg-hover active:bg-pressed data-[state=open]:bg-pressed">
-        {icon}<span className="truncate">{said.text}{said.running && " · importing"}</span>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content side="top" align="end" sideOffset={4} collisionPadding={8}
-          className="z-50 max-h-[min(440px,var(--radix-popover-content-available-height))] w-max max-w-[min(720px,var(--radix-popover-content-available-width))] overflow-auto rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-popup outline-none">
-          {service.kind === "ready" ? <Details reply={service.reply} />
-            : <p className="px-2 py-1 text-fail-fg">{service.error.code}{service.error.message && <span className="text-fg-muted"> · {service.error.message}</span>}</p>}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+    <StatusPopover label={`${said.text}${said.running ? ", importing" : ""}. Show the market import's status`} onOpen={() => void readMarketImport()}
+      className="flex min-w-0 items-center gap-1.5 text-fg-muted" trigger={<>{icon}<span className="truncate">{said.text}{said.running && " · importing"}</span></>}>
+      {service.kind === "ready" ? <Details reply={service.reply} />
+        : <p className="px-2 py-1 text-fail-fg">{service.error.code}{service.error.message && <span className="text-fg-muted"> · {service.error.message}</span>}</p>}
+    </StatusPopover>
   );
 }

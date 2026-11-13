@@ -65,7 +65,7 @@ export type LiveTradingView = {
    *  accepted. The launch page words it plainly. */
   reason?: string | null;
   credentials: readonly LiveCredential[]; sources: readonly LiveSource[]; planFields: readonly LivePlanField[];
-  runs: readonly LiveRun[]; request: LiveRequest | null; requests?: readonly LiveRequest[];
+  runs: readonly LiveRun[]; requests: readonly LiveRequest[];
   notify?: LiveNotify | null;
 };
 /** Only explicit user interactions call these functions. No callbacks run on mount or refresh. */
@@ -101,5 +101,5 @@ export const labelUnit = (label: string): readonly [string, string | null] => {
 export const LIVE_UNAVAILABLE: LiveTradingView = {
   availability: "unavailable", reason: "LIVE_UNAVAILABLE",
   notice: "The Live service is not connected to this IDE. No request will be sent.",
-  credentials: [], sources: [], planFields: [], runs: [], request: null,
+  credentials: [], sources: [], planFields: [], runs: [], requests: [],
 };

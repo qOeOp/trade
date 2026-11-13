@@ -2,7 +2,7 @@ import { useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes,
 import { Icon } from "../../icons/Icon";
 import { Kbd } from "../Kbd";
 
-// The agent form's controls: a labelled text field, a checklist and a button.
+// The app's form controls (the agent form, Live, paper dialogs, the phone): a labelled text field, a checklist and a button.
 // Fields and buttons share one height, 28px, IntelliJ's control height.
 /** A control's label above it: its own line, 6px clear of the control (the label's bottom margin
  *  collapses with the control's 4px top margin), while a hint under the control stays 4px close. */

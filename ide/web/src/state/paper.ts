@@ -1,7 +1,7 @@
 // Paper runs on the page: whether the page's server has a paper daemon and reaches it, the runs it lists
 // (read every few seconds while it does and the page shows), starts and stops in flight, the dialogs that ask before one,
 // the last notice for the status bar and the last refused action. The run the Runs page shows is state/shown.ts's.
-import { ApiError } from "../lib/agentApi";
+import { ApiError, errorText } from "../lib/agentApi";
 import { paperApi, paperToken, type Listing, type PaperRun } from "../lib/paperApi";
 import { shared } from "../lib/shared";
 import { whileVisible } from "../lib/whileVisible";
@@ -75,7 +75,7 @@ async function refreshRuns(): Promise<void> {
       if (++missed >= MISSES) paperService.set("offline");
       return;
     }
-    say(`Paper runs could not be read: ${error instanceof ApiError ? `${error.code}: ${error.message}` : String(error)}`, true);
+    say(`Paper runs could not be read: ${errorText(error)}`, true);
   }
 }
 

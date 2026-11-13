@@ -1,6 +1,6 @@
 import { DAY_MS } from "../../lib/time";
 import type { Candidate, Targets } from "../../model/types";
-import { neededReturn, type Account, type TradeStats } from "../../model/account";
+import { ANNUAL_DAYS, annualized, neededReturn, pace, type Account, type TradeStats } from "../../model/account";
 import { useBacktest } from "../../state/backtest";
 import { useRunData } from "../../state/runData";
 import { useOnRunsPage } from "../../state/shell";
@@ -8,7 +8,7 @@ import { useShown } from "../../state/shown";
 import { stageName } from "../../model/stage";
 import { Eased } from "../../components/Eased";
 import { useHeld } from "../../components/hooks/useHeld";
-import { ANNUAL_DAYS, Board, type Facts } from "./ReadingsBoard";
+import { Board, type Facts } from "./ReadingsBoard";
 
 
 // What a max drawdown is measured on: a sealed run's equity marked at bar closes, a paper run's minute snapshots.
@@ -27,15 +27,13 @@ function Readout({ of, targets, basis, full = false, a: held = null, stats: t = 
   of: Values; targets: Targets | null; basis: string; full?: boolean; a?: Account | null; stats?: TradeStats | null; stale?: boolean; ended?: boolean;
 }) {
   const minimum = targets?.annual_return ?? null;
-  const needed = minimum === null || !held ? null : neededReturn(minimum, held);
-  // Ahead by the difference of the two figures as shown, so the notes add up on screen.
-  const shown = (n: number) => Math.round(n * 1e4) / 1e4;
-  const ahead = needed === null || held?.ret == null ? null : shown(held.ret) - shown(needed);
+  const needed = minimum === null || !held ? null : neededReturn(minimum, held.start, held.end);
+  const { ahead, usdt } = pace(held?.ret, needed, held?.starting ?? 0);
   const fresh = stale ? null : held;
   const facts: Facts = {
     basis, limit: targets?.max_drawdown ?? null, minimum, mdd: of.maxDrawdown, annual: of.annual, short: of.short, sharpe: of.sharpe,
     winRate: of.winRate, plans: of.plans,
-    account: held || full ? { ret: held?.ret, needed, ahead, usdt: ahead === null || !held ? null : ahead * held.starting,
+    account: held || full ? { ret: held?.ret, needed, ahead, usdt,
                               dd: !fresh ? null : fresh.drawdown ?? "stop", ended, stale } : undefined,
     stats: t || full ? { pf: t?.profitFactor, avgWin: t?.avgWin, avgLoss: t?.avgLoss, perTrade: t?.perTrade, hold: t?.hold,
                          inMarket: t?.inMarket, streak: t?.streak, stale } : undefined,
@@ -75,7 +73,7 @@ function StageReadings({ targets }: { targets: Targets | null }) {
   if (stage !== "paper") return null;
   const a = data && data.run.paper_id === run?.paper_id ? data.a : null, stats = a ? data!.stats : null;
   const days = a?.start == null ? 0 : (a.end - a.start) / DAY_MS;
-  const annual = a?.ret != null && days >= ANNUAL_DAYS ? (1 + a.ret) ** (365 / days) - 1 : null;
+  const annual = annualized(a?.ret, days);
   return (
     <>
       <Name>{name}</Name>

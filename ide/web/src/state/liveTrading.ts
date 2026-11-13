@@ -63,7 +63,6 @@ function publish(): void {
   if (readError) { view.availability = "unavailable"; view.reason = readCode; }
   view.notice = readError ?? commandNotice ?? view.notice;
   view.requests = [...requests.values()];
-  view.request = view.requests.at(-1) ?? null;
   // STOP remains available during a release or failed observation. Cleanup has its
   // own owner; the server rechecks these derived permissions under the custody lock.
   const retained = home ? { stop: writes.stop, cancelSwitch: writes.cancelSwitch, maintain: home.maintenance_enabled ? writes.maintain : undefined,
