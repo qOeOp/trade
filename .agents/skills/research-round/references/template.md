@@ -14,9 +14,9 @@ A template that needs cross-sectional selection, shared-capital allocation, memb
 two legs verifies those behaviours before its first report, with the native precheck, independent
 review and the smallest probe that observes them (for two legs also one leg filling before the
 other, an unfilled leg and loss of eligibility). Several contracts running together, two
-independent replays or normal two-leg fills do not establish them, and a per-contract instance on
-perpetual inputs does not coordinate two legs. Probes never replace registration and the first
-report. Defer a template lacking required data, instrument support or native evidence.
+independent replays or normal two-leg fills do not establish them. Legs coordinate through state
+the source's instances share, such as a class variable. Probes never replace registration and the
+first report. Defer a template lacking required data, instrument support or native evidence.
 
 ## Transcription
 
