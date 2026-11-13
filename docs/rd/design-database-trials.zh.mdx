@@ -144,7 +144,7 @@
 
 试验的合约集，一合约一行
 
-<TypeTable type={{ "trial_id": { type: "INT", description: "所属试验", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "原生合约 ID；ticker 重用已按生命周期拆分", required: true } }} />
+<TypeTable type={{ "trial_id": { type: "INT", description: "所属试验", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "Binance 合约名（如 BTCUSDT），取自输入身份的 symbols；不是原生合约 ID", required: true } }} />
 
 **键与约束**
 

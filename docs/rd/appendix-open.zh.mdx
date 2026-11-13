@@ -26,7 +26,7 @@
 
 - <Ref id="E.4.1.2" />　缺：附带想法照常登记有评测 `user-idea-registered-as-hypothesis`，本次未运行；「选模板的授权给一次就够」没有现存评测用例；两项都没有真实会话记录。
 - <Ref id="E.4.1.3" />　已实现：research-start 已有目标与宿主授权兼容指导；正文及 [v7 会话诊断](https://github.com/qOeOp/trade/blob/main/docs/plans/doctor/2026-10-25-codex-v7-stranding.zh.md)已记录 Desktop 提供 `create_goal`、用户授权后创建 Goal。`start-sets-goal` 用例存在，本次未取得其当前完整执行结果；相关单问评测不代替该用例及所有宿主分支的端到端验证。
-- <Ref id="E.4.1.4" />　用户已确认按宿主权限修正暂停指导；新增 `goal-host-pause-permission` 离线评测本次 with 3/3、without 0/3，既有无工具用例回归 with 1/1、without 0/1，有 skill 的四次均实际触发且三票 PASS，详见 [实施记录](https://github.com/qOeOp/trade/blob/d3f0d8fddbe1efff95a1a07706ae795bad0bf91a/docs/plans/goal-host-pause-boundary.zh.md)。[#1644](https://github.com/qOeOp/trade/pull/1644) 的 `goal-question-waits` 历史结果为 3/3，v7 会话只局部观察到提问等待；Doctor `20261025-06` 仍待修订合入后的真实宿主场景验证，暂停是否即时中断另见 `20261021-29`，不把离线回答当作宿主已暂停。
+- <Ref id="E.4.1.4" />　用户已确认按宿主权限修正暂停指导；新增 `goal-host-pause-permission` 离线评测本次 with 3/3、without 0/3，既有无工具用例回归 with 1/1、without 0/1，有 skill 的四次均实际触发且三票 PASS，详见 [实施记录](https://github.com/qOeOp/trade/blob/d3f0d8fddbe1efff95a1a07706ae795bad0bf91a/docs/plans/goal-host-pause-boundary.zh.md)。v7 会话只局部观察到提问等待；Doctor `20261025-06` 仍待修订合入后的真实宿主场景验证，暂停是否即时中断另见 `20261021-29`，不把离线回答当作宿主已暂停。
 - <Ref id="L.1.1.2" />　缺：这批模板逐个完成转写、发布与首份封存回放的执行证据。第二批具体模板的一手出处与参数定位、横截面联合决策及双腿异常处置仍需逐项取得证据；方向已定不代表这些能力已经实现或验证。
 - <Ref id="L.1.3.1" />　缺：模板按出处重写的实例与对照出处的独立复核记录。
 - <Ref id="L.1.3.3" />　缺：按模板写全 27 项立场并标来源的模板实例。
@@ -56,7 +56,7 @@
 - <Ref id="F.2.1.2" />　缺：评测 `priority-cites-report-signals` 本次未运行；没有真实会话记录。
 - <Ref id="X.1.1.1" />　缺一次由用户发起并走完登记、回放、报告的执行记录。
 - <Ref id="X.1.1.2" />　缺窗口长度建议与事后区间分辨力的对照记录。
-- <Ref id="X.1.2.2" />　第 1 代账本的隔离测试覆盖登记晚于窗口起点的拒绝、无凭证不能绑定、重试沿用最初凭证（`tests/registration/test_validation.py`、`tests/ledger/test_witness.py`，2026-11-11 在 Dolt 2.7.2 上通过）；绑定时凭证不早于窗口起点的拒绝（`registration/validation.py:297`）没有单独测试，晚到的凭证只由复核项 `WITNESS_LATE` 测到；缺真实公共时间戳服务下的完整样本外回放。
+- <Ref id="X.1.2.2" />　第 1 代账本的隔离测试覆盖登记晚于窗口起点的拒绝、无凭证不能绑定、重试沿用最初凭证（`tests/registration/test_validation.py`、`tests/ledger/test_witness.py`，2026-11-11 在 Dolt 2.7.2 上通过）；绑定时凭证不早于窗口起点的拒绝（`registration.validation_bind`）没有单独测试，晚到的凭证只由复核项 `WITNESS_LATE` 测到；缺真实公共时间戳服务下的完整样本外回放。
 - <Ref id="X.1.3.1" />　第 1 代账本的隔离测试已覆盖一次绑定、失败重试与拒绝不消耗；仍缺真实样本外完整交付。
 - <Ref id="X.1.3.2" />　第 1 代账本的隔离测试已覆盖固定账户基准、重试成员与设计边界；市场和镜像检查使用测试替身，仍缺真实跨市场日与完整样本外回放。
 - <Ref id="X.2.1.1" />　缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。报告列出登记族、凭证且不下裁决有测试（`tests/report/test_review.py`、`tests/report/test_integrity.py`）；有资格的绑定运行读出与开发报告相同的指标、无资格时指标整体留空，这两点没有测试。

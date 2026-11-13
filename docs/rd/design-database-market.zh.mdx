@@ -123,7 +123,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 保存声明规则从 aggTrades 推算的完整买卖价状态变化；来源是近似报价，不是逐档盘口或真实可成交深度。
 
-<TypeTable type={{"symbol": {"type": "string", "description": "公开合约名；与同提交条款及生命周期片段对应", "required": true}, "ts": {"type": "int64", "description": "产生此状态的 aggTrade transact_time，UTC 毫秒；允许同毫秒多行", "required": true}, "agg_trade_id": {"type": "int64", "description": "产生此状态的成交编号；区分同毫秒状态并用于来源核对，状态变化筛选后编号不必逐行连续", "required": true}, "bid": {"type": "int64", "description": "推算买价 × 10^series.PRICE_SCALE；不是观测盘口", "required": true}, "ask": {"type": "int64", "description": "推算卖价，采用同一定标", "required": true}}} />
+<TypeTable type={{"symbol": {"type": "string", "description": "公开合约名；与同一市场日的条款及生命周期片段对应", "required": true}, "ts": {"type": "int64", "description": "产生此状态的 aggTrade transact_time，UTC 毫秒；允许同毫秒多行", "required": true}, "agg_trade_id": {"type": "int64", "description": "产生此状态的成交编号；区分同毫秒状态并用于来源核对，状态变化筛选后编号不必逐行连续", "required": true}, "bid": {"type": "int64", "description": "推算买价 × 10^series.PRICE_SCALE；不是观测盘口", "required": true}, "ask": {"type": "int64", "description": "推算卖价，采用同一定标", "required": true}}} />
 
 **键与约束**
 
@@ -135,7 +135,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 **写入方**　`cli.market_import_quotes` → `market.import_quotes`，从已存的 <Ref id="table:agg_trade" /> 文件推出，推算由 `market.derive` 负责。同合约同月已有文件时拒绝。
 
-**读取方**　`market.quote_rows` 经 `market.read_table` 按市场日流式读取，经 `market.write_quotes` 写为原生 QuoteTick，`market.export_episode` 把 `counts.quote`、`quote_size` 写入导出回执；报价环境由 `engine.execution_account` 选择。该提交下区间内没有本表文件时读为空流，默认 K 线导出仍可用；报价环境缺有效报价仍按现有检查拒绝。
+**读取方**　`market.quote_rows` 经 `market.read_table` 按市场日流式读取，经 `market.write_quotes` 写为原生 QuoteTick，`market.export_episode` 把 `counts.quote`、`quote_size` 写入导出回执；报价环境由 `engine.execution_account` 选择。该市场日下区间内没有本表文件时读为空流，默认 K 线导出仍可用；报价环境缺有效报价仍按现有检查拒绝。
 
 **关联与边界**　`symbol` 在应用读取时与 instrument 条款、universe_month 成员及生命周期片段关联，没有外键。推算规则和逐合约／时段／用途的证据边界沿用 <Ref id="W.1.2.1" />，原生强平环境沿用 <Ref id="W.4.2.1" />。
 

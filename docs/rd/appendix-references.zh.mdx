@@ -80,7 +80,7 @@
 
 <p id="ref-40" className="rd-ref-head"><b>[40]</b> [NautilusTrader — Backtest Accounts and Margin（账户类型 CASH/MARGIN/BETTING；MARGIN 缺省 LeveragedMarginModel；配置示例 oms_type=NETTING；starting_balances）](https://nautilustrader.io/docs/latest/concepts/backtesting/accounts-and-margin/)</p>
 
-- <Ref id="W.4.1.1" />　一个场所一个保证金账户、净额持仓，所有策略共享同一账户资金
+- <Ref id="W.4.1.1" />　一个场所一个保证金账户，所有策略共享同一账户资金
 
 <p id="ref-42" className="rd-ref-head"><b>[42]</b> [NautilusTrader — Bar execution（bar_execution=True 且 L1_MBP 且外部聚合 K 线才撮合；取最细周期；ts_init 为收盘）](https://nautilustrader.io/docs/latest/concepts/backtesting/bar-execution/)</p>
 
@@ -474,10 +474,6 @@
 
 ## 开源实现
 
-<p id="ref-12" className="rd-ref-head"><b>[12]</b> [NautilusTrader 2.0.0rc3（uv.lock 钉死版本）— crates/common/src/factories/order.rs](https://github.com/nautechsystems/nautilus_trader/blob/v2.0.0rc3/crates/common/src/factories/order.rs)</p>
-
-- <Ref id="C.5.1.1" />　bracket 的入场单与两张子单各自接受标签参数（entry_tags、sl_tags、tp_tags），所以订单组的每张订单都能带同一个计划标签
-
 <p id="ref-26" className="rd-ref-head"><b>[26]</b> [binance-public-data — data.binance.vision 月/日归档（日归档次日发布，月归档每月首个周一发布）](https://github.com/binance/binance-public-data)</p>
 
 - <Ref id="W.1.1.1" />　同一数据以月、日两级归档发布，缺月用日归档补是其既定布局
@@ -494,9 +490,9 @@
 
 - <Ref id="W.2.1.4" />　预热段只用于指标初始化，回测成绩从请求时间段起算
 
-<p id="ref-41" className="rd-ref-head"><b>[41]</b> [nautilus_trader 2.0.0rc3（uv.lock 钉死）— BacktestVenueConfig 的 liquidation_enabled 未设时解析为 False、liquidation_trigger_ratio 1.0、liquidation_cancel_open_orders True](https://pypi.org/project/nautilus_trader/2.0.0rc3/)</p>
+<p id="ref-41" className="rd-ref-head"><b>[41]</b> [nautilus_trader 2.0.0rc3（当时读的版本，未在现钉的 rc7 上重读）— BacktestVenueConfig 的 liquidation_enabled 未设时解析为 False、liquidation_trigger_ratio 1.0、liquidation_cancel_open_orders True](https://pypi.org/project/nautilus_trader/2.0.0rc3/)</p>
 
-- <Ref id="W.4.2.1" />　钉死版本的场所配置以不模拟强平为缺省，运行器不开启即不建模
+- <Ref id="W.4.2.1" />　rc3 的场所配置以不模拟强平为缺省，运行器不开启即不建模
 
 <p id="ref-54" className="rd-ref-head"><b>[54]</b> [MLflow — Dataset Tracking（Dataset digest / log_input）](https://mlflow.org/docs/latest/ml/dataset/)</p>
 
@@ -549,7 +545,7 @@
 
 ## 实测
 
-<p id="ref-65" className="rd-ref-head"><b>[65]</b> 固定版 nautilus-trader 2.0.0rc3 原生成交探针（10-20）</p>
+<p id="ref-65" className="rd-ref-head"><b>[65]</b> nautilus-trader 2.0.0rc3 原生成交探针（10-20）</p>
 
 - <Ref id="R.2.3.3" />　限价单受每根 K 线四分之一成交量的限制；市价单一次成交、余量差一个价位
 
