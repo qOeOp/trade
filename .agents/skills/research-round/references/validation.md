@@ -14,8 +14,8 @@ one), the window and the universe rule. Register it with `validation registratio
   registration. An economically available passed result does not become retryable merely for
   corrected data: disclose the original and the correction's impact, without replacing it or
   declaring another independent validation.
-  Before changing runtime images, perform the native pairing in AGENTS.md; it covers only what
-  was paired, and a clean run on the new image proves nothing. When the validation could run only
+  Before changing runtime images, perform the native pairing in AGENTS.md (its scope:
+  changes.md). When the validation could run only
   with changed matching, margin or other substantive terms, or on an image whose compatibility
   you cannot show, stop the old validation; otherwise it binds on its original terms. Record the
   reason through existing evidence/judgments citing the registration, ledger commit, affected
