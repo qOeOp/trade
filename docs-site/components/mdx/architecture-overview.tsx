@@ -10,7 +10,7 @@ const sections = [
     description: { zh: '事实、关联与读取视图', en: 'Facts, relations and read views' } },
 ];
 
-export function ArchitectureOverview({ locale = 'zh' }: { locale?: Locale }) {
+export function ArchitectureOverview({ lang }: { lang: Locale }) {
   return (
     <div className="not-prose my-8 grid gap-4 xl:grid-cols-2">
       {sections.map(({ group, number, label, zh, icon: Icon, description }) => (
@@ -21,16 +21,16 @@ export function ArchitectureOverview({ locale = 'zh' }: { locale?: Locale }) {
               <span className="font-mono text-xs">{number}</span>
             </div>
             <h3 className="m-0 text-[15px] font-semibold text-fd-foreground">{label}
-              {locale === 'zh' && <span className="ml-2 text-sm font-normal text-fd-muted-foreground">{zh}</span>}
+              {lang === 'zh' && <span className="ml-2 text-sm font-normal text-fd-muted-foreground">{zh}</span>}
             </h3>
-            <p className="mb-0 mt-1 text-xs leading-5 text-fd-muted-foreground">{description[locale]}</p>
+            <p className="mb-0 mt-1 text-xs leading-5 text-fd-muted-foreground">{description[lang]}</p>
           </div>
           <ul className="m-0 list-none p-2">
             {entries.filter((entry) => entry[4] === group).map(([slug, , en, zhTitle]) => (
               <li key={slug}>
-                <Link href={`/${locale}/docs/${slug}/`} className="group flex min-h-10 items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm leading-5 text-fd-foreground no-underline transition-colors hover:bg-fd-accent focus-visible:outline-2 focus-visible:outline-fd-ring">
+                <Link href={`/${lang}/docs/${slug}/`} className="group flex min-h-10 items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm leading-5 text-fd-foreground no-underline transition-colors hover:bg-fd-accent focus-visible:outline-2 focus-visible:outline-fd-ring">
                   <span className="min-w-0 break-words">
-                    {locale === 'zh' ? zhTitle : en}
+                    {lang === 'zh' ? zhTitle : en}
                   </span>
                   <ArrowUpRight aria-hidden className="size-3.5 shrink-0 text-fd-muted-foreground group-hover:text-fd-foreground" />
                 </Link>

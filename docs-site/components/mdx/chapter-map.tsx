@@ -10,9 +10,8 @@ const COPY = {
 };
 
 /** A chapter's sections and components: static in the page, full screen with pan and zoom on demand. */
-export function ChapterMap({ chapter, lang = 'zh' }: { chapter: string; lang?: string }) {
-  const locale = (lang === 'en' ? 'en' : 'zh') as Locale;
-  const t = COPY[locale];
+export function ChapterMap({ chapter, lang }: { chapter: string; lang: Locale }) {
+  const t = COPY[lang];
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!open) return;
@@ -25,7 +24,7 @@ export function ChapterMap({ chapter, lang = 'zh' }: { chapter: string; lang?: s
   return (
     <div className="rd-chapter-map not-prose">
       <div className="rd-chapter-map-frame">
-        <ResearchMap locale={locale} chapter={chapter} interactive={false} />
+        <ResearchMap locale={lang} chapter={chapter} interactive={false} />
         <button type="button" className="rd-btn rd-chapter-map-open" onClick={() => setOpen(true)}>{t.open}</button>
       </div>
       {open ? (
@@ -35,7 +34,7 @@ export function ChapterMap({ chapter, lang = 'zh' }: { chapter: string; lang?: s
             <button type="button" className="rd-btn" onClick={() => setOpen(false)}>{t.close}</button>
           </div>
           <div className="rd-chapter-map-canvas">
-            <ResearchMap locale={locale} chapter={chapter} interactive />
+            <ResearchMap locale={lang} chapter={chapter} interactive />
           </div>
         </div>
       ) : null}

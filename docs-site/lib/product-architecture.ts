@@ -469,8 +469,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "Agent 经声明的 CLI 发布研究记录，用户决定路线与目标。",
       "en": "The Agent publishes research records through the declared CLI; the user chooses research lines and targets."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "cli-candidate",
@@ -479,8 +478,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "CLI 调用候选发布、预检与独立源码评审记录接口。",
       "en": "CLI invokes candidate publication, prechecks and independent source-review recording."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "cli-registration",
@@ -489,8 +487,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "事前登记在回放前锁定假设、候选、对照与输入身份。",
       "en": "Preregistration locks hypotheses, candidates, controls and input identity before replay."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "cli-validation",
@@ -499,8 +496,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "用户发起样本外检验，经 CLI 登记、见证并绑定一次验证回放。",
       "en": "The user initiates out-of-sample validation; CLI preregisters, witnesses and binds the validation replay."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "cli-replay",
@@ -509,8 +505,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "CLI 调用 replay/entry.py 协调一次有持久身份的原生回放。",
       "en": "CLI calls replay/entry.py to coordinate native replay with a durable identity."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "witness-tsa",
@@ -519,8 +514,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "登记提交后，ledger/witness.py 向 RFC 3161 TSA 发送摘要请求，校验返回 token 并保存时间戳凭证。",
       "en": "After registration commits, ledger/witness.py sends a digest request to the RFC 3161 TSA, verifies its response token and retains timestamp evidence."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "registry-runtime",
@@ -529,8 +523,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "runner、auditor、fingerprint 是同一固定 digest 镜像的三个独立命名容器，不是一个 runner 内的三个函数。",
       "en": "Runner, auditor and fingerprint are three separately named containers from the same pinned image digest, not three functions inside one runner."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "market-inputs",
@@ -539,8 +532,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "产品导入代码写入市场文件，导出代码从固定市场日读取行情、规则与范围；容器不直连数据库。",
       "en": "Product import code writes the market files; export code reads prices, rules and universe at a pinned market day. Containers do not connect directly to databases."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "catalog-runner",
@@ -549,8 +541,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "market/export.py 导出 Catalog，由 runtime/container.py 只读挂载进无网络 runner。",
       "en": "market/export.py exports Catalogs which runtime/container.py mounts read-only into the networkless runner."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "replay-runner",
@@ -559,8 +550,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "replay/entry.py 将 trial、binding、start receipt 在同一事务提交，提交之后才启动 runner 命名容器。",
       "en": "replay/entry.py commits the trial, binding and start receipt in one transaction before starting the named runner container."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "data-strategy",
@@ -569,8 +559,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "Nautilus 按原生时钟将数据事件交给 Strategy。",
       "en": "Nautilus delivers data events to Strategy under its native clock."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "strategy-execution",
@@ -579,8 +568,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "Strategy 发送原生订单命令，由 Nautilus 风险与执行组件处理。",
       "en": "Strategy sends native order commands to Nautilus risk and execution components."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "execution-account",
@@ -589,8 +577,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "原生成交驱动组合、账户与费用状态更新。",
       "en": "Native fills update portfolio, account and fee state."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "history-import",
@@ -599,8 +586,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "公共历史档案交由产品导入代码校验后写成 market 文件；数据源不直接写文件。",
       "en": "Product import code validates public historical archives and writes them as the market files. The external data source does not write the files directly."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "runner-cache",
@@ -609,8 +595,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "engine/report.py 导出原生报告到临时目录，报告为可再现缓存。",
       "en": "engine/report.py exports native reports to a temporary directory as reproducible caches."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "cache-audit",
@@ -619,8 +604,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "独立 auditor 容器只读报告和覆盖回执，重算完整性及账户经济。",
       "en": "The separate auditor container reads reports and coverage receipts to recompute integrity and account economics."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "cache-fingerprint",
@@ -629,8 +613,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "独立 fingerprint 容器只读报告并生成归一化语义指纹。",
       "en": "The separate fingerprint container reads reports and computes normalized semantic fingerprints."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "cache-capture",
@@ -639,8 +622,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "产品将原始执行捕获绑定到报告身份；原生报告可按已存指纹重建，不作为第二份持久事实源。",
       "en": "The product binds original execution capture to report identity. Native reports can be regenerated against stored fingerprints rather than becoming another durable source of fact."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "audit-capture",
@@ -649,8 +631,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "独立 auditor 的结论和原件进入产品捕获封存核对。",
       "en": "Independent auditor verdicts and originals enter product capture and sealing verification."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "fingerprint-capture",
@@ -659,8 +640,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "独立语义指纹进入封存记录，供报告重建时核对。",
       "en": "Independent semantic fingerprints enter sealed records for later report-reconstruction checks."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "capture-research",
@@ -669,8 +649,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "经 CLI 将身份、审计结论、执行捕获和封存读数写入同一研究数据库。",
       "en": "Through CLI, identity, audit verdicts, execution capture and sealed readings are written to the same research database."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "research-qualification",
@@ -679,8 +658,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "registration/availability.py 从所连接账本按当前检查身份读时判定，不回写资格结果；IDE 调用时只用 reader 账号连接同一活动研究库。",
       "en": "registration/availability.py derives availability at read time under the current check identity without writing it back. When called by IDE, it connects to the same active research database with reader accounts only."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "research-reports",
@@ -689,8 +667,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "共享 report Python 包从所连接账本派生指标、比较、归因和图；不是另一项网络服务。",
       "en": "Shared report Python packages derive metrics, comparisons, attribution and graphs from the connected ledger. They are not another network service."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "reports-ide",
@@ -699,8 +676,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "IDE 调用相同只读 registration/report 代码，只用 reader 账号读取活动研究库。这是代码复用关系，IDE 不写活动研究库，活动库也不推送派生报告。",
       "en": "IDE invokes the same read-only registration/report code, reading the active research database with reader accounts only. This denotes code reuse; IDE does not write the active research database, and the active database does not push derived reports."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "browser-ide",
@@ -709,8 +685,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "浏览器访问 IDE Web、研究图与 Paper 面板。",
       "en": "The browser opens IDE Web, research graphs and Paper panels."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "readers-web",
@@ -719,8 +694,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "研究图通过只读 CLI 以 reader 账号查询活动研究账本，并读取市场目录，不写入。",
       "en": "Graphs query the active research ledger through read-only CLI with reader accounts and read the market directory, without writing."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "chat-readers",
@@ -729,8 +703,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "Chat 工具白名单只读产品命令，经同一 reader 路径读取活动库；对话另存 IDE volume。",
       "en": "Chat tool allowlists expose read-only product commands through the same reader path to the active databases; conversations are stored separately in the IDE volume."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "dolt-readers",
@@ -739,8 +712,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "IDE 凭只读服务文件直连活动 Dolt 服务，只持 reader 账号；没有 root、写入账号或 DoltHub 密钥，不写也不发布。",
       "en": "IDE connects directly to the active Dolt service through the reader-only service file, holding reader accounts only. It has no root, writer or DoltHub credentials and neither writes nor publishes."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "dolt-hub",
@@ -749,8 +721,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "产品管理命令将研究账本的版本历史发布到公开 DoltHub 副本。",
       "en": "Product administration publishes research version history to its public DoltHub copy."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "dolt-backup",
@@ -759,8 +730,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "dolt_backup 保存研究账本的全历史增量恢复副本，位于 service 和 checkout 之外。",
       "en": "dolt_backup retains an incremental full-history recovery copy of the research ledger outside the service and checkout."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "ide-daemon",
@@ -769,8 +739,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "IDE Paper 面板经 Web 代理向 paper:8767 发请求并接收 stream；控制面写入发生在 daemon 的 CLI 路径。",
       "en": "IDE Paper panels use the Web proxy to call paper:8767 and receive streams; control-plane writes occur through the daemon CLI path."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "daemon-docker",
@@ -779,8 +748,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "只有 Paper 控制面调用受限 Docker API 代理，IDE 无 Docker socket。",
       "en": "Only Paper control plane calls the restricted Docker API proxy; IDE has no Docker socket."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "docker-run",
@@ -789,8 +757,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "受限 Docker API 为每次 run 创建 internal network，并启动同 digest 的 runner 和 egress 两容器。",
       "en": "The restricted Docker API creates each run’s internal network and starts runner and egress containers at the same digest."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "binance-egress",
@@ -799,8 +766,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "只有 egress 连接 Binance 公共 REST/WebSocket，允许的是公共行情，不是交易账户连接。",
       "en": "Only egress reaches Binance public REST/WebSocket endpoints for public prices, without trading-account connectivity."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "egress-sandbox",
@@ -809,8 +775,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "runner 经 internal network 消费 egress 转发的公共行情；订单与成交由 Nautilus Sandbox 管理。",
       "en": "The runner consumes public prices through egress over the internal network; Nautilus Sandbox owns orders and fills."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "sandbox-journal",
@@ -819,8 +784,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "engine.paper 将运行中 journal、summary 和日志写入运行目录。",
       "en": "engine.paper writes growing journals, summary and logs into the run directory."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "journal-daemon",
@@ -829,8 +793,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "daemon 读取 journal 提供面板数据，结束后经 CLI 封存 capture 并清理容器/网络；目录保留至用户删除 run。",
       "en": "The daemon tails journals for the panel and after exit seals captures through CLI and removes containers/network. The directory remains until user deletion."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "daemon-research",
@@ -839,8 +802,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "daemon 经 CLI 从研究账本读候选源码与最近一次回放（读者账号），复制源码后在 Paper 独立数据库里声明并封存 paper 运行；Paper 不是 trial。",
       "en": "The daemon uses CLI to read a candidate's source and last replay from the research ledger (reader), copy the source and declare and seal paper runs in the separate Paper database. Paper is not a trial."
-    },
-    "docsRoute": "platform-architecture"
+    }
   },
   {
     "id": "market-daemon",
@@ -849,7 +811,6 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "description": {
       "zh": "启动 Paper 时，产品从固定市场日读取成员与范围身份；合约规格和实时价格经 egress 获取公共 REST/WebSocket。",
       "en": "At Paper start the product reads membership and universe identity from a pinned market day. Instrument specifications and live prices come from public REST/WebSocket through egress."
-    },
-    "docsRoute": "platform-architecture"
+    }
   }
 ];

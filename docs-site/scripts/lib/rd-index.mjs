@@ -1,6 +1,6 @@
 // Definition index for <Ref id> links and hover previews, built from the chapter sources at prepare time.
 // Every field comes from the page: the anchor ([#…] on a heading, or a bare <a id>), the title (the
-// heading, or the map's component title for a bare <a id>), the body (the first prose paragraph after the
+// heading, or the map's title for a bare <a id>), the body (the first prose paragraph after the
 // anchor), the owner (the nearest enclosing anchored heading) and where (the chapter section). The id
 // follows the anchor scheme.
 import { chapterSource } from './docs-pages.mjs';
@@ -136,16 +136,7 @@ function readRegion(lines) {
 }
 
 /** Builds { zh, en } from the chapter table; throws on duplicate ids or <Ref id> without an entry. */
-export async function buildRdIndex(entries, docsRoot, map) {
-  const mapTitles = new Map();
-  for (const chapter of map.chapters) {
-    for (const fn of chapter.functions) {
-      mapTitles.set(fn.path, fn.title);
-      for (const component of fn.components) {
-        mapTitles.set(component.path, component.title);
-      }
-    }
-  }
+export async function buildRdIndex(entries, docsRoot, titles) {
   const index = { zh: {}, en: {} };
   const pending = { zh: [], en: [] };
   const refs = [];
@@ -165,7 +156,7 @@ export async function buildRdIndex(entries, docsRoot, map) {
         const seen = index[locale][scheme.id];
         if (seen) { problems.push(`Duplicate index id ${scheme.id}: ${seen.at} and ${at}`); continue; }
         // A bare <a id> takes its title from a bold line right after it, else from the chapter map.
-        const title = region.title !== undefined ? unnumbered(region.title) : bold ?? mapTitles.get(scheme.id) ?? scheme.id;
+        const title = region.title !== undefined ? unnumbered(region.title) : bold ?? titles[scheme.id] ?? scheme.id;
         const entry = { kind: scheme.kind, title, slug, anchor: region.anchor };
         if (scheme.chapter) entry.where = region.section;
         else if (region.owner) entry.owner = region.owner;
@@ -174,13 +165,13 @@ export async function buildRdIndex(entries, docsRoot, map) {
       }
     }
   }
+  // The label a <Ref> shows: sections and capabilities read as their numbered section, tables as their title.
+  for (const entry of [...Object.values(index.zh), ...Object.values(index.en)]) {
+    entry.label = entry.where ? entry.where.split('：')[0] : entry.title;
+  }
   // Bodies are reduced after every entry exists, so a self-closing ref shows its label.
   for (const locale of ['zh', 'en']) {
-    const label = (id) => {
-      const entry = index[locale][id] ?? index.zh[id];
-      if (!entry) return id;
-      return (entry.kind === 'capability' || entry.kind === 'node') && entry.where ? entry.where.split('：')[0] : entry.title;
-    };
+    const label = (id) => (index[locale][id] ?? index.zh[id])?.label ?? id;
     for (const [id, raw] of pending[locale]) {
       const entry = index[locale][id];
       entry.body = reduce(raw, label);

@@ -14,7 +14,6 @@ export type ArchitectureRelation = {
   source: string;
   target: string;
   description: Copy;
-  docsRoute: string;
 };
 export type Rect = { x: number; y: number; width: number; height: number };
 export type Point = [number, number];
@@ -37,4 +36,4 @@ export type MapRoute = {
   primary: boolean; arrow: boolean;
   junction?: Point;
 };
-export type MapTarget = Rect & { node: string; texts: string[]; region: boolean };
+export type MapTarget = Rect & { node: string; texts: string[] };

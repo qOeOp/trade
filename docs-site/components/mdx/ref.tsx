@@ -4,10 +4,12 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { PreviewCard } from '@base-ui/react/preview-card';
 import index from '@/lib/generated/rd-index.json';
+import type { Locale } from '@/lib/i18n';
 
 type Entry = {
   kind: 'capability' | 'table' | 'node';
   title: string;
+  label: string;
   body: string;
   slug: string;
   anchor: string;
@@ -15,9 +17,9 @@ type Entry = {
   where?: string;
 };
 
-const data = index as Record<string, Record<string, Entry>>;
+const data = index as Record<Locale, Record<string, Entry>>;
 
-const KIND_LABEL: Record<string, Record<Entry['kind'], string>> = {
+const KIND_LABEL: Record<Locale, Record<Entry['kind'], string>> = {
   zh: { capability: '能力', table: '表', node: '节' },
   en: { capability: 'capability', table: 'table', node: 'section' },
 };
@@ -35,16 +37,10 @@ function withInlineCode(text: string): ReactNode[] {
   );
 }
 
-/** Cross-reference: a link to the definition with a hover preview (no focus trap, so it never re-opens itself). */
-export function Ref({ id, lang = 'zh', children }: { id: string; lang?: string; children?: ReactNode }) {
-  const entry = data[lang]?.[id] ?? data.zh?.[id];
-  // sections and capabilities read as their numbered section; the preview shows the exact capability
-  const label = children ?? (entry ? ((entry.kind === 'capability' || entry.kind === 'node') && entry.where ? entry.where.split('：')[0] : entry.title) : id);
-
-  if (!entry) {
-    return <span className="rounded-[3px] border border-dashed border-fd-border px-1 font-mono text-xs text-fd-muted-foreground">{label}</span>;
-  }
-
+/** Cross-reference: a link to the definition with a hover preview (no focus trap, so it never re-opens itself).
+ * Every id has an entry in its page's locale: building the index fails on a dangling ref. */
+export function Ref({ id, lang, children }: { id: string; lang: Locale; children?: ReactNode }) {
+  const entry = data[lang][id];
   const href = `/${lang}/docs/${entry.slug}/#${entry.anchor}`;
   return (
     <PreviewCard.Root>
@@ -53,13 +49,13 @@ export function Ref({ id, lang = 'zh', children }: { id: string; lang?: string; 
         closeDelay={120}
         render={<Link href={href} className="rd-ref border-b border-dotted border-fd-primary/60 text-fd-primary no-underline hover:border-solid" />}
       >
-        {label}
+        {children ?? entry.label}
       </PreviewCard.Trigger>
       <PreviewCard.Portal>
         <PreviewCard.Positioner side="bottom" align="start" sideOffset={6} className="z-50">
           <PreviewCard.Popup className="rd-ref-popup w-[min(32rem,92vw)] p-3 text-[13px] text-fd-popover-foreground">
             <div className="mb-1 flex items-center gap-2 text-xs text-fd-muted-foreground">
-              <span className="rd-badge rd-badge-kind">{KIND_LABEL[lang]?.[entry.kind] ?? entry.kind}</span>
+              <span className="rd-badge rd-badge-kind">{KIND_LABEL[lang][entry.kind]}</span>
               <span className={entry.where ? '' : 'font-mono'}>{entry.where ?? id}</span>
               {entry.owner ? <span>{lang === 'zh' ? '定义于' : 'defined in'} {entry.owner}</span> : null}
             </div>

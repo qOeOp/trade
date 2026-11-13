@@ -8,60 +8,61 @@ import { buildRdIndex } from './lib/rd-index.mjs';
 const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(siteRoot, '..');
 const outputRoot = join(siteRoot, 'content', 'docs');
-const knownRoutes = new Map(entries.map(([slug, source]) => [`${source}.md`, slug]));
-const base = 'https://github.com/qOeOp/trade/blob/main/';
 const description = { en: 'The research chain: candidates, registered hypotheses, comparison evidence and the trust boundaries enforced in code', zh: '研发长链：候选、登记的假设、比较证据与代码强制的信任边界' };
-
-function rewriteLinks(markdown, sourcePath, locale) {
-  return markdown.replace(/\]\((?!https?:|#|mailto:)([^)#]+)(#[^)]+)?\)/g, (match, target, fragment = '') => {
-    if (target.startsWith('/')) return match;
-    const resolved = resolve(dirname(join(repositoryRoot, 'docs', sourcePath)), target);
-    const relative = resolved.slice(repositoryRoot.length + 1).replaceAll('\\', '/');
-    const canonical = relative.replace(/\.zh\.md$/, '.md').replace(/^docs\//, '');
-    const route = knownRoutes.get(canonical);
-    if (route) return `](/${locale}/docs/${route === 'index' ? '' : `${route}/`}${fragment})`;
-    return `](${base}${relative}${fragment})`;
-  });
-}
 
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });
 for (const [slug, source, englishTitle, chineseTitle] of entries) {
   for (const [locale, suffix, title] of [['en', '', englishTitle], ['zh', '.zh', chineseTitle]]) {
     // Chapters are authored as MDX (components for capabilities, references and tables); plain Markdown still works.
-    const { file: sourcePath, markdown } = await chapterSource(join(repositoryRoot, 'docs'), source, locale);
+    const { markdown } = await chapterSource(join(repositoryRoot, 'docs'), source, locale);
     const heading = markdown.match(/^# (.+)\r?\n/);
-    const withoutHeading = markdown.replace(/^# .+\r?\n/, '');
-    const content = rewriteLinks(withoutHeading, sourcePath, locale);
+    const content = markdown.replace(/^# .+\r?\n/, '');
     // Page description: the half-sentence after the colon in the chapter heading, else the site description.
     const subtitle = heading ? heading[1].split(/[：:]\s*/).slice(1).join(': ').trim() : '';
     await writeFile(join(outputRoot, `${slug}${suffix}.mdx`), `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(subtitle || description[locale])}\n---\n\n${content}`);
   }
 }
-// Sidebar: the overview page, then one separator per group ("---title---" is the fumadocs separator syntax).
-function pagesFor(locale) {
-  const pages = entries.filter(([, , , , group]) => !group).map(([slug]) => slug);
-  for (const [group, english, chinese] of groups) {
-    const members = entries.filter((entry) => entry[4] === group).map(([slug]) => slug);
-    if (members.length) pages.push(`---${locale === 'zh' ? chinese : english}---`, ...members);
-  }
-  return pages;
-}
-await writeFile(join(outputRoot, 'meta.json'), JSON.stringify({ title: 'Research Chain', pages: pagesFor('en') }, null, 2));
-await writeFile(join(outputRoot, 'meta.zh.json'), JSON.stringify({ title: '研发长链', pages: pagesFor('zh') }, null, 2));
+// The sidebar is docsTree (lib/source.ts); meta.json only names the root.
+await writeFile(join(outputRoot, 'meta.json'), JSON.stringify({ title: 'Research Chain' }));
+await writeFile(join(outputRoot, 'meta.zh.json'), JSON.stringify({ title: '研发长链' }));
 // Definition index for <Ref> hover previews, built from the chapter sources; a dangling ref or a duplicate id fails here.
 const map = JSON.parse(await readFile(join(repositoryRoot, 'docs', 'rd', 'map.json'), 'utf8'));
-const index = await buildRdIndex(entries, join(repositoryRoot, 'docs'), map);
+const index = await buildRdIndex(entries, join(repositoryRoot, 'docs'), map.titles);
 await mkdir(join(siteRoot, 'lib', 'generated'), { recursive: true });
 await writeFile(join(siteRoot, 'lib', 'generated', 'rd-index.json'), JSON.stringify(index));
 await writeFile(join(siteRoot, 'lib', 'generated', 'rd-groups.json'), JSON.stringify(groups));
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'entries.json'), join(siteRoot, 'lib', 'generated', 'rd-entries.json'));
-// The map holds a capability's place, kind and guarantee; its title is the chapter section's own.
-for (const cap of map.chapters.flatMap((chapter) => chapter.functions).flatMap((fn) => fn.components).flatMap((component) => component.caps)) {
-  if (!index.zh[cap.path]) throw new Error(`Map capability ${cap.path} has no chapter section`);
-  cap.title = index.zh[cap.path].title;
+// Chapter maps: functions (X.1), components (X.1.1) and capabilities (X.1.1.1) are the chapter's anchored
+// sections in page order; map.json adds only what a page does not state: each capability's kind, the links
+// between capabilities and the titles of components anchored without a heading (read by the index above).
+const chapters = [];
+const tree = new Map();
+for (const [path, { kind, title, slug, where }] of Object.entries(index.zh)) {
+  if (kind === 'table') continue;
+  const depth = path.split('.').length;
+  const parentPath = path.slice(0, path.lastIndexOf('.'));
+  if (depth === 2 && !tree.has(parentPath)) {
+    chapters.push({ prefix: parentPath, slug, functions: [] });
+    tree.set(parentPath, chapters.at(-1));
+  }
+  const parent = tree.get(parentPath);
+  if (!parent) throw new Error(`${path} has no enclosing section ${parentPath}`);
+  if (depth === 2) {
+    const fn = { path, label: where.split(' ')[0], title, components: [] };
+    parent.functions.push(fn);
+    tree.set(path, fn);
+  } else if (depth === 3) {
+    const component = { path, title, caps: [] };
+    parent.components.push(component);
+    tree.set(path, component);
+  } else if (!map.kinds[path]) throw new Error(`Capability ${path} has no kind in docs/rd/map.json`);
+  else parent.caps.push({ path, title, kind: map.kinds[path] });
 }
-await writeFile(join(siteRoot, 'lib', 'generated', 'rd-map.json'), JSON.stringify(map));
+for (const path of Object.keys(map.kinds)) {
+  if (index.zh[path]?.kind !== 'capability') throw new Error(`Map capability ${path} has no chapter section`);
+}
+await writeFile(join(siteRoot, 'lib', 'generated', 'rd-map.json'), JSON.stringify({ chapters, links: map.links }));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon.svg'), join(siteRoot, 'public', 'icon.svg'));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon-dark.svg'), join(siteRoot, 'public', 'icon-dark.svg'));
 // The trade IDE's faces (ide/web/fonts): PP Supply Mono served beside the pages, and HarmonyOS Sans SC's
