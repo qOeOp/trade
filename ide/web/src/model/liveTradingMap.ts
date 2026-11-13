@@ -1,4 +1,5 @@
 import type { LiveHomeDto, LiveRunDto, LiveSourceDto } from "../lib/liveTradingDto";
+import { refusalText } from "./liveLaunchText";
 import { build, lastSwitch, runtimeOf } from "./liveRuntimeMap";
 import type { LiveAccountCheck, LiveFact, LiveRun, LiveTradingView } from "./liveTrading";
 
@@ -101,12 +102,14 @@ function comparedOf(run: LiveRunDto): LiveRun["compared"] {
 }
 
 /** The facts of a run that keeps running (design §3.10): how long it has traded, its latest warm-up, its entries,
- *  its last reconnect and its latest comparison with a replay. */
+ *  its last reconnect, its latest comparison with a replay and a failed hourly check of its key that no pass followed
+ *  (live/control.py check_key_locked; the run goes on). */
 function continuityOf(run: LiveRunDto, entries: LiveRun["entries"], compared: LiveRun["compared"]): LiveFact[] {
-  const warmups = (run.restarts ?? []).filter((row) => row.event === "warmup");
+  const warmups = (run.restarts ?? []).filter((row) => row.event === "warmup"), key = run.key_checks?.at(-1);
   return [fact("Trading for", warmups[0]?.observed_ns ?? null, "since"), fact("Latest warm-up", warmups.at(-1)?.observed_ns ?? null, "nanoseconds"),
     { ...fact("Entries", entries?.text ?? null), attention: entries?.open === false }, fact("Last reconnect", reconnectOf(run), "nanoseconds"),
     { ...fact("Replay", compared ? `${compared.day} · ${compared.text}` : null), attention: compared?.attention ?? false },
+    ...key?.event === "key_check_failed" ? [{ ...fact("API key", refusalText(key.code ?? undefined)), attention: true }] : [],
     ...run.switch ? [fact("Runtime", build(run.switch.current)), ...[lastSwitch(run)].filter((item) => item !== null)] : []];
 }
 
