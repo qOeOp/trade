@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a recommendation judgment's body names the trial counts and the research status reading they come from but copies no number; the figures go in the message to the user.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

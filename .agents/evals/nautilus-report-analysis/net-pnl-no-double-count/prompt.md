@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a script's net PnL uses realized_pnl alone because it already includes commissions and funding, takes funding from one source, and does not read the account total as marked equity.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

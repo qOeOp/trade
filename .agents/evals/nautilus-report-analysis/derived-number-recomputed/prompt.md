@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a self-computed number states its population and frequency, a closed-cycle total that does not equal the reconciled total is not cited, and a number that drives the next hypothesis waits for an independent recompute on the same ledger commit.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

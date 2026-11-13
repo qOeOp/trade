@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, repairs that held in a later session do not by themselves support saying research became more reliable; whether the decisions that consume the repaired outputs became better supported is checked first or the claim is withheld.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

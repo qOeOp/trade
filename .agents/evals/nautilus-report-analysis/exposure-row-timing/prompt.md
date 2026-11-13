@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an exposure row labelled T is read as what was open after every event before the next bar, valued at T's MARK, and a bar without rows ended flat, so neither is called a data error or shifted.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

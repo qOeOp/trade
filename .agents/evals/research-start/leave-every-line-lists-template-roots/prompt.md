@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, leaving every open line lists template roots with contract scope and why and first report or not-yet-replayed, ends with a question and closes nothing.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -10,4 +9,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 这两条线先放一放，别动它们，我想看看全新的起点。把选项给我。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

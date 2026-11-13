@@ -1,6 +1,5 @@
 ---
 description: Rule check — a recommendation written while lines wait on the user's choice replays nothing; no buy-and-hold reference runs before the user chooses, and the recommendation says it has not run.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -15,4 +14,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 把你这一步要写和要跑的内容按顺序列出来，然后写给我看的那段话。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

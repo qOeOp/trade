@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a resumed session first checks that the checkout is the current origin/main; when HEAD is an older commit on main and the tree is clean, the agent moves it to origin/main and says so before reading the ledger or replaying, instead of continuing on the old commit or asking the user.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

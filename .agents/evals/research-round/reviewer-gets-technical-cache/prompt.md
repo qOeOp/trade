@@ -1,6 +1,5 @@
 ---
 description: Rule check — the author hands a fresh source reviewer the precheck's verified report cache cut to its technical part, without the summary's results, the audit's native economics, fills, positions or account, since none of the four review items reads returns, fees or PnL.
-tags: [method, source-review]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

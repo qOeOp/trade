@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a new line's development period is the product's rule, not a choice; a window the user names is not passed to `line select` or to a registration.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

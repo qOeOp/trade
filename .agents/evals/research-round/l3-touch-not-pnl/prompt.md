@@ -1,6 +1,5 @@
 ---
 description: Regression — with the skill, touch counts of unfilled plans are not turned into a win rate, expectancy, R or a breakeven comparison, and the economic question goes to a registered replay.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 16
 allowed_tools: [Read, Glob, Grep, Skill]

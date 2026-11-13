@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an attach session asked to close its attach as the full audit declines, gives the full-audit steps for a fresh session with the raw evidence directory and its diagnoses file but without its notes, keeps the diagnoses from the workstream reviewers, writes no record, and closes no earlier item.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

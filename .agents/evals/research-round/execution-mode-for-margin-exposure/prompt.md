@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, before a line's first precheck the Agent chooses the runner's execution environment; a source that can hold notional above account equity runs under `--execution quotes` with both margin rates (bars model no liquidation), the same runner arguments go to precheck, registration and replay, and later controls keep that environment.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

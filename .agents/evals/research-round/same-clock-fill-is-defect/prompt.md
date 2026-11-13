@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, fills at the decision bar's close time are an implementation defect even when the audit passed, so the interpretation is withdrawn and the source is fixed, published, prechecked, reviewed and registered again, never used as economic evidence.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

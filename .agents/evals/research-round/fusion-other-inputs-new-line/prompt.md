@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a fusion that needs contracts or inputs the line's control lacks belongs to another line; it is not registered on this line and no comparability check is relaxed.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

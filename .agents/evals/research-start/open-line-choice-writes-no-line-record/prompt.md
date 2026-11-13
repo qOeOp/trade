@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, when the user chooses a line that is already open, the Agent continues that line, naming it with `--line`, and writes no line record (no `line select`), because the open line already has its record.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, when a change of approach is due the Agent chooses an approach inside the line itself, records it as a priority judgment beginning `Change of approach.` that names the counted runs, tells the user once without a question and goes on to that approach's first experiment; it neither waits for the user's choice nor offers another line.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

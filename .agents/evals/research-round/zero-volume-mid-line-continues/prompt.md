@@ -1,6 +1,5 @@
 ---
 description: Rule check — mid-line, zero-volume minutes found before a registration are reported as the exchange's record with the replay's treatment, the line continues without a question to the user and the contract is not dropped.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -12,4 +11,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 这一轮我不在，你自己往下推。这件事怎么处理，下一步做什么，写出具体动作。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

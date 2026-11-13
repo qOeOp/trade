@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill and an IDE deployed, each line option links to the line and version in the IDE, so the user need not take the Agent's word for it.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

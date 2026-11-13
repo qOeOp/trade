@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a coverage gap, zero-volume minutes and missing funding are each kept as a fact with an unproven cause, none is called an economic failure or used to drop coins, shorten the window or fill data, and the runnable range and block go to the user.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

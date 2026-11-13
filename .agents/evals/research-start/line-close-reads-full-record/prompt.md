@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, closing a line reads the full record first and writes a summary in English with direction, what was tried, results, failures and lessons.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -20,4 +19,4 @@ earlier: {interpretations: 14, search_exposures: 3}
 
 写出你要执行的命令，以及 summary 的结构（读到内容之前写不出的细节先用占位）。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

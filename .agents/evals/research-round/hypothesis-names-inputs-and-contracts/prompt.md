@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a hypothesis says what its mechanism must observe and which inputs and contracts that takes, looks up what the market holds with `market coverage`, and does not treat bars as the only input a replay serves.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

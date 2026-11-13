@@ -1,6 +1,5 @@
 ---
 description: Regression — with the skill, the next-experiment ranking weighs the gap to the user's drawdown and annual-return targets, treats a sizing or capital-allocation change as a strategy change that tests the account effect, and for a candidate with positive net return and low capital use ranks capital allocation first instead of last for not distinguishing mechanisms.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

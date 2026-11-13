@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an improvement on a development year that was seen only inside full-window aggregates is not relabeled as holdout or called generalization, and no already-existing data is proposed as out-of-sample; only a replay of a window after a validation registration's timestamp, registered at the user's request, is out-of-sample.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

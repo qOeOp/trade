@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a wrong conclusion in a written diagnosis record is not corrected in place; the later state goes in the index or a new record.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — a run invalidated by a product defect is retried only after the fix merges to main, not on an open PR's CI image, though research replays accept any CI build.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -12,4 +11,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 这一轮我不在，这条线已经停了一天，你自己往下推。接下来具体做什么，按顺序写出动作和用哪个镜像。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

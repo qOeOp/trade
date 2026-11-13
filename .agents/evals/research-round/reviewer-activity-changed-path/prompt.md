@@ -1,6 +1,5 @@
 ---
 description: Rule check — a source reviewer passes activity only when the precheck filled orders on the order path the change adds or alters; fills on the unchanged entry path leave it unresolved, not passed and not failed, until a window where the new path runs, or a probe on a temporary ledger, shows it.
-tags: [method, source-review]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -16,4 +15,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 activity 该判什么、依据是什么？如果不判通过，下一步怎么做？请给出结论和理由。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

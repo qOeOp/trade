@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, the session graph's extractor gets only the transcripts and the schema, `source` stays null unless a tool output shows the whole file, and a failing `ide.py check` is fixed in the extraction.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

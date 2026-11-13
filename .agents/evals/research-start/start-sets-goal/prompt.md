@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, before entering research-round the Agent sets the host's goal itself from the ledger (line, the user's two targets from `research state`'s `targets`, the rule that a report or review does not end the work) through the host's goal tool, without a token budget and without asking the user to write the goal; when permission is required it presents its objective and waits for approval before creation; without a goal tool it supplies the exact activation command and verifies activation.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

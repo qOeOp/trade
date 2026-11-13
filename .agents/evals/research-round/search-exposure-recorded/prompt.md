@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, every extra view computed with the agent's own script is recorded as a search_exposure judgment, before the priority judgment and the registration that draw on it.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

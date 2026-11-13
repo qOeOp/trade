@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a losing, insignificant candidate the change builds on is taken as the parent from the workflow's own rule, without waiting for approval or questioning its eligibility, and the parent and control reasons are given separately.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

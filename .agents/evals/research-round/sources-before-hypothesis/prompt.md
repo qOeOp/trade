@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an economic hypothesis is written only after the sources already retained in the ledger are read and the remaining gap is searched following research-sources and entered as a bundle.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

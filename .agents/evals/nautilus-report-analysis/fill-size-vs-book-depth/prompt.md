@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, fills of a quote-execution run are checked against Binance's published bookDepth (the ±1% band on the side each fill hit, last snapshot at or before the fill), the count exceeding the band is reported with the liquidation fills among them, the environment is described as best-price fills without depth, and no fill or price is scaled by the depth.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

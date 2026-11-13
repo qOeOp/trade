@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, every default parameter of a template is located in the entered source and the table goes into the header and publish description, and a template with a parameter that cannot be located is dropped rather than filled with a common default.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a new root is published and registered without parent or control on the development window and replayed once as purpose research for its first report; an exploration never stands in, and an interrupted replay is retried only by a new registration.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

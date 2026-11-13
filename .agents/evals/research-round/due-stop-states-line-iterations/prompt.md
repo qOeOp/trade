@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, when a change of approach is due the Agent states in one line how many research runs the line has made on its development window and how little the recommended version's annual return moved over the counted runs, beside their detectable annual difference, as a reading for the user; it does not offer closing the line as an option.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

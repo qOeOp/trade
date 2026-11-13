@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a channel-breakout template with STOP_MARKET entries on both sides and a stop but no target rests both sides as two independent orders (no OCO), cancels the other side itself on a fill, sizes both resting entries together within 3 times equity, submits a reduce-only stop on the fill and adds no target.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

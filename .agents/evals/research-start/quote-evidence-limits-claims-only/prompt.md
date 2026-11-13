@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, when inferred quotes cover the window, the source's distance to liquidation is far larger than the measured quote error and further reference evidence could change no decision, the readiness answer reports the liquidation limitation and continues instead of blocking the replay, names no evidence step without the decision it could change, and does not offer to keep gathering evidence.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

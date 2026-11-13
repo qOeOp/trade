@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, each self-computed number in a report paragraph states its population, weighting and frequency, or says plainly that they must be stated before the paragraph is used.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

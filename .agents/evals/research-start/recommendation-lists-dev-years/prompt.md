@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a recommendation on a line with a 12-quarter development window lists, beside the whole-window readings, each development year's return against the annual target, the worst year and the return without the best year.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

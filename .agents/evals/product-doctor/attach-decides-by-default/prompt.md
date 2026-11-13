@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an attaching session whose verified diagnosis has two remedies, a skill fix that needs no authority and relaxing an order refusal that does, takes the skill fix without stopping to ask, names the alternative in its diagnoses entry, keeps reading, and puts the authority item to the user only at handover or when the user writes; it never relaxes the refusal itself.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

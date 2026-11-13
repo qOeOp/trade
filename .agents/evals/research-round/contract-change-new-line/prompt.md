@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, after the runtime contract changes and moving the runs is refused, the line's runs stay history; the Agent does not rebuild them across contracts with retry_of or make an unrelated byte edit to republish, returns to research-start for a new line on the new contract and leaves the old line open.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

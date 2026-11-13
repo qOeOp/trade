@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, COT positions dated during the 2025 government shutdown are knowable only from their delayed catch-up publication, not the following Friday.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

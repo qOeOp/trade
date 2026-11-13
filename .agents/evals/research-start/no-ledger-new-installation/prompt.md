@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a fresh clone with no ledger profile is treated as a new installation, the user is told what the ledger makes public and sent to the README, and no research line is offered.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

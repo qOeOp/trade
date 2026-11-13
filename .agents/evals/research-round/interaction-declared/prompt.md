@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an interaction is read only from four corners declared in the registration that adds the last corner, is used only to explain where a difference comes from, and is never picked from the ledger afterwards or presented as evidence of improvement.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

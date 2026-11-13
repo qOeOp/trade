@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, the entry's ledger reads redirect the output of `candidate list`, `research state` and `research status` to files and read only the keys the entry needs, instead of printing any of the three whole outputs into the conversation.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

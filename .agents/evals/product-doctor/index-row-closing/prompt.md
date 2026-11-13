@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a fix that added a failing-without-it test is `verified`, an untested fix stays open, and a full audit closes a fixed row whose proof no longer shows and marks one still showing `recurred`.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a fill more than two minutes after the last depth snapshot, or before the day's first, is counted apart as unverified and not compared, and the largest ratio comes from the checked fills only.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

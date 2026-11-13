@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a fusion on the control's contracts and inputs is a derivation of this line's candidate, with its parts and selecting years in rationale.local and those years kept out of its target evidence.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

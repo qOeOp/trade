@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, Bybit CryptoHFTData `average_price` is the bankruptcy price too and `filled_quantity` equals `quantity`, so neither measures fills.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

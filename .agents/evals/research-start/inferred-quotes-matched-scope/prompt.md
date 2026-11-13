@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, inferred-quote evidence applies within its demonstrated scope, low activity is no ban, and missing suitability evidence limits liquidation claims for the changed scenarios without blocking their replay.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -12,4 +11,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 请说清这三个场景各自能不能回放、回放前要不要先补什么、报告里能说什么。不要把我给的事实说成你亲自做过的数据验证。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, help calls and scripts that succeeded and lost nothing are not a finding without a demonstrated product cause.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

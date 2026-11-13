@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, switching --execution mid-line is an identity change handled by rebuilding the control or a new line, never a comparison across environments.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -10,4 +9,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 写出接下来的步骤和命令。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

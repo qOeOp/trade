@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a trade-by-trade comparison of two runs reads the attribution's trade pairing with its coverage first, never pairs trades by time, position id or direction, and never tests on paired trades.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a recommendation gives effective to all-purpose trials from research status and names the other lines whose windows overlap, open or closed.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -21,4 +20,4 @@ multiple_testing: {effective_trials: 14, all_purpose_trials: 37, sweep_variants:
 
 给我写这轮的推荐，三四句话就行，我手机上看。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

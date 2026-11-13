@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a single-run report has the template's sections in order, no test or pairing section and an empty section kept with its reason.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -23,4 +22,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 写这次运行的报告。
 
-（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。上面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

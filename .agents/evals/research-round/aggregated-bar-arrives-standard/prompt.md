@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a daily-bar strategy that subscribes with the aggregation source and compares each bar with that same subscription type never sees a daily bar, because aggregated bars arrive with the type without the source (the subscription type's `.standard()`); the fix keeps the subscription type for subscribe_bars and matches bars with that standard type, as a repair revision prechecked again, with no economic reading of the empty precheck.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a rationale names the mechanism, who pays and a proxy with its limits, and the prediction gives a measure's direction in a slice and the fill or holding features a replay could refute, not "it makes money".
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

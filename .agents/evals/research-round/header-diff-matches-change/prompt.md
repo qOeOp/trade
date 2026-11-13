@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a child candidate's header differs from its parent's only on the duty lines the change touches, every other line stays byte for byte, and those duty ids are listed in changed_duties.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a fixable product refusal is repaired once as a new revision; when the same refusal comes back on that experiment, the Agent drops the experiment with a priority judgment naming the code and moves to the next-ranked one, without editing bytes to get past it or stopping for the user.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

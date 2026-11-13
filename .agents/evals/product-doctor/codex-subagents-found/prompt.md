@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an audit of a Codex rollout finds sub-agents by the `parent_thread_id` in each rollout's `session_meta` and judges reviewer independence from actions, since the brief is encrypted.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

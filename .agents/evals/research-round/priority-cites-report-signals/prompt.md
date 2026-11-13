@@ -1,6 +1,5 @@
 ---
 description: Rule check — the leading experiment cites report evidence and relevant duties, distinguishes conjecture from observations and explains parameter choices.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

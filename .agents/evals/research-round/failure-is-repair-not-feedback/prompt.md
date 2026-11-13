@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, an invalid run whose replay failed gets only a repair record, no negative interpretation or lower priority, and is retried by publishing fixed source and a new registration naming the consumed one in retry_of.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

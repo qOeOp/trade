@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, records a keyless source actually returned count as searched (with "no key" logged), while a keyless call that was refused or throttled is logged as not searched, never as zero results.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

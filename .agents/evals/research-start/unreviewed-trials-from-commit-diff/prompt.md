@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, when research state lists unreviewed trials added after the latest recommendation, the agent reviews them and adds a new recommendation before presenting line options, although the review stop is not reached, decides from unreviewed_trials and names the rule's source when asked.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

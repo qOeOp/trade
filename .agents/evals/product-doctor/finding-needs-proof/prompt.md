@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, findings from a session are reported only with a session location and a product proof on the current checkout, unproven ones are marked unverified or dropped, findings main already fixes are marked, and a change to a refusal is listed for the user's authority instead of being made.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

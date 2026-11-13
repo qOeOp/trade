@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a whole-product review skips a shape the index keeps on purpose while its reason holds, reports a new cycle, and remedies a recurring mechanical class with a CI check raised as an authority item.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

@@ -318,7 +318,7 @@
   - 删掉旧契约以后，再失效 2 例：`old-contract-restart-option-says-new-rule`、`contract-restart-registers-root`。
 - 模板名单若改，4–5 例跟着改。
 - Live 那 3 例归执行路径重规划。
-- 216 份 `graders/skill-fired.md` 里有 88 份字节相同。先量 `claude plugin eval` 能不能共用评分器，能就合并。
+- 245 份 `graders/skill-fired.md`（11-13 计）只有 12 种内容，套件内基本字节相同；另有 10 个非触发用例没有这份指示器（`credential-carriers-off-limits`、`line-change-recounts-after-choice`、`line-change-state-list-discounts-choice`、`move-only-runs-read`、`recommendation-body-cites-trial-counts`、`repeated-sizing-stays-agents`、`scale-step-not-counted`、`targets-met-tells-validation-once`、`video-source-excerpts-only`、`line-options-link-ide-view`）。先量 `claude plugin eval` 能不能共用评分器：能就合并，不能就给这 10 例补上，一次定（20261113-156）。每例重复的 `plugins: ["../../.."]` 是否可删，先跑评测量过再动。
 - 每个评分器的改动都单独开 PR（AGENTS.md）。
 
 ### IDE

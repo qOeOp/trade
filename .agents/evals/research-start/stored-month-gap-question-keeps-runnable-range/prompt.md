@@ -1,6 +1,5 @@
 ---
 description: Rule check — with the skill, a data/scope question about a MARK gap inside a stored month keeps the options already offered (keep the selection and obtain the data, or a new line on covered contracts), offers no later trading start, says replacing the stored month needs the user's authority, and is not reduced to approving a product change.
-tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
