@@ -14,8 +14,8 @@ const TEXT = {
 /** The result's mark before its line, so the outcome reads before the words: a green check, a red cross, a
  *  turning ring while it runs (a dashed one under reduced motion), a dashed ring while unknown. */
 const MARK: Record<AccountCheck["state"], ReactNode> = {
-  passed: <Icon name="passed" size={16} className="text-meets" />,
-  failed: <Icon name="failed" size={16} className="text-fail" />,
+  passed: <Icon name="passed" size={16} tone="meets" />,
+  failed: <Icon name="failed" size={16} tone="fail" />,
   running: <><Icon name="loading" size={16} className="text-icon motion-safe:animate-spin motion-reduce:hidden" /><Icon name="untested" size={16} className="text-icon motion-safe:hidden" /></>,
   unknown: <Icon name="untested" size={16} className="text-fg-faint" />,
 };
@@ -27,7 +27,7 @@ export function LiveAccountCheck({ check, compact = false, startAvailable = fals
   if (!check) return null;
   const [title, detail] = TEXT[check.state];
   return <div role={compact ? undefined : "status"} className="space-y-1 text-small">
-    <p className={`flex items-center gap-1.5 text-dense font-semibold ${check.state === "failed" ? "text-fail" : "text-fg"}`}>
+    <p className={`flex items-center gap-1.5 text-dense font-semibold ${check.state === "failed" ? "text-fail-fg" : "text-fg"}`}>
       <span aria-hidden="true" className="flex shrink-0">{MARK[check.state]}</span>{title}
     </p>
     {!compact && <p className="text-fg-muted">{check.state === "passed" && !startAvailable

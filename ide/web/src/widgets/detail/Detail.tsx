@@ -23,11 +23,11 @@ import { MarketDetails } from "../market/MarketDetails";
 import { LiveRunDetails } from "../live/LiveRunDetails";
 
 const OUTCOME: Record<string, [string, string]> = {
-  held: ["Held", "text-meets"], failed: ["Failed", "text-misses-fg"], untestable: ["Untestable", "text-fg-faint"],
+  held: ["Held", "text-meets-fg"], failed: ["Failed", "text-misses-fg"], untestable: ["Untestable", "text-fg-faint"],
 };
-const VERDICT: Record<string, [string, string]> = { passed: ["Passed", "text-meets"], failed: ["Failed", "text-fail"] };
+const VERDICT: Record<string, [string, string]> = { passed: ["Passed", "text-meets-fg"], failed: ["Failed", "text-fail-fg"] };
 /** A review check's status; any other (no opportunity, unresolved) reads faint, as written. */
-const CHECK: Record<string, [string, string]> = { passed: ["passed", "text-meets"], failed: ["failed", "text-fail"] };
+const CHECK: Record<string, [string, string]> = { passed: ["passed", "text-meets-fg"], failed: ["failed", "text-fail-fg"] };
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 /** A mean daily log difference as the daily percent it compounds to, signed: +0.012%. */
 const daily = (log: number) => Math.expm1(log).toLocaleString("en-US", { style: "percent", minimumFractionDigits: 3, maximumFractionDigits: 3, signDisplay: "exceptZero" }).replace("-", "\u2212");

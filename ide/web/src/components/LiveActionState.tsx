@@ -15,5 +15,5 @@ export function useLiveAction() {
 }
 
 export function LiveActionFailure({ failed }: { failed: boolean }) {
-  return failed ? <p role="alert" className="text-dense text-fail">The request result is unknown. Check its status before submitting another action.</p> : null;
+  return failed ? <p role="alert" className="text-dense text-fail-fg">The request result is unknown. Check its status before submitting another action.</p> : null;
 }

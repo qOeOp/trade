@@ -48,7 +48,7 @@ export function AssistantMessage() {
       <MessagePrimitive.Parts components={PARTS} />
       <Writing />
       <MessagePrimitive.Error>
-        <ErrorPrimitive.Root className="rounded-card border border-card-border bg-island-alt px-3 py-2 text-dense text-fail">
+        <ErrorPrimitive.Root className="rounded-card border border-card-border bg-island-alt px-3 py-2 text-dense text-fail-fg">
           <ErrorPrimitive.Message />
         </ErrorPrimitive.Root>
       </MessagePrimitive.Error>

@@ -43,7 +43,7 @@ function StageSource({ className }: { className: string }) {
   // The chart's view: the run's, else (a version with no paper run) a contract only while its backtest traded it.
   const tab = useAtom(paperTab), chart = useRunData()?.view ?? (backtest?.kind === "ready" && backtest.b.cycles.some((c) => c.symbol === tab) ? tab : null);
   const tested = backtestSource(stage === "backtest" ? backtest : null, line.market_day ?? null, !!chart && chart !== "equity");
-  return stage && <span className={className}>{name}{SOURCE[stage]}<span className={tested.failed ? "text-fail" : ""}>{tested.text}</span></span>;
+  return stage && <span className={className}>{name}{SOURCE[stage]}<span className={tested.failed ? "text-fail-fg" : ""}>{tested.text}</span></span>;
 }
 
 const lineCounts = (s: SummaryWidget) => `${plural(s.versions, "version")} · ${plural(s.research_runs, "research run")} · ${s.masked_runs} ineligible`;
@@ -78,7 +78,7 @@ export function StatusBar() {
       ]} />}
       {runs && <StageSource className="min-w-0 truncate text-fg-muted" />}
       {!live && <PaperStartStatus />}
-      {!live && said && <Tip content={said.text} side="top"><span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span></Tip>}
+      {!live && said && <Tip content={said.text} side="top"><span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail-fg" : "text-fg-muted"}`}>{said.text}</span></Tip>}
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
         {runs && !live && gapped > 0 && <span className="text-misses-fg">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
         <PublicCopyStatus />

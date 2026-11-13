@@ -28,7 +28,7 @@ const pct = (n: number, places = 2) => `${(Math.abs(n) * 100).toFixed(places)}%`
 const sign = (n: number, plus = true) => (n > 0 && plus ? "+" : n < 0 ? "−" : "");
 const shown = (n: N, text: (n: number) => ReactNode) => (n == null ? <Missing /> : text(n));
 const amount = (n: N) => shown(n, (v) => <span className={pnlClass(v)}>{signed(v)}</span>);
-const Said = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => <span className={ok ? "text-meets" : "text-misses-fg"}>{ok ? yes : no}</span>;
+const Said = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => <span className={ok ? "text-meets-fg" : "text-misses-fg"}>{ok ? yes : no}</span>;
 
 /** The deepest drawdown so far (quiet) and the drawdown now (in the text colour) along a track to the
  *  limit, graduated in fifths, its end marked in the missed-target colour. */
@@ -129,7 +129,7 @@ function Strip({ f }: { f: Facts }) {
       note: a.ahead == null ? [] : [<Said ok={a.ahead >= 0} yes="On pace" no="Behind pace" />, `${signed(a.ahead * 100)} pt`, `${signed(a.usdt ?? null, 0)} USDT`] }] : [],
   ];
   const annual = f.short != null ? <span className="text-small text-fg-faint">Too short · {Math.floor(f.short)} of {ANNUAL_DAYS} d</span>
-    : shown(f.annual, (n) => { const ok = meets(n, f.minimum, true); return <span className={ok === null ? pnlClass(n) : ok ? "text-meets" : "text-misses-fg"}>{sign(n)}{pct(n)}</span>; });
+    : shown(f.annual, (n) => { const ok = meets(n, f.minimum, true); return <span className={ok === null ? pnlClass(n) : ok ? "text-meets-fg" : "text-misses-fg"}>{sign(n)}{pct(n)}</span>; });
   const groups: { title: string; aside?: string; cells: Cell[] }[] = [
     { title: "Returns", aside: f.minimum === null ? undefined : `minimum ${pct(f.minimum, 0)} a year`, cells: [
       { name: "Annual return", value: annual }, { name: "Sharpe", value: shown(f.sharpe ?? null, (n) => `${sign(n, false)}${Math.abs(n).toFixed(2)}`) },

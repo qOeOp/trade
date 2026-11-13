@@ -25,7 +25,7 @@ export function HoldButton({ ms = 1500, onHeld, disabled = false, children }: { 
             onPointerDown={start} onPointerUp={stop} onPointerCancel={stop}
             onPointerLeave={stop} onContextMenu={(e) => e.preventDefault()}
             onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !e.repeat) { e.preventDefault(); start(); } }} onKeyUp={stop}
-            className="relative h-11 w-full touch-none select-none overflow-hidden rounded-control border font-semibold text-fail disabled:opacity-50"
+            className="relative h-11 w-full touch-none select-none overflow-hidden rounded-control border font-semibold text-fail-fg disabled:opacity-50"
             style={{ background: wash("fail", 12), borderColor: wash("fail", 55) }}>
       <span aria-hidden className="absolute inset-y-0 left-0" style={{ width: `${done * 100}%`, background: wash("fail", 34) }} />
       <span className={`relative tabular-nums ${left === null ? "" : "text-fg"}`}>{left === null ? children : `Keep holding · ${(left / 1000).toFixed(1)} s`}</span>

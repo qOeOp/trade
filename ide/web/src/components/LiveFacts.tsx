@@ -55,7 +55,7 @@ export function LiveRequestStatus({ request, run, viewRun, resolve }: {
   const title = request.outcome === "effect_recorded" ? `${label} requested` : `${label} · ${REQUEST_TEXT[request.outcome]}`;
   return (
     <div role="status" className="space-y-3 rounded-control border border-line bg-island-alt p-3 text-dense">
-      <p className={request.outcome === "refused" ? "text-fail" : "text-fg"}>{closed ? "Request closed before acceptance" : title}</p>
+      <p className={request.outcome === "refused" ? "text-fail-fg" : "text-fg"}>{closed ? "Request closed before acceptance" : title}</p>
       {run && <p className="break-words text-small text-fg-muted">{run.candidate}</p>}
       <p className="text-small text-fg-muted">{preflight ? "An account check does not start trading. Its request is separate from the latest observed result." : "A recorded action does not confirm a fill or a flat account."}</p>
       {preflight && run && <LiveAccountCheck check={run.accountCheck} compact />}

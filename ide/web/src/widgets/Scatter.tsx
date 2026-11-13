@@ -96,7 +96,7 @@ export function Scatter({ widget, onOpen }: { widget: ScatterWidget; onOpen?: (i
         <div className="space-y-0.5"><div className="font-mono font-semibold">{p.id}</div>
           <div>trial {p.trial_id} · return {pct(p.annual_return)} · drawdown {pct(p.max_drawdown)}</div>
           {front && <div className="text-fg-muted">On the Pareto frontier</div>}
-          {p.eligible === false && <div className="text-fail">Ineligible</div>}
+          {p.eligible === false && <div className="text-fail-fg">Ineligible</div>}
           {more > 0 && <div className="text-fg-muted">{plural(more, "more run")} at the same point</div>}</div>}>
         <g {...hoverProps(p.id)} data-keep={front ? "" : undefined} className="enter cursor-pointer" onClick={() => { if (onOpen) onOpen(p.id); else { select(p.id); requestFocus(p.id); } }}>
           <circle className={glide} cx={cx} cy={cy} r={R + (front ? RING : 1)} fill={v("island")} />

@@ -27,7 +27,7 @@ export function LiveNotifications({ notify, actions }: { notify: LiveNotify | nu
     <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); save(); }}>
       <TextField label="Telegram bot token" type="password" autoComplete="off" spellCheck={false} value={token} onValue={setToken} disabled={!actions.saveNotify || busy} />
       <p className="text-small text-fg-muted">Create a bot with @BotFather, send it any message from your Telegram account, then save its token here. The token is kept privately on the Live host and never shown again.</p>
-      {result && <p role={result.failed ? "alert" : "status"} className={`text-dense ${result.failed ? "text-fail" : "text-fg-muted"}`}>{result.text}</p>}
+      {result && <p role={result.failed ? "alert" : "status"} className={`text-dense ${result.failed ? "text-fail-fg" : "text-fg-muted"}`}>{result.text}</p>}
       <div className="flex flex-wrap gap-2">
         <FormButton type="submit" disabled={!actions.saveNotify || busy || !token.trim()}>{busy ? "Submitting…" : "Save"}</FormButton>
         <FormButton disabled={!actions.testNotify || !notify?.configured || busy} onClick={() => void run(actions.testNotify, "Test message sent.")}>Send test</FormButton>

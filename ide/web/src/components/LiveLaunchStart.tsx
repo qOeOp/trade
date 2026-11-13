@@ -12,7 +12,7 @@ export function LiveLaunchStart({ ready, waiting, armed, busy, sourceHash, refus
 }) {
   const confirm = armed && ready;
   const line = busy ? { text: "Checking the account, then starting.", tone: "text-fg-faint" }
-    : refused ? { text: refused, tone: "text-fail" }
+    : refused ? { text: refused, tone: "text-fail-fg" }
     : confirm ? { text: "Places real orders on Binance.", tone: "text-fg-muted" }
     : ready || waiting === null ? null
     : { text: waiting.length ? `Waiting on ${listed(waiting)}` : "Live takes no new runs right now.", tone: "text-fg-faint" };

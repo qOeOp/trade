@@ -69,7 +69,7 @@ function Cell({ cell, row, column, line, metric, shortDays }: { cell: HistoryCel
 }
 
 const Verdict = ({ ok, tip: why }: { ok: boolean | null | undefined; tip?: ReactNode }) => {
-  const body = <span className={ok === true ? "text-meets" : ok === false ? "text-misses-fg" : "text-fg-faint"}>{ok === true ? "Meets" : ok === false ? "Misses" : "–"}</span>;
+  const body = <span className={ok === true ? "text-meets-fg" : ok === false ? "text-misses-fg" : "text-fg-faint"}>{ok === true ? "Meets" : ok === false ? "Misses" : "–"}</span>;
   return why ? <Tip content={why}>{body}</Tip> : body;
 };
 

@@ -11,7 +11,7 @@ function RowMark({ mark, required, busy }: { mark: Mark; required: boolean; busy
   if (mark === "wait") return busy
     ? <><Icon name="loading" size={16} className="text-icon motion-safe:animate-spin motion-reduce:hidden" /><Icon name="untested" size={16} className="text-fg-faint motion-safe:hidden" /></>
     : <Icon name="untested" size={16} className="text-fg-faint" />;
-  return mark === "pass" ? <Icon name="passed" size={16} className="text-meets" />
+  return mark === "pass" ? <Icon name="passed" size={16} tone="meets" />
     : <Icon name="failed" size={16} tone={required ? "fail" : "misses"} />;
 }
 
@@ -45,7 +45,7 @@ function Row({ row, closed, edit, busy }: { row: LaunchRow; closed: boolean; edi
           </span>}
       </div>
       {(row.source || row.reason) && <p className="text-small text-fg-faint">{row.source}
-        {row.reason && <>{row.source && " · "}<span className={invalid && row.required && !closed ? "text-fail" : "text-fg-muted"}>{row.reason}</span></>}</p>}
+        {row.reason && <>{row.source && " · "}<span className={invalid && row.required && !closed ? "text-fail-fg" : "text-fg-muted"}>{row.reason}</span></>}</p>}
     </div>
   </li>;
 }

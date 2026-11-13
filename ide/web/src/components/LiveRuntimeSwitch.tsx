@@ -30,7 +30,7 @@ export function LiveRuntimeSwitch({ run, actions }: { run: LiveRun; actions: Liv
           onClick={() => { if (actions.cancelSwitch) void action.submit(async () => setRefused(refusal(await actions.cancelSwitch!(run.id)))); }}>
           {action.busy ? "Canceling…" : "Cancel switch"}</FormButton>
         <p className="text-small text-fg-faint">Switches when the strategy next holds no position or order. Nothing is closed or canceled for it.</p>
-        {refused && <p role="alert" className="text-small text-fail">{refused}</p>}
+        {refused && <p role="alert" className="text-small text-fail-fg">{refused}</p>}
         <LiveActionFailure failed={action.failed} />
       </div>
     </LiveFacts>;
@@ -51,7 +51,7 @@ export function LiveRuntimeSwitch({ run, actions }: { run: LiveRun; actions: Liv
           </> : <FormButton disabled={!actions.switchRuntime || !offered.ready} onClick={() => { setRefused(null); setArmed(true); }}>Switch at next flat</FormButton>}
       </div>
       <p id={`live-switch-${run.id}`} role={refused ? "alert" : undefined}
-        className={`text-small ${refused || !offered.ready ? "text-fail" : armed ? "text-fg-muted" : "text-fg-faint"}`}>{line}</p>
+        className={`text-small ${refused || !offered.ready ? "text-fail-fg" : armed ? "text-fg-muted" : "text-fg-faint"}`}>{line}</p>
       <LiveActionFailure failed={action.failed} />
     </div>
   </LiveFacts>;

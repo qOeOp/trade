@@ -95,7 +95,7 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
             {checking.busy ? "Checking…" : running ? "Checking the account…" : checked?.accountCheck ? "Check again" : "Check account"}</FormButton>
           <TextButton size="form" onClick={openLiveCredentials}>Manage keys…</TextButton>
         </div>
-        {said?.at === "check" ? <p role="alert" className="text-small text-fail">{said.text}</p>
+        {said?.at === "check" ? <p role="alert" className="text-small text-fail-fg">{said.text}</p>
           : blocker && !closed && <p className="text-small text-fg-faint">{blocker}</p>}
       </LiveLaunchColumn>
       <LiveLaunchColumn column={columns[2]!} index={2} closed={closed} edit={(id, value) => update((base) => {

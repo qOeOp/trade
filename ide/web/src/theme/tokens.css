@@ -59,13 +59,17 @@
   --shadow-near: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.08), oklch(0 0 0 / 0.3));
   --shadow-far: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.1), oklch(0 0 0 / 0.36));
 
-  /* data: four hues, the same in both themes, for marks; misses as small text has its own pair */
+  /* data: four hues, the same in both themes, for marks; as 11-12 px text each has its own pair, darker
+     in light and lighter in dark, at least 4.5:1 on frame, island, island-alt and popup and on a selected
+     row over island, island-alt or popup in each theme */
   --recommended: #3871E1;
   --meets: #4E9D6C;
   --misses: #C28013;
-  /* misses as 11-12 px text: at least 4.5:1 on frame, island, island-alt and popup in each theme */
-  --misses-fg: light-dark(#975A02, #CB8923);
   --fail: #B0464F;
+  --recommended-fg: light-dark(#255DCB, #81ADFE);
+  --meets-fg: light-dark(#1C7144, #6EBD8A);
+  --misses-fg: light-dark(#8A5904, #E39F40);
+  --fail-fg: light-dark(#A93F49, #FD8B90);
   --masked: var(--fg-faint);
 
   /* charts */
@@ -244,8 +248,11 @@
   --color-recommended: var(--recommended);
   --color-meets: var(--meets);
   --color-misses: var(--misses);
-  --color-misses-fg: var(--misses-fg);
   --color-fail: var(--fail);
+  --color-recommended-fg: var(--recommended-fg);
+  --color-meets-fg: var(--meets-fg);
+  --color-misses-fg: var(--misses-fg);
+  --color-fail-fg: var(--fail-fg);
   --color-masked: var(--masked);
   --color-bar: var(--bar);
   --color-grid: var(--grid);
