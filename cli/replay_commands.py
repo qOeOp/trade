@@ -32,9 +32,6 @@ def replay_precheck(profile, market, at, candidate, runtime, runner_argv, output
 
 def replay_run(profile, market, at, candidate, runtime, runner_argv, registration, validation, output=None) -> dict:
     from replay import entry
-    if (registration is None) == (validation is None):
-        raise refuse("REGISTRATION_REQUIRED", "give exactly one of --registration or --validation",
-                     expected="--registration <id> xor --validation <id>")
     ran = entry.run(profile, market, at, candidate, runtime, list(runner_argv), registration, validation,
                     Path(output) if output else None)
     with db.read_as_of(profile) as conn:
@@ -48,8 +45,6 @@ def replay_report(profile, trial_id: int | None, directory: str | None, at: str 
     run's kept directory or a verified reproduction), or an unsealed directory's report marked unverified."""
     from report import runs
     if directory is not None and trial_id is None:
-        if not Path(directory).is_dir():
-            raise refuse("DIRECTORY_NOT_FOUND", f"{directory} is not a directory", missing=(directory,))
         return {"source": "directory", **runs.directory_report(Path(directory), account=account)}
     if trial_id is None:
         raise refuse("USAGE_ERROR", "give --trial-id or --directory")

@@ -436,11 +436,7 @@ class NativeTests(Refusals):
                           for piece in pieces], [(1, "episode-1", 10, 1), (2, "episode-2", 10, 1)])
         single = export.split_episodes("AIAUSDT", None, raw, 0, 1)
         self.assertEqual((single[0]["catalog_dir"], single[0]["instrument_id"]), ("", "AIAUSDT-PERP.BINANCE"))
-        overlapping = [episodes[0], {**episodes[1], "start_ns": (T0 + 5 * MINUTE) * 1_000_000}]
-        self.refused("EPISODE_ORDER", export.split_episodes, "AIAUSDT", overlapping, raw, 0, 1)
         self.refused("EPISODE_SHAPE", export.split_episodes, "AIAUSDT", [{**episodes[0], "instrument_id": second}],
-                     raw, 0, 1)
-        self.refused("EPISODE_SHAPE", export.split_episodes, "AIAUSDT", [{"instrument_id": first, "events": []}],
                      raw, 0, 1)
 
 

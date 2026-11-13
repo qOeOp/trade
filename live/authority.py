@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import stat
 
-from deploy import live_configuration as installed
+from deploy import live_configuration as installed, release_host
 from live import configuration, release, state
 
 STATE = Path("/var/lib/trade-release")
@@ -30,9 +30,9 @@ def _identity(root: Path) -> tuple[tuple[int, int], tuple[int, int]]:
 
 
 def path(binding: release.Binding) -> Path:
-    if binding.state != STATE or not release.WEB.fullmatch(binding.web_name):
+    if binding.state != STATE:  # Binding itself refuses a web_name that is no release Web
         raise unavailable()
-    return STATE / "live" / binding.web_name.removeprefix("trade-release-web-") / "configuration.json"
+    return STATE / "live" / binding.web_name.removeprefix(release_host.WEB) / "configuration.json"
 
 
 @dataclass(frozen=True)
@@ -65,12 +65,17 @@ class Authority:
             self.retained()
             yield locked
 
+    def _declared(self) -> dict:
+        """The installed declaration, refused unless its operator fields are this snapshot's."""
+        declared = installed.declaration(STATE / "live/configuration.json")
+        if any(declared[key] != self.original[key] for key in installed.OPERATOR_FIELDS):
+            raise unavailable()
+        return declared
+
     def admit_locked(self, root: Path, *, maintenance: bool = False, inventory: bool = True) -> None:
         self.retained()
         try:
-            declared = installed.declaration(STATE / "live/configuration.json")
-            if (root != self.root or declared["root"] != str(root)
-                    or any(declared[key] != self.original[key] for key in installed.OPERATOR_FIELDS)):
+            if root != self.root or self._declared()["root"] != str(root):
                 raise unavailable()
             release.admission_locked(self.binding, maintenance=maintenance)
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
@@ -110,12 +115,8 @@ def from_file(file: Path, binding: release.Binding | None) -> Authority:
 def inspection(file: Path) -> Authority:
     """Host release already holds the account lock; do not acquire it in its helper."""
     try:
-        binding = release.Binding(STATE, "trade-release-web-" + file.parent.name)
-        result = from_file(file, binding)
-        result.retained()
-        declared = installed.declaration(STATE / "live/configuration.json")
-        if any(declared[key] != result.original[key] for key in installed.OPERATOR_FIELDS):
-            raise unavailable()
+        result = from_file(file, release.Binding(STATE, release_host.WEB + file.parent.name))
+        result._declared()  # from_file read the snapshot just now
         return result
     except (OSError, ValueError, RuntimeError, KeyError, TypeError):
         raise unavailable() from None
