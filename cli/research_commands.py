@@ -820,7 +820,7 @@ def register(verbs, verb, runner) -> None:
     _market_option(command)
     command.add_argument("--line", required=True, help="an open research line")
     command.add_argument("--market-at", help="market day, YYYY-MM-DD (default: the newest day)")
-    command.add_argument("--limit", type=int, help="run at most this many segments")
+    command.add_argument("--limit", type=_count, help="run at most this many segments")
     command = verb(line, "close", "end a line with its summary")
     _ledger_option(command)
     _market_option(command)

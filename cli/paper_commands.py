@@ -202,4 +202,5 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         from paper import serve
         serve.serve(args.ledger, args.market, args.host, args.port, args.hosts, Path(__file__).resolve().parents[1],
                     args.runtime, args.research_ledger, args.release_route, args.release_name)
+        return {}, 0
     raise UsageError(f"unknown command {args.noun} {args.verb}")

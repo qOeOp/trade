@@ -320,7 +320,7 @@ def register(verbs, verb, runner) -> None:
     _market_option(command)
     command.add_argument("--month", required=True, help="UTC month, YYYY-MM")
     command.add_argument("--cache-root", help="download cache directory (default: trade-market-cache in the temporary directory)")
-    command.add_argument("--workers", type=int, default=4, help="parallel import processes (default: 4)")
+    command.add_argument("--workers", type=_count, default=4, help="parallel import processes (default: 4)")
     command.add_argument("--symbols", nargs="+", help="only these contracts (default: every eligible contract)")
     command = verb(market, "import-quotes", "import one ended month of best bid/ask inferred from the stored aggTrades")
     _market_option(command)
