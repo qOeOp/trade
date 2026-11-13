@@ -82,5 +82,4 @@ def account_bridge(cycles: Sequence[Mapping], starting, final, audit: Mapping | 
         else:
             values.update(price=realized + fees - funding, fee=-fees, funding=funding,
                           open_mark=marks, account=end - start)
-    return {"values": values, "reason": reason,
-            "source": "original-native-audit" if audit is not None else "stored-native-cycles"}
+    return {"values": values, "reason": reason}

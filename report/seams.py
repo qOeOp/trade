@@ -1,6 +1,5 @@
-"""The one place the report readers reach code of other packages: the market's daily returns
-(market.daily_returns), whether the active market holds a market day (market.resolve_day), reproducing a sealed run (replay.reproduce) and the engine's native report
-comparison (engine.compare_reports).
+"""The report readers' market reads, which tests and report.graph swap: the market's daily returns
+(market.daily_returns) and whether the active market holds a market day (market.resolve_day).
 
 `current` holds the implementations in force. The market default reads the run's market through its
 profile in the ledger profile directory. Tests swap them with `use(...)`.

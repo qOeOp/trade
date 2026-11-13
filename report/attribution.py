@@ -7,9 +7,9 @@ comparison has its own definition (the pair's breakeven fee multiple, the concen
 per-instrument and per-day differences, months won, the regression of the daily difference on the
 market, the expectancy split, trade pairing) that pairwise value is given beside it. Registered
 predictions are checked for sign only, against the pairwise value where the comparison defines one.
-A declared interaction is computed by report.compare (it reads the four corners from the ledger)
-and carried here; its shape is checked with `merge3`. Nothing is tested again and nothing is
-written.
+A declared interaction is read by report.compare (it reads the four corners from the ledger) and
+carried here; this module holds its pairwise parts: the three-way merge that checks its shape (`merge3`)
+and each change's contribution (`contributions`). Nothing is tested again and nothing is written.
 """
 
 from __future__ import annotations
@@ -154,18 +154,17 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end: int) -> 
                        "null_reason": "CYCLE_PNL_MISSING" if difference is None else None,
                        "control_exit": a.get("closing_order_type"), "candidate_exit": b.get("closing_order_type")})
     matched_a, matched_b = [control[i] for i, _, _ in pairs], [candidate[j] for _, j, _ in pairs]
+    shares = {"matched_share": 2 * len(pairs) / (len(control) + len(candidate)) if control or candidate else None,
+              "matched_net_share": float(matched_abs / closed_abs) if closed_abs else None}
+    only_control, only_candidate = _sums(removed), _sums(added)
     return {
-        "coverage": {"matched_share": 2 * len(pairs) / (len(control) + len(candidate)) if control or candidate else None,
-                     "matched_net_share": float(matched_abs / closed_abs) if closed_abs else None,
-                     "overlap_quantiles": {"p10": _rank(overlaps, 0.1), "p50": _rank(overlaps, 0.5),
-                                           "p90": _rank(overlaps, 0.9)}},
+        "coverage": {**shares, "overlap_quantiles": {"p10": _rank(overlaps, 0.1), "p50": _rank(overlaps, 0.5),
+                                                     "p90": _rank(overlaps, 0.9)}},
         "classes": {"matched": {**_minus(_sums(matched_b), _sums(matched_a)), "count": len(pairs)},
                     "split_merge": {**_minus(_sums([candidate[j] for j in split_b]), _sums([control[i] for i in split_a])),
                                     "count": len(split_a) + len(split_b)},
-                    "only_control": _sums(removed), "only_candidate": _sums(added)},
-        "scalars": {"matched_share": 2 * len(pairs) / (len(control) + len(candidate)) if control or candidate else None,
-                    "matched_net_share": float(matched_abs / closed_abs) if closed_abs else None,
-                    "removed_net": _sums(removed)["net"], "added_net": _sums(added)["net"],
+                    "only_control": only_control, "only_candidate": only_candidate},
+        "scalars": {**shares, "removed_net": only_control["net"], "added_net": only_candidate["net"],
                     "matched_delta_net": metrics.money(profit.total(_delta(profit.cycle_value(candidate[j]), profit.cycle_value(control[i]))
                                                                      for i, j, _ in pairs)),
                     "win_to_loss": flips.get("win_to_loss", 0) if sum(flips.values()) == len(pairs) else None,
@@ -264,12 +263,11 @@ def _trade_inputs(derived: Mapping) -> dict:
     return {"win_rate": value("win_rate"), "avg_win": value("avg_win"), "avg_loss": value("avg_loss")}
 
 
-def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mapping | None, revision: str,
+def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mapping | None,
               interaction: Mapping | None = None) -> dict:
-    """{product_commit, headline, slices, predictions, interaction, trade_pairs} for two runs' facts
-    (report.measures.run_facts) and the registration body that declared the comparison; `revision` is the
-    product commit the report computes with; `interaction` is report.compare's reading of a declared
-    two-by-two (None without a declaration)."""
+    """{headline, slices, predictions, interaction, trade_pairs} for two runs' facts
+    (report.measures.run_facts) and the registration body that declared the comparison; `interaction` is
+    report.compare's reading of a declared two-by-two (None without a declaration)."""
     catalogue = duties.measure_catalogue()
     derived_c = measures.derive_measures(candidate, catalogue, market)
     derived_o = measures.derive_measures(control, catalogue, market)
@@ -311,8 +309,7 @@ def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mappi
                               "reason": None if available else next((entry["null_reason"] for entry in found.values()
                                                                      if entry["null_reason"]), None)}
     declared = (body.get("prediction") or {}).get("interaction")
-    return {"product_commit": revision,
-            "headline": headline, "slices": slices, "predictions": predictions(body, slices),
+    return {"headline": headline, "slices": slices, "predictions": predictions(body, slices),
             "interaction": (dict(interaction) if interaction is not None else
                             {"available": False, "declared": dict(declared),
                              "reason": "INTERACTION_UNATTESTED: the corners were not read"}) if declared else None,

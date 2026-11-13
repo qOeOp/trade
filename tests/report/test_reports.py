@@ -363,9 +363,6 @@ class ReportTests(unittest.TestCase):
         evidence = found["evidence"]
         self.assertEqual((evidence["days"], evidence["design"]["block_days"]), (31, 5))
         self.assertIsNotNone(evidence["p_one_sided"])
-        annual = found["attribution"]["headline"]["annual_return"]
-        self.assertAlmostEqual(evidence["observed_account_annual_return_difference"],
-                               annual["candidate"] - annual["control"], places=15)
         self.assertEqual(list(found["attribution"]["slices"]),
                          [item["id"] for item in duties.measure_catalogue()["slices"]])
         slices = found["attribution"]["slices"]
@@ -480,14 +477,6 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(found, comparison.intervals_cross_zero(evidence))
         self.assertIsNotNone(found)
         self.assertEqual((attribute.call_count, interaction.call_count, sensitivity.call_count), (0, 0, 0))
-
-    def test_a_comparison_reads_its_registration_once(self):
-        """CF-26: compare and crossing hand the registration they read to gather instead of gather reading it again."""
-        for read in (comparison.compare, comparison.crossing):
-            with self.subTest(read=read.__name__), \
-                    mock.patch.object(register, "load_registration", wraps=register.load_registration) as loaded:
-                read(self.profile, self.child_registration, self.candidate["trial_id"])
-            self.assertEqual([call.args[1] for call in loaded.call_args_list], [self.child_registration])
 
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
         found = comparison.compare(self.profile, self.root_registration, self.control["trial_id"])

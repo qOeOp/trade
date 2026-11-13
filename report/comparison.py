@@ -59,8 +59,7 @@ INTERACTION_LIMITATIONS = (
     "An interaction explains where a difference comes from; it is no evidence of an improvement",
     "The contributions average each change's marginal effect over both orders of adding the two changes")
 UNCORRECTED_DROPPED = ("p_one_sided", "p_bonferroni", "interval_coverage_grid_adjusted",
-                       "detectable_annual_return_difference_80pct_normal_approx",
-                       "observed_account_annual_return_difference")
+                       "detectable_annual_return_difference_80pct_normal_approx")
 
 
 def environment_failure(exc: Refusal) -> Refusal | None:
@@ -115,47 +114,62 @@ def block_indices(rng: np.random.Generator, days: int, block: int, resamples: in
     return ((starts[:, :, None] + np.arange(block)).reshape(resamples, -1)[:, :days]) % days
 
 
+def _two_blocks(days: int, block: int) -> None:
+    """COMPARISON_UNAVAILABLE unless `days` hold at least two blocks of `block` days."""
+    if days < 2 * block:
+        raise refuse("COMPARISON_UNAVAILABLE", f"{days} days hold fewer than two blocks of {block}",
+                     missing=("days",), expected=f"at least {2 * block} days")
+
+
 def _outer(values: np.ndarray, block: int, resamples: int, seed: int, alpha: float) -> dict:
-    """Basic interval and one-sided p of the mean of `values` by the outer circular block bootstrap."""
+    """The outer circular block bootstrap of the mean of `values` on the stream of `seed`: its block indices and
+    resampled means, their standard error, the one-sided p of a mean not above zero (None when that error is
+    zero) and the basic interval."""
     observed = float(values.mean())
-    means = values[block_indices(np.random.default_rng(seed), len(values), block, resamples)].mean(axis=1)
-    deviation = _deviation(means)
-    centered = means - observed
-    p = (int(np.sum(centered >= observed)) + 1) / (resamples + 1) if deviation > 0 else None
+    indices = block_indices(np.random.default_rng(seed), len(values), block, resamples)
+    means = values[indices].mean(axis=1)
+    se = _deviation(means)
+    p = (int(np.sum(means - observed >= observed)) + 1) / (resamples + 1) if se > 0 else None
     low, high = np.quantile(means, [alpha / 2, 1 - alpha / 2])
-    return {"means": means, "se": deviation, "p": p,
+    return {"indices": indices, "means": means, "se": se, "p": p,
             "basic": [2 * observed - float(high), 2 * observed - float(low)]}
 
 
-def _studentized(values: np.ndarray, indices: np.ndarray, se: float, block: int, inner: int, seed: int,
-                 alpha: float) -> tuple[list[float] | None, int]:
-    """The nested (studentized) interval: each outer resample's standard error from `inner` inner block
-    resamples (their own random stream, seeded by (seed, 1)); None when any inner one is degenerate."""
-    observed = float(values.mean())
-    rng = np.random.default_rng([seed, 1])
+def _studentized(values: np.ndarray, outer: Mapping, design: Mapping, alpha: float,
+                 limitations: list[str]) -> tuple[list[float] | None, int]:
+    """The nested (studentized) interval: each outer resample's standard error from the design's inner block
+    resamples (their own random stream, seeded by (seed, 1)); None, with a DEGENERATE_NESTED limitation when
+    any inner one is degenerate."""
+    observed, se = float(values.mean()), outer["se"]
+    rng = np.random.default_rng([design["seed"], 1])
     stats, degenerate = [], 0
     days = len(values)
-    for row in indices:
+    for row in outer["indices"]:
         sample = values[row]
-        inner_means = sample[block_indices(rng, days, block, inner)].mean(axis=1)
+        inner_means = sample[block_indices(rng, days, design["block_days"], design["inner_resamples"])].mean(axis=1)
         inner_se = _deviation(inner_means)
         if inner_se <= 0:
             degenerate += 1
             continue
         stats.append((float(sample.mean()) - observed) / inner_se)
+    if degenerate:
+        limitations.append(f"DEGENERATE_NESTED: {degenerate} outer resamples had a zero inner standard error; the "
+                           "studentized interval is empty")
     if degenerate or se <= 0 or not stats:
         return None, degenerate
     low, high = np.quantile(np.asarray(stats), [alpha / 2, 1 - alpha / 2])
     return [observed - float(high) * se, observed - float(low) * se], degenerate
 
 
-def _sensitivity(values: np.ndarray, block: int, resamples: int, seed: int, alpha: float) -> list[dict]:
-    found = []
+def _sensitivity(values: np.ndarray, main: Mapping, design: Mapping, alpha: float) -> list[dict]:
+    """The basic interval and p at half, once and twice the design's block length; `main` is the bootstrap at
+    the block length itself."""
+    block, found = design["block_days"], []
     for length in (max(1, block // 2), block, 2 * block):
         if len(values) < 2 * length:
             found.append({"block_days": length, "available": False})
             continue
-        outer = _outer(values, length, resamples, seed, alpha)
+        outer = main if length == block else _outer(values, length, design["resamples"], design["seed"], alpha)
         found.append({"block_days": length, "available": True, "mean_log_interval": outer["basic"],
                       "p_one_sided": outer["p"]})
     return found
@@ -185,9 +199,7 @@ def _paired_inputs(left: Sequence, right: Sequence, design: dict, grid_points: i
     days = len(sides[0])
     if any(len(side) != days for side in sides):
         raise refuse("COMPARISON_UNAVAILABLE", "the series differ in length", missing=("days",))
-    if days < 2 * design["block_days"]:
-        raise refuse("COMPARISON_UNAVAILABLE", f"{days} days hold fewer than two blocks of {design['block_days']}",
-                     missing=("days",), expected=f"at least {2 * design['block_days']} days")
+    _two_blocks(days, design["block_days"])
     return sides, weights
 
 
@@ -199,25 +211,17 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
     `sensitivity` the block-length sensitivity is null and not computed."""
     sides, weights = _paired_inputs(left, right, design, grid_points, weights)
     days = len(sides[0])
-    block, resamples = design["block_days"], design["resamples"]
     logs = [np.log1p(side) for side in sides]
     values = sum((weight * series for weight, series in zip(weights, logs, strict=True)), np.zeros(days))
     alpha = design["alpha"] / grid_points
     observed = float(values.mean())
-    indices = block_indices(np.random.default_rng(design["seed"]), days, block, resamples)
-    means = values[indices].mean(axis=1)
-    se = _deviation(means)
-    centered = means - observed
+    outer = _outer(values, design["block_days"], design["resamples"], design["seed"], alpha)
+    indices, se, p = outer["indices"], outer["se"], outer["p"]
     limitations = list(PAIRED_LIMITATIONS)
-    p = (int(np.sum(centered >= observed)) + 1) / (resamples + 1) if se > 0 else None
     if p is None:
         limitations.append("DEGENERATE_SE: the bootstrap standard error is zero; p and the studentized interval are "
                            "empty")
-    low, high = np.quantile(means, [alpha / 2, 1 - alpha / 2])
-    studentized, degenerate = _studentized(values, indices, se, block, design["inner_resamples"], design["seed"], alpha)
-    if degenerate:
-        limitations.append(f"DEGENERATE_NESTED: {degenerate} outer resamples had a zero inner standard error; the "
-                           "studentized interval is empty")
+    studentized, degenerate = _studentized(values, outer, design, alpha, limitations)
     normal = NormalDist()
     detectable = se * (normal.inv_cdf(1 - alpha) + normal.inv_cdf(POWER))
     annual, annual_interval, detectable_annual = None, None, None
@@ -238,7 +242,7 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
         limitations.append("A weighted contrast has no annual return or drawdown difference")
     absolute = np.sort(np.abs(values))[::-1]
     return {"method": design["method"], "days": days, "mean_daily_log_difference": observed,
-            "mean_log_basic_interval": [2 * observed - float(high), 2 * observed - float(low)],
+            "mean_log_basic_interval": outer["basic"],
             "mean_log_studentized_interval": studentized, "annual_return_difference": annual,
             "annual_return_difference_interval": annual_interval, "max_drawdown_difference": drawdown,
             "max_drawdown_difference_interval": drawdown_interval, "interval_coverage_grid_adjusted": 1 - alpha,
@@ -246,7 +250,7 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
             "predeclared_alpha": design["alpha"], "predeclared_minimum_effect": design["minimum_effect"],
             "detectable_annual_return_difference_80pct_normal_approx": detectable_annual,
             "top_five_absolute_difference_share": float(absolute[:5].sum() / absolute.sum()) if absolute.sum() else None,
-            "block_sensitivity": _sensitivity(values, block, resamples, design["seed"], alpha) if sensitivity else None,
+            "block_sensitivity": _sensitivity(values, outer, design, alpha) if sensitivity else None,
             "degenerate_nested_samples": degenerate, "design": dict(design), "grid_points": grid_points,
             "limitations": limitations}
 
@@ -259,42 +263,31 @@ def single(returns: Sequence, design: dict, family_size: int = 1) -> dict:
     if not isinstance(family_size, int) or isinstance(family_size, bool) or family_size < 1:
         raise refuse("COMPARISON_UNAVAILABLE", "family_size must be a positive integer", missing=("family_size",))
     values = np.log1p(_series(returns, "returns"))
-    days, block, resamples = len(values), design["block_days"], design["resamples"]
-    if days < 2 * block:
-        raise refuse("COMPARISON_UNAVAILABLE", f"{days} days hold fewer than two blocks of {block}",
-                     missing=("days",), expected=f"at least {2 * block} days")
+    days = len(values)
+    _two_blocks(days, design["block_days"])
     alpha = design["alpha"] / family_size
     observed = float(values.mean())
     deviation = _deviation(values)
     sharpe = observed / deviation * math.sqrt(365) if deviation > 0 else None
-    indices = block_indices(np.random.default_rng(design["seed"]), days, block, resamples)
-    samples = values[indices]
-    means = samples.mean(axis=1)
-    se = _deviation(means)
+    outer = _outer(values, design["block_days"], design["resamples"], design["seed"], alpha)
     limitations = list(SINGLE_LIMITATIONS)
-    p = (int(np.sum(means - observed >= observed)) + 1) / (resamples + 1) if se > 0 else None
-    if p is None:
+    if outer["p"] is None:
         limitations.append("DEGENERATE_SE: the bootstrap standard error is zero; p is empty")
-    low, high = np.quantile(means, [alpha / 2, 1 - alpha / 2])
     sharpe_interval = None
     if sharpe is not None:
-        spread = _deviation(samples, axis=1)
-        valid = spread > 0
-        if np.all(valid):
-            ratios = means / spread * math.sqrt(365)
+        spread = _deviation(values[outer["indices"]], axis=1)
+        if np.all(spread > 0):
+            ratios = outer["means"] / spread * math.sqrt(365)
             s_low, s_high = np.quantile(ratios, [alpha / 2, 1 - alpha / 2])
             sharpe_interval = [2 * sharpe - float(s_high), 2 * sharpe - float(s_low)]
         else:
             limitations.append("A resample without variation leaves the Sharpe ratio interval empty")
-    studentized, degenerate = _studentized(values, indices, se, block, design["inner_resamples"], design["seed"], alpha)
-    if degenerate:
-        limitations.append(f"DEGENERATE_NESTED: {degenerate} outer resamples had a zero inner standard error; the "
-                           "studentized interval is empty")
+    studentized, degenerate = _studentized(values, outer, design, alpha, limitations)
     return {"method": design["method"], "days": days, "mean_daily_log": observed,
-            "mean_log_basic_interval": [2 * observed - float(high), 2 * observed - float(low)],
+            "mean_log_basic_interval": outer["basic"],
             "mean_log_studentized_interval": studentized, "sharpe_annualised": sharpe, "sharpe_interval": sharpe_interval,
-            "p_one_sided": p, "interval_coverage": 1 - alpha,
-            "block_sensitivity": _sensitivity(values, block, resamples, design["seed"], alpha),
+            "p_one_sided": outer["p"], "interval_coverage": 1 - alpha,
+            "block_sensitivity": _sensitivity(values, outer, design, alpha),
             "degenerate_nested_samples": degenerate, "predeclared_alpha": design["alpha"],
             "predeclared_minimum_effect": design["minimum_effect"], "design": dict(design),
             "limitations": limitations}
@@ -385,7 +378,7 @@ def annual_return_interval(conn: db.LedgerConnection, trial_id: int) -> dict | N
     days, block, resamples, alpha = len(values), design["block_days"], design["resamples"], design["alpha"]
     if days < 2 * block:
         return None
-    means = values[block_indices(np.random.default_rng(design["seed"]), days, block, resamples)].mean(axis=1)
+    means = _outer(values, block, resamples, design["seed"], alpha)["means"]
     low, high = np.quantile(np.exp(365 * means) - 1, [alpha / 2, 1 - alpha / 2])
     return {"annual_return": math.exp(365 * float(values.mean())) - 1, "interval": [float(low), float(high)],
             "coverage": 1 - alpha, "days": days, "block_days": block, "resamples": resamples, "seed": design["seed"],
@@ -395,14 +388,11 @@ def annual_return_interval(conn: db.LedgerConnection, trial_id: int) -> dict | N
 def gather(conn: db.LedgerConnection, plan: Mapping, trial_id: int, *, checker: Mapping | None = None,
            reviews: list | None = None) -> dict:
     """Every check of report.compare and both sides' stored facts (read only), for the registration `plan`
-    (register.load_registration, read once by the caller: CF-26). `checker` and `reviews`
+    (register.load_registration, read once by the caller: CF-26), which declares a control. `checker` and `reviews`
     (availability.check_identity and precheck.review_records at this connection's commit) are what a caller
     comparing many runs reads once."""
     registration_id = plan["registration_id"]
     body, registered_at = plan["body"], plan["created_at"]
-    if plan["control_trial_id"] is None:
-        raise refuse("NO_CONTROL", f"research registration {registration_id} declares no control run",
-                     missing=("control_trial_id",))
     candidate = _grid_run(conn, registration_id, trial_id)
     control = _run_row(conn, plan["control_trial_id"], "control")
     records = {side: register.control_trial(conn, row["trial_id"]) for side, row in (("candidate", candidate),
@@ -454,14 +444,12 @@ def compare(profile, registration_id: int, trial_id: int, at: str | None = None,
                 "comparison_source_sha256": _source(),
                 "availability": found["availability"]}
     market = measures.market_for(facts["candidate"])
-    attributed = report_attribution.attribute(facts["control"], facts["candidate"], body, market, revision, interaction)
+    attributed = report_attribution.attribute(facts["control"], facts["candidate"], body, market, interaction)
     left, right = ([value for _, value, _ in found["series"][side]] for side in ("control", "candidate"))
     if not bootstrap:
         _paired_inputs(left, right, plan["comparison"], len(plan["grid"]), None)
         return {**identity, "evidence": None, "attribution": attributed}
     evidence = paired(left, right, plan["comparison"], len(plan["grid"]))
-    observed = attributed["headline"]["annual_return"]["difference"]
-    evidence["observed_account_annual_return_difference"] = observed
     return {**identity, "evidence": evidence, "attribution": attributed,
             "limitations": runs.dedupe(evidence["limitations"], *(facts[side]["sealed"].get("limitations")
                                                                   for side in ("control", "candidate")),
@@ -708,7 +696,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
         else:
             output["binding"] = {"trial_id": binding["trial_id"],
                                  "purpose": binding["purpose"], "status": (run or {}).get("status", "unfinished"),
-                                 "audit_status": (run or {}).get("status"), "bound_at": binding["bound_at"]}
+                                 "bound_at": binding["bound_at"]}
             if run is None:
                 limitations.append("UNFINISHED: the bound replay stored no run")
             else:
