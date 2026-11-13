@@ -6,12 +6,7 @@ on:
       - deploy/remote/**
       - deploy/compose.yaml
       - deploy/Dockerfile
-      - deploy/images.py
-      - deploy/live_host.py
-      - deploy/live_configuration.py
-      - deploy/paper_*.py
-      - deploy/release*.py
-      - deploy/runtime_inputs.py
+      - deploy/*.py
       - tests/deploy/**
       - .github/scripts/check-remote-deploy.py
       - .github/workflows/remote-paper-auth.yml
@@ -42,12 +37,7 @@ jobs:
             deploy/remote/**
             deploy/compose.yaml
             deploy/Dockerfile
-            deploy/images.py
-            deploy/live_host.py
-            deploy/live_configuration.py
-            deploy/paper_*.py
-            deploy/release*.py
-            deploy/runtime_inputs.py
+            deploy/*.py
             tests/deploy/**
             .github/scripts/check-remote-deploy.py
             .github/workflows/remote-paper-auth.yml
@@ -70,7 +60,7 @@ jobs:
       - name: Verify public ports and secret isolation with dummy configuration
         run: python3 .github/scripts/check-remote-deploy.py
       - name: Test the installed controller with Ubuntu system Python
-        run: python3 -m unittest tests.deploy.test_release tests.deploy.test_paper_release tests.deploy.test_live_release
+        run: python3 -m unittest tests.deploy.test_release tests.deploy.test_paper_release tests.deploy.test_live_release tests.deploy.test_telegram
       - name: Extract the exact pinned native proxy without starting it
         run: |
           docker create --name trade-oauth-check quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048
