@@ -440,7 +440,3 @@ class CommandTests(unittest.TestCase):
         self.refused("USAGE_ERROR", "candidate", "list", "--ledger", self.ledger, "--", "--start", "x")
         self.refused("LEDGER_UNKNOWN", "candidate", "list", "--ledger", "no-such-profile")
         self.refused("NOT_TEMPORARY_PATH", "ledger", "temp", "--root", str(NOT_TEMPORARY / "ledger"))
-
-
-if __name__ == "__main__":
-    unittest.main()

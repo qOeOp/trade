@@ -53,7 +53,3 @@ def violations() -> list[str]:
 class PackageLayerTests(unittest.TestCase):
     def test_packages_import_only_lower_layers(self):
         self.assertEqual(violations(), [], "move the code to the lower package, or the import to the higher one")
-
-
-if __name__ == "__main__":
-    unittest.main()

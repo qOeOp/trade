@@ -333,7 +333,3 @@ class Compare(unittest.TestCase):
         self.assertEqual([compare.instant(text) for text in ("2026-11-11", "2026-11-11T00:01:00Z",
                                                              "2026-11-11T08:01:00+08:00")],
                          [START, START + MINUTE, START + MINUTE])
-
-
-if __name__ == "__main__":
-    unittest.main()

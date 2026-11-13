@@ -322,7 +322,3 @@ class CheckBundleTests(unittest.TestCase):
         lenient, strict = self.in_parallel([lambda: self.failed(restored, "--restored"), lambda: self.failed(restored)])
         self.assertEqual(lenient, (0, set()))
         self.assertIn("png_present", strict[1])
-
-
-if __name__ == "__main__":
-    unittest.main()

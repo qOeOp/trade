@@ -916,7 +916,3 @@ class StreamTests(unittest.TestCase):
         self.assertEqual(len(gaps), 1, gaps)  # one finding for the interval past the carry limit
         self.assertIn("at 30 labels from", gaps[0])
         self.assertEqual(summary["mark_carry"][0]["labels"], 60)
-
-
-if __name__ == "__main__":
-    unittest.main()

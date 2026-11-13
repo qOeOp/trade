@@ -45,7 +45,3 @@ class EgressTests(unittest.TestCase):
                 answers.append(await reader.read())
                 writer.close()
         return answers
-
-
-if __name__ == "__main__":
-    unittest.main()

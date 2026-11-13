@@ -45,7 +45,3 @@ class ProfileTests(unittest.TestCase):
         self.assertIn('"holds": "market"', str(raised.exception))
         with self.assertRaises(Refusal):  # nor is it the active market
             profiles.market(None)
-
-
-if __name__ == "__main__":
-    unittest.main()

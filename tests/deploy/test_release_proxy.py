@@ -245,7 +245,3 @@ class EdgeRedirectTests(unittest.TestCase):
                 self.assertEqual(self.headers["Strict-Transport-Security"], "max-age=31536000")
                 self.assertIn("frame-ancestors 'none'", self.headers["Content-Security-Policy"])
                 self.assertEqual(self.headers["X-Content-Type-Options"], "nosniff")
-
-
-if __name__ == "__main__":
-    unittest.main()

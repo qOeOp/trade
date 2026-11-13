@@ -47,7 +47,3 @@ class FundingFileTests(unittest.TestCase):
             self.export(day_ms(FEB) + DAY)
         self.assertEqual((caught.exception.code, caught.exception.missing),
                          ("FUNDING_FILE_MISSING", ("funding/2025-02.parquet",)))
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -75,7 +75,3 @@ class CheckpointTests(unittest.TestCase):
         cached.unlink()
         cached.symlink_to(self.rdb)
         self.refuses()
-
-
-if __name__ == "__main__":
-    unittest.main()

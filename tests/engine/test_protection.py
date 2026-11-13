@@ -130,7 +130,3 @@ class Source(Strategy):
         with self.assertRaisesRegex(Exception, "SUBSCRIPTION_OUTSIDE_CONTRACT"):
             self.source.subscribe_quotes(fixture.INSTRUMENT_ID)
         self.assertEqual(strategy_runtime.BREACHES, [])
-
-
-if __name__ == "__main__":
-    unittest.main()

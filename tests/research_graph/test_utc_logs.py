@@ -6,7 +6,7 @@ import unittest
 
 
 class UtcLogTests(unittest.TestCase):
-    def test_http_log_prefixes_are_utc_in_each_host_timezone(self):
+    def test_http_log_prefixes_are_utc_in_a_non_utc_host_timezone(self):
         script = r'''
 import io
 import time
@@ -24,11 +24,11 @@ for epoch, expected in [(1767227400, "2026-01-01T00:30:00Z"), (1782865800, "2026
             obj.log_message("%s %d", "fixture", 409)
             assert out.getvalue() == expected + " fixture 409\n", out.getvalue()
 '''
-        for zone in ("UTC", "America/New_York", "Asia/Shanghai", "Asia/Tokyo"):
-            with self.subTest(zone=zone):
-                result = subprocess.run(
-                    [sys.executable, "-c", script],
-                    env={"PATH": os.environ.get("PATH", ""), "TZ": zone},
-                    capture_output=True, text=True, timeout=30,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
+        # One zone away from UTC: the patched gmtime makes every zone the same check, and a round trip through
+        # local time would pass only in UTC.
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            env={"PATH": os.environ.get("PATH", ""), "TZ": "Asia/Shanghai"},
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)

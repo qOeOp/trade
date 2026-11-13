@@ -338,7 +338,3 @@ class RetriedRegistrationTests(unittest.TestCase):
         self.assertEqual([t["status"] for t in candidate["trials"] if t["purpose"] == "research"], ["invalid", "passed"],
                          f"the first attempt {failed['trial_id']} failed")
         self.assertEqual((candidate["registration"], jobs), (str(retry), [(retry, passed["trial_id"])]))
-
-
-if __name__ == "__main__":
-    unittest.main()

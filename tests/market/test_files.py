@@ -310,7 +310,3 @@ class Refusals(Directory):
             written = files.write_file(market, "universe_month", JAN_1, None, [members(JAN_1, ["ETHUSDT"])])
             self.assertEqual(files.data_tests(market), [])
             files.place(market, [written])
-
-
-if __name__ == "__main__":
-    unittest.main()

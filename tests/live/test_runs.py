@@ -1194,7 +1194,3 @@ class LiveMonthFileTests(LiveFixture):
             self.assertEqual(runs.write_months_locked(self.root, self.run_id, self.root / "market",
                                                       self.at("2026-12-02")), [])
         self.assertEqual(self.month_files.call_count, 2)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -167,7 +167,3 @@ class ReportRefusalTests(unittest.TestCase):
         blown = report.summary_statistics({}, start, end, Decimal(100000), Decimal(0))
         self.assertEqual((blown["period_return"], blown["annual_return"], blown["sharpe_365"]), (None, None, None))
         self.assertEqual(len(blown["statistics_notes"]), 2)
-
-
-if __name__ == "__main__":
-    unittest.main()

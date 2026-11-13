@@ -70,10 +70,6 @@ class AdmissionTests(unittest.TestCase):
                 self.assertIsNone(runs._host_available())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SealCollectTests(unittest.TestCase):
     """A sealed run's working copy and containers go: its sealed files are what it is read from."""
 

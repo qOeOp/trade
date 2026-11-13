@@ -333,7 +333,3 @@ class PublishTests(unittest.TestCase):
         self.assertNotIn("ledger service stop", failed()[1])
         publish.install_key(service, user / ".dolt")
         self.assertFalse(publish._key_after_start(self.profile), "an unchanged key is not installed again")
-
-
-if __name__ == "__main__":
-    unittest.main()

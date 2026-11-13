@@ -254,7 +254,3 @@ class IntegrityTests(unittest.TestCase):
         facts = [fact for item in state["interpretations"] for fact in item["facts"]
                  if (fact.get("trial") or {}).get("trial_id") == trial_id]
         self.assertEqual((facts[0]["availability"]["economic_evidence_available"], facts[0]["headline"]), (False, None))
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -700,7 +700,3 @@ class GateTests(unittest.TestCase):
             live_connection.renew(self.session, observer, old + 1)  # one attempt
         observer.reconnect_socket.assert_called_once()
         self.assertEqual(observer.reconnect_socket.call_args.args[1], "user")
-
-
-if __name__ == "__main__":
-    unittest.main()

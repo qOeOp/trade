@@ -178,7 +178,3 @@ class LifecycleTests(unittest.TestCase):
             inputs.market_inputs(world.market, MARKET_DAY, LINE_WINDOW, {"universe": True},
                                  "lifecycle-" + "n" * 32, True, world.profile)
         self.assertEqual(caught.exception.code, "LIFECYCLE_INPUT")
-
-
-if __name__ == "__main__":
-    unittest.main()

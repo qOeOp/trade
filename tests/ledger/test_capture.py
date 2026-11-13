@@ -370,7 +370,3 @@ class OriginalCoverageTests(LedgerCase):
         self.assertEqual(self.refused(lambda: coverage.original_coverage(self.conn, failed, identity)), "PHASE_FAILED")
         self.assertEqual(self.refused(lambda: coverage.original_coverage(
             self.conn, passed, {**identity, "export_content_sha256": "0" * 64})), "INPUT_IDENTITY_MISMATCH")
-
-
-if __name__ == "__main__":
-    unittest.main()

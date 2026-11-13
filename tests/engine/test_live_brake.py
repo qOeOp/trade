@@ -98,7 +98,3 @@ class ClockTests(unittest.TestCase):
                 result = commands.observe_account(reader, ("BTCUSDT",), purpose).result.result(timeout=2)
                 self.assertEqual(reader.clock.called, clocked)
                 self.assertEqual("clock" in result, clocked)
-
-
-if __name__ == "__main__":
-    unittest.main()

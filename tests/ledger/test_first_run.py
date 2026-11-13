@@ -282,7 +282,3 @@ class FirstStartTests(unittest.TestCase):
                 patch.object(service, "start", return_value=(subprocess.Popen(["true"]), config)):
             self.assertEqual(service.run(self.service_root, self.data, self.backups, self.credentials, None, self.port,
                                          setup=self.address)[0]["action"], "run")
-
-
-if __name__ == "__main__":
-    unittest.main()

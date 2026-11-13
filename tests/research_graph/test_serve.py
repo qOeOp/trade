@@ -1039,7 +1039,3 @@ class OverviewForwardTests(unittest.TestCase):
         self.assertEqual(refused, [405, 405])
         self.assertEqual(self.call("GET", "/api/overview/snapshot", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
         self.assertEqual(self.seen, ["GET /api/overview/snapshot"])
-
-
-if __name__ == "__main__":
-    unittest.main()

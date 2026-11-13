@@ -111,7 +111,3 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "OP_ID_CONFLICT")
         again = self.publish(source("op owner"), "owner", op_id="publish:fixed")
         self.assertEqual((again["candidate"], again["replayed"]), (first["candidate"], True))
-
-
-if __name__ == "__main__":
-    unittest.main()

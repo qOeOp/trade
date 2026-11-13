@@ -137,7 +137,3 @@ class ReplayClosureTests(unittest.TestCase):
         for path in workflow_list("CI_PATHS: |"):
             with self.subTest(path=path):
                 self.assertTrue(any(Path(path).full_match(pattern) for pattern in execution), path)
-
-
-if __name__ == "__main__":
-    unittest.main()

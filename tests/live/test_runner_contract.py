@@ -5,7 +5,7 @@ only where the runner's runtime and the control declare the same number (engine/
 halves to the code: the arguments the control starts a runner with and the exit statuses and events the runner ends
 in (engine/live.py), and how the control reads a start from them (live/runs.py), against the baseline recorded from
 the first control declaring the number (`runner-contract-N.json`). A change to either half fails here: raise
-RUNNER_CONTRACT and record its own baseline.
+RUNNER_CONTRACT and record its own baseline in place of the old one.
 """
 
 import json
@@ -24,7 +24,8 @@ from tests.live.test_runs import LiveFixture
 
 BASELINE = Path(__file__).with_name(f"runner-contract-{RUNNER_CONTRACT}.json")
 RAISE = ("a control of this runner contract would start or read a running runner differently: raise engine/live.py "
-         "RUNNER_CONTRACT and record its own baseline (docs/plans/live-continuous-step6-adopt-20261113.zh.md)")
+         "RUNNER_CONTRACT and record its own baseline in place of the old one "
+         "(docs/plans/live-continuous-step6-adopt-20261113.zh.md)")
 
 
 def reading(fixture: LiveFixture, sample: dict) -> dict:

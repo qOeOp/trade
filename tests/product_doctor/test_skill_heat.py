@@ -244,7 +244,3 @@ class SkillHeatTests(unittest.TestCase):
         self.assertEqual((sum(row["hit"]), sum(row["hit_before"])), (2, 1))
         paras, _ = self.run_tool("--no-scan", "--until", "2026-10-10")
         self.assertEqual(sum(paras["alpha", "ledger review"]["hit"]), 1)
-
-
-if __name__ == "__main__":
-    unittest.main()

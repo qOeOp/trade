@@ -198,7 +198,3 @@ class FingerprintTests(unittest.TestCase):
                     stream.write(b"ts_event_ns,position_id,notional_value,unrealized_pnl\n")
             (root / "fill_volumes.csv").write_text("event_id,ts_event_ns,bar_volume\n")
         self.assertEqual(report_fingerprint(self.root / "a"), report_fingerprint(self.root / "b"))
-
-
-if __name__ == "__main__":
-    unittest.main()

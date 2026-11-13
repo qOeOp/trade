@@ -95,7 +95,3 @@ class NativeCsvTests(unittest.TestCase):
                 found = subprocess.run([sys.executable, "-c", PROBE, mode], capture_output=True, text=True,
                                        cwd=Path(__file__).resolve().parents[2], timeout=30)
                 self.assertEqual(found.returncode, 0, found.stdout + found.stderr)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -36,7 +36,3 @@ class HelpTests(unittest.TestCase):
             main.main(["--version"])
         self.assertEqual((done.exception.code, out.getvalue()), (0, f"trade-research {main.product_version()}\n"))
         self.assertRegex(main.product_version(), r"^[0-9]+\.[0-9]+\.[0-9]+$")
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -62,7 +62,3 @@ class ScaffoldTests(unittest.TestCase):
         self.assertIsNone(strategy.order_quantity(0))
         self.assertIsNone(strategy.order_quantity("0.002", price="2000"))  # 4 USDT, below min_notional 5
         self.assertEqual(str(strategy.order_quantity("0.003", price=2000)), "0.003")
-
-
-if __name__ == "__main__":
-    unittest.main()

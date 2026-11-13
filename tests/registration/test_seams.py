@@ -77,7 +77,3 @@ class SeamTests(unittest.TestCase):
                                            "--end", "2026-02-01T00:00:00Z", "--trade-start", "2026-01-01T00:00:00Z"])
         key = trials.config_key(config.effective_configuration(args).values)
         self.assertEqual((key["symbols"], key["account"]), (["AAAUSDT"], config.ACCOUNT_CONTRACT))
-
-
-if __name__ == "__main__":
-    unittest.main()

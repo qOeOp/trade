@@ -794,7 +794,3 @@ class LiveTests(unittest.TestCase):
         live_lifecycle.Observer.observe(observer)
         cache.positions_open.assert_not_called()
         session.node.handle.return_value.stop.assert_called_once()
-
-
-if __name__ == "__main__":
-    unittest.main()

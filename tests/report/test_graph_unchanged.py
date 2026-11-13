@@ -237,7 +237,3 @@ class UnchangedTests(unittest.TestCase):
                 self.assertRaises(Refusal) as refused:
             graph.unchanged_since(self.world.profile, self.line, since)
         self.assertEqual(refused.exception.code, "SCHEMA_MISMATCH")
-
-
-if __name__ == "__main__":
-    unittest.main()

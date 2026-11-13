@@ -278,7 +278,3 @@ class ResearchLineTests(unittest.TestCase):
     def first_commit(self, line_id: int) -> str:
         return self.service.sql(self.profile, "SELECT to_commit FROM dolt_diff_research_line WHERE to_line_id = %s "
                                               "AND diff_type = 'added'", (line_id,))[0][0]
-
-
-if __name__ == "__main__":
-    unittest.main()

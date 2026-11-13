@@ -58,7 +58,3 @@ class ResultIdentityTests(unittest.TestCase):
         self.assertEqual(len(self.conn.rows("SELECT DISTINCT created_at FROM run")), 1)
         with db.read_as_of(self.profile, second_commit) as pinned:
             self.assertEqual(trials.latest_research(pinned, sha(self.data)), second)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -681,7 +681,3 @@ class UncoveredIntervalTests(unittest.TestCase):
         self.assertEqual(len(uncovered_intervals(pending, 10 + BAR_NS + 1)), 1)
         restored = pending + [event("OrderCancelRejected", "stop", 20)]
         self.assertEqual(uncovered_intervals(restored, 10 + BAR_NS + 1), [])
-
-
-if __name__ == "__main__":
-    unittest.main()

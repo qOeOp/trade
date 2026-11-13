@@ -97,7 +97,3 @@ class RefusalTests(unittest.TestCase):
         self.assertEqual(refusal("OK", "m", write_status="unknown", operation_id="op:1").operation_id, "op:1")
         with self.assertRaises(KeyError):
             refuse("NOT_IN_THE_CATALOGUE", "m")
-
-
-if __name__ == "__main__":
-    unittest.main()

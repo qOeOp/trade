@@ -184,7 +184,3 @@ class WitnessLedgerTests(unittest.TestCase):
         self.assertNotIn(first, synced["witnessed"])
         self.assertGreaterEqual(synced["already"], 1)
         self.assertEqual(witness.sync_witness(self.conn, tsa_roots=self.authority.roots)["witnessed"], [])
-
-
-if __name__ == "__main__":
-    unittest.main()

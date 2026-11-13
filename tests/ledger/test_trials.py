@@ -204,7 +204,3 @@ class OpenTrialTests(unittest.TestCase):
         with self.assertRaises(Refusal) as caught:
             db.write(self.conn, "probe", {"start": opened["trial_id"]}, "evidence_bundle", again)
         self.assertEqual(caught.exception.code, "BUNDLE_EXISTS")
-
-
-if __name__ == "__main__":
-    unittest.main()

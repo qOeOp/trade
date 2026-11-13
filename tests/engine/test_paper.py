@@ -167,10 +167,6 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "PAPER_NOT_IN_UNIVERSE")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class OrderFilled:
     """The attributes of a Nautilus fill the journal reads (a stand-in: the class name is what it records)."""
     instrument_id = IID

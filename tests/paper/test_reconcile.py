@@ -117,10 +117,6 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(found, [[START, "100000.00"], [START + MINUTE, "100001.50"]])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class InputTests(unittest.TestCase):
     """The replay is the run's own: its leverage; and what the replay did not write is not read as none."""
 

@@ -820,7 +820,3 @@ class SelectionTests(unittest.TestCase):
             host.observe(WEB + B, [], {})
         host.probe = Mock(side_effect=[before, {"runs": [{"id": 3, "state": "running", "last": 101}]}])
         host.observe(WEB + B, [], {})
-
-
-if __name__ == "__main__":
-    unittest.main()

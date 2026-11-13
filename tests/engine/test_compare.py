@@ -156,7 +156,3 @@ class CompareReportsTests(unittest.TestCase):
             self.assertEqual(code(left, right), "REPORT_TABLE_UNREADABLE")  # no last_qty or last_px to sort by
             (right / "fills.csv").unlink()
             self.assertEqual(code(left, right), "REPORT_DIR_MISSING")
-
-
-if __name__ == "__main__":
-    unittest.main()

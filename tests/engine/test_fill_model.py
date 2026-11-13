@@ -197,7 +197,3 @@ class AuditedReplayTests(unittest.TestCase):
                 result = audited_replay(output)
                 self.assertTrue(result["passed"], result["findings"])
             self.assertTrue(compare_reports(*runs)["passed"])
-
-
-if __name__ == "__main__":
-    unittest.main()

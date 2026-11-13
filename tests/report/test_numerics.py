@@ -598,7 +598,3 @@ class PairTradeTests(unittest.TestCase):
                                         1000 * m)
         self.assertEqual([(item["control"], item["candidate"]) for item in found["pairs"]], [(1, 1)])
         self.assertEqual(found["classes"]["only_candidate"]["count"], 1)
-
-
-if __name__ == "__main__":
-    unittest.main()

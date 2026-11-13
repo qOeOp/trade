@@ -642,7 +642,3 @@ class StageLogTests(unittest.TestCase):
         self.assertEqual((code, kept[0], kept[-1]), (0, b"[WARN] skipped fill 0", b"[WARN] skipped fill 199999"))
         self.assertTrue(any(line.startswith(b"[replay entry: ") for line in kept))
         self.assertEqual((root / "err.txt").read_bytes(), b"to stderr\n")
-
-
-if __name__ == "__main__":
-    unittest.main()

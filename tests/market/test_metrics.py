@@ -279,7 +279,3 @@ class ImportTests(unittest.TestCase):
         self.assertEqual((set(stored), len(stored)), ({"BTCUSDT"}, 31 * 288))
         self.assertEqual(sorted(path.name for path in (Path(profile["root"]) / "metrics" / "2025-01").iterdir()),
                          ["BTCUSDT.parquet"])
-
-
-if __name__ == "__main__":
-    unittest.main()

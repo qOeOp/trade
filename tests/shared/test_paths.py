@@ -40,7 +40,3 @@ class TemporaryPathTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(self.code(self.root / name), "PATH_EXISTS")
         self.assertEqual(temporary_path(self.root / "file", require_new=False), self.root / "file")
-
-
-if __name__ == "__main__":
-    unittest.main()

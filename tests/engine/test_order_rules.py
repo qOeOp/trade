@@ -219,7 +219,3 @@ class SubscriptionTests(unittest.TestCase):
             s.subscribe_funding_rates(INSTRUMENT_ID)
         breaches, _ = replay({"start": subscribe})
         self.assertEqual(breaches, [])
-
-
-if __name__ == "__main__":
-    unittest.main()

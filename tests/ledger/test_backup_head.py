@@ -98,7 +98,3 @@ class BackupHeadTests(unittest.TestCase):
             admin.backup_head(self.backup)
         self.assertEqual(caught.exception.code, "DOLT_BINARY")
         self.assertFalse(self.work.exists())
-
-
-if __name__ == "__main__":
-    unittest.main()

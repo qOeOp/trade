@@ -301,7 +301,3 @@ class SealedTamperTests(unittest.TestCase):
         found = [(item["code"], item["table"], item["record_id"]) for item in self.review()["findings"]
                  if item["code"] == "READING_REPLACED_OUTSIDE_RESEAL"]
         self.assertEqual(found, [("READING_REPLACED_OUTSIDE_RESEAL", "run_reading", str(trial_id))])
-
-
-if __name__ == "__main__":
-    unittest.main()
