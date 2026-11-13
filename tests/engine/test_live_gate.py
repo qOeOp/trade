@@ -215,10 +215,14 @@ class GateTests(unittest.TestCase):
         self.assertEqual([row["socket"] for row in self.events() if row["event"] == "connection_lost"],
                          ["BINANCE user"])  # once, for the socket still down after a minute
         self.assertIsNone(self.session.connection.observation)  # no comparison while a socket is down
-        self.socket(SocketState.CONNECTED, "user")
+        # A whole number: the check is due exactly COMPARE_RETRY_SECONDS later, and adding and subtracting 10 from an
+        # arbitrary float (the host's uptime) can land below 10.
+        with mock.patch.object(live_connection.time, "monotonic", return_value=1000.0):
+            self.socket(SocketState.CONNECTED, "user")
         self.assertEqual(set(self.session.connection.closed), {"unverified"})
         self.assertFalse(self.session.connection.bar_since_reconnect)
         held = self.session.connection.closed["unverified"]
+        self.assertEqual(held, 1000.0)
         with mock.patch.object(commands, "observe_account") as observe:
             self.session.connection.last_compare = held
             live_connection.tick(self.session, observer, held + 5)
