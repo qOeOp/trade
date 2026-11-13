@@ -10,7 +10,7 @@ from unittest import mock
 
 from nautilus_trader.model import FundingRateUpdate, InstrumentId, MarkPriceUpdate, Price
 
-from engine import paper
+from engine import membership as membership_months, paper
 from engine.cadence import Cadence
 from engine.config import MINUTE_NS, Refusal
 from engine.load import DAY_NS
@@ -158,7 +158,7 @@ class CadenceTests(unittest.TestCase):
 class PlanTests(unittest.TestCase):
     def test_instances_keep_membership_from_the_input_start_and_a_non_member_is_refused(self):
         membership = {"BTCUSDT": [[DAY - DAY_NS, DAY + 2 * DAY_NS]], "ETHUSDT": [[DAY - 3 * DAY_NS, DAY - DAY_NS]]}
-        with mock.patch.object(paper, "episode_membership", side_effect=lambda intervals, _: intervals):
+        with mock.patch.object(membership_months, "episode_membership", side_effect=lambda intervals, _: intervals):
             planned = paper.plan(["BTCUSDT"], membership, DAY, DAY)
             self.assertEqual(list(planned[0].universe_membership), [(DAY, DAY + 2 * DAY_NS)])
             self.assertEqual((planned[0].instrument_id, planned[0].trade_start_ns), ("BTCUSDT-PERP.BINANCE", DAY))

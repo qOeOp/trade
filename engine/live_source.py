@@ -4,6 +4,7 @@ import functools
 import hashlib
 from pathlib import Path
 import time
+from datetime import UTC, datetime
 from typing import Any
 from nautilus_trader.model import BarType
 from nautilus_trader.trading import Strategy
@@ -17,6 +18,7 @@ from engine.live_records import contract, owned, strategy_ids
 from engine.live_session import Session
 from engine.order_rules import OrderRules
 from engine.load import LoadedStrategy, load_strategy, read_regular_file, read_universe
+from engine.membership import MONTHS, Membership, month_end_ns, opening
 
 
 def source_for_run(manifest: dict) -> LoadedStrategy:
@@ -43,7 +45,14 @@ class _LiveConfigured(history.Warming):
         universe = Path(session.manifest["universe_file"])
         if hashlib.sha256(read_regular_file(universe)).hexdigest() != session.manifest["universe_sha256"]:
             raise Refusal("LIVE_IDENTITY_CHANGED", "the captured universe does not match the manifest")
-        membership = read_universe(universe, [symbol])[symbol]
+        # The universe file holds the months to the market day's; each later month comes from the control's month
+        # files beside it, as Paper's (engine.membership; live.runs.write_months_locked).
+        known = month_end_ns(int(datetime.fromisoformat(session.manifest["market"]["market_day"]).replace(
+            tzinfo=UTC).timestamp()) * 10**9)
+        membership = Membership(
+            symbol, opening(read_universe(universe, [symbol])[symbol], start, known), known, universe.parent / MONTHS,
+            now=time.time_ns, record=lambda kind, **fields: session.event(kind, strict=False, **fields),
+            stale_code="LIVE_MEMBERSHIP_STALE")
         args = (iid, BarType.from_str(f"{iid}-1-MINUTE-LAST-EXTERNAL"))
         kwargs = dict(
             trade_start_ns=start, execution_bar_minutes=EXECUTION_BAR_MINUTES,
@@ -56,6 +65,7 @@ class _LiveConfigured(history.Warming):
         self._live_symbol = symbol  # the instance's own contract: it orders on nothing else (engine.order_rules)
         args, kwargs = self._source_constructor_args
         del self._source_constructor_args
+        self._live_membership = kwargs["universe_membership"]
         strategy_runtime.declare(self, loaded.warmup)
         self._warming_setup(kwargs["strategy_id"], args[0], kwargs["trade_start_ns"], loaded.warmup, functools.partial(
             history.fetch, catalog=session.catalog(), proxy_url=session.manifest["config"].get("proxy_url")))
@@ -93,6 +103,11 @@ class _LiveConfigured(history.Warming):
                 live_connection.refuse(self._live, live_connection.gate_reason(self._live, symbol))
             commands.require_entry(self._live, order)
             self._orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
+            if not self._live_membership.member_at(self._warming_clock().timestamp_ns()):
+                # Outside its contract's membership at the native clock, where Paper does not send it: denied
+                # natively, the run goes on and the contract only reduces (engine.membership).
+                live_connection.deny(self._live, order, "entry_outside_membership", reason="not_a_member")
+                return None
             if denied:
                 # Only this entry, which passed every entry check, is denied, natively.
                 live_connection.deny(self._live, order, "entry_while_contract_not_trading" if halted

@@ -60,7 +60,6 @@ LOG_TAIL_LINES = "20000"
 DOCKER_ENV = ("PATH", "HOME", "TMPDIR", "USER", "LANG", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT",
               "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY")
 LABEL = "trade.paper"
-MONTHS = "membership"  # engine.paper.MONTHS, under the run's inputs
 
 
 def _docker(*argv: str, timeout: float = DOCKER_SECONDS) -> subprocess.CompletedProcess:
@@ -196,26 +195,20 @@ def _membership(market: dict, at: str | None, symbols: list[str] | None, now_ns:
 
 
 def write_months(market: dict, directory: Path, symbols: list[str], after: str) -> list[str]:
-    """inputs/membership/<YYYY-MM>.json for each month after `after` (YYYY-MM) that the market's latest market day holds:
-    {"market_day", "members"}, the run's contracts in that month's universe. The running runner reads a month's
-    file once the month has begun (engine.paper.Membership; coverage U9); a written file is never rewritten. Returns
-    the months written."""
-    from market import files, universe
-    opened = files.open_market(market, "reader")
-    market_day = files.resolve_day(opened, None)
-    held: dict[str, set[str]] = {}
-    for day, symbol in universe.months_of(opened, market_day):
-        held.setdefault(f"{day:%Y-%m}", set()).add(symbol)
+    """inputs/membership/<YYYY-MM>.json for each month after `after` (YYYY-MM) that the market's latest market day holds
+    (market.universe.month_files). The running runner reads a month's file once the month has begun
+    (engine.membership.Membership; coverage U9); a written file is never rewritten. Returns the months written."""
+    from engine.membership import MONTHS
+    from market.universe import month_files
     folder = directory / "inputs" / MONTHS
     folder.mkdir(exist_ok=True)
     written = []
-    for month in sorted(month for month in held if month > after):
+    for month, data in month_files(market, symbols, after).items():
         path = folder / f"{month}.json"
         if path.exists():
             continue
         temporary = path.with_suffix(".partial")
-        temporary.write_text(json.dumps({"market_day": market_day, "members": sorted(set(symbols) & held[month])},
-                                        sort_keys=True), encoding="utf-8")
+        temporary.write_bytes(data)
         os.replace(temporary, path)
         written.append(month)
     return written

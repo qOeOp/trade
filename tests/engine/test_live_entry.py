@@ -6,6 +6,7 @@ The streaming backtest clock is controlled; this is not live-socket evidence.
 """
 
 import copy
+from datetime import UTC, datetime
 from decimal import Decimal
 from functools import partial
 import gc
@@ -36,6 +37,7 @@ from engine import live_commands as commands, live_connection, live_lifecycle, l
 from engine.config import Refusal
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
+from engine.membership import month_end_ns
 from tests.engine.test_live import SOURCE
 from tests.engine.test_live_venue import fixture, venue_clock
 
@@ -777,6 +779,78 @@ class NativeEntryTests(unittest.TestCase):
         self.assert_refused_unchanged("LIVE_CONNECTION_UNVERIFIED", lambda: self.source.submit_order(entry))
         self.assertTrue(self.session.failed and self.session.stopping)
         self.assertEqual(self.read_events("entry_denied"), [])
+
+    def month_begun(self):
+        """The run's market day is last month's: this month's membership comes only from its month file."""
+        membership = self.source._live_membership
+        now = time.time_ns()
+        moment = datetime.fromtimestamp(now // 10**9, UTC)
+        begun = int(datetime(moment.year, moment.month, 1, tzinfo=UTC).timestamp()) * 10**9
+        membership._intervals, membership.known_until_ns = [(membership[0][0], begun)], begun
+        return self.root / "membership" / f"{moment:%Y-%m}.json"
+
+    def test_the_universe_gives_membership_to_the_end_of_the_market_days_month_and_month_files_follow(self):
+        membership = self.source._live_membership
+        day = datetime.fromisoformat(self.manifest["market"]["market_day"]).replace(tzinfo=UTC)
+        self.assertEqual(membership.known_until_ns, month_end_ns(int(day.timestamp()) * 10**9))
+        self.assertEqual(membership._months, self.root / "membership")
+        # The universe file's open-ended membership is cut at that month's end, as Paper's.
+        self.assertEqual(membership[-1][1], membership.known_until_ns)
+
+    def test_an_entry_in_a_month_without_its_file_is_denied_natively_and_the_run_goes_on(self):
+        self.month_begun()
+        entry = self.limit(price="95.00")
+        self.source.submit_order(entry)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.DENIED)
+        self.assertFalse(self.session.stopping or self.session.failed)
+        [denied] = self.read_events("entry_denied")
+        self.assertEqual(denied["detail"], "entry_outside_membership")
+        self.assertEqual(self.reader.calls, [])  # nothing was read for it
+        [stale] = self.read_events("membership_stale")
+        self.assertEqual((stale["code"], stale["symbol"]), ("LIVE_MEMBERSHIP_STALE", "BTCUSDT"))
+        self.source.submit_order(self.limit(price="94.00"))
+        self.assertEqual(len(self.read_events("membership_stale")), 1)  # once a month
+
+    def test_a_month_file_without_the_contract_denies_its_entries(self):
+        path = self.month_begun()
+        path.parent.mkdir()
+        path.write_text(json.dumps({"market_day": "x", "members": ["ETHUSDT"]}))
+        entry = self.limit(price="95.00")
+        self.source.submit_order(entry)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.DENIED)
+        [month] = self.read_events("membership")
+        self.assertEqual((month["symbol"], month["member"]), ("BTCUSDT", False))
+        self.assertEqual(month["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
+
+    def test_a_month_file_naming_the_contract_extends_membership_and_the_entry_goes_to_its_check(self):
+        # Control for the two above: the same entry, its month's file naming the contract.
+        path = self.month_begun()
+        path.parent.mkdir()
+        path.write_text(json.dumps({"market_day": "x", "members": ["BTCUSDT"]}))
+        self.submit_pending(self.limit(price="95.00"))
+        self.assertEqual(self.read_events("entry_denied"), [])
+        self.assertEqual(self.source._live_membership[-1][1], month_end_ns(time.time_ns()))
+        [month] = self.read_events("membership")
+        self.assertTrue(month["member"])
+
+    def test_outside_membership_a_position_still_reduces(self):
+        position = self.owned_position()
+        self.month_begun()
+        order = self.reduction()
+        self.source.submit_order(order, position_id=position.id)
+        self.advance()
+        self.assertNotEqual(self.engine.cache.order(order.client_order_id).status, OrderStatus.DENIED)
+        self.assertEqual(self.read_events("entry_denied"), [])
+
+    def test_an_entry_outside_membership_without_a_gate_to_deny_it_ends_the_run(self):
+        # Negative control: no native gate, as for every other denial.
+        self.month_begun()
+        self.session.entry_gate = None
+        entry = self.limit(price="95.00")
+        self.assert_refused_unchanged("LIVE_CONNECTION_UNVERIFIED", lambda: self.source.submit_order(entry))
+        self.assertTrue(self.session.failed and self.session.stopping)
 
     def test_accepted_stop_for_the_whole_position_keeps_the_run_going(self):
         self.owned_position()

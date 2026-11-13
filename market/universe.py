@@ -11,6 +11,7 @@ non-coin underlyings (equities, commodities and other TRADIFI) and stablecoin ba
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+import json
 
 from market.sources import _refuse
 
@@ -140,3 +141,18 @@ def months_of(market, market_day: str | None) -> list[tuple[date, str]]:
     from market import files
     return [(month, symbol) for batch in files.read_table(market, market_day, "universe_month")
             for month, symbol in zip(*(batch.column(name).to_pylist() for name in ("month", "symbol")), strict=True)]
+
+
+def month_files(market: dict, symbols: list[str], after: str) -> dict[str, bytes]:
+    """The host's month files for a running Paper or Live run (engine.membership): {YYYY-MM: file bytes} for each
+    month after `after` (YYYY-MM) that the market's latest market day holds, {"market_day", "members"} with the run's
+    contracts in that month's universe. The caller writes each once and never rewrites it."""
+    from market import files
+    opened = files.open_market(market, "reader")
+    market_day = files.resolve_day(opened, None)
+    held: dict[str, set[str]] = {}
+    for day, symbol in months_of(opened, market_day):
+        held.setdefault(f"{day:%Y-%m}", set()).add(symbol)
+    return {month: json.dumps({"market_day": market_day, "members": sorted(set(symbols) & held[month])},
+                              sort_keys=True).encode()
+            for month in sorted(month for month in held if month > after)}

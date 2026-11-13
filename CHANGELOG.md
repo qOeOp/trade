@@ -21,6 +21,11 @@ back to one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Live: each contract's membership grows month by month as Paper's. The control writes
+  `inputs/membership/<YYYY-MM>.json` once a month after the run's market day has begun and the market holds it, and
+  the runner denies an entry on a contract outside its membership natively (`entry_outside_membership`; the run goes
+  on and the contract only reduces). Until a month's file is there, entries on the run's contracts are denied and
+  `membership_stale` (`LIVE_MEMBERSHIP_STALE`) is journalled once.
 - Live (breaking): each source in the Live declaration names its own contracts (`symbols`, those of its replay
   evidence, one strategy instance each) instead of one top-level `symbols`; the launch page shows the chosen source's,
   and the comparison replays and reconciles every contract of a run, each against its own commission. Web protocol 7.

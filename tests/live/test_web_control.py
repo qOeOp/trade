@@ -339,6 +339,23 @@ class LiveWebControlTests(unittest.TestCase):
             serve.maintain_existing(self.config, binding=self.binding)
         self.assertEqual([call.kwargs for call in status.call_args_list], [{"maintain": False}, {"maintain": True}])
 
+    def test_maintenance_writes_the_next_months_membership_for_a_run_that_may_still_enter(self):
+        with state.serialized(self.root):
+            state.private_directory(self.root / "runs" / "retained")
+        cases = (({"state": "running", "mode": "run"}, 1), ({"state": "interrupted", "mode": "run"}, 1),
+                 ({"state": "running", "mode": "reconcile"}, 0), ({"state": "clean_stopped", "mode": "run"}, 0))
+        for observed, calls in cases:
+            with self.subTest(observed=observed), \
+                    patch.object(serve.runs, "_status_view", return_value=observed), \
+                    patch.object(serve.control, "restart_interrupted_locked") as restart, \
+                    patch.object(serve.control, "check_key_locked"), patch.object(serve.runs, "sync_switch_locked"), \
+                    patch.object(serve.runs, "write_months_locked", side_effect=OSError("market unreadable")) as months:
+                serve.maintain_existing(self.config, binding=self.binding)  # a failed write is retried next pass
+                self.assertEqual(months.call_count, calls)
+                if calls:
+                    self.assertEqual(months.call_args.args[:3], (self.root.resolve(), "retained", self.config.market_root))
+                self.assertEqual(restart.call_count, int(observed["state"] == "interrupted"))  # the pass goes on
+
     def test_second_listener_cannot_replace_the_existing_socket(self):
         inode = self.config.socket.stat().st_ino
         with self.assertRaises(OSError):

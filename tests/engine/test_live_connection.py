@@ -24,7 +24,7 @@ from engine import history, live
 from engine import live_commands as commands, live_connection, live_lifecycle, live_source as live_source_runtime
 from engine.live_venue import Credentials
 from tests.engine.test_live import SOURCE
-from tests.engine.test_live_venue import venue_clock
+from tests.engine.test_live_venue import MARKET_DAY, venue_clock
 from tests.engine.test_fill_model import INSTRUMENT
 
 
@@ -107,7 +107,7 @@ class NativeConnectionTests(unittest.TestCase):
             universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
             source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
             config=dict(duration_seconds=60, drawdown_brake="0.15", leverage="50"),
-            market=dict(market_day="2026-11-09", terms={"AAAUSDT": dict(
+            market=dict(market_day=MARKET_DAY, terms={"AAAUSDT": dict(
                 price_increment="0.01", size_increment="0.001", min_notional="0.1")}))
         reader = FixtureReader(credentials.binding)
         session = live.Session(manifest, root, "run", account_verified=True, account_reader=reader)
@@ -317,7 +317,7 @@ class NativeConnectionTests(unittest.TestCase):
                     source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
                     config=dict(duration_seconds=3600,
                                 drawdown_brake="0.15", leverage="50"),
-                    market=dict(market_day="2026-11-09", terms={"AAAUSDT": dict(
+                    market=dict(market_day=MARKET_DAY, terms={"AAAUSDT": dict(
                         price_increment="0.01", size_increment="0.001", min_notional="0.1")}))
                 session = live.Session(manifest, root, "run", account_verified=True,
                                        account_reader=FixtureReader(credentials.binding))
