@@ -1,0 +1,396 @@
+{
+  "runner_contract": 3,
+  "runner_args": {
+    "preflight": [
+      "--manifest",
+      "/inputs/manifest.json",
+      "--credentials-file",
+      "/run/secrets/binance.json",
+      "--output",
+      "/reports",
+      "--mode",
+      "preflight"
+    ],
+    "run": [
+      "--manifest",
+      "/inputs/manifest.json",
+      "--credentials-file",
+      "/run/secrets/binance.json",
+      "--output",
+      "/reports",
+      "--mode",
+      "run"
+    ],
+    "reconcile": [
+      "--manifest",
+      "/inputs/manifest.json",
+      "--credentials-file",
+      "/run/secrets/binance.json",
+      "--output",
+      "/reports",
+      "--mode",
+      "reconcile"
+    ]
+  },
+  "exit_statuses": {
+    "refused": 2,
+    "unresolved": 1,
+    "interrupted": 3
+  },
+  "events": {
+    "ended": [
+      "clean_stop",
+      "reconcile_stopped",
+      "reconciled_flat",
+      "unresolved",
+      "venue_flat"
+    ],
+    "flat": {
+      "clean_stop": "clean_stopped",
+      "reconciled_flat": "reconciled_flat",
+      "venue_flat": "venue_flat"
+    }
+  },
+  "samples": [
+    {
+      "name": "stopped at its duration",
+      "mode": "run",
+      "events": [
+        {
+          "event": "connecting",
+          "mode": "run"
+        },
+        {
+          "event": "stopping",
+          "reason": "duration",
+          "source_reason": null
+        },
+        {
+          "event": "clean_stop",
+          "mode": "run"
+        }
+      ],
+      "files": [
+        "armed.json"
+      ],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 0
+      },
+      "reading": {
+        "state": "clean_stopped",
+        "stop_reason": "duration",
+        "exit_code": 0,
+        "starts_again": false
+      }
+    },
+    {
+      "name": "venue flat",
+      "mode": "run",
+      "events": [
+        {
+          "event": "connecting",
+          "mode": "run"
+        },
+        {
+          "event": "venue_flat",
+          "observation": "final-account-1.json"
+        }
+      ],
+      "files": [
+        "armed.json"
+      ],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 0
+      },
+      "reading": {
+        "state": "venue_flat",
+        "stop_reason": null,
+        "exit_code": 0,
+        "starts_again": false
+      }
+    },
+    {
+      "name": "interrupted by SIGTERM",
+      "mode": "run",
+      "events": [
+        {
+          "event": "connecting",
+          "mode": "run"
+        },
+        {
+          "event": "interrupted"
+        }
+      ],
+      "files": [
+        "armed.json"
+      ],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 3
+      },
+      "reading": {
+        "state": "interrupted",
+        "stop_reason": null,
+        "exit_code": 3,
+        "starts_again": true
+      }
+    },
+    {
+      "name": "killed without writing",
+      "mode": "run",
+      "events": [
+        {
+          "event": "connecting",
+          "mode": "run"
+        }
+      ],
+      "files": [
+        "armed.json"
+      ],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 137
+      },
+      "reading": {
+        "state": "interrupted",
+        "stop_reason": null,
+        "exit_code": 137,
+        "starts_again": true
+      }
+    },
+    {
+      "name": "still running",
+      "mode": "run",
+      "events": [
+        {
+          "event": "connecting",
+          "mode": "run"
+        }
+      ],
+      "files": [
+        "armed.json"
+      ],
+      "container": {
+        "Running": true,
+        "Status": "running",
+        "ExitCode": 0
+      },
+      "reading": {
+        "state": "running",
+        "stop_reason": null,
+        "exit_code": 0,
+        "starts_again": true
+      }
+    },
+    {
+      "name": "unresolved after an exception",
+      "mode": "run",
+      "events": [
+        {
+          "event": "connecting",
+          "mode": "run"
+        },
+        {
+          "event": "unresolved",
+          "failure_type": "RuntimeError"
+        }
+      ],
+      "files": [
+        "armed.json"
+      ],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 1
+      },
+      "reading": {
+        "state": "unresolved",
+        "stop_reason": null,
+        "exit_code": 1,
+        "starts_again": false
+      }
+    },
+    {
+      "name": "killed after a stop was asked for",
+      "mode": "run",
+      "events": [
+        {
+          "event": "connecting",
+          "mode": "run"
+        },
+        {
+          "event": "stopping",
+          "reason": "operator_stop",
+          "source_reason": null
+        }
+      ],
+      "files": [
+        "armed.json",
+        "STOP"
+      ],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 137
+      },
+      "reading": {
+        "state": "unresolved",
+        "stop_reason": "operator_stop",
+        "exit_code": 137,
+        "starts_again": false
+      }
+    },
+    {
+      "name": "refused before arming",
+      "mode": "run",
+      "events": [],
+      "files": [],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 2
+      },
+      "reading": {
+        "state": "unresolved",
+        "stop_reason": null,
+        "exit_code": 2,
+        "starts_again": false
+      }
+    },
+    {
+      "name": "reconciled flat",
+      "mode": "reconcile",
+      "events": [
+        {
+          "event": "connecting",
+          "mode": "reconcile"
+        },
+        {
+          "event": "reconciled_flat",
+          "mode": "reconcile"
+        }
+      ],
+      "files": [
+        "armed.json"
+      ],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 0
+      },
+      "reading": {
+        "state": "reconciled_flat",
+        "stop_reason": null,
+        "exit_code": 0,
+        "starts_again": false
+      }
+    },
+    {
+      "name": "reconcile stopped",
+      "mode": "reconcile",
+      "events": [
+        {
+          "event": "connecting",
+          "mode": "reconcile"
+        },
+        {
+          "event": "reconcile_stopped",
+          "mode": "reconcile"
+        }
+      ],
+      "files": [
+        "armed.json"
+      ],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 0
+      },
+      "reading": {
+        "state": "unresolved",
+        "stop_reason": null,
+        "exit_code": 0,
+        "starts_again": false
+      }
+    },
+    {
+      "name": "preflight complete",
+      "mode": "preflight",
+      "events": [],
+      "files": [],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 0
+      },
+      "reading": {
+        "state": "preflight_complete",
+        "stop_reason": null,
+        "exit_code": 0,
+        "starts_again": false
+      }
+    },
+    {
+      "name": "preflight failed",
+      "mode": "preflight",
+      "events": [],
+      "files": [],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 2
+      },
+      "reading": {
+        "state": "preflight_failed",
+        "stop_reason": null,
+        "exit_code": 2,
+        "starts_again": false
+      }
+    },
+    {
+      "name": "ended at a flat moment to take the new runtime image",
+      "mode": "run",
+      "events": [
+        {
+          "event": "connecting",
+          "mode": "run"
+        },
+        {
+          "event": "stopping",
+          "reason": "rewarming",
+          "source_reason": null
+        },
+        {
+          "event": "rewarming",
+          "mode": "run",
+          "switch": true
+        }
+      ],
+      "files": [
+        "armed.json",
+        "SWITCH"
+      ],
+      "container": {
+        "Running": false,
+        "Status": "exited",
+        "ExitCode": 3
+      },
+      "reading": {
+        "state": "interrupted",
+        "stop_reason": null,
+        "exit_code": 3,
+        "starts_again": true
+      }
+    }
+  ],
+  "control_files": {
+    "stop": "STOP",
+    "switch": "SWITCH"
+  }
+}

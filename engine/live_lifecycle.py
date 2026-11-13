@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import timedelta
 import time
 from nautilus_trader.common import SocketState
-from nautilus_trader.model import AccountId, ClientId, InstrumentId, OrderStatus, OrderType, StrategyId
+from nautilus_trader.model import AccountId, ClientId, OrderStatus, OrderType, StrategyId
 from nautilus_trader.trading import Strategy, StrategyConfig
 from engine import live_brake, live_commands as commands, live_connection
 from engine.cadence import Cadence
 from engine.live_commands import pending_orders
+from engine.live_records import contract, owned, symbol_of
 from engine.live_session import MARK_SECONDS, MINUTE_NS, Session, STOP_GRACE_SECONDS
 
 # The periodic native account refresh. rc7's Redis cache appends every account state (about 0.85 KB) to a list it never
@@ -27,11 +28,16 @@ def source_outcome(session: Session, cache) -> None:
         or order.status == OrderStatus.DENIED and str(order.client_order_id) not in gated
         for order in cache.orders())
     session.failed = session.failed or denied
-    if session.source is None:
+    if not session.sources:
         return
     try:
-        found = session.source.replay_integrity_findings(denied)
-        if not isinstance(found, list) or any(not isinstance(value, str) for value in found):
+        found = []
+        for source in session.sources.values():  # each instance's own findings, in the run's contract order
+            part = source.replay_integrity_findings(denied)
+            if not isinstance(part, list):
+                raise ValueError("invalid source finding shape")
+            found += part
+        if any(not isinstance(value, str) for value in found):
             raise ValueError("invalid source finding shape")
         session.failed = session.failed or bool(found)
         session.event("source_findings", strict=False, evidence="source_self_report",
@@ -51,8 +57,9 @@ class Observer(Strategy):
         self.session = session
         self.last_query = 0.0
         self.minute: int | None = None  # the minute of the latest mark price, on the venue's clock
-        self.last_mark: tuple[int, object] | None = None  # the latest mark price's time and value
-        self.cadence = Cadence()  # finds funding settlements for the evidence pack
+        self.minutes: dict[str, int] = {}  # contract -> the minute of its latest mark price
+        self.last_marks: dict[str, tuple[int, object]] = {}  # contract -> its latest mark price's time and value
+        self.cadences: dict[str, Cadence] = {}  # contract -> its funding settlements for the evidence pack
 
     def on_start(self):
         self.session.started = time.monotonic()
@@ -61,9 +68,9 @@ class Observer(Strategy):
         # Source on_start may subscribe/request data, but cannot submit before admission.
         self.clock.set_timer("live-observe", timedelta(seconds=1), callback=self.tick)
         if self.session.mode == "run":
-            instrument_id = InstrumentId.from_str(f"{self.session.manifest['symbols'][0]}-PERP.BINANCE")
-            self.subscribe_mark_prices(instrument_id)
-            self.subscribe_funding_rates(instrument_id)
+            for symbol in self.session.manifest["symbols"]:
+                self.subscribe_mark_prices(contract(symbol))
+                self.subscribe_funding_rates(contract(symbol))
         if not self.session.check_storage():
             self.session.node.handle().stop()
         elif not self.session.account_verified and not self.session.connection_failed and not self.session.stopping:
@@ -72,9 +79,10 @@ class Observer(Strategy):
     def on_stop(self):
         if self.minute is not None:
             # The minute the run stops in, so its chart ends where the run did.
-            mark = self.session.mark
+            now = time.monotonic()
             self.session.record_minute(self.cache, self.clock.timestamp_ns() // MINUTE_NS * MINUTE_NS,
-                                       mark[1] if mark and time.monotonic() - mark[0] < MARK_SECONDS else None)
+                                       {symbol: value for symbol, (at, value) in self.session.marks.items()
+                                        if now - at < MARK_SECONDS})
         commands.discard_observation(self.session)
         self.clock.cancel_timer("live-observe")
         self.unsubscribe_socket_state(client_id=ClientId("BINANCE"))
@@ -90,18 +98,24 @@ class Observer(Strategy):
             live_connection.on_socket_state(self.session, event)
 
     def on_mark_price(self, update):
-        self.session.mark = (time.monotonic(), update.value)
-        self.last_mark = (update.ts_event, update.value)
+        symbol = symbol_of(update.instrument_id)
+        self.session.marks[symbol] = (time.monotonic(), update.value)
+        self.last_marks[symbol] = (update.ts_event, update.value)
         minute = update.ts_event // MINUTE_NS
+        if symbol not in self.minutes or minute > self.minutes[symbol]:
+            self.minutes[symbol] = minute
+            self.session.evidence.mark(update)  # each contract's first mark of a minute, as a replay values it
         if self.minute is None or minute > self.minute:
+            # The run's result once a minute, at the first mark of the minute and each other contract's latest.
             self.minute = minute
-            self.session.evidence.mark(update)
-            self.session.record_minute(self.cache, minute * MINUTE_NS, update.value)
+            self.session.record_minute(self.cache, minute * MINUTE_NS,
+                                       {name: value for name, (_, value) in self.session.marks.items()})
 
     def on_funding_rate(self, update):
-        settled = self.cadence.funding(update)
+        symbol = symbol_of(update.instrument_id)
+        settled = self.cadences.setdefault(symbol, Cadence()).funding(update)
         if settled is not None:
-            self.session.evidence.funding(settled, self.last_mark,
+            self.session.evidence.funding(settled, self.last_marks.get(symbol),
                                           self.cache.positions_open(instrument_id=update.instrument_id))
 
     def tick(self, _event):
@@ -153,12 +167,11 @@ class Observer(Strategy):
             if not session.observe_stop_intent():
                 return
         commands.discard_observation(session)
-        if session.mode in ("reconcile", "held") or session.source is None:
+        if session.mode in ("reconcile", "held") or not session.sources:
             session.node.handle().stop()
             return
-        source = session.source
-        positions = self.cache.positions_open(strategy_id=source.strategy_id)
-        pending = pending_orders(self.cache, source.strategy_id)
+        positions = owned(self.cache.positions_open, session.manifest)
+        pending = owned(lambda strategy_id: pending_orders(self.cache, strategy_id), session.manifest)
         entries = [order for order in pending if not order.is_reduce_only]
         session.cancel_open(self.cache, entries, now)
         if session.interrupting or session.rewarming:
@@ -176,7 +189,7 @@ class Observer(Strategy):
                 pid = str(position.id)
                 if pid not in session.exits:
                     # The native execution engine owns the closing order and asynchronous fills.
-                    source.close_position(position, reduce_only=True)
+                    session.owner(position.strategy_id).close_position(position, reduce_only=True)
                     session.exits.add(pid)
         if not positions and not entries:
             session.cancel_open(self.cache, pending, now)

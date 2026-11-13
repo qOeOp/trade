@@ -543,16 +543,19 @@ then `replay explore` of that file with `--starting-balance` the wallet and the 
 window of one of its research trials.
 `start` takes the prepared run ID, the same saved credential version and the run's `source_sha256` as the
 confirmation, then repeats
-account admission. The initial trial admits one symbol and requires a flat account, Hedge/Multi-assets
-mode, CROSS margin and no automatic margin addition. The venue's leverage is observed, never changed or
-copied into a simulated account. A complete v2 account response must show finite nonnegative wallets
+account admission. A run trades each of its contracts with its own instance of the source, as a replay does: each
+instance has its own strategy ID (`LIVE-<run>-<coin>`) and orders only on its own contract (`LIVE_INSTRUMENT_SCOPE`),
+and instances coordinate legs through state the source shares between them (decision
+`docs/plans/cross-line-fusion-20261111.zh.md` §5–§7). Admission requires a flat account, Hedge/Multi-assets mode, and
+on every contract CROSS margin, the declared leverage, no automatic margin addition and Binance status `TRADING`. The
+venue's leverage is observed, never changed or copied into a simulated account. A complete v2 account response must show finite nonnegative wallets
 and eligible USDT wallet cash and available balance each covering the cash floor (85% of the USDT wallet, at most 100 USDT).
 Other collateral is not converted into an entry allowance. CROSS does not isolate this budget from
 the rest of the account. Credentials are mounted only into the Live runner, not placed in argv or Docker environment.
 
 The execution client uses native `HEDGING` with `use_position_ids=False`; the source runs native `HEDGING`
 (virtual positions, one per entry order, on the account's LONG and SHORT sides) with UUID client order IDs. Allocation, initialization and registration must
-preserve the assigned v1 strategy identity and those settings. Native managed stop is disabled and
+preserve each instance's assigned strategy identity and those settings. Native managed stop is disabled and
 native market exit must use reduce-only orders. The strategy OMS describes local
 ownership; it is separate from the account's ability to hold both LONG and SHORT legs.
 
@@ -575,11 +578,13 @@ before the source receives another bar of the type it decided on. Otherwise the 
 `entry_hold_bar`): the source cannot see a product refusal, and the pinned Python `Strategy` has no native
 `deny_order`. A gate closed for a reason no check clears (below) refuses entries at once, held ones included, except a
 missing bar or a contract not trading. After a missing bar alone, an entry staged when it closed, and a new one that
-passes every entry check while the strategy holds a position, are denied natively and the run goes on (`entry_denied`).
-When a comparison, or an entry's own account read, finds the contract's Binance status other than `TRADING`, entries
-close (`contract_status`): staged and held entries and every new one that passes the entry checks are denied natively,
-flat or not, and the run goes on; working entries and positions with their exchange stops stay. Its status is then read
-every minute; back at `TRADING`, entries reopen after the same two agreeing comparisons as after a reconnect. The run node registers an
+passes every entry check while the run holds a position, are denied natively and the run goes on (`entry_denied`).
+When a comparison, or an entry's own account read, finds a contract's Binance status other than `TRADING`, entries on
+that contract alone close (`contract_status`, with its `symbol`): its staged and held entries and every new one on it
+that passes the entry checks are denied natively, flat or not, and the run goes on; working entries and positions with
+their exchange stops stay, and the other contracts trade on. Its status is then read every minute; back at `TRADING`,
+the run's entries reopen after the same two agreeing comparisons as after a reconnect. A start again (to warm up, or
+on a new image) waits while a contract is not trading. The run node registers an
 `ExecutionAlgorithm` (`LIVE-GATE`) whose `deny_order` puts the source's order in the native cache as DENIED and gives
 the source `OrderDenied`; nothing is sent. Its denials, read back from the journal in later starts whose reloaded cache
 still holds them, are no native failure. An order the cache already holds, an entry submitted from within a denial's
@@ -588,13 +593,14 @@ decision Live refused after a hold, to the cause `entry_gate` (decisions `docs/p
 `docs/plans/live-bars-missing-rewarm-20261113.zh.md`).
 Reductions, cancels and closes from the source and the Observer go on (REST); exchange stops stay at Binance.
 When every socket is back, entries reopen only after two comparisons of a REST read with the native cache, at least 30
-seconds apart (one native position and open-order reconciliation cycle), both agree on the strategy's positions per
-side and its open orders by venue ID, the account modes, nothing on another symbol, and a live bar received since the
-reconnect. A disagreement restarts the check. Orders at Binance the cache does not know are canceled with every order
-on the contract (native cancel-all, regular and conditional), and entries then stay closed for the run, as they do
-after changed account modes. A missing external bar (Binance's stream does not resend a close it missed) is not
-patched: entries close and working ones are withdrawn; a position keeps its source and exits. Once the strategy holds
-no position, order or held entry, its source sees no further bar, and after two agreeing comparisons this start ends
+seconds apart (one native position and open-order reconciliation cycle), both agree, contract by contract, on its
+instance's positions per side and open orders by venue ID, on the account modes, nothing on a symbol outside the run,
+and a live bar received since the reconnect. A disagreement restarts the check. Orders at Binance the cache does not
+know are canceled with every order on their contract (native cancel-all, regular and conditional), and entries then
+stay closed for the run, as they do after changed account modes. A missing external bar on any contract (Binance's
+stream does not resend a close it missed) is not patched: entries on every contract close and working ones are
+withdrawn; a position keeps its instance and exits. Once no instance holds a position, order or held entry, no
+instance sees a further bar, and after two agreeing comparisons this start ends
 without closing anything (`rewarming`, exit status 3). The control starts the run again, whose warm-up reads Binance's
 complete bars (decision `docs/plans/live-bars-missing-rewarm-20261113.zh.md`). If that warm-up fails, the start ends the
 same way once more (`rewarming` with `retry`; it counts toward the control's three starts an hour); a second failure ends
@@ -643,13 +649,14 @@ the run. A run may enter any number of times; each entry passes its own admissio
 Besides the native portfolio equity of the order rules, Live also measures the 3-times limit
 (`engine.order_rules.ENTRY_EQUITY_MULTIPLE`, user 2026-11-09 and 2026-11-10) against the lower of USDT wallet and
 available balance in the account observation the entry's own admission read, which may hold the run's own positions
-and orders on its contract (no other symbol's). That admission still
+and orders on its contracts (no other symbol's), and checks the status, terms and minimum size of the entry's own
+contract. That admission still
 requires USDT wallet and available cash of at least the budget, so the budget is a cash floor, not a size limit:
 a source sizing from equity at up to 3 times stays admitted however its equity grows. The venue leverage is observed, never set; an entry above the
 cash needs it set high enough on the venue. It is not a realized execution amount or loss guarantee, including for a SELL filled higher
 than its limit. The native global notional cap is omitted because it also rejects necessary reductions;
-all other native risk checks remain enabled. Reductions also require the position to be the run's account and
-instrument. Live does not claim hostile-code isolation for the source.
+all other native risk checks remain enabled. Reductions also require the position to be the instance's own, on
+the run's account and the instance's contract. Live does not claim hostile-code isolation for the source.
 
 Before a `preflight` or `start` takes the account, the control's process reads the key's own permissions once from
 `api.binance.com`, which the runner's egress deliberately cannot reach: a key that can withdraw is refused
@@ -675,7 +682,7 @@ rises (`equity_peak`), so a start again carries it on. Once equity is the brake'
 the user's 15% maximum-drawdown target, or a tighter share the run was prepared with), the run takes the STOP path
 with `stop_reason` `drawdown`, writes the account read beside it, is not a failure, and is not started again. With a
 position open and no equity read for 60 seconds the brake cannot be applied: the run stops, failed
-(`drawdown_unverified`); so does a position with no mark price for 60 seconds (`mark_missing`). The cash floor is 85% of
+(`drawdown_unverified`); so does a position with no mark price of its contract for 60 seconds (`mark_missing`). The cash floor is 85% of
 the USDT wallet at the first arming (the first trial admits at most 100 USDT, `LIVE_BUDGET`): each entry still needs
 that much USDT wallet and available cash, a last line should the brake fail. The brake does not bound a gap or a
 rejected close; a trigger makes one close attempt. Do not transfer or trade by hand during a run.

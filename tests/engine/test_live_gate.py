@@ -10,11 +10,11 @@ import unittest
 from unittest import mock
 
 from nautilus_trader.common import SocketState
-from nautilus_trader.model import BarType, OrderSide, OrderStatus, OrderType, PositionSide, TimeInForce
+from nautilus_trader.model import BarType, InstrumentId, OrderSide, OrderStatus, OrderType, PositionSide, TimeInForce
 
 from engine import live, live_commands as commands, live_connection, live_source
 from engine.live_errors import LiveRefusal
-from engine.live_records import source_strategy_id
+from engine.live_records import strategy_ids
 from tests.engine.test_live_venue import fixture, venue_clock
 
 SYMBOL = "BTCUSDT"
@@ -57,7 +57,7 @@ class GateTests(unittest.TestCase):
         self.binding = self.snapshot["credential_binding"]
         self.session = live.Session(manifest(self.binding), Path(self.temp.name), "run", account_verified=True)
         self.session.node = mock.Mock()
-        self.strategy = source_strategy_id(self.session.manifest)
+        self.strategy = strategy_ids(self.session.manifest)[SYMBOL]
 
     def events(self):
         return [json.loads(row) for row in (self.session.output / "events.jsonl").read_text().splitlines()]
@@ -82,7 +82,7 @@ class GateTests(unittest.TestCase):
                                             Cache([], [stop, order(None, OrderStatus.SUBMITTED, self.strategy),
                                                        order("9", OrderStatus.FILLED, self.strategy, closed=True)]),
                                             self.session.manifest)
-        self.assertEqual(found["unknown_orders"], [["5"]])
+        self.assertEqual(found["unknown_orders"], {SYMBOL: [["5"]]})  # by contract: each is canceled on its own
         self.assertIn("positions", found)
         self.assertEqual(found["in_flight"], ["O-None"])
         self.assertNotIn("native_only", found)
@@ -101,7 +101,8 @@ class GateTests(unittest.TestCase):
         tif = TimeInForce.GTD if gtd_seconds is not None else TimeInForce.GTC
         entry = SimpleNamespace(client_order_id="O-1", ts_init=ts_init, side=OrderSide.BUY, order_type=OrderType.LIMIT,
                                 has_price=True, price="90.00", has_trigger_price=False, quantity="0.003",
-                                time_in_force=tif, expire_time_ns=ts_init + (gtd_seconds or 0) * 10**9)
+                                time_in_force=tif, expire_time_ns=ts_init + (gtd_seconds or 0) * 10**9,
+                                instrument_id=BAR.instrument_id)
         return commands.PendingEntry(entry, mock.Mock(), None, bar_type)
 
     def test_a_closed_gate_holds_entries_only_for_recoverable_reasons(self):
@@ -238,8 +239,11 @@ class GateTests(unittest.TestCase):
             for snapshot in (read("not a status", 0), dict(self.snapshot, symbols={}), read("SETTLING", 1),
                              read("SETTLING", 2)):
                 live_connection.judge(self.session, Cache(), snapshot)
-            self.assertEqual(set(state.closed), {"contract_status"})
-            self.assertEqual([row["status"] for row in self.events() if row["event"] == "entries_closed"], ["SETTLING"])
+            self.assertEqual((set(state.closed), set(state.halted)), (set(), {SYMBOL}))
+            self.assertFalse(live_connection.entries_open(self.session, SYMBOL))
+            self.assertTrue(live_connection.entries_open(self.session, "ETHUSDT"))  # that contract alone
+            self.assertEqual([(row["symbol"], row["status"]) for row in self.events() if row["event"] == "entries_closed"],
+                             [(SYMBOL, "SETTLING")])
             state.last_compare = 0
             with mock.patch.object(commands, "observe_account") as observe:
                 live_connection.tick(self.session, SimpleNamespace(cache=Cache()), 59)
@@ -339,9 +343,9 @@ class GateTests(unittest.TestCase):
 
     def test_an_order_the_cache_does_not_know_keeps_the_run_from_starting_again(self):
         self.gap()
-        self.session.source = mock.Mock()
+        self.session.sources = {SYMBOL: mock.Mock()}
         with mock.patch.object(live_connection.Strategy, "cancel_all_orders") as cancel_all:
-            self.agree_twice(Cache(), {"unknown_orders": ["V-9"]})
+            self.agree_twice(Cache(), {"unknown_orders": {SYMBOL: [["V-9"]]}})
         cancel_all.assert_called()  # the existing path: every order on the contract goes
         self.assertEqual(set(self.session.connection.closed), {"bars_missing", "unknown_orders"})
         self.assertFalse(live_connection.rewarm_pending(self.session, Cache()))
@@ -400,6 +404,74 @@ class GateTests(unittest.TestCase):
         session.pending_entries.append(self.pending(time.time_ns()))
         live_connection.close_entries(session, "bars_missing")
         self.assertTrue(session.failed and session.stopping)
+
+    def test_a_contract_not_trading_denies_the_entries_on_it_and_keeps_the_others_check(self):
+        # Two contracts, one instance each (the user, 2026-11-13): ETHUSDT stops TRADING while an entry on each waits.
+        self.session.manifest["symbols"] = [SYMBOL, "ETHUSDT"]
+        btc, eth = self.pending(time.time_ns()), self.pending(time.time_ns())
+        eth.order = SimpleNamespace(**{**vars(eth.order), "client_order_id": "O-2",
+                                       "instrument_id": InstrumentId.from_str("ETHUSDT-PERP.BINANCE")})
+        self.session.pending_entries[:] = [btc, eth]
+        self.session.account_observation = observation = mock.Mock()
+        self.session.entry_gate = gate = mock.Mock()
+        snapshot = json.loads(json.dumps(self.snapshot))
+        snapshot["symbols"]["ETHUSDT"] = {"instrument": {"status": "SETTLING"}}
+        live_connection.contract(self.session, snapshot)
+        self.assertEqual([call.args[0] for call in gate.deny_order.call_args_list], [eth.order])
+        observation.result.cancel.assert_not_called()  # the account check under way is the BTCUSDT entry's
+        self.assertEqual(self.session.pending_entries, [btc])
+        self.assertEqual((live_connection.entries_open(self.session, SYMBOL),
+                          live_connection.entries_open(self.session, "ETHUSDT")), (True, False))
+        self.assertFalse(live_connection.rewarm_due(self.session))  # a restart could not admit ETHUSDT
+        self.assertFalse(self.session.stopping or self.session.failed)
+        # With the check under way for the denied entry, the next one gets its own.
+        self.session.connection.halted.clear()
+        self.session.pending_entries[:] = [eth, btc]
+        self.session.account_observation = observation = mock.Mock()
+        with mock.patch.object(commands, "start_observation") as start:
+            live_connection.contract(self.session, snapshot)
+        observation.result.cancel.assert_called_once()
+        start.assert_called_once_with(self.session, "entry")
+        self.assertEqual(self.session.pending_entries, [btc])
+
+    def test_each_contract_is_compared_with_its_own_instance(self):
+        self.session.manifest["symbols"] = [SYMBOL, "ETHUSDT"]
+        ids = strategy_ids(self.session.manifest)
+        eth = InstrumentId.from_str("ETHUSDT-PERP.BINANCE")
+
+        class Contracts(Cache):
+            def positions_open(self, instrument_id=None, **_):
+                return [item for item in self._positions if item.instrument_id == instrument_id]
+
+            def orders(self, instrument_id=None, **_):
+                return [item for item in self._orders if item.instrument_id == instrument_id]
+
+        def position(strategy, instrument):
+            return SimpleNamespace(strategy_id=strategy, side=PositionSide.SHORT, id="P-" + str(instrument),
+                                   instrument_id=instrument, quantity=SimpleNamespace(as_decimal=lambda: Decimal("1")))
+        snapshot = dict(self.snapshot, positions=[{"symbol": "ETHUSDT", "positionSide": "SHORT", "positionAmt": "-1"}],
+                        orders=[], algo_orders=[{"symbol": "ETHUSDT", "algoId": 9}])
+        stop = SimpleNamespace(**vars(order("9", strategy=ids["ETHUSDT"])), instrument_id=eth)
+        snapshot["symbols"] = {**snapshot["symbols"], "ETHUSDT": {**snapshot["symbols"][SYMBOL], "config": [
+            {**snapshot["symbols"][SYMBOL]["config"][0], "symbol": "ETHUSDT"}]}}
+        with mock.patch("engine.live_venue.time.time_ns", return_value=snapshot["observed_ns"]):
+            agreed = live_connection.compare(snapshot, Contracts([position(ids["ETHUSDT"], eth)], [stop]),
+                                             self.session.manifest)
+            # The BTCUSDT instance holding the ETHUSDT position is not the run's ETHUSDT position.
+            crossed = live_connection.compare(snapshot, Contracts([position(ids[SYMBOL], eth)], [stop]),
+                                              self.session.manifest)
+            unknown = live_connection.compare(dict(snapshot, orders=[{"symbol": "ETHUSDT", "orderId": 5}]),
+                                              Contracts([position(ids["ETHUSDT"], eth)], [stop]), self.session.manifest)
+        self.assertEqual(agreed, {})
+        self.assertEqual(crossed["foreign"], ["P-ETHUSDT-PERP.BINANCE"])
+        self.assertEqual([row["symbol"] for row in crossed["positions"]], ["ETHUSDT"])
+        self.assertEqual(unknown, {"unknown_orders": {"ETHUSDT": [["5"]]}})
+        self.session.sources = {SYMBOL: mock.Mock(), "ETHUSDT": mock.Mock()}
+        self.session.cancel_entries = mock.Mock()
+        with mock.patch.object(live_connection, "compare", return_value=unknown), \
+                mock.patch.object(live_connection.Strategy, "cancel_all_orders") as cancel_all:
+            live_connection.judge(self.session, Cache(), dict(self.snapshot))
+        cancel_all.assert_called_once_with(self.session.sources["ETHUSDT"], eth, None, None, False)  # that contract
 
     def test_an_entry_held_through_a_reconnect_is_denied_by_the_gap_bar_before_the_source_sees_it(self):
         seen = []

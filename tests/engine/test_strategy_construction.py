@@ -164,19 +164,20 @@ class ConstructionTests(unittest.TestCase):
         try:
             read_universe.assert_called_once()
             now.assert_called_once()
-            self.assertEqual(session.source._replay_input_start_ns, history.start_at(123))
-            self.assert_native_config(session.source)
-            self.assertEqual(type(session.source).__module__, "engine.live")
+            [source] = session.sources.values()
+            self.assertEqual(source._replay_input_start_ns, history.start_at(123))
+            self.assert_native_config(source)
+            self.assertEqual(type(source).__module__, "engine.live")
         finally:
             node.dispose()
-            session.node, session.source = None, None
+            session.node, session.sources, source = None, {}, None
 
     def test_live_dynamic_native_class_retains_library_and_module_entry_context(self):
         loaded = self.load()
         universe = self.root / "universe.json"
-        universe.write_text(json.dumps({"membership": {"BTCUSDT": [[0, 1000]]}}))
+        universe.write_text(json.dumps({"membership": {"BTCUSDT": [[0, 1000]], "ETHUSDT": [[0, 1000]]}}))
         manifest = dict(run_id="constructor", trader_id="LIVE-001", account_id="BINANCE-001",
-                        symbols=["BTCUSDT"], universe_file=str(universe),
+                        symbols=["BTCUSDT", "ETHUSDT"], universe_file=str(universe),
                         universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                         config={"duration_seconds": 30})
         for module_name in ("engine.live", "__main__"):
@@ -186,13 +187,20 @@ class ConstructionTests(unittest.TestCase):
                                        RedisCacheConfig(host="127.0.0.1", port=1), loaded,
                                        source_module=module_name)
                 try:
-                    self.assertEqual(type(session.source).__module__, module_name)
-                    self.assertEqual(type(session.source).__name__, "LiveSource_" + loaded.content_hash)
-                    self.assertEqual(str(session.source.strategy_id), str(live_records.source_strategy_id(manifest)))
-                    self.assert_native_config(session.source)
+                    # One instance per contract, each with its own native identity and contract (the user,
+                    # 2026-11-13), of one class.
+                    self.assertEqual(list(session.sources), ["BTCUSDT", "ETHUSDT"])
+                    identities = live_records.strategy_ids(manifest)
+                    self.assertEqual(len(set(identities.values())), 2)
+                    for symbol, source in session.sources.items():
+                        self.assertEqual(type(source).__module__, module_name)
+                        self.assertEqual(type(source).__name__, "LiveSource_" + loaded.content_hash)
+                        self.assertEqual(str(source.strategy_id), str(identities[symbol]))
+                        self.assertEqual(source._live_symbol, symbol)
+                        self.assert_native_config(source)
                 finally:
                     node.dispose()
-                    session.node, session.source = None, None
+                    session.node, session.sources, source = None, {}, None
                     del node
 
     def test_a_replaced_configuration_is_refused(self):

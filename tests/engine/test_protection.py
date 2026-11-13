@@ -105,11 +105,12 @@ class Source(Strategy):
                         config=dict(duration_seconds=3600, drawdown_brake="0.15"))
         self.session = live.Session(manifest, self.output, "run", account_verified=True)
         self.session.node = Mock()
-        self.source = live_source_runtime.live_source(live.source_for_run(manifest), self.session)
-        self.session.source = self.source
+        self.session.sources = live_source_runtime.live_source(live.source_for_run(manifest), self.session)
+        self.source = self.session.sources["AAAUSDT"]
 
     def tearDown(self):
-        self.session.source = self.session.node = self.source = None
+        self.session.node = self.source = None
+        self.session.sources = {}
         gc.collect()
         live.strategy_runtime.clear_failures()
 

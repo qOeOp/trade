@@ -113,8 +113,8 @@ class NativeConnectionTests(unittest.TestCase):
         session = live.Session(manifest, root, "run", account_verified=True, account_reader=reader)
         session.brake.budget = Decimal("85")
         session.node = Mock()  # Record asynchronous stop without advancing native time.
-        source = live_source_runtime.live_source(live.source_for_run(manifest), session)
-        session.source = source
+        session.sources = live_source_runtime.live_source(live.source_for_run(manifest), session)
+        [source] = session.sources.values()
         engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
         usdt = Currency.from_str("USDT")
         engine.add_venue(Venue("BINANCE"), OmsType.HEDGING, AccountType.MARGIN,
@@ -136,7 +136,7 @@ class NativeConnectionTests(unittest.TestCase):
     def close_native(session, engine):
         engine.end()
         engine.dispose()
-        session.source = session.node = None
+        session.node, session.sources = None, {}
         gc.collect()
         live.strategy_runtime.clear_failures()
 
@@ -323,8 +323,8 @@ class NativeConnectionTests(unittest.TestCase):
                                        account_reader=FixtureReader(credentials.binding))
                 session.brake.budget = Decimal("85")
                 session.node = Mock()
-                source = live_source_runtime.live_source(live.source_for_run(manifest), session)
-                session.source = source
+                session.sources = live_source_runtime.live_source(live.source_for_run(manifest), session)
+                [source] = session.sources.values()
                 engine = BacktestEngine(BacktestEngineConfig(
                     logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
                 try:

@@ -166,15 +166,15 @@ def require_flat(snapshot: dict) -> None:
 
 
 def require_own_symbol(snapshot: dict, manifest: dict) -> None:
-    """A later entry may join the run's own positions and orders, but never exposure on another symbol."""
-    symbol = manifest["symbols"][0]
+    """A later entry may join the run's own positions and orders, but never exposure on a symbol outside the run."""
+    symbols = set(manifest["symbols"])
     try:
-        foreign = (any(Decimal(row["positionAmt"]) != 0 and row["symbol"] != symbol for row in snapshot["positions"])
-                   or any(row["symbol"] != symbol for row in (*snapshot["orders"], *snapshot["algo_orders"])))
+        foreign = (any(Decimal(row["positionAmt"]) != 0 and row["symbol"] not in symbols for row in snapshot["positions"])
+                   or any(row["symbol"] not in symbols for row in (*snapshot["orders"], *snapshot["algo_orders"])))
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
         raise Refusal("LIVE_ACCOUNT_RESPONSE", "the venue did not supply complete position/order observations") from exc
     if foreign:
-        raise Refusal("LIVE_ACCOUNT_NOT_FLAT", "an entry requires no position or open order on another symbol")
+        raise Refusal("LIVE_ACCOUNT_NOT_FLAT", "an entry requires no position or open order on a symbol outside the run")
 
 
 def require_account_mode(snapshot: dict, manifest: dict) -> None:
@@ -189,19 +189,17 @@ def require_account_mode(snapshot: dict, manifest: dict) -> None:
             raise Refusal("LIVE_OBSERVATION_STALE", "account checks require a fresh account observation")
         if snapshot["credential_binding"] != manifest["credential_binding"]:
             raise Refusal("LIVE_ACCOUNT_BINDING", "this run is bound to another credential identity")
-        symbols = manifest["symbols"]
-        if len(symbols) != 1 or len(set(symbols)) != 1:
-            raise Refusal("LIVE_SYMBOL_SCOPE", "the initial Live trial admits one instrument at a time")
         mode = snapshot["config"]
         if mode["dualSidePosition"] is not True or mode["multiAssetsMargin"] is not True:
             raise Refusal("LIVE_ACCOUNT_MODE", "the trial requires hedge and multi-assets mode")
-        settings = snapshot["symbols"][symbols[0]]["config"]
         declared = int(manifest["config"]["leverage"])
-        if len(settings) != 1 or settings[0]["symbol"] != symbols[0] \
-                or settings[0]["marginType"] != "CROSSED" or int(settings[0]["leverage"]) != declared \
-                or settings[0]["isAutoAddMargin"] is not False:
-            raise Refusal("LIVE_MARGIN_MODE", f"the trial requires cross margin, the declared leverage {declared} "
-                                              f"and automatic margin addition off")
+        for symbol in manifest["symbols"]:  # each contract's own settings (the user, 2026-11-13)
+            settings = snapshot["symbols"][symbol]["config"]
+            if len(settings) != 1 or settings[0]["symbol"] != symbol \
+                    or settings[0]["marginType"] != "CROSSED" or int(settings[0]["leverage"]) != declared \
+                    or settings[0]["isAutoAddMargin"] is not False:
+                raise Refusal("LIVE_MARGIN_MODE", f"the trial requires cross margin, the declared leverage {declared} "
+                                                  f"and automatic margin addition off on {symbol}")
     except Refusal:
         raise
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
@@ -214,11 +212,14 @@ def require_account_mode(snapshot: dict, manifest: dict) -> None:
 # budget stays a cash floor.
 
 
-def require_admission(snapshot: dict, manifest: dict, budget: Decimal | None, *, flat: bool = True) -> Decimal:
+def require_admission(snapshot: dict, manifest: dict, budget: Decimal | None, *, flat: bool = True,
+                      symbols: list[str] | None = None) -> Decimal:
     """Admit a fresh USDT-funded trial without converting other collateral to cash; return the snapshot's USDT equity
     (the lower of wallet and available balance), the base of the entry limit. `budget` is the run's cash floor
     (engine.live_brake: a share of the USDT wallet at its first arming). The account must be flat when the run starts
-    (`flat`); a later entry may join the run's own positions and orders (user, 2026-11-11)."""
+    (`flat`); a later entry may join the run's own positions and orders (user, 2026-11-11). `symbols` are the contracts
+    whose status, terms and minimum size are checked: every contract of the run by default, an entry's own for an
+    entry (the user, 2026-11-13)."""
     require_account_mode(snapshot, manifest)
     try:
         if snapshot["config"]["canTrade"] is not True:
@@ -245,23 +246,25 @@ def require_admission(snapshot: dict, manifest: dict, budget: Decimal | None, *,
         if not available.is_finite() or usdt["marginAvailable"] is not True \
                 or min(wallet, available) < budget:
             raise Refusal("LIVE_FUNDS", "the run's cash floor exceeds eligible USDT wallet cash or available balance")
-        details = snapshot["symbols"][manifest["symbols"][0]]
-        terms = details["instrument"]
-        if terms["status"] != "TRADING" or terms["contractType"] != "PERPETUAL" or terms["marginAsset"] != "USDT":
-            raise Refusal("LIVE_INSTRUMENT", "the trial requires an active USDT-margined perpetual")
-        filters = {row["filterType"]: row for row in terms["filters"]}
-        changed = terms_changed(manifest["market"]["terms"][manifest["symbols"][0]], {
-            "price_increment": filters["PRICE_FILTER"]["tickSize"], "size_increment": filters["LOT_SIZE"]["stepSize"],
-            "min_notional": (filters.get("MIN_NOTIONAL") or {}).get("notional")})
-        if changed:
-            raise Refusal("TERMS_CHANGED", f"the venue's terms differ from the market's at "
-                                           f"{manifest['market']['market_day']}: {'; '.join(changed)}")
-        minimum = Decimal(filters["MIN_NOTIONAL"]["notional"])
-        mark = Decimal(details["mark"]["markPrice"])
-        lot = Decimal(filters["LOT_SIZE"]["minQty"])
         equity = min(wallet, available)
-        if not mark.is_finite() or mark <= 0 or max(minimum, lot * mark) > ENTRY_EQUITY_MULTIPLE * equity:
-            raise Refusal("LIVE_MINIMUM_SIZE", "the venue minimum exceeds the entry limit of 3 times USDT equity")
+        for symbol in manifest["symbols"] if symbols is None else symbols:
+            details = snapshot["symbols"][symbol]
+            terms = details["instrument"]
+            if terms["status"] != "TRADING" or terms["contractType"] != "PERPETUAL" or terms["marginAsset"] != "USDT":
+                raise Refusal("LIVE_INSTRUMENT", f"the trial requires an active USDT-margined perpetual ({symbol})")
+            filters = {row["filterType"]: row for row in terms["filters"]}
+            changed = terms_changed(manifest["market"]["terms"][symbol], {
+                "price_increment": filters["PRICE_FILTER"]["tickSize"], "size_increment": filters["LOT_SIZE"]["stepSize"],
+                "min_notional": (filters.get("MIN_NOTIONAL") or {}).get("notional")})
+            if changed:
+                raise Refusal("TERMS_CHANGED", f"the venue's terms of {symbol} differ from the market's at "
+                                               f"{manifest['market']['market_day']}: {'; '.join(changed)}")
+            minimum = Decimal(filters["MIN_NOTIONAL"]["notional"])
+            mark = Decimal(details["mark"]["markPrice"])
+            lot = Decimal(filters["LOT_SIZE"]["minQty"])
+            if not mark.is_finite() or mark <= 0 or max(minimum, lot * mark) > ENTRY_EQUITY_MULTIPLE * equity:
+                raise Refusal("LIVE_MINIMUM_SIZE", f"the venue minimum of {symbol} exceeds the entry limit of 3 times "
+                                                   "USDT equity")
         if flat:
             require_flat(snapshot)
         else:

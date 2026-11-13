@@ -12,7 +12,7 @@ from engine import live_connection
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import require_admission, require_account_mode, require_clock
 from engine.order_rules import ENTRY_EQUITY_MULTIPLE, ENTRY_TYPES, exposure
-from engine.live_records import source_strategy_id, write_json
+from engine.live_records import strategy_ids, symbol_of, write_json
 if TYPE_CHECKING:
     from engine.live_session import Session
 
@@ -76,12 +76,13 @@ def start_observation(session: Session, purpose: str) -> None:
     if session.account_observation is not None:
         raise Refusal("LIVE_ENTRY_STOPPED", "only one account observation may be outstanding")
     session.account_observation = observe_account(session.account_reader, tuple(session.manifest["symbols"]), purpose)
-    if purpose == "entry" and session.source is not None:
+    source = session.any_source()
+    if purpose == "entry" and source is not None:
         # Nautilus's risk engine checks the entry's margin against the native free balance, which a canceled or expired
         # order leaves reduced until the next REST refresh (Binance's stream sends no account update for it). The entry
         # is dispatched on a later Observer tick, after its own read: refresh the native account with that read.
         try:
-            Strategy.query_account(session.source, AccountId(session.manifest["account_id"]))
+            Strategy.query_account(source, AccountId(session.manifest["account_id"]))
         except Exception as exc:  # the periodic refresh (engine.live_lifecycle) still follows
             session.event("account_refresh_failed", strict=False, failure_type=type(exc).__name__)
 
@@ -113,7 +114,11 @@ def verify_connected_account(session: Session, snapshot: dict) -> None:
     observation = "connected-account-" + str(snapshot["observed_ns"]) + ".json"
     write_json(session.output / observation, snapshot)
     if session.mode == "run":
-        require_admission(snapshot, session.manifest, session.brake.budget)
+        # A contract not TRADING closes entries on it alone (engine.live_connection.contract); the others are admitted.
+        live_connection.contract(session, snapshot)
+        require_admission(snapshot, session.manifest, session.brake.budget,
+                          symbols=[symbol for symbol in session.manifest["symbols"]
+                                   if symbol not in session.connection.halted])
     else:
         require_account_mode(snapshot, session.manifest)
     session.event({"run": "started", "reconcile": "reconciled", "held": "held"}[session.mode], mode=session.mode,
@@ -122,10 +127,11 @@ def verify_connected_account(session: Session, snapshot: dict) -> None:
     session.account_observation = None
 
 
-def require_order_identity(session: Session, order) -> None:
-    if (order.strategy_id != source_strategy_id(session.manifest)
-            or order.trader_id != Strategy.trader_id.__get__(session.source, type(session.source))):
-        raise Refusal("LIVE_ORDER_OWNERSHIP", "the order must use the source's native strategy and trader identity")
+def require_order_identity(session: Session, order, strategy_id) -> None:
+    source = session.owner(strategy_id)
+    if (source is None or order.strategy_id != strategy_id
+            or order.trader_id != Strategy.trader_id.__get__(source, type(source))):
+        raise Refusal("LIVE_ORDER_OWNERSHIP", "the order must use its instance's native strategy and trader identity")
 
 
 def require_entry(session: Session, order) -> None:
@@ -133,9 +139,11 @@ def require_entry(session: Session, order) -> None:
     observation taken for it. Entries may join the run's open positions and orders (user, 2026-11-11). The entry gate
     (engine.live_connection) is checked before this, by the caller."""
     require_connection(session)
-    if not Strategy.is_running(session.source):
+    strategy = strategy_ids(session.manifest).get(symbol_of(order.instrument_id))
+    source = session.owner(strategy) if strategy is not None else None
+    if source is None or not Strategy.is_running(source):
         raise Refusal("LIVE_ENTRY_STOPPED", "only a running native source may dispatch its entry")
-    require_order_identity(session, order)
+    require_order_identity(session, order, strategy)
     if session.observe_stop_intent() or not session.check_storage():
         raise Refusal("LIVE_ENTRY_STOPPED", "new entries require an active run and healthy persistence")
     if (order.order_type not in ENTRY_TYPES or order.is_reduce_only or order.is_quote_quantity
@@ -143,7 +151,7 @@ def require_entry(session: Session, order) -> None:
         raise Refusal("LIVE_ORDER_UNSUPPORTED", "the trial accepts one independent base-quantity LIMIT or STOP_MARKET entry")
     if order.time_in_force == TimeInForce.GTD and order.expire_time_ns <= time.time_ns():
         raise Refusal("LIVE_ENTRY_STOPPED", "an expired entry cannot be dispatched after an account observation")
-    cache = Strategy.cache.__get__(session.source, type(session.source))
+    cache = Strategy.cache.__get__(source, type(source))
     if cache.instrument(order.instrument_id) is None:
         raise Refusal("LIVE_INSTRUMENT_UNKNOWN", "entry valuation requires the native instrument")
 
@@ -152,7 +160,8 @@ def require_entry_size(session: Session, order, equity: Decimal) -> None:
     """The strategy's exposure on the contract with this entry (engine.order_rules.exposure: open positions at their
     average open price, open entries and this one at their limit or trigger price) is at most ENTRY_EQUITY_MULTIPLE
     times `equity`, the USDT equity require_admission read from this entry's own account observation."""
-    cache = Strategy.cache.__get__(session.source, type(session.source))
+    source = session.any_source()
+    cache = Strategy.cache.__get__(source, type(source))
     found = exposure(cache, order)
     if found is None or not 0 < found <= ENTRY_EQUITY_MULTIPLE * equity:
         raise Refusal("LIVE_BUDGET", "the strategy's exposure with this entry exceeds 3 times the account's USDT equity")
@@ -173,6 +182,7 @@ def dispatch_entry(session: Session) -> None:
             live_connection.deny_queued(session, live_connection.gate_reason(session))  # ends the run
         return  # held entries wait for the gate (engine.live_connection.hold)
     pending = session.pending_entries[0]
+    symbol = symbol_of(pending.order.instrument_id)
     try:
         snapshot = observed_account(session, "entry")
         if snapshot is None:
@@ -180,9 +190,9 @@ def dispatch_entry(session: Session) -> None:
         observation = "entry-account-" + str(snapshot["observed_ns"]) + ".json"
         write_json(session.output / observation, snapshot)
         live_connection.contract(session, snapshot)
-        if not live_connection.entries_open(session):
-            return  # the contract is not TRADING: this entry and any behind it were denied natively
-        equity = require_admission(snapshot, session.manifest, session.brake.budget, flat=False)
+        if not live_connection.entries_open(session, symbol):
+            return  # its contract is not TRADING: the entries on it were denied natively, the others wait
+        equity = require_admission(snapshot, session.manifest, session.brake.budget, flat=False, symbols=[symbol])
         require_entry(session, pending.order)
         require_entry_size(session, pending.order, equity)
         live_connection.require_send_time(pending)

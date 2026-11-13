@@ -18,7 +18,7 @@ from engine.live_connection import Connection
 from engine.live_evidence import Evidence
 from engine import live_commands as commands
 from engine.live_commands import AccountObservation, PendingEntry, pending_orders
-from engine.live_records import source_strategy_id
+from engine.live_records import owned, strategy_ids, symbol_of
 
 STOP_GRACE_SECONDS = 30
 CANCEL_RETRY_SECONDS = 5
@@ -48,7 +48,7 @@ class Session:
     warmup_retried: bool = False
     armed_ns: int | None = None  # a resumed run's first arming: its duration counts from there, across starts
     node: Any = None
-    source: Any = None
+    sources: dict[str, Any] = field(default_factory=dict)  # the run's instances: contract -> instance (engine.live_source)
     entry_gate: Any = None  # the native ExecutionAlgorithm that denies entries (engine.live_connection.deny)
     denied: set[str] = field(default_factory=set)  # client order IDs of the entries it denied in this start
     denying: bool = False  # inside a denial's native callbacks
@@ -72,8 +72,8 @@ class Session:
     canceled: dict[str, float] = field(default_factory=dict)
     exits: set[str] = field(default_factory=set)
     protection_gaps: dict[str, float] = field(default_factory=dict)
-    mark: tuple[float, Any] | None = None  # When the latest mark price arrived, and its value.
-    exposed_since: float | None = None
+    marks: dict[str, tuple[float, Any]] = field(default_factory=dict)  # contract -> when its latest mark arrived, its value
+    exposed_since: dict[str, float] = field(default_factory=dict)  # contract -> since when the run holds a position on it
     warmup_catalog: Path | None = None  # the run's temporary Catalog of warm-up bars (engine.history)
     evidence: Evidence = field(init=False)
 
@@ -151,12 +151,20 @@ class Session:
             time.time_ns() - self.armed_ns >= duration * 10**9 if self.armed_ns is not None
             else self.started is not None and time.monotonic() - self.started >= duration)
 
+    def owner(self, strategy_id):
+        """The instance of `strategy_id`, which sends its orders' commands."""
+        return next((self.sources.get(symbol) for symbol, found in strategy_ids(self.manifest).items()
+                     if found == strategy_id), None)
+
+    def any_source(self):
+        """An instance for native commands that belong to no one strategy (account queries)."""
+        return next(iter(self.sources.values()), None)
+
     def check_protection(self, cache, now: float) -> None:
         """engine.protection on the native cache (native orders keep reduce-only; Binance Hedge orders carry none)."""
         try:
-            strategy_id = source_strategy_id(self.manifest)
             gaps = {}
-            for position in cache.positions_open(strategy_id=strategy_id):
+            for position in owned(cache.positions_open, self.manifest):
                 quantity = position.quantity.as_decimal()
                 held = quantity if position.side == PositionSide.LONG else -quantity
                 if not protection.covered(held, protection.of_position(cache, position)):
@@ -174,32 +182,34 @@ class Session:
             self.begin_stop("protection_missing")
 
     def check_mark(self, cache, now: float) -> bool:
-        """Whether a position of the run is open; with one open and no mark price for MARK_SECONDS (a lost market
-        stream) the run takes the STOP path, failed. The drawdown brake reads the venue (engine.live_brake)."""
+        """Whether a position of the run is open; with one open on a contract and no mark price of that contract for
+        MARK_SECONDS (a lost market stream) the run takes the STOP path, failed. The drawdown brake reads the venue
+        (engine.live_brake)."""
         try:
-            exposed = any(position.is_open for position in cache.positions(strategy_id=source_strategy_id(self.manifest)))
+            exposed = {symbol_of(position.instrument_id) for position in owned(cache.positions_open, self.manifest)}
         except Exception as exc:
             self.failed = True
             self.event("exposure_unverified", strict=False, failure_type=type(exc).__name__)
             self.begin_stop("exposure_unverified")
             return True
-        since = (now if self.exposed_since is None else self.exposed_since) if exposed else None
-        self.exposed_since = since
-        if since is not None and not (self.mark and now - self.mark[0] < MARK_SECONDS) and now - since >= MARK_SECONDS:
+        self.exposed_since = {symbol: self.exposed_since.get(symbol, now) for symbol in exposed}
+        late = {symbol: since for symbol, since in self.exposed_since.items() if now - since >= MARK_SECONDS
+                and not (symbol in self.marks and now - self.marks[symbol][0] < MARK_SECONDS)}
+        if late:
             self.failed = True
-            self.event("mark_missing", strict=False, seconds=int(now - since))
+            self.event("mark_missing", strict=False, seconds=int(now - min(late.values())), symbols=sorted(late))
             self.begin_stop("mark_missing")
-        return exposed
+        return bool(exposed)
 
-    def record_minute(self, cache, minute_ns: int, price) -> None:
-        """The run's result from native fills at a minute's first mark price, or when the run stops, for the
-        chart of its account: only read and journalled, no check, stop or order follows from it. Unknown
-        while a position is open without a price, or when it cannot be read."""
+    def record_minute(self, cache, minute_ns: int, prices: dict) -> None:
+        """The run's result from native fills at a minute's first mark price (contract -> price), or when the run
+        stops, for the chart of its account: only read and journalled, no check, stop or order follows from it.
+        Unknown while a position is open without a price of its contract, or when it cannot be read."""
         result = None
         try:
-            positions = cache.positions(strategy_id=source_strategy_id(self.manifest))
-            if price is not None or not any(position.is_open for position in positions):
-                result = str(run_result(cache, positions, price))
+            positions = owned(cache.positions, self.manifest)
+            if all(symbol_of(position.instrument_id) in prices for position in positions if position.is_open):
+                result = str(run_result(cache, positions, prices))
         except Exception:
             pass
         self.event("minute_result", strict=False, minute_ns=minute_ns, result=result)
@@ -215,8 +225,9 @@ class Session:
         # residual fills still update the execution cache and native logs.
         try:
             self.cancel_entries(reason)
-            if self.source is not None and Strategy.is_running(self.source):
-                Strategy.stop(self.source)
+            for source in self.sources.values():
+                if Strategy.is_running(source):
+                    Strategy.stop(source)
         finally:
             self.begin_stop(reason)
             self.event("unresolved", reason=reason, strict=False)
@@ -235,7 +246,7 @@ class Session:
                 self.event("cancel_resend_withheld", client_order_id=str(order.client_order_id),
                            reduce_only=kept, strict=False)
                 return False
-        Strategy.cancel_all_orders(self.source, order.instrument_id, order.side, None, False)
+        Strategy.cancel_all_orders(self.owner(order.strategy_id), order.instrument_id, order.side, None, False)
         return True
 
     def cancel_entries(self, reason: str) -> None:
@@ -245,16 +256,17 @@ class Session:
         source's closed command gate and leaves reduce-only protection on the venue. The outcome
         may never be observed: the run stays unresolved, and the next read of the venue decides.
         """
-        if self.source is None:
+        source = self.any_source()
+        if source is None:
             return
-        cache = Strategy.cache.__get__(self.source, type(self.source))
-        for order in pending_orders(cache, source_strategy_id(self.manifest)):
+        cache = Strategy.cache.__get__(source, type(source))
+        for order in owned(lambda strategy_id: pending_orders(cache, strategy_id), self.manifest):
             if order.is_reduce_only:
                 continue
             cid = str(order.client_order_id)
             try:
                 if order.status != OrderStatus.PENDING_CANCEL:
-                    Strategy.cancel_order(self.source, order.client_order_id)
+                    Strategy.cancel_order(self.owner(order.strategy_id), order.client_order_id)
                 elif not self.resend_cancel(cache, order):
                     continue
             except Exception as exc:
@@ -270,21 +282,22 @@ class Session:
             if cid in self.canceled and now - self.canceled[cid] < CANCEL_RETRY_SECONDS:
                 continue
             if order.status != OrderStatus.PENDING_CANCEL:
-                self.source.cancel_order(order.client_order_id)
+                self.owner(order.strategy_id).cancel_order(order.client_order_id)
             elif cid in self.canceled:
                 self.resend_cancel(cache, order)
             self.canceled[cid] = now
 
     def observe_source_state(self) -> None:
         """A source that stopped itself receives no fills, so it can neither protect nor exit."""
-        if self.source is not None and not self.stopping and not Strategy.is_running(self.source):
+        if not self.stopping and any(not Strategy.is_running(source) for source in self.sources.values()):
             self.failed = True
             self.begin_stop("source_not_running")
 
 
-def run_result(cache, positions, price) -> Decimal:
-    """`positions`' realized result and, at `price`, the open ones' unrealized result, from native fills.
-    A position that closes and reopens restarts its realized result; earlier cycles are in snapshots."""
-    return sum(((position.total_pnl(price) if position.is_open else position.realized_pnl).as_decimal() + sum(
+def run_result(cache, positions, prices: dict) -> Decimal:
+    """`positions`' realized result and, at its contract's price in `prices`, the open ones' unrealized result, from
+    native fills. A position that closes and reopens restarts its realized result; earlier cycles are in snapshots."""
+    return sum(((position.total_pnl(prices[symbol_of(position.instrument_id)]) if position.is_open
+                 else position.realized_pnl).as_decimal() + sum(
         (snapshot.realized_pnl.as_decimal() for snapshot in cache.position_snapshots(position_id=position.id)),
         Decimal(0)) for position in positions), Decimal(0))
