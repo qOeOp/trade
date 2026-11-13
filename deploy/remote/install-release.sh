@@ -27,8 +27,8 @@ compose() {
     -f /opt/trade-release/deploy/remote/cd.compose.yaml -f /opt/trade-release/deploy/remote/paper-cd.compose.yaml "$@"
 }
 compose config --quiet
-# The routers read the routes `install` wrote; OAuth2 Proxy moves its upstream to the Web router.
-compose up -d --no-deps ide-router paper-router oauth2
+# The routers read the routes `install` wrote; OAuth2 Proxy already forwards to the Web router.
+compose up -d --no-deps ide-router paper-router
 python3 -m deploy.release verify
 install -m 644 "$source_root/deploy/remote/trade-release.service" "$source_root/deploy/remote/trade-release.timer" \
   /etc/systemd/system/

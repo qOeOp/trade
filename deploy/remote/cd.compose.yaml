@@ -1,11 +1,5 @@
 # Overlay for the reviewed pull-based Web release plane, used by install-release.sh. Releases do not run compose.
 services:
-  oauth2:
-    command:
-      - --config=/etc/oauth2-proxy.cfg
-      - --client-secret-file=/run/secrets/github_client_secret
-      - --cookie-secret-file=/run/secrets/oauth_cookie_secret
-      - --upstream=http://ide-router:8765/
   ide-router:
     image: caddy:2.11.9-alpine@sha256:71d41fe4b1ae92a058abc87afe614178b996d8a6b96d0f4c71ae30606e5927e3
     restart: unless-stopped
