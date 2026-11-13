@@ -54,7 +54,7 @@ export function TranslatedCardGroup({ title, sections, children, className }: {
       {busy && <p role="status" className="text-small text-fg-muted leading-zh">{status}
         <TextButton onClick={() => request.current?.abort()} className="ml-1">取消</TextButton>
       </p>}
-      {error && <p role="alert" className="text-small text-fail leading-zh">{error} <TextButton onClick={() => void run()}>重试</TextButton></p>}
+      {error && <p role="alert" className="text-small text-fail-fg leading-zh">{error} <TextButton onClick={() => void run()}>重试</TextButton></p>}
       {result && <p role="status" className="text-small text-fg-faint leading-zh">本地翻译 · {duration}（不含模型准备）</p>}
     </div>}
     {sections.map(({ title, text }, index) =>

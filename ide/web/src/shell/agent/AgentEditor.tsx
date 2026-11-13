@@ -74,7 +74,7 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
           <Checklist items={listed} checked={models} onToggle={toggle} star={star} onStar={setStar} />
         </div>
       )}
-      {error && <p className="text-dense break-words text-fail">{error}</p>}
+      {error && <p className="text-dense break-words text-fail-fg">{error}</p>}
       {/* macOS order: Cancel, then the default action at the far right. */}
       <div className="flex justify-end gap-2 pt-1">
         <FormButton disabled={busy} onClick={() => onDone(saved)}>Cancel</FormButton>

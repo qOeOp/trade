@@ -53,7 +53,7 @@ function Movers({ coins }: { coins: readonly Coin[] }) {
 
 function Sources({ snapshot }: { snapshot: Snapshot }) {
   const zone = useTimeZone();
-  return <KeyValues labels="fixed" items={Object.entries(snapshot.sources).map(([k, s]) => [k, s.error ? <span className="text-fail">{s.error}</span> : when(s.updated, zone)] as const)} />;
+  return <KeyValues labels="fixed" items={Object.entries(snapshot.sources).map(([k, s]) => [k, s.error ? <span className="text-fail-fg">{s.error}</span> : when(s.updated, zone)] as const)} />;
 }
 
 /** Details on the Market page: the picked coin, then the level the heatmap shows: at All the whole market

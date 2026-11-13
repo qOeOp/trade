@@ -39,7 +39,7 @@ function StartDialog({ candidate }: { candidate: string }) {
         <textarea value={text} disabled={pool} onChange={(e) => setText(e.target.value)} rows={3} spellCheck={false}
                   className="block w-full resize-none rounded-control border border-line-strong bg-island px-2 py-1 font-mono outline-none placeholder:text-fg-ghost focus:border-focus disabled:text-fg-ghost"
                   placeholder="BTCUSDT, ETHUSDT" />
-        <span className={`block text-small ${bad.length && !pool ? "text-fail" : "text-fg-faint"}`}>
+        <span className={`block text-small ${bad.length && !pool ? "text-fail-fg" : "text-fg-faint"}`}>
           {bad.length && !pool ? `Not a Binance symbol: ${bad.slice(0, 3).join(", ")}` : note ?? "Reading the last research replay…"}
         </span>
       </label>

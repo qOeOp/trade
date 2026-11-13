@@ -37,7 +37,7 @@ function Refused({ entry }: { entry: Entry }) {
 
 function Line({ label, refusal }: { label: string; refusal?: Refusal | null }) {
   if (!refusal) return null;
-  return <p className="text-fail">{label} {refusal.code}{refusal.message && <span className="text-fg-muted"> · {refusal.message}</span>}</p>;
+  return <p className="text-fail-fg">{label} {refusal.code}{refusal.message && <span className="text-fg-muted"> · {refusal.message}</span>}</p>;
 }
 
 function Details({ reply }: { reply: Reply }) {
@@ -76,7 +76,7 @@ export function MarketImportStatus() {
         <Popover.Content side="top" align="end" sideOffset={4} collisionPadding={8}
           className="z-50 max-h-[min(440px,var(--radix-popover-content-available-height))] w-max max-w-[min(720px,var(--radix-popover-content-available-width))] overflow-auto rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-popup outline-none">
           {service.kind === "ready" ? <Details reply={service.reply} />
-            : <p className="px-2 py-1 text-fail">{service.error.code}{service.error.message && <span className="text-fg-muted"> · {service.error.message}</span>}</p>}
+            : <p className="px-2 py-1 text-fail-fg">{service.error.code}{service.error.message && <span className="text-fg-muted"> · {service.error.message}</span>}</p>}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

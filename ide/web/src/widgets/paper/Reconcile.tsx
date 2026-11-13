@@ -72,7 +72,7 @@ function Row({ g, row, i, only, p }: { g: Group; row: OrderRow; i: number; only:
       <td className={`${CELL} text-left`}>
         {same || (!lead && row.class === "same") ? <span className="text-fg-faint">Same</span> : !lead ? <span className="text-fg-muted">{STAGE[row.stage ?? "decision"]} {KIND[row.class]}</span> : <>
           <Dot tone={suspect ? "bg-fail" : follows ? "bg-fg-muted" : "bg-misses"} />
-          <span className={suspect ? "text-fail" : follows ? "text-fg-muted" : "text-misses-fg"}>{differs(g)}</span>
+          <span className={suspect ? "text-fail-fg" : follows ? "text-fg-muted" : "text-misses-fg"}>{differs(g)}</span>
           {row.class === "quantity" && <span className="text-fg-muted"> {fixed(row.run?.fill?.qty ?? row.run?.qty, p.size) ?? MISSING} vs {fixed(row.replay?.fill?.qty ?? row.replay?.qty, p.size) ?? MISSING}</span>}
           {g.cause && <span className="text-fg-muted"> · {suspect ? "look-ahead suspect"
             : g.cause === "consequence" ? `after the difference at ${g.follows ? dateTime(utcInstant(g.follows), zone) : MISSING}` : CAUSE[g.cause]}</span>}
@@ -108,7 +108,7 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
   if (r.state === "failed" || !r.result) {
     const uncovered = r.error?.code === "PAPER_RECONCILE_UNCOVERED";
     return <Prompt action={() => void reconcile(paperId)} label="Try again">
-      <span className={uncovered ? "" : "text-fail"}>{uncovered ? "The market does not hold this run's minutes yet. " : `${r.error?.code ?? "Failed"}: `}</span>{r.error?.message}
+      <span className={uncovered ? "" : "text-fail-fg"}>{uncovered ? "The market does not hold this run's minutes yet. " : `${r.error?.code ?? "Failed"}: `}</span>{r.error?.message}
     </Prompt>;
   }
   const { groups, inputs, replay } = r.result;
@@ -116,11 +116,11 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
   const missing = barsOf.reduce((n, b) => n + b.missing_bars, 0), late = barsOf.reduce((n, b) => n + b.late_bars, 0);
   const unlike = barsOf.reduce((n, b) => n + b.differing_bars, 0);
   const barCounts = <span className="text-fg-faint">{plural(missing, "live bar")} missing, {late} late, {unlike} unlike the archive</span>;
-  const invalid = replay.status === "invalid" && <p className="px-3 pb-2 text-dense text-fail">The replay is invalid: {replay.problems.map((p) => p.code ?? p.message).join(", ")}</p>;
+  const invalid = replay.status === "invalid" && <p className="px-3 pb-2 text-dense text-fail-fg">The replay is invalid: {replay.problems.map((p) => p.code ?? p.message).join(", ")}</p>;
   if (!groups) return (
     <div className="flex flex-col">
       <p className="flex flex-wrap gap-x-2 gap-y-1 px-3 py-2 text-dense tabular-nums text-fg-muted">
-        <span className="text-fail">The replay wrote no order events, so its orders cannot be compared</span>
+        <span className="text-fail-fg">The replay wrote no order events, so its orders cannot be compared</span>
         <span className="text-fg-faint">·</span>{barCounts}
       </p>
       {invalid}
@@ -141,7 +141,7 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
           <Count key="differ" n={count("differs")} one="differs" many="differ" tone="text-misses-fg" />,
           <Count key="paper" n={count("run_only")} one="only on paper" many="only on paper" tone="text-misses-fg" />,
           <Count key="replay" n={count("replay_only")} one="only in the replay" many="only in the replay" tone="text-misses-fg" />,
-          <Count key="suspects" n={suspects} one="look-ahead suspect" tone="text-fail" />,
+          <Count key="suspects" n={suspects} one="look-ahead suspect" tone="text-fail-fg" />,
           ...(following ? [<span key="following" className="text-fg-faint">{following} after an earlier difference</span>] : []),
           <span key="bars">{barCounts}</span>,
         ].flatMap((item, i) => (i ? [<span key={`sep-${i}`} className="text-fg-faint">·</span>, item] : [item]))}

@@ -39,7 +39,7 @@ export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain:
   if (sealed) return <Ended run={run} errors={raisedLink || undefined} />;
   const until = waitingUntil(run);
   if (until !== null) return <span className="text-misses-fg">{raisedLink && <>{raisedLink} · </>}{waitingText(until, now, zone)}</span>;
-  if (run.state !== "running" || state.late) return <span className={state.tone === "fail" ? "text-fail" : "text-misses-fg"}>{raisedLink && <>{raisedLink} · </>}{state.text}</span>;
+  if (run.state !== "running" || state.late) return <span className={state.tone === "fail" ? "text-fail-fg" : "text-misses-fg"}>{raisedLink && <>{raisedLink} · </>}{state.text}</span>;
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
       {raisedLink && <span>{raisedLink} ·</span>}

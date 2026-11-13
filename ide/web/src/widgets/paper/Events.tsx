@@ -33,7 +33,7 @@ export function EventsTools({ s, only }: { s: Stream | null; only: string | null
 function Chip({ status }: { status: Status | null }) {
   if (!status) return null;
   return (
-    <span className={`inline-flex shrink-0 items-center gap-1 rounded-badge border px-1.5 text-small leading-4 ${status.failed ? "border-fail text-fail" : "border-line-strong text-fg-muted"}`}>
+    <span className={`inline-flex shrink-0 items-center gap-1 rounded-badge border px-1.5 text-small leading-4 ${status.failed ? "border-fail text-fail-fg" : "border-line-strong text-fg-muted"}`}>
       {status.failed && <Icon name="warning" size={12} />}{status.text}
     </span>
   );
@@ -51,7 +51,7 @@ function Row({ line, onClick, picked, gutter, category, text, status, title }: {
       <span title={dateTime(eventMs(line), zone)} className="font-mono text-small text-fg-faint">{clockTime(eventMs(line), zone)}</span>
       <span className="truncate font-mono text-small @max-md/page:hidden">{symbolOf(line.instrument_id) || ""}</span>
       <span className="flex items-center gap-1.5 text-small text-fg-muted @max-md/page:hidden">{c === "strategy" && <i className="-ml-3 size-1.5 shrink-0 rounded-full bg-event" />}{category ?? (c ? CATEGORY_LABEL[c] : "")}</span>
-      <span className="flex min-w-0 items-center gap-2"><span className={`truncate ${line.kind === "data_gap" ? "text-fail" : ""}`}>{text}</span><Chip status={status} /></span>
+      <span className="flex min-w-0 items-center gap-2"><span className={`truncate ${line.kind === "data_gap" ? "text-fail-fg" : ""}`}>{text}</span><Chip status={status} /></span>
     </div>
   );
 }

@@ -10,7 +10,7 @@ export function LiveReview({ run, inspect }: { run: LiveRun; inspect: LiveTradin
   const action = useLiveAction(), review = run.review;
   return <Section title="Research review">
     <div className="space-y-3">
-      {run.reviewError ? <p className="text-dense text-fail">Review could not be read · {run.reviewError}. Registration status is unknown.</p> : review ? <>
+      {run.reviewError ? <p className="text-dense text-fail-fg">Review could not be read · {run.reviewError}. Registration status is unknown.</p> : review ? <>
         <KeyValues items={[["Research commit", <span className="break-all">{review.research_at}</span>],
           ["Replay evidence", review.evidence.map((row) => `trial ${row.trial_id} · ${row.starting_balance_usdt} USDT`).join(", ")]]} />
         {review.validations.length === 0 ? <p className="text-dense text-fg-muted">No registrations at this exact research commit.</p>

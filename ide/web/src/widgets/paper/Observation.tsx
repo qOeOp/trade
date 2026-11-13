@@ -15,7 +15,7 @@ export function Observation({ run, s, part }: { run: PaperRun; s: Stream; part?:
   if (!sentences && through === null && (s.connected || s.seal)) return null;
   if (!facts && !run.recovery && until === null && !restarted) return null;
   return <div role="status" className={`flex shrink-0 flex-wrap gap-x-3 gap-y-1 text-small tabular-nums ${sentences ? "mx-3 mb-2" : ""}`}>
-    {sentences && run.recovery && <span className="text-fail">Recovery paused. The original account and records are retained.</span>}
+    {sentences && run.recovery && <span className="text-fail-fg">Recovery paused. The original account and records are retained.</span>}
     {sentences && until !== null && <span className="text-misses-fg">{waitingText(until, now, zone)}</span>}
     {facts && through !== null && <span className={stale ? "text-misses-fg" : "text-fg-muted"}>{stale || run.state === "sealed" ? "Historical data" : "Data"} through {utcMinute(through, zone)}</span>}
     {facts && !s.connected && !s.seal && <span className="text-misses-fg">Stream disconnected</span>}

@@ -64,7 +64,7 @@ export function LivePage({ id }: { id: string }) {
       {/* Stop is for a run going as it should; an unresolved one is reconciled on the desktop or closed at Binance. */}
       {run.running && !stopRequested(run) && liveStatus(run).word !== "Unresolved" && actions.stop && (
         <div className="shrink-0 border-t border-line bg-island px-3 py-2">
-          <FormButton icon="stop" className="w-full text-fail" onClick={() => setStopping(true)}>Request stop…</FormButton>
+          <FormButton icon="stop" className="w-full text-fail-fg" onClick={() => setStopping(true)}>Request stop…</FormButton>
         </div>
       )}
       <StopSheet run={run} open={stopping} onClose={() => setStopping(false)} />

@@ -38,7 +38,7 @@ export function SettingsPane() {
                      onEdit={() => setEditing(agent)} onDelete={() => void remove(agent)} />))}
       {editing === "new" ? <AgentEditor agent={null} onDone={done} />
         : <FormButton icon="plus" onClick={() => setEditing("new")}>Add an agent</FormButton>}
-      {error && <p className="text-dense break-words text-fail">{error}</p>}
+      {error && <p className="text-dense break-words text-fail-fg">{error}</p>}
       <p className="pt-2 text-small text-fg-faint">
         Keys stay in the chat service's data directory on the machine serving this page (0600). They are never written to the ledger, which is public, and never sent back to this page.
       </p>

@@ -41,7 +41,7 @@ export function RunsWidget() {
     </div>
   );
   if (stage !== "paper") return widget;
-  if (service !== "present") return <>{widget}{service === "offline" && <span className="ml-2 truncate text-dense text-fail">Paper daemon offline</span>}</>;
+  if (service !== "present") return <>{widget}{service === "offline" && <span className="ml-2 truncate text-dense text-fail-fg">Paper daemon offline</span>}</>;
   if (!run) return widget;
   return (
     <>

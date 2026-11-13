@@ -48,7 +48,7 @@ export function UnresolvedNotice({ run }: { run: LiveRun }) {
 /** A held position's protection: its stop and how far it is from the mark, or that it has none. */
 export function StopLine({ trigger, mark, ended }: { trigger: number | null | undefined; mark: number | null; ended: boolean }) {
   const gap = trigger == null ? null : away(trigger, mark);
-  return <p className={`text-small ${trigger != null ? "text-fg-faint" : "text-fail"}`}>{trigger != null ? `Stop ${fixed(trigger)}${gap !== null ? ` · ${(gap * 100).toFixed(1)}% away` : ""}` : "No protective stop"}{ended && " · left open at Binance"}</p>;
+  return <p className={`text-small ${trigger != null ? "text-fg-faint" : "text-fail-fg"}`}>{trigger != null ? `Stop ${fixed(trigger)}${gap !== null ? ` · ${(gap * 100).toFixed(1)}% away` : ""}` : "No protective stop"}{ended && " · left open at Binance"}</p>;
 }
 
 /** A Live run on the Runs tab: its state, the account now, the last fill, the loss threshold used, and what it holds

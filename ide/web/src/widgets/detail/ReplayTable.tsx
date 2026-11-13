@@ -35,7 +35,7 @@ export function ReplayTable({ trials, targets }: { trials: Trial[]; targets: Tar
     col.accessor("sharpe", { header: "Sharpe", meta: { numeric: true }, sortUndefined: "last", cell: (x) => value(x.getValue(), ratio(x.getValue())) }) as Column<Trial>,
     col.accessor("eligible", { header: "Elig", meta: { align: "right", width: FIT.elig }, cell: (x) => {
       const t = x.row.original;
-      if (t.eligible === false) return <span className="text-fail">Lost</span>;
+      if (t.eligible === false) return <span className="text-fail-fg">Lost</span>;
       // The check's ink stops 1px inside its box; the margin puts it flush with the header's right edge.
       return t.eligible ? <Icon name="check" tone="meets" className="-mr-px align-middle" /> : <Missing />;
     } }) as Column<Trial>,
@@ -55,8 +55,8 @@ export function ReplayTable({ trials, targets }: { trials: Trial[]; targets: Tar
               <span className="shrink-0 tabular-nums text-fg-faint">Trial {t.trial_id}</span>
               <span className="min-w-0 truncate" title={t.ineligible_reason ?? undefined}>
                 {t.ineligible_reason ? reasonLabels(t.ineligible_reason).map((r, i) => (
-                  <span key={i}>{i > 0 && "; "}<span className="text-fail">{r.label}</span>{r.detail && <span className="text-fg-faint"> {r.detail}</span>}</span>
-                )) : <span className="text-fail">Ineligible</span>}
+                  <span key={i}>{i > 0 && "; "}<span className="text-fail-fg">{r.label}</span>{r.detail && <span className="text-fg-faint"> {r.detail}</span>}</span>
+                )) : <span className="text-fail-fg">Ineligible</span>}
               </span>
             </li>
           ))}

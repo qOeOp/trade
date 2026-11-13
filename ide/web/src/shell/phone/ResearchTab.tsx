@@ -13,7 +13,7 @@ import { Track } from "../../widgets/detail/ReadingsBoard";
 import { PhoneTop } from "./PhoneTop";
 
 const short = (bundle: string) => bundle.replace(/^research-line-/, "");
-const Said = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => <span className={ok ? "text-meets" : "text-misses-fg"}>{ok ? yes : no}</span>;
+const Said = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => <span className={ok ? "text-meets-fg" : "text-misses-fg"}>{ok ? yes : no}</span>;
 
 /** What a line recommends, opened in its row: the version, its max drawdown along the track to the limit, its annual
  *  return against the minimum, and how long the recommendation has stood; or that its latest research run is no

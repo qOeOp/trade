@@ -40,7 +40,7 @@ export function ResearchSyncItem({ failure, busy }: { failure: string | null; bu
     <DropdownItem icon="sync" name={name} description={what === name ? undefined : what} onHighlight={highlight}
       onSelect={() => { if (!busy) void readResearchSync(true); }}>
       <Retype text={on ? what : name} holds={what.length > name.length ? what : name}
-        className={`max-w-[30rem] ${failure ? "text-fail" : busy || on ? "text-fg-muted" : ""}`} />
+        className={`max-w-[30rem] ${failure ? "text-fail-fg" : busy || on ? "text-fg-muted" : ""}`} />
     </DropdownItem>
   );
 }
@@ -70,7 +70,7 @@ export function ResearchSyncLine() {
   if (!sync || (!status && !error)) return null;
   const { text, failure } = syncText(status, error), last = status?.history?.[0]?.at;
   return (
-    <p role="status" className={`flex flex-wrap justify-between gap-x-3 border-b border-line px-3 py-1.5 text-small ${failure ? "text-fail" : "text-fg-muted"}`}>
+    <p role="status" className={`flex flex-wrap justify-between gap-x-3 border-b border-line px-3 py-1.5 text-small ${failure ? "text-fail-fg" : "text-fg-muted"}`}>
       <span>{text}</span>
       <span className="tabular-nums text-fg-faint">{status?.ledger_commit && <Commit sha={status.ledger_commit} />}{last && ` · ${when(last)}`}</span>
     </p>
@@ -87,7 +87,7 @@ export function ResearchSyncStatus() {
   return (
     <Popover.Root onOpenChange={(open) => { if (open) void readResearchSync(); }}>
       <Popover.Trigger aria-label={`${text}. Show the latest research syncs`}
-        className={`-mx-1.5 max-w-72 truncate rounded-control px-1.5 transition-colors hover:bg-hover active:bg-pressed data-[state=open]:bg-pressed ${failure ? "text-fail" : "text-fg-muted"}`}>
+        className={`-mx-1.5 max-w-72 truncate rounded-control px-1.5 transition-colors hover:bg-hover active:bg-pressed data-[state=open]:bg-pressed ${failure ? "text-fail-fg" : "text-fg-muted"}`}>
         {text}
       </Popover.Trigger>
       <Popover.Portal>
@@ -95,7 +95,7 @@ export function ResearchSyncStatus() {
           className="z-50 max-h-[min(440px,var(--radix-popover-content-available-height))] w-max max-w-[min(720px,var(--radix-popover-content-available-width))] overflow-auto rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-popup outline-none">
           <div className="flex flex-col gap-0.5 px-2 pt-1 pb-2 text-fg-muted">
             {place && <p>From {place.name}{status?.ledger_commit && <> · at <Commit sha={status.ledger_commit} /></>}</p>}
-            {failure && <p className="text-fail">{failure}</p>}
+            {failure && <p className="text-fail-fg">{failure}</p>}
           </div>
           {moves.length ? (
             <div className="[&_tbody_tr:last-child_td]:border-b-0">

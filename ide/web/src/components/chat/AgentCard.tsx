@@ -25,7 +25,7 @@ function StepRow({ step }: { step: Step }) {
   return <>
     <span className="grid h-4.5 place-items-center"><Icon name={step.ok ? "passed" : "failed"} size={12} tone={step.ok ? "meets" : "fail"} /></span>
     <span className="text-fg-muted">{STEP[step.name]}</span>
-    <span className={`[overflow-wrap:anywhere] ${step.ok ? "text-fg-faint" : "text-fail"}`}>{step.detail}</span>
+    <span className={`[overflow-wrap:anywhere] ${step.ok ? "text-fg-faint" : "text-fail-fg"}`}>{step.detail}</span>
   </>;
 }
 
