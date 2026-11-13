@@ -564,11 +564,12 @@ class SealedReplayTests(unittest.TestCase):
             stored = self.run_ref(self.refs[16])
         self.assertEqual((stored["status"], stored["failure_reasons"]), ("passed", []))
 
-    def test_a_timeout_stops_the_container_of_its_stage(self):
+    def test_a_timeout_stops_the_container_of_its_stage_and_is_refused(self):
         def slow(command, stdout, stderr, timeout):
             raise subprocess.TimeoutExpired(command, timeout)
-        with tempfile.TemporaryDirectory() as workdir, seams.use(run=slow), self.assertRaises(entry.ReplayTimeout):
+        with tempfile.TemporaryDirectory() as workdir, seams.use(run=slow), self.assertRaises(Refusal) as caught:
             entry._stage(["run"], "reconcile-native", Path(workdir), "native", 60.0, 60.0)
+        self.assertEqual((caught.exception.code, caught.exception.write_status), ("REPLAY_TIMEOUT", "not_written"))
         self.assertEqual(self.world.stopped[-1], "reconcile-native")
 
     def test_a_ledger_restart_while_the_containers_run_still_seals_and_stores_the_run(self):
