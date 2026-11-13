@@ -73,7 +73,7 @@ export function ResearchLines({ index }: { index: LineIndex }) {
           </>}
         </DropdownGridLabel>
         {rows.map((item) => <DropdownGridLink key={item.name} href={lineHref(window.location.href, item.name)} current={item.name === line.bundle}>
-          <span title={item.name} className={`${NAME} block max-w-[22ch] truncate font-mono ${item.closed ? "text-fg-muted" : ""}`}>{item.name.replace(/^research-line-/, "")}</span>
+          <span title={item.name} className={`${NAME} block max-w-[22ch] truncate font-mono ${item.closed ? "text-fg-muted" : ""}`}>{item.name}</span>
           <span className={`${DEV} text-fg-faint`} title={byMonth ? `${item.dev_start} → ${item.dev_end}` : undefined}>{when(item)}</span>
           <Recommendation r={readings[item.name]} targets={item.targets ?? null} />
         </DropdownGridLink>)}

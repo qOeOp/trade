@@ -9,9 +9,9 @@ import { productTools } from "./tools.ts";
 
 const HOST = "127.0.0.1:8766";
 const product = { root: "/opt/trade", ledger: "research", market: null };
-const state = { line: { bundle: "research-line-ema" }, ledger_commit: "abc" };
+const state = { line: { bundle: "ema-cross" }, ledger_commit: "abc" };
 
-function setup(model = streaming("research_state", {}, "The line is research-line-ema.")) {
+function setup(model = streaming("research_state", {}, "The line is ema-cross.")) {
   const dir = dataDir();
   const agents = new AgentStore(dir);
   const ran: string[][] = [];
@@ -101,7 +101,7 @@ test("a chat answer streams the tool call, its product output, the text and the 
   assert.deepEqual(chunks.find((c) => c.type === "start").messageMetadata, { agent: "Claude", provider: "anthropic", model: "m1" });
   const deltas = chunks.filter((c) => c.type === "text-delta");
   assert.ok(deltas.length > 1, "the text arrives in pieces");
-  assert.equal(deltas.map((c) => c.delta).join(""), "The line is research-line-ema.");
+  assert.equal(deltas.map((c) => c.delta).join(""), "The line is ema-cross.");
 });
 
 test("a model that would call tools forever still answers in the last step", async () => {
