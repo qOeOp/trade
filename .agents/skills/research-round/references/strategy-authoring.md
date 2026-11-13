@@ -191,8 +191,8 @@ its parent and the difference; a root has none. A new revision of the same strat
 its description what it fixes from the previous revision and why, since the difference stays
 relative to the parent. A description gives the rule, its sources and its non-claims.
 
-Any later source change is a new candidate. A draft can be tried before publishing with `replay explore`; it
-is never evidence. In the precheck, confirm every filled entry has the protection its source gives
+Any later source change is a new candidate. A draft can be tried before publishing with `replay explore`.
+In the precheck, confirm every filled entry has the protection its source gives
 it, every order carries one plan tag and every stop and exit names its plan's position, no order precedes
 trade start, none was denied or rejected, and fills, fees, funding and account rows appear in the
 native reports. Never run the replay with `docker run` or `python -m engine...` directly.
@@ -210,8 +210,7 @@ is in `engine/README.md`.
   a replay image whose `--describe` replay code matches the execution image. Live refuses without
   such a replay within 10% of the wallet (`LIVE_EVIDENCE_MISSING`, `LIVE_EVIDENCE_BALANCE`).
 
-- Live needs the account flat when the run starts; entries arriving together each wait, in order,
-  for their own account check. Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:
+- Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:
   handle the end as a cancel.
 - Size from USDT equity, never a fixed USDT amount; each multiple (x1, x2) is its own version,
   scaling only the notional limit. Live measures the 3-times limit also against the account's USDT
