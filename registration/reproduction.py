@@ -60,13 +60,13 @@ def reproductions(conn: db.LedgerConnection, trial_id: int) -> list[dict]:
 def fingerprint_hash(capture: Mapping) -> str | None:
     """The original fingerprint hash only after all execution stages completed cleanly."""
     stages = capture.get("stages") or {}
-    audit = problems.json_object(problems.sealed(capture, execution.AUDIT_RESULT))
+    audit = problems.json_object(problems.sealed(capture, problems.AUDIT_RESULT))
     if (capture.get("status") != "captured" or (capture.get("outcome") or {}).get("kind") != "completed"
             or capture.get("runtime_failures") or audit is None or audit.get("passed") is not True or any(
                 not isinstance(stages.get(stage), Mapping) or stages[stage].get("state") != "exited"
                 or stages[stage].get("exit_code") != 0 for stage in execution.STAGES)):
         return None
-    entry = (capture.get("listed") or {}).get(execution.FINGERPRINT_RESULT) or {}
+    entry = (capture.get("listed") or {}).get(problems.FINGERPRINT_RESULT) or {}
     return entry.get("sha256") if entry.get("status") in ("captured", "hashed") else None
 
 

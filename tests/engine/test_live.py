@@ -19,7 +19,7 @@ from nautilus_trader.model import AccountId, InstrumentId, OrderSide, OrderStatu
 
 from engine import live
 from engine import live_commands as commands, live_lifecycle, live_node, live_session, live_source as live_source_runtime
-from engine.config import Refusal
+from engine.config import RUNTIME_CONTRACT, Refusal
 from engine.live_errors import LiveRefusal
 from engine.live_records import strategy_ids
 from engine.live_venue import Credentials
@@ -68,7 +68,7 @@ class LiveTests(unittest.TestCase):
                 "entry_class": "Source",
                 "source_sha256": hashlib.sha256(SOURCE.encode()).hexdigest()},
             "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
-                        "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v8"},
+                        "image_digest": "sha256:" + "a" * 64, "runtime_contract": RUNTIME_CONTRACT},
             "config": {"drawdown_brake": "0.15", "duration_seconds": 30, "leverage": "50"},
             "market": {"market_day": MARKET_DAY, "terms": {"BTCUSDT": {
                 "price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}},

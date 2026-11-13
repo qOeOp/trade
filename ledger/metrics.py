@@ -28,8 +28,9 @@ import re
 import subprocess
 from typing import Any
 
+from engine.compare import TABLES
 from engine.native_csv import dict_reader
-from ledger import db
+from ledger import db, problems
 from shared import paths
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -49,15 +50,11 @@ CYCLE_COLUMNS = ("trial_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns
                  f"{PRICE_PNL}, open_unrealized, plan_tag, closing_order_type, closing_order_tag")
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 DAY_NS = 86_400 * 10**9
-REPORT_FILES = {"orders": "orders.csv", "fills": "fills.csv", "positions": "positions.csv", "account": "account.csv",
-                "returns": "returns_series.csv", "exposures": "exposures.csv.gz",
-                "order_events": "order_events.jsonl.gz", "fill_volumes": "fill_volumes.csv"}
+REPORT_FILES = {name: file for name, (file, _) in TABLES.items()}  # the sealed native reports
 ENGINE_ORDERS = ("EXPIRATION-", "LIQUIDATION-")  # the engine's own settlement and liquidation orders
 SUMMARY = "summary.json"
 SUMMARY_KEYS = ("starting_balance_usdt", "final_equity_usdt", "closed_trades", "data_interval_minutes",
                 "period_start_utc", "period_end_utc")
-AUDIT = "audit/audit.json"
-COVERAGE = "input-coverage.json"
 _NANOSECONDS = re.compile(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]00:?00)?\Z")
 
 
@@ -182,7 +179,8 @@ def _regular(path: Path) -> bytes | None:
 
 
 REPORTS_DIR = "reports"
-WORKDIR_FILES = (f"{REPORTS_DIR}/{SUMMARY}", *(f"{REPORTS_DIR}/{name}" for name in REPORT_FILES.values()), AUDIT)
+WORKDIR_FILES = (f"{REPORTS_DIR}/{SUMMARY}", *(f"{REPORTS_DIR}/{name}" for name in REPORT_FILES.values()),
+                 problems.AUDIT_RESULT)
 
 
 def load_directory(directory: Path) -> Reports:
@@ -234,10 +232,10 @@ def load_files(files) -> Reports:
         return value if isinstance(value, dict) else None
 
     summary = json_file(read(SUMMARY), SUMMARY)
-    audit = json_file(files.get(AUDIT), AUDIT)
+    audit = json_file(files.get(problems.AUDIT_RESULT), problems.AUDIT_RESULT)
     rows = {name: parsed(REPORT_FILES[name], _csv) or [] for name in ("orders", "fills", "positions")}
     account_rows = parsed(REPORT_FILES["account"], _csv)
-    returns = parsed(REPORT_FILES["returns"], lambda data: [(int(row["ts_event_ns"]), float(row["native_return"]))
+    returns = parsed(REPORT_FILES["returns_series"], lambda data: [(int(row["ts_event_ns"]), float(row["native_return"]))
                                                             for row in _csv(data)])
     exposure_rows = parsed(REPORT_FILES["exposures"], ExposureRows)
     events = parsed(REPORT_FILES["order_events"], lambda data: [json.loads(line) for line in
@@ -328,12 +326,12 @@ def _loaded(trial_id: int, run: dict | None, trial: dict | None, capture, sealed
     stored_identity = capture["start"].get("input_identity")
     receipts = [capture.get("input_coverage")]
     started = capture.get("input_coverage_bytes")
-    if capture["status"] == "captured" and (started is None or execution.listed_sha256(capture, COVERAGE)
+    if capture["status"] == "captured" and (started is None or execution.listed_sha256(capture, problems.COVERAGE)
                                             != hashlib.sha256(started).hexdigest()):
         receipts.append(None)  # the receipt the container read is not the start receipt's
     if any(not isinstance(item, dict) or item.get("input_identity") != stored_identity for item in receipts):
         raise refuse("EXECUTION_IDENTITY", f"the coverage receipts of run {trial_id} name other inputs than its stored "
-                                           "input identity", missing=(COVERAGE,))
+                                           "input identity", missing=(problems.COVERAGE,))
     unavailable = []
     if run["status"] == "passed" and capture["status"] != "captured":
         unavailable.append(f"CAPTURE_MISSING: {capture.get('reason')}")

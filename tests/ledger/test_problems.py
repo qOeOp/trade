@@ -74,26 +74,14 @@ if __name__ == "__main__":
 
 
 class ConfigHashTests(unittest.TestCase):
-    """The host derives the effective configuration hash the image recorded, writes the coverage receipt the
-    image reads and publishes under the contract the image declares; both sides must agree byte for byte."""
+    """The host writes the coverage receipt the image reads; both sides must name the same format."""
 
-    def test_host_and_image_name_the_same_coverage_format_and_runtime_contract(self):
-        from engine import config as engine_config, load
-        from ledger import coverage, strategies
+    def test_host_and_image_name_the_same_coverage_format(self):
+        from engine import load
+        from ledger import coverage
         self.assertEqual(coverage.FORMAT, load.COVERAGE_FORMAT)
-        self.assertEqual(strategies.RUNTIME_CONTRACT, engine_config.RUNTIME_CONTRACT)
 
-    def test_host_and_image_hash_the_same_configuration_alike(self):
+    def test_the_configuration_hash_refuses_a_nan(self):
         from engine import config as engine_config
-        self.assertEqual(problems.HOST_PATH_KEYS, engine_config.HOST_PATH_KEYS)
-        value = {"execution": "bars", "label": "名前 ü", "fees": {"maker": 0.0002, "taker": 0.0005},
-                 "symbols": ["BTCUSDT"], "market_root": "/host/market", "universe_path": "/host/universe.json"}
-        self.assertEqual(problems.config_sha256(value), engine_config.config_sha256(value))
-
-    def test_neither_side_hashes_a_nan(self):
-        from engine import config as engine_config
-        value = {"leverage": float("nan")}
         with self.assertRaises(ValueError):
-            problems.config_sha256(value)
-        with self.assertRaises(ValueError):
-            engine_config.config_sha256(value)
+            engine_config.config_sha256({"leverage": float("nan")})

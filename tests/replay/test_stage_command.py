@@ -9,13 +9,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from engine.config import RUNTIME_CONTRACT
 from shared.errors import Refusal
 from replay import entry, seams
 from runtime import container
 
 
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
-            "platform": "linux/arm64", "runtime_contract": "replay-contract@v8"}
+            "platform": "linux/arm64", "runtime_contract": RUNTIME_CONTRACT}
 
 
 class StageCommandTests(unittest.TestCase):
@@ -25,7 +26,7 @@ class StageCommandTests(unittest.TestCase):
         self.root = Path(temp.name)
         for name in ("reports", "audit"):
             (self.root / name).mkdir()
-        self.layout = seams.current.layout("replay-contract@v8")
+        self.layout = seams.current.layout(RUNTIME_CONTRACT)
 
     def command(self, mounts, module=None, argv=("--run", "/native/reports")):
         return seams.current.container_command(IDENTITY, mounts, module or self.layout["audit_module"], list(argv),

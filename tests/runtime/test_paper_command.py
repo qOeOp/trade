@@ -6,12 +6,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from engine.config import RUNTIME_CONTRACT
 from shared.errors import Refusal
 from runtime import container
 
 
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
-            "platform": "linux/arm64", "runtime_contract": "replay-contract@v8"}
+            "platform": "linux/arm64", "runtime_contract": RUNTIME_CONTRACT}
 
 
 class PaperCommandTests(unittest.TestCase):

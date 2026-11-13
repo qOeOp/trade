@@ -14,13 +14,13 @@ from collections.abc import Mapping
 import hashlib
 import json
 
-from ledger import db
 
-
+# A trial's capture paths, relative to its working directory.
+COVERAGE = "input-coverage.json"
 AUDIT_RESULT = "audit/audit.json"
 RUNTIME_ERRORS = "reports/runtime_failures.jsonl"  # engine.execution_failure
 SUMMARY = "reports/summary.json"
-FINGERPRINT = "fingerprint/fingerprint.json"
+FINGERPRINT_RESULT = "fingerprint/fingerprint.json"
 FAILURE_FIELDS = ("stage", "exception_type")
 FAILURE_TEXT_LIMIT = 300  # characters of a failure message kept in a reason
 # engine.main stages that end before any market data reaches the strategy (execution_failure): binding,
@@ -29,9 +29,7 @@ FAILURE_TEXT_LIMIT = 300  # characters of a failure message kept in a reason
 PRE_STRATEGY_STAGES = frozenset({"execution_binding", "load", "inputs"})
 # engine.run.plan_instances: refusals of the replay stage raised before any strategy instance exists
 PRE_STRATEGY_REPLAY_CODES = frozenset({"WARMUP_INSUFFICIENT", "NO_ACTIVE_INSTRUMENT"})
-OVERFLOW_STAGE = "receipt_overflow"  # engine.run.OVERFLOW_STAGE: the failures beyond the itemised records
-# engine.config.HOST_PATH_KEYS: the host paths the effective configuration hash leaves out
-HOST_PATH_KEYS = ("market_root", "universe_path")
+OVERFLOW_STAGE = "receipt_overflow"  # engine.strategy.OVERFLOW_STAGE: the failures beyond the itemised records
 
 REASONS: dict[str, str] = {
     "EXECUTION_NOT_COMPLETED": "The replay was interrupted or failed on the host before it completed.",
@@ -76,14 +74,6 @@ def reason(code: str, message: str, locator=None) -> dict:
     """One failure reason {code, message, locator}; an uncatalogued code is a KeyError."""
     REASONS[code]
     return {"code": code, "message": message, "locator": locator}
-
-
-def config_sha256(effective_config: Mapping) -> str:
-    """The effective configuration hash by the engine's rule (engine.config.config_sha256): SHA-256 of the
-    canonical JSON of the configuration without its host paths. The host derives it from the sealed
-    configuration and never takes it from a caller."""
-    hashed = {key: value for key, value in effective_config.items() if key not in HOST_PATH_KEYS}
-    return hashlib.sha256(db.canonical_json(hashed).encode()).hexdigest()
 
 
 def unique(reasons) -> list[dict]:
@@ -285,9 +275,9 @@ def capture_fingerprint(capture: Mapping, verified: Mapping[str, bytes] | None =
     if _exit(stage) != 0:
         return None, [reason("FINGERPRINT_FAILED", f"the fingerprint stage ended {stage.get('state')} with exit "
                                                    f"code {stage.get('exit_code')}", "fingerprint")]
-    value = json_object(sealed(capture, FINGERPRINT, verified))
+    value = json_object(sealed(capture, FINGERPRINT_RESULT, verified))
     if value is None:
-        return None, [reason("FINGERPRINT_FAILED", "the fingerprint stage wrote no JSON object", FINGERPRINT)]
+        return None, [reason("FINGERPRINT_FAILED", "the fingerprint stage wrote no JSON object", FINGERPRINT_RESULT)]
     return value, []
 
 

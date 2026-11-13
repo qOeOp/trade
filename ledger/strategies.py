@@ -12,6 +12,7 @@ import ast
 import hashlib
 import re
 
+from engine.config import RUNTIME_CONTRACT  # in force at publication: the one the runtime images declare
 from ledger import db
 from shared.refusals import refuse
 
@@ -19,9 +20,6 @@ from shared.refusals import refuse
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")
 MAX_SOURCE_BYTES = 8 * 1024 * 1024  # uncalibrated example value
 NOTE_LIMIT = 2000
-# The runtime contract in force at publication: the one the runtime images declare
-# (engine.config.RUNTIME_CONTRACT; tests/ledger/test_problems.py keeps the two equal).
-RUNTIME_CONTRACT = "replay-contract@v8"
 
 
 def check_source(source: bytes, entry_class: str) -> None:

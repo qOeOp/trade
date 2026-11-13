@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ledger import coverage, db, evidence, execution, strategies, trials
+from ledger import coverage, db, evidence, execution, problems, strategies, trials
 from shared.errors import Refusal
 from tests.ledger import dolt
 from tests.ledger.dolt import ACCOUNT, BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, SYMBOLS, Service, sha, source
@@ -71,7 +71,7 @@ class LedgerCase(unittest.TestCase):
 
     def workdir(self, files: dict[str, bytes]) -> Path:
         root = Path(tempfile.mkdtemp(prefix="capture-", dir=self.service.root))
-        for name, data in {"source/strategy.py": self.data, execution.COVERAGE: COVERAGE, **files}.items():
+        for name, data in {"source/strategy.py": self.data, problems.COVERAGE: COVERAGE, **files}.items():
             (root / name).parent.mkdir(parents=True, exist_ok=True)
             (root / name).write_bytes(data)
         return root
@@ -136,7 +136,7 @@ class CaptureTests(LedgerCase):
         """E3: the start receipt, the runtime failures and the audit result; every other captured file by its
         stored hash. The bytes it reads are still hash checked."""
         failures = json.dumps({"stage": "load", "code": "X"}).encode() + b"\n"
-        kept, broken = (self.workdir({"native.stdout.txt": b"ran\n", execution.RUNTIME_ERRORS: failures + extra})
+        kept, broken = (self.workdir({"native.stdout.txt": b"ran\n", problems.RUNTIME_ERRORS: failures + extra})
                         for extra in (b"", b"\n"))
         kept_id, broken_id = self.trial(kept), self.trial(broken)
         self.seal(kept_id, kept)
@@ -153,7 +153,7 @@ class CaptureTests(LedgerCase):
         read = execution.read_captures(self.conn, [kept_id, broken_id], listing=True)
         self.assertEqual((read[broken_id].code), "LEDGER_CORRUPT", "a file a listing reads is read with its bytes or refused")
         full, listed = execution.read_capture(self.conn, kept_id), read[kept_id]
-        self.assertEqual(set(listed["files"]), {execution.RUNTIME_ERRORS})
+        self.assertEqual(set(listed["files"]), {problems.RUNTIME_ERRORS})
         self.assertEqual(listed["listed"]["native.stdout.txt"], {"status": "captured", "sha256": sha(b"ran\n")})
         for key in ("status", "stages", "outcome", "statuses", "runtime_failures", "start", "input_coverage",
                     "input_coverage_bytes", "table_hashes"):
@@ -165,15 +165,15 @@ class CaptureTests(LedgerCase):
         self.seal(trial_id, workdir)
         read = execution.read_capture(self.conn, trial_id)
         self.assertEqual({path: (read["statuses"][path], read["listed"][path]["sha256"])
-                          for path in (execution.CAPTURED_SOURCE, execution.COVERAGE)},
+                          for path in (execution.CAPTURED_SOURCE, problems.COVERAGE)},
                          {execution.CAPTURED_SOURCE: ("hashed", sha(self.data)),
-                          execution.COVERAGE: ("hashed", sha(COVERAGE))})
-        self.assertEqual((execution.COVERAGE in read["files"], read["input_coverage_bytes"]), (False, COVERAGE))
+                          problems.COVERAGE: ("hashed", sha(COVERAGE))})
+        self.assertEqual((problems.COVERAGE in read["files"], read["input_coverage_bytes"]), (False, COVERAGE))
         self.assertNotIn(execution.SOURCE, evidence.load_bundle(self.conn, f"trial-{trial_id}-start")["files"],
                          "a published source is the candidate's")
         self.assertEqual(self.service.sql(self.profile, "SELECT path, status, sha256, length FROM trial_file WHERE "
-                                                        "trial_id = %s AND path = %s", (trial_id, execution.COVERAGE)),
-                         [(execution.COVERAGE, "hashed", sha(COVERAGE), len(COVERAGE))])
+                                                        "trial_id = %s AND path = %s", (trial_id, problems.COVERAGE)),
+                         [(problems.COVERAGE, "hashed", sha(COVERAGE), len(COVERAGE))])
         draft = source("unpublished draft")
         drafted = self.workdir({execution.CAPTURED_SOURCE: draft})
         draft_id = trials.open_trial(self.conn, "explore", sha(draft), RUNTIME, COVERAGE, dolt.window(),
@@ -232,7 +232,7 @@ class CaptureTests(LedgerCase):
                         json.dumps(coverage_receipt(export_content_sha256="0" * 64)).encode()):
             workdir = self.workdir({})
             trial_id = self.trial(workdir)
-            (workdir / execution.COVERAGE).write_bytes(receipt)
+            (workdir / problems.COVERAGE).write_bytes(receipt)
             process(workdir, trial_id, EXITED)
             with self.subTest(receipt=receipt[:40]):
                 self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, EXITED,

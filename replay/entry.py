@@ -40,7 +40,7 @@ from replay import seams
 from runtime import container
 
 
-COVERAGE = execution.COVERAGE
+COVERAGE = problems.COVERAGE
 REPORTS, AUDIT, SOURCE, FINGERPRINT = "reports", "audit", "source", "fingerprint"
 STRATEGY_DIR, REPORTS_MOUNT, NATIVE_MOUNT = "/strategy", "/reports", "/native/reports"
 COVERAGE_MOUNT = "/inputs/" + COVERAGE
@@ -113,14 +113,7 @@ def _read_json(path: Path):
 
 
 def _identity4(identity: Mapping) -> dict:
-    return {key: identity[key] for key in ("image_ref", "image_digest", "platform", "runtime_contract")}
-
-
-def _reserved(runner_argv: list[str]) -> None:
-    reserved = registration_seams.reserved_options(list(runner_argv))
-    if reserved:
-        raise refuse("RUNNER_OPTION_RESERVED", "the replay entry writes " + ", ".join(reserved) + " itself",
-                     missing=tuple(reserved))
+    return {key: identity[key] for key in execution.IDENTITY_FIELDS}
 
 
 def _resolve(runtime: str | None) -> dict:
@@ -207,8 +200,8 @@ def audit_problems(workdir: Path, native_exit: int | None, audit_exit: int | Non
     """Invalidity reasons from the exit codes, the audit result and the structured runtime failures
     of a working directory (ledger.audit_problems on its regular files)."""
     workdir = Path(workdir)
-    return problems.audit_problems(native_exit, audit_exit, metrics._regular(workdir / execution.AUDIT_RESULT),
-                                   metrics._regular(workdir / execution.RUNTIME_ERRORS))
+    return problems.audit_problems(native_exit, audit_exit, metrics._regular(workdir / problems.AUDIT_RESULT),
+                                   metrics._regular(workdir / problems.RUNTIME_ERRORS))
 
 
 def _directory_report(directory: Path) -> dict:
@@ -410,7 +403,7 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
     output = paths.temporary_path(output)
     if not isinstance(strategy_class, str) or not strategy_class.isidentifier():
         raise refuse("ENTRY_CLASS_INVALID", f"{strategy_class!r} is not one Python class name")
-    _reserved(runner_argv)
+    registration_seams.require_unreserved(list(runner_argv))
     _check_window(ledger, market, at, line, runner_argv)
     source = Path(strategy_file).read_bytes()
     source_sha256 = hashlib.sha256(source).hexdigest()
@@ -445,7 +438,7 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
     with db.connect(ledger, "reader") as conn:
         revision = strategies.read_candidate(conn, candidate)
     output = paths.temporary_path(output)
-    _reserved(runner_argv)
+    registration_seams.require_unreserved(list(runner_argv))
     _check_window(ledger, market, at, line, runner_argv)
     window = registration_seams.runner_inputs(list(runner_argv))["window"]
     trading_days = (window["end"] - window["trade_start"]) / (86_400 * 10**9)
@@ -496,7 +489,7 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
     if (registration is None) == (validation is None):
         raise refuse("REGISTRATION_REQUIRED", "give exactly one of a research or a validation registration",
                      expected="registration xor validation")
-    _reserved(runner_argv)
+    registration_seams.require_unreserved(list(runner_argv))
     if output is not None:
         output = paths.temporary_path(output)
     if validation is not None:

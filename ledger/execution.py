@@ -32,10 +32,8 @@ from shared.refusals import refuse
 
 
 SOURCE = "strategy.py"
-COVERAGE = "input-coverage.json"
 WORKDIR_MARKER = "trial.json"  # {trial_id, op_id} of the start write; outside every container mount
 CAPTURED_SOURCE = "source/strategy.py"
-RUNTIME_ERRORS = "reports/runtime_failures.jsonl"  # engine.execution_failure
 FILE_STATUSES = ("captured", "captured_empty", "hashed", "missing", "not_started")
 IMAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}\Z")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -79,7 +77,7 @@ def start_bundle(conn: db.LedgerConnection, trial_id: int, coverage: bytes, sour
     """Write trial-<trial_id>-start inside the caller's write: the coverage receipt, and the source bytes
     only when no candidate holds them (an exploration of an unpublished file)."""
     bundle = f"trial-{trial_id}-start"
-    files = {COVERAGE: coverage}
+    files = {problems.COVERAGE: coverage}
     if not conn.rows("SELECT 1 FROM candidate WHERE source_sha256 = %s", (hashlib.sha256(source).hexdigest(),)):
         files[SOURCE] = source
     evidence.write_files(conn, bundle, files, kind="start", trial_id=trial_id)
@@ -167,7 +165,7 @@ def read_capture(conn: db.LedgerConnection, trial_id: int) -> dict:
 
 # The captured files an availability reading and the derived measures read (the runtime failures and the audit
 # result's native economics); with the start receipt, the only bytes a listing reads.
-LISTING_FILES = (RUNTIME_ERRORS, metrics.AUDIT)
+LISTING_FILES = (problems.RUNTIME_ERRORS, problems.AUDIT_RESULT)
 
 
 def read_captures(conn: db.LedgerConnection, trial_ids: Iterable[int], *,
@@ -191,7 +189,7 @@ def read_captures(conn: db.LedgerConnection, trial_ids: Iterable[int], *,
                               chunk):
             listed.setdefault(row["trial_id"], {})[row["path"]] = row
     names = [f"trial-{trial_id}-{part}" for trial_id in ids for part in ("start", "capture")]
-    read = (COVERAGE, *LISTING_FILES)
+    read = (problems.COVERAGE, *LISTING_FILES)
     bundles = _bundles(conn, names, read if listing else None)
     if listing:
         stored = {}  # the files a listing does not read; one it reads is stored only with its bytes
@@ -221,10 +219,10 @@ def _capture(trial_id: int, trial: dict | None, row: dict | None, rows: Mapping[
     if trial is None:
         raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id} on this ledger version", missing=(str(trial_id),))
     start_files = _files(bundles, f"trial-{trial_id}-start")
-    if start_files is None or COVERAGE not in start_files:
+    if start_files is None or problems.COVERAGE not in start_files:
         raise refuse("EXECUTION_IDENTITY", f"the start bundle of trial {trial_id} is missing",
-                     missing=(f"trial-{trial_id}-start/{COVERAGE}",))
-    coverage_bytes = start_files[COVERAGE]
+                     missing=(f"trial-{trial_id}-start/{problems.COVERAGE}",))
+    coverage_bytes = start_files[problems.COVERAGE]
     coverage = _json(coverage_bytes)
     argv = json.loads(trial["runner_argv"]) if isinstance(trial["runner_argv"], (str, bytes)) else trial["runner_argv"]
     start = {"purpose": trial["purpose"], "runtime_identity": runtime_identity(trial), "argv": argv,
@@ -263,7 +261,7 @@ def _capture(trial_id: int, trial: dict | None, row: dict | None, rows: Mapping[
         raise refuse("EXECUTION_IDENTITY", f"the sealed source of trial {trial_id} is stored or is not the trial's "
                                            "source", missing=(f"{bundle}/{CAPTURED_SOURCE}",))
     failures = []
-    for line in captured.get(RUNTIME_ERRORS, b"").decode("utf-8", errors="replace").splitlines():
+    for line in captured.get(problems.RUNTIME_ERRORS, b"").decode("utf-8", errors="replace").splitlines():
         if line.strip():
             parsed = _json(line.encode("utf-8"))
             failures.append(parsed if parsed is not None else {"unparsed": line})
@@ -303,22 +301,20 @@ def read_files(workdir: Path, paths) -> dict[str, bytes]:
 # Sealing (seal_capture) and recovery (recover_capture, recovery_material)
 
 PROCESS = "process.json"  # the replay entry's record of stages and commands; checked, not stored
-AUDIT_RESULT = "audit/audit.json"
-FINGERPRINT_RESULT = "fingerprint/fingerprint.json"
 CAPTURE_FILES = ("native.stdout.txt", "native.stderr.txt", "audit.stdout.txt", "audit.stderr.txt",
-                 "fingerprint.stdout.txt", "fingerprint.stderr.txt", RUNTIME_ERRORS, "reports/summary.json",
-                 AUDIT_RESULT, FINGERPRINT_RESULT)
+                 "fingerprint.stdout.txt", "fingerprint.stderr.txt", problems.RUNTIME_ERRORS, problems.SUMMARY,
+                 problems.AUDIT_RESULT, problems.FINGERPRINT_RESULT)
 # Stored once elsewhere, so every capture records only their hash and length: the source (the candidate,
 # or the start receipt of an unpublished exploration) and the coverage receipt (the start receipt).
-HASHED_INPUTS = (CAPTURED_SOURCE, COVERAGE)
-AUDIT_FILES = frozenset({"audit.stdout.txt", "audit.stderr.txt", AUDIT_RESULT})
-FINGERPRINT_FILES = frozenset({"fingerprint.stdout.txt", "fingerprint.stderr.txt", FINGERPRINT_RESULT})
+HASHED_INPUTS = (CAPTURED_SOURCE, problems.COVERAGE)
+AUDIT_FILES = frozenset({"audit.stdout.txt", "audit.stderr.txt", problems.AUDIT_RESULT})
+FINGERPRINT_FILES = frozenset({"fingerprint.stdout.txt", "fingerprint.stderr.txt", problems.FINGERPRINT_RESULT})
 STAGE_FILES = {"audit": AUDIT_FILES, "fingerprint": FINGERPRINT_FILES}
 STAGES = ("native", "audit", "fingerprint")
 # Formal reports and reports of a clean, reproducible precheck stay a working copy. A precheck's
 # fingerprint is kept in its capture (it has no run row); formal fingerprints live in the run row.
 REPORT_OUTPUTS = tuple(f"reports/{name}" for name in metrics.REPORT_FILES.values())
-HASHED_OUTPUTS = (*REPORT_OUTPUTS, FINGERPRINT_RESULT)
+HASHED_OUTPUTS = (*REPORT_OUTPUTS, problems.FINGERPRINT_RESULT)
 # The reports engine.audit_main needs before the auditor runs (engine.write_native_reports writes them).
 NATIVE_REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
                   "order_events.jsonl.gz")
@@ -370,13 +366,13 @@ def _capture_files(workdir: Path, purpose: str, facts: Mapping,
     their original reports. This storage choice does not change precheck admission requirements.
     """
     names = list(CAPTURE_FILES)
-    audit = _json(_regular(workdir / AUDIT_RESULT) or b"")
+    audit = _json(_regular(workdir / problems.AUDIT_RESULT) or b"")
     cacheable = (purpose == "precheck" and (outcome or {}).get("kind") == "completed"
                  and all(isinstance(facts.get(stage), Mapping) and facts[stage].get("state") == "exited"
                          and facts[stage].get("exit_code") == 0 for stage in STAGES)
-                 and isinstance(_json(_regular(workdir / FINGERPRINT_RESULT) or b""), dict)
+                 and isinstance(_json(_regular(workdir / problems.FINGERPRINT_RESULT) or b""), dict)
                  and isinstance(audit, dict) and audit.get("passed") is True
-                 and not (_regular(workdir / RUNTIME_ERRORS) or b"").strip())
+                 and not (_regular(workdir / problems.RUNTIME_ERRORS) or b"").strip())
     hashed = HASHED_INPUTS + (REPORT_OUTPUTS if cacheable
                              else () if purpose == "precheck" else HASHED_OUTPUTS)
     reports = workdir / "reports"
@@ -420,12 +416,12 @@ def _start_of(conn: db.LedgerConnection, trial_id: int) -> tuple[dict, bytes]:
     """(trial row, coverage receipt bytes of its start bundle)."""
     trial = conn.one(f"SELECT {TRIAL_COLUMNS} FROM trial WHERE trial_id = %s", (trial_id,))
     files = _files(_bundles(conn, (f"trial-{trial_id}-start",)), f"trial-{trial_id}-start") if trial else None
-    if trial is None or files is None or COVERAGE not in files:
+    if trial is None or files is None or problems.COVERAGE not in files:
         raise refuse("EXECUTION_START_MISSING", f"trial {trial_id} has no trial row or no start bundle",
                      missing=(f"trial-{trial_id}-start",))
     trial["runner_argv"] = json.loads(trial["runner_argv"]) if isinstance(trial["runner_argv"], (str, bytes)) \
         else trial["runner_argv"]
-    return trial, files[COVERAGE]
+    return trial, files[problems.COVERAGE]
 
 
 def recovery_bundles(conn: db.LedgerConnection, trial_id: int) -> list[str]:
@@ -452,14 +448,14 @@ def _require_process(workdir: Path, trial_id: int, argv: list, facts: Mapping) -
 
 
 def _require_coverage(workdir: Path, trial_id: int, coverage: bytes) -> None:
-    if _regular(workdir / COVERAGE) != coverage:
+    if _regular(workdir / problems.COVERAGE) != coverage:
         raise refuse("COVERAGE_MISMATCH", f"the coverage receipt of trial {trial_id} in {workdir} is not the one its "
-                                          "start bundle holds", missing=(COVERAGE,))
+                                          "start bundle holds", missing=(problems.COVERAGE,))
 
 
 def _table_hashes(workdir: Path) -> dict[str, str] | None:
     """{table: semantic hash} of the fingerprint in the working directory, None without one."""
-    tables = _json(_regular(workdir / FINGERPRINT_RESULT) or b"")
+    tables = _json(_regular(workdir / problems.FINGERPRINT_RESULT) or b"")
     if not isinstance(tables, dict):
         return None
     return {table: entry["sha256"] for table, entry in tables.items()

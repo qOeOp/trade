@@ -10,7 +10,7 @@ import math
 import unittest
 from unittest.mock import patch
 
-from ledger import db, execution, strategies
+from ledger import db, problems, strategies
 from registration import availability, precheck, register, seams as registration_seams
 from replay import entry
 from report import candidates, comparison, measures, seams, status
@@ -235,7 +235,7 @@ class IntegrityTests(unittest.TestCase):
         trial_id = self.runs["not_the_merge"]["trial_id"]
         self.admin_sql(("INSERT IGNORE INTO evidence_content (content) VALUES ('{}')", None),
                        ("UPDATE evidence SET sha256 = SHA2('{}', 256) WHERE bundle = %s AND path = %s",
-                        (f"trial-{trial_id}-start", execution.COVERAGE)),
+                        (f"trial-{trial_id}-start", problems.COVERAGE)),
                        ("CALL DOLT_COMMIT('-a', '-m', 'tamper: a start receipt', '--skip-verification')", None))
         listed = candidates.candidates(self.profile)
         attempts = {item["trial_id"]: item for row in listed["candidates"] for item in row["attempts"]}

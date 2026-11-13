@@ -8,11 +8,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
 
-from ledger import execution, metrics, problems
+from ledger import metrics, problems
 
 
 def native_economics(capture: Mapping) -> Mapping | None:
-    audit = problems.json_object(problems.sealed(capture, execution.AUDIT_RESULT)) or {}
+    audit = problems.json_object(problems.sealed(capture, problems.AUDIT_RESULT)) or {}
     return audit.get("native_economics") if isinstance(audit.get("native_economics"), Mapping) else None
 
 

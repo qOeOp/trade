@@ -14,7 +14,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from ledger import db, execution, lines, metrics, strategies, targets
+from ledger import db, execution, lines, metrics, problems, strategies, targets
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import precheck, register
@@ -164,7 +164,7 @@ class ResearchGraphTests(unittest.TestCase):
                                                                {"listing": True}))
         self.assertTrue(bundles.call_args_list)
         for each in bundles.call_args_list:
-            self.assertEqual(each.args[2], (execution.COVERAGE, *execution.LISTING_FILES))
+            self.assertEqual(each.args[2], (problems.COVERAGE, *execution.LISTING_FILES))
         self.assertEqual(found, self.graph(), "the document is unchanged")
 
     def test_2_a_failed_review_masks_the_run_and_becomes_an_event(self):

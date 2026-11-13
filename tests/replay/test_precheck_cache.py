@@ -8,7 +8,7 @@ import shutil
 import unittest
 
 from cli.replay_commands import replay_report
-from ledger import execution, metrics
+from ledger import execution, metrics, problems
 from shared.errors import Refusal
 from registration import precheck
 from replay import entry, reproduce
@@ -54,7 +54,7 @@ class PrecheckCacheTests(unittest.TestCase):
             path = "reports/" + name
             self.assertEqual(capture["statuses"][path], "hashed")
             self.assertNotIn(path, capture["files"])
-        self.assertIn(execution.FINGERPRINT_RESULT, capture["files"])
+        self.assertIn(problems.FINGERPRINT_RESULT, capture["files"])
         before = self.world.seq()
         facts = self.report(trial_id)
         detail = self.report(trial_id, self.world.output("original"))

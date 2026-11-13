@@ -16,13 +16,14 @@ from pathlib import Path
 import subprocess
 import threading
 
+from ledger.execution import IDENTITY_FIELDS
 from runtime import container, image
 
 
 def _container_command(identity: Mapping, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str],
                        name: str) -> list[str]:
     """runtime.container_command, the container named `name` so an interrupt can stop it."""
-    identity = {key: identity[key] for key in image.REQUIRED}
+    identity = {key: identity[key] for key in IDENTITY_FIELDS}
     return container.container_command(identity, [(Path(host), target, readonly) for host, target, readonly in mounts],
                                        module, list(argv), name)
 

@@ -36,13 +36,14 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+from engine.config import EXECUTION_BAR_MINUTES
 from market import coverage, files, instrument, lifecycle, series, universe
 from market.sources import DAY, MINUTE, MarketError, _refuse
 
 
 NAUTILUS_SCALE = 16  # Nautilus high-precision Catalog decimals: decimal128(38, 16)
 CHUNK = 250_000
-TIMEFRAME = "1m"  # the replay's execution bars (engine.config.EXECUTION_BAR_MINUTES)
+TIMEFRAME = f"{EXECUTION_BAR_MINUTES}m"  # the replay's execution bars
 FORMAT = coverage.FORMAT
 COLUMNS = series.COLUMNS
 VENUE = "BINANCE"

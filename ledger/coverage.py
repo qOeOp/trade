@@ -13,12 +13,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 import hashlib
 
-from ledger import db, execution
+from ledger import db, execution, problems
 from shared.refusals import refuse
 
 
 FORMAT = "execution-input-coverage-v1"
-SUMMARY = "reports/summary.json"
 
 
 def _instant(value):
@@ -93,9 +92,9 @@ def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: 
     capture = execution.read_capture(conn, trial_id)
     stages = given if isinstance(given := capture.get("stages"), Mapping) else {}
     files = capture.get("files") or {}
-    sealed = execution.listed_sha256(capture, execution.COVERAGE) if capture["status"] == "captured" else None
+    sealed = execution.listed_sha256(capture, problems.COVERAGE) if capture["status"] == "captured" else None
     if (capture["status"] != "captured" or not isinstance(capture.get("start"), Mapping)
-            or not isinstance(stages.get("native"), Mapping) or SUMMARY not in files or sealed is None):
+            or not isinstance(stages.get("native"), Mapping) or problems.SUMMARY not in files or sealed is None):
         raise refuse("CAPTURE_INCOMPLETE", f"trial {trial_id} has no complete original capture (start receipt, "
                                            "stages, coverage receipt and native summary)",
                      missing=(f"trial-{trial_id}-execution",))
@@ -111,8 +110,8 @@ def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: 
     if (started is None or hashlib.sha256(started).hexdigest() != sealed or not isinstance(coverage, Mapping)
             or coverage.get("input_identity") != capture["start"].get("input_identity")):
         raise refuse("COVERAGE_MISMATCH", f"the sealed coverage receipt of trial {trial_id} is not the one its start "
-                                          "receipt holds", missing=(execution.COVERAGE,))
+                                          "receipt holds", missing=(problems.COVERAGE,))
     if not isinstance(coverage, Mapping) or coverage.get("input_identity") != input_identity:
         raise refuse("INPUT_IDENTITY_MISMATCH", f"the sealed coverage receipt of trial {trial_id} names other "
                                                 "inputs than the stored input identity", missing=("input_identity",))
-    return verify_coverage(coverage, execution._json(files[SUMMARY]))
+    return verify_coverage(coverage, execution._json(files[problems.SUMMARY]))

@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from deploy.paper_host import PAPER, route_config
+from engine.config import RUNTIME_CONTRACT
 from ledger import db, paper as records
 from paper import release, serve
 from tests.paper.test_serve import request, server
@@ -58,7 +59,7 @@ class ReleaseRoleTests(unittest.TestCase):
             def conn(*_):
                 yield Mock()
 
-            identity = {"image_ref": "new@sha256:" + "b" * 64, "runtime_contract": "replay-contract@v8"}
+            identity = {"image_ref": "new@sha256:" + "b" * 64, "runtime_contract": RUNTIME_CONTRACT}
             with (
                 patch.object(db, "connect", conn),
                 patch.object(records, "paper_runs", return_value=[old]),
@@ -90,7 +91,7 @@ class ReleaseRoleTests(unittest.TestCase):
             def conn(*_):
                 yield Mock()
 
-            identity = {"image_ref": "new", "runtime_contract": "replay-contract@v8"}
+            identity = {"image_ref": "new", "runtime_contract": RUNTIME_CONTRACT}
             with (
                 patch.object(db, "connect", conn),
                 patch.object(records, "paper_runs", return_value=[row]),

@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import unittest
 
-from ledger import db, evidence, execution, strategies, trials
+from ledger import db, evidence, execution, problems, strategies, trials
 from shared.errors import Refusal
 from shared.refusals import refuse
 from tests.ledger.dolt import (BINARY, IDENTITY, RUNTIME, SKIP, SYMBOLS, Service, binder, context, coverage,
@@ -80,7 +80,7 @@ class OpenTrialTests(unittest.TestCase):
         self.assertEqual(opened["start_bundle"], f"trial-{opened['trial_id']}-start")
         start = evidence.load_bundle(self.conn, opened["start_bundle"])
         self.assertEqual((start["kind"], start["trial_id"]), ("start", opened["trial_id"]))
-        self.assertEqual(start["files"], {execution.COVERAGE: coverage(), execution.SOURCE: data})
+        self.assertEqual(start["files"], {problems.COVERAGE: coverage(), execution.SOURCE: data})
         commits = {commit for (commit,) in self.service.sql(
             self.profile, "SELECT to_commit FROM dolt_diff_trial WHERE to_trial_id = %s UNION ALL SELECT to_commit "
                           "FROM dolt_diff_trial_instrument WHERE to_trial_id = %s UNION ALL SELECT to_commit "
@@ -97,7 +97,7 @@ class OpenTrialTests(unittest.TestCase):
     def test_a_published_source_is_not_stored_again_in_its_start_bundle(self):
         opened = self.open("precheck", window=window(1))
         files = evidence.load_bundle(self.conn, opened["start_bundle"])["files"]
-        self.assertEqual(set(files), {execution.COVERAGE})
+        self.assertEqual(set(files), {problems.COVERAGE})
 
     def test_a_research_trial_names_its_line_and_registration(self):
         bind, receipt = self.research(0)
