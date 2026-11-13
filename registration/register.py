@@ -19,7 +19,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 import copy
 import dataclasses
-from datetime import date, datetime, time
 import hashlib
 import json
 import math
@@ -286,13 +285,8 @@ def _check_lineage(conn: db.LedgerConnection, plan: Mapping, parent: dict | None
     seams.current.qualification_require(conn, run)
 
 
-def _midnight(value: str) -> datetime:
-    return datetime.combine(date.fromisoformat(value), time())
-
-
 def _check_window(execution: Mapping, line: Mapping) -> None:
-    expected = (_midnight(line["dev_start"]), _midnight(line["dev_end"]))
-    if (execution["trade_start"], execution["trade_end"]) != expected:
+    if (execution["trade_start"], execution["trade_end"]) != lines.dev_window(line):
         raise refuse("WINDOW_MISMATCH", f"the trading window {execution['trade_start']} to {execution['trade_end']} is "
                                         f"not the line's development window {line['dev_start']} to {line['dev_end']}",
                      missing=("window",), expected=f"{line['dev_start']} to {line['dev_end']}")

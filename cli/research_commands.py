@@ -404,7 +404,7 @@ def validation_report(profile: db.LedgerProfile, registration_id: int, at: str |
     return comparison.validation_report(profile, registration_id, at)
 
 
-# `research runs --by`: report.status.RUN_MEASURE_KEYS, named here so the parser imports no report code.
+# `research runs --by`: report.status.RUN_MEASURES, named here so the parser imports no report code.
 RUN_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "sharpe_lo", "plan_win_rate", "cycles",
                 "daily_turnover")
 

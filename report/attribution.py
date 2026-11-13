@@ -17,7 +17,6 @@ from __future__ import annotations
 import bisect
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from datetime import timezone
 from decimal import Decimal
 import difflib
 import itertools
@@ -29,15 +28,6 @@ import numpy as np
 from ledger import metrics
 from registration import duties
 from report import measures, profit
-
-
-
-
-def _ns(moment) -> int:
-    if isinstance(moment, int):
-        return moment
-    moment = moment.replace(tzinfo=timezone.utc) if moment.tzinfo is None else moment
-    return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
 
 
 def _net(cycle: Mapping) -> Decimal | None:
@@ -85,18 +75,16 @@ class _Starts:
         return self.members[bisect.bisect_right(self.closed, start):bisect.bisect_left(self.opened, stop)]
 
 
-def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
+def pair_trades(control: list[dict], candidate: list[dict], window_end: int) -> dict:
     """Pair the two sides' position cycles: one-to-one, split or merged, only in the control, only in
     the candidate. Grouped by instrument and side (never by position ID or PnL); two cycles of a
     group are a candidate pair when their holding intervals intersect, with overlap = intersection
     over union; pairs are taken one to one by overlap, highest first (ties: the earlier opening
     first); an unpaired cycle intersecting a paired cycle of the other side is split or merged. An
-    open cycle's interval ends at `window_end` and its PnL includes native realized PnL and its final mark. Descriptive only; it
+    open cycle's interval ends at `window_end` (UTC nanoseconds) and its PnL includes native realized PnL and its final mark. Descriptive only; it
     never enters the test."""
-    end = _ns(window_end)
-
     def spans(cycles):
-        return [(c["ts_opened_ns"], c["ts_closed_ns"] if c["ts_closed_ns"] is not None else end) for c in cycles]
+        return [(c["ts_opened_ns"], c["ts_closed_ns"] if c["ts_closed_ns"] is not None else window_end) for c in cycles]
 
     span_a, span_b = spans(control), spans(candidate)
     groups: dict[tuple, tuple[list[int], list[int]]] = defaultdict(lambda: ([], []))

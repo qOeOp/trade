@@ -15,7 +15,7 @@ Closing a line records the Agent's summary: the line's end and an index for late
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime, time, timedelta
 import itertools
 import json
@@ -112,6 +112,12 @@ def holdout_end(dev_end: date) -> date:
     """The day after the holdout: it follows the development period for HOLDOUT_QUARTERS quarters and ends at Q,
     where the forward segment begins."""
     return _quarters_after(dev_end, HOLDOUT_QUARTERS)
+
+
+def dev_window(line: Mapping) -> tuple[datetime, datetime]:
+    """A line's development window [dev_start, dev_end) as trial-row trading-window datetimes."""
+    return (datetime.combine(date.fromisoformat(line["dev_start"]), time()),
+            datetime.combine(date.fromisoformat(line["dev_end"]), time()))
 
 
 def selection(runner_argv) -> list[str] | None:

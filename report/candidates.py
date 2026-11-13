@@ -33,6 +33,12 @@ def assess_listed(conn: db.LedgerConnection, trial_id: int, checker: Mapping, re
                 "checker": dict(checker), "limitations": [], "unverified_records": True}
 
 
+def assess_runs(conn: db.LedgerConnection, trial_ids: list[int], checker: Mapping, records: list) -> dict[int, dict]:
+    """assess_listed of each run, by trial ID, all loaded in one listing read without series (metrics.load_runs)."""
+    loaded = metrics.load_runs(conn, trial_ids, series=False, listing=True)
+    return {trial_id: assess_listed(conn, trial_id, checker, records, loaded[trial_id]) for trial_id in trial_ids}
+
+
 CANDIDATE_COLUMNS = ("c.strategy_id, c.revision, c.source_sha256, c.entry_class, c.runtime_contract, c.description, "
                      "c.parent_source_sha256, CONCAT(p.strategy_id, '@', p.revision) AS parent, c.difference, c.created_at")
 CANDIDATES = "candidate c LEFT JOIN candidate p ON p.source_sha256 = c.parent_source_sha256"
@@ -45,14 +51,10 @@ def attempts_of(conn: db.LedgerConnection, checker: dict) -> list[dict]:
     rows = conn.dicts(f"SELECT t.research_registration_id, t.source_sha256, t.trial_id, {db.TRIAL_IMAGE_DIGEST}, "
                       "r.status FROM trial t LEFT JOIN run r ON r.trial_id = t.trial_id "
                       "WHERE t.research_registration_id IS NOT NULL ORDER BY t.trial_id")
-    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows if row["status"] is not None], series=False, listing=True)
+    assessed = assess_runs(conn, [row["trial_id"] for row in rows if row["status"] is not None], checker, records)
     for row in rows:
-        if row["status"] is None:
-            value = {"economic_evidence_available": False, "reasons": ["unfinished"], "checker": checker}
-        else:
-            assessed = assess_listed(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
-            value = {"economic_evidence_available": assessed["economic_evidence_available"],
-                     "reasons": assessed["reasons"], "checker": assessed["checker"]}
+        value = ({key: assessed[row["trial_id"]][key] for key in ("economic_evidence_available", "reasons")}
+                 if row["status"] is not None else {"economic_evidence_available": False, "reasons": ["unfinished"]})
         found.append({"registration_id": row["research_registration_id"], "source_sha256": row["source_sha256"],
                       "trial_id": row["trial_id"],
                       "run_status": row["status"] or "unfinished", "availability": value})
