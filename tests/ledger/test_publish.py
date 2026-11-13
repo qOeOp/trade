@@ -33,6 +33,7 @@ from ledger import service as ledger_service
 from shared.errors import Refusal
 from shared.refusals import refuse
 from tests.ledger.dolt import BINARY, SKIP, Service, source
+from tests.helpers import refused
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -44,11 +45,6 @@ class PublishTests(unittest.TestCase):
         self.remote = Path(tempfile.mkdtemp(prefix="rm-", dir="/tmp"))
         self.addCleanup(shutil.rmtree, self.remote, True)
         self.url = self.remote.as_uri()
-
-    def code(self, function, *arguments) -> str:
-        with self.assertRaises(Refusal) as caught:
-            function(*arguments)
-        return caught.exception.code
 
     def code_and_message(self, function, *arguments) -> tuple[str, str]:
         with self.assertRaises(Refusal) as caught:
@@ -78,12 +74,12 @@ class PublishTests(unittest.TestCase):
         return json.loads(out.getvalue())
 
     def test_the_branch_reaches_the_remote_and_a_remote_changed_elsewhere_is_refused(self):
-        self.assertEqual(self.code(publish.publish, self.profile), "REMOTE_UNSET")
-        self.assertEqual(self.code(publish.set_remote, self.profile, "https://doltremoteapi.dolthub.com/a/b"),
+        self.assertEqual(refused(publish.publish, self.profile).code, "REMOTE_UNSET")
+        self.assertEqual(refused(publish.set_remote, self.profile, "https://doltremoteapi.dolthub.com/a/b").code,
                          "PUBLISH_FORBIDDEN", "an isolated database never publishes to a public remote")
         self.assertTrue(publish.set_remote(self.profile, self.url)["added"])
         self.assertFalse(publish.set_remote(self.profile, self.url)["added"])
-        self.assertEqual(self.code(publish.set_remote, self.profile, self.url + "-other"), "REMOTE_MISMATCH")
+        self.assertEqual(refused(publish.set_remote, self.profile, self.url + "-other").code, "REMOTE_MISMATCH")
         first = publish.publish(self.profile)
         self.assertEqual((first["head"], first["previous_head"]), (self.head(), None))
         self.assertEqual(self.remote_head(), self.head())
@@ -100,18 +96,18 @@ class PublishTests(unittest.TestCase):
             subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True, capture_output=True)
         changed = self.remote_head()
         strategies.publish_candidate(self.profile, source("later"), "later", "Fixture", "after the remote changed")
-        self.assertEqual(self.code(publish.publish, self.profile), "PUBLISH_REJECTED")
+        self.assertEqual(refused(publish.publish, self.profile).code, "PUBLISH_REJECTED")
         self.assertEqual(self.remote_head(), changed, "nothing forced")
 
     def test_a_first_origin_that_took_nothing_is_forgotten_and_a_good_one_stays(self):
         with patch.object(publish, "_push", side_effect=refuse("PUBLISH_FAILED", "the key cannot write")):
-            self.assertEqual(self.code(publish.name_and_publish, self.profile, self.url + "-typo"), "PUBLISH_FAILED")
+            self.assertEqual(refused(publish.name_and_publish, self.profile, self.url + "-typo").code, "PUBLISH_FAILED")
         published, named = publish.name_and_publish(self.profile, self.url)
         self.assertTrue(named["added"])
         self.assertIsNotNone(published["head"])
-        self.assertEqual(self.code(publish.name_and_publish, self.profile, self.url + "-other"), "REMOTE_MISMATCH")
+        self.assertEqual(refused(publish.name_and_publish, self.profile, self.url + "-other").code, "REMOTE_MISMATCH")
         with patch.object(publish, "publish", side_effect=refuse("PUBLISH_FAILED", "the network is down")):
-            self.assertEqual(self.code(publish.name_and_publish, self.profile, self.url), "PUBLISH_FAILED")
+            self.assertEqual(refused(publish.name_and_publish, self.profile, self.url).code, "PUBLISH_FAILED")
         self.assertFalse(publish.set_remote(self.profile, self.url)["added"], "an origin that took the ledger stays")
 
     def test_an_emptied_remote_gets_the_branch_again(self):
@@ -172,7 +168,7 @@ class PublishTests(unittest.TestCase):
         with holder.cursor() as cursor:
             cursor.execute("SELECT GET_LOCK(%s, 0)", (f"{self.profile.database}/publish",))
         with patch.object(publish, "PUBLISH_WAIT", 1):
-            self.assertEqual(self.code(publish.publish, self.profile), "PUBLISH_FAILED",
+            self.assertEqual(refused(publish.publish, self.profile).code, "PUBLISH_FAILED",
                              "another publish holds the lock")
 
     def test_a_remote_descending_from_the_head_read_before_the_push_is_published(self):
@@ -221,7 +217,7 @@ class PublishTests(unittest.TestCase):
         self.write("first")
         self.assertTrue(status()["unpublished"], "a write leaves origin behind")
         with patch.object(publish, "_push", side_effect=publish.refuse("PUBLISH_FAILED", "offline")):
-            self.assertEqual(self.code(publish.publish, self.profile), "PUBLISH_FAILED")
+            self.assertEqual(refused(publish.publish, self.profile).code, "PUBLISH_FAILED")
         self.assertTrue(status()["unpublished"], "a failed publish stays visible")
         self.command("ledger", "publish")
         self.assertFalse(status()["unpublished"])
@@ -277,7 +273,7 @@ class PublishTests(unittest.TestCase):
                           ("push", "origin", "main")):
             subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True, capture_output=True)
         self.write("second")
-        self.assertEqual(self.code(publish.publish, self.profile), "PUBLISH_REJECTED")
+        self.assertEqual(refused(publish.publish, self.profile).code, "PUBLISH_REJECTED")
         found = publish.state(self.profile)
         self.assertEqual((found["unpublished"], found["behind_seconds"], found["diverged"]), (True, None, True))
 
@@ -309,7 +305,7 @@ class PublishTests(unittest.TestCase):
         self.assertEqual((home / "creds" / "k1.jwk").stat().st_mode & 0o777, 0o600)
         self.assertEqual(json.loads((home / "config_global.json").read_text(encoding="utf-8")),
                          {**before, "user.creds": "k1"}, "the service's own settings stay")
-        self.assertEqual(self.code(publish.install_key, service, user / "none" / ".dolt"), "DOLTHUB_CREDENTIALS")
+        self.assertEqual(refused(publish.install_key, service, user / "none" / ".dolt").code, "DOLTHUB_CREDENTIALS")
         self.assertTrue(db.connect(self.profile, "reader").close() is None, "the service still serves")
 
         class Denied:

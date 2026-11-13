@@ -40,6 +40,7 @@ from engine.live_venue import Credentials
 from engine.membership import month_end_ns
 from tests.engine.test_live import SOURCE
 from tests.engine.test_live_venue import fixture, venue_clock
+from tests.helpers import refused
 
 
 class DeferredAccount:
@@ -657,9 +658,7 @@ class NativeEntryTests(unittest.TestCase):
         self.skewed(self.ahead())
         entry, observation = self.submit_pending(self.limit(quantity="3.500", price="95.00"))  # over 3 x equity
         self.finish_read(observation)
-        with self.assertRaises(LiveRefusal) as caught:
-            commands.dispatch_entry(self.session)
-        self.assertEqual(caught.exception.code, "LIVE_BUDGET")
+        self.assertEqual(refused(commands.dispatch_entry, self.session, error=LiveRefusal).code, "LIVE_BUDGET")
         self.assertTrue(self.session.failed and self.session.stopping)
         self.assertEqual(self.read_events("entry_denied"), [])
         self.assertIsNone(self.engine.cache.order(entry.client_order_id))

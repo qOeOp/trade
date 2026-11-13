@@ -11,10 +11,10 @@ from pathlib import Path
 
 from ledger import metrics
 from shared.errors import Refusal
+from tests.helpers import refused
+from tests.ledger.dolt import DAY, JAN
 
 
-DAY = 86_400 * 10**9
-JAN = 1_767_225_600 * 10**9  # 2026-01-01T00:00:00Z
 LABEL = DAY - 1_000_000  # bars are stamped 1 ms before each boundary
 IID = "AAAUSDT-PERP.BINANCE"
 
@@ -255,9 +255,7 @@ class SealedReportTests(unittest.TestCase):
             reports = Path(directory) / "reports"
             reports.mkdir()
             (reports / "exposures.csv.gz").write_bytes(b"not gzip")
-            with self.assertRaises(Refusal) as caught:
-                metrics.load_directory(Path(directory))
-            self.assertEqual(caught.exception.code, "REPORT_UNREADABLE")
+            self.assertEqual(refused(metrics.load_directory, Path(directory)).code, "REPORT_UNREADABLE")
 
     def test_only_regular_files_and_the_audit_directory_count(self):
         with tempfile.TemporaryDirectory() as directory:

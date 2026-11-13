@@ -9,6 +9,7 @@ from unittest.mock import patch
 from ledger import db, strategies
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, SOURCE, Service, source
+from tests.helpers import refused
 
 
 class SourceCheckTests(unittest.TestCase):
@@ -48,13 +49,9 @@ class ReadCandidateShapeTests(unittest.TestCase):
             with self.subTest(ref=ref), self.assertRaises(Refusal) as caught:
                 strategies.read_candidate(FakeConnection(None), ref)
             self.assertEqual(caught.exception.code, "BAD_REF")
-        with self.assertRaises(Refusal) as caught:
-            strategies.read_candidate(FakeConnection(None), "x@1")
-        self.assertEqual(caught.exception.code, "UNKNOWN_CANDIDATE")
+        self.assertEqual(refused(strategies.read_candidate, FakeConnection(None), "x@1").code, "UNKNOWN_CANDIDATE")
         row = {"source": SOURCE + b"tampered", "source_sha256": hashlib.sha256(SOURCE).hexdigest()}
-        with self.assertRaises(Refusal) as caught:
-            strategies.read_candidate(FakeConnection(row), "x@1")
-        self.assertEqual(caught.exception.code, "LEDGER_CORRUPT")
+        self.assertEqual(refused(strategies.read_candidate, FakeConnection(row), "x@1").code, "LEDGER_CORRUPT")
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -106,8 +103,7 @@ class PublishTests(unittest.TestCase):
 
     def test_an_operation_id_never_returns_another_candidate(self):
         first = self.publish(source("op owner"), "owner", op_id="publish:fixed")
-        with self.assertRaises(Refusal) as caught:
-            self.publish(source("op thief"), "thief", op_id="publish:fixed")
-        self.assertEqual(caught.exception.code, "OP_ID_CONFLICT")
+        self.assertEqual(refused(self.publish, source("op thief"), "thief",
+                                 op_id="publish:fixed").code, "OP_ID_CONFLICT")
         again = self.publish(source("op owner"), "owner", op_id="publish:fixed")
         self.assertEqual((again["candidate"], again["replayed"]), (first["candidate"], True))

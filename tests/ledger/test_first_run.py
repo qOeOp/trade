@@ -21,9 +21,9 @@ from unittest.mock import patch
 
 from ledger import db, first_run, publish, service
 from shared import paths, profiles
-from shared.errors import Refusal
 from shared.refusals import refuse
 from tests.ledger.dolt import BINARY, SKIP
+from tests.helpers import refused
 
 
 class RepositoryTests(unittest.TestCase):
@@ -36,9 +36,7 @@ class RepositoryTests(unittest.TestCase):
     def test_anything_else_is_refused(self):
         for text in ("", "name", "o/r/more", "https://example.com/o/r", "file:///tmp/o/r", "o/r;drop",
                      "https://www.dolthub.com/users/o/r"):
-            with self.assertRaises(Refusal) as caught:
-                first_run.origin_of(text)
-            self.assertEqual(caught.exception.code, "REMOTE_INVALID", text)
+            self.assertEqual(refused(first_run.origin_of, text).code, "REMOTE_INVALID", text)
 
 
 @unittest.skipUnless(BINARY, SKIP)

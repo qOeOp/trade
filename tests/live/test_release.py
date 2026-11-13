@@ -17,6 +17,7 @@ from live import host as host_runtime
 from live import control, release, requests, runs, state
 from tests.live.test_runs import IDENTITY, LiveFixture
 from tests.live.authority_fixture import inject_cli, install, recover
+from tests.helpers import refused
 
 
 OLD = "trade-release-web-" + "a" * 40
@@ -34,9 +35,8 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         durable_json(self.route, route_config(OLD, None))
 
     def refused(self, binding=None, *, maintenance=False):
-        with self.assertRaises(LiveRefusal) as found:
-            release.admission_locked(binding or self.binding, maintenance=maintenance)
-        self.assertEqual(found.exception.code, "LIVE_RELEASE_UNAVAILABLE")
+        self.assertEqual(refused(release.admission_locked, binding or self.binding, maintenance=maintenance,
+                                 error=LiveRefusal).code, "LIVE_RELEASE_UNAVAILABLE")
 
     def test_committed_owner_and_atomic_route_replacement(self):
         release.admission_locked(self.binding)

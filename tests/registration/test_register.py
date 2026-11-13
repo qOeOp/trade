@@ -14,17 +14,10 @@ from registration import precheck, register
 from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_DAY, RUNTIME, SKIP, coverage, market, product_bundle, reviewed,
                                pinned, sha, source)
 from tests.registration.world import ACCOUNT, DAY, JAN, LINE_WINDOW, RUNNER_ARGV, World, capture, config
+from tests.helpers import refused
 
 OTHER_DIGEST = "sha256:" + "c" * 64
 OTHER_RUNTIME = {**RUNTIME, "image_ref": "ghcr.io/qoeop/trade-runtime@" + OTHER_DIGEST, "image_digest": OTHER_DIGEST}
-
-
-def refused(function, *args, **kwargs) -> Refusal:
-    try:
-        function(*args, **kwargs)
-    except Refusal as exc:
-        return exc
-    raise AssertionError(f"{function.__name__} did not refuse")
 
 
 def runner_argv(trade_start: str = "2026-01-01", end: str = "2026-02-01") -> list[str]:

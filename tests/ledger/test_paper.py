@@ -17,11 +17,11 @@ from unittest import mock
 
 from ledger import db, paper, strategies
 from shared.errors import Refusal
-from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
+from tests.ledger.dolt import BINARY, DAY, SKIP, Service, sha, source
+from tests.helpers import refused
 
 
 SOURCE = "a" * 64
-DAY = 86_400 * 10**9
 START = int(datetime(2026, 10, 25, 23, 58, tzinfo=UTC).timestamp()) * 10**9
 MINUTE = 60 * 10**9
 
@@ -302,9 +302,8 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(paper.paper_files(self.conn, opened["paper_id"]), files)
         self.assertEqual(sealed["write_status"], "written")
         self.assertEqual(paper.seal_paper_run(self.conn, opened["paper_id"], files)["write_status"], "replayed")
-        with self.assertRaises(Refusal) as caught:
-            paper.seal_paper_run(self.conn, opened["paper_id"], {**files, "summary.json": b'{"other": 1}'})
-        self.assertEqual(caught.exception.code, "OP_ID_CONFLICT")
+        self.assertEqual(refused(paper.seal_paper_run, self.conn, opened["paper_id"],
+                                 {**files, "summary.json": b'{"other": 1}'}).code, "OP_ID_CONFLICT")
         second = self.open("paper-start:2")
         listed = paper.paper_runs(self.conn)
         self.assertEqual([(run["paper_id"], run["symbols"], run["seal"]) for run in listed],
@@ -324,12 +323,8 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(paper.paper_files(self.conn, opened["paper_id"], "egress.log"), {})
 
     def test_only_copied_sources_run_and_only_declared_runs_seal(self):
-        with self.assertRaises(Refusal) as caught:
-            self.open(source_sha256="f" * 64)
-        self.assertEqual(caught.exception.code, "UNKNOWN_CANDIDATE")
-        with self.assertRaises(Refusal) as caught:
-            paper.seal_paper_run(self.conn, 99, {"seal.json": b"{}"})
-        self.assertEqual(caught.exception.code, "PAPER_RUN_UNKNOWN")
+        self.assertEqual(refused(self.open, source_sha256="f" * 64).code, "UNKNOWN_CANDIDATE")
+        self.assertEqual(refused(paper.seal_paper_run, self.conn, 99, {"seal.json": b"{}"}).code, "PAPER_RUN_UNKNOWN")
 
     def test_a_deleted_run_leaves_only_its_own_rows(self):
         first, second, open_run = self.open(), self.open("paper-start:2"), self.open("paper-start:3")

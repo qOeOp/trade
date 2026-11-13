@@ -7,6 +7,7 @@ import unittest
 from ledger import execution, trials
 from shared.errors import Refusal
 from registration import seams
+from tests.helpers import refused
 
 
 class SeamTests(unittest.TestCase):
@@ -36,9 +37,7 @@ class SeamTests(unittest.TestCase):
         self.assertFalse(seams.runner_inputs(window + quotes)["trade_ticks"])
         self.assertTrue(seams.runner_inputs(["--trade-ticks", *window, *quotes])["trade_ticks"])
         for argv in (["--trade-ticks", *window], ["--trade-ticks", *window, "--execution", "bars"]):
-            with self.assertRaises(Refusal) as caught:
-                seams.runner_inputs(argv)
-            self.assertEqual(caught.exception.code, "TRADE_TICKS_NEED_QUOTES")
+            self.assertEqual(refused(seams.runner_inputs, argv).code, "TRADE_TICKS_NEED_QUOTES")
         argv, _ = seams.container_runner_args([*window[:4], "--trade-ticks", *quotes, *window[4:]],
                                               {"identity": {"market_day": "c" * 32}, "symbols": ["AAAUSDT"],
                                                "root": "/x", "membership_file": "/x/membership.json"})

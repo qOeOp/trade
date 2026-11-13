@@ -21,6 +21,7 @@ from engine.live_errors import LiveRefusal
 from shared.errors import Refusal
 from live import compare
 from replay import reconcile as shared
+from tests.helpers import refused
 
 
 MINUTE = shared.MINUTE_NS
@@ -277,9 +278,7 @@ class Compare(unittest.TestCase):
         self.assertEqual(compare.window(first), (START, close_of(11) + 10**6))
         self.assertEqual(compare.wallet(first)[0], "57.5")
         self.assertEqual({event["client_order_id"] for event in first["orders"]}, {"L-E", "L-S", "L-T"})
-        with self.assertRaises(Refusal) as caught:
-            compare.segment(whole, 3)
-        self.assertEqual(caught.exception.code, "LIVE_COMPARE_EMPTY")
+        self.assertEqual(refused(compare.segment, whole, 3).code, "LIVE_COMPARE_EMPTY")
 
     def test_the_measures_sum_fills_fees_equity_and_holds_in_their_window(self):
         groups = [

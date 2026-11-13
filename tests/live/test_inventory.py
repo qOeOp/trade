@@ -10,6 +10,7 @@ from engine.live_errors import LiveRefusal
 from live import host as host_runtime
 from live import inventory, runs, state
 from tests.live.test_authority import prepared
+from tests.helpers import refused
 
 
 class DockerClientTests(unittest.TestCase):
@@ -50,9 +51,7 @@ class ForeignInventoryTests(unittest.TestCase):
         return runner
 
     def refused(self, found=None):
-        with self.assertRaises(LiveRefusal) as caught:
-            self.check(found)
-        self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_OWNED")
+        self.assertEqual(refused(self.check, found, error=LiveRefusal).code, "LIVE_ACCOUNT_OWNED")
 
     def test_same_run_id_and_same_key_binding_in_foreign_root_do_not_share_canonical_authority(self):
         before = {str(p): p.read_bytes() for p in self.work.rglob("*") if p.is_file()}

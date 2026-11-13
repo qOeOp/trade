@@ -17,6 +17,7 @@ from engine.live_errors import LiveRefusal
 from live import host as host_runtime
 from live import authority, control, release, runs, serve, state
 from tests.live.authority_fixture import WEB, inject_cli, install, launch
+from tests.helpers import refused
 
 OTHER = "trade-release-web-" + "b" * 40
 
@@ -57,9 +58,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         return {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
 
     def refused(self, action, code="LIVE_RELEASE_UNAVAILABLE"):
-        with self.assertRaises(LiveRefusal) as found:
-            action()
-        self.assertEqual(found.exception.code, code)
+        self.assertEqual(refused(action, error=LiveRefusal).code, code)
 
     def test_missing_declaration_never_falls_back_or_reads_credentials(self):
         self.declaration.unlink()

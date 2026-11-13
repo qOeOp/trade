@@ -9,6 +9,7 @@ from ledger import db, judgments, strategies, trials
 from shared.errors import Refusal
 from tests.ledger.dolt import (BINARY, RUNTIME, SKIP, Service, binder, context, coverage, grid_point, select_line,
                                sha, source, window)
+from tests.helpers import refused
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -112,9 +113,7 @@ class JudgmentTests(unittest.TestCase):
                                                                     "kind = 'priority' AND NOT EXISTS (SELECT 1 FROM "
                                                                     "judgment n WHERE n.supersedes = j.judgment_id)")}
         self.assertEqual(current, {second["judgment_id"]})
-        with self.assertRaises(Refusal) as caught:
-            self.add("verdict", body="not a judgment kind")
-        self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")
+        self.assertEqual(refused(self.add, "verdict", body="not a judgment kind").code, "DOLT_SQL_ERROR")
 
     def test_a_search_exposure_declares_its_variants_on_the_first_line(self):
         for body in ("x", "Evaluated variants: 01", "evaluated variants: 3", " Evaluated variants: 3",

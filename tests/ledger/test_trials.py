@@ -15,6 +15,7 @@ from shared.errors import Refusal
 from shared.refusals import refuse
 from tests.ledger.dolt import (BINARY, IDENTITY, RUNTIME, SKIP, SYMBOLS, Service, binder, context, coverage,
                                grid_point, select_line, sha, source, window)
+from tests.helpers import refused
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -201,6 +202,5 @@ class OpenTrialTests(unittest.TestCase):
         def again(conn, op):
             return execution.start_bundle(conn, opened["trial_id"], b"{\"other\": 1}", source("start"))
 
-        with self.assertRaises(Refusal) as caught:
-            db.write(self.conn, "probe", {"start": opened["trial_id"]}, "evidence_bundle", again)
-        self.assertEqual(caught.exception.code, "BUNDLE_EXISTS")
+        self.assertEqual(refused(db.write, self.conn, "probe", {"start": opened["trial_id"]}, "evidence_bundle",
+                                 again).code, "BUNDLE_EXISTS")

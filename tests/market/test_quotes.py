@@ -16,6 +16,7 @@ from market import aggtrades, coverage, files, quotes, sources, store, universe
 from market.sources import MarketError
 from tests.market.directory import directory, forged, read
 from tests.market.exchange import Exchange, day_ms, minutes, serving, two_sided_trades, MINUTE, DAY
+from tests.helpers import refused
 
 DEC, JAN, FEB, MAR = date(2024, 12, 1), date(2025, 1, 1), date(2025, 2, 1), date(2025, 3, 1)
 EIGHT_HOURS = 8 * 3_600_000
@@ -57,22 +58,18 @@ class RuleTests(unittest.TestCase):
         crossing = table([(1, "100.00", 1_000, True), (2, "100.01", 1_001, False), (3, "100.05", 1_002, True)])
         rows, _ = quotes.derive(crossing.slice(0, 2), Decimal("0.000000001"), quotes.State(), "t")
         self.assertEqual(len(rows), 1)  # an increment finer than the stored scale is refused only where it pushes
-        with self.assertRaises(MarketError) as lost:
-            quotes.derive(crossing, Decimal("0.000000001"), quotes.State(), "t")
-        self.assertEqual(lost.exception.code, "SCALE_LOSS")
+        self.assertEqual(refused(quotes.derive, crossing, Decimal("0.000000001"), quotes.State(), "t",
+                                 error=MarketError).code, "SCALE_LOSS")
 
     def test_the_state_continues_across_days_and_a_sequence_gap_or_time_reversal_refuses(self):
         state = quotes.State()
         quotes.derive(table([(1, "100.00", 1_000, True), (2, "100.01", 1_001, False)]), Decimal("0.01"), state, "day 1")
         rows, _ = quotes.derive(table([(3, "100.01", 90_000_000, False)]), Decimal("0.01"), state, "day 2")
         self.assertEqual(rows, [])  # the same ask again: no change, nothing emitted
-        with self.assertRaises(MarketError) as gap:
-            quotes.derive(table([(5, "100.00", 100_000_000, True)]), Decimal("0.01"), state, "day 3")
-        self.assertEqual(gap.exception.code, "SEQUENCE_GAP")
-        with self.assertRaises(MarketError) as reversed_time:
-            quotes.derive(table([(1, "100.00", 2_000, True), (2, "100.01", 1_000, False)]), Decimal("0.01"),
-                          quotes.State(), "t")
-        self.assertEqual(reversed_time.exception.code, "SOURCE_SHAPE")
+        self.assertEqual(refused(quotes.derive, table([(5, "100.00", 100_000_000, True)]), Decimal("0.01"), state,
+                                 "day 3", error=MarketError).code, "SEQUENCE_GAP")
+        self.assertEqual(refused(quotes.derive, table([(1, "100.00", 2_000, True), (2, "100.01", 1_000, False)]),
+                                 Decimal("0.01"), quotes.State(), "t", error=MarketError).code, "SOURCE_SHAPE")
 
     def test_a_repeated_id_feeds_a_later_distinct_trade_and_any_other_repeat_refuses(self):
         state = quotes.State()

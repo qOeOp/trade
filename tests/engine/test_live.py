@@ -24,6 +24,7 @@ from engine.live_errors import LiveRefusal
 from engine.live_records import strategy_ids
 from engine.live_venue import Credentials
 from tests.engine.test_live_venue import MARKET_DAY
+from tests.helpers import refused
 
 
 SOURCE = '''from nautilus_trader.trading import Strategy
@@ -122,9 +123,7 @@ class LiveTests(unittest.TestCase):
     def test_runner_refuses_any_other_manifest_format(self):
         path = self.output / "other-format.json"
         path.write_text(json.dumps({**self.manifest, "format": "live-run-v1"}))
-        with self.assertRaises(LiveRefusal) as caught:
-            live.read_manifest(path)
-        self.assertEqual(caught.exception.code, "LIVE_MANIFEST_INVALID")
+        self.assertEqual(refused(live.read_manifest, path, error=LiveRefusal).code, "LIVE_MANIFEST_INVALID")
 
     def test_runner_requires_a_drawdown_brake_no_looser_than_the_target(self):
         for limit in (None, "0", "-0.1", "NaN", "0.1501"):
@@ -134,9 +133,7 @@ class LiveTests(unittest.TestCase):
                     del config["drawdown_brake"]
                 path = self.output / "brake.json"
                 path.write_text(json.dumps({**self.manifest, "config": config}))
-                with self.assertRaises(LiveRefusal) as caught:
-                    live.read_manifest(path)
-                self.assertEqual(caught.exception.code, "LIVE_MANIFEST_INVALID")
+                self.assertEqual(refused(live.read_manifest, path, error=LiveRefusal).code, "LIVE_MANIFEST_INVALID")
 
     def test_reconcile_build_has_no_source_constructor_or_source_callbacks(self):
         session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)
@@ -652,14 +649,10 @@ class LiveTests(unittest.TestCase):
                     events = (self.output / "events.jsonl").read_text()
                     with (self.output / "events.jsonl").open("a") as stream:
                         stream.write(json.dumps({"event": ending, "run_id": "r"}) + "\n")
-                    with self.assertRaises(LiveRefusal) as caught:
-                        live.execute(args)
-                    self.assertEqual(caught.exception.code, "LIVE_COLD_RESTART")
+                    self.assertEqual(refused(live.execute, args, error=LiveRefusal).code, "LIVE_COLD_RESTART")
                     (self.output / "events.jsonl").write_text(events)
             (self.output / "STOP").write_text("operator stop\n")
-            with self.assertRaises(LiveRefusal) as caught:
-                live.execute(args)
-            self.assertEqual(caught.exception.code, "LIVE_COLD_RESTART")
+            self.assertEqual(refused(live.execute, args, error=LiveRefusal).code, "LIVE_COLD_RESTART")
         self.assertEqual((self.output / "armed.json").read_bytes(), armed)
 
     def test_a_start_after_one_that_ended_to_warm_up_again_may_retry_a_failed_warm_up_once(self):

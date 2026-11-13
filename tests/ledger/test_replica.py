@@ -14,6 +14,7 @@ import pymysql
 from ledger import db, paper, publish, replica, service, strategies
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, source
+from tests.helpers import refused
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -115,9 +116,7 @@ class ReplicaTests(unittest.TestCase):
                 cursor.execute("CALL DOLT_COMMIT('-a', '-m', 'isolated invalid schema')")
                 cursor.fetchall()
         publish.publish(self.research)
-        with self.assertRaises(Refusal) as caught:
-            replica.sync(self.mirror)
-        self.assertEqual(caught.exception.code, "REPLICA_INVALID")
+        self.assertEqual(refused(replica.sync, self.mirror).code, "REPLICA_INVALID")
         self.assertEqual(replica.status(self.mirror)["ledger_commit"], before)
 
     def test_non_fast_forward_does_not_reset_the_local_research_head(self):
@@ -131,9 +130,7 @@ class ReplicaTests(unittest.TestCase):
         before = replica.status(self.mirror)["ledger_commit"]
         strategies.publish_candidate(self.research, source("other"), "other", "Fixture", "remote change")
         publish.publish(self.research)
-        with self.assertRaises(Refusal) as caught:
-            replica.sync(self.mirror)
-        self.assertEqual(caught.exception.code, "REPLICA_SYNC_FAILED")
+        self.assertEqual(refused(replica.sync, self.mirror).code, "REPLICA_SYNC_FAILED")
         self.assertEqual(replica.status(self.mirror)["ledger_commit"], before)
 
     def test_source_copy_keeps_the_exact_revision_and_nothing_else(self):

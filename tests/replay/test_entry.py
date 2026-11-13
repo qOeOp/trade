@@ -23,6 +23,7 @@ from tests.ledger.dolt import BINARY, IDENTITY, MARKET_DAY, SKIP, source
 from tests.registration.world import LINE_WINDOW, RUNNER_ARGV
 from tests.replay.world import DEFAULT_FINGERPRINT, ReplayWorld, inspect, registered_grid
 from tests.runtime.test_image import FILES, branch_build, build_inspection
+from tests.helpers import refused
 
 
 ONE = RUNNER_ARGV + ["--symbols", "AAAUSDT"]
@@ -244,9 +245,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         with registration_seams.use(resolve_runtime=lambda ref: dict(other)), self.assertRaises(Refusal) as caught:
             precheck_call()
         self.assertEqual(caught.exception.code, "RUNTIME_CONTRACT_MISMATCH")
-        with self.assertRaises(Refusal) as caught:
-            precheck_call(candidate="rsi@99")
-        self.assertEqual(caught.exception.code, "UNKNOWN_CANDIDATE")
+        self.assertEqual(refused(precheck_call, candidate="rsi@99").code, "UNKNOWN_CANDIDATE")
 
     def test_a_passed_precheck_hashes_cached_reports_and_a_review_of_it_admits_the_source(self):
         published = self.world.publish("prechecked", parent=None)
@@ -365,10 +364,9 @@ class SealedReplayTests(unittest.TestCase):
                                    (stored["trial_id"],)),
                          [(self.world.line["line_id"], self.registration_of[self.refs[0]])])
         self.assertEqual(self.kept(), before)
-        with self.assertRaises(Refusal) as caught:
-            trials.ingest_run(self.world.conn, stored["trial_id"], self.world.output("removed"),
-                              capture["start"]["input_identity"], checkout=self.world.checkout)
-        self.assertEqual(caught.exception.code, "RUN_ALREADY_INGESTED")
+        self.assertEqual(refused(trials.ingest_run, self.world.conn, stored["trial_id"], self.world.output("removed"),
+                                 capture["start"]["input_identity"],
+                                 checkout=self.world.checkout).code, "RUN_ALREADY_INGESTED")
 
     def ingest(self, trial_id: int, workdir: Path | None = None) -> dict:
         capture = execution.read_capture(self.world.conn, trial_id)
@@ -443,9 +441,7 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual(sorted(codes(stored["failure_reasons"])), ["NATIVE_EXIT_NONZERO", "SOURCE_MISMATCH"])
         self.assertEqual(self.rows("SELECT COUNT(*) FROM run_reading WHERE trial_id = %s", (stored["trial_id"],)), [(0,)])
         before = self.kept()
-        with self.assertRaises(Refusal) as caught:
-            self.run_ref(self.refs[1])
-        self.assertEqual(caught.exception.code, "GRID_ALREADY_ATTEMPTED")
+        self.assertEqual(refused(self.run_ref, self.refs[1]).code, "GRID_ALREADY_ATTEMPTED")
         self.assertEqual(self.kept(), before, "a refusal before any container leaves no directory")
 
     def test_inputs_changed_during_the_replay_make_it_invalid(self):
@@ -475,36 +471,31 @@ class SealedReplayTests(unittest.TestCase):
         audit, fills = workdir / "audit" / "audit.json", workdir / "reports" / "fills.csv"
         saved = audit.read_bytes()
         audit.unlink()
-        self.assertEqual(self.refused(lambda: self.ingest(trial_id)), "EXECUTION_IDENTITY")
+        self.assertEqual(refused(lambda: self.ingest(trial_id)).code, "EXECUTION_IDENTITY")
         audit.write_bytes(saved)
         fills.rename(workdir / "fills.csv")
-        self.assertEqual(self.refused(lambda: self.ingest(trial_id)), "EXECUTION_IDENTITY")
+        self.assertEqual(refused(lambda: self.ingest(trial_id)).code, "EXECUTION_IDENTITY")
         (workdir / "fills.csv").rename(workdir / "fills-target.csv")
         fills.symlink_to(workdir / "fills-target.csv")
-        self.assertEqual(self.refused(lambda: self.ingest(trial_id)), "EXECUTION_IDENTITY", "a link is no report")
+        self.assertEqual(refused(lambda: self.ingest(trial_id)).code, "EXECUTION_IDENTITY", "a link is no report")
         fills.unlink()
         (workdir / "fills-target.csv").rename(fills)
-        self.assertEqual(self.refused(lambda: self.ingest(trial_id, self.world.tmp)), "EXECUTION_IDENTITY",
+        self.assertEqual(refused(lambda: self.ingest(trial_id, self.world.tmp)).code, "EXECUTION_IDENTITY",
                          "only the directory marked at the trial's start")
         stored = self.ingest(trial_id)
         self.assertEqual((stored["status"], stored["failure_reasons"]), ("passed", []))
         again = self.ingest(trial_id)
         self.assertEqual((again["trial_id"], again["replayed"]), (stored["trial_id"], True))
         precheck_trial = self.rows("SELECT MIN(trial_id) FROM trial WHERE purpose = 'precheck'")[0][0]
-        self.assertEqual(self.refused(lambda: trials.ingest_run(self.world.conn, precheck_trial, workdir, {})),
+        self.assertEqual(refused(lambda: trials.ingest_run(self.world.conn, precheck_trial, workdir, {})).code,
                          "TRIAL_PURPOSE_INVALID")
-
-    def refused(self, call) -> str:
-        with self.assertRaises(Refusal) as caught:
-            call()
-        return caught.exception.code
 
     def test_ingest_takes_its_verdict_from_the_sealed_capture_only(self):
         # A failed audit, then the kept directory rewritten to look passed: the rewrite is refused.
         self.world.scenario = {"audit_passed": False, "findings": ["order O-2 naked: no stop"]}
         trial_id, workdir = self.interrupted_before_ingest(self.refs[5])
         (workdir / "audit" / "audit.json").write_text(json.dumps({"passed": True, "findings": []}))
-        self.assertEqual(self.refused(lambda: self.ingest(trial_id)), "EXECUTION_IDENTITY")
+        self.assertEqual(refused(lambda: self.ingest(trial_id)).code, "EXECUTION_IDENTITY")
         # Runtime failures and a failed integrity flag the caller never mentions still make the run invalid.
         self.world.scenario = {"summary": {"integrity_passed": False}, "runtime_failures": json.dumps(
             {"stage": "on_bar", "exception_type": "KeyError", "instrument_id": "AAAUSDT"}) + "\n"}
@@ -529,11 +520,11 @@ class SealedReplayTests(unittest.TestCase):
         (workdir / "native.stdout.txt").unlink()
         (workdir / "audit" / "audit.json").write_text(json.dumps({"passed": True, "findings": []}))
         recorded = json.loads((workdir / execution.PROCESS).read_text())
-        self.assertEqual(self.refused(lambda: execution.seal_capture(
-            self.world.profile, trial_id, workdir, recorded["stages"], {"kind": "completed", "detail": None})),
+        self.assertEqual(refused(lambda: execution.seal_capture(
+       self.world.profile, trial_id, workdir, recorded["stages"], {"kind": "completed", "detail": None})).code,
             "BUNDLE_EXISTS")
-        self.assertEqual(self.refused(lambda: self.ingest(trial_id)), "RUN_ALREADY_INGESTED")
-        self.assertEqual(self.refused(lambda: self.run_ref(self.refs[7])), "GRID_ALREADY_ATTEMPTED")
+        self.assertEqual(refused(lambda: self.ingest(trial_id)).code, "RUN_ALREADY_INGESTED")
+        self.assertEqual(refused(lambda: self.run_ref(self.refs[7])).code, "GRID_ALREADY_ATTEMPTED")
         shutil.rmtree(workdir)
 
     def test_what_the_runner_wrote_but_the_report_cannot_read_makes_the_run_invalid(self):
@@ -550,7 +541,7 @@ class SealedReplayTests(unittest.TestCase):
             with self.subTest(code=code):
                 stored = self.run_ref(ref)
                 self.assertEqual((stored["status"], codes(stored["failure_reasons"])), ("invalid", [code]))
-                self.assertEqual(self.refused(lambda: self.run_ref(ref)), "GRID_ALREADY_ATTEMPTED")
+                self.assertEqual(refused(lambda: self.run_ref(ref)).code, "GRID_ALREADY_ATTEMPTED")
 
     def test_ingest_takes_the_configuration_hash_from_the_sealed_receipt_not_from_the_probe(self):
         def misreporting(identity, runner_argv, inputs):

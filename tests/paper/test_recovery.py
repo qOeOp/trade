@@ -15,6 +15,7 @@ from ledger import db, paper as records
 from shared.errors import Refusal
 from paper import recovery, runs
 from tests.ledger.dolt import BINARY, SKIP, Service
+from tests.helpers import refused
 
 
 class ResumePolicyTests(unittest.TestCase):
@@ -64,9 +65,7 @@ class ResumePolicyTests(unittest.TestCase):
         return recovery.resume.__wrapped__(self.profile, {"name": "market"}, 8)
 
     def refused(self):
-        with self.assertRaises(Refusal) as caught:
-            self.resume()
-        self.assertEqual(caught.exception.code, "PAPER_RECOVERY_UNAVAILABLE")
+        self.assertEqual(refused(self.resume).code, "PAPER_RECOVERY_UNAVAILABLE")
         self.docker.assert_not_called()
 
     def test_valid_resume_starts_original_container_and_keeps_same_id(self):

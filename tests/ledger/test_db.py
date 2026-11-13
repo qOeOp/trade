@@ -21,6 +21,7 @@ from ledger import db
 from shared import paths, profiles as profile_directory
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service
+from tests.helpers import refused
 
 
 def bundle_insert(name: str, wait=None):
@@ -87,11 +88,6 @@ class LedgerBaseTests(unittest.TestCase):
         cls.addClassCleanup(cls.service.close)
         cls.profile = cls.service.ledger("base")
 
-    def code(self, call) -> str:
-        with self.assertRaises(Refusal) as caught:
-            call()
-        return caught.exception.code
-
     def seq(self, profile=None) -> int:
         return self.service.sql(profile or self.profile, "SELECT seq FROM ledger_head")[0][0]
 
@@ -144,63 +140,61 @@ class LedgerBaseTests(unittest.TestCase):
     def test_init_refusals(self):
         for name, database in (("bad name", "ok"), ("ok", "bad-database")):
             with self.subTest(name=name):
-                self.assertEqual(self.code(lambda: db.init(name, database, self.profile.service_root, "isolated",
-                                                           dolt_binary=BINARY)), "INVALID_NAME")
-        self.assertEqual(self.code(lambda: db.init("x", "x", self.profile.service_root, "eternal", dolt_binary=BINARY)),
-                         "INVALID_NAME")
-        self.assertEqual(self.code(lambda: db.init("base", "other", self.profile.service_root, "isolated",
-                                                   dolt_binary=BINARY)), "LEDGER_EXISTS")
-        self.assertEqual(self.code(lambda: db.init("again", self.profile.database, self.profile.service_root,
-                                                   "isolated", dolt_binary=BINARY)), "LEDGER_EXISTS")
-        self.assertEqual(self.code(lambda: db.init("nobin", "nobin", self.profile.service_root, "isolated",
-                                                   dolt_binary=Path("/bin/echo"))), "DOLT_BINARY")
+                self.assertEqual(refused(lambda: db.init(name, database, self.profile.service_root, "isolated",
+                                                         dolt_binary=BINARY)).code, "INVALID_NAME")
+        self.assertEqual(refused(lambda: db.init("x", "x", self.profile.service_root, "eternal",
+                                                 dolt_binary=BINARY)).code, "INVALID_NAME")
+        self.assertEqual(refused(lambda: db.init("base", "other", self.profile.service_root, "isolated",
+                                                 dolt_binary=BINARY)).code, "LEDGER_EXISTS")
+        self.assertEqual(refused(lambda: db.init("again", self.profile.database, self.profile.service_root,
+                                                 "isolated", dolt_binary=BINARY)).code, "LEDGER_EXISTS")
+        self.assertEqual(refused(lambda: db.init("nobin", "nobin", self.profile.service_root, "isolated",
+                                                 dolt_binary=Path("/bin/echo"))).code, "DOLT_BINARY")
         deep = self.service.root / ("d" * 120)
-        self.assertEqual(self.code(lambda: db.init("deep", "deep", deep, "isolated", dolt_binary=BINARY)),
+        self.assertEqual(refused(lambda: db.init("deep", "deep", deep, "isolated", dolt_binary=BINARY)).code,
                          "LEDGER_START")
         self.assertFalse(deep.exists())
 
     def test_the_active_ledger_is_unique_and_lives_outside_temporary_roots(self):
         backup = self.service.root / "backup"
-        self.assertEqual(self.code(lambda: db.init("live", "live", self.service.root / "live", "active",
-                                                   backup_root=backup, dolt_binary=BINARY)), "ISOLATION_BREACH")
-        self.assertEqual(self.code(lambda: db.init("live", "live", paths.REPOSITORY / "never-created", "active",
-                                                   dolt_binary=BINARY)), "ISOLATION_BREACH")
+        self.assertEqual(refused(lambda: db.init("live", "live", self.service.root / "live", "active",
+                                                 backup_root=backup, dolt_binary=BINARY)).code, "ISOLATION_BREACH")
+        self.assertEqual(refused(lambda: db.init("live", "live", paths.REPOSITORY / "never-created", "active",
+                                                 dolt_binary=BINARY)).code, "ISOLATION_BREACH")
         self.assertFalse((self.service.root / "live").exists())
         self.assertFalse((paths.REPOSITORY / "never-created").exists())
         active = self.service.home / "prod.json"
         active.write_text(json.dumps({"name": "prod", "kind": "active", "database": "research",
                                       "service": "/nonexistent", "backup": None}))
         self.addCleanup(active.unlink)
-        self.assertEqual(self.code(lambda: db.init("copy", "research", self.profile.service_root, "isolated",
-                                                   dolt_binary=BINARY)), "ISOLATION_BREACH")
-        self.assertEqual(self.code(lambda: db.init("second", "second", paths.REPOSITORY / "never-created", "active",
-                                                   backup_root=paths.REPOSITORY / "never-backup", dolt_binary=BINARY)),
-                         "LEDGER_EXISTS")
+        self.assertEqual(refused(lambda: db.init("copy", "research", self.profile.service_root, "isolated",
+                                                 dolt_binary=BINARY)).code, "ISOLATION_BREACH")
+        self.assertEqual(refused(lambda: db.init("second", "second", paths.REPOSITORY / "never-created", "active",
+                                                 backup_root=paths.REPOSITORY / "never-backup",
+                                                 dolt_binary=BINARY)).code, "LEDGER_EXISTS")
 
     # connect
 
     def test_connect_refusals(self):
-        self.assertEqual(self.code(lambda: db.connect(self.profile, "admin")), "INVALID_ROLE")
+        self.assertEqual(refused(lambda: db.connect(self.profile, "admin")).code, "INVALID_ROLE")
         unknown = db.LedgerProfile(**{**self.profile.__dict__, "database": "test_missing"})
-        self.assertEqual(self.code(lambda: db.connect(unknown, "reader")), "LEDGER_UNKNOWN")
-        with self.assertRaises(Refusal) as caught:
-            db.load_profile("nope")
-        self.assertEqual(caught.exception.code, "LEDGER_UNKNOWN")
+        self.assertEqual(refused(lambda: db.connect(unknown, "reader")).code, "LEDGER_UNKNOWN")
+        self.assertEqual(refused(db.load_profile, "nope").code, "LEDGER_UNKNOWN")
         stopped = Path(tempfile.mkdtemp(prefix="lgx-", dir="/tmp"))
         self.addCleanup(__import__("shutil").rmtree, stopped, ignore_errors=True)
         config = db.service_config(self.profile.service_root)
         (stopped / "service.json").write_text(json.dumps({**config, "socket": str(stopped / "none.sock")}))
-        self.assertEqual(self.code(lambda: db.connect(db.LedgerProfile(**{**self.profile.__dict__,
-                                                                           "service_root": stopped}), "reader")),
+        self.assertEqual(refused(lambda: db.connect(db.LedgerProfile(**{**self.profile.__dict__,
+                                                                         "service_root": stopped}), "reader")).code,
                          "LEDGER_UNAVAILABLE")
         wrong = json.loads(json.dumps(config))
         wrong["databases"][self.profile.database]["reader"]["password"] = "wrong"
         (stopped / "service.json").write_text(json.dumps(wrong))
-        self.assertEqual(self.code(lambda: db.connect(db.LedgerProfile(**{**self.profile.__dict__,
-                                                                           "service_root": stopped}), "reader")),
+        self.assertEqual(refused(lambda: db.connect(db.LedgerProfile(**{**self.profile.__dict__,
+                                                                         "service_root": stopped}), "reader")).code,
                          "LEDGER_PERMISSION")
         with patch.dict(db.SCHEMAS, research=(db.SCHEMA, db.SCHEMA_VERSION + 1)):
-            self.assertEqual(self.code(lambda: db.connect(self.profile, "reader")), "SCHEMA_MISMATCH")
+            self.assertEqual(refused(lambda: db.connect(self.profile, "reader")).code, "SCHEMA_MISMATCH")
 
     def test_statements_keep_their_read_timeout_after_the_short_handshake(self):
         with db.connect(self.profile, "reader") as conn:
@@ -220,11 +214,11 @@ class LedgerBaseTests(unittest.TestCase):
                           "CALL DOLT_CHECKOUT('-b', 'y')", "ALTER TABLE run ADD COLUMN x INT",
                           "DELETE FROM dolt_branch_control"):
             with self.subTest(statement=statement):
-                self.assertEqual(self.code(lambda: writer.rows(statement)), "LEDGER_PERMISSION")
+                self.assertEqual(refused(lambda: writer.rows(statement)).code, "LEDGER_PERMISSION")
         reader = db.connect(self.profile, "reader")
         self.addCleanup(reader.close)
-        self.assertEqual(self.code(lambda: reader.rows(
-            "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('r', 'agent', 'r')")), "LEDGER_PERMISSION")
+        self.assertEqual(refused(lambda: reader.rows(
+          "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('r', 'agent', 'r')")).code, "LEDGER_PERMISSION")
         self.service.sql(self.profile, "CALL DOLT_BRANCH('side', 'main')")
         config = db.service_config(self.profile.service_root)
         account = config["databases"][self.profile.database]["writer"]
@@ -255,9 +249,9 @@ class LedgerBaseTests(unittest.TestCase):
     def test_the_writer_cannot_overwrite_through_upserts_or_generated_hashes(self):
         with db.connect(self.profile, "writer") as writer:
             db.write(writer, "probe", {"bundle": "upsert"}, "evidence_bundle", bundle_insert("upsert"))
-            self.assertEqual(self.code(lambda: writer.rows(
-                "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('upsert', 'agent', 'u') "
-                "ON DUPLICATE KEY UPDATE op_id = 'hijacked'")), "LEDGER_PERMISSION")
+            self.assertEqual(refused(lambda: writer.rows(
+              "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('upsert', 'agent', 'u') "
+              "ON DUPLICATE KEY UPDATE op_id = 'hijacked'")).code, "LEDGER_PERMISSION")
 
             def forged(statement):
                 def insert(conn, op):
@@ -270,8 +264,8 @@ class LedgerBaseTests(unittest.TestCase):
             # The ledger derives a content's hash, and a bundle file can only name a stored content.
             for number, statement in enumerate(("INSERT INTO evidence_content (content, sha256) VALUES ('x', %s)",
                                                 "INSERT INTO evidence (bundle, path, sha256) VALUES ('forged', 'a', %s)")):
-                self.assertEqual(self.code(lambda: db.write(writer, "probe", {"forged": number}, "evidence_bundle",
-                                                            forged(statement))), "DOLT_SQL_ERROR")
+                self.assertEqual(refused(lambda: db.write(writer, "probe", {"forged": number}, "evidence_bundle",
+                                                          forged(statement))).code, "DOLT_SQL_ERROR")
         (stored,), = self.service.sql(self.profile, "SELECT op_id FROM evidence_bundle WHERE bundle = 'upsert'")
         self.assertTrue(stored.startswith("probe:"))
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM evidence_bundle WHERE bundle = 'forged'"),
@@ -285,7 +279,7 @@ class LedgerBaseTests(unittest.TestCase):
 
             for legacy in ("m" * 32, "2026-02-30"):  # a pre-day market hash, or no day at all
                 with self.subTest(legacy=legacy):
-                    self.assertEqual(self.code(lambda: trial(legacy)), "DOLT_SQL_ERROR")
+                    self.assertEqual(refused(lambda: trial(legacy)).code, "DOLT_SQL_ERROR")
             trial_id = trial("2026-03-01")["record"]["trial_id"]
             statement = "SELECT market_day FROM trial WHERE trial_id = %s"
             self.assertEqual((writer.rows(statement, (trial_id,)), writer.one(statement, (trial_id,))),
@@ -311,7 +305,7 @@ class LedgerBaseTests(unittest.TestCase):
             for arguments in (('["A1"]', '{"orders": 1}'), (None, None), ('{"code": "A1"}', None),
                               (None, '{"orders": 1}', 2, "1.5")):
                 with self.subTest(arguments=arguments):
-                    self.assertEqual(self.code(lambda: run(*arguments)), "DOLT_SQL_ERROR")
+                    self.assertEqual(refused(lambda: run(*arguments)).code, "DOLT_SQL_ERROR")
         statuses = dict(self.service.sql(self.profile, "SELECT trial_id, status FROM run WHERE trial_id IN (%s, %s)",
                                          (passed["record"]["trial_id"], invalid["record"]["trial_id"])))
         self.assertEqual(statuses, {passed["record"]["trial_id"]: "passed", invalid["record"]["trial_id"]: "invalid"})
@@ -327,10 +321,10 @@ class LedgerBaseTests(unittest.TestCase):
             self.assertEqual(new.resolved_commit, written["commit"])
             self.assertEqual(old.rows("SELECT COUNT(*) FROM evidence_bundle WHERE bundle = 'pinned'"), [(0,)])
             self.assertEqual(new.rows("SELECT COUNT(*) FROM evidence_bundle WHERE bundle = 'pinned'"), [(1,)])
-            self.assertEqual(self.code(lambda: db.write(new, "x", {}, "evidence_bundle", bundle_insert("never"))),
+            self.assertEqual(refused(lambda: db.write(new, "x", {}, "evidence_bundle", bundle_insert("never"))).code,
                              "READ_ONLY_CONNECTION")
-            self.assertEqual(self.code(lambda: new.rows(
-                "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('n', 'agent', 'n')")),
+            self.assertEqual(refused(lambda: new.rows(
+              "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('n', 'agent', 'n')")).code,
                 "LEDGER_PERMISSION")
         with db.read_as_of(self.profile, "main") as branch:
             self.assertEqual(branch.resolved_commit, written["commit"])
@@ -338,11 +332,11 @@ class LedgerBaseTests(unittest.TestCase):
     def test_read_as_of_refusals(self):
         for ref in ("", "a;DROP TABLE run", "../x", "x y"):
             with self.subTest(ref=ref):
-                self.assertEqual(self.code(lambda: db.read_as_of(self.profile, ref)), "INVALID_REF")
-        self.assertEqual(self.code(lambda: db.read_as_of(self.profile, "nosuchbranch")), "UNKNOWN_REF")
-        self.assertEqual(self.code(lambda: db.read_as_of(self.profile, "a" * 32)), "UNKNOWN_REF")
+                self.assertEqual(refused(lambda: db.read_as_of(self.profile, ref)).code, "INVALID_REF")
+        self.assertEqual(refused(lambda: db.read_as_of(self.profile, "nosuchbranch")).code, "UNKNOWN_REF")
+        self.assertEqual(refused(lambda: db.read_as_of(self.profile, "a" * 32)).code, "UNKNOWN_REF")
         with patch.dict(db.SCHEMAS, research=(db.SCHEMA, db.SCHEMA_VERSION + 1)):
-            self.assertEqual(self.code(lambda: db.read_as_of(self.profile)), "SCHEMA_MISMATCH")
+            self.assertEqual(refused(lambda: db.read_as_of(self.profile)).code, "SCHEMA_MISMATCH")
 
     # write
 
@@ -364,7 +358,7 @@ class LedgerBaseTests(unittest.TestCase):
     def test_write_refusals_leave_nothing_behind(self):
         start = self.seq()
         with db.connect(self.profile, "reader") as reader:
-            self.assertEqual(self.code(lambda: db.write(reader, "x", {}, "evidence_bundle", bundle_insert("r"))),
+            self.assertEqual(refused(lambda: db.write(reader, "x", {}, "evidence_bundle", bundle_insert("r"))).code,
                              "READ_ONLY_CONNECTION")
         with db.connect(self.profile, "writer") as writer:
 
@@ -376,21 +370,21 @@ class LedgerBaseTests(unittest.TestCase):
 
             for purpose in ("precheck", "research"):
                 with self.subTest(purpose=purpose):
-                    self.assertEqual(self.code(lambda: db.write(writer, "probe", {"t": purpose}, "trial",
-                                                                unpublished_trial(purpose))), "DOLT_SQL_ERROR")
+                    self.assertEqual(refused(lambda: db.write(writer, "probe", {"t": purpose}, "trial",
+                                                              unpublished_trial(purpose))).code, "DOLT_SQL_ERROR")
 
             def update(conn, op):
                 conn.rows("UPDATE candidate SET description = 'edited'")
                 return {}
 
-            self.assertEqual(self.code(lambda: db.write(writer, "probe", {"u": 1}, "candidate", update)),
+            self.assertEqual(refused(lambda: db.write(writer, "probe", {"u": 1}, "candidate", update)).code,
                              "LEDGER_PERMISSION")
 
             def duplicate(conn, op):
                 conn.rows("INSERT INTO ledger_schema VALUES (1, 1)")
                 return {}
 
-            self.assertEqual(self.code(lambda: db.write(writer, "probe", {"d": 1}, "evidence_bundle", duplicate)),
+            self.assertEqual(refused(lambda: db.write(writer, "probe", {"d": 1}, "evidence_bundle", duplicate)).code,
                              "DOLT_SQL_ERROR")
             self.assertEqual(writer.rows("SELECT COUNT(*) FROM trial WHERE source_sha256 = %s", ("f" * 64,)), [(0,)])
         self.assertEqual(self.seq(), start)
@@ -400,8 +394,8 @@ class LedgerBaseTests(unittest.TestCase):
         profile = self.service.ledger("dirty")
         self.service.sql(profile, "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('stray', 'agent', 's')")
         with db.connect(profile, "writer") as writer:
-            self.assertEqual(self.code(lambda: db.write(writer, "probe", {"b": 1}, "evidence_bundle",
-                                                        bundle_insert("mine"))), "DIRTY_WORKING_SET")
+            self.assertEqual(refused(lambda: db.write(writer, "probe", {"b": 1}, "evidence_bundle",
+                                                      bundle_insert("mine"))).code, "DIRTY_WORKING_SET")
         self.assertEqual(self.seq(profile), 0)
 
     def test_concurrent_writes_are_refused_not_merged(self):
@@ -629,9 +623,7 @@ class InitRecoveryTests(unittest.TestCase):
 
     def test_a_name_the_service_holds_in_another_case_is_refused_and_kept(self):
         self.init("cased", "test_cased")
-        with self.assertRaises(Refusal) as caught:
-            self.init("upper", "TEST_CASED")
-        self.assertEqual(caught.exception.code, "LEDGER_EXISTS")
+        self.assertEqual(refused(self.init, "upper", "TEST_CASED").code, "LEDGER_EXISTS")
         self.assertEqual(self.left("test_cased", "cased")["database"], True)
         with db.connect(db.load_profile("cased"), "reader") as reader:
             self.assertEqual(reader.rows("SELECT version FROM ledger_schema"), [(db.SCHEMA_VERSION,)])

@@ -8,6 +8,7 @@ from unittest import mock
 
 from engine import paper_checkpoint as checkpoint
 from engine.config import Refusal
+from tests.helpers import refused
 
 
 class CheckpointTests(unittest.TestCase):
@@ -23,9 +24,8 @@ class CheckpointTests(unittest.TestCase):
         self.point = checkpoint.publish(self.output, self.identity, self.rdb)
 
     def refuses(self):
-        with self.assertRaises(Refusal) as found:
-            checkpoint.read(self.output, self.identity)
-        self.assertEqual(found.exception.code, "PAPER_RECOVERY_UNAVAILABLE")
+        self.assertEqual(refused(checkpoint.read, self.output, self.identity,
+                                 error=Refusal).code, "PAPER_RECOVERY_UNAVAILABLE")
 
     def test_committed_cut_and_native_original_are_bound(self):
         self.assertEqual(checkpoint.read(self.output, self.identity), self.point)

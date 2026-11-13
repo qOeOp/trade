@@ -17,6 +17,7 @@ from engine import order_rules, paper, run
 from engine import strategy as strategy_runtime
 from engine.load import load_strategy
 from tests.engine import test_fill_model as fixture
+from tests.helpers import refused
 
 JAN = int(datetime(2026, 1, 10, tzinfo=UTC).timestamp() * 1e9)
 FEB = int(datetime(2026, 2, 1, tzinfo=UTC).timestamp() * 1e9)
@@ -84,9 +85,7 @@ class MembershipTests(Clocked):
         stays = paper.Membership("AAAUSDT", [(JAN, FEB)], FEB, self.months)
         (self.months / "2026-02.json").write_text('{"members": "AAAUSDT"}')
         self.now = FEB
-        with self.assertRaises(paper.Refusal) as raised:
-            list(stays)
-        self.assertEqual(raised.exception.code, "UNIVERSE_FILE_INVALID")
+        self.assertEqual(refused(list, stays, error=paper.Refusal).code, "UNIVERSE_FILE_INVALID")
 
 
 class RunningPaperTests(Clocked):

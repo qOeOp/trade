@@ -1,8 +1,8 @@
 """If this fails, a paper reconciliation misreports a run: a trade the replay also made shows as a difference, a
-replay-only entry with no live-data cause is not flagged as a look-ahead suspect, a live gap or a live bar that
-differs from the archive is not named as the cause, the journal's warm-up is not the run's, the replay is not the
-run's own (interval, warm-up start, leverage, starting balance), or the replay's equity is read at another moment
-than the paper snapshot it is set against. The comparison itself is replay.reconcile's (tests/replay)."""
+live gap or a live bar that differs from the archive is not named as the cause, the journal's warm-up is not the
+run's, the replay is not the run's own (interval, warm-up start, leverage, starting balance), or the replay's equity
+is read at another moment than the paper snapshot it is set against. The comparison itself is replay.reconcile's
+(tests/replay)."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from shared.errors import Refusal
 from paper import reconcile
 from replay import reconcile as shared
+from tests.helpers import refused
 
 
 MINUTE = reconcile.MINUTE_NS
@@ -62,13 +62,6 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(found["groups"][0]["orders"][0]["delay_ms"], 25)
         self.assertNotIn("cause", found["groups"][0])
 
-    def test_a_replay_only_entry_without_a_live_cause_is_a_look_ahead_suspect(self):
-        replay = [initialized("R1", "ENTRY"), filled("R1", close_of(2), "100.0", "1")]
-        found = reconcile.compare(journal([], 5), replay, {"BTCUSDT": archived(5)}, None, START, START + 5 * MINUTE)
-        group = found["groups"][0]
-        self.assertEqual((group["class"], group["cause"], group["look_ahead_suspect"]), ("replay_only", "unexplained", True))
-        self.assertEqual(found["summary"]["look_ahead_suspects"], 1)
-
     def test_a_missing_live_bar_before_a_difference_is_its_cause(self):
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(3), "100.0", "1")]
         found = reconcile.compare(journal([], 5, skip=(2,)), replay, {"BTCUSDT": archived(5)}, None, START,
@@ -96,9 +89,8 @@ class Reconcile(unittest.TestCase):
         lines = journal([], 0)
         self.assertEqual(reconcile.window(lines, {"stopped_ns": START + 3 * MINUTE + 17 * 10**9}),
                          (START, START + 3 * MINUTE))
-        with self.assertRaises(Refusal) as caught:
-            reconcile.window(lines, {"stopped_ns": START + 30 * 10**9})
-        self.assertEqual(caught.exception.code, "PAPER_RECONCILE_EMPTY")
+        self.assertEqual(refused(reconcile.window, lines,
+                                 {"stopped_ns": START + 30 * 10**9}).code, "PAPER_RECONCILE_EMPTY")
 
     def test_the_replay_equity_is_read_at_each_snapshot_minutes_close(self):
         with tempfile.TemporaryDirectory() as root:

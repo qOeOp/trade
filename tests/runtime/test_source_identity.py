@@ -13,6 +13,7 @@ from engine import config
 from shared.errors import Refusal
 from runtime import image
 from tests.runtime import test_image as image_tests
+from tests.helpers import refused
 
 
 CONTRACT = "replay-contract@v8"
@@ -67,9 +68,7 @@ class SourceIdentityTests(unittest.TestCase):
             return image.require_main_build(identity, original if inspection is None else inspection)
 
     def refused(self, build, inspection):
-        with self.assertRaises(Refusal) as caught:
-            self.check(build, inspection)
-        self.assertEqual(caught.exception.code, "RUNTIME_NOT_MAIN")
+        self.assertEqual(refused(self.check, build, inspection).code, "RUNTIME_NOT_MAIN")
 
     def test_only_the_complete_current_layout_is_a_main_build(self):
         before = json.dumps(self.builds, sort_keys=True)

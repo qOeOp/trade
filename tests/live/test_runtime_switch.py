@@ -11,6 +11,7 @@ from live import compare, control, notify, requests, runs, state, views
 from shared.errors import Refusal
 from tests.live.authority_fixture import launch
 from tests.live.test_runs import EVIDENCE, IDENTITY, LiveFixture
+from tests.helpers import refused
 
 NEW = {**IDENTITY, "image_ref": IDENTITY["image_ref"][:-64] + "f" * 64, "image_digest": "sha256:" + "f" * 64}
 REVISION = "e" * 40
@@ -40,9 +41,7 @@ class SwitchTests(LiveFixture):
         return [row for row in state.events(self.lifecycle) if row["event"] in events]
 
     def refused(self, code, **request):
-        with self.assertRaises(LiveRefusal) as caught:
-            self.request(**request)
-        self.assertEqual(caught.exception.code, code)
+        self.assertEqual(refused(self.request, **request, error=LiveRefusal).code, code)
 
     def test_a_confirmed_switch_is_recorded_once_with_the_arming_replay_and_writes_switch(self):
         self.refused("LIVE_SWITCH")  # no launch: not a running run
@@ -210,9 +209,8 @@ class SwitchTests(LiveFixture):
 
     def test_a_launch_naming_an_image_no_switch_confirmed_is_refused(self):
         self.launch(NEW)
-        with self.assertRaises(LiveRefusal) as caught:
-            runs.launch_runtime(self.directory, self.manifest, runs.latest_launch(self.directory))
-        self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
+        self.assertEqual(refused(runs.launch_runtime, self.directory, self.manifest,
+                                 runs.latest_launch(self.directory), error=LiveRefusal).code, "LIVE_IDENTITY_CHANGED")
         self.assertEqual(runs.launch_runtime(self.directory, self.manifest, None), IDENTITY)
 
     def test_a_runner_is_checked_against_the_image_its_launch_names_and_the_egress_against_the_manifest(self):

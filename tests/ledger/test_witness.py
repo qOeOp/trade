@@ -14,6 +14,7 @@ from ledger import db, strategies, witness
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 from tests.ledger.tsa import LocalAuthority
+from tests.helpers import refused
 
 
 FIXTURE = Path(__file__).with_name("fixtures") / "digicert-witness.tsr"
@@ -171,9 +172,8 @@ class WitnessLedgerTests(unittest.TestCase):
         (original,), = self.service.sql(self.profile, "SELECT MAX(registration_id) FROM validation_registration")
         self.register("retry", retry_of=original)
         seq = self.service.sql(self.profile, "SELECT seq FROM ledger_head")
-        with self.assertRaises(Refusal) as caught:
-            self.register("drifted retry", retry_of=original, universe_rule="pool-v2")
-        self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")
+        self.assertEqual(refused(self.register, "drifted retry", retry_of=original,
+                                 universe_rule="pool-v2").code, "DOLT_SQL_ERROR")
         self.assertEqual(self.service.sql(self.profile, "SELECT seq FROM ledger_head"), seq)
 
     def test_sync_stamps_every_registration_still_missing_a_token(self):

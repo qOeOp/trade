@@ -15,6 +15,7 @@ from live import host as host_runtime
 from live import credentials, requests, runs, state
 from tests.live.authority_fixture import launch, maintain, prepare, recover
 from tests.live.test_runs import IDENTITY, LiveFixture
+from tests.helpers import refused
 
 
 class LiveRequestTests(LiveFixture):
@@ -97,9 +98,8 @@ class LiveRequestTests(LiveFixture):
     def test_bool_and_number_are_not_the_same_canonical_command(self):
         self.dispatch(lambda root, _: runs.stop_locked(root, self.run_id),
                       command=self.command("stop", inputs={"example": 1}))
-        with self.assertRaises(LiveRefusal) as caught:
-            self.dispatch(Mock(), command=self.command("stop", inputs={"example": True}))
-        self.assertEqual(caught.exception.code, "LIVE_REQUEST_CONFLICT")
+        self.assertEqual(refused(self.dispatch, Mock(), command=self.command("stop", inputs={"example": True}),
+                                 error=LiveRefusal).code, "LIVE_REQUEST_CONFLICT")
 
     def test_new_intent_can_reference_the_identical_running_launch_without_restarting(self):
         command = self.command(inputs={"confirm_real_orders": self.manifest["source"]["source_sha256"]})
@@ -137,9 +137,8 @@ class LiveRequestTests(LiveFixture):
         self.assertEqual(requests.view(self.root, self.REQUEST)["outcome"], "outcome_unknown")
         self.assertEqual(runs.active_run(self.root), self.run_id)
         self.key_limits.reset_mock()
-        with self.assertRaises(LiveRefusal) as caught:
-            launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
-        self.assertEqual(caught.exception.code, "LIVE_REQUEST_UNRESOLVED")
+        self.assertEqual(refused(launch, self.root, self.run_id, self.credentials, "run", scope=self.scope,
+                                 error=LiveRefusal).code, "LIVE_REQUEST_UNRESOLVED")
         self.key_limits.assert_not_called()
         runs.stop(self.root, self.run_id)  # the unknown start must not block STOP
         result = recover(self.root, self.REQUEST)
@@ -228,9 +227,8 @@ class LiveRequestTests(LiveFixture):
         with self.assertRaises(SystemExit):
             self.dispatch(operation, command=command)
         self.assertEqual(recover(self.root, self.REQUEST)["outcome"], "outcome_unknown")
-        with self.assertRaises(LiveRefusal) as caught:
-            self.dispatch(Mock(), request_id="another-request", command=self.command())
-        self.assertEqual(caught.exception.code, "LIVE_REQUEST_UNRESOLVED")
+        self.assertEqual(refused(self.dispatch, Mock(), request_id="another-request", command=self.command(),
+                                 error=LiveRefusal).code, "LIVE_REQUEST_UNRESOLVED")
 
     def test_secret_names_never_enter_canonical_journal(self):
         for name in ("api_key", "api_secret", "authorization", "signature"):
@@ -250,9 +248,8 @@ class LiveRequestTests(LiveFixture):
     def test_missing_get_is_pure_and_explicit_resolve_closes_only_the_id(self):
         with state.serialized(self.root):
             pass
-        with self.assertRaises(LiveRefusal) as caught:
-            requests.view(self.root, self.REQUEST)
-        self.assertEqual(caught.exception.code, "LIVE_REQUEST_MISSING")
+        self.assertEqual(refused(requests.view, self.root, self.REQUEST,
+                                 error=LiveRefusal).code, "LIVE_REQUEST_MISSING")
         self.assertFalse((self.root / "requests").exists())
         expected = {"request_id": self.REQUEST, "action": "unknown", "target": {}, "outcome": "refused",
                     "code": "LIVE_REQUEST_CLOSED_UNCLAIMED"}
@@ -485,9 +482,8 @@ class PartialPrepareTests(LiveFixture):
         requests.dispatch(self.root, "prepare-request", self.command, self.prepare)
         changed = copy.deepcopy(self.command)
         changed["inputs"]["research_at"] = "b" * 32
-        with self.assertRaises(LiveRefusal) as caught:
-            requests.dispatch(self.root, "second-prepare-request", changed, self.prepare)
-        self.assertEqual(caught.exception.code, "LIVE_RUN_CONFLICT")
+        self.assertEqual(refused(requests.dispatch, self.root, "second-prepare-request", changed, self.prepare,
+                                 error=LiveRefusal).code, "LIVE_RUN_CONFLICT")
         self.assertEqual(requests.view(self.root, "second-prepare-request")["outcome"], "refused")
         original = requests.read_locked(self.root, "prepare-request")
         self.assertEqual(original["command"]["inputs"]["research_at"], "a" * 32)
@@ -517,9 +513,7 @@ class PartialPrepareTests(LiveFixture):
                                 self.credentials, IDENTITY["image_ref"], scope=self.scope, **self.config,
                                 market_root=Path("unused"), credential_ref=self.ref)
         self.assertEqual(legacy("a" * 32)["run_id"], self.new_id)
-        with self.assertRaises(LiveRefusal) as caught:
-            legacy("b" * 32)
-        self.assertEqual(caught.exception.code, "LIVE_RUN_CONFLICT")
+        self.assertEqual(refused(legacy, "b" * 32, error=LiveRefusal).code, "LIVE_RUN_CONFLICT")
 
     def test_preflight_validates_original_preparation_without_rebinding_its_request(self):
         requests.dispatch(self.root, "prepare-request", self.command, self.prepare)

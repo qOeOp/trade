@@ -15,7 +15,6 @@ from unittest import mock
 from cli.common import UsageError
 from cli.replay_commands import replay_report
 from ledger import db, metrics, strategies
-from shared.errors import Refusal
 from shared.refusals import refuse
 from market.sources import MarketError
 from registration import availability, duties, precheck, register
@@ -25,6 +24,7 @@ from runtime import image
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP
 from tests.registration.world import OUTCOMES, RUNNER_ARGV
 from tests.replay.world import ReplayWorld, registered_grid
+from tests.helpers import refused
 
 
 FINGERPRINT = {"fills": {"rows": 2, "sha256": "1" * 64}, "orders": {"rows": 2, "sha256": "2" * 64}}
@@ -47,14 +47,6 @@ def unreachable(*window):
 def unprofiled(*window):
     """A ledger profile directory without a market profile."""
     raise refuse("MARKET_RETURNS_UNAVAILABLE", "no market profile for database (the active one)")
-
-
-def refused(function, *args, **kwargs) -> Refusal:
-    try:
-        function(*args, **kwargs)
-    except Refusal as exc:
-        return exc
-    raise AssertionError("no refusal")
 
 
 @unittest.skipUnless(BINARY, SKIP)

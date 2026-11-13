@@ -16,6 +16,7 @@ from shared.errors import Refusal
 from registration import inputs, seams
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, product_bundle
 from tests.registration.world import LINE_WINDOW, FakeMarket, World, months_rows
+from tests.helpers import refused
 
 
 class FingerprintTests(unittest.TestCase):
@@ -49,9 +50,7 @@ class FingerprintTests(unittest.TestCase):
             with self.subTest(read=name):
                 self.assertNotEqual(inputs.export_fingerprint(self.export(name, 1.0, **receipt), semantic=True), kept)
         (base["root"] / "AAAUSDT" / "export.json").write_text('{"symbol": "AAAUSDT"}')
-        with self.assertRaises(Refusal) as caught:
-            inputs.export_fingerprint(base, semantic=True)
-        self.assertEqual(caught.exception.code, "EXPORT_CONTENT_INVALID")
+        self.assertEqual(refused(inputs.export_fingerprint, base, semantic=True).code, "EXPORT_CONTENT_INVALID")
 
     def test_the_semantic_identity_ignores_location_and_export_time(self):
         first, second = self.export("a", 1.5), self.export("b", 9.0)
@@ -174,7 +173,5 @@ class LifecycleTests(unittest.TestCase):
         with patch.object(evidence, "_fetch", altered), self.assertRaises(Refusal) as caught:
             inputs.load_lifecycle(world.profile, "lifecycle-" + MARKET_DAY, MARKET_DAY, market=world.market)
         self.assertEqual(caught.exception.code, "LIFECYCLE_INPUT")
-        with self.assertRaises(Refusal) as caught:
-            inputs.market_inputs(world.market, MARKET_DAY, LINE_WINDOW, {"universe": True},
-                                 "lifecycle-" + "n" * 32, True, world.profile)
-        self.assertEqual(caught.exception.code, "LIFECYCLE_INPUT")
+        self.assertEqual(refused(inputs.market_inputs, world.market, MARKET_DAY, LINE_WINDOW, {"universe": True},
+                                 "lifecycle-" + "n" * 32, True, world.profile).code, "LIFECYCLE_INPUT")
