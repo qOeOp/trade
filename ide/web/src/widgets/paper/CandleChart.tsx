@@ -1,4 +1,4 @@
-import { dateTime } from "../../lib/time";
+import { DAY_S, dateTime, dayStart } from "../../lib/time";
 import { useTimeZone } from "../../state/timeZone";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { JournalLine } from "../../lib/paperApi";
@@ -44,8 +44,7 @@ export function CandleChart({ remembers, symbol, bars, lead, note, stretches, pl
   useEffect(() => { if (focus) chart.showAround(focus.ms); }, [chart, focus]);
   useEffect(() => {
     if (!day || !shown) return;
-    const start = Date.parse(`${day}T00:00:00Z`) / 1000;
-    chart.show(start, start + 86_400);
+    chart.show(dayStart(day), dayStart(day) + DAY_S);
   }, [chart, day, shown]);
 
   const onKey = (e: KeyboardEvent) => { if (stretchKey(e.key, stretches, chart.stretches.shown, (k) => chart.fitStretch(k), () => chart.whole())) e.preventDefault(); };

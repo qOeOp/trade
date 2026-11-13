@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import { HoverCard } from "radix-ui";
 import type { PaperRun } from "../lib/paperApi";
-import { duration, plural } from "../lib/format";
+import { duration, plural, signedPct } from "../lib/format";
 import { ACTIVE, chainReturn, chainStart, chainTrades } from "../model/chain";
 import { useTimeZone } from "../state/timeZone";
 import { pnlClass, type DataRole } from "../theme/roles";
-import { Ended, health, RunMenu, signedPct } from "./RunTile";
+import { Ended, health, RunMenu } from "./RunTile";
 
 const DOT: Record<DataRole, string> = { recommended: "bg-recommended", meets: "bg-meets", misses: "bg-misses", fail: "bg-fail", masked: "bg-masked" };
 

@@ -4,20 +4,19 @@
 // U+2212 minus.
 import { LineStyle, type IPriceLine, type ISeriesApi } from "lightweight-charts";
 import type { Candle } from "../../lib/bars";
+import { signedPct } from "../../lib/format";
 import { fixed, signed } from "../../lib/paperApi";
 import type { Held, PriceLine } from "../../model/paper";
 import type { seriesColors } from "./chartTheme";
 import type { Level, Part } from "./levels";
 
 type Colors = ReturnType<typeof seriesColors>;
-const sign = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "");
-const percent = (n: number) => `${sign(n)}${Math.abs(n * 100).toFixed(2)}%`;
 
 /** The levels, given the held position and the last price. */
 export function chartLevels({ orders, held, mark, places, size, c }: {
   orders: readonly PriceLine[]; held: Held | null; mark: number | null; places: number; size: number; c: Colors;
 }): Level[] {
-  const away = (price: number) => (mark ? percent(price / mark - 1) : "");
+  const away = (price: number) => (mark ? signedPct(price / mark - 1) : "");
   const levels: Level[] = orders.map((o) => {
     const price = fixed(o.price, places) ?? "";
     if (o.kind === "entry") {

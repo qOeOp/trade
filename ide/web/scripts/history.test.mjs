@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { namespace } from "./load.mjs";
 
-const h = await namespace("model/history.ts", { sources: [], packages: [], stubs: { "model/heat": {} } });
+const h = await namespace("model/history.ts", { sources: ["model/heat"], packages: [] });
 const cell = (kind, label, annual = 0.1, dd = 0.1, extra = {}) => ({ trial_id: 1, kind, label, trade_start: "", trade_end: "", status: "passed",
   whole_year: kind === "veto", short: false, measures: { annual_return: annual, mark_max_drawdown: dd, sharpe_365: 1, cycles: 3, plan_win_rate: 0.5 }, ...extra });
 const row = (run, cells, veto = {}) => ({ source_sha256: "s", candidate: `c@${run}`, run, development: cell("development", "development"), cells,
@@ -31,6 +31,7 @@ test("a thick border needs both targets on a segment of three months or more", (
 
 test("returns colour by sign and size; rows with no edge hide; orders put unknowns last", () => {
   assert.deepEqual([-0.5, -0.2, -0.05, 0.01, 0.05, 0.2, 0.5, null].map(h.returnStep), [-3, -2, -1, 0, 1, 2, 3, null]);
+  assert.deepEqual(h.RETURN_RANGES, ["below −40%", "−40% to −15%", "−15% to −2%", "−2% to +2%", "+2% to +15%", "+15% to +40%", "above +40%"]);
   const a = row(1, [], { median_annual_return: 0, years_meeting_targets: 0 }), b = row(2, [], { median_annual_return: 0.4, years_meeting_targets: 3 }),
         c = { ...row(3, []), summary: null };
   assert.deepEqual([a, b, c].map(h.noEdge), [true, false, false], "a row whose control differs has no summary and is never hidden for it");

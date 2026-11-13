@@ -6,7 +6,6 @@ import type { PaperRun } from "../lib/paperApi";
 import { ACTIVE, continuable } from "../model/chain";
 import { ending } from "../model/ending";
 import { LAG_MS, waitingText, waitingUntil } from "../model/observation";
-import { pct } from "../lib/format";
 import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
 import { openSource, showLineage } from "../state/editors";
@@ -39,7 +38,6 @@ export function health(run: PaperRun, now: number, zone: TimeZone = "UTC"): { to
 }
 
 const sealedOn = (run: PaperRun, zone: TimeZone = "UTC") => (run.seal?.stopped_ns ? dateTime(run.seal.stopped_ns / 1e6, zone, "minute") : "");
-export const signedPct = (n: number | null) => (n == null ? "—" : n > 0 ? `+${pct(n)}` : pct(n));
 
 /** How a sealed run ended and when, in the warning tone when invalid, with why it is, its refusal and
  *  whether the strategy raised (`errors`, the count where it is known): Stopped 31 Oct · 3 errors. */
@@ -66,7 +64,7 @@ export function RunButton({ run }: { run: PaperRun }) {
     <ActionButton icon={pending ? "loading" : "run"} spinning={pending} disabled={pending} aria-disabled={other !== undefined}
                   tone={pending || go || limit ? undefined : "meets"}
                   className={`${limit ? "text-fg-muted" : go ? "text-primary" : "text-fg"} disabled:cursor-progress`}
-                  hint={pending ? undefined : other ? `Run ${other.paper_id} of this version is running; stop it first` : limit ? `${limit}; stop one first` : undefined}
+                  hint={pending ? undefined : other ? `Run ${other.paper_id} of this version is running; stop it first` : limit ?? undefined}
                   onClick={(e) => { e.stopPropagation(); if (!other) void startPaper(run.candidate ?? "", { symbols: run.symbols }); }}>
       {pending ? "Starting…" : ending(run).kind === "unstarted" ? "Start" : "Run again"}
     </ActionButton>
@@ -87,7 +85,7 @@ export function StartButton({ candidate }: { candidate: string }) {
   const busy = useAtom(starting).has(candidate), limit = full(usePaperRuns());
   return (
     <ActionButton icon={busy ? "loading" : "run"} spinning={busy} tone={busy || limit ? undefined : "meets"} disabled={busy} className={`${limit ? "text-fg-muted" : "text-fg"} disabled:cursor-progress`}
-                  hint={limit ? `${limit}; stop one first` : undefined}
+                  hint={limit ?? undefined}
                   onClick={() => startDialog.set(candidate)}>
       {busy ? "Starting…" : "Run paper…"}
     </ActionButton>

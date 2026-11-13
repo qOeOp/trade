@@ -96,8 +96,14 @@ export type Exit = "stop" | "target" | "other";
 /** `opening` is null where fills are not netted into positions (Live: its native fills are shown as they are). */
 export type Fill = { ms: number; symbol: string; buy: boolean; px: number; qty: number; opening: boolean | null; exit: Exit | null; line: JournalLine };
 
-const exitOf = (orderType: string): Exit =>
+/** How an order of `orderType` (STOP_MARKET) closes a position: a stop, a target (a limit or take-profit), else other. */
+export const exitOf = (orderType: string): Exit =>
   orderType.includes("STOP") ? "stop" : /LIMIT|TAKE_PROFIT/.test(orderType) ? "target" : "other";
+/** A working order's kind and the price it works at: a stop at its trigger, a reduce-only order a target, else an entry. */
+export function orderKind(o: OpenOrder): { kind: Exit | "entry"; price: number | null } {
+  const stop = last(o.type).includes("STOP");
+  return { kind: stop ? "stop" : o.reduce_only ? "target" : "entry", price: amount(stop ? o.trigger_price : o.price) ?? amount(o.price) };
+}
 
 /** The fills in journal order, each opening (adding to the position) or closing with how it closed; a
  *  restart holds nothing (the account died with the run before it). */
@@ -146,10 +152,8 @@ export type PriceLine = { id: string; price: number; kind: Exit | "entry"; label
 /** A contract's working orders as price lines: stops, targets (reduce-only limits) and limit entries. */
 export function priceLines(orders: readonly OpenOrder[], symbol: string): PriceLine[] {
   return orders.filter((o) => symbolOf(o.instrument_id) === symbol).flatMap((o) => {
-    const type = last(o.type), stop = type.includes("STOP");
-    const price = amount(stop ? o.trigger_price : o.price) ?? amount(o.price);
+    const { kind, price } = orderKind(o);
     if (price == null) return [];
-    const kind = stop ? "stop" : o.reduce_only ? "target" : "entry";
     return [{ id: o.client_order_id, price, kind, label: kind === "entry" ? "Entry" : kind === "stop" ? "SL" : "TP", side: last(o.side), quantity: o.quantity }];
   });
 }

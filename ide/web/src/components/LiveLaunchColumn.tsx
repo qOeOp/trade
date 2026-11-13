@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";
 import { spanText, type LaunchColumn, type LaunchRow, type Mark } from "../model/liveLaunch";
 import { LiveDurationField } from "./LiveDurationField";
+import { MISSING } from "../lib/format";
 
 /** A row's mark before its label, so the answer reads first: a green check or red cross for a start condition, the
  *  amber of a missed target for a row shown only, a dashed ring while unanswered, a turning ring while the service
@@ -43,7 +44,7 @@ function Row({ row, closed, edit, busy }: { row: LaunchRow; closed: boolean; edi
             {row.unit && <span className="text-fg-faint"> {row.unit}</span>}
           </label>
           : <span className={`min-w-0 text-right tabular-nums wrap-anywhere ${tone} ${row.mono ? "font-mono" : ""}`}>
-            {shown ?? "—"}{row.value !== null && row.unit && <span className="text-fg-faint"> {row.unit}</span>}
+            {shown ?? MISSING}{row.value !== null && row.unit && <span className="text-fg-faint"> {row.unit}</span>}
           </span>}
       </div>
       {(row.source || row.reason) && <p className="text-small text-fg-faint">{row.source}

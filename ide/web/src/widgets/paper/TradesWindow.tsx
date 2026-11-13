@@ -2,8 +2,6 @@ import { useMemo } from "react";
 import { Tabs } from "../../components/Tabs";
 import { TextButton } from "../../components/TextButton";
 import { precisions } from "../../lib/paperApi";
-import { observedCloses, stoppedPositions } from "../../model/stoppedPositions";
-import { trades } from "../../model/trades";
 import { useAtom } from "../../state/atom";
 import { backtestNote, useBacktest } from "../../state/backtest";
 import { usePaperService } from "../../state/paper";
@@ -16,7 +14,7 @@ import { Cycles } from "./Cycles";
 import { Events, EventsTools } from "./Events";
 import { Exceptions, exceptionsText, raised, scoped } from "./Exceptions";
 import { Reconcile, ReconcileTools } from "./Reconcile";
-import { Trades } from "./Trades";
+import { Trades, useTradeRows } from "./Trades";
 import { Logs } from "./Logs";
 import { LiveTrades, LiveTradesTools } from "../live/LiveTrades";
 
@@ -35,8 +33,6 @@ function useScope() {
  *  and how many) with "Show all" to go back to every contract. */
 export function TradesTools() {
   const { stage, s, only, tab, failures, sealed } = useScope(), r = useReconciliation(), backtest = useBacktest();
-  const count = useMemo(() => (s ? trades(s.lines).filter((t) => !only || t.symbol === only).length : 0), [s?.lines, only]);
-  const stopped = useMemo(() => s ? stoppedPositions(s.lines, observedCloses(s.bars, s.closes), s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : null).filter((t) => !only || t.symbol === only).length : 0, [s?.lines, s?.bars, s?.closes, s?.seal, only]);
   const cycles = stage === "backtest" && backtest?.kind === "ready" ? backtest.b.cycles.filter((c) => !only || c.symbol === only).length : null;
   if (stage === "live") return <LiveTradesTools />;
   if (!s) {
@@ -50,13 +46,18 @@ export function TradesTools() {
         ...(sealed ? [{ id: "reconcile" as const, label: "Reconciliation", dot: r?.result?.summary.look_ahead_suspects ? "fail" as const : undefined }] : [])]} /></div>
       <span className="ml-auto flex min-w-0 items-center gap-3 text-dense text-fg-faint">
         {tab === "events" && <EventsTools s={s} only={only} />}
-        {tab === "trades" && <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {count} closed{stopped > 0 && ` · ${stopped} at stop`}</span>}
+        {tab === "trades" && <TradeCount s={s} only={only} />}
         {tab === "exceptions" && <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {exceptionsText(raised(scoped(failures, only)), sealed)}</span>}
         {tab === "reconcile" && <ReconcileTools r={r} paperId={s.paperId} />}
         {only && <TextButton onClick={() => paperTab.set("equity")}>Show all</TextButton>}
       </span>
     </>
   );
+}
+
+function TradeCount({ s, only }: { s: Stream; only: string | null }) {
+  const { done, ended } = useTradeRows(s, only);
+  return <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {done.length} closed{ended.length > 0 && ` · ${ended.length} at stop`}</span>;
 }
 
 const Note = ({ children }: { children: string }) => <p className="grid h-full place-items-center p-6 text-dense text-fg-faint">{children}</p>;
@@ -82,7 +83,7 @@ export function TradesWindow() {
       {tab === "trades" ? <Trades s={s} only={only} /> : tab === "events" ? <Events s={s} only={only} />
         : tab === "logs" ? <Logs key={s.paperId} paperId={s.paperId} />
         : tab === "exceptions" ? <Exceptions failures={failures} sealed={sealed} only={only} candidate={candidate} />
-        : <Reconcile r={r} paperId={s.paperId} sealed={sealed} only={only} digits={digits} />}
+        : <Reconcile r={r} paperId={s.paperId} only={only} digits={digits} />}
     </div>
   );
 }

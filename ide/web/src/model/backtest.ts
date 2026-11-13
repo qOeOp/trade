@@ -7,9 +7,11 @@
 // moved the account, win rate, average win and loss, expectancy). A cycle still open at the window's end
 // is held until that end, as the report reads it. Without a recorded starting balance there is no equity.
 import { amount, symbolOf } from "../lib/paperApi";
+import { DAY_MS, utcInstant } from "../lib/time";
 import type { TrialReport } from "../lib/trialApi";
 import { tradeStats, type Account, type TradeStats } from "./account";
 import { sidesHeld, type Leaning } from "./held";
+import { exitOf } from "./paper";
 import type { Closed } from "./trades";
 
 /** A cycle as a closed trade: `pnl` after fees and funding, `gross` its price move alone; `open` when it was
@@ -26,9 +28,8 @@ export type Backtest = {
   image: string | null; execution: string | null; account: Account | null; stats: TradeStats | null;
 };
 
-const DAY_MS = 86_400_000;
 /** The report's times: UTC, written without a zone. */
-const ms = (text: string) => Date.parse(/Z|[+-]\d\d:?\d\d$/.test(text) ? text : `${text}Z`);
+const ms = (text: string) => utcInstant(text) ?? Number.NaN;
 const value = (m: { value: number | string | null } | null | undefined) => amount(m?.value ?? null);
 /** The report's measure `name` of its slice `id`. */
 const sliced = (r: TrialReport, id: string, name: string) => value(r.slices?.find((s) => s.id === id)?.measures[name]);
@@ -40,7 +41,7 @@ export function backtest(r: TrialReport): Backtest {
     return {
       id: `${r.trial_id}:${c.seq}`, symbol: symbolOf(c.instrument_id), long: c.side.toLowerCase() === "long", quantity: 0, entry: null, exit: null,
       pnl: amount(c.realized_pnl), opened: c.ts_opened_ns / 1e6, closed: c.ts_closed_ns === null ? window[1] : c.ts_closed_ns / 1e6,
-      how: type.includes("STOP") ? "stop" : /LIMIT|TAKE_PROFIT/.test(type) ? "target" : "other",
+      how: exitOf(type),
       fees: amount(c.commissions) ?? 0, funding: amount(c.funding) ?? 0, gross: amount(c.price_pnl) ?? 0, type, open,
     };
   }).sort((a, b) => b.closed - a.closed);

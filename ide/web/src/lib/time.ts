@@ -1,3 +1,10 @@
+import { MISSING } from "./format";
+
+/** A day and a year of 365 days, in seconds and in ms: the pace and annual return compound over that year. */
+export const DAY_S = 86_400, DAY_MS = DAY_S * 1000, YEAR_S = 365 * DAY_S, YEAR_MS = YEAR_S * 1000;
+/** The start (s) of a UTC day, 2026-11-10. */
+export const dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000;
+
 /** Display-only conversions. Epochs, UTC business days and backend calculations never change. */
 export const TIME_ZONE_LABEL = {
   UTC: "UTC", "America/New_York": "New York", "Asia/Shanghai": "China", "Asia/Tokyo": "Japan",
@@ -36,12 +43,12 @@ const parts = (ms: number, zone: TimeZone, options: Intl.DateTimeFormatOptions) 
   Object.fromEntries(timeFormatter(zone, options).formatToParts(ms).map((part) => [part.type, part.value]));
 
 export function displayDay(ms: number, zone: TimeZone): string {
-  if (!validInstant(ms)) return "—";
+  if (!validInstant(ms)) return MISSING;
   const p = parts(ms, zone, DATE_PARTS);
   return `${p.year}-${p.month}-${p.day}`;
 }
 export function clockTime(ms: number, zone: TimeZone, seconds = false): string {
-  if (!validInstant(ms)) return "—";
+  if (!validInstant(ms)) return MISSING;
   const p = parts(ms, zone, CLOCK_PARTS);
   return `${p.hour}:${p.minute}${seconds ? `:${p.second}` : ""}`;
 }
@@ -50,11 +57,11 @@ export function zoneOffset(ms: number, zone: TimeZone): string {
 }
 /** Offset belongs to this instant: New York's two repeated 01:30 times remain distinguishable. */
 export function dateTime(ms: number | null | undefined, zone: TimeZone = "UTC", precision: "minute" | "second" | "millisecond" = "second"): string {
-  if (!validInstant(ms)) return "—";
+  if (!validInstant(ms)) return MISSING;
   const fraction = precision === "millisecond" ? `.${String(new Date(ms).getUTCMilliseconds()).padStart(3, "0")}` : "";
   return `${displayDay(ms, zone)} ${clockTime(ms, zone, precision !== "minute")}${fraction} ${zoneOffset(ms, zone)}`;
 }
 export const utcDayRange = (day: string, zone: TimeZone) => {
   const start = utcInstant(`${day}T00:00:00Z`);
-  return start === null ? "—" : `${dateTime(start, zone, "minute")} → ${dateTime(start + 86_400_000, zone, "minute")}`;
+  return start === null ? MISSING : `${dateTime(start, zone, "minute")} → ${dateTime(start + DAY_MS, zone, "minute")}`;
 };

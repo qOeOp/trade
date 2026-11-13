@@ -8,6 +8,7 @@ import { Icon } from "../../icons/Icon";
 import { Chips, PillButton } from "../../components/Tabs";
 import { useAtom } from "../../state/atom";
 import { highlighted, pickedDay, showTime, shownCategories, type Stream } from "../../state/paperStream";
+import { usePickedScroll } from "./table";
 
 const SHOWN = 2000;  // the latest events listed; older ones stay in the journal
 // One grid for every row: chevron gutter, time, contract, category, text with its status.
@@ -19,9 +20,9 @@ function useScoped(lines: readonly JournalLine[], only: string | null) {
 }
 
 /** The events' filter: a chip per category with its count. */
-export function EventsTools({ s, only }: { s: Stream | null; only: string | null }) {
+export function EventsTools({ s, only }: { s: Stream; only: string | null }) {
   const on = useAtom(shownCategories);
-  const events = useScoped(s?.lines ?? [], only);
+  const events = useScoped(s.lines, only);
   const counts = useMemo(() => new Map(CATEGORIES.map((c) => [c, events.filter((l) => categoryOf(l) === c).length])), [events]);
   return (
     <Chips items={CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], count: counts.get(c) ?? 0 }))} on={on}
@@ -42,8 +43,7 @@ function Chip({ status }: { status: Status | null }) {
 function Row({ line, onClick, picked, gutter, category, text, status, title }: {
   line: JournalLine; onClick: () => void; picked: boolean; gutter?: ReactNode; category?: string; text: ReactNode; status: Status | null; title?: string;
 }) {
-  const ref = useRef<HTMLDivElement>(null), zone = useTimeZone();
-  useEffect(() => { if (picked) ref.current?.scrollIntoView({ block: "nearest" }); }, [picked]);
+  const ref = usePickedScroll<HTMLDivElement>(picked), zone = useTimeZone();
   const c = categoryOf(line);
   return (
     <div ref={ref} role="row" onClick={onClick} title={title} data-selected={picked ? "" : undefined} className={GRID}>
@@ -61,7 +61,7 @@ function Row({ line, onClick, picked, gutter, category, text, status, title }: {
  *  failed order marked. While the list is scrolled away from its top, new events wait behind "N new
  *  events" instead of moving it. A click shows the moment on the chart; a click on a chart marker
  *  highlights its event here. */
-export function Events({ s, only }: { s: Stream | null; only: string | null }) {
+export function Events({ s, only }: { s: Stream; only: string | null }) {
   const zone = useTimeZone();
   const day = useAtom(pickedDay);
   const picked = useAtom(highlighted);
@@ -69,7 +69,7 @@ export function Events({ s, only }: { s: Stream | null; only: string | null }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [held, setHeld] = useState<number | null>(null);  // the count of lines shown while scrolled away
   const host = useRef<HTMLDivElement>(null);
-  const journal = s?.lines ?? [];
+  const journal = s.lines;
   useEffect(() => {
     const viewport = host.current?.closest<HTMLElement>(".overflow-auto");
     if (!viewport) return;
@@ -87,7 +87,6 @@ export function Events({ s, only }: { s: Stream | null; only: string | null }) {
     const item = picked && items.find((i) => i.children?.includes(picked));
     if (item) setOpen((o) => new Set([...o, item.key]));
   }, [picked, items]);
-  if (!s) return null;
   const toggle = (key: string) => setOpen(new Set(open.has(key) ? [...open].filter((k) => k !== key) : [...open, key]));
   return (
     <div ref={host} className="text-dense">

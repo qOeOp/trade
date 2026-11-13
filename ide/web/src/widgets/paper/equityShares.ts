@@ -10,6 +10,7 @@
 // share wide enough carries its name, in the text colour on a patch of the island's; the tooltip (`tipOf`)
 // names every share.
 import { baseAsset } from "../../lib/paperApi";
+import { DAY_S } from "../../lib/time";
 import type { DailyCloses } from "../../model/equityReadings";
 import type { Tip } from "./candleEvents";
 import { span, type Frame } from "./equityBands";
@@ -25,7 +26,7 @@ const GAP = 4, PAD = 3, TALL = 9, NAME = 9, LEAN = 4;  // px: between shares, ar
 const OTHER = "Other";
 
 type Cycle = { symbol: string; opened: number; closed: number; pnl: number | null; gross: number };
-const DAY_S = 86_400, MOVE = 0.1;  // the least price move (a share of the price) a cycle is marked over
+const MOVE = 0.1;  // the least price move (a share of the price) a cycle is marked over
 
 /** A cycle's P&L by UTC year (its open and close in ms). Its price move (`gross`) is marked at each year's end
  *  it was held across by how far its contract's close had got from the close before it opened to the close

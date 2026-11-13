@@ -13,7 +13,10 @@
 // exposure alone, as they draw no more. A day's point sits at the day's start and is the account at its
 // close, as a coarser step's point is (equityResolution.ts).
 import { amount, type PaperRun } from "../../lib/paperApi";
+import { firstAtOrAfter } from "../../lib/search";
+import { DAY_S, YEAR_S, dayStart } from "../../lib/time";
 import type { Backtest } from "../../model/backtest";
+import { START } from "../../model/chain";
 import { dailyHold, equityReadings, type DailyCloses, type Reading } from "../../model/equityReadings";
 import { days as daysOf, fills as fillsOf, restartsOf, type Restart } from "../../model/paper";
 import type { Stretch } from "../../model/stretches";
@@ -21,6 +24,7 @@ import type { DayBar } from "./equityBands";
 import type { EquityPoint } from "./equityLayers";
 import type { Episode } from "./equityNotes";
 import { stepFor, withDowns } from "./equityResolution";
+import { FIRST_SHARE } from "./viewAnchor";
 
 /** A paper stretch's name, said invalid when it is. */
 export const stretchName = (chain: readonly PaperRun[]) => `Paper${chain.at(-1)!.status === "invalid" ? " · invalid" : ""}`;
@@ -41,8 +45,7 @@ type Segment = {
   restarts: Restart[]; days: () => DayBar[]; readings: () => Map<number, Reading>;
 };
 
-const YEAR_S = 365 * 86_400, DAY_S = 86_400, START = 100_000, SHOWN = 0.8;
-const dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000;
+const SHOWN = 0.8;
 const scaled = (v: number | null, k: number) => (v === null ? null : v * k);
 
 function paper({ chain, piece, selected, run }: Stretch): Segment {
@@ -67,6 +70,21 @@ function tested(b: Backtest, selected: boolean, closes: DailyCloses | null): Seg
   };
 }
 
+/** One stretch's points (`k`) from its own equity `path` (time s, value) times `scale`, each with its peak from
+ *  `starting` on and the pace `pace` gives at its time (none when null), a day's when `day`; a later point at
+ *  a time already held stands in its place. */
+export function stretchPoints(path: readonly (readonly [number, number])[], scale: number, starting: number, k: number, pace: ((time: number) => number) | null, day = false): EquityPoint[] {
+  const own: EquityPoint[] = [];
+  let peak = starting * scale;
+  for (const [time, v] of path) {
+    const value = v * scale;
+    peak = Math.max(peak, value);
+    const p: EquityPoint = { time, value, peak, low: value, pace: pace === null ? null : pace(time), stretch: k, ...(day ? { day: true } : {}) };
+    if (own.at(-1)?.time === time) own[own.length - 1] = p; else own.push(p);
+  }
+  return own;
+}
+
 /** Sets each point's `low` to the lowest value from it to the end of `points` (one stretch), for the drawdown
  *  an entry there takes. */
 export function entryLows(points: EquityPoint[]): void {
@@ -85,15 +103,8 @@ export function continuous(stretches: readonly Stretch[], annual: number | null,
     const { path, starting } = g;
     if (!path.length || path[0]![0] <= (minutes.at(-1)?.time ?? -Infinity)) continue;
     const scale: number = carried === null ? 1 : carried / starting, k = placed.length;
-    base ??= starting;
-    let peak = starting * scale;
-    const own: EquityPoint[] = [];
-    for (const [time, v] of path) {
-      const value = v * scale;
-      peak = Math.max(peak, value);
-      const p: EquityPoint = { time, value, peak, low: value, pace: annual === null ? null : base * (1 + annual) ** ((elapsed + time + g.lead - g.t0 - g.idle(time)) / YEAR_S), stretch: k, ...(g.lead ? { day: true } : {}) };
-      if (own.at(-1)?.time === time) own[own.length - 1] = p; else own.push(p);
-    }
+    const origin = (base ??= starting), before = elapsed;
+    const own = stretchPoints(path, scale, starting, k, annual === null ? null : (time) => origin * (1 + annual) ** ((before + time + g.lead - g.t0 - g.idle(time)) / YEAR_S), g.lead > 0);
     if (anew) own[0] = { ...own[0]!, cut: true };
     entryLows(own);
     const points = withDowns(own, g.restarts), first = minutes.length;
@@ -121,13 +132,6 @@ export function continuous(stretches: readonly Stretch[], annual: number | null,
   return line;
 }
 
-/** The index of the first of `points` at or after `t` (s). */
-function from(points: readonly { time: number }[], t: number): number {
-  let lo = 0, hi = points.length;
-  while (lo < hi) { const mid = (lo + hi) >> 1; if (points[mid]!.time < t) lo = mid + 1; else hi = mid; }
-  return lo;
-}
-
 /** The index of the last of `points` that `test` holds for; -1 when none. */
 export function lastWhere<T>(points: readonly T[], test: (p: T) => boolean): number {
   for (let i = points.length - 1; i >= 0; i--) if (test(points[i]!)) return i;
@@ -137,7 +141,7 @@ export function lastWhere<T>(points: readonly T[], test: (p: T) => boolean): num
 /** Between `a` and `b` (s), the seconds of minutes and the days' points (a point at any step): what a step
  *  is picked for, the time between two stretches left out. */
 export function covered(minutes: readonly EquityPoint[], a: number, b: number): { span: number; days: number } {
-  const i = from(minutes, a), j = from(minutes, b + 1);
+  const from = (t: number) => firstAtOrAfter(minutes.length, (k) => minutes[k]!.time, t), i = from(a), j = from(b + 1);
   let days = 0;
   while (i + days < j && minutes[i + days]!.day) days++;  // the backtest's days come first
   return { span: Math.max(0, j - i - days) * 60, days };
@@ -150,12 +154,12 @@ export function stepOver(minutes: readonly EquityPoint[], a: number, b: number, 
 }
 
 /** The view a stretch first shows with (a logical range over `points`): the shown stretch (`k`) over the
- *  right 85% of the pane and the end of the one before it over the left 15%; the shown stretch alone when
+ *  right FIRST_SHARE of the pane and the end of the one before it over the rest; the shown stretch alone when
  *  it is the first. */
 export function firstView(points: readonly EquityPoint[], k: number): { from: number; to: number } | null {
   const a = points.findIndex((p) => p.stretch === k), b = lastWhere(points, (p) => p.stretch === k);
   if (a < 0) return null;
-  return { from: a - Math.min(a, ((b - a + 1) * 15) / 85), to: b };
+  return { from: a - Math.min(a, ((b - a + 1) * (1 - FIRST_SHARE)) / FIRST_SHARE), to: b };
 }
 
 /** Whether the shown stretch (`k`) holds at least SHOWN of the points between logical `a` and `b`, as its

@@ -5,6 +5,7 @@
 import { useEffect, useMemo } from "react";
 import type { Candle } from "../lib/bars";
 import { fetchBars } from "../lib/barsApi";
+import { DAY_MS } from "../lib/time";
 import type { Backtest } from "../model/backtest";
 import { atom, useAtom } from "./atom";
 
@@ -12,7 +13,6 @@ import { atom, useAtom } from "./atom";
 export type LoadedBars = { kind: "reading" } | { kind: "ready"; candles: Candle[] } | { kind: "refused"; code: string; message: string } | { kind: "absent"; message: string };
 const loaded = atom<ReadonlyMap<string, LoadedBars>>(new Map());
 const put = (key: string, value: LoadedBars) => loaded.set(new Map(loaded.get()).set(key, value));
-const DAY_MS = 86_400_000;
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /** The UTC days the window covers: from its first day to the day after its last (ms, the end left out). */

@@ -1,5 +1,6 @@
 // Positions left open when a runner ended are observations, not closing fills or current holdings.
 import { amount, symbolOf, type JournalLine } from "../lib/paperApi";
+import { lastAtOrBefore } from "../lib/search";
 import type { DailyCloses } from "./equityReadings";
 import { eventMs } from "./paper";
 
@@ -9,9 +10,7 @@ type StoppedPosition = {
 };
 /** Last observed close at/before a cutoff (ms), never borrowing a price from before this position opened. */
 export function closeAt(closes: readonly (readonly [number, number])[], cutoff: number, opened = -Infinity): readonly [number, number] | null {
-  let lo = 0, hi = closes.length;
-  while (lo < hi) { const mid = (lo + hi) >> 1; if (closes[mid]![0] / 1e6 <= cutoff) lo = mid + 1; else hi = mid; }
-  const found = lo ? closes[lo - 1]! : null;
+  const found = closes[lastAtOrBefore(closes.length, (i) => closes[i]![0] / 1e6, cutoff)] ?? null;
   return found && found[0] / 1e6 >= opened ? found : null;
 }
 
