@@ -56,15 +56,12 @@
   --shadow-far: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.1), oklch(0 0 0 / 0.36));
   --shadow-popup: 0 1px 2px var(--shadow-near), 0 6px 16px var(--shadow-far);
   --shadow-raised: 0 1px 2px var(--shadow-near);
-  /* the IDE's data hues (ide/web/src/theme/tokens.css): a capability's verification tier takes them */
-  --recommended: #3871E1;
+  /* the IDE's data hues (ide/web/src/theme/tokens.css): a capability's verification-tier dot takes them */
   --meets: light-dark(#419368, #4AA87F);
   --misses: light-dark(#B87701, #BE880A);
   /* map edges: the IDE's walked-path grey */
   --edge-path: light-dark(oklch(0.64 var(--n-c) var(--n-h)), oklch(0.66 var(--n-c) var(--n-h)));
 
-  --gap: 4px;
-  --radius-island: 10px;
   --radius-popup: 8px;
   --radius-card: 6px;
   --radius-control: 4px;
@@ -255,11 +252,16 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 [data-theme-toggle] > [class~="bg-fd-accent"] { background: var(--island); color: var(--fg); box-shadow: var(--shadow-raised); }
 
 /* ---------- Reference rows ---------- */
-.rd-badge {
+.rd-badge, .rd-guard, .rd-tier {
   display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border-radius: var(--radius-badge);
   font-size: 11px; line-height: 1; white-space: nowrap;
 }
-.rd-badge-kind { border: 1px solid var(--line-strong); color: var(--fg-muted); }
+.rd-badge-kind, .rd-guard { border: 1px solid var(--line-strong); color: var(--fg-muted); }
+/* the tier's text stays muted (the data hues fall below 4.5:1 as text on white); only its dot takes the hue */
+.rd-tier { color: var(--fg-muted); background: var(--island-alt); }
+.rd-tier::before { content: ""; width: 6px; height: 6px; margin-inline-end: 5px; border-radius: 1px; background: var(--tier); }
+.rd-tier-verified { --tier: var(--meets); }
+.rd-tier-unverified { --tier: var(--misses); }
 
 .rd-meta { margin-top: 0.75rem; font-size: 12px; color: var(--fg-muted); }
 .rd-meta p { margin: 0.25rem 0; }
