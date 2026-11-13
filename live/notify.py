@@ -322,6 +322,11 @@ def _gate_messages(run: dict, name: str) -> list[tuple[str, str]]:
             noticed = True
             result.append((key, f"{name}: entries are closed for the rest of the run: {HELD[reasons[0]]}. "
                                 "Positions keep their exits; stop the run to end it."))
+        elif event == "orphan_orders":
+            # The user's decision of 2026-11-13: told, never canceled by the run.
+            result.append((key, f"{name}: it holds no position, but Binance has kept its reduce-only orders for over "
+                                "ten minutes. Entries stay closed and the run cannot warm up again until they are "
+                                "gone; cancel them at Binance if nothing needs them."))
         elif event == "entries_opened" and noticed:
             noticed = False
             result.append((key, f"{name}: Binance and the run agree again; entries are open."))
@@ -429,6 +434,10 @@ def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
             # The user's decision of 2026-11-13 (docs/plans/live-continuous-step4-resume-20261113.zh.md): say at
             # once that the strategy no longer manages the inherited position, so it can be closed by hand.
             text = (HELD_TEXT if row.get("held") else "started again on a flat account; it warms up and trades.")
+        elif event == "rewarming" and row.get("retry"):
+            # The user's decision of 2026-11-13: a failed warm-up after a missing bar starts the run once more.
+            text, rewarming = ("could not warm up again after the missing bar; it starts once more to try again. If "
+                               "that warm-up fails too, the run ends."), True
         else:
             text = texts.get(event)
             rewarming = rewarming or event == "rewarming"

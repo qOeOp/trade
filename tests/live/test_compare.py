@@ -221,8 +221,10 @@ class Compare(unittest.TestCase):
                   {"event": "entry_cancel_requested", "client_order_id": "O-2", "reason": "disconnected"},
                   {"event": "entry_cancel_requested", "client_order_id": "O-3", "reason": "stop"},
                   {"event": "entry_refused", "client_order_id": "O-4", "ts_init": 5, "held_ns": 1},
-                  {"event": "entry_refused", "client_order_id": "O-5", "ts_init": 6, "held_ns": None}]
-        self.assertEqual(compare.gate(events), {"released": ["O-1"], "withdrawn": ["O-2"], "refused": [5]})
+                  {"event": "entry_refused", "client_order_id": "O-5", "ts_init": 6, "held_ns": None},
+                  {"event": "entry_denied", "client_order_id": "O-6", "reasons": ["bars_missing"]}]
+        self.assertEqual(compare.gate(events), {"released": ["O-1"], "withdrawn": ["O-2"], "denied": ["O-6"],
+                                                "refused": [5]})
 
     def test_a_pack_that_agrees_with_its_replay_is_the_same_from_bars_to_equity(self):
         _, result = self.compared(Pack(self.root))
@@ -304,6 +306,12 @@ class Compare(unittest.TestCase):
                                  "holds": {"held": 2, "held_ns": [5 * 10**9, 60 * 10**9], "held_ns_median": 5 * 10**9,
                                            "held_ns_p90": 60 * 10**9, "ended_runs": 1}})
         self.assertEqual(compare.measures({"groups": groups, "equity": equity}, events)["groups"], 4)
+        # A held entry denied at a missing bar ended its hold too; it ended no run.
+        denied = events + [{"event": "entry_held", "ts_init": 40},
+                           {"event": "entry_denied", "ts_init": 40, "held_ns": 9 * 10**9}]
+        holds = compare.measures({"groups": groups, "equity": equity}, denied, 0, 50)["holds"]
+        self.assertEqual((holds["held"], holds["held_ns"], holds["ended_runs"]),
+                         (3, [5 * 10**9, 9 * 10**9, 60 * 10**9], 1))
         self.assertEqual(compare.measures({"groups": None, "equity": {"run": [], "replay": []}}, [])["fees"],
                          {"run": "0", "replay": "0", "difference": "0"})
 

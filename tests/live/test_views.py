@@ -82,10 +82,11 @@ class LiveViewTests(LiveFixture):
         self.native("entries_checking", reasons=["unverified"])
         self.native("entries_opened", reasons=["unverified", "SECRET"])
         self.native("comparison", agreed=True)
+        self.native("orphan_orders", orders=["O-7"], seconds=600)
         result = views.run_view(self.root, self.run_id)
         self.assertEqual([(row["event"], row["reasons"]) for row in result["gate"]],
                          [("entries_closed", ["disconnected"]), ("entries_checking", ["unverified"]),
-                          ("entries_opened", ["unverified"])])
+                          ("entries_opened", ["unverified"]), ("orphan_orders", [])])
         self.assertEqual(result["gate"][0]["socket"], "BINANCE wss://fstream.binance.com/ws")
         self.assertNotIn("SECRET", json.dumps(result))
 
@@ -114,11 +115,13 @@ class LiveViewTests(LiveFixture):
         self.native("venue_flat_while_held", observation="held-account-1.json")
         self.native("rewarming")
         self.native("warmup", at_ns=1)
+        self.native("rewarming", retry=True)
         state.append(self.directory / "lifecycle.jsonl", "restart_limited", self.run_id)
         result = views.run_view(self.root, self.run_id)
-        self.assertEqual([(row["event"], row["held"]) for row in result["restarts"]],
-                         [("interrupted", None), ("resuming", True), ("venue_flat_while_held", None),
-                          ("rewarming", None), ("warmup", None), ("restart_limited", None)])
+        self.assertEqual([(row["event"], row["held"], row["retry"]) for row in result["restarts"]],
+                         [("interrupted", None, False), ("resuming", True, False), ("venue_flat_while_held", None, False),
+                          ("rewarming", None, False), ("warmup", None, False), ("rewarming", None, True),
+                          ("restart_limited", None, False)])
 
     def test_missing_native_and_account_are_unknown_not_zero_or_flat(self):
         (self.directory / "out" / "events.jsonl").unlink()

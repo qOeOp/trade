@@ -236,6 +236,12 @@ class Attribution(unittest.TestCase):
             {"type": "OrderCanceled", "client_order_id": "p-E", "instrument_id": BTC, "ts_event": close_of(2)}]
         group = compared(withdrawn, replay, gate={"withdrawn": ["p-E"]})["groups"][0]
         self.assertEqual((group["orders"][0]["class"], group["cause"]), ("replay_only", "entry_gate"))
+        # Denied natively while a missing bar held entries closed (the user, 2026-11-13).
+        denied = bracket("p", close_of(1), close_of(1), "P")[:1] + [
+            {"type": "OrderDenied", "client_order_id": "p-E", "instrument_id": BTC, "ts_event": close_of(1)}]
+        group = compared(denied, replay, gate={"denied": ["p-E"]})["groups"][0]
+        self.assertEqual((group["orders"][0]["class"], group["cause"]), ("replay_only", "entry_gate"))
+        self.assertEqual(compared(denied, replay)["groups"][0]["cause"], "unexplained")
         # The decision itself differs: the gate does not explain it.
         early = bracket("p", close_of(1) - 2 * MINUTE, close_of(1) - 2 * MINUTE, "P")
         self.assertNotEqual(compared(early, replay, gate={"released": ["p-E"]})["groups"][0]["cause"], "entry_gate")

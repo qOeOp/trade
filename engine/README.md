@@ -573,9 +573,15 @@ enough that it leaves with at least 605 seconds before it expires; every GTD ent
 before the source receives another bar of the type it decided on. Otherwise the run ends with
 `LIVE_CONNECTION_UNVERIFIED` before that bar reaches the source (`entry_refused`, detail `entry_hold_expired` or
 `entry_hold_bar`): the source cannot see a product refusal, and the pinned Python `Strategy` has no native
-`deny_order`. A gate closed for a reason no check clears (below) refuses entries at once, held ones included.
-`live compare` attributes a fill the gate delayed or withdrew, and a decision Live refused after a hold, to the cause
-`entry_gate` (decision `docs/plans/live-entry-hold-20261113.zh.md`).
+`deny_order`. A gate closed for a reason no check clears (below) refuses entries at once, held ones included, except a
+missing bar alone: then an entry staged when it closed, and a new one that passes every entry check while the strategy
+holds a position, are denied natively and the run goes on (`entry_denied`). The run node registers an
+`ExecutionAlgorithm` (`LIVE-GATE`) whose `deny_order` puts the source's order in the native cache as DENIED and gives
+the source `OrderDenied`; nothing is sent. Its denials, read back from the journal in later starts whose reloaded cache
+still holds them, are no native failure. An order the cache already holds, an entry submitted from within a denial's
+callbacks, or a denial that fails is refused, and the run ends. `live compare` attributes a fill the gate delayed, withdrew or denied, and a
+decision Live refused after a hold, to the cause `entry_gate` (decisions `docs/plans/live-entry-hold-20261113.zh.md`,
+`docs/plans/live-bars-missing-rewarm-20261113.zh.md`).
 Reductions, cancels and closes from the source and the Observer go on (REST); exchange stops stay at Binance.
 When every socket is back, entries reopen only after two comparisons of a REST read with the native cache, at least 30
 seconds apart (one native position and open-order reconciliation cycle), both agree on the strategy's positions per
@@ -586,12 +592,17 @@ after changed account modes. A missing external bar (Binance's stream does not r
 patched: entries close and working ones are withdrawn; a position keeps its source and exits. Once the strategy holds
 no position, order or held entry, its source sees no further bar, and after two agreeing comparisons this start ends
 without closing anything (`rewarming`, exit status 3). The control starts the run again, whose warm-up reads Binance's
-complete bars (decision `docs/plans/live-bars-missing-rewarm-20261113.zh.md`). The comparison also runs every five minutes while entries are open; two disagreeing reads in a row close them.
+complete bars (decision `docs/plans/live-bars-missing-rewarm-20261113.zh.md`). If that warm-up fails, the start ends the
+same way once more (`rewarming` with `retry`; it counts toward the control's three starts an hour); a second failure ends
+the run. Flat with only reduce-only orders left at Binance, the run waits with entries closed and cancels nothing. Once
+agreeing comparisons (every five minutes) have seen them at Binance for ten minutes, the user is told
+(`orphan_orders`): 10 to 20 minutes after the account went flat. The comparison also
+runs every five minutes while entries are open; two disagreeing reads in a row close them.
 While nothing is open, a connection older than 23 hours is renewed natively (`reconnect_socket`) between seconds 20 and
 40 of a minute, moving Binance's 24-hour cut away from positions and the bar boundary. With a position open, the
 existing 60-second rule for a missing mark price still stops the run. A socket down for a minute, a check not passed
-in ten minutes, entries closed for the run or for a missing bar, a start again to warm up, and the reopening after
-such a notice are Telegram notices. No custom
+in ten minutes, entries closed for the run or for a missing bar, a start again to warm up (and its one retry),
+reduce-only orders left after a missing bar, and the reopening after such a notice are Telegram notices. No custom
 reconciliation engine or second trading client is used.
 
 An Observer failure sends the same one cancel per working entry and ends the run unresolved. A source that leaves

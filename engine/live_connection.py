@@ -5,7 +5,9 @@ and the native cache agree again, entries are closed: working entries are withdr
 one still waiting for its account check, is held unsent (docs/plans/live-entry-hold-20261113.zh.md): it is sent once,
 unchanged, when the gate reopens within HOLD_NS of its decision and before the source receives another bar of the
 type it decided on; otherwise the run ends as for any refused entry (rc7's Python Strategy has no native deny_order,
-and the source cannot see a product refusal). A gate closed for a reason a check cannot clear refuses at once.
+and the source cannot see a product refusal). A gate closed for a reason a check cannot clear refuses at once, except a
+missing bar (the user, 2026-11-13): an entry staged then, and a new one while a position is held, are denied natively
+through the run's own ExecutionAlgorithm (OrderDenied, which the source receives), and the run goes on.
 Reductions, cancels and closes travel over REST and stay allowed, so the source keeps protecting and exiting its
 positions and the Observer can still stop.
 
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+import json
 import time
 from typing import Any
 
@@ -44,6 +47,10 @@ RENEW_AFTER_SECONDS = 23 * 3600  # Binance closes a connection after 24 h (desig
 RENEW_SECONDS = range(20, 41)  # seconds of the minute, away from the bar boundary
 # Reasons a check can clear; any other reason holds entries closed until the run ends.
 RECOVERABLE = frozenset({"disconnected", "unverified"})
+# Reasons a check cannot clear for which an entry is denied natively and the run goes on (the user, 2026-11-13).
+DENIABLE = frozenset({"bars_missing"})
+ORPHAN_NS = 600 * 10**9  # flat after a missing bar, reduce-only orders still at Binance this long: a notice
+ORPHAN_SLACK_NS = COMPARE_RETRY_SECONDS * 10**9  # reads PERIODIC_SECONDS apart land a little early or late
 HOLD_NS = 60_000_000_000  # an entry is held unsent at most this long after its decision
 SEND_MARGIN_NS = 5_000_000_000  # a GTD entry is sent with at least GTD_MINIMUM_NS plus this left
 # Native order states whose venue state may still be changing; a comparison seeing one is not yet consistent.
@@ -63,6 +70,7 @@ class Connection:
     bars: dict[str, int] = field(default_factory=dict)  # external bar type -> the latest bar's ts_event
     bar_since_reconnect: bool = True
     notified: set[str] = field(default_factory=set)
+    orphans_since: int | None = None  # observed_ns of the first agreeing read finding only reduce-only orders, flat
 
 
 def socket_key(event) -> str:
@@ -81,12 +89,16 @@ def close_entries(session, reason: str, *, withdraw: bool = True, **fields) -> N
     state.closed[reason] = time.monotonic()
     state.agreed = None
     session.event("entries_closed", reason=reason, strict=False, **fields)
-    if holdable(session):
-        hold_queued(session)
-    else:
-        deny_queued(session, reason)
-    if withdraw:
-        session.cancel_entries(reason)
+    try:
+        if holdable(session):
+            hold_queued(session)
+        elif deniable(session):
+            deny_staged(session, reason)
+        else:
+            deny_queued(session, reason)
+    finally:
+        if withdraw:
+            session.cancel_entries(reason)
 
 
 def open_entries(session) -> None:
@@ -113,6 +125,79 @@ def holdable(session) -> bool:
     return bool(closed) and set(closed) <= RECOVERABLE
 
 
+def deniable(session) -> bool:
+    """The gate is closed for a missing bar and for no other reason a check cannot clear: an entry is denied natively
+    and the run goes on (the user, 2026-11-13)."""
+    lasting = set(session.connection.closed) - RECOVERABLE
+    return bool(lasting) and lasting <= DENIABLE
+
+
+def deny(session, order, detail: str, held_ns: int | None = None) -> None:
+    """Deny an entry natively, never sent: the run's ExecutionAlgorithm gives the source's order OrderDenied in the
+    native cache and its callbacks (engine.live_node). That OrderDenied is not a native failure (denied_entries). An
+    order the cache already knows, or one submitted from within a denial's callbacks, is refused instead."""
+    if session.entry_gate is None or session.denying:
+        raise Refusal("LIVE_CONNECTION_UNVERIFIED", f"entries are closed ({gate_reason(session)}) and the entry "
+                                                    "cannot be denied natively")
+    cid = str(order.client_order_id)
+    if session.source is not None and Strategy.cache.__get__(session.source, type(session.source)).order(
+            order.client_order_id) is not None:
+        raise Refusal("LIVE_ORDER_UNSUPPORTED", "an order the native cache already holds is not a new entry")
+    session.denied.add(cid)  # before the call: its callbacks run at once
+    session.denying = True
+    try:
+        session.entry_gate.deny_order(order, gate_reason(session))
+    except BaseException:
+        session.denied.discard(cid)
+        raise
+    finally:
+        session.denying = False
+    session.event("entry_denied", strict=False, detail=detail, reasons=sorted(session.connection.closed),
+                  held_ns=held_ns, **entry_fields(order))
+
+
+def denied_entries(session) -> set[str]:
+    """The entries the gate denied in any start of this run: they stay DENIED in the native cache a resumed start
+    reloads (engine.live_cache)."""
+    found = set(session.denied)
+    try:
+        lines = (session.output / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return found
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get("event") == "entry_denied" and isinstance(row.get("client_order_id"), str):
+            found.add(row["client_order_id"])
+    return found
+
+
+def deny_staged(session, reason: str) -> None:
+    """Entries staged when a missing bar closed the gate (waiting for their account check, or held): each is denied
+    natively, never sent, and the run goes on."""
+    if session.entry_gate is None:
+        deny_queued(session, reason)
+        return
+    observation, session.account_observation = session.account_observation, None
+    if observation is not None:
+        observation.result.cancel()
+    while session.pending_entries:
+        pending = session.pending_entries.pop(0)
+        held = time.time_ns() - pending.order.ts_init if pending.deadline_ns is not None else None
+        try:
+            deny(session, pending.order, reason, held)
+        except Exception as exc:
+            # Not denied: this one and the rest are refused like any entry, and the run ends.
+            refused(session, pending, getattr(exc, "code", type(exc).__name__), str(exc)[:1000])
+            from engine import live_commands as commands  # engine.live_commands imports this module
+            commands.discard_observation(session, "LIVE_CONNECTION_UNVERIFIED", reason)
+            session.failed = True
+            session.begin_stop("entry_admission_failed")
+            return
+
+
 def deadline(order) -> int:
     """The latest send time of a held entry: HOLD_NS after its decision, and early enough for a GTD order's
     send-time rule."""
@@ -122,8 +207,7 @@ def deadline(order) -> int:
     return found
 
 
-def entry_fields(pending) -> dict:
-    order = pending.order
+def entry_fields(order) -> dict:
     return {"client_order_id": str(order.client_order_id), "ts_init": order.ts_init, "side": order.side.name,
             "type": order.order_type.name, "price": str(order.price) if getattr(order, "has_price", False) else None,
             "trigger_price": str(order.trigger_price) if getattr(order, "has_trigger_price", False) else None,
@@ -136,7 +220,7 @@ def hold(session, pending) -> None:
     if pending.deadline_ns is None:
         pending.deadline_ns = deadline(pending.order)
         session.event("entry_held", strict=False, reasons=sorted(session.connection.closed),
-                      deadline_ns=pending.deadline_ns, **entry_fields(pending))
+                      deadline_ns=pending.deadline_ns, **entry_fields(pending.order))
     if pending not in session.pending_entries:
         session.pending_entries.append(pending)
 
@@ -162,7 +246,7 @@ def require_send_time(pending) -> None:
 def refused(session, pending, code: str, detail: str | None) -> None:
     held = time.time_ns() - pending.order.ts_init if pending.deadline_ns is not None else None
     session.event("entry_refused", strict=False, code=code, detail=detail, reasons=sorted(session.connection.closed),
-                  held_ns=held, **entry_fields(pending))
+                  held_ns=held, **entry_fields(pending.order))
 
 
 def deny_queued(session, reason: str, detail: str | None = None) -> None:
@@ -357,6 +441,7 @@ def judge(session, cache, snapshot: dict) -> None:
                   entries=gate_reason(session))
     if not found:
         state.suspect = False
+        orphans(session, cache, snapshot["observed_ns"])
         if not checking:
             return
         if state.agreed is None:
@@ -382,6 +467,25 @@ def judge(session, cache, snapshot: dict) -> None:
         if state.suspect:
             close_entries(session, "unverified")
         state.suspect = True
+
+
+def orphans(session, cache, observed_ns: int) -> None:
+    """Flat after a missing bar, with reduce-only orders that Binance still holds (this read agreed with the cache):
+    the run cannot warm up again while they stay. After ORPHAN_NS the user is told once; nothing cancels them and
+    entries stay closed (the user, 2026-11-13)."""
+    state, strategy = session.connection, source_strategy_id(session.manifest)
+    left = [order for order in cache.orders(strategy_id=strategy) if not order.is_closed]
+    if "bars_missing" not in state.closed or cache.positions_open(strategy_id=strategy) or not left \
+            or not all(order.is_reduce_only for order in left):
+        state.orphans_since = None
+        state.notified.discard("orphans")
+        return
+    if state.orphans_since is None:
+        state.orphans_since = observed_ns
+    elif observed_ns - state.orphans_since >= ORPHAN_NS - ORPHAN_SLACK_NS and "orphans" not in state.notified:
+        state.notified.add("orphans")
+        session.event("orphan_orders", strict=False, orders=sorted(str(order.client_order_id) for order in left),
+                      seconds=(observed_ns - state.orphans_since) // 10**9)
 
 
 HELD_READ_SECONDS = 30

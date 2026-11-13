@@ -40,9 +40,16 @@ class Session:
     interrupting: bool = False
     held_flat: bool = False  # a held resume saw the venue flat: the next start trades again
     rewarming: bool = False  # a missing bar while flat: the next start warms the source up again
+    # This start follows one that ended to warm up again (engine.live warmup_retry): if its warm-up fails, the run
+    # starts once more instead of ending (the user, 2026-11-13); warmup_retried says this start does so.
+    warmup_retry: bool = False
+    warmup_retried: bool = False
     armed_ns: int | None = None  # a resumed run's first arming: its duration counts from there, across starts
     node: Any = None
     source: Any = None
+    entry_gate: Any = None  # the native ExecutionAlgorithm that denies entries (engine.live_connection.deny)
+    denied: set[str] = field(default_factory=set)  # client order IDs of the entries it denied in this start
+    denying: bool = False  # inside a denial's native callbacks
     started: float | None = None
     stopping: bool = False
     stop_at: float | None = None
@@ -123,6 +130,7 @@ class Session:
         if self.rewarming and (strategy_runtime.FAILURES or self.stop_requested.is_set()
                                or (self.output / "STOP").exists() or self.duration_reached()):
             self.rewarming = self.stopping = False  # a stop that ends the run supersedes starting it again
+            self.failed = self.failed or self.warmup_retried  # a warm-up that failed and is not tried again
         if strategy_runtime.FAILURES:
             self.failed = True
             self.begin_stop("source_failure")

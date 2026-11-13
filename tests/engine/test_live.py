@@ -15,7 +15,7 @@ from unittest import mock
 
 from nautilus_trader.common import SocketState
 from nautilus_trader.infrastructure import RedisCacheConfig
-from nautilus_trader.model import InstrumentId, OrderSide, OrderStatus, OrderType, Quantity
+from nautilus_trader.model import InstrumentId, OrderSide, OrderStatus, OrderType, Price, Quantity
 
 from engine import live
 from engine import live_commands as commands, live_lifecycle, live_node, live_session, live_source as live_source_runtime
@@ -137,6 +137,7 @@ class LiveTests(unittest.TestCase):
             node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1))
             source.assert_not_called()
             self.assertIsNone(session.source)
+            self.assertIsNone(session.entry_gate)  # nothing to deny without a source
             self.assertEqual(str(node.environment), "LIVE")
             node.dispose()
             session.node = None
@@ -273,6 +274,22 @@ class LiveTests(unittest.TestCase):
             source.submit_order(order)
         with self.assertRaisesRegex(Refusal, "ORDER_RULE"):
             source.cancel_all_orders(order.instrument_id, strategy_only=False)
+
+    def test_a_run_node_registers_the_native_entry_gate(self):
+        loaded = live.source_for_run(self.manifest)
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
+        node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
+        try:
+            self.assertEqual(session.entry_gate.exec_algorithm_id, live_node.ENTRY_GATE)
+            self.assertTrue(session.entry_gate.is_registered())
+            order = session.source.order_factory.limit(InstrumentId.from_str("BTCUSDT-PERP.BINANCE"), OrderSide.BUY,
+                                                       Quantity.from_str("0.001"), Price.from_str("90.00"))
+            # Denied in the node's own cache; a started source also hears it (tests/engine/test_live_entry.py).
+            session.entry_gate.deny_order(order, "bars_missing")
+            self.assertEqual(node.cache.order(order.client_order_id).status, OrderStatus.DENIED)
+        finally:
+            node.dispose()
+            session.node, session.source, session.entry_gate = None, None, None
 
     def test_pending_stop_is_applied_before_next_observer_tick(self):
         loaded = live.source_for_run(self.manifest)
@@ -589,6 +606,33 @@ class LiveTests(unittest.TestCase):
                 live.execute(args)
             self.assertEqual(caught.exception.code, "LIVE_COLD_RESTART")
         self.assertEqual((self.output / "armed.json").read_bytes(), armed)
+
+    def test_a_start_after_one_that_ended_to_warm_up_again_may_retry_a_failed_warm_up_once(self):
+        class Armed(Exception):
+            """Stops a start after it armed (or resumed), before it blocks this process's signals."""
+
+        args, made = self.runner_args("run"), []
+
+        def session(*items, **fields):
+            made.append(live_session.Session(*items, **fields))
+            return made[-1]
+
+        def ended(**row):
+            with (self.output / "events.jsonl").open("a") as stream:
+                stream.write(json.dumps({"run_id": "r", **row}) + "\n")
+
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+                mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_account_mode"), \
+                mock.patch.object(live, "source_for_run"), mock.patch.object(live, "build_node"), \
+                mock.patch.object(live, "Session", side_effect=session), \
+                mock.patch.object(live.strategy_runtime, "clear_failures", side_effect=Armed):
+            for row in (None, {"event": "interrupted", "mode": "run"}, {"event": "rewarming", "mode": "run"},
+                        {"event": "rewarming", "mode": "run", "retry": True}):
+                if row is not None:
+                    ended(**row)
+                with self.assertRaises(Armed):
+                    live.execute(args)
+        self.assertEqual([item.warmup_retry for item in made], [False, False, True, False])
 
     def test_stop_exits_before_canceling_protection_and_waits_for_native_events(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)

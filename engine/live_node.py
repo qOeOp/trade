@@ -9,9 +9,9 @@ from nautilus_trader.common import CacheConfig, Environment, LoggerConfig, LogLe
 from nautilus_trader.live import (
     LiveDataEngineConfig, LiveExecutionEngineConfig, LiveNode, LiveNodeConfig, LiveRiskEngineConfig,
 )
-from nautilus_trader.model import AccountId, OmsType, TraderId
+from nautilus_trader.model import AccountId, ExecAlgorithmId, OmsType, TraderId
 from nautilus_trader.persistence import DataCatalogConfig
-from nautilus_trader.trading import Strategy
+from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy
 from engine import history, strategy as strategy_runtime
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import BinanceReadOnly, Credentials
@@ -19,6 +19,9 @@ from engine.live_lifecycle import Observer
 from engine.live_records import source_strategy_id
 from engine.live_session import Session
 from engine.live_source import live_source
+
+ENTRY_GATE = ExecAlgorithmId("LIVE-GATE")
+
 
 def build_node(session: Session, credentials: Credentials, cache_config, loaded=None,
                *, source_module: str = "engine.live"):
@@ -69,6 +72,9 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
             if session.observe_stop_intent():
                 raise Refusal("LIVE_ENTRY_STOPPED", "a stopped run cannot initialize trading source callbacks")
             session.source = live_source(loaded, session, source_module=source_module)
+            # Denies the source's entries natively while a missing bar holds entries closed (engine.live_connection).
+            session.entry_gate = ExecutionAlgorithm(ExecutionAlgorithmConfig(exec_algorithm_id=ENTRY_GATE))
+            node.add_exec_algorithm(session.entry_gate)
             node.add_actor(history.WarmupActor(history.WarmupActorConfig(live=True)))
             node.add_strategy(session.source)
             # Native registration can apply Python-visible config fields (including
@@ -80,6 +86,6 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
             node.add_strategy(Strategy(strategy_runtime.source_config(source_strategy_id(manifest))))
     except BaseException:
         node.dispose()
-        session.node, session.source = None, None
+        session.node, session.source, session.entry_gate = None, None, None
         raise
     return node

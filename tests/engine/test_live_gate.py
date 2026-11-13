@@ -356,6 +356,160 @@ class GateTests(unittest.TestCase):
         self.assertEqual([row["reason"] for row in self.events() if row["event"] == "stopping"],
                          ["rewarming", "requested"])
 
+    def test_entries_staged_at_a_missing_bar_are_denied_natively_and_without_a_gate_end_the_run(self):
+        queued, held = self.pending(time.time_ns()), self.pending(time.time_ns())
+        held.order = SimpleNamespace(**{**vars(held.order), "client_order_id": "O-2"})
+        self.session.pending_entries[:] = [queued, held]
+        self.session.account_observation = observation = mock.Mock()
+        self.session.entry_gate = gate = mock.Mock()
+        self.gap()
+        observation.result.cancel.assert_called_once()
+        self.assertEqual([call.args[0] for call in gate.deny_order.call_args_list], [queued.order, held.order])
+        self.assertEqual(self.session.denied, {"O-1", "O-2"})
+        self.assertEqual(self.session.pending_entries, [])
+        self.assertFalse(self.session.stopping or self.session.failed)
+        # Negative control: with nothing to deny natively, a staged entry ends the run as before.
+        session = live.Session(manifest(self.binding), self.session.output, "run", account_verified=True)
+        session.node, session.cancel_entries = mock.Mock(), mock.Mock()
+        session.pending_entries.append(self.pending(time.time_ns()))
+        live_connection.close_entries(session, "bars_missing")
+        self.assertTrue(session.failed and session.stopping)
+
+    def test_an_entry_held_through_a_reconnect_is_denied_by_the_gap_bar_before_the_source_sees_it(self):
+        seen = []
+        on_bar = live_source._gated("on_bar", lambda source, bar: seen.append(bar))
+        source = SimpleNamespace(_live=self.session)
+        self.session.evidence, self.session.cancel_entries = mock.Mock(), mock.Mock()
+        self.session.entry_gate = gate = mock.Mock()
+        minute = 60_000_000_000
+        with mock.patch.object(live_source, "Strategy", native(Cache())):
+            on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=minute))
+            self.socket(SocketState.DISCONNECTED)
+            self.socket(SocketState.CONNECTED)
+            self.assertEqual(set(self.session.connection.closed), {"unverified"})
+            held = self.pending(time.time_ns(), bar_type=BAR)
+            live_connection.hold(self.session, held)
+            on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=3 * minute))  # a gap: 2 minutes
+        gate.deny_order.assert_called_once()
+        self.assertIs(gate.deny_order.call_args.args[0], held.order)
+        self.assertEqual(self.session.pending_entries, [])
+        self.assertFalse(self.session.stopping or self.session.failed)  # the bar bound did not end the run
+        [denied] = self.events_named("entry_denied")
+        self.assertIsNotNone(denied["held_ns"])
+        self.assertEqual(denied["reasons"], ["bars_missing", "unverified"])
+        self.session.cancel_entries.assert_called_with("bars_missing")
+        self.assertEqual(len(seen), 1)  # flat with nothing staged: it waits to warm up again and sees no gap bar
+
+    def test_a_staged_entry_the_gate_cannot_deny_is_refused_and_working_entries_still_go(self):
+        self.session.pending_entries[:] = [self.pending(time.time_ns()), self.pending(time.time_ns())]
+        self.session.entry_gate = gate = mock.Mock()
+        gate.deny_order.side_effect = RuntimeError("Invalid order state transition")
+        self.gap()
+        self.session.cancel_entries.assert_called_once_with("bars_missing")
+        self.assertTrue(self.session.failed and self.session.stopping)
+        self.assertEqual(self.session.pending_entries, [])
+        self.assertEqual(len(self.events_named("entry_refused")), 2)
+        self.assertEqual(self.events_named("entry_denied"), [])
+        self.assertEqual(self.session.denied, set())
+
+    def test_working_entries_are_withdrawn_even_if_handling_the_staged_ones_fails(self):
+        self.session.cancel_entries = mock.Mock()
+        with mock.patch.object(live_connection, "deny_staged", side_effect=RuntimeError("native")):
+            self.session.connection.closed["unverified"] = 0.0  # held entries: not holdable once a bar is missing
+            with self.assertRaises(RuntimeError):
+                live_connection.close_entries(self.session, "bars_missing")
+        self.session.cancel_entries.assert_called_once_with("bars_missing")
+
+    def test_an_entry_from_within_a_denial_is_refused_and_denials_of_earlier_starts_are_read_back(self):
+        self.session.entry_gate = mock.Mock()
+        self.session.denying = True
+        with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
+            live_connection.deny(self.session, self.pending(time.time_ns()).order, "entry_while_bars_missing")
+        self.session.denying = False
+        live_connection.deny(self.session, self.pending(time.time_ns()).order, "entry_while_bars_missing")
+        later = live.Session(manifest(self.binding), self.session.output, "run")  # the next start
+        self.assertEqual(later.denied, set())
+        self.assertEqual(live_connection.denied_entries(later), {"O-1"})
+
+    def test_flat_with_reduce_only_orders_left_after_a_missing_bar_the_user_is_told_once_after_ten_minutes(self):
+        self.gap()
+        stop = SimpleNamespace(**vars(order(7, strategy=self.strategy)), is_reduce_only=True)
+        start = 10**12
+
+        def read(cache, seconds):
+            with mock.patch.object(live_connection, "compare", return_value={}):
+                live_connection.judge(self.session, cache, dict(self.snapshot, observed_ns=start + seconds * 10**9))
+            return [row for row in self.events() if row["event"] == "orphan_orders"]
+
+        self.assertEqual(read(Cache(orders=[stop]), 0), [])
+        self.assertEqual(read(Cache(orders=[stop]), 589), [])
+        [told] = read(Cache(orders=[stop]), 590)  # reads 300 s apart may land a few seconds early
+        self.assertEqual((told["orders"], told["seconds"]), (["O-7"], 590))
+        self.assertEqual(len(read(Cache(orders=[stop]), 900)), 1)  # once
+        self.assertEqual(self.session.connection.closed.keys(), {"bars_missing"})  # entries stay closed
+        self.assertFalse(self.session.stopping or self.session.rewarming)  # nothing is canceled, nothing restarts
+        # Negative controls: a position, an entry among the orders, or a gate open for another reason says nothing.
+        for cache in (Cache(positions=[SimpleNamespace(strategy_id=self.strategy, is_open=True)], orders=[stop]),
+                      Cache(orders=[stop, SimpleNamespace(**vars(order(8, strategy=self.strategy)), is_reduce_only=False)])):
+            self.session.connection.orphans_since, self.session.connection.notified = None, set()
+            read(cache, 0)
+            self.assertEqual(len(read(cache, 1200)), 1)
+        other = live.Session(manifest(self.binding), self.session.output, "run", account_verified=True)
+        other.connection.closed["unknown_orders"] = 0.0
+        live_connection.orphans(other, Cache(orders=[stop]), start)
+        live_connection.orphans(other, Cache(orders=[stop]), start + 1200 * 10**9)
+        self.assertEqual(len(self.events_named("orphan_orders")), 1)
+
+    def events_named(self, name):
+        return [row for row in self.events() if row["event"] == name]
+
+    def test_a_failed_warm_up_after_a_start_to_warm_up_again_starts_the_run_once_more(self):
+        self.session.warmup_retry = True
+        source = SimpleNamespace(_live=self.session)
+        live_source._LiveConfigured._warming_failed(source, "WARMUP_NOT_ADJACENT", "the first live minute is late")
+        self.assertTrue(self.session.rewarming and self.session.warmup_retried and self.session.stopping)
+        self.assertFalse(self.session.failed or self.session.warmup_retry)
+        [refused] = self.events_named("warmup_refused")
+        self.assertEqual((refused["code"], refused["retry"]), ("WARMUP_NOT_ADJACENT", True))
+        self.assertEqual([row["reason"] for row in self.events_named("stopping")], ["rewarming"])
+        # A stop asked for meanwhile ends the run, and the warm-up's failure counts.
+        (self.session.output / "STOP").write_text("")
+        self.assertTrue(self.session.observe_stop_intent())
+        self.assertTrue(self.session.failed)
+        self.assertFalse(self.session.rewarming)
+        # Negative control: the retry's own warm-up failing, or any start not after a rewarm, ends the run as before.
+        again = live.Session(manifest(self.binding), self.session.output, "run", account_verified=True)
+        live_source._LiveConfigured._warming_failed(SimpleNamespace(_live=again), "WARMUP_TIMEOUT", "late")
+        self.assertTrue(again.failed and again.stopping)
+        self.assertFalse(again.rewarming)
+        self.assertEqual(self.events_named("warmup_refused")[-1]["retry"], False)
+        self.assertEqual(self.events_named("stopping")[-1]["reason"], "warmup_failed")
+
+    def test_a_start_that_retries_a_failed_warm_up_says_so_when_it_ends(self):
+        self.session.rewarming = True
+        live.start_ended(self.session)
+        self.session.warmup_retried = True
+        live.start_ended(self.session)
+        self.assertEqual([row.get("retry") for row in self.events_named("rewarming")], [None, True])
+
+    def test_only_a_start_after_a_rewarm_that_was_not_itself_a_retry_may_retry_its_warm_up(self):
+        path = self.session.output / "events.jsonl"
+
+        def journal(*rows):
+            path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            return live.warmup_retry(self.session.output)
+
+        start = {"event": "preflight", "mode": "run"}
+        self.assertTrue(journal(start, {"event": "rewarming", "mode": "run"}))
+        self.assertTrue(journal(start, {"event": "rewarming", "retry": True}, start, {"event": "warmup"},
+                                {"event": "rewarming", "mode": "run"}))  # a later gap after a good warm-up
+        self.assertFalse(journal(start, {"event": "rewarming", "mode": "run"}, start,
+                                 {"event": "rewarming", "mode": "run", "retry": True}))
+        self.assertFalse(journal(start, {"event": "interrupted", "mode": "run"}))
+        self.assertFalse(journal(start, {"event": "rewarming", "mode": "run"}, start, {"event": "interrupted"}))
+        path.unlink()
+        self.assertFalse(live.warmup_retry(self.session.output))
+
     def test_an_old_connection_is_renewed_only_while_flat_and_mid_minute(self):
         observer = mock.Mock()
         observer.cache = Cache()
