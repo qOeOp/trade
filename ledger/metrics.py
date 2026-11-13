@@ -384,25 +384,8 @@ def cycles(positions: list[dict], fills: list[dict]) -> list[dict]:
     return found
 
 
-def closed_by_year(found: list[dict]) -> dict:
-    """Closed cycles' price PnL, commissions and funding by the UTC year of their last event."""
-    years: dict[str, dict] = {}
-    for cycle in found:
-        if not cycle["closed"]:
-            continue
-        year = str((EPOCH + timedelta(microseconds=cycle["ts_last"] // 1000)).year)
-        item = years.setdefault(year, {"closed_trades": 0, "price": Decimal(0), "commissions": Decimal(0),
-                                       "funding": Decimal(0)})
-        item["closed_trades"] += 1
-        for key in ("price", "commissions", "funding"):
-            item[key] += cycle[key]
-    return {year: {"closed_trades": item["closed_trades"], "price_pnl_usdt": money(item["price"]),
-                   "fill_commissions_usdt": money(item["commissions"]),
-                   "reported_funding_usdt": money(item["funding"])} for year, item in sorted(years.items())}
-
-
 def economics(found: list[dict], fills: list[dict], summary: dict, audited_economics: dict | None,
-              limitations: list[str]) -> dict:
+              limitations: list[str]) -> None:
     """Reconcile every cycle (price - commissions + funding = realized) and the totals with the audit."""
     closed = [cycle for cycle in found if cycle["closed"]]
     opened = [cycle for cycle in found if not cycle["closed"]]
@@ -423,7 +406,6 @@ def economics(found: list[dict], fills: list[dict], summary: dict, audited_econo
     if len(closed) != summary.get("closed_trades"):
         raise unreconciled("CLOSED_COUNT_MISMATCH", f"{len(closed)} closed cycles, the summary has "
                                                     f"{summary.get('closed_trades')}")
-    residual, account = None, None
     if audited_economics is None:
         limitations.append("AUDIT_ECONOMICS_ABSENT: the cycles are reconciled only with the run's own reports")
     else:
@@ -437,8 +419,6 @@ def economics(found: list[dict], fills: list[dict], summary: dict, audited_econo
             raise unreconciled("AUDIT_ECONOMICS_MISMATCH", "the audited account economics are incomplete") from exc
         if differs:
             raise unreconciled("AUDIT_ECONOMICS_MISMATCH", "cycle totals differ from the audit in " + ", ".join(differs))
-        account = {"fill_commissions_usdt": money(Decimal(expected["commissions"])),
-                   "reported_funding_usdt": money(Decimal(expected["funding"]))}
         if not opened and residual != 0:
             limitations.append("UNREALIZED_RESIDUAL: final equity differs from the audited balance with no open "
                                "position")
@@ -446,13 +426,6 @@ def economics(found: list[dict], fills: list[dict], summary: dict, audited_econo
         limitations.append("OPEN_PARTIAL_CLOSE: an open cycle's realized PnL includes partial-close price PnL")
     if not closed:
         limitations.append("NO_CLOSED_CYCLE: the closed-position split is empty")
-    return {"closed": None if not closed else {
-                "reported_realized_pnl_usdt": money(total(closed, "realized")),
-                "fill_commissions_usdt": money(total(closed, "commissions")),
-                "reported_funding_usdt": money(total(closed, "funding")),
-                "price_pnl_usdt": money(total(closed, "price"))},
-            "closed_trades": len(closed), "open_positions": len(opened), "closed_by_year": closed_by_year(found),
-            "account": account, "unrealized_residual_usdt": money(residual)}
 
 
 # Plans
@@ -461,8 +434,8 @@ def _plan_tags(order: dict) -> list[str]:
     try:
         return [tag for tag in _list(order.get("tags", "")) if str(tag).startswith(PLAN_TAG)]
     except (SyntaxError, ValueError) as exc:
-        raise unreconciled("NATIVE_VALUE_UNREADABLE", f"order {order.get('client_order_id')} has unreadable "
-                                                      "tags") from exc
+        raise unreconciled("PLAN_ORDER_UNREADABLE", f"order {order.get('client_order_id')} has unreadable "
+                                                    "tags") from exc
 
 
 def expiry_plan_owners(orders: list[dict], fills: list[dict], positions: list[dict], found: list[dict],
@@ -522,13 +495,13 @@ def expiry_plan_owners(orders: list[dict], fills: list[dict], positions: list[di
 # The codes plan_metrics raises when a run breaks the plan contract; the reading names each among its limitations
 # ("CODE: detail"), which is where report.measures reads whether the contract held.
 PLAN_CONTRACT_CODES = frozenset({"PLAN_TAG_MULTIPLE", "PLAN_TAG_TOO_LONG", "PLAN_TAG_MISSING", "PLAN_MULTI_INSTRUMENT",
-                                 "NATIVE_VALUE_UNREADABLE", "PLAN_FILL_UNMATCHED", "CYCLE_MULTI_PLAN",
+                                 "PLAN_ORDER_UNREADABLE", "PLAN_FILL_UNMATCHED", "CYCLE_MULTI_PLAN",
                                  "PLAN_MULTI_CYCLE"})
 
 
 def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], found: list[dict],
-                 order_events: list[dict] | None, lifecycle_events: tuple[dict, ...]) -> dict:
-    """Plans read from order tags, matched one to one with position cycles; the plan win rate."""
+                 order_events: list[dict] | None, lifecycle_events: tuple[dict, ...]) -> None:
+    """Check the plan contract: plans read from order tags, matched one to one with position cycles."""
     plan_of: dict[str | None, str] = {}
     untagged: list[str | None] = []
     doubled: list[str | None] = []
@@ -557,9 +530,9 @@ def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], f
                 raise unreconciled("PLAN_MULTI_INSTRUMENT", f"plan {plan} has orders on {instrument[plan]} and "
                                                             f"{order['instrument_id']}")
     except (KeyError, TypeError, ValueError) as exc:
-        raise unreconciled("NATIVE_VALUE_UNREADABLE", f"an order lacks a field plans need ({exc})") from exc
+        raise unreconciled("PLAN_ORDER_UNREADABLE", f"an order lacks a field plans need ({exc})") from exc
     order_of_event = {fill.get("event_id"): fill.get("client_order_id") for fill in fills}
-    result = {}
+    owned: set[str] = set()
     for row, cycle in zip(positions, found, strict=True):
         try:
             owners = {plan_of[order_of_event[event_id]] for event_id in cycle["event_ids"]}
@@ -570,14 +543,9 @@ def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], f
             raise unreconciled("CYCLE_MULTI_PLAN", f"cycle {row.get('position_id')} holds fills of "
                                                    f"{len(owners)} plans ({_sample(owners)})")
         plan, = owners
-        if plan in result:
+        if plan in owned:
             raise unreconciled("PLAN_MULTI_CYCLE", f"plan {plan} has fills in more than one cycle")
-        result[plan] = cycle
-    closed = [cycle for cycle in result.values() if cycle["closed"]]
-    wins = sum(cycle["realized"] > 0 for cycle in closed)
-    counted = len(result)
-    return {"closed": len(closed), "wins": wins, "open": counted - len(closed),
-            "win_rate": wins / counted if counted else None}
+        owned.add(plan)
 
 
 # Daily returns, the mark-equity path and drawdown
@@ -699,10 +667,8 @@ def equity_path(summary: dict, account: list[dict], exposures) -> list[dict]:
     return path
 
 
-def mark_drawdown(summary: dict, account: list[dict], exposures: Iterable[dict] | ExposureTable | None,
-                  path: list[dict] | None = None) -> dict:
+def mark_drawdown(summary: dict, path: list[dict]) -> dict:
     """Largest fall of bar-close mark equity from its running peak (from the starting balance)."""
-    path = equity_path(summary, account, exposures) if path is None else path
     peak = Decimal(summary["starting_balance_usdt"])
     peak_at, worst, worst_peak_at, worst_at = None, Decimal(0), None, None
     for point in path:
@@ -804,7 +770,7 @@ def metrics(reports: Reports) -> dict:
         exposures = _typed_exposures(reports.exposures)
         path = equity_path(summary, reports.account, exposures)
         assert exposures is not None  # equity_path refused a run without an exposure report
-        drawn = mark_drawdown(summary, reports.account, exposures, path)
+        drawn = mark_drawdown(summary, path)
         drawdown = _drawdown_section(drawn, path, found, reports.positions, exposures,
                                      Decimal(summary["starting_balance_usdt"]))
         active = sum(1 for point in path if point["rows"])
@@ -927,7 +893,7 @@ def _safe_tags(order: dict) -> list:
 
 
 def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, positions: list[dict],
-                      exposures: ExposureTable, starting: Decimal | None = None) -> dict:
+                      exposures: ExposureTable, starting: Decimal) -> dict:
     peak, trough = drawn["peak_ns"], drawn["trough_ns"]
     share, top, reason = None, None, None
     if found is None or trough is None:
@@ -959,8 +925,6 @@ def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, p
             points = {point["label"]: point["equity"] for point in path}
             # The native replay starts flat; the declared initial account is the baseline.
             base = points[peak] if peak is not None else starting
-            if base is None:
-                raise ValueError("INITIAL_ACCOUNT_UNKNOWN")
             if abs(sum(changes.values(), Decimal(0)) - (points[trough] - base)) > EQUITY_TOLERANCE:
                 reason = "DRAWDOWN_CONTRIBUTION_UNRECONCILED"
             else:
