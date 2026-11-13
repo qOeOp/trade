@@ -402,7 +402,9 @@ def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> t
 def audit(row: dict, output: Path, lines: list[dict], summary: dict | None) -> dict | None:
     """engine.audit over the native reports the runner left in ``<output>/reports/`` (engine.paper.write_native_reports),
     the replay's audit, with its inputs from audit_inputs (on a live clock: engine.live_fill_changes):
-    {passed, findings, scope, fill_account_lag_ns_max, the longest a fill's account update followed it}; passed is None
+    {passed, findings, scope, fill_account_lag_ns_max, the longest a fill's account update followed it, venue_cancels
+    and venue_cancel_lead_ns_max, how many reduce-only cancels the venue made before the strategy's request and the
+    longest lead (engine.audit.venue_cancel_lead)}; passed is None
     when a runner that wrote its summary left no reports to audit. None without a summary (a runner killed or never
     started, which its other reasons say)."""
     from engine import audit as native
@@ -420,7 +422,8 @@ def audit(row: dict, output: Path, lines: list[dict], summary: dict | None) -> d
         (Path(name) / native.COVERAGE).write_text(json.dumps(coverage), encoding="utf-8")
         result = native.audit(run)
     return {**{key: result[key] for key in ("passed", "findings", "scope")},
-            "fill_account_lag_ns_max": (result.get("native_economics") or {}).get("fill_account_lag_ns_max")}
+            "fill_account_lag_ns_max": (result.get("native_economics") or {}).get("fill_account_lag_ns_max"),
+            "venue_cancels": result.get("venue_cancels"), "venue_cancel_lead_ns_max": result.get("venue_cancel_lead_ns_max")}
 
 
 def killed(lines: list[dict], summary: dict | None, exit_code: int | None, oom_killed: bool) -> bool:

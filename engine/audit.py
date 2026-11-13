@@ -224,11 +224,45 @@ def submission_findings(events: list[dict], summary: dict, coverage: dict | None
     return findings
 
 
-def event_report_findings(events: list[dict], orders: list[dict], fills: list[dict]) -> list[str]:
-    """engine.event_report_findings: the event history holds exactly the reported orders and fills."""
+# On a live clock a venue's own cancel of a reduce-only order may precede the strategy's cancel request by at most this
+# (user 2026-11-13, Paper seal audit option A for EVENT_OUT_OF_ORDER).
+VENUE_CANCEL_LEAD_MAX_NS = 10**9
+
+
+def venue_cancel_lead(order_events: list[dict], fills_ns: list[int]) -> int | None:
+    """engine.venue_cancel_lead: on a live clock (Paper's Sandbox) the venue cancels a reduce-only order itself once a
+    fill closes its position, and the strategy, called on that fill before the queued cancel reaches its cache, asks
+    to cancel it too: the order's last two events are its OrderPendingCancel and the venue's earlier-stamped
+    OrderCanceled. Returns how far the cancel precedes the request when that is the order's only step back in time,
+    the order is reduce-only, the cancel is stamped no earlier than the latest fill on its contract before the request
+    (`fills_ns`, sorted) and at most VENUE_CANCEL_LEAD_MAX_NS before it; else None."""
+    if len(order_events) < 3 or order_events[0].get("reduce_only") is not True:
+        return None
+    request, cancel = order_events[-2:]
+    if (request["type"], cancel["type"]) != ("OrderPendingCancel", "OrderCanceled"):
+        return None
+    if any(int(left["ts_event"]) > int(right["ts_event"]) for left, right in pairwise(order_events[:-1])):
+        return None
+    requested, canceled = int(request["ts_event"]), int(cancel["ts_event"])
+    at = bisect.bisect_left(fills_ns, requested)
+    if at == 0 or canceled < fills_ns[at - 1] or not 0 < requested - canceled <= VENUE_CANCEL_LEAD_MAX_NS:
+        return None
+    return requested - canceled
+
+
+def event_report_findings(events: list[dict], orders: list[dict], fills: list[dict],
+                          venue_cancels: list[int] | None = None) -> list[str]:
+    """engine.event_report_findings: the event history holds exactly the reported orders and fills. With
+    `venue_cancels` (a live clock) an order whose only step back in time is a venue's cancel crossing the strategy's
+    request (venue_cancel_lead) is no finding, and its lead is appended there."""
     findings, history = [], defaultdict(list)
+    fills_ns: defaultdict[str, list[int]] = defaultdict(list)  # each contract's fill times
     for event in events:
         history[event["client_order_id"]].append(event)
+        if event["type"] == "OrderFilled":
+            fills_ns[event["instrument_id"]].append(int(event["ts_event"]))
+    for times in fills_ns.values():
+        times.sort()
     reported = {row["client_order_id"]: row for row in orders}
     for identity in sorted(set(history) ^ set(reported)):
         findings.append(finding("EVENT_ORDER_SET_MISMATCH", f"{identity} is in only one of the event history and "
@@ -240,7 +274,11 @@ def event_report_findings(events: list[dict], orders: list[dict], fills: list[di
             findings.append(finding("EVENT_NOT_INITIALIZED", f"{identity} does not start with one initialization"))
             continue
         if any(int(left["ts_event"]) > int(right["ts_event"]) for left, right in pairwise(order_events)):
-            findings.append(finding("EVENT_OUT_OF_ORDER", f"{identity} events go back in time"))
+            lead = None if venue_cancels is None else venue_cancel_lead(order_events, fills_ns[first["instrument_id"]])
+            if venue_cancels is None or lead is None:
+                findings.append(finding("EVENT_OUT_OF_ORDER", f"{identity} events go back in time"))
+            else:
+                venue_cancels.append(lead)
         accounts = {event.get("account_id") for event in order_events if event.get("account_id")}
         if any((event["strategy_id"], event["instrument_id"]) != (first["strategy_id"], first["instrument_id"])
                for event in order_events) or len(accounts) > 1:
@@ -421,7 +459,8 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
 def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: dict) -> tuple[list[str], dict]:
     """engine.protection: reconcile the order event history and refuse unprotected positions."""
     events = read_order_events(run_dir / ORDER_EVENTS)
-    findings = event_report_findings(events, orders, fills)
+    venue_cancels: list[int] | None = [] if summary.get("clock") == "live" else None
+    findings = event_report_findings(events, orders, fills, venue_cancels)
     uses_stop_loss = summary.get("strategy_uses_stop_loss", True)
     if uses_stop_loss is not True:  # engine.load refuses any other declaration (STOP_LOSS_REQUIRED)
         findings.append(finding("STOP_LOSS_DECLARATION_INVALID", f"strategy_uses_stop_loss is {uses_stop_loss!r}"))
@@ -440,8 +479,10 @@ def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: di
             f"{value['position_quantity']} held with {value['stop_quantity']} reduce-only stop from "
             f"{_ns_utc(value['start_ns'])} to {'replay end' if value['open_at_end'] else _ns_utc(value['end_ns'])}; "
             f"position orders {value['position_order_ids']}, ended stops {value['ended_stop_order_ids']}"))
+    crossed = {} if venue_cancels is None else {"venue_cancels": len(venue_cancels),
+                                                "venue_cancel_lead_ns_max": max(venue_cancels, default=None)}
     return findings, {"strategy_uses_stop_loss": uses_stop_loss, "native_order_events": len(events),
-                      "uncovered_intervals": intervals}
+                      "uncovered_intervals": intervals, **crossed}
 
 
 EXPIRATION_PREFIX = "EXPIRATION-"  # the engine's own closing orders at a settlement (rc7 matching_engine/settlement.rs)

@@ -178,6 +178,46 @@ class NativeAuditTests(unittest.TestCase):
         self.assertIn("FUNDING_BALANCE_MISMATCH", codes(lagged(700_000, realized_pnl="8 USDT")),
                       "the closing fill's change must match the position's PnL")
 
+    def test_a_live_clock_accepts_a_venue_cancel_crossing_the_strategys_request_within_a_second(self):
+        """The Sandbox cancels a reduce-only stop itself when a fill closes its position, and the strategy, called on
+        that fill first, asks to cancel it too (user 2026-11-13, option A): on a live clock the request then precedes the
+        earlier-stamped cancel. Only that crossing, within a second and after the closing fill, is no finding."""
+        close = pd.Timestamp(EXIT).value
+
+        def crossed(request_ns=close + 5_000_000, cancel_ns=close + 60_000, clock="live", reduce_only=True,
+                    extra=None):
+            values = reports()
+            values["events"] = order_events(values)
+            stop = [event for event in values["events"] if event["client_order_id"] == "stop"]
+            stop[0]["reduce_only"] = reduce_only
+            canceled = stop[-1]
+            assert canceled["type"] == "OrderCanceled"
+            canceled["ts_event"] = cancel_ns
+            request = {**canceled, "type": "OrderPendingCancel", "event_id": "stop-request", "ts_event": request_ns}
+            values["events"].insert(values["events"].index(canceled), request)
+            if extra:
+                extra(stop)
+            if clock:
+                values["summary"]["clock"] = clock
+            return self.check(values)
+        result = crossed()
+        self.assertTrue(result["passed"], result["findings"])
+        self.assertEqual((result["venue_cancels"], result["venue_cancel_lead_ns_max"]), (1, 4_940_000))
+        replay = crossed(clock=None)
+        self.assertEqual(codes(replay), {"EVENT_OUT_OF_ORDER"})  # the replay audit is unchanged
+        self.assertNotIn("venue_cancels", replay)
+        for name, changed in (
+                ("not reduce-only", dict(reduce_only=False)),
+                ("cancel before the closing fill", dict(cancel_ns=close - 1)),
+                ("lead over a second", dict(request_ns=close + 1_000_060_001)),
+                ("another step back", dict(extra=lambda stop: stop[2].update(ts_event=stop[1]["ts_event"] - 1)))):
+            with self.subTest(name):
+                found = crossed(**changed)
+                self.assertIn("EVENT_OUT_OF_ORDER", codes(found))
+                self.assertEqual(found["venue_cancels"], 0)
+        # Exactly a second is accepted.
+        self.assertTrue(crossed(request_ns=close + 1_000_060_000)["passed"])
+
     def test_audit_refuses_warmup_submissions_despite_passing_strategy_self_check(self):
         values = reports()
         values["summary"].update(period_start_utc=ENTRY,
