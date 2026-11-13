@@ -167,7 +167,7 @@ class LiveCustodyTests(LiveFixture):
                 with self.assertRaises(LiveRefusal) as caught:
                     prepare(self.root, "leverage-run", object(), "a" * 32, "original@2", ["BTCUSDT"],
                                  Path("unused"), self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage=leverage,
-                                 market_root=Path("unused"))
+                                 market_root=Path("unused"), credential_ref="a" * 32)
                 self.assertEqual(caught.exception.code, "LIVE_CONFIG")
         for leverage in ("1", "125"):
             self.assertEqual(configuration.run_config({"drawdown_brake": "0.15",
@@ -185,7 +185,7 @@ class LiveCustodyTests(LiveFixture):
             with self.subTest(limit), self.assertRaises(LiveRefusal) as caught:
                 prepare(self.root, "limit-run", object(), "a" * 32, "original@2", ["BTCUSDT"], Path("unused"),
                              self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake=limit, duration_seconds=60, memory="2g", leverage="3",
-                         market_root=Path("unused"))
+                         market_root=Path("unused"), credential_ref="a" * 32)
             self.assertEqual(caught.exception.code, "LIVE_CONFIG")
 
     def test_a_key_that_is_refused_takes_no_slot_and_a_reconcile_does_not_ask(self):
@@ -227,7 +227,7 @@ class LiveCustodyTests(LiveFixture):
             prepare(self.root, self.run_id, object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
                          self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake="0.15",
                          duration_seconds=60, memory="2g", leverage="3",
-                         market_root=Path("unused"))
+                         market_root=Path("unused"), credential_ref="a" * 32)
         self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
 
     def test_failed_launch_retains_account_custody_and_inputs(self):
@@ -632,7 +632,7 @@ class LiveCustodyTests(LiveFixture):
                 patch.object(runs.image, "require_main_build"):
             manifest = prepare(self.root, "candidate-run", object(), "a" * 32, "original@2", ["BTCUSDT"],
                                     universe, self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
-                                    market_root=Path("unused"))
+                                    market_root=Path("unused"), credential_ref="a" * 32)
         self.assertEqual(read.call_args.args[1], "a" * 32)
         self.assertEqual(manifest["format"], runs.MANIFEST_FORMAT)
         self.assertEqual((manifest["config"]["leverage"], manifest["market"]), ("3", MARKET))
@@ -659,7 +659,7 @@ class LiveCustodyTests(LiveFixture):
                 runs.prepare_locked(root, "declared-run", object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
                                     self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
                                     duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
-                                    source_sha256=declared)
+                                    credential_ref="a" * 32, source_sha256=declared)
             self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
             self.assertFalse(state.directory(self.root, "declared-run").exists())
 
@@ -673,7 +673,7 @@ class LiveCustodyTests(LiveFixture):
         state.write_new(other_key, b'{"api_key":"another-key","api_secret":"another-secret"}')
         same = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": files["universe"],
                 "credentials": self.credentials, "runtime": IDENTITY["image_ref"], "drawdown_brake": "0.15", "duration_seconds": 60, "memory": "2g", "leverage": "3",
-                "market_root": Path("unused")}
+                "market_root": Path("unused"), "credential_ref": "a" * 32}
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
                   "runtime_contract": RUNTIME_CONTRACT}

@@ -36,7 +36,7 @@ def prepared(root, run_id="original"):
                 "candidate": {"strategy_id": "example", "revision": 1},
                 "symbols": ["BTCUSDT"], "config": {"memory": "2g", "duration_seconds": 60}, "credential_binding": "f" * 64}
     state.write_new(directory / "inputs/manifest.json", state.encode(manifest))
-    state.append(directory / "lifecycle.jsonl", "prepared", run_id)
+    state.append(directory / "lifecycle.jsonl", "prepared", run_id, credential_ref="a" * 32)
     return directory, manifest
 
 

@@ -12,7 +12,7 @@ class LiveViewTests(LiveFixture):
         super().setUp()
         with state.serialized(self.root):
             pass
-        state.append(self.directory / "lifecycle.jsonl", "prepared", self.run_id)
+        state.append(self.directory / "lifecycle.jsonl", "prepared", self.run_id, credential_ref="a" * 32)
         state.write_new(self.root / "account.jsonl", b"")
         state.write_new(self.directory / "out" / "events.jsonl", b"")
         self.calls = []
