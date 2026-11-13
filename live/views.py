@@ -230,7 +230,7 @@ def _minute_results(rows):
 GATE_EVENTS = frozenset({"entries_closed", "entries_checking", "entries_opened", "entries_held", "connection_lost",
                          "connection_renewed", "entry_held", "entry_released", "entry_refused", "orphan_orders"})
 GATE_REASONS = frozenset({"disconnected", "unverified", "unknown_orders", "bars_missing", "account_mode", "foreign",
-                          "open"})
+                          "contract_status", "open"})
 
 
 def _gate(rows):
@@ -244,7 +244,8 @@ def _gate(rows):
         reasons = row.get("reasons") if isinstance(row.get("reasons"), list) else [row.get("reason")]
         result.append({"event": row["event"], "observed_ns": str(row["observed_ns"]),
                        "reasons": [reason for reason in reasons if reason in GATE_REASONS] if reasons else [],
-                       "socket": _text(row.get("socket"), re.compile(r"[A-Za-z0-9_.:/ -]{1,200}\Z"))})
+                       "socket": _text(row.get("socket"), re.compile(r"[A-Za-z0-9_.:/ -]{1,200}\Z")),
+                       "status": _text(row.get("status"), re.compile(r"[A-Z_]{1,40}\Z"))})
     return result[-MAX_ROWS:]
 
 

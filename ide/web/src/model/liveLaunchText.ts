@@ -27,7 +27,7 @@ export function refusalText(code: string | undefined): string {
     LIVE_FUNDS: "The futures wallet does not cover the cash floor (85% of the wallet at the start). Add USDT at Binance.",
     LIVE_KEY_WITHDRAWAL: "This API key allows withdrawals. Turn that off at Binance, or save a key without it.",
     LIVE_KEY_UNVERIFIED: "Binance did not confirm the key's permissions. Try the account check again.",
-    LIVE_KEY_IP_UNRESTRICTED: "A run with no duration needs an API key restricted to this server's IP. Set one at Binance, or give the run a duration.",
+    LIVE_KEY_IP_UNRESTRICTED: "A Live run needs an API key restricted to this server's IP. Set one at Binance.",
     LIVE_BUDGET: "The first Live trial takes a cash floor of at most 100 USDT, a wallet up to about 117 USDT.",
     LIVE_RELEASE_UNAVAILABLE: "Live is switching to a new release. Wait, then try again.",
     LIVE_CONFIG: "Live did not take these settings. The brake must be above 0 and at most 15 %; the duration whole seconds or empty.",

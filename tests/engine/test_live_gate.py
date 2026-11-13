@@ -228,6 +228,32 @@ class GateTests(unittest.TestCase):
         live_connection.tick(self.session, observer, held + 601)
         self.assertEqual([row["event"] for row in self.events()].count("entries_held"), 1)
 
+    def test_a_contract_not_trading_is_read_every_minute_and_reopens_after_two_agreeing_reads(self):
+        def read(status, observed_ns):
+            snapshot = json.loads(json.dumps(self.snapshot))
+            snapshot["symbols"][SYMBOL]["instrument"]["status"] = status
+            return dict(snapshot, observed_ns=observed_ns)
+        state = self.session.connection
+        with mock.patch.object(live_connection, "compare", return_value={}):
+            for snapshot in (read("not a status", 0), dict(self.snapshot, symbols={}), read("SETTLING", 1),
+                             read("SETTLING", 2)):
+                live_connection.judge(self.session, Cache(), snapshot)
+            self.assertEqual(set(state.closed), {"contract_status"})
+            self.assertEqual([row["status"] for row in self.events() if row["event"] == "entries_closed"], ["SETTLING"])
+            state.last_compare = 0
+            with mock.patch.object(commands, "observe_account") as observe:
+                live_connection.tick(self.session, SimpleNamespace(cache=Cache()), 59)
+                observe.assert_not_called()
+                live_connection.tick(self.session, SimpleNamespace(cache=Cache()), 60)
+                observe.assert_called_once()
+            state.observation = None
+            live_connection.judge(self.session, Cache(), read("TRADING", 10 * 10**9))
+            self.assertEqual(set(state.closed), {"unverified"})  # the check that follows a reconnect
+            live_connection.judge(self.session, Cache(), read("TRADING", 41 * 10**9))
+        self.assertTrue(live_connection.entries_open(self.session))
+        self.assertEqual([row["event"] for row in self.events() if row["event"].startswith("entries_")],
+                         ["entries_closed", "entries_checking", "entries_opened"])
+
     def test_a_periodic_disagreement_closes_entries_only_when_it_repeats(self):
         self.session.connection.last_compare = 0
         with mock.patch.object(live_connection, "compare", return_value={"in_flight": ["O-1"]}):

@@ -79,18 +79,22 @@ class _LiveConfigured(history.Warming):
             return super().submit_order(order, position_id=position.id, client_id=client_id)
         pending = PendingEntry(order, super().submit_order, client_id, self._live.deciding)
         try:
+            if self._live.denying:  # not a new decision, even with entries open (engine.live_connection.deny)
+                raise Refusal("LIVE_CONNECTION_UNVERIFIED", "an entry submitted from within a denial's callbacks is refused")
             closed = self._live.account_verified and not live_connection.entries_open(self._live)
+            # Denied natively: with a position held after a missing bar, or while the contract is not TRADING
+            # (the user, 2026-11-13).
             denied = closed and not live_connection.holdable(self._live) and live_connection.deniable(self._live) \
-                and bool(Strategy.cache.__get__(self, type(self)).positions_open(
-                    strategy_id=source_strategy_id(self._live.manifest)))
+                and ("contract_status" in self._live.connection.closed or bool(Strategy.cache.__get__(
+                    self, type(self)).positions_open(strategy_id=source_strategy_id(self._live.manifest))))
             if closed and not live_connection.holdable(self._live) and not denied:
                 live_connection.refuse(self._live, live_connection.gate_reason(self._live))
             commands.require_entry(self._live, order)
             self._orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
             if denied:
-                # A missing bar with a position held: only this entry, which passed every entry check, is denied,
-                # natively (the user, 2026-11-13).
-                live_connection.deny(self._live, order, "entry_while_bars_missing")
+                # Only this entry, which passed every entry check, is denied, natively.
+                live_connection.deny(self._live, order, "entry_while_contract_not_trading"
+                                     if "contract_status" in self._live.connection.closed else "entry_while_bars_missing")
                 return None
             if closed:
                 live_connection.hold(self._live, pending)

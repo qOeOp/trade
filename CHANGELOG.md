@@ -26,8 +26,11 @@ back to one is [Rolling back](deploy/remote/README.md#rolling-back).
   wallet at the run's first start instead of a declared budget. Manifest format `live-run-4` and web protocol 6:
   runs prepared earlier are refused (`LIVE_RUN_FORMAT`). Before releasing, with no run holding the account, replace
   the Live declaration's `defaults` with `{"duration_seconds": …, "leverage": …}` (`deploy/remote/README.md`).
-- Live: a run may have no duration (needs an IP-restricted key); each entry and comparison bounds the clock; the
-  control reads a running run's key permissions hourly and tells the user when they fail.
+- Live (breaking): every run needs an API key restricted to the host's IP (`LIVE_KEY_IP_UNRESTRICTED`), timed or
+  not, and a run may have no duration. Each entry and comparison bounds the clock: an entry over the limit is denied
+  natively and the run goes on. A contract Binance lists as not `TRADING` closes entries (new ones denied natively,
+  positions keep their exchange stops) until it trades again. The control reads a running run's key permissions
+  hourly and tells the user when they fail.
 
 ## 0.2.0 (2026-11-11)
 

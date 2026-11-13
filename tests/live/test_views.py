@@ -83,11 +83,15 @@ class LiveViewTests(LiveFixture):
         self.native("entries_opened", reasons=["unverified", "SECRET"])
         self.native("comparison", agreed=True)
         self.native("orphan_orders", orders=["O-7"], seconds=600)
+        self.native("entries_closed", reason="contract_status", status="SETTLING")
+        self.native("entries_closed", reason="contract_status", status="SECRET status")
         result = views.run_view(self.root, self.run_id)
         self.assertEqual([(row["event"], row["reasons"]) for row in result["gate"]],
                          [("entries_closed", ["disconnected"]), ("entries_checking", ["unverified"]),
-                          ("entries_opened", ["unverified"]), ("orphan_orders", [])])
+                          ("entries_opened", ["unverified"]), ("orphan_orders", []),
+                          ("entries_closed", ["contract_status"]), ("entries_closed", ["contract_status"])])
         self.assertEqual(result["gate"][0]["socket"], "BINANCE wss://fstream.binance.com/ws")
+        self.assertEqual([row["status"] for row in result["gate"][-2:]], ["SETTLING", None])
         self.assertNotIn("SECRET", json.dumps(result))
 
     def test_the_brake_and_key_checks_show_known_values_only(self):

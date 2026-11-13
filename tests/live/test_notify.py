@@ -254,6 +254,18 @@ class Sending(Base):
         self.assertIn("Binance has kept its reduce-only orders for over ten minutes", text)
         self.assertIn("cancel them at Binance if nothing needs them", text)
 
+    def test_a_contract_not_trading_and_the_reopening_after_it_are_noticed(self):
+        gate = [{"event": "entries_closed", "observed_ns": "1", "reasons": ["contract_status"], "socket": None,
+                 "status": "SETTLING"},
+                {"event": "entries_checking", "observed_ns": "2", "reasons": ["unverified"], "socket": None,
+                 "status": "TRADING"},
+                {"event": "entries_opened", "observed_ns": "3", "reasons": ["unverified"], "socket": None, "status": None}]
+        sent = [(key, text) for key, text in notify.messages(run(gate=gate)) if ":gate:" in key]
+        self.assertEqual([key for key, _ in sent], ["run-a:gate:1", "run-a:gate:3"])
+        self.assertIn("Binance lists its contract as SETTLING, so entries are closed", sent[0][1])
+        self.assertIn("a new entry from the strategy is denied and the run goes on", sent[0][1])
+        self.assertIn("entries are open", sent[1][1])
+
     def test_the_brake_and_a_failed_key_check_and_its_recovery_are_noticed(self):
         facts = run(brake={"peak": "104", "fired": {"equity": "88", "peak": "104", "drawdown": "0.1538",
                                                     "observed_ns": "3"}},

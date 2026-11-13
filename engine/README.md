@@ -574,8 +574,12 @@ before the source receives another bar of the type it decided on. Otherwise the 
 `LIVE_CONNECTION_UNVERIFIED` before that bar reaches the source (`entry_refused`, detail `entry_hold_expired` or
 `entry_hold_bar`): the source cannot see a product refusal, and the pinned Python `Strategy` has no native
 `deny_order`. A gate closed for a reason no check clears (below) refuses entries at once, held ones included, except a
-missing bar alone: then an entry staged when it closed, and a new one that passes every entry check while the strategy
-holds a position, are denied natively and the run goes on (`entry_denied`). The run node registers an
+missing bar or a contract not trading. After a missing bar alone, an entry staged when it closed, and a new one that
+passes every entry check while the strategy holds a position, are denied natively and the run goes on (`entry_denied`).
+When a comparison, or an entry's own account read, finds the contract's Binance status other than `TRADING`, entries
+close (`contract_status`): staged and held entries and every new one that passes the entry checks are denied natively,
+flat or not, and the run goes on; working entries and positions with their exchange stops stay. Its status is then read
+every minute; back at `TRADING`, entries reopen after the same two agreeing comparisons as after a reconnect. The run node registers an
 `ExecutionAlgorithm` (`LIVE-GATE`) whose `deny_order` puts the source's order in the native cache as DENIED and gives
 the source `OrderDenied`; nothing is sent. Its denials, read back from the journal in later starts whose reloaded cache
 still holds them, are no native failure. An order the cache already holds, an entry submitted from within a denial's
@@ -601,7 +605,8 @@ runs every five minutes while entries are open; two disagreeing reads in a row c
 While nothing is open, a connection older than 23 hours is renewed natively (`reconnect_socket`) between seconds 20 and
 40 of a minute, moving Binance's 24-hour cut away from positions and the bar boundary. With a position open, the
 existing 60-second rule for a missing mark price still stops the run. A socket down for a minute, a check not passed
-in ten minutes, entries closed for the run or for a missing bar, a start again to warm up (and its one retry),
+in ten minutes, entries closed for the run, for a missing bar or for a contract not trading, a start again to warm up
+(and its one retry),
 reduce-only orders left after a missing bar, and the reopening after such a notice are Telegram notices. No custom
 reconciliation engine or second trading client is used.
 
@@ -646,8 +651,8 @@ instrument. Live does not claim hostile-code isolation for the source.
 
 Before a `preflight` or `start` takes the account, the control's process reads the key's own permissions once from
 `api.binance.com`, which the runner's egress deliberately cannot reach: a key that can withdraw is refused
-(`LIVE_KEY_WITHDRAWAL`), an unclear answer or failed read is refused (`LIVE_KEY_UNVERIFIED`), and a key with no IP
-restriction is a warning in the result. The runner then bounds its own clock against the venue's time, because native
+(`LIVE_KEY_WITHDRAWAL`), an unclear answer or failed read is refused (`LIVE_KEY_UNVERIFIED`), and so is a key with
+no IP restriction (`LIVE_KEY_IP_UNRESTRICTED`), for every run, timed or not. The runner then bounds its own clock against the venue's time, because native
 requests may sign with it while signed reads here carry the venue's time: at most 1000 ms ahead (the venue's limit) and
 2500 ms behind (half the 5000 ms `recvWindow`), or `LIVE_CLOCK`. The reading is kept in the private preflight snapshot.
 
@@ -673,9 +678,11 @@ the USDT wallet at the first arming (the first trial admits at most 100 USDT, `L
 that much USDT wallet and available cash, a last line should the brake fail. The brake does not bound a gap or a
 rejected close; a trigger makes one close attempt. Do not transfer or trade by hand during a run.
 
-Each entry's account read and the connection's comparisons also bound the clock (`LIVE_CLOCK`): an entry refused for
-it ends the run, a comparison that fails it closes entries until the clock agrees. A run with no duration needs an API
-key restricted to the host's IP (`LIVE_KEY_IP_UNRESTRICTED`), and while a run trades the paired control reads its key's
+Each entry's account read and the connection's comparisons also bound the clock (`LIVE_CLOCK`): an entry that passes
+every other entry check but the clock is denied natively through the gate (`entry_denied`, `entry_clock_skew`) and the
+run goes on, the next entry taking its own read; a read with no usable server time, or no gate to deny with, still
+refuses it and ends the run, and so does an entry submitted from within a denial's callbacks. A
+comparison that fails the clock closes entries until it agrees. While a run trades the paired control reads its key's
 permissions every hour: a failure (withdrawals on, IP restriction gone, unreadable) is journalled once
 (`key_check_failed`) and a Telegram notice; the run goes on.
 

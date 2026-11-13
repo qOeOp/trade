@@ -39,6 +39,7 @@ test("the duration reads in years, months, days and hours, exactly, with no uppe
   for (const seconds of ["3600", "86401", String(5 * 31_536_000)]) assert.equal(duration(seconds).reason, null, seconds);
   assert.equal(duration("0").mark, "shown", "no duration: the run goes on until it is stopped");
   assert.match(duration("0").reason, /runs until you stop it/);
+  assert.doesNotMatch(duration("0").reason, /IP/, "every run needs an IP-restricted key, not only one with no duration");
   assert.equal(model.ready(columns(view(), checked(), { edits: { duration_seconds: "0" } })), true);
 });
 
@@ -59,7 +60,7 @@ test("where Live is not set up every column is still drawn, each row failing in 
 test("with no saved key the API key row fails, saying where to save one, and the account check waits for it", () => {
   const v = view({ credentials: [] }), cols = columns(v);
   assert.equal(row(cols, "key").mark, "fail");
-  assert.match(row(cols, "key").reason, /Save a Binance Futures API key \(no withdrawals\) in Settings/);
+  assert.match(row(cols, "key").reason, /Save a Binance Futures API key \(no withdrawals, restricted to this server's IP\) in Settings/);
   assert.match(model.checkBlocker({ view: v, source: v.sources[0] }, true), /Save an API key/);
   assert.equal(model.ready(cols), false);
 });
