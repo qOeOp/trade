@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 from deploy.live_host import DECLARATION, LIVE, OPERATOR_FIELDS, LiveBusy, LiveHost
 from deploy.release import Release
-from deploy.release_host import AGENT, AHEAD, RUNTIME_REF, SERVICE_REF, SOURCE, WEB, Config, DockerHost
+from deploy.release_host import AGENT, AHEAD, FRONTEND, RUNTIME_REF, SERVICE_REF, SOURCE, WEB, Config, DockerHost
 from tests.deploy.test_release import A, B, C, Host, Crash, TARGET
 
 
@@ -643,7 +643,7 @@ class LiveHostBoundaryTests(unittest.TestCase):
         self.web = DockerHost(Config(state=self.base / "release"))
         self.web.docker = Mock()
         self.web.requires_live = Mock(return_value=False)
-        self.web.pull_execution = Mock(return_value=A)
+        self.web.pull = Mock(return_value=A)
         self.web.exists = Mock(return_value=False)
         # Owners follow the routes unless a test sets one; the routed Webs mount no socket unless set.
         self.web.disk_owner = lambda: self.web.disk_route().removeprefix(WEB)
@@ -697,8 +697,8 @@ class LiveHostBoundaryTests(unittest.TestCase):
             self.live.prepare(B, {**PAIR, "revision": C})
 
     def test_control_and_inspector_mount_scopes_and_immutable_image_pair(self):
-        self.web.pull_execution.assert_any_call(SERVICE, SERVICE_REF, B)
-        self.web.pull_execution.assert_any_call(RUNTIME, RUNTIME_REF)
+        self.web.pull.assert_any_call(SERVICE, SERVICE_REF, B)
+        self.web.pull.assert_any_call(RUNTIME, RUNTIME_REF)
         self.source.require_runtime.assert_called_once_with(A, B)
         with patch("deploy.live_host.DOCKER_SOCKET", self.root / "account.lock"), patch.object(self.live, "checked"):
             self.live.create(WEB + B, SERVICE)
@@ -708,7 +708,7 @@ class LiveHostBoundaryTests(unittest.TestCase):
         self.assertIn(f"type=bind,src={self.root},dst={self.root},readonly", inspector)
         self.assertIn(f"type=bind,src={self.live.state},dst={self.live.state},readonly", control)
         self.assertIn(f"type=bind,src={self.live.socket(WEB + B)},dst={self.live.socket(WEB + B)}", control)
-        self.assertNotIn(self.web.config.frontend, control)
+        self.assertNotIn(FRONTEND, control)
         self.assertNotIn("--publish", control)
         self.assertIn(SERVICE, control)
         self.assertIn("--release-web", control)
@@ -718,7 +718,7 @@ class LiveHostBoundaryTests(unittest.TestCase):
             "org.opencontainers.image.revision": B, "org.opencontainers.image.source": SOURCE}}}
         host = DockerHost(self.web.config)
         host.docker = Mock(side_effect=lambda *args, **kwargs: json.dumps(image) if args[0] == "image" else "")
-        self.assertEqual(host.pull_execution(SERVICE, SERVICE_REF, B), B)
+        self.assertEqual(host.pull(SERVICE, SERVICE_REF, B), B)
         variants = []
         for field, value in (("Architecture", "arm64"), ("RepoDigests", [])):
             changed = copy.deepcopy(image)
@@ -733,7 +733,7 @@ class LiveHostBoundaryTests(unittest.TestCase):
             with self.subTest(image=changed):
                 host.docker.side_effect = lambda *args, **kwargs: json.dumps(changed) if args[0] == "image" else ""
                 with self.assertRaisesRegex(RuntimeError, "differs from admission"):
-                    host.pull_execution(SERVICE, SERVICE_REF, B)
+                    host.pull(SERVICE, SERVICE_REF, B)
 
     def test_retained_control_requires_bound_command_and_read_only_release_metadata(self):
         name = WEB + B

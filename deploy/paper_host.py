@@ -6,6 +6,8 @@ import select
 import subprocess
 
 from .release_host import (
+    BACKEND,
+    DOCKER_API_NETWORK,
     LEDGER,
     UNPRIVILEGED,
     Config,
@@ -132,9 +134,6 @@ class PaperHost(DockerHost):
         if self.inspect(name)["running"]:
             self.docker("stop", "--time", "30", name)
 
-    def pull(self, reference: str, pattern, sha: str | None = None) -> str:
-        return self.pull_execution(reference, pattern, sha)
-
     def common(self) -> list[str]:
         # The service identity (TRADE_UID:TRADE_GID) the ledger runs as, which owns the execution records;
         # read from the ledger so that a new host's first controller has one too.
@@ -146,7 +145,7 @@ class PaperHost(DockerHost):
             user,
             *UNPRIVILEGED,
             "--network",
-            self.config.backend,
+            BACKEND,
             "--env",
             "TRADE_DOLT_HOST=ledger",
             "--env",
@@ -207,7 +206,7 @@ class PaperHost(DockerHost):
             "--release-route=/run/trade/paper-release/active.json",
             f"--release-name={name}",
         )
-        self.docker("network", "connect", "trade-ide_docker-api", name)
+        self.docker("network", "connect", DOCKER_API_NETWORK, name)
 
     def runtime(self, name: str) -> str:
         return runtime_default(json.loads(self.docker("inspect", "--format", "{{json .Config.Cmd}}", name)))

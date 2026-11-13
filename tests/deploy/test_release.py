@@ -15,9 +15,10 @@ from deploy.paper_host import PAPER, PaperHost
 from deploy.release_host import (AGENT, AHEAD, KEPT_RELEASES, WEB, Config, DockerHost, ahead, revision,
                                  route_config, route_name, route_owner)
 
-# The keys of a `line list` entry, written out: the release controller's tests run on the host's system Python,
-# which cannot import the ledger. tests/ledger/test_lines.py holds them equal to ledger.lines.LISTED.
-LINE_KEYS = ("line_id", "name", "start", "dev_start", "dev_end", "market_day", "created_at", "closed", "targets")
+# The keys of a `line list` entry DockerHost.lines reads besides `versions` (graph.line_list), written out: the
+# release controller's tests run on the host's system Python, which cannot import the ledger.
+# tests/ledger/test_lines.py holds them within ledger.lines.LISTED.
+HOST_LINE_KEYS = ("name", "created_at")
 
 
 A, B, C, D = (letter * 40 for letter in "abcd")
@@ -87,10 +88,10 @@ class Host:
     def live_route(self):
         return self.live
 
-    def pull(self, sha, image):
+    def pull(self, reference, pattern, sha=None):
         if getattr(self, "on_pull", None):
             self.on_pull()
-        return image
+        return sha
 
     def create(self, name, image, agent=False, live_socket=None):
         if name in self.containers:
@@ -112,7 +113,7 @@ class Host:
     def lines(self, name):
         return ["active-paper-line"]
 
-    def warm(self, name, protected, agent=True):
+    def warm(self, name, protected):
         if getattr(self, "on_warm", None):
             self.on_warm(name)
         if self.fail == "warm" and name == WEB + B:
@@ -422,22 +423,20 @@ class PruneTests(unittest.TestCase):
         self.assertEqual(sorted(host.removed()), sorted([self.NAMES[0], self.NAMES[4], self.NAMES[5]]))
 
     def test_failed_records_name_the_containers_of_their_kind(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, patch.object(Release, "paper") as paper:
             root = Path(directory)
             (root / "failed").mkdir()
             (root / "failed" / B).write_text("")
             (root / "paper-failed").mkdir()
             (root / "paper-failed" / C).write_text("")
-            (root / "paper-router").mkdir()
-            from deploy.paper_host import route_config as paper_route
-
-            (root / "paper-router" / "active.json").write_text(json.dumps(paper_route(PAPER + A)))
-            host = Mock(state=root, config=Config(state=root))
+            host = Mock(state=root)
             host.disk_route.return_value = WEB + A
-            host.managed.return_value = [PAPER + A]
+            paper.return_value.host.disk_route.return_value = PAPER + A
+            paper.return_value.host.managed.return_value = [PAPER + A]
             runtime = "ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64
-            host.docker.return_value = json.dumps(["python", "-m", "cli.main", "paper", "serve", f"--runtime={runtime}"])
+            paper.return_value.host.runtime.return_value = runtime
             Release(host, Mock()).prune()
+            paper.return_value.host.runtime.assert_called_once_with(PAPER + A)
             self.assertEqual(host.prune.call_args.args[:2], ((WEB, AGENT, PAPER), {WEB + A, PAPER + A}))
             self.assertEqual(host.prune.call_args.args[2], {WEB + B, WEB + B + AHEAD, AGENT + B, PAPER + C})
             self.assertEqual(host.prune.call_args.args[3], {runtime}, "the Paper controller's runtime stays")
@@ -586,10 +585,12 @@ class SelectionTests(unittest.TestCase):
                              [("ls-tree", "--name-only", B, "--", "live/protocol.py"), ("show", f"{B}:live/protocol.py")])
             source.git = Mock(side_effect=tree("", listed=""))
             self.assertIsNone(source.protocol(B), "a revision without the file declares none")
-            for text in ("", "PROTOCOL = 0\n", "PROTOCOL = 1\nPROTOCOL = 2\n", "PROTOCOL = 2  # x\n"):
+            for text in ("", "PROTOCOL = 0\n", "PROTOCOL = 2  # x\n"):
                 source.git = Mock(side_effect=tree(text))
-                with self.assertRaises(ValueError, msg=text):
-                    source.protocol(B)
+                self.assertIsNone(source.protocol(B), text)
+            source.git = Mock(side_effect=tree("PROTOCOL = 1\nPROTOCOL = 2\n"))
+            with self.assertRaises(ValueError):
+                source.protocol(B)
             source.git = Mock(side_effect=RuntimeError("git failed"))
             with self.assertRaisesRegex(RuntimeError, "git failed"):
                 source.protocol(B)  # a failed read is not an undeclared protocol
@@ -649,6 +650,9 @@ class SelectionTests(unittest.TestCase):
         source.ancestor = Mock(return_value=True)
         source.git = Mock(return_value="ide/web/src/App.tsx")
         self.assertFalse(source.agent_changed(A, B))
+        for unchanged in ("tests/ledger/test_db.py", ".agents/skills/x/SKILL.md", "README.md", "deploy/release.py"):
+            source.git.return_value = unchanged
+            self.assertFalse(source.agent_changed(A, B), unchanged)
         for changed in ("deploy/Dockerfile", "ide/agent/src/chat.ts", "ledger/db.py", "uv.lock"):
             source.git.return_value = changed
             self.assertTrue(source.agent_changed(A, B))
@@ -780,7 +784,7 @@ class SelectionTests(unittest.TestCase):
     def test_readiness_draws_the_lines_of_active_runs_the_newest_or_none_on_an_empty_ledger(self):
         host = DockerHost(Config())
         def listed(name, version, created_at):  # a `line list` entry (graph.line_list over lines.list_lines)
-            return {**dict.fromkeys(LINE_KEYS), "name": name, "versions": [version], "created_at": created_at}
+            return dict(zip(HOST_LINE_KEYS, (name, created_at), strict=True), versions=[version])
 
         lines = [listed("old", "v1", "2026-01-01T00:00:00"), listed("new", "v2", "2026-02-01T00:00:00")]
         runs = {"runs": [{"candidate": "v1", "state": "running"}]}

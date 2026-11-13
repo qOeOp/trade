@@ -18,31 +18,23 @@ import tempfile
 from urllib.request import Request, urlopen
 
 from .release import GitSource
-from .release_host import IMAGE_REF, REVISION, RUNTIME_REF, SERVICE_REF, SOURCE, sync_directory
+from .release_host import IMAGE_REF, MANIFESTS, REVISION, RUNTIME_REF, SERVICE_REF, SOURCE, sync_directory
 
 
-# Field, env key, pattern and the tag prefix of the build's platform index. The release's runtime is the execution
-# image for Paper and Live (`exec-sha-REV` in ghcr.io/qoeop/trade-runtime, beside the replay image's `sha-REV`).
-# A runtime built before the split (its revision has no SPLIT file) is the one combined image, which replays and
-# executes; its own index is `sha-REV`, and its amd64 child must still be the admitted digest.
+# Field, env key and pattern.
 FIELDS = (
-    ("image", "TRADE_IDE_IMAGE", IMAGE_REF, ""),
-    ("service", "TRADE_SERVICE_IMAGE", SERVICE_REF, ""),
-    ("runtime", "TRADE_RUNTIME_IMAGE", RUNTIME_REF, "exec-"),
+    ("image", "TRADE_IDE_IMAGE", IMAGE_REF),
+    ("service", "TRADE_SERVICE_IMAGE", SERVICE_REF),
+    ("runtime", "TRADE_RUNTIME_IMAGE", RUNTIME_REF),
 )
-EXECUTION = dict((field, prefix) for field, _, _, prefix in FIELDS)["runtime"]
+# The tag prefix of a release runtime's platform index. The release's runtime is the execution image for Paper and
+# Live (`exec-sha-REV` in ghcr.io/qoeop/trade-runtime, beside the replay image's `sha-REV`). A runtime built before
+# the split (its revision has no SPLIT file) is the one combined image, which replays and executes; its own index is
+# `sha-REV`, and its amd64 child must still be the admitted digest.
+EXECUTION = "exec-"
 SPLIT = "engine/runtime/replay.Dockerfile"
 CHANNELS = {"deploy": "deploy-ready", "main": "main-ready"}
 ARCHITECTURES = {"arm64": "arm64", "aarch64": "arm64", "amd64": "amd64", "x86_64": "amd64"}
-MANIFESTS = ", ".join(
-    f"application/vnd.{kind}+json"
-    for kind in (
-        "oci.image.index.v1",
-        "oci.image.manifest.v1",
-        "docker.distribution.manifest.list.v2",
-        "docker.distribution.manifest.v2",
-    )
-)
 
 
 class Registry:
@@ -156,10 +148,10 @@ def resolve(source: GitSource, registry: Registry, architecture: str, revision: 
         return EXECUTION if source.git("ls-tree", "--name-only", built, "--", SPLIT).strip() else ""
 
     values = {}
-    for field, key, pattern, prefix in FIELDS:
+    for field, key, pattern in FIELDS:
         # A runtime carries forward from an earlier build; the IDE and service are built from the record's revision.
         reference, built = native(registry, record[field], pattern, architecture,
-                                  None if field == "runtime" else sha, runtime_prefix if field == "runtime" else prefix)
+                                  None if field == "runtime" else sha, runtime_prefix if field == "runtime" else "")
         if not source.ancestor(built, main):
             raise RuntimeError(f"{reference} was built from {built}, which is not on main")
         if field == "runtime":
