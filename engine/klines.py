@@ -7,6 +7,7 @@ export and a replay's history are (engine.warmup).
 from __future__ import annotations
 
 import json
+import urllib.parse
 import urllib.request
 from decimal import Decimal
 
@@ -39,8 +40,9 @@ def bars(instrument_id, period: str, first_open_ns: int, last_close_ns: int, pre
     start = first_open_ns
     last_open = last_close_ns + warmup.MILLISECOND_NS - warmup.period_ns(period)
     while start <= last_open:
-        rows = get(f"{REST_BASE}/fapi/v1/klines?symbol={symbol}&interval={INTERVALS[period]}"
-                   f"&startTime={start // NS_PER_MS}&endTime={last_open // NS_PER_MS}&limit={LIMIT}", proxy_url)
+        query = {"symbol": symbol, "interval": INTERVALS[period], "startTime": start // NS_PER_MS,
+                 "endTime": last_open // NS_PER_MS, "limit": LIMIT}
+        rows = get(f"{REST_BASE}/fapi/v1/klines?{urllib.parse.urlencode(query)}", proxy_url)
         for row in rows:
             stamp = int(row[6]) * NS_PER_MS
             if int(row[0]) * NS_PER_MS < start or stamp > last_close_ns:

@@ -5,6 +5,7 @@ complete; an instance waits for its history or, without one, the replay is refus
 import hashlib
 import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 
 import numpy as np
@@ -206,7 +207,7 @@ def binance(gaps=()):
 
     def get(url, proxy_url):
         asked.append(url)
-        query = dict(part.split("=") for part in url.split("?")[1].split("&"))
+        query = dict(urllib.parse.parse_qsl(url.split("?")[1], strict_parsing=True))
         step = warmup.period_ns(next(period for period, name in klines.INTERVALS.items()
                                      if name == query["interval"])) // 1_000_000
         opens = [stamp for stamp in range(int(query["startTime"]), int(query["endTime"]) + 1, step)
@@ -226,6 +227,15 @@ class KlineTests(unittest.TestCase):
         self.assertEqual(found[-1].ts_event, start + 2000 * 60_000 * NS - NS)
         self.assertEqual((str(found[0].bar_type), str(found[0].open), str(found[0].volume)),
                          (f"{IID}-1-MINUTE-LAST-EXTERNAL", "100.12", "12.346"))
+
+    def test_a_symbol_of_any_script_is_percent_encoded_in_the_url(self):
+        get, asked = binance()
+        start = 1_767_225_600_000 * NS
+        found = klines.bars("币安人生USDT-PERP.BINANCE", "1-MINUTE", start, start + 2 * 60_000 * NS - NS, (2, 3), None,
+                            get)
+        self.assertEqual(len(found), 2)
+        self.assertTrue(asked[0].isascii())
+        self.assertIn("symbol=%E5%B8%81%E5%AE%89%E4%BA%BA%E7%94%9FUSDT&", asked[0])
 
     def test_t_is_a_whole_minute_at_least_half_a_minute_ahead(self):
         minute = 60_000 * NS
