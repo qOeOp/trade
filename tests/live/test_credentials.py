@@ -12,6 +12,7 @@ from unittest.mock import patch
 from engine.live_errors import LiveRefusal
 from engine.live_venue import read_credentials
 from live import credentials, requests, runs, state
+from tests.live.authority_fixture import recover
 from tests.live.test_runs import IDENTITY
 
 
@@ -105,7 +106,7 @@ class CredentialStoreTests(unittest.TestCase):
         other = self.prepared(ref=self.ref)
         self.launch(other, mode="preflight")
         self.partial_prepare()
-        with patch.object(runs, "_runner", return_value={"State": {"Status": "running", "Running": True}}), \
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Status": "running", "Running": True}}), \
                 self.assertRaises(LiveRefusal) as caught:
             self.resolve_partial_path()
         self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_BUSY")
@@ -115,7 +116,7 @@ class CredentialStoreTests(unittest.TestCase):
         other = self.prepared()
         self.launch(other)
         self.partial_prepare()
-        with patch.object(runs, "_runner", return_value=None), self.assertRaises(LiveRefusal) as caught:
+        with patch.object(runs, "inspect_runner", return_value=None), self.assertRaises(LiveRefusal) as caught:
             self.resolve_partial_path()
         self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_BUSY")
 
@@ -180,7 +181,6 @@ class CredentialStoreTests(unittest.TestCase):
         self.assertNotIn(self.key, exposed)
         self.assertNotIn(self.secret, exposed)
         self.assertEqual(result["request"]["outcome"], "effect_recorded")
-        self.assertTrue(result["result"]["selected"])
 
     def test_request_effect_uses_version_identity_when_wall_clock_moves_backwards(self):
         # Both modules use the standard time module: claim=300, saved=200, selected=100.
@@ -190,7 +190,7 @@ class CredentialStoreTests(unittest.TestCase):
         self.assertEqual(credentials.listing_locked(self.root)[0]["observed_ns"], "200")
 
     def test_a_closed_upload_id_never_saves_and_does_not_block_a_fresh_upload(self):
-        closed = requests.recover(self.root, "upload-first")
+        closed = recover(self.root, "upload-first")
         before = (self.root / "requests" / "upload-first.jsonl").read_bytes()
         result = self.upload()
         self.assertEqual(result["request"], closed)
@@ -198,11 +198,10 @@ class CredentialStoreTests(unittest.TestCase):
         self.assertEqual((self.root / "requests" / "upload-first.jsonl").read_bytes(), before)
         result = self.upload("upload-second")
         self.assertEqual(result["request"]["outcome"], "effect_recorded")
-        self.assertTrue(result["result"]["selected"])
 
     def test_closed_record_is_not_a_credential_or_partial_prepare_recovery_claim(self):
         self.save()
-        requests.recover(self.root, "prepare-original")
+        recover(self.root, "prepare-original")
         before = self.files()
         with state.serialized(self.root) as root:
             claim = requests.read_locked(root, "prepare-original")
@@ -324,13 +323,13 @@ class CredentialStoreTests(unittest.TestCase):
                               lambda root, rid: credentials.remove_locked(root, self.ref, request_id=rid))
         self.assertEqual(requests.view(self.root, "remove-first")["outcome"], "outcome_unknown")
         with patch.object(Path, "unlink", side_effect=AssertionError("resolution repeated delete")):
-            result = requests.recover(self.root, "remove-first")
+            result = recover(self.root, "remove-first")
         self.assertEqual(result["outcome"], "effect_recorded")
         row = credentials.listing_locked(self.root)[0]
         self.assertTrue(row["removed"])
         self.assertFalse(row["selected"])
         before = self.files()
-        self.assertEqual(requests.recover(self.root, "remove-first")["outcome"], "effect_recorded")
+        self.assertEqual(recover(self.root, "remove-first")["outcome"], "effect_recorded")
         self.assertEqual(self.files(), before)
 
     def test_explicit_resolution_closes_partial_upload_without_selecting_or_discarding_it(self):
@@ -346,7 +345,7 @@ class CredentialStoreTests(unittest.TestCase):
             self.upload(ref=self.other)
         path = self.root / "credentials" / (self.other + ".json")
         retained = path.read_bytes()
-        result = requests.recover(self.root, "upload-first")
+        result = recover(self.root, "upload-first")
         self.assertEqual((result["outcome"], result["code"]), ("refused", "LIVE_CREDENTIAL_INCOMPLETE"))
         self.assertEqual(path.read_bytes(), retained)
         self.assertEqual([row["credential_ref"] for row in credentials.listing_locked(self.root) if row["selected"]],
@@ -365,8 +364,8 @@ class CredentialStoreTests(unittest.TestCase):
         # Recovery must recheck it rather than trust that the earlier mutation was safe.
         directory = self.prepared(ref=self.ref)
         self.launch(directory, mode="preflight")
-        with patch.object(runs, "_runner", return_value={"State": {"Status": "running", "Running": True}}):
-            self.assertEqual(requests.recover(self.root, "remove-first")["outcome"], "outcome_unknown")
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Status": "running", "Running": True}}):
+            self.assertEqual(recover(self.root, "remove-first")["outcome"], "outcome_unknown")
         self.assertFalse(credentials.listing_locked(self.root)[0]["removed"])
 
     def test_resolution_does_not_accept_unsafe_partial_file_identity(self):
@@ -375,7 +374,7 @@ class CredentialStoreTests(unittest.TestCase):
             self.upload()
         path = self.root / "credentials" / (self.ref + ".json")
         path.chmod(0o644)
-        self.assertEqual(requests.recover(self.root, "upload-first")["outcome"], "outcome_unknown")
+        self.assertEqual(recover(self.root, "upload-first")["outcome"], "outcome_unknown")
 
     def test_a_restored_file_does_not_make_a_removed_version_usable(self):
         self.save()
@@ -405,8 +404,8 @@ class CredentialStoreTests(unittest.TestCase):
         self.save()
         directory = self.prepared(ref=self.ref)
         self.launch(directory, mode="preflight")
-        self.assertIsNone(runs._active(self.root))
-        with patch.object(runs, "_runner", return_value={"State": {"Status": "running"}}):
+        self.assertIsNone(runs.active_run(self.root))
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Status": "running"}}):
             with self.assertRaises(LiveRefusal) as caught:
                 self.save(self.other)
             self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_BUSY")
@@ -417,11 +416,11 @@ class CredentialStoreTests(unittest.TestCase):
         self.save()
         directory = self.prepared(ref=self.ref)
         self.launch(directory)
-        with patch.object(runs, "_runner", return_value=None), self.assertRaises(LiveRefusal):
+        with patch.object(runs, "inspect_runner", return_value=None), self.assertRaises(LiveRefusal):
             self.save(self.other)
         state.append(self.root / "account.jsonl", "reserved", directory.name)
         state.append(directory / "out" / "events.jsonl", "clean_stop", directory.name)
-        with patch.object(runs, "_runner", return_value={"State": {"Status": "exited"}}), \
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Status": "exited"}}), \
                 self.assertRaises(LiveRefusal):
             self.save(self.other)
 
@@ -434,7 +433,7 @@ class CredentialStoreTests(unittest.TestCase):
         def runner(root, run_id, run_dir, manifest, launch):
             return {"State": {"Status": "running" if launch["container"] == "older" else "exited"}}
 
-        with patch.object(runs, "_runner", side_effect=runner), self.assertRaises(LiveRefusal):
+        with patch.object(runs, "inspect_runner", side_effect=runner), self.assertRaises(LiveRefusal):
             self.save(self.other)
 
     def test_exited_preflight_allows_rotation_only_with_consistent_host_state(self):
@@ -442,10 +441,10 @@ class CredentialStoreTests(unittest.TestCase):
         directory = self.prepared(ref=self.ref)
         self.launch(directory, mode="preflight")
         for running in (True, None):
-            with patch.object(runs, "_runner", return_value={"State": {"Status": "exited", "Running": running}}), \
+            with patch.object(runs, "inspect_runner", return_value={"State": {"Status": "exited", "Running": running}}), \
                     self.assertRaises(LiveRefusal):
                 self.save(self.other)
-        with patch.object(runs, "_runner", return_value={"State": {"Status": "exited", "Running": False}}):
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Status": "exited", "Running": False}}):
             self.save(self.other)
         self.assertEqual([row["credential_ref"] for row in credentials.listing_locked(self.root) if row["selected"]],
                          [self.other])
@@ -456,7 +455,7 @@ class CredentialStoreTests(unittest.TestCase):
         state.append(self.root / "account.jsonl", "released", directory.name, reason="native_and_venue_flat")
         state.append(directory / "lifecycle.jsonl", "recycled", directory.name, state="clean_stopped", exit_code=0)
         state.append(directory / "lifecycle.jsonl", "stop_requested", directory.name)
-        with patch.object(runs, "_runner", side_effect=AssertionError("archived runner inspected")):
+        with patch.object(runs, "inspect_runner", side_effect=AssertionError("archived runner inspected")):
             self.save()
         with state.serialized(self.root), self.assertRaises(LiveRefusal) as caught:
             credentials.run_path_locked(self.root, directory.name, "reconcile")
@@ -465,7 +464,7 @@ class CredentialStoreTests(unittest.TestCase):
     def test_unresolved_legacy_history_blocks_first_managed_save(self):
         directory = self.prepared()
         self.launch(directory)
-        with patch.object(runs, "_runner", return_value=None), self.assertRaises(LiveRefusal):
+        with patch.object(runs, "inspect_runner", return_value=None), self.assertRaises(LiveRefusal):
             self.save()
         self.assertFalse((self.root / "credentials").exists())
 
@@ -490,7 +489,7 @@ class CredentialStoreTests(unittest.TestCase):
         self.save(self.other)
         with state.serialized(self.root), self.assertRaises(LiveRefusal):
             credentials.run_path_locked(self.root, directory.name, "reconcile")
-        self.assertEqual(runs._host_events(directory)[0]["credential_ref"], self.ref)
+        self.assertEqual(runs.host_events(directory)[0]["credential_ref"], self.ref)
 
     def test_an_unrelated_old_version_can_be_removed_during_a_known_new_run(self):
         self.save()
@@ -498,10 +497,10 @@ class CredentialStoreTests(unittest.TestCase):
         directory = self.prepared(ref=self.other)
         self.launch(directory)
         state.append(self.root / "account.jsonl", "reserved", directory.name)
-        with state.serialized(self.root), patch.object(runs, "_runner", side_effect=AssertionError("unrelated run read")):
+        with state.serialized(self.root), patch.object(runs, "inspect_runner", side_effect=AssertionError("unrelated run read")):
             result = credentials.remove_locked(self.root, self.ref)
         self.assertTrue(result["removed"])
-        self.assertEqual(runs._active(self.root), directory.name)
+        self.assertEqual(runs.active_run(self.root), directory.name)
 
     def test_invalid_input_has_a_stable_error_without_secret_echo(self):
         for invalid in (None, "", " " + self.secret, self.secret + "x" * 16384):

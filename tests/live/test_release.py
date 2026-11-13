@@ -16,7 +16,7 @@ from engine.live_errors import LiveRefusal
 from live import host as host_runtime
 from live import control, release, requests, runs, state
 from tests.live.test_runs import IDENTITY, LiveFixture
-from tests.live.authority_fixture import install, inject_cli
+from tests.live.authority_fixture import inject_cli, install, recover
 
 
 OLD = "trade-release-web-" + "a" * 40
@@ -200,20 +200,20 @@ class LiveReleaseTests(LiveFixture):
         self.assertEqual(before, self.files())
         state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id,
                      mode="preflight", container="first", credentials_path=str(self.credentials))
-        with patch.object(runs, "_runner", return_value={"State": {"Running": True, "Status": "running"}}):
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": True, "Status": "running"}}):
             self.assertEqual(release.idle_locked(self.root), "busy")
-        with patch.object(runs, "_runner", return_value=None):
+        with patch.object(runs, "inspect_runner", return_value=None):
             self.assertEqual(release.idle_locked(self.root), "unavailable")
         state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id,
                      mode="preflight", container="second", credentials_path=str(self.credentials))
         def runner(root, run_id, directory, manifest, launch):
             return {"State": {"Running": launch["container"] == "first", "Status": "exited", "ExitCode": 0}}
-        with patch.object(runs, "_runner", side_effect=runner):
+        with patch.object(runs, "inspect_runner", side_effect=runner):
             self.assertEqual(release.idle_locked(self.root), "busy")
 
     def test_adopt_inspection_lists_each_busy_runtime_only_after_every_run_was_read(self):
         self.launch_record()
-        original = runs._manifest
+        original = runs.read_manifest
         built = "b" * 40
 
         def manifest(root, run_id):
@@ -221,9 +221,9 @@ class LiveReleaseTests(LiveFixture):
             return directory, {**value, "runtime": {**value["runtime"], "build_revision": built}}
 
         running = {"State": {"Running": True, "Status": "running"}}
-        with patch.object(runs, "_runner", return_value=running):
+        with patch.object(runs, "inspect_runner", return_value=running):
             self.assertEqual(release.inspect_locked(self.root), ("busy", [None]))  # this manifest names no revision
-            with patch.object(runs, "_manifest", side_effect=manifest):
+            with patch.object(runs, "read_manifest", side_effect=manifest):
                 self.assertEqual(release.inspect_locked(self.root), ("busy", [built]))
                 # After a confirmed switch the run answers with the build its latest launch runs on (design §3.8).
                 switched = {**IDENTITY, "image_ref": IDENTITY["image_ref"][:-64] + "f" * 64, "build_revision": "f" * 40}
@@ -299,7 +299,7 @@ class LiveReleaseTests(LiveFixture):
         self.assertEqual(control.execute(self.authority.snapshot(NEW).config, "credential_save", None, body, binding=stale), first)
 
     def test_resolve_determined_receipts_is_read_only_but_missing_or_unknown_needs_owner(self):
-        requests.recover(self.root, "closed-before-release")
+        recover(self.root, "closed-before-release")
         requests.dispatch(self.root, "unknown-start", {"action": "start", "target": {"run_id": self.run_id},
                                                        "inputs": {}}, lambda *_: None)
         durable_json(self.transaction, {"candidate": NEW, "previous": OLD})
@@ -322,11 +322,11 @@ class LiveReleaseTests(LiveFixture):
         self.assertTrue(previous["maintenance_enabled"])
         self.assertFalse(candidate["write_enabled"])
         self.assertFalse(candidate["maintenance_enabled"])
-        with patch.object(runs, "_status_view", return_value={"state": "prepared"}) as maintain:
+        with patch.object(runs, "maintain_locked", return_value={"state": "prepared"}) as maintain:
             status, _ = control.execute(self.config, "maintain", self.run_id, {"request_id": "previous-maintain"},
                                         binding=self.binding)
             self.assertEqual(status, 200)
-            maintain.assert_called_once_with(self.root, self.run_id, maintain=True)
+            maintain.assert_called_once_with(self.root, self.run_id)
             status, _ = control.execute(self.config, "maintain", self.run_id, {"request_id": "candidate-maintain"},
                                         binding=release.Binding(self.release_state, NEW))
             self.assertEqual(status, 503)

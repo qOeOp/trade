@@ -16,7 +16,7 @@ from unittest.mock import patch
 from engine.config import RUNTIME_CONTRACT
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
-from live import configuration, control, runs, serve, state
+from live import authority, control, runs, serve, state
 from tests.live.authority_fixture import install, inject_cli
 from tests.live.test_runs import EVIDENCE
 
@@ -105,7 +105,7 @@ class LiveWebControlTests(unittest.TestCase):
         self.assertEqual(status, 200, replay)
         self.assertFalse(credential.exists())
         self.assertEqual(before, {str(path): path.read_bytes() for path in self.root.rglob("*") if path.is_file()})
-        _, listing = self.call("GET", "/api/live/credentials")
+        _, listing = self.call("GET", "/api/live")
         item = listing["data"]["credentials"][0]
         self.assertTrue(item["removed"])
         self.assertFalse(item["selected"])
@@ -180,12 +180,12 @@ class LiveWebControlTests(unittest.TestCase):
         with ExitStack() as stack:
             terms = self.fake_research(stack, origin, identity)
             stack.enter_context(patch.object(runs, "_network", return_value={"network": "fake-network"}))
-            runner = stack.enter_context(patch.object(runs, "_runner", return_value={
+            runner = stack.enter_context(patch.object(runs, "inspect_runner", return_value={
                 "Id": "c" * 64, "State": {"Running": True, "Status": "running"}}))
             stack.enter_context(patch.object(host_runtime, "container_identity", return_value={"Id": "c" * 64}))
             stack.enter_context(patch.object(runs, "_recycle_others"))
             docker = stack.enter_context(patch.object(host_runtime, "checked", return_value="c" * 64))
-            limits = stack.enter_context(patch.object(runs.key, "require_limits", return_value=[]))
+            limits = stack.enter_context(patch.object(runs.key, "require_limits"))
             status, prepared = self.execute( "prepare", None, body)
             self.assertEqual(status, 200, prepared)
             self.assertEqual(prepared["data"]["request"]["outcome"], "effect_recorded")
@@ -213,7 +213,7 @@ class LiveWebControlTests(unittest.TestCase):
             self.assertEqual(docker.call_count, 2)
             self.assertEqual(limits.call_count, 2)
             self.assertEqual((directory / "inputs" / "manifest.json").read_bytes(), manifest)
-            launches = [row for row in runs._host_events(directory) if row["event"] == "launch_requested"]
+            launches = [row for row in runs.host_events(directory) if row["event"] == "launch_requested"]
             self.assertEqual([row["mode"] for row in launches], ["preflight", "run"])
             self.assertTrue(all(row["credentials_path"] == str((self.root / "credentials" / f"{ref}.json").resolve())
                                 for row in launches))
@@ -297,7 +297,7 @@ class LiveWebControlTests(unittest.TestCase):
             state.private_directory(self.root / "runs" / "retained")
         binding = self.binding
         with patch.object(serve.release, "admission_locked", side_effect=LiveRefusal("LIVE_RELEASE_UNAVAILABLE", "standby")) as admit, \
-                patch.object(serve.runs, "_status_view", side_effect=AssertionError("standby reached host maintenance")):
+                patch.object(serve.runs, "observe_locked", side_effect=AssertionError("standby reached host maintenance")):
             serve.maintain_existing(self.config, binding=binding)
         admit.assert_called_once_with(binding, maintenance=True)
 
@@ -306,39 +306,41 @@ class LiveWebControlTests(unittest.TestCase):
             invalid = {**self.raw, name: value}
             self.config_file.write_bytes(state.encode(invalid))
             with self.assertRaises(ValueError):
-                configuration.load(self.config_file)
+                authority.from_file(self.config_file, self.binding)
         duplicate = copy.deepcopy(self.raw)
         duplicate["sources"].append(duplicate["sources"][0])
         self.config_file.write_bytes(state.encode(duplicate))
         with self.assertRaises(ValueError):
-            configuration.load(self.config_file)
+            authority.from_file(self.config_file, self.binding)
 
     def test_each_source_names_its_own_distinct_contracts_and_the_declaration_none(self):
         two = copy.deepcopy(self.raw)
         two["sources"][0]["symbols"] = ["BTCUSDT", "ETHUSDT"]
         self.config_file.write_bytes(state.encode(two))
-        self.assertEqual(configuration.load(self.config_file).sources["example"].symbols, ("BTCUSDT", "ETHUSDT"))
+        self.assertEqual(authority.from_file(self.config_file, self.binding).config.sources["example"].symbols, ("BTCUSDT", "ETHUSDT"))
         for symbols in ([], ["BTCUSDT", "BTCUSDT"], ["btcusdt"], "BTCUSDT"):
             wrong = copy.deepcopy(self.raw)
             wrong["sources"][0]["symbols"] = symbols
             self.config_file.write_bytes(state.encode(wrong))
             with self.subTest(symbols=symbols), self.assertRaises(ValueError):
-                configuration.load(self.config_file)
+                authority.from_file(self.config_file, self.binding)
         self.config_file.write_bytes(state.encode({**self.raw, "symbols": ["BTCUSDT"]}))
         with self.assertRaises(ValueError):
-            configuration.load(self.config_file)
+            authority.from_file(self.config_file, self.binding)
 
     def test_maintenance_inspects_existing_runs_without_relaunch_or_credentials(self):
         with state.serialized(self.root):
             state.private_directory(self.root / "runs" / "retained")
-        with patch.object(serve.runs, "_status_view", return_value={"state": "running"}) as status, \
+        with patch.object(serve.runs, "observe_locked", return_value={"state": "running"}) as status, \
                 patch.object(serve.runs, "launch_locked", side_effect=AssertionError("maintenance relaunched")), \
                 patch.object(serve.runs, "_credentials", side_effect=AssertionError("maintenance read credentials")):
             serve.maintain_existing(self.config, binding=self.binding)
-        status.assert_called_once_with(self.root.resolve(), "retained", maintain=False)
-        with patch.object(serve.runs, "_status_view", return_value={"state": "clean_stopped"}) as status:
+        status.assert_called_once_with(self.root.resolve(), "retained")
+        with patch.object(serve.runs, "observe_locked", return_value={"state": "clean_stopped"}) as status, \
+                patch.object(serve.runs, "maintain_locked") as maintain:
             serve.maintain_existing(self.config, binding=self.binding)
-        self.assertEqual([call.kwargs for call in status.call_args_list], [{"maintain": False}, {"maintain": True}])
+        status.assert_called_once_with(self.root.resolve(), "retained")
+        maintain.assert_called_once_with(self.root.resolve(), "retained")
 
     def test_maintenance_writes_the_next_months_membership_for_a_run_that_may_still_enter(self):
         with state.serialized(self.root):
@@ -347,7 +349,7 @@ class LiveWebControlTests(unittest.TestCase):
                  ({"state": "running", "mode": "reconcile"}, 0), ({"state": "clean_stopped", "mode": "run"}, 0))
         for observed, calls in cases:
             with self.subTest(observed=observed), \
-                    patch.object(serve.runs, "_status_view", return_value=observed), \
+                    patch.object(serve.runs, "observe_locked", return_value=observed), \
                     patch.object(serve.control, "restart_interrupted_locked") as restart, \
                     patch.object(serve.control, "check_key_locked"), patch.object(serve.runs, "sync_switch_locked"), \
                     patch.object(serve.runs, "write_months_locked", side_effect=OSError("market unreadable")) as months:
@@ -370,7 +372,7 @@ class LiveWebControlTests(unittest.TestCase):
              "window_end": datetime(2026, 2, 1), "status": "unbound"}]}
         claim = {"command": {"inputs": {"research_at": "a" * 32}}}
         with patch.object(control, "_prepare_claim", return_value=claim), \
-                patch.object(control.runs, "_manifest", return_value=(self.root, {})), \
+                patch.object(control.runs, "read_manifest", return_value=(self.root, {})), \
                 patch.object(control, "_profile", return_value=object()), \
                 patch.object(control.runs, "review", return_value=original):
             review = control._review(self.config, self.root, "example")

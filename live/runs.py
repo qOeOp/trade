@@ -40,12 +40,13 @@ REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order:
 # The runner's events that end a run (engine.live.ENDED_EVENTS). An armed run whose latest start ended in none of them,
 # with no stop asked for, was interrupted: it keeps its slot, positions and exchange stops, and starts again as itself.
 RUN_ENDED = frozenset({"clean_stop", "reconciled_flat", "venue_flat", "reconcile_stopped", "unresolved"})
+KEY_EVENTS = frozenset({"key_check_failed", "key_check_passed"})  # live.control.check_key_locked's lifecycle rows
 RESTARTS_PER_HOUR = 3  # automatic starts of an interrupted run; beyond them the user is told and decides (design §3.4)
 HOUR_NS = 3600 * 10**9
 
 
-def _runner(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict) -> dict | None:
-    started = next((row for row in reversed(_host_events(directory))
+def inspect_runner(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict) -> dict | None:
+    started = next((row for row in reversed(host_events(directory))
                     if row["event"] == "container_started" and row.get("container") == launch["container"]), None)
     return host_runtime.container_identity(root, run_id, directory, manifest, launch["container"], "runner", mode=launch["mode"],
                       credentials_path=launch.get("credentials_path"),
@@ -53,7 +54,7 @@ def _runner(root: Path, run_id: str, directory: Path, manifest: dict, launch: di
                       runtime=launch_runtime(directory, manifest, launch))
 
 
-def _manifest(root: Path, run_id: str) -> tuple[Path, dict]:
+def read_manifest(root: Path, run_id: str) -> tuple[Path, dict]:
     directory = state.directory(root, run_id)
     manifest = state.read(directory / "inputs" / "manifest.json")
     if manifest.get("run_id") != run_id:
@@ -69,17 +70,17 @@ def _manifest(root: Path, run_id: str) -> tuple[Path, dict]:
     return directory, manifest
 
 
-def _host_events(directory: Path) -> list[dict]:
+def host_events(directory: Path) -> list[dict]:
     return state.events(directory / "lifecycle.jsonl")
 
 
-def _latest_launch(directory: Path) -> dict | None:
-    return next((row for row in reversed(_host_events(directory)) if row["event"] == "launch_requested"), None)
+def latest_launch(directory: Path) -> dict | None:
+    return next((row for row in reversed(host_events(directory)) if row["event"] == "launch_requested"), None)
 
 
 def _flat(directory: Path, run_id: str) -> str | None:
     """The state a flat event of the latest launch ends the run in."""
-    launch = _latest_launch(directory)
+    launch = latest_launch(directory)
     if launch is None:
         return None
     return next((FLAT[row["event"]] for row in state.events(directory / "out" / "events.jsonl")
@@ -92,9 +93,7 @@ def _interrupted(directory: Path, launch: dict | None) -> bool:
     if launch is None or launch["mode"] != "run" or not os.path.lexists(directory / "out" / "armed.json") \
             or os.path.lexists(directory / "out" / "STOP"):
         return False
-    rows = [row for row in state.events(directory / "out" / "events.jsonl")
-            if row.get("observed_ns", 0) >= launch["observed_ns"]]
-    return not any(row.get("event") in RUN_ENDED for row in rows)
+    return not any(row.get("event") in RUN_ENDED for row in _since(directory, launch))
 
 
 # A confirmed new runtime image (design §3.8, the user 2026-11-13: the same run takes it at its next flat moment). The
@@ -107,7 +106,7 @@ SWITCH_STARTS = frozenset({"rewarming", "held_flat"})  # a start that ended flat
 
 def pending_switch(directory: Path) -> dict | None:
     """The confirmed switch the run has not taken yet, canceled or failed."""
-    rows = [row for row in _host_events(directory) if row["event"] in SWITCH_EVENTS]
+    rows = [row for row in host_events(directory) if row["event"] in SWITCH_EVENTS]
     return rows[-1] if rows and rows[-1]["event"] == "runtime_switch_requested" else None
 
 
@@ -116,7 +115,7 @@ def launch_runtime(directory: Path, manifest: dict, launch: dict | None) -> dict
     ref = launch.get("image_ref") if launch else None
     if ref is None or ref == manifest["runtime"]["image_ref"]:
         return manifest["runtime"]
-    found = next((row["runtime"] for row in reversed(_host_events(directory))
+    found = next((row["runtime"] for row in reversed(host_events(directory))
                   if row["event"] == "runtime_switch_requested" and row["runtime"]["image_ref"] == ref), None)
     if found is None:
         raise state.fail("LIVE_IDENTITY_CHANGED", "a launch names a runtime image no switch confirmed")
@@ -128,7 +127,7 @@ def _since(directory: Path, launch: dict) -> list[dict]:
             if row.get("observed_ns", 0) >= launch["observed_ns"]]
 
 
-def _launch_runtime_locked(directory: Path, run_id: str, manifest: dict, latest: dict | None,
+def _launch_runtime_locked(directory: Path, manifest: dict, latest: dict | None,
                            mode: str) -> tuple[dict, str | None, list[tuple[str, dict]]]:
     """The image this launch runs on, the switch request it takes, if any, and the lifecycle rows that say so, which
     the caller appends only after `launch_requested` (a launch cut short before it changes no image).
@@ -144,7 +143,7 @@ def _launch_runtime_locked(directory: Path, run_id: str, manifest: dict, latest:
         return current, None, []
     rows = _since(directory, latest)
     if latest.get("switch_request_id") and not any(row.get("event") == "warmup" for row in rows):
-        before = [row for row in _host_events(directory) if row["event"] == "launch_requested"
+        before = [row for row in host_events(directory) if row["event"] == "launch_requested"
                   and row["observed_ns"] < latest["observed_ns"]]
         return launch_runtime(directory, manifest, before[-1] if before else None), None, [(
             "runtime_switch_failed", {"request_id": latest["switch_request_id"], "code": "LIVE_RUNTIME_START",
@@ -169,7 +168,7 @@ def write_months_locked(root: Path, run_id: str, market_root: Path, now_ns: int)
     written file is never rewritten. Returns the months written."""
     from engine.membership import MONTHS
     from market.universe import month_files
-    directory, manifest = _manifest(root, run_id)
+    directory, manifest = read_manifest(root, run_id)
     folder = directory / "inputs" / MONTHS
     written = sorted(path.stem for path in folder.glob("*.json")) if folder.is_dir() else []
     last = max([str(manifest["market"]["market_day"])[:7], *written])
@@ -207,7 +206,7 @@ def sync_switch_locked(root: Path, run_id: str, now_ns: int) -> None:
         state.fsync_parent(target)
 
 
-def _cancel_switch(root: Path, run_id: str, directory: Path, reason: str, request_id: str | None = None) -> None:
+def _cancel_switch(run_id: str, directory: Path, reason: str, request_id: str | None = None) -> None:
     pending = pending_switch(directory)
     if pending is not None:
         state.append(directory / "lifecycle.jsonl", "runtime_switch_canceled", run_id,
@@ -223,8 +222,8 @@ def request_switch_locked(root: Path, run_id: str, runtime: str, research: db.Le
     """Confirm the release's runtime image for a running run (design §3.8). The same checks as a start on that image:
     a main CI build of the manifest's runtime contract, on whose replay code the replay that backed this run's first
     arming still passes (the same trial, so no other balance). The runner takes it at its next flat moment."""
-    directory, manifest = _manifest(root, run_id)
-    launch = _latest_launch(directory)
+    directory, manifest = read_manifest(root, run_id)
+    launch = latest_launch(directory)
     result, _ = _outcome(root, run_id, directory, manifest, launch, release=False)
     if launch is None or launch["mode"] != "run" or result != "running" \
             or os.path.lexists(directory / "out" / "STOP"):
@@ -259,10 +258,10 @@ def request_switch_locked(root: Path, run_id: str, runtime: str, research: db.Le
 
 
 def cancel_switch_locked(root: Path, run_id: str, request_id: str | None = None) -> dict:
-    directory, _ = _manifest(root, run_id)
+    directory, _ = read_manifest(root, run_id)
     if pending_switch(directory) is None:
         raise state.fail("LIVE_SWITCH", "this run waits for no new runtime image")
-    _cancel_switch(root, run_id, directory, "user", request_id)
+    _cancel_switch(run_id, directory, "user", request_id)
     return {"run_id": run_id, "state": "switch_canceled", "write_status": "written"}
 
 
@@ -274,10 +273,10 @@ def restarts_due(directory: Path, now_ns: int) -> bool:
 
 def _run_launches(directory: Path, now_ns: int) -> int:
     return sum(row["event"] == "launch_requested" and row.get("mode") == "run"
-               and now_ns - row.get("observed_ns", 0) < HOUR_NS for row in _host_events(directory))
+               and now_ns - row.get("observed_ns", 0) < HOUR_NS for row in host_events(directory))
 
 
-def _active(root: Path) -> str | None:
+def active_run(root: Path) -> str | None:
     rows = state.events(root / "account.jsonl")
     active = None
     for row in rows:
@@ -291,11 +290,11 @@ def _active(root: Path) -> str | None:
 def _never_armed(root: Path, run_id: str, directory: Path, manifest: dict) -> bool:
     """A runner constructs its source only after arming, so an exited unarmed runner placed no order."""
     # Containers first: a runner still alive could arm between the file check and its inspection.
-    for launch in _host_events(directory):
+    for launch in host_events(directory):
         if launch["event"] == "launch_requested" and launch["mode"] != "preflight":
             # Every launch: a timed-out `docker run` can stay alive behind a later one, and a missing
             # container proves nothing.
-            actual = _runner(root, run_id, directory, manifest, launch)
+            actual = inspect_runner(root, run_id, directory, manifest, launch)
             if actual is None or actual["State"].get("Status") != "exited":
                 return False
     output = directory / "out"
@@ -304,10 +303,10 @@ def _never_armed(root: Path, run_id: str, directory: Path, manifest: dict) -> bo
 
 
 def _release_if_resolved(root: Path, run_id: str, directory: Path) -> None:
-    launch = _latest_launch(directory)
-    _, manifest = _manifest(root, run_id)
-    actual = _runner(root, run_id, directory, manifest, launch) if launch else None
-    if _active(root) != run_id:
+    launch = latest_launch(directory)
+    _, manifest = read_manifest(root, run_id)
+    actual = inspect_runner(root, run_id, directory, manifest, launch) if launch else None
+    if active_run(root) != run_id:
         return
     flat = _flat(directory, run_id)
     if actual and not actual["State"].get("Running") and actual["State"].get("ExitCode") == 0 and flat:
@@ -322,15 +321,15 @@ def _released_unarmed(root: Path, run_id: str) -> bool:
                for row in state.events(root / "account.jsonl"))
 
 
-def _since_removal(directory: Path) -> list[dict]:
-    events = _host_events(directory)
+def since_removal(directory: Path) -> list[dict]:
+    events = host_events(directory)
     last = max((index for index, row in enumerate(events) if row["event"] == "recycled"), default=-1)
     return events[last + 1:]
 
 
-def _recycled(directory: Path) -> dict | None:
+def recycled(directory: Path) -> dict | None:
     """The record of a removal that still describes the run; a later launch starts over."""
-    for row in reversed(_host_events(directory)):
+    for row in reversed(host_events(directory)):
         if row["event"] == "launch_requested":
             return None
         if row["event"] == "recycled":
@@ -338,9 +337,9 @@ def _recycled(directory: Path) -> dict | None:
     return None
 
 
-def _settled(root: Path, run_id: str, launch: dict | None) -> str | None:
+def settled_state(root: Path, run_id: str, launch: dict | None) -> str | None:
     """A release after the latest launch already decided the run, so no container has to be read."""
-    if launch is None or _active(root) == run_id:
+    if launch is None or active_run(root) == run_id:
         return None
     reason = next((row.get("reason") for row in reversed(state.events(root / "account.jsonl"))
                    if row["event"] == "released" and row["run_id"] == run_id
@@ -359,7 +358,7 @@ def _log_file(directory: Path, container: str) -> Path:
 def _recycle(root: Path, run_id: str, directory: Path, result: str, launch: dict) -> None:
     """Give up an ended run's resources, keeping what `live logs` reads. Never changes the run's result."""
     try:
-        recorded = _recycled(directory)
+        recorded = recycled(directory)
         containers = host_runtime.owned_containers(root, run_id)
         if recorded is None:
             if any(item["Config"]["Labels"].get(f"{host_runtime.LABEL}.role") != "egress"
@@ -383,7 +382,7 @@ def _recycle(root: Path, run_id: str, directory: Path, result: str, launch: dict
                 state.fsync_parent(path)
             # Recorded first: a removal cut short is finished later and never leaves a run that looks unended.
             state.append(directory / "lifecycle.jsonl", "recycled", run_id, state=result, exit_code=exit_code)
-        elif _since_removal(directory):
+        elif since_removal(directory):
             # Resources made by a start that never launched: without a new record they would look still present.
             state.append(directory / "lifecycle.jsonl", "recycled", run_id, state=recorded["state"],
                          exit_code=recorded["exit_code"])
@@ -402,12 +401,12 @@ def _recycle_others(root: Path, current: str) -> None:
         return
     for run_id in sorted(set(found.split()) - {current}):
         try:
-            directory, manifest = _manifest(root, run_id)
-            launch = _latest_launch(directory)
-            if launch is None or _active(root) == run_id:
+            directory, manifest = read_manifest(root, run_id)
+            launch = latest_launch(directory)
+            if launch is None or active_run(root) == run_id:
                 continue
-            recorded = _recycled(directory)
-            result = (recorded["state"] if recorded else _settled(root, run_id, launch)
+            recorded = recycled(directory)
+            result = (recorded["state"] if recorded else settled_state(root, run_id, launch)
                       or _outcome(root, run_id, directory, manifest, launch)[0])
             if result in ENDED:
                 _recycle(root, run_id, directory, result, launch)
@@ -416,10 +415,7 @@ def _recycle_others(root: Path, current: str) -> None:
 
 
 def _credentials(path: Path, binding: str | None = None) -> str:
-    try:
-        found = read_credentials(path)
-    except EngineRefusal as exc:
-        raise state.fail(exc.code, str(exc)) from None
+    found = read_credentials(path)
     if binding is not None and found.binding != binding:
         raise state.fail("LIVE_ACCOUNT_CHANGED", "this run cannot use a different API key")
     return found.binding
@@ -438,7 +434,7 @@ def _positive(value: str, name: str) -> str:
 def _bound_credential(root: Path, run_id: str, directory: Path, path: Path, mode: str,
                       request_id: str | None) -> dict | None:
     """A prepared run launches only with its own managed credential version (credentials.run_path_locked)."""
-    prepared = next((row for row in _host_events(directory) if row.get("event") == "prepared"), None)
+    prepared = next((row for row in host_events(directory) if row.get("event") == "prepared"), None)
     if prepared is None:
         return None
     from live import credentials as credential_store
@@ -528,16 +524,16 @@ def _describe(symbols: list[str]) -> list[str]:
 
 
 def replay_evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, symbols: list[str],
-                    runtime: str | None) -> list[dict]:
+                    runtime: str) -> list[dict]:
     """The replays prepare_locked would record for this source (_evidence), read ahead so the page can show them
     before a run is prepared. Read only; preparation still checks again and refuses as before."""
     describe = _describe(symbols)
-    inspection = image.inspect_runtime(image.resolve(runtime or image.EXECUTION), describe)
+    inspection = image.inspect_runtime(image.resolve(runtime), describe)
     return _evidence(research, research_at, source_sha256, symbols, inspection, describe)
 
 
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
-                    symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
+                    symbols: list[str], universe: Path, credentials: Path, runtime: str, *,
                     drawdown_brake: str, duration_seconds: int | None, memory: str, leverage: str,
                     market_root: Path, source_sha256: str | None = None, request_id: str | None = None,
                     credential_ref: str | None = None, recover_partial: bool = False) -> dict:
@@ -550,7 +546,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     if not db.COMMIT_HASH.fullmatch(research_at):
         raise state.fail("LIVE_RESEARCH_COMMIT", "Live requires the exact full research commit")
     if (not symbols or len(set(symbols)) != len(symbols)
-            or any(not re.fullmatch(r"[A-Z0-9]+USDT", symbol) for symbol in symbols)):
+            or any(not configuration.SYMBOL.fullmatch(symbol) for symbol in symbols)):
         raise state.fail("LIVE_SYMBOLS", "Live requires distinct explicit USD-M symbols")
     if duration_seconds is not None and (isinstance(duration_seconds, bool) or not isinstance(duration_seconds, int)
                                          or duration_seconds < 1):
@@ -564,14 +560,14 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
               "duration_seconds": duration_seconds, "memory": memory, "leverage": leverage,
               "proxy_url": f"http://{host_runtime.resource_names(root, run_id)['egress']}:3128"}
     if directory.exists() and not recover_partial:
-        _, prior = _manifest(root, run_id)
+        _, prior = read_manifest(root, run_id)
         source_ref = f"{prior['candidate']['strategy_id']}@{prior['candidate']['revision']}"
         if (source_ref != candidate or prior["symbols"] != symbols or prior["config"] != config
                 or prior["credential_binding"] != binding
                 or universe.is_symlink()
                 or hashlib.sha256(universe.read_bytes()).hexdigest() != prior["universe_sha256"]
-                # A repeat names the pinned digest or no runtime; a tag can move, so it is refused.
-                or runtime is not None and runtime != prior["runtime"]["image_ref"]
+                # A repeat names the pinned digest; a tag can move, so it is refused.
+                or runtime != prior["runtime"]["image_ref"]
                 # Last, so the candidate is read only when everything else matches.
                 or prior["source"]["source_sha256"]
                 != _candidate(research, research_at, candidate, source_sha256)["source_sha256"]):
@@ -580,19 +576,19 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
             original_id = bound_prepared.get("request_id")
             if not original_id:
                 raise state.fail("LIVE_RUN_CONFLICT", "the prepared run's original research snapshot is unavailable")
-            _require_frozen_prepare(root, original_id, prior, research_at, candidate,
+            require_frozen_prepare(root, original_id, prior, research_at, candidate,
                                     bound_prepared["credential_ref"])
         if request_id is not None:
-            prepared = next((row for row in _host_events(directory) if row.get("event") == "prepared"), None)
+            prepared = next((row for row in host_events(directory) if row.get("event") == "prepared"), None)
             original = requests.read_locked(root, prepared["request_id"]) if prepared and prepared.get("request_id") else None
             current = requests.read_locked(root, request_id)
             if (not prepared or prepared.get("credential_ref") != credential_ref or not original or not current
                     or requests.is_closed(original) or requests.is_closed(current)):
                 raise state.fail("LIVE_RUN_CONFLICT", "a prepared run retains its original request and research snapshot")
             if current["command"]["action"] == "preflight" and current["command"]["target"].get("run_id") == run_id:
-                _require_frozen_prepare(root, original["request_id"], prior, research_at, candidate, credential_ref)
+                require_frozen_prepare(root, original["request_id"], prior, research_at, candidate, credential_ref)
             else:
-                _require_frozen_prepare(root, request_id, prior, research_at, candidate, credential_ref)
+                require_frozen_prepare(root, request_id, prior, research_at, candidate, credential_ref)
                 if not requests.same_command(original["command"], current["command"]):
                     raise state.fail("LIVE_RUN_CONFLICT", "a prepared run retains its original request and research snapshot")
         return prior
@@ -605,7 +601,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
         read_universe(universe, symbols)
     except EngineRefusal as exc:
         raise state.fail("LIVE_UNIVERSE", str(exc)) from None
-    identity = image.resolve(runtime or image.EXECUTION)
+    identity = image.resolve(runtime)
     describe = _describe(symbols)
     inspection = image.inspect_runtime(identity, describe)
     image.require_main_build(identity, inspection)
@@ -629,13 +625,13 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
                 "universe_sha256": hashlib.sha256(universe_bytes).hexdigest(), "market": market,
                 "evidence": evidence}
     if request_id is not None:
-        _require_frozen_prepare(root, request_id, manifest, research_at, candidate, credential_ref)
+        require_frozen_prepare(root, request_id, manifest, research_at, candidate, credential_ref)
     elif recover_partial:
         raise state.fail("LIVE_RUN_CONFLICT", "partial preparation needs its original fixed request")
     files = ((directory / "inputs" / "strategy.py", source_bytes),
              (directory / "inputs" / "universe.json", universe_bytes),
              (directory / "inputs" / "manifest.json", state.encode(manifest)))
-    prior_events = _host_events(directory) if recover_partial else []
+    prior_events = host_events(directory) if recover_partial else []
     if recover_partial:
         # A local-only recovery may fill missing inputs, never overwrite a partial or different write.
         if any(row.get("event") != "prepared" or row.get("request_id") != request_id
@@ -670,7 +666,7 @@ def _market_terms(market_root: Path, symbols: list[str]) -> dict:
         raise state.fail("LIVE_MARKET_TERMS", str(exc)) from None
 
 
-def _require_frozen_prepare(root: Path, request_id: str, manifest: dict, research_at: str, candidate: str,
+def require_frozen_prepare(root: Path, request_id: str, manifest: dict, research_at: str, candidate: str,
                             credential_ref: str | None) -> None:
     claim = requests.read_locked(root, request_id)
     command = claim["command"] if claim and not requests.is_closed(claim) else {}
@@ -678,8 +674,7 @@ def _require_frozen_prepare(root: Path, request_id: str, manifest: dict, researc
     wanted = {"research_at": research_at, "candidate": candidate, "symbols": manifest["symbols"],
               "source_sha256": manifest["source"]["source_sha256"], "entry_class": manifest["source"]["entry_class"],
               "universe_sha256": manifest["universe_sha256"], "runtime": manifest["runtime"]["image_ref"],
-              "config": {name: manifest["config"][name] for name in (
-                  "drawdown_brake", "duration_seconds", "leverage", "memory")}}
+              "config": {name: manifest["config"][name] for name in configuration.CONFIG_KEYS | {"memory"}}}
     if (command.get("action") != "prepare" or claim is None or claim["disposition"] is not None
             or command.get("target") != {"run_id": manifest["run_id"], "credential_ref": credential_ref}
             or any(inputs.get(name) != value for name, value in wanted.items())):
@@ -703,7 +698,7 @@ def review(research: db.LedgerProfile, research_at: str, manifest: dict) -> dict
 
 
 def require_confirmed_locked(root: Path, run_id: str, source_sha256: str) -> None:
-    _, manifest = _manifest(root, run_id)
+    _, manifest = read_manifest(root, run_id)
     if source_sha256 != manifest["source"]["source_sha256"]:
         raise state.fail("LIVE_IDENTITY_CHANGED", "the confirmation must be the source_sha256 this run's "
                                                   "preflight or status shows; nothing was started")
@@ -711,7 +706,7 @@ def require_confirmed_locked(root: Path, run_id: str, source_sha256: str) -> Non
 
 def _network(root: Path, run_id: str, directory: Path, manifest: dict) -> dict:
     names = host_runtime.resource_names(root, run_id)
-    events = _since_removal(directory)
+    events = since_removal(directory)
     network_created = next((row for row in reversed(events) if row["event"] == "network_created"), None)
     network_id = network_created.get("network_id") if network_created else None
     network = host_runtime.network_identity(names["network"], run_id, network_id)
@@ -746,43 +741,44 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, requ
     if mode not in ("preflight", "run", "reconcile"):
         raise state.fail("LIVE_MODE", "unknown Live operation")
     requests.require_clear(root, request_id)
-    directory, manifest = _manifest(root, run_id)
+    directory, manifest = read_manifest(root, run_id)
     _bound_credential(root, run_id, directory, credentials, mode, request_id)
     _credentials(credentials, manifest["credential_binding"])
-    recorded = _recycled(directory)
+    recorded = recycled(directory)
     if recorded and recorded["state"] not in REPEATABLE and mode != "run":
         # Before the slot: its original network and egress are gone, so nothing could run.
         raise state.fail("LIVE_RUN_MISSING", "this run has ended and given up its containers; prepare a new run-id")
-    if recorded and recorded["state"] in REPEATABLE and not _since_removal(directory):
+    if recorded and recorded["state"] in REPEATABLE and not since_removal(directory):
         # A removal cut short must not leave old resources for this launch to adopt unrecorded.
         host_runtime.remove_resources(root, run_id, host_runtime.owned_containers(root, run_id))
-    active = _active(root)
+    active = active_run(root)
     if active and active != run_id:
-        other, _ = _manifest(root, active)
+        other, _ = read_manifest(root, active)
         _release_if_resolved(root, active, other)
-        if _active(root):
+        if active_run(root):
             raise state.fail("LIVE_ACCOUNT_OWNED", f"run {active} still owns this account slot")
-    latest = _latest_launch(directory)
+    latest = latest_launch(directory)
     if latest:
-        actual = _runner(root, run_id, directory, manifest, latest)
+        actual = inspect_runner(root, run_id, directory, manifest, latest)
         if actual and actual["State"].get("Running"):
             if latest["mode"] == mode:
-                return {"run_id": run_id, "mode": mode, "state": "running", "write_status": "replayed", "warnings": []}
+                return {"run_id": run_id, "mode": mode, "state": "running", "write_status": "replayed"}
             raise state.fail("LIVE_RUNNING", "the previous Live process must end before another mode starts")
-        if mode == "run" and any(row.get("mode") == "run" for row in _host_events(directory)) \
+        if mode == "run" and any(row.get("mode") == "run" for row in host_events(directory)) \
                 and not _interrupted(directory, latest):
             raise state.fail("LIVE_RESTART_REQUIRES_RECONCILIATION",
                              "only an interrupted Live run starts again; after not_armed, prepare a new run-id")
     if mode == "reconcile" and not os.path.lexists(directory / "out" / "armed.json"):
         # Checked here too: a released run must not take the slot back only to be refused by its runner.
         raise state.fail("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
-    warnings = [] if mode == "reconcile" else key.require_limits(credentials)
+    if mode != "reconcile":
+        key.require_limits(credentials)
     _recycle_others(root, run_id)
-    if mode != "preflight" and _active(root) is None:
+    if mode != "preflight" and active_run(root) is None:
         state.append(root / "account.jsonl", "reserved", run_id)
     names = _network(root, run_id, directory, manifest)
-    runtime, switch_request, switch_rows = _launch_runtime_locked(directory, run_id, manifest, latest, mode)
-    attempt = sum(row["event"] == "launch_requested" for row in _host_events(directory)) + 1
+    runtime, switch_request, switch_rows = _launch_runtime_locked(directory, manifest, latest, mode)
+    attempt = sum(row["event"] == "launch_requested" for row in host_events(directory)) + 1
     runner = names["network"] + f"-{mode}-{attempt}"
     command = host_runtime.runner_command(manifest, directory, run_id, credentials, mode, runner, names, runtime)
     credentials_path = str(credentials.resolve())
@@ -808,12 +804,12 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, requ
     state.append(directory / "lifecycle.jsonl", "container_started", run_id, mode=mode, container=runner,
                  container_id=identifier)
     return {"run_id": run_id, "mode": mode, "state": "starting", "write_status": "written",
-            "directory": str(directory), "container": runner, "warnings": warnings}
+            "directory": str(directory), "container": runner}
 
 
 def _outcome(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict | None, *,
              release: bool = True) -> tuple[str, int | None]:
-    actual = _runner(root, run_id, directory, manifest, launch) if launch else None
+    actual = inspect_runner(root, run_id, directory, manifest, launch) if launch else None
     if release:
         _release_if_resolved(root, run_id, directory)
     flat = _flat(directory, run_id) if launch and actual and actual["State"].get("ExitCode") == 0 else None
@@ -827,7 +823,7 @@ def _outcome(root: Path, run_id: str, directory: Path, manifest: dict, launch: d
     return result, actual["State"].get("ExitCode") if actual else None
 
 
-def _stop_reason(directory: Path) -> str | None:
+def stop_reason(directory: Path) -> str | None:
     """The first stop is the run's cause; a later reconcile writes its own, and a start that ended to warm up again
     (engine.live_connection.rewarm) is none. A damaged journal must not hide the state."""
     try:
@@ -838,32 +834,31 @@ def _stop_reason(directory: Path) -> str | None:
                  and row.get("reason") != "rewarming"), None)
 
 
-def status(root: Path, run_id: str) -> dict:
-    with state.serialized(root) as root:
-        return maintain_locked(root, run_id)
-
-
 def maintain_locked(root: Path, run_id: str) -> dict:
     """Maintain an existing run while the caller owns its original account lock."""
     return _status_view(root, run_id, maintain=True)
 
 
-def observe(root: Path, run_id: str) -> dict:
-    """Inspect existing host evidence without release, archive, cleanup, or venue access.
+def observe_locked(root: Path, run_id: str) -> dict:
+    """Inspect existing host evidence without release, archive, cleanup, or venue access, under the caller's lock.
 
     This is the host view, not an HTTP-safe response: the web projection must select
     safe fields and must not pass through arbitrary source stop reasons.
     """
+    return _status_view(root, run_id, maintain=False)
+
+
+def observe(root: Path, run_id: str) -> dict:
     with state.reading(root) as root:
-        return _status_view(root, run_id, maintain=False)
+        return observe_locked(root, run_id)
 
 
 def _status_view(root: Path, run_id: str, *, maintain: bool) -> dict:
-    directory, manifest = _manifest(root, run_id)
-    launch = _latest_launch(directory)
+    directory, manifest = read_manifest(root, run_id)
+    launch = latest_launch(directory)
     # A slot taken after the record belongs to a start that never launched, and needs its release check.
-    recorded = _recycled(directory) if _active(root) != run_id else None
-    settled = _settled(root, run_id, launch)
+    recorded = recycled(directory) if active_run(root) != run_id else None
+    settled = settled_state(root, run_id, launch)
     if recorded:
         result, exit_code = recorded["state"], recorded["exit_code"]
     elif settled:
@@ -873,15 +868,15 @@ def _status_view(root: Path, run_id: str, *, maintain: bool) -> dict:
     else:
         result, exit_code = _outcome(root, run_id, directory, manifest, launch, release=False)
     if maintain and result not in {"running", "interrupted"}:
-        _cancel_switch(root, run_id, directory, "ended")  # a run that will not start again takes no new image
-    if maintain and launch and result in ENDED and _active(root) != run_id:
+        _cancel_switch(run_id, directory, "ended")  # a run that will not start again takes no new image
+    if maintain and launch and result in ENDED and active_run(root) != run_id:
         _recycle(root, run_id, directory, result, launch)
     return {"run_id": run_id, "state": result, "mode": launch["mode"] if launch else None,
-            "account_owned": _active(root) == run_id, "container": launch["container"] if launch else None,
+            "account_owned": active_run(root) == run_id, "container": launch["container"] if launch else None,
             "candidate": manifest["candidate"], "source": manifest["source"],
             "image_ref": launch_runtime(directory, manifest, launch)["image_ref"], "symbols": manifest["symbols"],
             "exit_code": exit_code,
-            "stop_reason": _stop_reason(directory),
+            "stop_reason": stop_reason(directory),
             **({"note": UNRESOLVED_NOTE} if result == "unresolved" else {})}
 
 
@@ -891,12 +886,12 @@ def stop(root: Path, run_id: str) -> dict:
 
 
 def stop_locked(root: Path, run_id: str) -> dict:
-    directory, _ = _manifest(root, run_id)
+    directory, _ = read_manifest(root, run_id)
     target = directory / "out" / "STOP"
     if not target.exists():
         state.write_new(target, b"operator stop\n")
         state.append(directory / "lifecycle.jsonl", "stop_requested", run_id)
-    _cancel_switch(root, run_id, directory, "stopped")
+    _cancel_switch(run_id, directory, "stopped")
     return {"run_id": run_id, "state": "stop_requested", "write_status": "written",
             "note": "The runner must confirm flat; no process is killed and no external order is canceled."}
 
@@ -905,17 +900,17 @@ def logs(root: Path, run_id: str, tail: int = 200) -> dict:
     if not 1 <= tail <= 2000:
         raise state.fail("LIVE_LOG_LIMIT", "tail must be between 1 and 2000 lines")
     with state.reading(root) as root:
-        directory, manifest = _manifest(root, run_id)
-        launch = _latest_launch(directory)
+        directory, manifest = read_manifest(root, run_id)
+        launch = latest_launch(directory)
         if not launch:
             return {"run_id": run_id, "lines": []}
-        if _recycled(directory):
+        if recycled(directory):
             try:
                 text = _log_file(directory, launch["container"]).read_text(errors="replace")
             except OSError as exc:
                 raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the retained Live log is unavailable") from exc
             return {"run_id": run_id, "lines": text[-131072:].splitlines()[-tail:]}
-        actual = _runner(root, run_id, directory, manifest, launch)
+        actual = inspect_runner(root, run_id, directory, manifest, launch)
         if actual is None:
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the retained Live container is unavailable")
         result = host_runtime.docker("logs", "--tail", str(tail), actual["Id"])

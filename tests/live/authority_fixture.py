@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from deploy.live_configuration import OPERATOR_FIELDS
 from deploy.release_host import durable_json, route_config
-from live import authority, configuration, inventory, release, state
+from live import authority, configuration, inventory, release, requests, state
 
 WEB = "trade-release-web-" + "a" * 40
 BOOTSTRAP = """
@@ -49,7 +49,7 @@ def install(test, root, raw=None, *, release_state=None, mock_inventory=True):
         file = home / "live" / web.removeprefix("trade-release-web-") / "configuration.json"
         value = {**raw, "socket": str(file.parent / "socket/control.sock")}
         durable_json(file, value)
-        return SimpleNamespace(file=file, raw=value, config=configuration.load(file), binding=release.Binding(home, web))
+        return SimpleNamespace(file=file, raw=value, config=configuration.parse(value), binding=release.Binding(home, web))
 
     initial = snapshot()
     changes = [(authority, "STATE", home)]
@@ -89,3 +89,16 @@ def launch(root, run_id, credentials, mode, *, scope):
     with scope.serialized(root) as root:
         scope.admit_locked(root)
         return runs.launch_locked(root, run_id, credentials, mode)
+
+
+def maintain(root, run_id):
+    """The control's maintenance of a run (runs.maintain_locked) under the account lock."""
+    from live import runs
+    with state.serialized(root) as root:
+        return runs.maintain_locked(root, run_id)
+
+
+def recover(root, request_id):
+    """The control's explicit recovery of a request (requests.recover_locked) under the account lock."""
+    with state.serialized(root) as root:
+        return requests.recover_locked(root, request_id)

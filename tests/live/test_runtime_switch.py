@@ -92,9 +92,9 @@ class SwitchTests(LiveFixture):
     def take(self, *native, image=True, mode="run"):
         for event in native:
             state.append(self.events, event, self.run_id)
-        latest = runs._latest_launch(self.directory)
+        latest = runs.latest_launch(self.directory)
         with patch.object(runs.host_runtime, "inspect", return_value={"Id": "x"} if image else None):
-            runtime, taken, rows = runs._launch_runtime_locked(self.directory, self.run_id, self.manifest, latest, mode)
+            runtime, taken, rows = runs._launch_runtime_locked(self.directory, self.manifest, latest, mode)
         for event, fields in rows:
             state.append(self.lifecycle, event, self.run_id, **fields)
         return runtime, taken
@@ -113,7 +113,7 @@ class SwitchTests(LiveFixture):
         self.assertEqual((row["image_ref"], row["previous"]), (NEW["image_ref"], IDENTITY["image_ref"]))
         self.assertIsNone(runs.pending_switch(self.directory))
         self.launch(NEW, "web-switch-1")
-        launch = runs._latest_launch(self.directory)
+        launch = runs.latest_launch(self.directory)
         self.assertEqual(runs.launch_runtime(self.directory, self.manifest, launch)["image_ref"], NEW["image_ref"])
         state.append(self.events, "warmup", self.run_id)
         self.assertEqual(self.take("interrupted")[0]["image_ref"], NEW["image_ref"])  # it stays on the new image
@@ -160,7 +160,7 @@ class SwitchTests(LiveFixture):
             started.append(kwargs["runtime"])
             return {"Id": "c" * 64}
 
-        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 3}}), \
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 3}}), \
                 patch.object(runs, "_network", return_value={"network": "network"}), \
                 patch.object(runs.host_runtime, "inspect", return_value={"Id": "x"}), \
                 patch.object(runs.host_runtime, "container_identity", side_effect=identity), \
@@ -211,7 +211,7 @@ class SwitchTests(LiveFixture):
     def test_a_launch_naming_an_image_no_switch_confirmed_is_refused(self):
         self.launch(NEW)
         with self.assertRaises(LiveRefusal) as caught:
-            runs.launch_runtime(self.directory, self.manifest, runs._latest_launch(self.directory))
+            runs.launch_runtime(self.directory, self.manifest, runs.latest_launch(self.directory))
         self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
         self.assertEqual(runs.launch_runtime(self.directory, self.manifest, None), IDENTITY)
 
@@ -224,17 +224,17 @@ class SwitchTests(LiveFixture):
         image = {**resources[("image", IDENTITY["image_ref"])], "Id": "sha256:" + "9" * 64, "RepoDigests": [NEW["image_ref"]]}
         on_new = {**resources[("container", "runner")], "Image": image["Id"],
                   "Config": {**resources[("container", "runner")]["Config"], "Image": NEW["image_ref"]}}
-        launch = runs._latest_launch(self.directory)
+        launch = runs.latest_launch(self.directory)
         with patch.object(runs.host_runtime, "docker", side_effect=self.docker_view(
                 {**resources, ("container", "runner"): on_new, ("image", NEW["image_ref"]): image}, [])):
-            self.assertIsNotNone(runs._runner(self.root, self.run_id, self.directory, self.manifest, launch))
+            self.assertIsNotNone(runs.inspect_runner(self.root, self.run_id, self.directory, self.manifest, launch))
             names = runs.host_runtime.resource_names(self.root, self.run_id)
             self.assertIsNotNone(runs.host_runtime.container_identity(
                 self.root, self.run_id, self.directory, self.manifest, names["egress"], "egress",
                 runtime={**NEW, "build_revision": REVISION}))  # the egress stays on the manifest's image
         with patch.object(runs.host_runtime, "docker", side_effect=self.docker_view(resources, [])):
             with self.assertRaises(LiveRefusal):  # the old image's container is not this launch's
-                runs._runner(self.root, self.run_id, self.directory, self.manifest, launch)
+                runs.inspect_runner(self.root, self.run_id, self.directory, self.manifest, launch)
         command = runs.host_runtime.runner_command(self.manifest, self.directory, self.run_id, self.credentials, "run",
                                                    "runner", runs.host_runtime.resource_names(self.root, self.run_id),
                                                    runtime=NEW)

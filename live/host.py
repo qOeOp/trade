@@ -17,6 +17,9 @@ from live import state
 
 
 LABEL = "trade.live"
+# The egress container, as egress_command starts it and container_identity verifies it.
+EGRESS_ARGV = ("--port", "3128", "--log", "/reports/egress.log")
+EGRESS_MEMORY = "256m"
 
 
 
@@ -104,7 +107,7 @@ def container_identity(root: Path, run_id: str, directory: Path, manifest: dict,
     if role == "egress":
         expected_networks["bridge"] = network_identity("bridge", None)
         expected_mounts = {"/reports": (str((directory / "egress").resolve()), True)}
-        expected_command = ["-m", "engine.egress", "--port", "3128", "--log", "/reports/egress.log"]
+        expected_command = ["-m", "engine.egress", *EGRESS_ARGV]
     else:
         if role != "runner" or mode not in ("preflight", "run", "reconcile") or not credentials_path:
             raise state.fail("LIVE_IDENTITY_CHANGED", "the retained launch lacks its complete execution binding")
@@ -123,7 +126,7 @@ def container_identity(root: Path, run_id: str, directory: Path, manifest: dict,
     expected_env = dict(item.partition("=")[::2] for item in ((pinned or {}).get("Config") or {}).get("Env", []))
     expected_env["PYTHONDONTWRITEBYTECODE"] = "1"
     actual_env = dict(item.partition("=")[::2] for item in config.get("Env", []))
-    memory = "256m" if role == "egress" else manifest["config"]["memory"]
+    memory = EGRESS_MEMORY if role == "egress" else manifest["config"]["memory"]
     memory_bytes = int(memory[:-1]) * (1024 ** (2 if memory[-1] == "m" else 3))
     if (found.get("Name") != "/" + name or not found.get("Id")
             or container_id is not None and found.get("Id") != container_id
@@ -177,8 +180,8 @@ def remove_resources(root: Path, run_id: str, containers: list[dict]) -> None:
 
 def egress_command(manifest: dict, directory: Path, run_id: str, names: dict[str, str]) -> list[str]:
     return container.live_command(manifest["runtime"], [(directory / "egress", "/reports", False)],
-                                         "engine.egress", ["--port", "3128", "--log", "/reports/egress.log"],
-                                         name=names["egress"], network=names["network"], memory="256m",
+                                         "engine.egress", list(EGRESS_ARGV),
+                                         name=names["egress"], network=names["network"], memory=EGRESS_MEMORY,
                                          labels={f"{LABEL}.run": run_id, f"{LABEL}.role": "egress"})
 
 

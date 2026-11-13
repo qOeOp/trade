@@ -8,18 +8,18 @@ from pathlib import Path
 import re
 
 from engine.config import is_leverage
+from engine.live_brake import BRAKE_MAX
 from live import state
 
 
 SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
-RUNTIME = re.compile(r"ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}\Z")
 SYMBOL = re.compile(r"[A-Z0-9]+USDT\Z")
 DEFAULT_KEYS = frozenset({"duration_seconds", "leverage"})  # the operator's defaults
 # A run's choices: also its drawdown brake, which defaults to the user's maximum-drawdown target and can only be
 # tighter (engine.live_brake). Its cash floor is a share of the wallet at its first arming, not a choice.
 CONFIG_KEYS = DEFAULT_KEYS | {"drawdown_brake"}
-BRAKE_DEFAULT = "0.15"  # engine.live_brake.BRAKE_MAX (tests.live.test_runs checks they agree)
+BRAKE_DEFAULT = str(BRAKE_MAX)
 
 
 def fail():
@@ -86,6 +86,12 @@ class Source:
                 "entry_class": self.entry_class, "purpose": self.purpose, "symbols": list(self.symbols)}
 
 
+def source_of(sources: dict[str, Source], run_source: dict) -> Source | None:
+    """The configured source a run was prepared from (its manifest's source_sha256 and entry_class), if any."""
+    return next((source for source in sources.values() if source.source_sha256 == run_source.get("source_sha256")
+                 and source.entry_class == run_source.get("entry_class")), None)
+
+
 @dataclass(frozen=True)
 class Configuration:
     root: Path
@@ -100,11 +106,9 @@ class Configuration:
     market_root: Path  # the market directory, mounted read-only: the contract terms Live compares (TERMS_CHANGED)
 
 
-def load(path: Path) -> Configuration:
-    value = fields(state.read(path), {"format", "root", "socket", "research_ledger", "research_at", "runtime",
-                                     "universe_file", "sources", "defaults", "memory", "market_root"})
-    if value["format"] != "live-control-v1":
-        raise fail()
+def parse(value: dict) -> Configuration:
+    """The control's installed snapshot, whose fields, format and runtime digest deploy.live_configuration.snapshot
+    already checked, as typed values."""
     rows = value["sources"]
     if not isinstance(rows, list) or not rows:
         raise fail()
@@ -123,7 +127,7 @@ def load(path: Path) -> Configuration:
     return Configuration(root=absolute(value["root"]), socket=absolute(value["socket"]),
                          research_ledger=absolute(value["research_ledger"]),
                          research_at=text(value["research_at"], re.compile(r"[0-9a-v]{32}\Z")),
-                         runtime=text(value["runtime"], RUNTIME), universe_file=absolute(value["universe_file"]),
+                         runtime=value["runtime"], universe_file=absolute(value["universe_file"]),
                          sources=sources, defaults=run_config(value["defaults"], DEFAULT_KEYS),
                          memory=text(value["memory"], re.compile(r"[1-9][0-9]*[mg]\Z")),
                          market_root=absolute(value["market_root"]))

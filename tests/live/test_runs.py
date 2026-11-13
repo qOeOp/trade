@@ -1,7 +1,6 @@
 """Private Live custody survives unknown launches and never mistakes process exit for flatness."""
 
 import copy
-from decimal import Decimal
 from datetime import datetime
 import hashlib
 import io
@@ -21,7 +20,7 @@ from shared.errors import Refusal
 from ledger import db
 from live import host as host_runtime
 from live import authority, configuration, runs, state
-from tests.live.authority_fixture import install, launch, prepare
+from tests.live.authority_fixture import install, launch, maintain, prepare
 
 
 MARKET_TERMS = runs._market_terms  # LiveFixture replaces it; test_market_terms_* reads it
@@ -39,7 +38,7 @@ class LiveFixture(unittest.TestCase):
             evidence = patch.object(runs, "_evidence", return_value=EVIDENCE)
             evidence.start()
             self.addCleanup(evidence.stop)
-        patcher = patch.object(runs.key, "require_limits", return_value=[])  # tests/live/test_key.py covers the read.
+        patcher = patch.object(runs.key, "require_limits")  # tests/live/test_key.py covers the read.
         self.key_limits = patcher.start()
         self.addCleanup(patcher.stop)
         market = patch.object(runs, "_market_terms", return_value=MARKET)  # test_market_terms_* covers the read
@@ -167,7 +166,7 @@ class LiveCustodyTests(LiveFixture):
                 self.assertEqual(caught.exception.code, "LIVE_CONFIG")
                 with self.assertRaises(LiveRefusal) as caught:
                     prepare(self.root, "leverage-run", object(), "a" * 32, "original@2", ["BTCUSDT"],
-                                 Path("unused"), self.credentials, None, scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage=leverage,
+                                 Path("unused"), self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage=leverage,
                                  market_root=Path("unused"))
                 self.assertEqual(caught.exception.code, "LIVE_CONFIG")
         for leverage in ("1", "125"):
@@ -176,8 +175,6 @@ class LiveCustodyTests(LiveFixture):
                              leverage)
 
     def test_prepare_and_the_control_take_only_a_brake_at_most_the_drawdown_target(self):
-        from engine import live_brake
-        self.assertEqual(Decimal(configuration.BRAKE_DEFAULT), live_brake.BRAKE_MAX)
         self.assertEqual(configuration.run_config({"drawdown_brake": "0.05", "duration_seconds": None,
                                                    "leverage": "3"})["drawdown_brake"], "0.05")
         for limit in ("0", "NaN", "0.1501"):
@@ -187,7 +184,7 @@ class LiveCustodyTests(LiveFixture):
         for limit in ("0", "NaN", "0.1501"):
             with self.subTest(limit), self.assertRaises(LiveRefusal) as caught:
                 prepare(self.root, "limit-run", object(), "a" * 32, "original@2", ["BTCUSDT"], Path("unused"),
-                             self.credentials, None, scope=self.scope, drawdown_brake=limit, duration_seconds=60, memory="2g", leverage="3",
+                             self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake=limit, duration_seconds=60, memory="2g", leverage="3",
                          market_root=Path("unused"))
             self.assertEqual(caught.exception.code, "LIVE_CONFIG")
 
@@ -212,13 +209,13 @@ class LiveCustodyTests(LiveFixture):
         self.launch_record()
         journal = self.directory / "out" / "events.jsonl"
         with patch.object(runs, "_outcome", return_value=("unresolved", 137)):
-            self.assertIsNone(runs.status(self.root, self.run_id)["stop_reason"])
+            self.assertIsNone(maintain(self.root, self.run_id)["stop_reason"])
             state.append(journal, "stopping", self.run_id, reason="drawdown")
             state.append(journal, "stopping", self.run_id, reason="requested")  # A later reconcile's own stop.
-            self.assertEqual(runs.status(self.root, self.run_id)["stop_reason"], "drawdown")
+            self.assertEqual(maintain(self.root, self.run_id)["stop_reason"], "drawdown")
             with journal.open("ab") as stream:
                 stream.write(b'{"event":"par')
-            result = runs.status(self.root, self.run_id)
+            result = maintain(self.root, self.run_id)
         self.assertEqual((result["state"], result["exit_code"], result["stop_reason"]), ("unresolved", 137, None))
 
     def test_preflight_again_on_a_run_of_an_earlier_format_names_the_format(self):
@@ -228,7 +225,7 @@ class LiveCustodyTests(LiveFixture):
         universe.write_text("{}")
         with self.assertRaises(LiveRefusal) as caught:
             prepare(self.root, self.run_id, object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
-                         self.credentials, None, scope=self.scope, drawdown_brake="0.15",
+                         self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake="0.15",
                          duration_seconds=60, memory="2g", leverage="3",
                          market_root=Path("unused"))
         self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
@@ -238,64 +235,64 @@ class LiveCustodyTests(LiveFixture):
                 patch.object(host_runtime, "checked", side_effect=RuntimeError("unknown launch")):
             with self.assertRaises(RuntimeError):
                 launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
-        self.assertEqual(runs._active(self.root), self.run_id)
-        self.assertEqual(runs._host_events(self.directory)[-1]["event"], "launch_unresolved")
+        self.assertEqual(runs.active_run(self.root), self.run_id)
+        self.assertEqual(runs.host_events(self.directory)[-1]["event"], "launch_unresolved")
         self.assertTrue((self.directory / "inputs" / "manifest.json").exists())
 
     def test_exited_container_is_unresolved_until_fresh_native_flat_receipt(self):
         self.launch_record()
-        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
-            self.assertEqual(runs._active(self.root), self.run_id)
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "unresolved")
+            self.assertEqual(runs.active_run(self.root), self.run_id)
             state.append(self.directory / "out" / "events.jsonl", "clean_stop", self.run_id)
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "clean_stopped")
-            self.assertIsNone(runs._active(self.root))
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "clean_stopped")
+            self.assertIsNone(runs.active_run(self.root))
 
     def test_old_flat_receipt_cannot_release_new_reconciliation(self):
         state.append(self.directory / "out" / "events.jsonl", "clean_stop", self.run_id)
         self.launch_record("reconcile")
-        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
-            self.assertEqual(runs._active(self.root), self.run_id)
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "unresolved")
+            self.assertEqual(runs.active_run(self.root), self.run_id)
 
     def test_failed_final_flush_cannot_release_even_with_visible_terminal_line(self):
         self.launch_record()
         state.append(self.directory / "out" / "events.jsonl", "clean_stop", self.run_id)
-        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 1}}):
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
-            self.assertEqual(runs._active(self.root), self.run_id)
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 1}}):
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "unresolved")
+            self.assertEqual(runs.active_run(self.root), self.run_id)
 
     def test_reconcile_stop_alone_does_not_release_but_native_reconciled_flat_does(self):
         self.launch_record("reconcile")
         state.append(self.directory / "out" / "events.jsonl", "reconcile_stopped", self.run_id)
-        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
-            self.assertEqual(runs._active(self.root), self.run_id)
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "unresolved")
+            self.assertEqual(runs.active_run(self.root), self.run_id)
             state.append(self.directory / "out" / "events.jsonl", "reconciled_flat", self.run_id)
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "reconciled_flat")
-            self.assertIsNone(runs._active(self.root))
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "reconciled_flat")
+            self.assertIsNone(runs.active_run(self.root))
 
     def test_a_venue_flat_reconcile_releases_as_its_own_state_and_unresolved_points_to_the_steps(self):
         self.launch_record("reconcile")
-        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
-            found = runs.status(self.root, self.run_id)
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
+            found = maintain(self.root, self.run_id)
             self.assertEqual((found["state"], found["note"]), ("unresolved", runs.UNRESOLVED_NOTE))
             state.append(self.directory / "out" / "events.jsonl", "venue_flat", self.run_id)
-            found = runs.status(self.root, self.run_id)
+            found = maintain(self.root, self.run_id)
         self.assertEqual((found["state"], found["exit_code"], found["account_owned"]), ("venue_flat", 0, False))
         self.assertNotIn("note", found)
         self.assertEqual(state.events(self.root / "account.jsonl")[-1]["reason"], "venue_flat")
-        self.assertEqual(runs._settled(self.root, self.run_id, runs._latest_launch(self.directory)), "venue_flat")
+        self.assertEqual(runs.settled_state(self.root, self.run_id, runs.latest_launch(self.directory)), "venue_flat")
 
     def test_venue_flat_from_a_failed_or_earlier_runner_keeps_the_slot(self):
         state.append(self.directory / "out" / "events.jsonl", "venue_flat", self.run_id)  # Before this launch.
         self.launch_record("reconcile")
-        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "unresolved")
         state.append(self.directory / "out" / "events.jsonl", "venue_flat", self.run_id)
-        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 2}}):
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
-        self.assertEqual(runs._active(self.root), self.run_id)
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 2}}):
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "unresolved")
+        self.assertEqual(runs.active_run(self.root), self.run_id)
 
     EXITED = {"State": {"Running": False, "Status": "exited", "ExitCode": 2}}
 
@@ -304,8 +301,8 @@ class LiveCustodyTests(LiveFixture):
 
     def test_runner_refused_before_arming_releases_the_slot_for_a_new_run(self):
         self.launch_record()
-        with patch.object(runs, "_runner", return_value=self.EXITED):
-            status = runs.status(self.root, self.run_id)
+        with patch.object(runs, "inspect_runner", return_value=self.EXITED):
+            status = maintain(self.root, self.run_id)
             self.assertEqual((status["state"], status["account_owned"]), ("not_armed", False))
             self.assertEqual(self.released(), ["never_armed"])
             with self.assertRaises(LiveRefusal) as caught:
@@ -314,7 +311,7 @@ class LiveCustodyTests(LiveFixture):
             with self.assertRaises(LiveRefusal) as caught:
                 launch(self.root, self.run_id, self.credentials, "reconcile", scope=self.scope)
             self.assertEqual(caught.exception.code, "LIVE_RUN_MISSING")
-        self.assertIsNone(runs._active(self.root))
+        self.assertIsNone(runs.active_run(self.root))
 
     def second_run(self):
         other = state.directory(self.root, "probe-two")
@@ -328,37 +325,37 @@ class LiveCustodyTests(LiveFixture):
     def test_a_new_run_releases_a_slot_left_by_an_unarmed_run(self):
         self.launch_record()
         self.second_run()
-        with patch.object(runs, "_runner", return_value=self.EXITED), \
+        with patch.object(runs, "inspect_runner", return_value=self.EXITED), \
                 patch.object(runs, "_network", return_value={"network": "network"}), \
                 patch.object(host_runtime, "container_identity", return_value={"Id": "c" * 64}), \
                 patch.object(host_runtime, "checked", return_value="c" * 64):
             self.assertEqual(launch(self.root, "probe-two", self.credentials, "run", scope=self.scope)["state"], "starting")
-        self.assertEqual(runs._active(self.root), "probe-two")
+        self.assertEqual(runs.active_run(self.root), "probe-two")
 
     def test_slot_reserved_without_any_launch_is_released(self):
         state.append(self.root / "account.jsonl", "reserved", self.run_id)
-        self.assertEqual(runs.status(self.root, self.run_id)["state"], "prepared")
+        self.assertEqual(maintain(self.root, self.run_id)["state"], "prepared")
         self.assertEqual(self.released(), ["never_armed"])
 
     def test_a_preflight_runner_alone_does_not_hold_the_slot(self):
         state.append(self.root / "account.jsonl", "reserved", self.run_id)
         state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id,
                      mode="preflight", container="runner", credentials_path=str(self.credentials))
-        with patch.object(runs, "_runner", return_value={"State": {"Running": True, "Status": "running"}}):
-            runs.status(self.root, self.run_id)
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": True, "Status": "running"}}):
+            maintain(self.root, self.run_id)
         self.assertEqual(self.released(), ["never_armed"])
 
     def test_any_doubt_about_arming_keeps_the_slot(self):
         for status in ("running", "created", "paused", "restarting", "dead", None):
             with self.subTest(status=status), \
-                    patch.object(runs, "_runner", return_value={"State": {"Running": False, "Status": status}}):
+                    patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "Status": status}}):
                 self.reset_slot()
-                runs.status(self.root, self.run_id)
-                self.assertEqual(runs._active(self.root), self.run_id)
-        with self.subTest("missing container"), patch.object(runs, "_runner", return_value=None):
+                maintain(self.root, self.run_id)
+                self.assertEqual(runs.active_run(self.root), self.run_id)
+        with self.subTest("missing container"), patch.object(runs, "inspect_runner", return_value=None):
             self.reset_slot()
-            runs.status(self.root, self.run_id)
-            self.assertEqual(runs._active(self.root), self.run_id)
+            maintain(self.root, self.run_id)
+            self.assertEqual(runs.active_run(self.root), self.run_id)
 
     def reset_slot(self, mode="run"):
         (self.root / "account.jsonl").unlink(missing_ok=True)
@@ -367,20 +364,20 @@ class LiveCustodyTests(LiveFixture):
 
     def test_armed_or_connecting_keeps_the_slot_after_exit(self):
         self.launch_record()
-        with patch.object(runs, "_runner", return_value=self.EXITED):
+        with patch.object(runs, "inspect_runner", return_value=self.EXITED):
             state.append(self.directory / "out" / "events.jsonl", "connecting", self.run_id)
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
-            self.assertEqual(runs._active(self.root), self.run_id)
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "unresolved")
+            self.assertEqual(runs.active_run(self.root), self.run_id)
             (self.directory / "out" / "events.jsonl").unlink()
             state.write_new(self.directory / "out" / "armed.json", b"{}")
             # Armed, and no ending event: interrupted (killed, or SIGTERM), the run starts again as itself.
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "interrupted")
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "interrupted")
             state.append(self.directory / "out" / "events.jsonl", "unresolved", self.run_id)
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "unresolved")
             state.write_new(self.directory / "out" / "STOP", b"operator stop\n")
             (self.directory / "out" / "events.jsonl").unlink()
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")  # a stop was asked for
-        self.assertEqual(runs._active(self.root), self.run_id)
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "unresolved")  # a stop was asked for
+        self.assertEqual(runs.active_run(self.root), self.run_id)
 
     def test_earlier_timed_out_runner_still_alive_keeps_the_slot(self):
         self.launch_record()
@@ -388,23 +385,23 @@ class LiveCustodyTests(LiveFixture):
                      mode="reconcile", container="later", credentials_path=str(self.credentials))
         def inspected(_root, _run, _directory, _manifest, launch):
             return self.EXITED if launch["container"] == "later" else {"State": {"Running": True, "Status": "running"}}
-        with patch.object(runs, "_runner", side_effect=inspected):
-            runs.status(self.root, self.run_id)
-        self.assertEqual(runs._active(self.root), self.run_id)
+        with patch.object(runs, "inspect_runner", side_effect=inspected):
+            maintain(self.root, self.run_id)
+        self.assertEqual(runs.active_run(self.root), self.run_id)
 
     def test_runner_arming_while_being_inspected_keeps_the_slot(self):
         self.launch_record()
         def arm_then_exit(*_):
             state.write_new(self.directory / "out" / "armed.json", b"{}")
             return self.EXITED
-        with patch.object(runs, "_runner", side_effect=arm_then_exit):
+        with patch.object(runs, "inspect_runner", side_effect=arm_then_exit):
             self.assertFalse(runs._never_armed(self.root, self.run_id, self.directory, self.manifest))
 
     def test_reconcile_without_arming_is_refused_before_taking_the_slot(self):
         with self.assertRaises(LiveRefusal) as caught:
             launch(self.root, self.run_id, self.credentials, "reconcile", scope=self.scope)
         self.assertEqual(caught.exception.code, "LIVE_RUN_MISSING")
-        self.assertIsNone(runs._active(self.root))
+        self.assertIsNone(runs.active_run(self.root))
 
     def test_stop_only_writes_request_and_does_not_call_docker(self):
         self.launch_record()
@@ -412,7 +409,7 @@ class LiveCustodyTests(LiveFixture):
             runs.stop(self.root, self.run_id)
             runs.stop(self.root, self.run_id)
         self.assertTrue((self.directory / "out" / "STOP").exists())
-        self.assertEqual(sum(row["event"] == "stop_requested" for row in runs._host_events(self.directory)), 1)
+        self.assertEqual(sum(row["event"] == "stop_requested" for row in runs.host_events(self.directory)), 1)
 
     def test_key_change_and_source_change_are_refused_before_docker(self):
         self.credentials.write_text('{"api_key":"another-key","api_secret":"another-secret"}')
@@ -422,12 +419,12 @@ class LiveCustodyTests(LiveFixture):
             self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_CHANGED")
             (self.directory / "inputs" / "strategy.py").write_bytes(b"changed")
             with self.assertRaises(LiveRefusal) as caught:
-                runs.status(self.root, self.run_id)
+                maintain(self.root, self.run_id)
             self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
 
     def test_an_attempted_run_never_cold_restarts(self):
         self.launch_record()
-        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 137}}):
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 137}}):
             with self.assertRaises(LiveRefusal) as caught:
                 launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
         self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
@@ -438,7 +435,7 @@ class LiveCustodyTests(LiveFixture):
 
         self.launch_record()
         state.write_new(self.directory / "out" / "armed.json", b"{}")
-        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 137}}), \
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 137}}), \
                 patch.object(runs.key, "require_limits", side_effect=Reached):
             with self.assertRaises(Reached):
                 launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
@@ -468,7 +465,7 @@ class LiveCustodyTests(LiveFixture):
             control.check_key_locked(self.root, self.run_id, 7200.0)
             control.check_key_locked(self.root, self.run_id, 10800.0)
         rows = [(row["event"], row.get("code")) for row in state.events(self.directory / "lifecycle.jsonl")
-                if row["event"] in control.KEY_EVENTS]
+                if row["event"] in runs.KEY_EVENTS]
         self.assertEqual(rows, [("key_check_failed", "LIVE_KEY_IP_UNRESTRICTED"), ("key_check_passed", None)])
 
     def test_past_the_limit_the_control_tells_the_user_once_and_starts_nothing(self):
@@ -501,7 +498,7 @@ class LiveCustodyTests(LiveFixture):
                         launch(self.root, "probe-two", self.credentials, mode, scope=self.scope)
                     self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_OWNED")
                     self.assertEqual((self.root / "account.jsonl").read_bytes(), slot)
-                    self.assertEqual(runs._host_events(other), [])
+                    self.assertEqual(runs.host_events(other), [])
 
     def test_a_live_runner_refuses_every_other_mode_and_replays_its_own(self):
         for alive, others in (("run", ("preflight", "reconcile")), ("preflight", ("run", "reconcile")),
@@ -515,13 +512,13 @@ class LiveCustodyTests(LiveFixture):
                             launch(self.root, self.run_id, self.credentials, mode, scope=self.scope)
                         self.assertEqual(caught.exception.code, "LIVE_RUNNING")
                 self.assertEqual(launch(self.root, self.run_id, self.credentials, alive, scope=self.scope)["write_status"], "replayed")
-            self.assertEqual(sum(row["event"] == "launch_requested" for row in runs._host_events(self.directory)), 1)
+            self.assertEqual(sum(row["event"] == "launch_requested" for row in runs.host_events(self.directory)), 1)
         self.key_limits.assert_not_called()  # A repeated command must not depend on the network.
 
     def test_partial_host_journal_never_means_no_active_account(self):
         (self.root / "account.jsonl").write_bytes(b'{"event":"reserved"')
         with self.assertRaises(LiveRefusal) as caught:
-            runs._active(self.root)
+            runs.active_run(self.root)
         self.assertEqual(caught.exception.code, "LIVE_JOURNAL_UNAVAILABLE")
 
     def test_live_cli_does_not_load_active_research_or_publish(self):
@@ -542,15 +539,15 @@ class LiveCustodyTests(LiveFixture):
         return code, output.getvalue(), errors.getvalue()
 
     def test_start_names_the_source_that_will_place_real_orders(self):
-        source = runs._manifest(self.root, self.run_id)[1]["source"]["source_sha256"]
+        source = runs.read_manifest(self.root, self.run_id)[1]["source"]["source_sha256"]
         with self.assertRaises(LiveRefusal) as caught:
             runs.require_confirmed_locked(self.root, self.run_id, "0" * 64)
         self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
         runs.require_confirmed_locked(self.root, self.run_id, source)
 
     def test_status_shows_the_hash_start_asks_for(self):
-        source = runs._manifest(self.root, self.run_id)[1]["source"]["source_sha256"]
-        self.assertEqual(runs.status(self.root, self.run_id)["source"]["source_sha256"], source)
+        source = runs.read_manifest(self.root, self.run_id)[1]["source"]["source_sha256"]
+        self.assertEqual(maintain(self.root, self.run_id)["source"]["source_sha256"], source)
 
     def test_the_live_help_states_the_risk_and_offers_no_launch(self):
         code, output, _ = self.live_command("--help")
@@ -601,7 +598,7 @@ class LiveCustodyTests(LiveFixture):
 
     def test_preflight_and_status_show_the_image_the_run_pinned(self):
         # Only the manifest's digest: a repeat that passes a tag keeps the first digest and resolves nothing.
-        pinned = runs._manifest(self.root, self.run_id)[1]["runtime"]["image_ref"]
+        pinned = runs.read_manifest(self.root, self.run_id)[1]["runtime"]["image_ref"]
         self.assertEqual(self.review()[0]["image_ref"], IDENTITY["image_ref"])
         code, output, _ = self.live_command("status", "--root", str(self.root), "--run-id", self.run_id)
         self.assertEqual((code, json.loads(output)["image_ref"]), (0, pinned))
@@ -634,7 +631,7 @@ class LiveCustodyTests(LiveFixture):
                 patch.object(runs.image, "inspect_runtime", return_value={}), \
                 patch.object(runs.image, "require_main_build"):
             manifest = prepare(self.root, "candidate-run", object(), "a" * 32, "original@2", ["BTCUSDT"],
-                                    universe, self.credentials, None, scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
+                                    universe, self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
                                     market_root=Path("unused"))
         self.assertEqual(read.call_args.args[1], "a" * 32)
         self.assertEqual(manifest["format"], runs.MANIFEST_FORMAT)
@@ -660,7 +657,7 @@ class LiveCustodyTests(LiveFixture):
                     patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
                     self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
                 runs.prepare_locked(root, "declared-run", object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
-                                    self.credentials, None, drawdown_brake="0.15",
+                                    self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
                                     duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
                                     source_sha256=declared)
             self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
@@ -675,7 +672,7 @@ class LiveCustodyTests(LiveFixture):
         other_key = self.root / "other-key.json"
         state.write_new(other_key, b'{"api_key":"another-key","api_secret":"another-secret"}')
         same = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": files["universe"],
-                "credentials": self.credentials, "runtime": None, "drawdown_brake": "0.15", "duration_seconds": 60, "memory": "2g", "leverage": "3",
+                "credentials": self.credentials, "runtime": IDENTITY["image_ref"], "drawdown_brake": "0.15", "duration_seconds": 60, "memory": "2g", "leverage": "3",
                 "market_root": Path("unused")}
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
@@ -741,7 +738,7 @@ class LiveCustodyTests(LiveFixture):
                 with self.assertRaises(LiveRefusal):
                     runs.logs(self.root, self.run_id)
                 self.assertFalse(any(call[0] in ("run", "start", "logs") for call in calls))
-                self.assertEqual(runs._active(self.root), self.run_id)
+                self.assertEqual(runs.active_run(self.root), self.run_id)
 
     def test_valid_retained_runner_reuses_identity_and_logs_by_immutable_id(self):
         self.launch_record()
@@ -758,9 +755,9 @@ class LiveCustodyTests(LiveFixture):
         resources[("container", "runner")]["Mounts"][0]["Source"] = "/unrelated-output"
         with patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, [])):
             with self.assertRaises(LiveRefusal) as caught:
-                runs.status(self.root, self.run_id)
+                maintain(self.root, self.run_id)
         self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
-        self.assertEqual(runs._active(self.root), self.run_id)
+        self.assertEqual(runs.active_run(self.root), self.run_id)
 
     def test_stopped_egress_identity_verified_before_start(self):
         names = host_runtime.resource_names(self.root, self.run_id)
@@ -826,7 +823,7 @@ class LiveCustodyTests(LiveFixture):
                 patch.object(host_runtime, "checked", side_effect=action):
             runs._network(self.root, self.run_id, self.directory, self.manifest)
         self.assertEqual(len(actions), 2)
-        self.assertEqual(runs._host_events(self.directory)[-1]["container_id"], "c" * 64)
+        self.assertEqual(runs.host_events(self.directory)[-1]["container_id"], "c" * 64)
 
     def test_fresh_runner_is_verified_and_its_actual_id_is_retained(self):
         names = host_runtime.resource_names(self.root, self.run_id)
@@ -837,11 +834,9 @@ class LiveCustodyTests(LiveFixture):
         resources[("container", name)] = actual
         with patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, [])), \
                 patch.object(runs, "_network", return_value=names), patch.object(host_runtime, "checked", return_value="c" * 64):
-            self.key_limits.return_value = ["a key note"]
             launched = launch(self.root, self.run_id, self.credentials, "preflight", scope=self.scope)
             self.assertEqual(launched["state"], "starting")
-            self.assertEqual(launched["warnings"], ["a key note"])
-        request, started = runs._host_events(self.directory)[-2:]
+        request, started = runs.host_events(self.directory)[-2:]
         self.assertEqual(request["credentials_path"], str(self.credentials))
         self.assertEqual(started["container_id"], "c" * 64)
 
@@ -938,7 +933,7 @@ class LiveRecycleTests(LiveFixture):
 
     def status(self, host):
         with patch.object(host_runtime, "docker", side_effect=host):
-            return runs.status(self.root, self.run_id)
+            return maintain(self.root, self.run_id)
 
     def removals(self, host):
         return [call for call in host.calls if call[0] in ("rm", "stop") or call[:2] == ("network", "rm")]
@@ -966,7 +961,7 @@ class LiveRecycleTests(LiveFixture):
         found = self.status(host)
         self.assertEqual((found["state"], found["account_owned"]), ("unresolved", True))
         self.assertEqual(self.removals(host), [])
-        self.assertIsNone(runs._recycled(self.directory))
+        self.assertIsNone(runs.recycled(self.directory))
 
     def test_a_runner_still_alive_behind_a_later_launch_keeps_everything(self):
         host = self.host_for()
@@ -976,14 +971,14 @@ class LiveRecycleTests(LiveFixture):
         host.containers["older"] = alive
         self.assertEqual(self.status(host)["state"], "clean_stopped")
         self.assertEqual(self.removals(host), [])
-        self.assertIsNone(runs._recycled(self.directory))
+        self.assertIsNone(runs.recycled(self.directory))
 
     def test_a_log_that_cannot_be_saved_keeps_everything(self):
         host = self.host_for()
         host.fail.add("logs")
         self.assertEqual(self.status(host)["state"], "clean_stopped")
         self.assertEqual(self.removals(host), [])
-        self.assertIsNone(runs._recycled(self.directory))
+        self.assertIsNone(runs.recycled(self.directory))
         self.status(host)  # The next look finishes it.
         self.assertEqual(set(host.containers), set())
 
@@ -1008,7 +1003,7 @@ class LiveRecycleTests(LiveFixture):
         self.status(host)
         state.append(self.root / "account.jsonl", "reserved", self.run_id)  # `start` failed before launching.
         self.assertFalse(self.status(host)["account_owned"])
-        self.assertIsNone(runs._active(self.root))
+        self.assertIsNone(runs.active_run(self.root))
         self.assertEqual(self.status(host)["state"], "preflight_complete")
 
     def test_resources_from_a_start_that_never_launched_do_not_block_the_next_one(self):
@@ -1020,7 +1015,7 @@ class LiveRecycleTests(LiveFixture):
         self.assertIn(names["egress"], host.containers)
         self.status(host)
         self.assertEqual(set(host.containers), set())
-        self.assertEqual(runs._since_removal(self.directory), [])
+        self.assertEqual(runs.since_removal(self.directory), [])
         with patch.object(host_runtime, "docker", side_effect=host):
             runs._network(self.root, self.run_id, self.directory, self.manifest)
         self.assertIn(names["egress"], host.containers)
@@ -1034,7 +1029,7 @@ class LiveRecycleTests(LiveFixture):
         with patch.object(host_runtime, "docker", side_effect=host), self.assertRaises(LiveRefusal) as caught:
             launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
         self.assertEqual(caught.exception.code, "LIVE_DOCKER_UNAVAILABLE")
-        self.assertIsNone(runs._active(self.root))
+        self.assertIsNone(runs.active_run(self.root))
 
         class Reached(Exception):
             pass
@@ -1072,7 +1067,7 @@ class LiveRecycleTests(LiveFixture):
         host.fail.add("rm")
         self.assertEqual(self.status(host)["state"], "clean_stopped")
         self.assertTrue(host.containers)
-        self.assertEqual(runs._recycled(self.directory)["state"], "clean_stopped")
+        self.assertEqual(runs.recycled(self.directory)["state"], "clean_stopped")
         self.assertEqual(self.status(host)["state"], "clean_stopped")
         self.assertEqual(set(host.containers), set())
 
@@ -1085,7 +1080,7 @@ class LiveRecycleTests(LiveFixture):
                 with self.assertRaises(LiveRefusal) as caught:
                     launch(self.root, self.run_id, self.credentials, mode, scope=self.scope)
                 self.assertEqual(caught.exception.code, code)
-        self.assertIsNone(runs._active(self.root))
+        self.assertIsNone(runs.active_run(self.root))
         self.assertEqual(set(host.networks), {"bridge"})
 
     def test_a_run_that_only_preflighted_gets_new_resources_when_it_starts(self):
@@ -1098,7 +1093,7 @@ class LiveRecycleTests(LiveFixture):
             runs._network(self.root, self.run_id, self.directory, self.manifest)
         self.assertEqual(set(host.containers), {names["egress"]})
         self.assertIn(names["network"], host.networks)
-        created = [row["event"] for row in runs._since_removal(self.directory)]
+        created = [row["event"] for row in runs.since_removal(self.directory)]
         self.assertEqual(created, ["network_created", "egress_created"])
 
     def test_a_preflight_on_a_run_that_holds_the_slot_keeps_everything(self):
@@ -1112,9 +1107,9 @@ class LiveRecycleTests(LiveFixture):
     def test_a_new_launch_ends_the_removal_record(self):
         host = self.host_for(mode="preflight", clean=False, armed=False)
         self.status(host)
-        self.assertEqual(runs._recycled(self.directory)["state"], "preflight_complete")
+        self.assertEqual(runs.recycled(self.directory)["state"], "preflight_complete")
         state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id, mode="run", container="next")
-        self.assertIsNone(runs._recycled(self.directory))
+        self.assertIsNone(runs.recycled(self.directory))
 
     def test_a_released_run_whose_network_is_already_gone_still_answers(self):
         host = self.host_for()
@@ -1123,7 +1118,7 @@ class LiveRecycleTests(LiveFixture):
         del host.containers[host_runtime.resource_names(self.root, self.run_id)["egress"]]
         self.assertEqual(self.status(host)["state"], "clean_stopped")
         self.assertEqual(set(host.containers), set())
-        self.assertEqual(runs._recycled(self.directory)["exit_code"], 0)
+        self.assertEqual(runs.recycled(self.directory)["exit_code"], 0)
 
     def test_starting_another_run_recycles_an_ended_one_and_leaves_an_unresolved_one(self):
         host = self.host_for()

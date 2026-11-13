@@ -64,7 +64,7 @@ def _profile(config: configuration.Configuration) -> db.LedgerProfile:
 
 
 def _prepare_claim(root: Path, run_id: str) -> dict:
-    rows = runs._host_events(state.directory(root, run_id))
+    rows = runs.host_events(state.directory(root, run_id))
     prepared = next((row for row in rows if row.get("event") == "prepared"), None)
     claim = requests.read_locked(root, prepared["request_id"]) if prepared and prepared.get("request_id") else None
     if claim is None or requests.is_closed(claim) or claim["command"]["action"] != "prepare":
@@ -74,7 +74,7 @@ def _prepare_claim(root: Path, run_id: str) -> dict:
 
 def _review(config: configuration.Configuration, root: Path, run_id: str) -> dict:
     claim = _prepare_claim(root, run_id)
-    _, manifest = runs._manifest(root, run_id)
+    _, manifest = runs.read_manifest(root, run_id)
     result = runs.review(_profile(config), claim["command"]["inputs"]["research_at"], manifest)
     # The CLI serializer already formats these reader datetime values. Direct HTTP
     # reads need the same wire dates, without a general str(object) fallback.
@@ -108,9 +108,7 @@ def _offered(config: configuration.Configuration, result: dict, source, evidence
 def run_view(config: configuration.Configuration, run_id: str, *, review: bool = True,
              evidence: Evidence | None = None) -> dict:
     result = views.run_view(config.root, run_id)
-    source = next((source for source in config.sources.values()
-                   if source.source_sha256 == result["source"]["source_sha256"]
-                   and source.entry_class == result["source"]["entry_class"]), None)
+    source = configuration.source_of(config.sources, result["source"])
     result["purpose"] = source.purpose if source is not None else None
     if result.get("switch") is not None:
         result["switch"]["offered"] = _offered(config, result, source, evidence)
@@ -258,7 +256,8 @@ def _operation(config, action, command, body, root, request_id):
     if action == "prepare":
         manifest = _prepare(config, root, run_id, target["credential_ref"], inputs, request_id)
         # A failed review cannot open a venue connection.
-        return runs.review(_profile(config), inputs["research_at"], manifest)
+        runs.review(_profile(config), inputs["research_at"], manifest)
+        return None
     if action == "stop":
         return runs.stop_locked(root, run_id)
     if action == "runtime_switch":
@@ -296,7 +295,6 @@ def restart_interrupted_locked(root: Path, run_id: str, now_ns: int) -> dict | N
 
 
 _KEY_CHECKED: dict[str, float] = {}  # run ID -> monotonic time of this control's latest check of its key
-KEY_EVENTS = frozenset({"key_check_failed", "key_check_passed"})
 
 
 def check_key_locked(root: Path, run_id: str, now: float) -> None:
@@ -312,8 +310,8 @@ def check_key_locked(root: Path, run_id: str, now: float) -> None:
         code = None
     except LiveRefusal as exc:
         code = exc.code
-    last = next((row for row in reversed(state.events(directory / "lifecycle.jsonl")) if row["event"] in KEY_EVENTS),
-                None)
+    last = next((row for row in reversed(state.events(directory / "lifecycle.jsonl"))
+                 if row["event"] in runs.KEY_EVENTS), None)
     failed = last is not None and last["event"] == "key_check_failed"
     if code is not None and not (failed and last is not None and last.get("code") == code):
         state.append(directory / "lifecycle.jsonl", "key_check_failed", run_id, code=code)
@@ -382,7 +380,7 @@ def execute(config: configuration.Configuration, action: str, target: str | None
         elif action == "credential_remove":
             configuration.fields(body, {"request_id"})
             command = {"action": action, "target": {"credential_ref": target}, "inputs": {}}
-        elif action in {"preflight", "start", "stop", "reconcile", "maintain", "runtime_switch", "runtime_switch_cancel"}:
+        elif action in requests.RUN_ACTIONS:
             configuration.fields(body, {"request_id", "confirm_real_orders"} if action == "start" else {"request_id"})
             inputs = {"confirm_real_orders": body["confirm_real_orders"]} if action == "start" else {}
             if action == "start":
@@ -395,7 +393,7 @@ def execute(config: configuration.Configuration, action: str, target: str | None
                                    lambda root, identity: _operation(config, action, command, body, root, identity),
                                    admit_new=None if action in {"stop", "runtime_switch_cancel"} else lambda root: scope.admit_locked(
                                        root, maintenance=action == "maintain"), serialized=scope.serialized)
-        return (202 if action in {"preflight", "start", "reconcile"} else 200), {
+        return (202 if action in requests.LAUNCHES else 200), {
             "ok": True, "data": {"request": result["request"], **command["target"]}}
     except Exception as exc:
         code = exc.code if isinstance(exc, LiveRefusal) else "LIVE_RECORD_UNAVAILABLE"

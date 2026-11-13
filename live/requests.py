@@ -21,8 +21,10 @@ from live import state
 
 
 REQUEST_ID = re.compile(r"[a-z0-9][a-z0-9-]{7,63}\Z")
-ACTIONS = frozenset({"prepare", "preflight", "start", "reconcile", "stop", "maintain",
-                     "credential_save", "credential_remove", "runtime_switch", "runtime_switch_cancel"})
+# The actions on one prepared run (POST /api/live/runs/<run_id>/<action>, live.serve).
+RUN_ACTIONS = frozenset({"preflight", "start", "reconcile", "stop", "maintain", "runtime_switch",
+                         "runtime_switch_cancel"})
+ACTIONS = RUN_ACTIONS | {"prepare", "credential_save", "credential_remove"}
 # A confirmed runtime switch and its cancel (live.runs): the lifecycle row that names the request is its effect.
 SWITCH_ROWS = {"runtime_switch": ("runtime_switch_requested", "request_id"),
                "runtime_switch_cancel": ("runtime_switch_canceled", "cancel_request_id")}
@@ -38,6 +40,8 @@ def _path(root: Path, request_id: str) -> Path:
 
 
 def _canonical(command: dict) -> dict:
+    from live.credentials import REF
+
     def safe(value):
         if isinstance(value, dict):
             return all(isinstance(key, str) and key.lower() not in SECRET_FIELDS and safe(item)
@@ -58,7 +62,7 @@ def _canonical(command: dict) -> dict:
                                   or not state.RUN_ID.fullmatch(target["run_id"])):
             raise ValueError
         if "credential_ref" in target and (not isinstance(target["credential_ref"], str)
-                                          or not re.fullmatch(r"[a-f0-9]{32}", target["credential_ref"])):
+                                          or not REF.fullmatch(target["credential_ref"])):
             raise ValueError
         if command["action"].startswith("credential_"):
             if set(target) != {"credential_ref"}:
@@ -147,7 +151,7 @@ def _run_effect(root: Path, claim: dict) -> dict | None:
     if action == "stop":
         if not (directory / "out" / "STOP").is_file() or (directory / "out" / "STOP").is_symlink():
             return None
-        runs._manifest(root, run_id)
+        runs.read_manifest(root, run_id)
         return {"source": "stop", "cursor": "1"}
     for index, row in enumerate(rows):
         if action in SWITCH_ROWS and (row.get("event"), row.get(SWITCH_ROWS[action][1])) \
@@ -158,13 +162,13 @@ def _run_effect(root: Path, claim: dict) -> dict | None:
                 previous = read_locked(root, row["request_id"]) if row.get("request_id") else None
                 if not previous or is_closed(previous) or not same_command(previous["command"], command):
                     continue
-            _, manifest = runs._manifest(root, run_id)
-            runs._require_frozen_prepare(root, claim["request_id"], manifest,
+            _, manifest = runs.read_manifest(root, run_id)
+            runs.require_frozen_prepare(root, claim["request_id"], manifest,
                                          command["inputs"].get("research_at"), command["inputs"].get("candidate"),
                                          command["target"].get("credential_ref"))
             return {"source": "lifecycle", "cursor": str(index + 1)}
         if action in LAUNCHES and row.get("event") == "launch_requested":
-            _, manifest = runs._manifest(root, run_id)
+            _, manifest = runs.read_manifest(root, run_id)
             same_request = row.get("request_id") == claim["request_id"]
             if not same_request:
                 expected_mode = "run" if action == "start" else action
@@ -182,8 +186,8 @@ def _run_effect(root: Path, claim: dict) -> dict | None:
             after = rows[index + 1:]
             next_launch = next((offset for offset, item in enumerate(after) if item.get("event") == "launch_requested"), len(after))
             recycled = next((item for item in after[:next_launch] if item.get("event") == "recycled"), None)
-            settled = runs._settled(root, run_id, row)
-            actual = runs._runner(root, run_id, directory, manifest, row) if not recycled and not settled else None
+            settled = runs.settled_state(root, run_id, row)
+            actual = runs.inspect_runner(root, run_id, directory, manifest, row) if not recycled and not settled else None
             actual_state = actual.get("State", {}) if actual else {}
             if not same_request:
                 # A fresh intent can adopt only the already-running identical operation, never a past exit.
@@ -287,7 +291,7 @@ def _no_dispatch(root: Path, claim: dict) -> bool:
     if action not in LAUNCHES:
         if action in SWITCH_ROWS:  # both write one lifecycle row naming the request, or nothing
             from live import runs
-            runs._manifest(root, target["run_id"])
+            runs.read_manifest(root, target["run_id"])
             event, field = SWITCH_ROWS[action]
             return not any(row.get("event") == event and row.get(field) == claim["request_id"]
                            for row in state.events(state.directory(root, target["run_id"]) / "lifecycle.jsonl"))
@@ -298,14 +302,14 @@ def _no_dispatch(root: Path, claim: dict) -> bool:
             from live import runs
             rows = state.events(directory / "lifecycle.jsonl")
             if any(row.get("event") == "prepared" and row.get("request_id") != claim["request_id"] for row in rows):
-                runs._manifest(root, target["run_id"])
+                runs.read_manifest(root, target["run_id"])
                 return True
             return False
         return False
     directory = state.directory(root, target["run_id"])
     # Require readable original inputs and complete existing evidence before deciding absence.
     from live import runs
-    runs._manifest(root, target["run_id"])
+    runs.read_manifest(root, target["run_id"])
     state.events(root / "account.jsonl")
     state.events(directory / "out" / "events.jsonl")
     rows = state.events(directory / "lifecycle.jsonl")
@@ -314,6 +318,7 @@ def _no_dispatch(root: Path, claim: dict) -> bool:
 
 
 def recover_locked(root: Path, request_id: str) -> dict:
+    """Explicit control recovery only; it never calls an operation or accesses a venue."""
     claim = read_locked(root, request_id)
     if claim is None:
         # The same lock covers claiming and closing: a delayed dispatch cannot win after this.
@@ -341,15 +346,9 @@ def recover_locked(root: Path, request_id: str) -> dict:
     return view_locked(root, request_id)
 
 
-def recover(root: Path, request_id: str) -> dict:
-    """Explicit control recovery only; it never calls an operation or accesses a venue."""
-    with state.serialized(root) as root:
-        return recover_locked(root, request_id)
-
-
 def dispatch(root: Path, request_id: str, command: dict, operation: Callable[[Path, str], object], *,
              admit_new: Callable[[Path], None] | None = None, serialized=state.serialized) -> dict:
-    """Claim and execute once under the original root lock, returning no persisted result copy."""
+    """Claim and execute once under the original root lock; returns the request's view, never the operation's result."""
     command = _canonical(command)
     _path(root, request_id)
     with serialized(root) as root:
@@ -374,7 +373,7 @@ def dispatch(root: Path, request_id: str, command: dict, operation: Callable[[Pa
         state.write_new(_path(root, request_id), state.encode({"event": "claimed", "observed_ns": time.time_ns(),
                                                              "command": command}))
         try:
-            result = operation(root, request_id)
+            operation(root, request_id)
         except Exception as exc:
             # A switch writes one lifecycle row or nothing: with none written, any failure of one is a refusal, so it
             # never leaves an unknown outcome that blocks the run's later restarts.
@@ -392,4 +391,4 @@ def dispatch(root: Path, request_id: str, command: dict, operation: Callable[[Pa
         if command["action"] == "maintain":
             # A read/maintenance command can successfully inspect an already unchanged run.
             _append(_path(root, request_id), "observed", code="LIVE_REQUEST_OBSERVED")
-        return {"request": view_locked(root, request_id), "result": result}
+        return {"request": view_locked(root, request_id)}

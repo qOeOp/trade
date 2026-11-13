@@ -41,7 +41,7 @@ class KeyLimitsTests(unittest.TestCase):
         return caught.exception
 
     def test_a_key_without_withdrawals_and_with_an_ip_restriction_passes_silently(self):
-        self.assertEqual(self.limits(ALLOWED), [])
+        self.assertIsNone(self.limits(ALLOWED))
         time, read = self.seen
         self.assertEqual(time.full_url, "https://api.binance.com/api/v3/time")
         self.assertTrue(read.full_url.startswith("https://api.binance.com/sapi/v1/account/apiRestrictions?"))
@@ -54,7 +54,7 @@ class KeyLimitsTests(unittest.TestCase):
     def test_every_run_needs_an_ip_restriction(self):
         # The user, 2026-11-13: a timed run too, not only one with no duration.
         self.assertEqual(self.refused({**ALLOWED, "ipRestrict": False}).code, "LIVE_KEY_IP_UNRESTRICTED")
-        self.assertEqual(self.limits(ALLOWED), [])
+        self.assertIsNone(self.limits(ALLOWED))
 
     def test_a_key_that_can_withdraw_is_refused(self):
         self.assertEqual(self.refused({**ALLOWED, "enableWithdrawals": True}).code, "LIVE_KEY_WITHDRAWAL")

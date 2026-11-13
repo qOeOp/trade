@@ -39,10 +39,10 @@ def reading(fixture: LiveFixture, sample: dict) -> dict:
     for name in sample["files"]:
         (out / name).write_text("{}" if name == "armed.json" else "")
     container = {"State": sample["container"]}
-    with patch.object(runs, "_runner", return_value=container):
+    with patch.object(runs, "inspect_runner", return_value=container):
         view = runs.observe(fixture.root, fixture.run_id)
     return {"state": view["state"], "stop_reason": view["stop_reason"], "exit_code": view["exit_code"],
-            "starts_again": runs._interrupted(directory, runs._latest_launch(directory))}
+            "starts_again": runs._interrupted(directory, runs.latest_launch(directory))}
 
 
 class RunnerContractTests(LiveFixture):
