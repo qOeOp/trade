@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { pct, plural, ratio } from "../../lib/format";
+import { MISSING, pct, plural, ratio } from "../../lib/format";
 import type { HistoryCell, HistoryLine, HistoryRow } from "../../lib/historyApi";
 import { cellAt, columns, meetsBoth, noEdge, ordered, RETURN_RANGES, returnStep, type Column, type Metric, type Order } from "../../model/history";
 import { useHistory } from "../../state/history";
@@ -55,7 +55,7 @@ function tip(cell: HistoryCell, row: HistoryRow, column: Column, shortDays: numb
 function Cell({ cell, row, column, line, metric, shortDays }: { cell: HistoryCell | null; row: HistoryRow; column: Column; line: HistoryLine; metric: Metric; shortDays: number }) {
   const base = "h-7 min-w-[4.75rem] px-1.5 text-center tabular-nums";
   if (!cell) return <td className={`${base} text-fg-ghost`}><Tip content={column.kind === "forward" ? "No forward part: the holdout reaches the market's end"
-    : column.kind === "year" ? "No run this year: the contracts were not listed, or the year is in another segment" : "No run"}><span>–</span></Tip></td>;
+    : column.kind === "year" ? "No run this year: the contracts were not listed, or the year is in another segment" : "No run"}><span>{MISSING}</span></Tip></td>;
   const m = cell.measures, traded = !!m && m.cycles !== 0;
   const text = !m ? (cell.status === "invalid" ? "Invalid" : "Running") : !traded ? "No trades" : shown(metric, m);
   return (
@@ -69,7 +69,7 @@ function Cell({ cell, row, column, line, metric, shortDays }: { cell: HistoryCel
 }
 
 const Verdict = ({ ok, tip: why }: { ok: boolean | null | undefined; tip?: ReactNode }) => {
-  const body = <span className={ok === true ? "text-meets-fg" : ok === false ? "text-misses-fg" : "text-fg-faint"}>{ok === true ? "Meets" : ok === false ? "Misses" : "–"}</span>;
+  const body = <span className={ok === true ? "text-meets-fg" : ok === false ? "text-misses-fg" : "text-fg-faint"}>{ok === true ? "Meets" : ok === false ? "Misses" : MISSING}</span>;
   return why ? <Tip content={why}>{body}</Tip> : body;
 };
 
@@ -83,7 +83,7 @@ function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
     <>
       <td className={td}>{veto.whole_years}</td>
       <td className={td}>{veto.profitable_years}</td>
-      <td className={td}>{veto.years_meeting_targets ?? "–"}</td>
+      <td className={td}>{veto.years_meeting_targets ?? MISSING}</td>
       <td className={td}>{pct(veto.median_annual_return)}</td>
       <td className={td}>{pct(veto.worst_annual_return)}</td>
       <td className={td}>{pct(veto.worst_mark_max_drawdown)}</td>
@@ -92,7 +92,7 @@ function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
       <td className={`${td} font-semibold`}>
         <Verdict ok={s.meets_targets} tip={s.judged_on === "holdout" ? "On the holdout alone: no whole veto year counts" : s.judged_on ? "On the veto years and the holdout" : "Nothing countable to judge"} />
         {s.meets_targets && <Tip content={`The holdout's deflated Sharpe with ${line.participants} participants as the trials: the probability its Sharpe beats the best of that many by luck`}>
-          <span className="ml-2 font-normal text-fg-muted">DSR {dsr == null ? "–" : dsr.toFixed(2)}</span></Tip>}
+          <span className="ml-2 font-normal text-fg-muted">DSR {dsr == null ? MISSING : dsr.toFixed(2)}</span></Tip>}
       </td>
     </>
   );

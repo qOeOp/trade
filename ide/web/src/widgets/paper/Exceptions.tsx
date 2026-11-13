@@ -3,9 +3,8 @@ import { symbolOf, type RuntimeFailure } from "../../lib/paperApi";
 import { Icon } from "../../icons/Icon";
 import { TextButton } from "../../components/TextButton";
 import { openSource } from "../../state/editors";
+import { CELL, HEAD } from "./table";
 
-const CELL = "h-(--form-h) whitespace-nowrap px-3 border-t border-line";
-const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint";
 // The chevron's gutter, as Events draws it: text starts 36px in, the traceback under it.
 const GUTTER = "w-6 pl-3 pr-0";
 

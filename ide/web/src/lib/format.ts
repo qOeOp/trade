@@ -38,6 +38,8 @@ export const change = (v?: number | null, digits = 2) => {
   const s = (+v.toFixed(digits) || 0).toFixed(digits);
   return minus(`${+s > 0 ? "+" : ""}${s}%`);
 };
+/** A fraction as a signed percent: 0.0241 is +2.41%, −0.008 is −0.80%; zero unsigned. */
+export const signedPct = (v?: number | null, digits = 2) => change(v == null ? null : v * 100, digits);
 /** A funding rate (a fraction per period) in percent to four places: 0.0100%. */
 export const funding = (v?: number | null) => (v == null ? MISSING : minus(`${(+(v * 100).toFixed(4) || 0).toFixed(4)}%`));
 /** Whether a run of text without spaces is an identifier shown as a copyable chip: a path or URL, or a hash or

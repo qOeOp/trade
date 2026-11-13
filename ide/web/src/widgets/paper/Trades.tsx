@@ -1,26 +1,32 @@
 import { dateTime } from "../../lib/time";
 import { useTimeZone } from "../../state/timeZone";
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { fixed, precisions, signed, type Precision } from "../../lib/paperApi";
-import { MISSING } from "../../lib/format";
+import { duration, MISSING } from "../../lib/format";
 import { observedCloses, stoppedPositions } from "../../model/stoppedPositions";
-import { holdings, span, trades, type Closed } from "../../model/trades";
+import { holdings, trades, type Closed } from "../../model/trades";
 import { useNow } from "../../components/hooks/useNow";
 import { useAtom } from "../../state/atom";
 import { pickedTrade, type Stream } from "../../state/paperStream";
 import { pnlClass } from "../../theme/roles";
+import { CELL, DETAIL, HEAD, usePickedScroll } from "./table";
 
 const HOW: Record<Closed["how"], string> = { stop: "Stop", target: "Target", other: "Other" };
-// Figures sit right, words left. Size and how a trade closed give way first when the page is narrow;
-// the contract column goes when one contract shows.
-const DETAIL = "@max-[1120px]/page:hidden";
-const CELL = "h-(--form-h) whitespace-nowrap px-3 border-t border-line";
-const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint";
+// Size and how a trade closed give way first when the page is narrow (table.ts); the contract column goes
+// when one contract shows.
+
+const mine = <T extends { symbol: string }>(rows: readonly T[], only: string | null) => (only ? rows.filter((r) => r.symbol === only) : rows);
+/** The run's closed trades (`done`) and the positions its stop left open (`ended`), of the contract `only`
+ *  (every contract when null): the list below and the count in the window's header. */
+export function useTradeRows(s: Stream, only: string | null) {
+  const done = useMemo(() => trades(s.lines), [s.lines]);
+  const ended = useMemo(() => stoppedPositions(s.lines, observedCloses(s.bars, s.closes), s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : null), [s.lines, s.bars, s.closes, s.seal]);
+  return { done: mine(done, only), ended: mine(ended, only) };
+}
 
 type Cell = ReactNode | [ReactNode, string];
 function Row({ cells, open = false, picked = false }: { cells: (Cell | null)[]; open?: boolean; picked?: boolean }) {
-  const ref = useRef<HTMLTableRowElement>(null);
-  useEffect(() => { if (picked) ref.current?.scrollIntoView({ block: "nearest" }); }, [picked]);
+  const ref = usePickedScroll<HTMLTableRowElement>(picked);
   return (
     <tr ref={ref} data-selected={picked ? "" : undefined} className={open ? "bg-island-alt" : "transition-colors hover:bg-row-hover"}>
       {cells.filter((c) => c !== null).map((c, i) => { const [body, extra] = Array.isArray(c) ? c : [c, ""]; return <td key={i} className={`${CELL} ${extra.includes("text-left") ? "" : "text-right"} ${extra}`}>{body}</td>; })}
@@ -38,10 +44,8 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
   const picked = useAtom(pickedTrade);
   const digits = useMemo(() => precisions(s.lines), [s.lines]);
   const book = useMemo(() => holdings(s.lines, s.state?.positions ?? null, s.state?.orders ?? [], !!s.seal), [s.lines, s.state, s.seal]);
-  const stopped = useMemo(() => stoppedPositions(s.lines, observedCloses(s.bars, s.closes), s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : null), [s.lines, s.bars, s.closes, s.seal]);
-  const closedList = useMemo(() => trades(s.lines), [s.lines]);
-  const mine = <T extends { symbol: string }>(rows: readonly T[]) => (only ? rows.filter((r) => r.symbol === only) : rows);
-  const open = mine(book.open), pending = mine(book.pending), done = mine(closedList), ended = mine(stopped);
+  const { done, ended } = useTradeRows(s, only);
+  const open = mine(book.open, only), pending = mine(book.pending, only);
   const of = (symbol: string): Precision => digits.get(symbol) ?? { price: -1, size: -1 };
   const end = s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : now;
   if (!open.length && !pending.length && !done.length && !ended.length) {
@@ -67,7 +71,7 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
             [<><Faint>mark </Faint>{fixed(o.mark, p.price) ?? MISSING}</>, ""],
             [<>{stop && <><Faint>stop </Faint>{fixed(stop.price, p.price)}</>}{stop && target && <Faint> · </Faint>}{target && <><Faint>target </Faint>{fixed(target.price, p.price)}</>}
               {!stop && !target && <span className="text-misses-fg">no protection</span>}</>, `text-left ${DETAIL}`],
-            o.since ? span(end - o.since) : MISSING, [signed(o.pnl), pnlClass(o.pnl)], ["holding", "text-fg-muted"],
+            o.since ? duration(end - o.since) : MISSING, [signed(o.pnl), pnlClass(o.pnl)], ["holding", "text-fg-muted"],
           ]} />;
         })}
         {pending.map((w) => (
@@ -81,7 +85,7 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
           return <Row key={`stopped:${t.id}`} cells={[
             contract(t.symbol), side(t.long), [fixed(t.quantity, p.size), DETAIL], fixed(t.entry, p.price) ?? MISSING,
             [<span title={t.observed === null ? "No price observed after entry" : dateTime(t.observed, zone)}><Faint>last </Faint>{fixed(t.last, p.price) ?? MISSING}</span>, ""],
-            [<Faint>No closing fill</Faint>, `text-left ${DETAIL}`], t.opened ? span(t.stopped - t.opened) : MISSING,
+            [<Faint>No closing fill</Faint>, `text-left ${DETAIL}`], t.opened ? duration(t.stopped - t.opened) : MISSING,
             [signed(t.pnl), pnlClass(t.pnl)], [<span title={dateTime(t.stopped, zone)}>At stop · {dateTime(t.stopped, zone)}</span>, "text-fg-muted"],
           ]} />;
         })}
@@ -89,7 +93,7 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
           const p = of(t.symbol);
           return <Row key={t.id} picked={t.id === picked} cells={[
             contract(t.symbol), side(t.long), [fixed(t.quantity, p.size), DETAIL], fixed(t.entry, p.price) ?? MISSING, fixed(t.exit, p.price) ?? MISSING,
-            [HOW[t.how], `text-left text-fg-muted ${DETAIL}`], t.opened ? span(t.closed - t.opened) : MISSING, [signed(t.pnl), pnlClass(t.pnl)], [dateTime(t.closed, zone), "text-fg-muted"],
+            [HOW[t.how], `text-left text-fg-muted ${DETAIL}`], t.opened ? duration(t.closed - t.opened) : MISSING, [signed(t.pnl), pnlClass(t.pnl)], [dateTime(t.closed, zone), "text-fg-muted"],
           ]} />;
         })}
       </tbody>

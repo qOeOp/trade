@@ -9,7 +9,8 @@
 // last. Over the line, each stretch a chain of runs was offline or no run ran (downLook.ts), opaque the
 // pane's height, so nothing drawn from the series runs across it and the line simply stops either side of
 // it; only words (the notes' names, the stretches' names) and the closes' arrows draw over it.
-import { DAY_S, FEW, dayBars, drawdownRows, frameOf, sideTrack, span, type DayBar, type Frame } from "./equityBands";
+import { DAY_S } from "../../lib/time";
+import { FEW, dayBars, drawdownRows, frameOf, sideTrack, span, type DayBar, type Frame } from "./equityBands";
 import type { Leaning } from "../../model/held";
 import type { Restart } from "../../model/paper";
 import { downsOf, downTags, drawDown, tagged, widened, type Down, type DownLook } from "./downLook";

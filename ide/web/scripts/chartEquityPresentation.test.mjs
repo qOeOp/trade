@@ -10,7 +10,7 @@ const run = { paper_id: 777, live: { final_equity_usdt: "9876.54" } };
 let shown, stream, moved = true;
 const empty = () => null;
 const fixtures = {
-  "components/CoinMenu": { CoinChip: empty, CoinMenu: empty },
+  "components/CoinMenu": { CoinChip: empty, CoinMenu: empty, coinGroups: () => [] },
   "components/Tabs": { Tabs: ({ label, items }) => createElement("div", { "aria-label": label },
     items.map(({ id, label, disabled }) => createElement("span", { key: id, "data-choice": id, "data-disabled": !!disabled }, label))) },
   "widgets/runs/RunStages": { RunStages: ({ backtest, paper }) => createElement("div", {
@@ -21,7 +21,7 @@ const fixtures = {
   "state/paperStream": { useStream: () => stream },
   "lib/paperApi": { amount: Number, fixed: (value, digits) => Number(value).toFixed(digits) },
   "model/chain": { chainEquity: (_chain, equity) => equity, chainReturn: () => 0.42, equityMoved: () => moved },
-  "components/RunTile": { signedPct: (value) => `${value * 100}%` },
+  "lib/format": { signedPct: (value) => `${value * 100}%` },
   "theme/roles": { pnlClass: () => "" },
 };
 // Only the reading the switch shows is real; every other import is a fixture.

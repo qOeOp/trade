@@ -6,6 +6,7 @@ import { marketThrough, MISSING, plural } from "../../lib/format";
 import { TextButton } from "../../components/TextButton";
 import { Tip } from "../../components/Tip";
 import { FormButton } from "../../components/chat/Field";
+import { CELL, HEAD } from "./table";
 import { reconcile, type Cause, type Group, type OrderRow, type Reconciliation, type RowClass, type Stage } from "../../state/reconcile";
 
 const STAGE: Record<Stage, string> = { decision: "Order", fill: "Fill", fee: "Fee", funding: "Funding" };
@@ -14,8 +15,6 @@ const CAUSE: Record<Exclude<Cause, "consequence">, string> = {
   missing_bar: "a live bar was missing", late_bar: "a live bar arrived late", bar_mismatch: "a live bar differed from the archive",
   warmup: "the warm-up differed from the archive", contract_terms: "the contract terms or fee rates differed", window_end: "at the stop", unexplained: "unexplained" };
 const ROLE: Record<string, string> = { entry: "entry", stop: "stop", target: "target" };
-const CELL = "h-(--form-h) whitespace-nowrap px-3 border-t border-line";
-const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint";
 
 /** The head's right side on Reconciliation: the interval replayed (the last day of market data under the pointer),
  *  and "Replay again". */
@@ -97,11 +96,10 @@ function Prompt({ children, action, label }: { children: ReactNode; action?: () 
  *  warm-up, the contract terms or fee rates, the stop, or none of these, which for something only the replay did
  *  marks a look-ahead suspect. Once a contract's paths part, its later differences follow from the first and are
  *  grey. Differences are amber, suspects red. When nothing differs, the matching groups fold into one row. */
-export function Reconcile({ r, paperId, sealed, only, digits }: {
-  r: Reconciliation | null; paperId: number; sealed: boolean; only: string | null; digits: ReadonlyMap<string, Precision>;
+export function Reconcile({ r, paperId, only, digits }: {
+  r: Reconciliation | null; paperId: number; only: string | null; digits: ReadonlyMap<string, Precision>;
 }) {
   const [open, setOpen] = useState(false);
-  if (!sealed) return <Prompt>A run is compared with its replay once it is sealed: stop it, then replay it here.</Prompt>;
   if (!r || r.paper_id !== paperId) return <Prompt>Reading the run's reconciliation…</Prompt>;
   if (r.state === "none") return <Prompt action={() => void reconcile(paperId)} label="Replay and compare">Replay this run on the archived bars of the same interval, with the same source, image and warm-up, and compare every order. Nothing is recorded.</Prompt>;
   if (r.state === "reconciling") return <Prompt>Replaying on the archive… a run of an hour takes about half a minute.</Prompt>;

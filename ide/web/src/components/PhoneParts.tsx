@@ -6,6 +6,7 @@ import { fixed, signed } from "../lib/paperApi";
 import { Icon } from "../icons/Icon";
 import { pnlClass, textClass, wash, type DataRole } from "../theme/roles";
 import type { Held } from "../model/phoneRuns";
+import { MISSING, signedPct } from "../lib/format";
 
 /** A card that opens a page: the desktop's card surface, its chevron at the top right. */
 export function PhoneCard({ onClick, label, children }: { onClick: () => void; label: string; children: ReactNode }) {
@@ -20,7 +21,7 @@ export function PhoneCard({ onClick, label, children }: { onClick: () => void; l
 
 /** An amount as the equity reading shows it: the whole part large, cents and the unit faint. */
 export function Amount({ value, size = "large" }: { value: number | null; size?: "large" | "medium" }) {
-  const [whole = "–", cents = ""] = (value === null ? "" : fixed(value, 2) ?? "").split(".");
+  const [whole = MISSING, cents = ""] = (value === null ? "" : fixed(value, 2) ?? "").split(".");
   return (
     <span className="whitespace-nowrap font-semibold tabular-nums leading-none tracking-tighter" style={{ fontSize: size === "large" ? 34 : 24 }}>
       {whole}{cents && <span className="text-fg-faint">.{cents}</span>}
@@ -32,7 +33,7 @@ export function Amount({ value, size = "large" }: { value: number | null; size?:
 /** A change in a capsule tinted in profit's or loss's colour: the amount and the percent, or either. */
 export function Change({ amount = null, ratio = null }: { amount?: number | null; ratio?: number | null }) {
   const n = ratio ?? amount, role: DataRole | null = n == null || n === 0 ? null : n > 0 ? "meets" : "fail";
-  const pct = ratio == null ? null : `${ratio > 0 ? "+" : ratio < 0 ? "−" : ""}${Math.abs(ratio * 100).toFixed(2)}%`;
+  const pct = ratio == null ? null : signedPct(ratio);
   return (
     <span className={`inline-flex h-6 items-center gap-1.5 rounded-badge px-1.5 text-dense tabular-nums ${pnlClass(n)}`}
           style={{ background: role ? wash(role, 14) : undefined }}>
@@ -60,14 +61,14 @@ export const PhoneHeading = ({ title, aside }: { title: string; aside?: ReactNod
 );
 
 /** A side in its colour: Long and Buy in profit's, Short and Sell in loss's. */
-export const Side = ({ long, word }: { long: boolean | null; word?: string }) => long === null ? <span className="text-fg-faint">–</span>
+export const Side = ({ long, word }: { long: boolean | null; word?: string }) => long === null ? <span className="text-fg-faint">{MISSING}</span>
   : <span className={long ? "text-pnl-up" : "text-pnl-down"}>{word ?? (long ? "Long" : "Short")}</span>;
 
 /** A held position on one line: the contract, its side, size and entry, its open profit at the right. */
 export function HeldLine({ held }: { held: Held }) {
   return (
     <span className="flex items-baseline gap-2 text-dense tabular-nums">
-      <span className="min-w-0 truncate"><span className="font-semibold">{held.symbol}</span> <Side long={held.long} /> {fixed(held.qty)} @ {fixed(held.entry) ?? "–"}</span>
+      <span className="min-w-0 truncate"><span className="font-semibold">{held.symbol}</span> <Side long={held.long} /> {fixed(held.qty)} @ {fixed(held.entry) ?? MISSING}</span>
       {held.pnl != null && <span className={`ml-auto shrink-0 ${pnlClass(held.pnl)}`}>{signed(held.pnl)}</span>}
     </span>
   );

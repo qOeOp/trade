@@ -7,6 +7,7 @@ import type { TimeZone } from "../../lib/time";
 // the pointer the cycle's side, result, times, fees, funding and how it was closed.
 import type { IChartApi, IPrimitivePaneView, ISeriesPrimitive, Logical, SeriesAttachedParameter, Time } from "lightweight-charts";
 import { fixed, signed } from "../../lib/paperApi";
+import { lastAtOrBefore } from "../../lib/search";
 import type { Cycle } from "../../model/backtest";
 import { orderType } from "../../model/trades";
 import type { Tip } from "./candleEvents";
@@ -18,14 +19,6 @@ export type CycleLook = { up: string; down: string; upText: string; downText: st
 type Placed = { c: Cycle; l: number; r: number };
 
 const PAD = 4;  // px: the band's inset from the strip's top and foot
-
-/** The index of the last of `times` (s) at or before `t`; -1 when none is. */
-function at(times: readonly number[], t: number): number {
-  let lo = 0, hi = times.length - 1;
-  if (!times.length || times[0]! > t) return -1;
-  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (times[mid]! <= t) lo = mid; else hi = mid - 1; }
-  return lo;
-}
 
 export class CycleBand implements ISeriesPrimitive<Time> {
   private chart: IChartApi | null = null;
@@ -88,8 +81,9 @@ export class CycleBand implements ISeriesPrimitive<Time> {
     const time = this.chart?.timeScale(), all = this.times();
     if (!time || !all.length) return [];
     const half = spacing(time) / 2, width = time.width(), x = (i: number) => time.logicalToCoordinate(i as Logical);
+    const at = (t: number) => lastAtOrBefore(all.length, (i) => all[i]!, t);
     return this.cycles.flatMap((c) => {
-      const a = at(all, c.opened / 1000), b = at(all, c.closed / 1000), l = a < 0 ? null : x(a), r = b < 0 ? null : x(b);
+      const a = at(c.opened / 1000), b = at(c.closed / 1000), l = a < 0 ? null : x(a), r = b < 0 ? null : x(b);
       return l === null || r === null || r + half < 0 || l - half > width ? [] : [{ c, l: l - half, r: r + half }];
     });
   }

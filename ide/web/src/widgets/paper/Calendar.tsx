@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { pct } from "../../lib/format";
 import { days, utcDay, type Fill } from "../../model/paper";
 import type { Account } from "../../model/account";
+import { START } from "../../model/chain";
 import { IconButton } from "../../components/IconButton";
 import { Section } from "../../components/Section";
 import { Tip } from "../../components/Tip";
@@ -35,7 +36,7 @@ export function Calendar({ a, fills, stage }: { a: Account | null; fills: readon
   const month = useAtom(calendarMonth);
   const picked = useAtom(pickedDay);
   const { list, months } = useMemo(() => {
-    const list = days(a?.path ?? [], a?.starting ?? 100_000, fills ?? []);
+    const list = days(a?.path ?? [], a?.starting ?? START, fills ?? []);
     const months = a?.start == null ? [] : [...new Set([utcDay(a.start).slice(0, 7), ...list.map((d) => d.day.slice(0, 7)), utcDay(a.end - 1).slice(0, 7)])].sort();  // the end is exclusive: a window to midnight ends the day before
     return { list, months };
   }, [a?.path, a?.start, a?.end, fills]);

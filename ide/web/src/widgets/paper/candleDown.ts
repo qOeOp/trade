@@ -4,6 +4,7 @@
 // spacing shown, so the cover lies over blanks only. The chart then counts its places on the time scale
 // (`times`), blanks included, where it counted candles.
 import { candleOpen, type Candle } from "../../lib/bars";
+import { lastAtOrBefore } from "../../lib/search";
 import type { Restart } from "../../model/paper";
 import { downSlots, downsOf, MIN, type Down } from "./downLook";
 
@@ -28,7 +29,6 @@ export function onScale(data: readonly Candle[], downs: readonly Down[], minutes
 
 /** The candle opening at `t` (s), -1 for a blank. */
 export function candleAt(data: readonly Candle[], t: number): number {
-  let lo = 0, hi = data.length - 1;
-  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (data[mid]!.time <= t) lo = mid; else hi = mid - 1; }
-  return data[lo]?.time === t ? lo : -1;
+  const i = lastAtOrBefore(data.length, (k) => data[k]!.time, t);
+  return data[i]?.time === t ? i : -1;
 }

@@ -1,4 +1,4 @@
-import { dateTime } from "../../lib/time";
+import { DAY_S, dateTime, dayStart } from "../../lib/time";
 import { useTimeZone } from "../../state/timeZone";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CrosshairMode, LineStyle, type UTCTimestamp } from "lightweight-charts";
@@ -13,16 +13,16 @@ import { EquityLegend } from "./EquityLegend";
 import { ChartTip } from "./ChartTip";
 import { FEW } from "./equityBands";
 import type { Close } from "./equityCloses";
+import { START } from "../../model/chain";
 import type { Leaning } from "../../model/held";
 import { resample, STEPS } from "./equityResolution";
 import { covered, firstView, lastWhere, stepOver, type Line } from "./equityStretches";
 import { glide } from "./glide";
 import type { Year } from "./equityYears";
 import { showStretch, stretchKey } from "./stretchKeys";
-import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
+import { FIRST_SHARE, restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 
-const at = (t: number) => t as UTCTimestamp, dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000;
-const views = new Map<string, { step: number; from: number; to: number }>();  // the view each set of stretches had last, for the session
+const at = (t: number) => t as UTCTimestamp, views = new Map<string, { step: number; from: number; to: number }>();  // the view each set of stretches had last, for the session
 
 /** The account over the version's stretches (equityStretches.ts: its backtest a point a day, its paper
  *  runs a point a minute) as one line, after vibe-trading's daily-returns chart: equity as its indigo hero line; the pace the line's minimum annual
@@ -53,7 +53,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
   const [hover, setHover] = useState<number | null>(null), [off, setOff] = useState<Down | null>(null), [named, setNamed] = useState<number | null>(null);
   const points = useMemo(() => resample(minutes, step), [minutes, step]);
   const worst = useMemo(() => minutes.reduce((w, p) => Math.max(w, 1 - p.value / p.peak), sealed), [minutes, sealed]);
-  const shown = placed.findIndex((p) => p.selected), own = placed[shown], starting = placed[0]?.starting ?? 100_000;
+  const shown = placed.findIndex((p) => p.selected), own = placed[shown], starting = placed[0]?.starting ?? START;
   const many = !!own && own.to - own.from >= FEW, holds = useAtom(holdShown), kind = own?.tested ? "backtest" : "paper", hold = holds[kind];
   const holdable = useMemo(() => [...readings.values()].some((r) => r.hold != null), [readings]);
   // The backtest's as sealed, at bar closes; a paper stretch's from its minutes.
@@ -136,7 +136,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
       fitted.current = layout;
       refit.current = true;
       const width = a.chart.timeScale().width() || host.current!.clientWidth;
-      const first = saved?.step ?? (own ? stepOver(minutes, own.from, own.to, width, 0, own.first > 0 ? 100 / 85 : 1) : stepOver(minutes, -Infinity, Infinity, width, 0));
+      const first = saved?.step ?? (own ? stepOver(minutes, own.from, own.to, width, 0, own.first > 0 ? 1 / FIRST_SHARE : 1) : stepOver(minutes, -Infinity, Infinity, width, 0));
       if (first !== step) { stepRef.current = first; setStep(first); return; }
     }
     a.equity.setData(points.map((p) => (p.down ? { time: at(p.time) } : { time: at(p.time), value: p.value })));
@@ -147,7 +147,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
       refit.current = false; keep.current = null;
       const view = firstView(points, shown);
       // Or the day picked before there were points to glide on.
-      if (day) glide(time, { from: Math.max(points[0]!.time, dayStart(day)), to: Math.min(points.at(-1)!.time, dayStart(day) + 86_400) });
+      if (day) glide(time, { from: Math.max(points[0]!.time, dayStart(day)), to: Math.min(points.at(-1)!.time, dayStart(day) + DAY_S) });
       else if (saved) time.setVisibleRange({ from: at(saved.from), to: at(saved.to) });
       else if (view) time.setVisibleLogicalRange({ from: view.from, to: view.to === points.length - 1 ? view.to + 6 : view.to });
       else time.fitContent();
@@ -174,7 +174,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
   useEffect(() => {
     const a = api.current;
     if (!a || !day || !minutes.length || !a.equity.data().length) return;
-    glide(a.chart.timeScale(), { from: Math.max(minutes[0]!.time, dayStart(day)), to: Math.min(minutes.at(-1)!.time, dayStart(day) + 86_400) });
+    glide(a.chart.timeScale(), { from: Math.max(minutes[0]!.time, dayStart(day)), to: Math.min(minutes.at(-1)!.time, dayStart(day) + DAY_S) });
   }, [day, minutes.length > 0]);
 
   // Under the pointer its point, else the shown stretch's last.

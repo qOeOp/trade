@@ -1,4 +1,4 @@
-import { dateTime } from "../../lib/time";
+import { DAY_S, dateTime } from "../../lib/time";
 import { useTimeZone } from "../../state/timeZone";
 import type { ReactNode } from "react";
 import { fixed } from "../../lib/paperApi";
@@ -12,7 +12,8 @@ import type { EquityPoint } from "./equityLayers";
 import type { Placed } from "./equityStretches";
 
 const number = (n: number, d: number) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }).replace(/^-/, "−");
-const signedPct = (r: number) => `${r >= 0 ? "+" : "−"}${number(Math.abs(r) * 100, 2)}%`;
+// Signed from the rounded figure, as lib/format's: what rounds to zero is 0.00%, unsigned.
+const signedPct = (r: number) => { const v = +(r * 100).toFixed(2) || 0; return `${v > 0 ? "+" : ""}${number(v, 2)}%`; };
 const Value = ({ name, children }: { name: string; children: ReactNode }) => <span><span className="mr-1 text-fg-faint">{name}</span>{children}</span>;
 
 /** A stretch in words, for its name under the pointer: its dates, its own return and deepest drawdown. */
@@ -52,7 +53,7 @@ export function EquityLegend({ name, point, stretch, named, minutes, offline, re
           : offline ? <><span className="text-fg">{offline.label}</span><span className="whitespace-normal break-words">· {downRow(offline, zone)}</span></>
           : point && <>
             {name && <span>{name}</span>}
-            <span className="text-fg-faint" title={`${point.day ? "UTC daily interval · " : ""}${dateTime(point.time * 1000, zone, "minute")} → ${dateTime((point.time + (point.day ? 86_400 : step)) * 1000, zone, "minute")}`}>{during(point.time, point.day ? 86_400 : step, zone)}</span>
+            <span className="text-fg-faint" title={`${point.day ? "UTC daily interval · " : ""}${dateTime(point.time * 1000, zone, "minute")} → ${dateTime((point.time + (point.day ? DAY_S : step)) * 1000, zone, "minute")}`}>{during(point.time, point.day ? DAY_S : step, zone)}</span>
             <span className="font-medium">{stretch && stretch.scale !== 1 && <span className="mr-1 font-normal text-fg-faint">normalized</span>}{fixed(point.value, 2)}</span>
             {own !== null && stretch && (stretch.scale !== 1
               ? <Value name="paper">{fixed(own, 2)} <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span></Value>

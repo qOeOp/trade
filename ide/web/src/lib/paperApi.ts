@@ -150,6 +150,10 @@ export const fixed = (value: unknown, digits = -1): string | null => {
   if (!f) numbers.set(digits, (f = new Intl.NumberFormat("en-US", digits < 0 ? { maximumFractionDigits: 8 } : { minimumFractionDigits: digits, maximumFractionDigits: digits })));
   return f.format(n);
 };
-/** An amount with its sign, a true minus and none on zero; a missing one as MISSING. */
-export const signed = (n: number | null, digits = 2) => (n == null ? MISSING : `${n > 0 ? "+" : n < 0 ? "−" : ""}${fixed(Math.abs(n), digits)}`);
+/** An amount with its sign, a true minus and none on what rounds to zero; a missing one as MISSING. */
+export const signed = (n: number | null, digits = 2) => {
+  if (n == null) return MISSING;
+  const r = digits < 0 ? n : +n.toFixed(digits) || 0;
+  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${fixed(Math.abs(r), digits)}`;
+};
 const numbers = new Map<number, Intl.NumberFormat>();  // one formatter a number of decimals, kept

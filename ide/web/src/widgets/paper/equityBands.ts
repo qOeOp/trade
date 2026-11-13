@@ -5,14 +5,15 @@
 // stronger, while three days or more are in view. All drawn in device pixels with snapped edges, from
 // the visible points thinned to each pixel column's first, lowest, highest and last (frameOf).
 import type { IChartApi, IPrimitivePaneRenderer, Logical } from "lightweight-charts";
+import { DAY_S } from "../../lib/time";
 import type { Leaning } from "../../model/held";
 import type { EquityLook, EquityPoint } from "./equityLayers";
+import { perColumn, xAt } from "./equityPlace";
 
 export type Frame = { c: CanvasRenderingContext2D; hr: number; vr: number; w: number; h: number; keep: number[]; xs: Map<number, number>; x: (t: number) => number };
 export type DayBar = { from: number; ret: number };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 
-export const DAY_S = 86_400;
 export const CEILING = 0.2, BARS = 0.12;   // the drawdown band and the tallest day's bar, as shares of the pane's height
 export const FEW = 2 * DAY_S;              // a run shorter than two days has no day bars
 const PITCH = 3, DOT = 1;                  // px: the drawdown dots' pitch (both ways) and size
@@ -27,31 +28,11 @@ export function frameOf({ context: c, horizontalPixelRatio: hr, verticalPixelRat
   const time = chart.timeScale(), range = time.getVisibleLogicalRange();
   if (points.length < 2 || !range) return null;
   const at = (i: number) => (time.logicalToCoordinate(i as Logical) ?? Number.NaN) * hr;
-  const from = Math.max(0, Math.floor(range.from) - 1), to = Math.min(points.length - 1, Math.ceil(range.to) + 1);
-  const xs = new Map<number, number>(), keep: number[] = [];
-  let column = Number.NaN, bucket: number[] = [];
-  const flush = () => {
-    if (!bucket.length) return;
-    let lo = bucket[0]!, hi = bucket[0]!;
-    for (const i of bucket) { if (points[i]!.value < points[lo]!.value) lo = i; if (points[i]!.value > points[hi]!.value) hi = i; }
-    keep.push(...[...new Set([bucket[0]!, lo, hi, bucket.at(-1)!])].sort((a, b) => a - b));
-    bucket = [];
-  };
-  for (let i = from; i <= to; i++) {
-    const x = at(i), col = Math.round(x);
-    xs.set(i, x);
-    if (col !== column) { flush(); column = col; }
-    bucket.push(i);
-  }
-  flush();
+  const from = Math.max(0, Math.floor(range.from) - 1), to = Math.min(points.length - 1, Math.ceil(range.to) + 1), xs = new Map<number, number>();
+  for (let i = from; i <= to; i++) xs.set(i, at(i));
+  const keep = perColumn(from, to, (i) => xs.get(i)!, (i) => points[i]!.value);
   // A time's x between the points either side of it, so day edges need not fall on a point.
-  const x = (t: number) => {
-    let lo = 0, hi = points.length - 1;
-    if (t <= points[lo]!.time) return at(lo);
-    if (t >= points[hi]!.time) return at(hi);
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (points[mid]!.time <= t) lo = mid; else hi = mid; }
-    return at(lo) + ((t - points[lo]!.time) / (points[hi]!.time - points[lo]!.time)) * (at(hi) - at(lo));
-  };
+  const x = (t: number) => (xAt(points, time, Math.max(t, points[0]!.time)) ?? Number.NaN) * hr;
   return { c, hr, vr, w: bitmapSize.width, h: bitmapSize.height, keep, xs, x };
 }
 

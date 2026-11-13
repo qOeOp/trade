@@ -2,7 +2,7 @@
 // runs. The page describes one stage at a time and one paper run of the version (a chain
 // of runs, chain.ts, standing as one); what the user picked wins while it still exists.
 import type { PaperRun } from "../lib/paperApi";
-import { ACTIVE, createdNs, latestOf } from "./chain";
+import { ACTIVE, chainStart, createdNs, latestOf } from "./chain";
 import type { Trial } from "./types";
 import type { Backtest } from "./backtest";
 import type { Stretch } from "./stretches";
@@ -16,7 +16,7 @@ export function chartHistory(stage: Drawn, stretches: readonly Stretch[], backte
   return stage === "backtest" ? { stretches: [], backtest } : { stretches, backtest: null };
 }
 
-const startedNs = (r: PaperRun) => r.seal?.started_ns ?? r.live?.started_ns ?? createdNs(r);
+const startedNs = (r: PaperRun) => chainStart([r]) ?? createdNs(r);
 
 /** A trial the backtest stage can draw: a research replay with economic evidence (others ran on no
  *  window or market day of this line's that the view holds). */

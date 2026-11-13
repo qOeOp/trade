@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { CoinChip, CoinMenu, type Coin, type CoinGroup } from "../../components/CoinMenu";
+import { CoinChip, CoinMenu, coinGroups, type Coin } from "../../components/CoinMenu";
 import { Tabs } from "../../components/Tabs";
 import { sideOf } from "../../model/liveChart";
 import type { LiveRun } from "../../model/liveTrading";
@@ -18,12 +18,9 @@ export function LiveSwitches({ run, view, symbol, onView, onSymbol }: {
   run: LiveRun; view: LiveView; symbol: string | null; onView: (view: LiveView) => void; onSymbol: (symbol: string) => void;
 }) {
   const reading = liveReading(run.equity), symbols = run.symbols ?? [];
-  const coinOf = (s: string): Coin => ({ symbol: s, side: sideOf(run, s) });
+  const side = (s: string) => sideOf(run, s), coinOf = (s: string): Coin => ({ symbol: s, side: side(s) });
   const traded = new Set((run.orders ?? []).filter((o) => o.event_type === "OrderFilled").map((o) => o.instrument_id));
-  const held = symbols.filter((s) => sideOf(run, s)), rest = symbols.filter((s) => !sideOf(run, s));
-  const groups: CoinGroup[] = [{ title: "Holding", list: held }, { title: "Traded", list: rest.filter((s) => traded.has(`${s}-PERP.BINANCE`)) },
-    { title: "Not traded", list: rest.filter((s) => !traded.has(`${s}-PERP.BINANCE`)) }]
-    .filter((g) => g.list.length).map((g) => ({ title: g.title, coins: g.list.map(coinOf) }));
+  const groups = coinGroups(symbols, side, (s) => traded.has(`${s}-PERP.BINANCE`));
   const after = view !== "coins" || !symbol ? undefined
     : symbols.length > 1 ? <CoinMenu groups={groups} coin={coinOf(symbol)} onPick={onSymbol} /> : <CoinChip coin={coinOf(symbol)} />;
   return <Tabs label="Chart" value={view} onChange={onView} items={[

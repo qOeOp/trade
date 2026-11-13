@@ -1,15 +1,15 @@
 // Where a moment falls on the equity chart: its x between the points drawn either side of it, and the
 // equity there, for the marks the chart's primitives put on its line.
 import type { ITimeScaleApi, Logical, Time } from "lightweight-charts";
+import { lastAtOrBefore } from "../../lib/search";
 import type { EquityPoint } from "./equityLayers";
 
 /** The pane x of time `t` (s), between the points either side of it. */
 export function xAt(pts: readonly EquityPoint[], time: ITimeScaleApi<Time>, t: number): number | null {
   if (pts.length < 2 || t < pts[0]!.time) return null;
-  let lo = 0, hi = pts.length - 1;
   const at = (i: number) => time.logicalToCoordinate(i as Logical) ?? Number.NaN;
-  if (t >= pts[hi]!.time) return at(hi);
-  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (pts[mid]!.time <= t) lo = mid; else hi = mid; }
+  if (t >= pts.at(-1)!.time) return at(pts.length - 1);
+  const lo = lastAtOrBefore(pts.length, (i) => pts[i]!.time, t), hi = lo + 1;
   // Between the two points' own places: the chart takes whole indexes only.
   return at(lo) + ((t - pts[lo]!.time) / (pts[hi]!.time - pts[lo]!.time)) * (at(hi) - at(lo));
 }
@@ -29,10 +29,7 @@ export function lineReach(pts: readonly EquityPoint[], time: ITimeScaleApi<Time>
 
 /** The equity at time `t`: the point's at or before it. */
 export function valueAt(pts: readonly EquityPoint[], t: number): number | null {
-  let lo = 0, hi = pts.length - 1;
-  if (!pts.length || t < pts[0]!.time) return null;
-  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (pts[mid]!.time <= t) lo = mid; else hi = mid - 1; }
-  return pts[lo]!.value;
+  return pts[lastAtOrBefore(pts.length, (i) => pts[i]!.time, t)]?.value ?? null;
 }
 
 /** Of the indexes `from` to `to` (those `use` takes), at most four per pixel column of `x` (device px): the

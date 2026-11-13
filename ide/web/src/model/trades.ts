@@ -1,7 +1,7 @@
 // The run's trading as the Positions window shows it: what it holds with the orders protecting each
 // position, entries still working, and the closed trades with how each ended.
 import { amount, symbolOf, type JournalLine, type OpenOrder, type OpenPosition } from "../lib/paperApi";
-import { eventMs, last, type Exit } from "./paper";
+import { eventMs, exitOf, last, orderKind, type Exit } from "./paper";
 
 type Working = { id: string; kind: Exit | "entry"; side: string; type: string; quantity: string; price: number | null };
 type Open = {
@@ -13,11 +13,7 @@ export type Closed = { id: string; symbol: string; long: boolean; quantity: numb
 const TYPE: Record<string, string> = { MARKET: "Market", LIMIT: "Limit", STOP_MARKET: "Stop market", STOP_LIMIT: "Stop limit", MARKET_IF_TOUCHED: "If touched", LIMIT_IF_TOUCHED: "Limit if touched" };
 /** STOP_MARKET → Stop market. */
 export const orderType = (raw: unknown) => TYPE[last(raw)] ?? last(raw);
-const kindOf = (o: OpenOrder): Working["kind"] => (last(o.type).includes("STOP") ? "stop" : o.reduce_only ? "target" : "entry");
-const working = (o: OpenOrder): Working => ({
-  id: o.client_order_id, kind: kindOf(o), side: last(o.side), type: orderType(o.type), quantity: o.quantity,
-  price: amount(kindOf(o) === "stop" ? o.trigger_price : o.price) ?? amount(o.price),
-});
+const working = (o: OpenOrder): Working => ({ id: o.client_order_id, ...orderKind(o), side: last(o.side), type: orderType(o.type), quantity: o.quantity });
 
 /** The latest PositionOpened time of a position id. */
 function openedAt(lines: readonly JournalLine[], positionId: unknown): number {
@@ -70,16 +66,10 @@ export function trades(lines: readonly JournalLine[]): Closed[] {
       id: `${String(l.position_id)}-${i}`, symbol: symbolOf(l.instrument_id), long: openingSide ? last(openingSide) === "BUY" : true,
       quantity: filled.get(closing) ?? 0, entry: amount(l.avg_px_open), exit: amount(l.avg_px_close), pnl: amount(l.realized_pnl),
       opened: opening, closed,
-      how: type.includes("STOP") ? "stop" as const : /LIMIT|TAKE_PROFIT/.test(type) ? "target" as const : "other" as const,
+      how: exitOf(type),
     };
   }).reverse();
   made.set(lines, found);
   return found;
 }
 const made = new WeakMap<readonly JournalLine[], Closed[]>();
-
-/** A duration as 2d 4h, 3h 12m or 45m. */
-export function span(ms: number): string {
-  const m = Math.max(0, Math.round(ms / 60_000)), h = Math.floor(m / 60), d = Math.floor(h / 24);
-  return d ? `${d}d ${h % 24}h` : h ? `${h}h ${m % 60}m` : `${m}m`;
-}

@@ -3,7 +3,7 @@
 // shows this beside it.
 import { clockSpan } from "../lib/format";
 import type { PaperRun } from "../lib/paperApi";
-import { ACTIVE, began, continues } from "./chain";
+import { ACTIVE, began, chainStart, continues } from "./chain";
 import { ending, type Ending } from "./ending";
 
 /** What makes runs one strategy: the version and the contracts it trades; a run with no version is its own. */
@@ -36,10 +36,7 @@ export const rowShows = (row: PaperRun, front: PaperRun | null, all: readonly Pa
   !!front && (row.paper_id === front.paper_id || (!strategyRows(all).some((r) => r.paper_id === front.paper_id) && strategyKey(row) === strategyKey(front)));
 
 /** When a run started and stopped (ms); a run that never started has neither. */
-export const startedMs = (run: PaperRun): number | null => {
-  const ns = run.seal?.started_ns ?? run.live?.started_ns ?? null;
-  return ns === null ? null : ns / 1e6;
-};
+export const startedMs = (run: PaperRun): number | null => { const ns = chainStart([run]); return ns === null ? null : ns / 1e6; };
 const stoppedMs = (run: PaperRun): number | null => (run.state === "sealed" && run.seal?.stopped_ns ? run.seal.stopped_ns / 1e6 : null);
 
 /** One step of a history: a run that started (`end` once sealed; a run that stopped before its first bar is a

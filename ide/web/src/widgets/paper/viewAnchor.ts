@@ -6,8 +6,12 @@
 // scale puts index i at width − (last + offset − i + ½)·spacing − 1 (Lightweight Charts' indexToCoordinate),
 // which both readings below solve.
 import type { ITimeScaleApi, Logical, Time } from "lightweight-charts";
+import { lastAtOrBefore } from "../../lib/search";
 
 const QUIET = 180;  // ms: the view counts as settled this long after it last moved with no pointer held
+/** The share of the pane a stretch's first view gives the shown stretch, from the right; the end of the one
+ *  before it takes the rest (candleStretches.ts, equityStretches.ts). */
+export const FIRST_SHARE = 0.85;
 
 /** Calls `settle` once the view has settled: QUIET ms after its last change while no pointer is held on
  *  `element` (a drag, a pinch or a press on an axis holds one), or on the next frame when `urgent()` says
@@ -58,8 +62,7 @@ export function timeAt(time: ITimeScaleApi<Time>, times: readonly number[], step
 export function restore(time: ITimeScaleApi<Time>, times: readonly number[], step: number, t: number, x: number, w: number): void {
   const n = times.length;
   if (!n) return;
-  let lo = 0, hi = n - 1;
-  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (times[mid]! <= t) lo = mid; else hi = mid - 1; }
+  const lo = Math.max(0, lastAtOrBefore(n, (i) => times[i]!, t));
   // Past either end the time runs on at the step; inside a gap it stops at the next point.
   const into = (t - times[lo]!) / step, at = lo + (lo < n - 1 && into > 0 ? Math.min(1, into) : into);
   // The chart applies a new spacing only at its next frame, so the spacing it will have is worked out here
