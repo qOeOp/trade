@@ -5,7 +5,8 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, dirname, resolve } from "node:path";
 
 const SRC = resolve(dirname(new URL(import.meta.url).pathname), "../src");
-const VALIDATED = ["#3871E1", "#4E9D6C", "#C28013", "#B0464F"];  // recommended, meets, misses, fail
+// recommended, meets, misses, fail, per theme (a single hex in tokens.css is both themes)
+const VALIDATED = { light: ["#3871E1", "#36956D", "#B87701", "#A63D47"], dark: ["#3871E1", "#4AA87F", "#BE880A", "#BE5354"] };
 const MAX_LINES = 200;
 // Which top-level folders a folder may import from (App and main may import anything).
 const MAY = {
@@ -92,8 +93,15 @@ for (const f of all.filter((x) => x.rel.endsWith(".css") && x.rel !== "theme/tok
   });
 }
 const tokens = TOKENS;
-const data = ["recommended", "meets", "misses", "fail"].map((r) => tokens.match(new RegExp(`--${r}:\\s*(#[0-9A-Fa-f]{6})`))?.[1]?.toUpperCase());
-if (data.join() !== VALIDATED.join()) failures.push(`theme/tokens.css  data roles ${data.join(",")} differ from the validated ${VALIDATED.join(",")}: revalidate and update both`);
+const HEX = "(#[0-9A-Fa-f]{6})";
+const data = ["recommended", "meets", "misses", "fail"].map((r) => {
+  const m = tokens.match(new RegExp(`--${r}:\\s*(?:${HEX}|light-dark\\(${HEX},\\s*${HEX}\\))\\s*;`));
+  return m ? [m[1] ?? m[2], m[1] ?? m[3]].map((h) => h.toUpperCase()) : [undefined, undefined];
+});
+for (const [i, theme] of ["light", "dark"].entries()) {
+  const got = data.map((d) => d[i]);
+  if (got.join() !== VALIDATED[theme].join()) failures.push(`theme/tokens.css  ${theme} data roles ${got.join(",")} differ from the validated ${VALIDATED[theme].join(",")}: revalidate and update both`);
+}
 
 if (failures.length) { console.error(`check-rules: ${failures.length} failure(s)\n  ${failures.join("\n  ")}`); process.exit(1); }
 console.log(`check-rules: ${code.length} source files pass`);

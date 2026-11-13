@@ -2,9 +2,9 @@
    steps named by role after Radix's twelve (1 frame, 2 island, 3 card, 5 inactive selection, 6
    separator, 7 control border, 8 strong border, 9 neutral solid, 11 secondary text, 12 text); state
    overlays are the text colour at low alpha, so they read on any surface. Selection is a translucent
-   slate blue, quieter than the primary button's blue; focus is IntelliJ's new-UI value (expUI_{light,dark}.theme.json). The four data hues are validated for
-   colour-vision deficiency on both island surfaces (dataviz validator, all pairs) and must stay equal to
-   the set checked by scripts/check-rules.mjs. Light first, dark second. Design: docs/plans/research-graph-design-spec.zh.md. */
+   slate blue, quieter than the primary button's blue; focus is IntelliJ's new-UI value (expUI_{light,dark}.theme.json). The four data hues are validated per theme
+   (dataviz validator, all pairs, on frame, island-alt and island: colour-vision separation, normal-vision
+   floor, at least 3:1) and must stay equal to the sets checked by scripts/check-rules.mjs. Light first, dark second. Design: docs/plans/research-graph-design-spec.zh.md. */
 :root { color-scheme: light dark; }
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
@@ -59,13 +59,14 @@
   --shadow-near: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.08), oklch(0 0 0 / 0.3));
   --shadow-far: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.1), oklch(0 0 0 / 0.36));
 
-  /* data: four hues, the same in both themes, for marks; as 11-12 px text each has its own pair, darker
+  /* data: four hues for marks, at least 3:1 on frame, island, island-alt and popup in each theme, stepped
+     per theme where one value cannot hold that; as 11-12 px text each has its own pair, darker
      in light and lighter in dark, at least 4.5:1 on frame, island, island-alt and popup and on a selected
      row over island, island-alt or popup in each theme */
   --recommended: #3871E1;
-  --meets: #4E9D6C;
-  --misses: #C28013;
-  --fail: #B0464F;
+  --meets: light-dark(#36956D, #4AA87F);
+  --misses: light-dark(#B87701, #BE880A);
+  --fail: light-dark(#A63D47, #BE5354);
   --recommended-fg: light-dark(#255DCB, #81ADFE);
   --meets-fg: light-dark(#1C7144, #6EBD8A);
   --misses-fg: light-dark(#8A5904, #E39F40);

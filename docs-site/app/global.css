@@ -56,10 +56,10 @@
   --shadow-far: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.1), oklch(0 0 0 / 0.36));
   --shadow-popup: 0 1px 2px var(--shadow-near), 0 6px 16px var(--shadow-far);
   --shadow-raised: 0 1px 2px var(--shadow-near);
-  /* the IDE's data hues, the same in both themes: a capability's verification tier takes them */
+  /* the IDE's data hues (ide/web/src/theme/tokens.css): a capability's verification tier takes them */
   --recommended: #3871E1;
-  --meets: #4E9D6C;
-  --misses: #C28013;
+  --meets: light-dark(#36956D, #4AA87F);
+  --misses: light-dark(#B87701, #BE880A);
   /* map edges: the IDE's walked-path grey */
   --edge-path: light-dark(oklch(0.64 var(--n-c) var(--n-h)), oklch(0.66 var(--n-c) var(--n-h)));
 

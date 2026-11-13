@@ -24,7 +24,7 @@
 
 | 方面 | 现在的规范 | 怎么强制 |
 |---|---|---|
-| 颜色 | oklch 角色 token；`light-dark()` 同时给亮暗两色；数据四色（recommended、meets、misses、fail）是验证过的固定值，用于标记；四色作 11–12 px 文字时各用自己的 `--*-fg`（亮色更深、暗色更浅，在 frame、island、island-alt、popup 四个表面及 island、island-alt、popup 上的选中行都至少 4.5:1），标记仍用验证过的四色 | `tokens.css` 以外不许写颜色字面量，`roles.ts` 以外不许写 `var(--…)`；数据四色改动要重新验证 |
+| 颜色 | oklch 角色 token；`light-dark()` 同时给亮暗两色；数据四色（recommended、meets、misses、fail）是逐主题验证过的固定值（色觉区分、正常视觉下限、在 frame、island、island-alt、popup 上都 ≥3:1），用于标记；四色作 11–12 px 文字时各用自己的 `--*-fg`（亮色更深、暗色更浅，在 frame、island、island-alt、popup 四个表面及 island、island-alt、popup 上的选中行都至少 4.5:1），标记仍用验证过的四色 | `tokens.css` 以外不许写颜色字面量，`roles.ts` 以外不许写 `var(--…)`；数据四色改动要重新验证 |
 | 字号 | 6 档：value 15、h1 18、h2 16、ui 13、dense 12、small 11（badge 11）；手机各大一档 | `.tsx` 里不许 `text-[…]`；`.css` 不查，`base.css` 有 `font-size: 11px`，`code.css` 有 `font-size: 12px` |
 | 圆角 | 5 档：island 10、popup 8、card 6、control 4、badge 3，外加 full | 不许 `rounded-[…]` |
 | 阴影 | popup 用 `--shadow-near` 与 `--shadow-far` 两层 | 颜色规则间接覆盖 |
