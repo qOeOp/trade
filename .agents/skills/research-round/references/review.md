@@ -10,7 +10,8 @@ versions and other lines. Never reconstruct counts or progress from memory. Comp
 those with economic evidence on the line's identity, whichever line ran them, not merely passed audits; runs of another
 identity are history, never ranked against it. Compare them all; `candidates` sets only the subjects: a recommendation
 names every candidate in it. Its body weighs the recommended version and each comparable candidate whose evidence
-or availability changed since the previous recommendation (every one at the first) on return, drawdown, Sharpe, win rate,
+or availability changed since the previous recommendation (at the first, every one in `candidates` and each
+other line's run the table marks non_dominated) on return, drawdown, Sharpe, win rate,
 costs, exposure, profit mechanism and uncertainty using replay report, naming measures and trials but
 never their numbers, which your message to the user gives under the reports' names; it cites the previous recommendation for
 the rest instead of restating it. Among versions that differ only in constants
