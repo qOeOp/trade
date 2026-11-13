@@ -122,7 +122,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
         with db.connect(ledger, "writer") as conn:
             trial_op = conn.one("SELECT op_id FROM trial WHERE trial_id = %s", (opened["trial_id"],))["op_id"]
             fingerprints, _ = problems.capture_fingerprint(execution.read_capture(conn, opened["trial_id"]),
-                                                           execution.read_files(output, (execution.FINGERPRINT_RESULT,)))
+                                                           execution.read_files(output, (problems.FINGERPRINT_RESULT,)))
             identical = reproduction.matches(conn, opened["trial_id"], trial_id)
     finally:
         entry._cleanup(exported)

@@ -13,6 +13,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from engine.config import RUNTIME_CONTRACT
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
 from live import configuration, control, runs, serve, state
@@ -171,9 +172,9 @@ class LiveWebControlTests(unittest.TestCase):
         source_hash = self.raw["sources"][0]["source_sha256"]
         origin = {"strategy_id": "example", "revision": 1, "entry_class": "Example",
                   "source": self.source.read_bytes(), "source_sha256": source_hash,
-                  "runtime_contract": "replay-contract@v8"}
+                  "runtime_contract": RUNTIME_CONTRACT}
         identity = {"image_ref": self.config.runtime, "image_digest": "sha256:" + "b" * 64,
-                    "platform": "linux/amd64", "runtime_contract": "replay-contract@v8"}
+                    "platform": "linux/amd64", "runtime_contract": RUNTIME_CONTRACT}
         body = {"request_id": "prepare-lifecycle-one", "run_id": "lifecycle", "source_id": "example",
                 "credential_ref": ref, "config": {**self.config.defaults, "drawdown_brake": "0.15"}}
         with ExitStack() as stack:

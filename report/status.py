@@ -126,7 +126,7 @@ def _stopped(conn: db.LedgerConnection) -> set[int]:
                           "f.status AS failures FROM trial_capture c LEFT JOIN trial_file s ON s.trial_id = c.trial_id "
                           "AND s.path = %s LEFT JOIN trial_file f ON f.trial_id = c.trial_id AND f.path = %s "
                           "WHERE c.outcome_kind = 'completed' AND c.native_state = 'exited' AND c.native_exit_code <> 0",
-                          (problems.SUMMARY, execution.RUNTIME_ERRORS)):
+                          (problems.SUMMARY, problems.RUNTIME_ERRORS)):
         found[row["trial_id"]] = row
     receipts: dict[int, bytes | None] = {}
     named = [f"trial-{trial_id}-capture" for trial_id, row in found.items() if row["failures"] == "captured"]
@@ -134,7 +134,7 @@ def _stopped(conn: db.LedgerConnection) -> set[int]:
         chunk = tuple(named[at:at + execution.BATCH])
         for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} "
                                                  f"WHERE e.bundle IN ({', '.join(['%s'] * len(chunk))}) AND e.path = %s",
-                                                 (*chunk, execution.RUNTIME_ERRORS)):
+                                                 (*chunk, problems.RUNTIME_ERRORS)):
             content = bytes(content)
             receipts[int(bundle.split("-")[1])] = content if hashlib.sha256(content).hexdigest() == stored else None
     stopped = set()

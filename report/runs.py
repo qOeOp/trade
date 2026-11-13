@@ -107,7 +107,7 @@ def plans(reading: Mapping | None) -> dict:
 
 def audit_record(capture: Mapping) -> dict:
     """{ran, findings} of the run's sealed audit result."""
-    audit = problems.json_object(problems.sealed(capture, execution.AUDIT_RESULT))
+    audit = problems.json_object(problems.sealed(capture, problems.AUDIT_RESULT))
     return {"ran": audit is not None, "findings": list(audit.get("findings") or []) if audit else []}
 
 
@@ -181,7 +181,7 @@ remain authoritative; regenerated diagnostics never replace the original executi
                   "capture": captured["status"], "stages": captured.get("stages"),
                   "outcome": captured.get("outcome"), "runtime_failures": captured.get("runtime_failures", []),
                   "summary": problems.json_object(problems.sealed(captured, problems.SUMMARY)),
-                  "audit": problems.json_object(problems.sealed(captured, execution.AUDIT_RESULT)),
+                  "audit": problems.json_object(problems.sealed(captured, problems.AUDIT_RESULT)),
                   "reports": None, "reports_verified": False,
                   "economic_evidence_available": False,
                   "limitation": "technical precheck only; original execution facts are authoritative"}
@@ -322,7 +322,7 @@ def _differing_files(directory: Path, listed: Mapping) -> list[str]:
     root, base = (directory, directory / "reports") if (directory / "reports").is_dir() else (directory.parent,
                                                                                                directory)
     wanted = {path: entry for path, entry in listed.items()
-              if path.startswith("reports/") or path in (execution.AUDIT_RESULT, execution.FINGERPRINT_RESULT)}
+              if path.startswith("reports/") or path in (problems.AUDIT_RESULT, problems.FINGERPRINT_RESULT)}
     differs = []
     for path, entry in sorted(wanted.items()):
         data = metrics._regular(base / path.removeprefix("reports/") if path.startswith("reports/") else root / path)
@@ -367,12 +367,12 @@ def verify_reproduction(conn: db.LedgerConnection, directory: Path, facts: Mappi
         raise _mismatch(directory, run["trial_id"], "the sealed execution identity, stages or fingerprint differ",
                         "execution_identity")
     root = directory if (directory / "reports").is_dir() else directory.parent
-    fingerprint, _ = problems.capture_fingerprint(capture, execution.read_files(root, (execution.FINGERPRINT_RESULT,)))
+    fingerprint, _ = problems.capture_fingerprint(capture, execution.read_files(root, (problems.FINGERPRINT_RESULT,)))
     if (run["fingerprints"] is None or fingerprint is None
             or (found["image_digest"] == trial["image_digest"]
                 and fingerprint != run["fingerprints"])):
         raise _mismatch(directory, run["trial_id"], f"the fingerprint stage of trial {reproduction} did not seal the "
-                                                  "run's recorded fingerprint", execution.FINGERPRINT_RESULT)
+                                                  "run's recorded fingerprint", problems.FINGERPRINT_RESULT)
     differs = _differing_files(directory, capture["listed"])
     if differs:
         raise _mismatch(directory, run["trial_id"], f"files differ from the capture of trial {reproduction}: "

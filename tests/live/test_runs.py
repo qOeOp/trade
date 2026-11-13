@@ -15,6 +15,7 @@ import unittest.mock
 from unittest.mock import patch
 
 from cli import main as cli
+from engine.config import RUNTIME_CONTRACT
 from engine.live_errors import LiveRefusal
 from shared.errors import Refusal
 from ledger import db
@@ -27,7 +28,7 @@ MARKET_TERMS = runs._market_terms  # LiveFixture replaces it; test_market_terms_
 MARKET = {"market_day": "2026-11-09", "terms": {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}}
 EVIDENCE = [{"trial_id": 7, "starting_balance_usdt": "100", "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "c" * 64}]
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
-            "platform": "linux/amd64", "runtime_contract": "replay-contract@v8"}
+            "platform": "linux/amd64", "runtime_contract": RUNTIME_CONTRACT}
 
 
 class LiveFixture(unittest.TestCase):
@@ -625,7 +626,7 @@ class LiveCustodyTests(LiveFixture):
         universe.write_text('{}')
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
-                  "runtime_contract": "replay-contract@v8"}
+                  "runtime_contract": RUNTIME_CONTRACT}
         with patch.object(runs.db, "read_as_of") as read, \
                 patch.object(runs.strategies, "read_candidate", return_value=origin), \
                 patch("engine.load.read_universe"), \
@@ -652,7 +653,7 @@ class LiveCustodyTests(LiveFixture):
         universe.write_text('{}')
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
-                  "runtime_contract": "replay-contract@v8"}
+                  "runtime_contract": RUNTIME_CONTRACT}
         for found, declared in ((origin, "f" * 64), ({**origin, "source": b"other bytes"}, origin["source_sha256"])):
             with self.subTest(declared=declared), patch.object(runs.db, "read_as_of"), \
                     patch.object(runs.strategies, "read_candidate", return_value=found), \
@@ -678,7 +679,7 @@ class LiveCustodyTests(LiveFixture):
                 "market_root": Path("unused")}
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
-                  "runtime_contract": "replay-contract@v8"}
+                  "runtime_contract": RUNTIME_CONTRACT}
 
         def again(**changes):
             return prepare(self.root, "conflict", object(), "a" * 32, scope=self.scope, **{**same, **changes})

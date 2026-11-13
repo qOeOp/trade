@@ -11,7 +11,7 @@ import re
 import unittest
 from unittest.mock import patch
 
-from ledger import db, execution, judgments, lines, strategies, targets
+from ledger import db, execution, judgments, lines, problems, strategies, targets
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import precheck
@@ -121,7 +121,7 @@ class UnchangedTests(unittest.TestCase):
         self.assertIn("run_return", read, "the trace saw the comparison's reads")
         self.assertEqual(read & graph._UNREAD, set())
         kinds = re.compile(r"trial-\d+-(?:start|capture)")
-        paths = {execution.COVERAGE, *execution.LISTING_FILES}  # a listing read's file paths, not bundles
+        paths = {problems.COVERAGE, *execution.LISTING_FILES}  # a listing read's file paths, not bundles
         self.assertEqual({bundle for bundle in bundles if not kinds.fullmatch(bundle) and bundle not in paths}, set())
 
     def test_an_unrelated_version_changes_nothing(self):

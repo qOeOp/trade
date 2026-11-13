@@ -11,15 +11,15 @@ import unittest
 from unittest.mock import patch
 
 from engine import config as engine_config
-from ledger import problems, strategies
 from shared.errors import Refusal
 from runtime import container, image
 
 
-LAYOUT = image.layout("replay-contract@v8")
+CONTRACT = engine_config.RUNTIME_CONTRACT
+LAYOUT = image.layout(CONTRACT)
 SOURCE_PATHS = LAYOUT["source_paths"]
 IDENTITY = {"image_ref": "registry.invalid/research/native@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
-            "platform": "linux/arm64", "runtime_contract": "replay-contract@v8"}
+            "platform": "linux/arm64", "runtime_contract": CONTRACT}
 
 
 def refused(test, code, call, *args, **kwargs):
@@ -50,7 +50,7 @@ class IdentityTests(unittest.TestCase):
 
 class ProbeTests(unittest.TestCase):
     def probe(self, **changes):
-        value = {"runtime_contract": "replay-contract@v8", "engine_version": "fixture", "python_version": "fixture",
+        value = {"runtime_contract": CONTRACT, "engine_version": "fixture", "python_version": "fixture",
                  "dependency_lock_sha256": "b" * 64, "audit_source_sha256": "c" * 64,
                  "effective_config": {"fixture": True}, "source_files_sha256": {field: "d" * 64 for field in SOURCE_PATHS},
                  "source_file_paths": dict(SOURCE_PATHS),
@@ -100,7 +100,7 @@ class ProbeTests(unittest.TestCase):
         described = json.loads(subprocess.run([sys.executable, "-m", "engine.run", *argv], capture_output=True,
                                               text=True, check=True).stdout)
         self.assertEqual(described["runtime_contract"], "replay-contract@v8")
-        self.assertEqual(strategies.RUNTIME_CONTRACT, described["runtime_contract"])
+        self.assertEqual(CONTRACT, described["runtime_contract"])
         dockerfile = Path(__file__).resolve().parents[2] / "engine/runtime/Dockerfile"
         self.assertIn(f'{image.CONTRACT_LABEL}="{described["runtime_contract"]}"', dockerfile.read_text())
         self.assertEqual(described["source_file_paths"], SOURCE_PATHS)
@@ -127,21 +127,16 @@ class ProbeTests(unittest.TestCase):
                     described("--market-root", f"{folder}/b/market", "--universe", f"{folder}/b/universe.json")]
         for run in runs:  # as the start receipt seals it and ingest reads it back
             receipt = json.loads(json.dumps({"effective_config": run["effective_config"]}).encode())
-            self.assertEqual(problems.config_sha256(receipt["effective_config"]), run["effective_config_sha256"])
-            self.assertEqual(problems.config_sha256(run["effective_config"]),
-                             engine_config.config_sha256(run["effective_config"]))
+            self.assertEqual(engine_config.config_sha256(receipt["effective_config"]), run["effective_config_sha256"])
         hashes = [run["effective_config_sha256"] for run in runs]
         self.assertEqual((hashes[0] == hashes[1], hashes[2] == hashes[3], hashes[0] == hashes[2]), (True, True, False))
-        self.assertEqual(problems.HOST_PATH_KEYS, engine_config.HOST_PATH_KEYS)
-        unicode = {"label": "资金费 ü", "market_root": "/x", "nested": {"b": [1, None, True], "a": "é"}}
-        self.assertEqual(problems.config_sha256(unicode), engine_config.config_sha256(unicode))
 
 
 class ResolveTests(unittest.TestCase):
     DIGEST = "sha256:" + "f" * 64
     REVISION = "1" * 40
 
-    def image(self, repository=image.REPOSITORY, revision=REVISION, contract="replay-contract@v8"):
+    def image(self, repository=image.REPOSITORY, revision=REVISION, contract=CONTRACT):
         labels = {image.REVISION_LABEL: revision, **({image.CONTRACT_LABEL: contract} if contract else {})}
         return {"RepoDigests": [f"{repository}@{self.DIGEST}"], "Os": "linux", "Architecture": "arm64",
                 "Config": {"Labels": labels}}
@@ -160,7 +155,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(pulled, [["docker", "pull", "--quiet", image.CURRENT],  # then by digest, or moving the tag
                                   ["docker", "pull", "--quiet", f"{image.REPOSITORY}@{self.DIGEST}"]])  # orphans it
         self.assertEqual(identity, {"image_ref": f"{image.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
-                                    "platform": "linux/arm64", "runtime_contract": "replay-contract@v8",
+                                    "platform": "linux/arm64", "runtime_contract": CONTRACT,
                                     "build_revision": self.REVISION})
 
     def test_a_local_digest_reference_is_not_pulled(self):
@@ -270,7 +265,7 @@ class MainBuildTests(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, self.FILES[argv[1].split(":", 1)[1]], b"")
             return subprocess.CompletedProcess(argv, 0, b"", b"")
         identity = {"image_ref": f"{repository}@{self.DIGEST}", "image_digest": self.DIGEST, "platform": "linux/arm64",
-                    "runtime_contract": "replay-contract@v8", **({"build_revision": revision} if revision else {})}
+                    "runtime_contract": CONTRACT, **({"build_revision": revision} if revision else {})}
         found = {"RepoDigests": [identity["image_ref"]], "Config": {"Labels": {}}}
         with patch("runtime.image._git", side_effect=git), \
                 patch("runtime.image.subprocess.run",
@@ -286,7 +281,7 @@ class MainBuildTests(unittest.TestCase):
                 raise subprocess.TimeoutExpired(command, kwargs["timeout"])
             return subprocess.CompletedProcess(command, 1, b"", b"")  # the revision is not known locally yet
         identity = {"image_ref": f"{image.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
-                    "platform": "linux/arm64", "runtime_contract": "replay-contract@v8", "build_revision": self.REVISION}
+                    "platform": "linux/arm64", "runtime_contract": CONTRACT, "build_revision": self.REVISION}
         with patch("runtime.image.subprocess.run", side_effect=fetch_hangs) as calls:
             refusal = refused(self, "RUNTIME_UNAVAILABLE", image.require_main_build, identity,
                               self.inspection(self.FILES))
@@ -319,7 +314,7 @@ class MainBuildTests(unittest.TestCase):
             run("commit", "--quiet", "--allow-empty", "-m", "service", cwd=origin)
             run("clone", "--quiet", "--depth", "1", f"file://{origin}", str(checkout), cwd=scratch)
             identity = {"image_ref": f"{image.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
-                        "platform": "linux/arm64", "runtime_contract": "replay-contract@v8"}
+                        "platform": "linux/arm64", "runtime_contract": CONTRACT}
             with patch("runtime.image.CHECKOUT", checkout):
                 self.assertEqual(image.require_main_build({**identity, "build_revision": runtime},
                                                           self.inspection(self.FILES)), runtime)
@@ -347,7 +342,7 @@ class CiBuildTests(unittest.TestCase):
 
     def identity(self, revision: str | None, repository: str = image.REPOSITORY) -> dict:
         return {"image_ref": f"{repository}@{self.DIGEST}", "image_digest": self.DIGEST, "platform": "linux/arm64",
-                "runtime_contract": "replay-contract@v8", **({"build_revision": revision} if revision else {})}
+                "runtime_contract": CONTRACT, **({"build_revision": revision} if revision else {})}
 
     def test_a_branch_build_passes_and_is_fetched_from_origin_but_stays_out_of_validation(self):
         with tempfile.TemporaryDirectory() as scratch:

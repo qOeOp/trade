@@ -21,6 +21,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from engine.config import config_sha256
 from ledger import coverage, db, execution, metrics, problems, evidence
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -300,7 +301,7 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
     report the runner wrote that cannot be read makes the run invalid rather than refusing.
     `host_reasons` are what the host saw outside the capture (inputs changed during the replay);
     they only add reasons. The effective configuration and its hash come from the start receipt's
-    sealed coverage receipt (`problems.config_sha256`), never from the caller. `checkout` is the
+    sealed coverage receipt (`engine.config.config_sha256`), never from the caller. `checkout` is the
     product checkout whose HEAD names the metrics code (default: this repository).
     """
     workdir = Path(workdir)
@@ -329,7 +330,7 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
                          missing=(str(trial_id),)) from exc
         raise
     identity = {field: start["runtime_identity"][field] for field in execution.IDENTITY_FIELDS}
-    reasons = problems.capture_problems(capture, trial["source_sha256"], identity, problems.config_sha256(config),
+    reasons = problems.capture_problems(capture, trial["source_sha256"], identity, config_sha256(dict(config)),
                                         files)
     reasons += [problems.reason(item["code"], item.get("message") or item["code"], item.get("locator"))
                 for item in host_reasons or ()]

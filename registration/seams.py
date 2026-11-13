@@ -15,13 +15,12 @@ from datetime import date, datetime
 from pathlib import Path
 
 from ledger import db as ledger_db
+from ledger.execution import IDENTITY_FIELDS
 from shared import paths
 from shared.refusals import refuse
 
 
 # Runtime (runtime.resolve, runtime.inspect_runtime, runtime.require_ci_build, runtime.require_main_build)
-
-RUNTIME_IDENTITY = ("image_ref", "image_digest", "platform", "runtime_contract")
 
 
 def _resolve_runtime(reference: str | None) -> dict:
@@ -44,16 +43,17 @@ ENTRY_FLAGS = ("--trade-ticks",)
 MARKET_ROOT, MEMBERSHIP = "/inputs/market", "/inputs/membership.json"
 
 
-def reserved_options(runner_argv: list[str]) -> list[str]:
-    return sorted({value.split("=", 1)[0] for value in runner_argv if value.split("=", 1)[0] in RESERVED_RUNNER_OPTIONS})
+def require_unreserved(runner_argv: list[str]) -> None:
+    """RUNNER_OPTION_RESERVED when the runner arguments name an option the replay entry writes itself."""
+    reserved = sorted({option for value in runner_argv if (option := value.split("=", 1)[0]) in RESERVED_RUNNER_OPTIONS})
+    if reserved:
+        raise refuse("RUNNER_OPTION_RESERVED", "the replay entry writes " + ", ".join(reserved) + " itself",
+                     missing=tuple(reserved))
 
 
 def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list[str], list[tuple[Path, str, bool]]]:
     """(runner arguments with the inputs at their container paths, the read-only input mounts)."""
-    reserved = reserved_options(runner_argv)
-    if reserved:
-        raise refuse("RUNNER_OPTION_RESERVED", "the replay entry writes " + ", ".join(reserved) + " itself",
-                     missing=tuple(reserved))
+    require_unreserved(runner_argv)
     argv, skipping = [], False
     for value in runner_argv:
         option = value.split("=", 1)[0]
@@ -80,11 +80,11 @@ def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) ->
     from runtime import image
     argv, mounts = container_runner_args(list(runner_argv), inputs)
     # The membership's bytes enter the configuration; the probe reads the market so an unreadable export refuses here.
-    return image.inspect_runtime({key: identity[key] for key in RUNTIME_IDENTITY}, argv, mounts)
+    return image.inspect_runtime({key: identity[key] for key in IDENTITY_FIELDS}, argv, mounts)
 
 
 def _build_identity(identity: dict) -> dict:
-    fields = (*RUNTIME_IDENTITY, *(("build_revision",) if identity.get("build_revision") else ()))
+    fields = (*IDENTITY_FIELDS, *(("build_revision",) if identity.get("build_revision") else ()))
     return {key: identity[key] for key in fields}
 
 

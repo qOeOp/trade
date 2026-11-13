@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from ledger import trials
+from ledger import execution, trials
 from shared.errors import Refusal
 from registration import seams
 
@@ -62,7 +62,7 @@ class SeamTests(unittest.TestCase):
     def test_the_identity_probe_is_given_the_exported_market_to_read(self):
         from unittest import mock
         from runtime import image
-        identity = {key: f"<{key}>" for key in seams.RUNTIME_IDENTITY}
+        identity = {key: f"<{key}>" for key in execution.IDENTITY_FIELDS}
         with mock.patch.object(image, "inspect_runtime", return_value={}) as probe:
             seams._inspect_runtime(identity, ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z"],
                                    {"identity": {"market_day": "c" * 32}, "symbols": ["AAAUSDT"],

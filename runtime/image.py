@@ -20,7 +20,8 @@ import subprocess
 import tempfile
 import time
 
-from ledger import problems
+from engine.config import config_sha256
+from ledger.execution import IDENTITY_FIELDS
 from shared.refusals import refuse
 
 
@@ -29,7 +30,6 @@ IMAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}\Z")
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 PLATFORMS = frozenset({"linux/arm64", "linux/amd64"})
-REQUIRED = ("image_ref", "image_digest", "platform", "runtime_contract")
 LAYOUTS = {
     "replay-contract@v8": {"runner_module": "engine.run", "audit_module": "engine.audit",
                            "fingerprint_module": "engine.compare",
@@ -101,11 +101,12 @@ def _supported_source_paths(runtime_contract: str, paths: dict) -> bool:
 def validate_identity(value) -> dict:
     """The normalized identity: four required fields, an immutable digest reference that agrees with
     the digest, a supported platform and contract, and an optional 40-hex build revision."""
-    if not isinstance(value, dict) or not set(REQUIRED) <= set(value) or set(value) - {*REQUIRED, "build_revision"}:
+    if (not isinstance(value, dict) or not set(IDENTITY_FIELDS) <= set(value)
+            or set(value) - {*IDENTITY_FIELDS, "build_revision"}):
         raise refuse("RUNTIME_IDENTITY_INVALID", "a runtime identity holds image_ref, image_digest, platform, "
                                                  "runtime_contract and optionally build_revision",
-                     expected=", ".join(REQUIRED))
-    if any(not isinstance(value[key], str) or not value[key] for key in REQUIRED):
+                     expected=", ".join(IDENTITY_FIELDS))
+    if any(not isinstance(value[key], str) or not value[key] for key in IDENTITY_FIELDS):
         raise refuse("RUNTIME_IDENTITY_INVALID", "every runtime identity field is a nonempty string")
     if not IMAGE.fullmatch(value["image_ref"]) or not DIGEST.fullmatch(value["image_digest"]):
         raise refuse("RUNTIME_IDENTITY_INVALID", "the runtime image_ref must carry an immutable sha256 manifest digest",
@@ -118,7 +119,7 @@ def validate_identity(value) -> dict:
     revision = value.get("build_revision")
     if revision is not None and (not isinstance(revision, str) or not REVISION.fullmatch(revision)):
         raise refuse("RUNTIME_IDENTITY_INVALID", "build_revision is a 40-hex Git commit hash")
-    normalized = {key: value[key] for key in REQUIRED}
+    normalized = {key: value[key] for key in IDENTITY_FIELDS}
     if "build_revision" in value:
         normalized["build_revision"] = revision
     return normalized
@@ -270,7 +271,7 @@ def inspect_runtime(identity: dict, runner_args: list[str], mounts: Sequence[tup
                      expected=identity["runtime_contract"])
     if not _supported_source_paths(identity["runtime_contract"], paths):
         raise refuse("RUNTIME_MISMATCH", "the probe's source paths are not a complete supported contract layout")
-    if problems.config_sha256(value["effective_config"]) != value["effective_config_sha256"]:
+    if config_sha256(value["effective_config"]) != value["effective_config_sha256"]:
         raise refuse("RUNTIME_MISMATCH", "the probe's effective configuration does not hash to its recorded hash")
     return {**value, "image_config_digest": actual.get("Id"), "platform": platform}
 

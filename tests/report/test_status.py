@@ -17,7 +17,7 @@ import unittest
 from unittest import mock
 
 from shared.errors import Refusal
-from ledger import db, evidence, execution, judgments, lines, metrics, strategies
+from ledger import db, evidence, judgments, lines, metrics, problems, strategies
 from registration import reproduction
 from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
@@ -617,7 +617,7 @@ class ExecutionIdentityTests(unittest.TestCase):
                          (IDENTITY["runtime_contract"], OTHER_DIGEST))
         self.assertNotEqual(first["keys"], third["keys"])
         with db.read_as_of(self.world.profile) as conn:
-            receipt = evidence.load_bundle(conn, f"trial-{self.trials[self.third]}-start")["files"][execution.COVERAGE]
+            receipt = evidence.load_bundle(conn, f"trial-{self.trials[self.third]}-start")["files"][problems.COVERAGE]
         self.assertEqual(third["execution"], json.loads(receipt)["effective_config"]["account"]["execution"])
         better, worse = rows[self.third], rows[self.refs[1]]
         self.assertTrue(status._dominates(better["measures"], worse["measures"]),
