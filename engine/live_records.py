@@ -4,7 +4,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from nautilus_trader.model import StrategyId
+from nautilus_trader.model import InstrumentId, StrategyId
+from engine.load import strategy_id
 
 def write_json(path: Path, value: dict) -> None:
     temporary = path.with_name("." + path.name + ".partial")
@@ -17,6 +18,21 @@ def write_json(path: Path, value: dict) -> None:
     os.replace(temporary, path)
 
 
-def source_strategy_id(manifest: dict) -> StrategyId:
-    """Fresh construction and observation-only recovery share the immutable v1 identity."""
-    return StrategyId("LIVE-" + hashlib.sha256(manifest["run_id"].encode()).hexdigest()[:12])
+def strategy_ids(manifest: dict) -> dict[str, StrategyId]:
+    """Each contract's instance has its own native identity, LIVE-<run>-<coin> (the user, 2026-11-13); fresh
+    construction and observation-only recovery share it."""
+    run = hashlib.sha256(manifest["run_id"].encode()).hexdigest()[:12]
+    return {symbol: StrategyId(f"LIVE-{run}-{strategy_id(symbol).split('-', 1)[1]}") for symbol in manifest["symbols"]}
+
+
+def contract(symbol: str) -> InstrumentId:
+    return InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
+
+
+def symbol_of(instrument_id) -> str:
+    return str(instrument_id).removesuffix("-PERP.BINANCE")
+
+
+def owned(query, manifest: dict, **filters) -> list:
+    """`query` (a native cache method taking strategy_id) over every instance of the run."""
+    return [item for strategy in strategy_ids(manifest).values() for item in query(strategy_id=strategy, **filters)]

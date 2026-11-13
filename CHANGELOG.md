@@ -36,6 +36,12 @@ back to one is [Rolling back](deploy/remote/README.md#rolling-back).
   on the new image, keeping its brake, highest equity, cash floor and history; one that does not reach its warm-up
   falls back to the previous image once. The daily comparison also replays the latest compared day on the offered
   image. Runner contract 2 (the runner reads `SWITCH`): a control of contract 1 cannot adopt its runners.
+- Live (breaking): the runner trades several contracts, one instance of the source per contract as in a replay, each
+  with its own strategy ID (`LIVE-<run>-<coin>`) and ordering only on its own contract; instances coordinate legs
+  through state the source shares between them. Margin settings, terms, status, the 3-times limit, the comparison and
+  mark prices are per contract; the brake, cash floor, account modes and entry queue per account. A contract not
+  `TRADING` denies entries on it alone; a missing bar on any contract closes entries on all, and the run warms up
+  again once flat. `LIVE_SYMBOL_SCOPE` is gone. Runner contract 3: a control of contract 2 cannot adopt its runners.
 
 ## 0.2.0 (2026-11-11)
 

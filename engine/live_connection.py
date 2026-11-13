@@ -8,7 +8,9 @@ type it decided on; otherwise the run ends as for any refused entry (rc7's Pytho
 and the source cannot see a product refusal). A gate closed for a reason a check cannot clear refuses at once, except a
 missing bar and a contract not TRADING at Binance (the user, 2026-11-13): an entry staged then, and a new one (after a
 missing bar, while a position is held), are denied natively through the run's own ExecutionAlgorithm (OrderDenied, which
-the source receives), and the run goes on. So is an entry whose own account read finds the clock over its limit.
+the source receives), and the run goes on. So is an entry whose own account read finds the clock over its limit. A run
+has one instance per contract: a missing bar on any contract closes entries on all of them, and a contract not TRADING
+closes entries on that contract alone.
 Reductions, cancels and closes travel over REST and stay allowed, so the source keeps protecting and exiting its
 positions and the Observer can still stop.
 
@@ -31,12 +33,12 @@ import re
 import time
 from typing import Any
 
-from nautilus_trader.model import ClientId, InstrumentId, OrderStatus, PositionSide, TimeInForce
+from nautilus_trader.model import ClientId, OrderStatus, PositionSide, TimeInForce
 from nautilus_trader.common import SocketState
 from nautilus_trader.trading import Strategy
 
 from engine.live_errors import LiveRefusal as Refusal
-from engine.live_records import source_strategy_id, write_json
+from engine.live_records import contract as contract_id, owned, strategy_ids, symbol_of, write_json
 from engine.live_venue import require_account_mode, require_clock, require_own_symbol
 from engine.order_rules import GTD_MINIMUM_NS, WARMING
 
@@ -66,6 +68,7 @@ class Connection:
     disconnected: dict[str, float] = field(default_factory=dict)  # socket -> when it went down
     connected: dict[str, float] = field(default_factory=dict)  # socket -> when it (re)connected
     closed: dict[str, float] = field(default_factory=dict)  # entry gate: reason -> since
+    halted: dict[str, float] = field(default_factory=dict)  # contract not TRADING -> since: its entries are denied
     observation: Any = None  # engine.live_commands.AccountObservation for a comparison
     agreed: int | None = None  # the observed_ns of the current check's first agreeing comparison
     suspect: bool = False  # a periodic comparison disagreed; the next one comes soon
@@ -81,8 +84,17 @@ def socket_key(event) -> str:
     return f"{event.client_id} {event.endpoint}"
 
 
-def entries_open(session) -> bool:
-    return not session.connection.closed
+def reasons(session, symbol: str | None = None) -> set[str]:
+    """Why entries on `symbol` are closed: the run's reasons, and contract_status while that contract is not TRADING
+    (None: the run's reasons alone)."""
+    found = set(session.connection.closed)
+    if symbol is not None and symbol in session.connection.halted:
+        found.add("contract_status")
+    return found
+
+
+def entries_open(session, symbol: str | None = None) -> bool:
+    return not reasons(session, symbol)
 
 
 def close_entries(session, reason: str, *, withdraw: bool = True, **fields) -> None:
@@ -123,16 +135,16 @@ def refuse(session, reason: str) -> None:
                                                 "agree again")
 
 
-def holdable(session) -> bool:
+def holdable(session, symbol: str | None = None) -> bool:
     """The gate is closed only for reasons a check can clear: an entry may wait for it."""
-    closed = session.connection.closed
-    return bool(closed) and set(closed) <= RECOVERABLE
+    closed = reasons(session, symbol)
+    return bool(closed) and closed <= RECOVERABLE
 
 
-def deniable(session) -> bool:
-    """The gate is closed for a missing bar and for no other reason a check cannot clear: an entry is denied natively
-    and the run goes on (the user, 2026-11-13)."""
-    lasting = set(session.connection.closed) - RECOVERABLE
+def deniable(session, symbol: str | None = None) -> bool:
+    """The gate is closed for a missing bar or the contract not TRADING and for no other reason a check cannot clear:
+    an entry is denied natively and the run goes on (the user, 2026-11-13)."""
+    lasting = reasons(session, symbol) - RECOVERABLE
     return bool(lasting) and lasting <= DENIABLE
 
 
@@ -140,23 +152,24 @@ def deny(session, order, detail: str, held_ns: int | None = None, reason: str | 
     """Deny an entry natively, never sent: the run's ExecutionAlgorithm gives the source's order OrderDenied in the
     native cache and its callbacks (engine.live_node). That OrderDenied is not a native failure (denied_entries). An
     order the cache already knows, or one submitted from within a denial's callbacks, is refused instead."""
+    symbol = symbol_of(order.instrument_id)
     if session.entry_gate is None or session.denying:
-        raise Refusal("LIVE_CONNECTION_UNVERIFIED", f"entries are closed ({gate_reason(session)}) and the entry "
-                                                    "cannot be denied natively")
+        raise Refusal("LIVE_CONNECTION_UNVERIFIED", f"entries are closed ({gate_reason(session, symbol)}) and the "
+                                                    "entry cannot be denied natively")
     cid = str(order.client_order_id)
-    if session.source is not None and Strategy.cache.__get__(session.source, type(session.source)).order(
-            order.client_order_id) is not None:
+    source = session.any_source()
+    if source is not None and Strategy.cache.__get__(source, type(source)).order(order.client_order_id) is not None:
         raise Refusal("LIVE_ORDER_UNSUPPORTED", "an order the native cache already holds is not a new entry")
     session.denied.add(cid)  # before the call: its callbacks run at once
     session.denying = True
     try:
-        session.entry_gate.deny_order(order, reason or gate_reason(session))
+        session.entry_gate.deny_order(order, reason or gate_reason(session, symbol))
     except BaseException:
         session.denied.discard(cid)
         raise
     finally:
         session.denying = False
-    session.event("entry_denied", strict=False, detail=detail, reasons=sorted(session.connection.closed),
+    session.event("entry_denied", strict=False, detail=detail, reasons=sorted(reasons(session, symbol)),
                   held_ns=held_ns, **entry_fields(order))
 
 
@@ -178,17 +191,22 @@ def denied_entries(session) -> set[str]:
     return found
 
 
-def deny_staged(session, reason: str) -> None:
-    """Entries staged when a missing bar closed the gate (waiting for their account check, or held): each is denied
-    natively, never sent, and the run goes on."""
+def deny_staged(session, reason: str, symbol: str | None = None) -> None:
+    """Entries staged when a missing bar closed the gate, or those on `symbol` when that contract stopped TRADING
+    (waiting for their account check, or held): each is denied natively, never sent, and the run goes on."""
     if session.entry_gate is None:
         deny_queued(session, reason)
         return
-    observation, session.account_observation = session.account_observation, None
-    if observation is not None:
-        observation.result.cancel()
-    while session.pending_entries:
-        pending = session.pending_entries.pop(0)
+    chosen = [pending for pending in session.pending_entries
+              if symbol is None or symbol_of(pending.order.instrument_id) == symbol]
+    if not chosen:
+        return
+    if session.pending_entries[0] is chosen[0]:  # the account check under way is for a denied entry
+        observation, session.account_observation = session.account_observation, None
+        if observation is not None:
+            observation.result.cancel()
+    for pending in chosen:
+        session.pending_entries.remove(pending)
         held = time.time_ns() - pending.order.ts_init if pending.deadline_ns is not None else None
         try:
             deny(session, pending.order, reason, held)
@@ -200,6 +218,9 @@ def deny_staged(session, reason: str) -> None:
             session.failed = True
             session.begin_stop("entry_admission_failed")
             return
+    if session.pending_entries and session.account_observation is None and entries_open(session):
+        from engine import live_commands as commands  # engine.live_commands imports this module
+        commands.start_observation(session, "entry")  # the entries on other contracts, in order
 
 
 def deadline(order) -> int:
@@ -223,7 +244,7 @@ def hold(session, pending) -> None:
     """Hold an admitted entry unsent while the gate is closed for recoverable reasons; no account observation runs."""
     if pending.deadline_ns is None:
         pending.deadline_ns = deadline(pending.order)
-        session.event("entry_held", strict=False, reasons=sorted(session.connection.closed),
+        session.event("entry_held", strict=False, reasons=sorted(reasons(session, symbol_of(pending.order.instrument_id))),
                       deadline_ns=pending.deadline_ns, **entry_fields(pending.order))
     if pending not in session.pending_entries:
         session.pending_entries.append(pending)
@@ -249,8 +270,9 @@ def require_send_time(pending) -> None:
 
 def refused(session, pending, code: str, detail: str | None) -> None:
     held = time.time_ns() - pending.order.ts_init if pending.deadline_ns is not None else None
-    session.event("entry_refused", strict=False, code=code, detail=detail, reasons=sorted(session.connection.closed),
-                  held_ns=held, **entry_fields(pending.order))
+    session.event("entry_refused", strict=False, code=code, detail=detail,
+                  reasons=sorted(reasons(session, symbol_of(pending.order.instrument_id))), held_ns=held,
+                  **entry_fields(pending.order))
 
 
 def deny_queued(session, reason: str, detail: str | None = None) -> None:
@@ -272,8 +294,8 @@ def held_bar(session, bar) -> bool:
     return False
 
 
-def gate_reason(session) -> str:
-    return ",".join(sorted(session.connection.closed)) or "open"
+def gate_reason(session, symbol: str | None = None) -> str:
+    return ",".join(sorted(reasons(session, symbol))) or "open"
 
 
 def on_socket_state(session, event) -> None:
@@ -325,11 +347,12 @@ def switch_requested(session) -> bool:
 def rewarm_due(session) -> bool:
     """rewarm_pending without the cache: the reason to end this start once the strategy holds nothing."""
     closed = session.connection.closed
-    if session.mode != "run" or session.stopping or session.pending_entries \
+    if session.mode != "run" or session.stopping or session.pending_entries or session.connection.halted \
             or not set(closed) - {"bars_missing"} <= RECOVERABLE:
         return False
     return "bars_missing" in closed or session.switch_withheld or (
-        str(source_strategy_id(session.manifest)) not in WARMING and switch_requested(session))
+        not {str(strategy) for strategy in strategy_ids(session.manifest).values()} & WARMING
+        and switch_requested(session))
 
 
 def rewarm_pending(session, cache) -> bool:
@@ -339,9 +362,8 @@ def rewarm_pending(session, cache) -> bool:
     is rebuilt by the next start) and the venue comparison decides the restart (design §3.2 item 3, §3.8)."""
     if not rewarm_due(session):
         return False
-    strategy = source_strategy_id(session.manifest)
-    return not cache.positions_open(strategy_id=strategy) and not any(
-        not order.is_closed for order in cache.orders(strategy_id=strategy))
+    return not owned(cache.positions_open, session.manifest) and not any(
+        not order.is_closed for order in owned(cache.orders, session.manifest))
 
 
 def rewarm(session) -> None:
@@ -352,12 +374,11 @@ def rewarm(session) -> None:
     session.begin_stop("rewarming")
 
 
-def compare(snapshot: dict, cache, manifest: dict) -> dict[str, list]:
-    """What the venue's REST read and the native cache disagree on; empty when they agree."""
-    found: dict[str, list] = {}
-    symbol = manifest["symbols"][0]
-    instrument = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
-    strategy = source_strategy_id(manifest)
+def compare(snapshot: dict, cache, manifest: dict) -> dict:
+    """What the venue's REST read and the native cache disagree on, contract by contract; empty when they agree.
+    `unknown_orders` maps each contract to the venue's orders on it the cache does not know."""
+    found: dict = {}
+    strategies = strategy_ids(manifest)
     for check, name in ((require_account_mode, "account_mode"), (require_own_symbol, "foreign"),
                         (lambda read, _: require_clock(read), "clock")):
         try:
@@ -367,41 +388,46 @@ def compare(snapshot: dict, cache, manifest: dict) -> dict[str, list]:
             transient = exc.code in {"LIVE_OBSERVATION_STALE", "LIVE_ACCOUNT_RESPONSE"}
             found.setdefault("observation" if transient else name, []).append(exc.code)
     try:
-        venue = {"LONG": Decimal(0), "SHORT": Decimal(0)}
+        venue = {symbol: {"LONG": Decimal(0), "SHORT": Decimal(0)} for symbol in strategies}
         for row in snapshot["positions"]:
             amount = Decimal(row["positionAmt"])
-            if row["symbol"] == symbol and amount:
-                venue[row["positionSide"]] += abs(amount)
-        rows = [*snapshot["orders"], *snapshot["algo_orders"]]
-        at_venue = [{str(row[name]) for name in ("orderId", "algoId", "actualOrderId") if row.get(name) not in (None, "", 0)}
-                    for row in rows if row["symbol"] == symbol]
+            if row["symbol"] in venue and amount:
+                venue[row["symbol"]][row["positionSide"]] += abs(amount)
+        at_venue: dict[str, list[set[str]]] = {symbol: [] for symbol in strategies}
+        for row in (*snapshot["orders"], *snapshot["algo_orders"]):
+            if row["symbol"] in at_venue:
+                at_venue[row["symbol"]].append({str(row[name]) for name in ("orderId", "algoId", "actualOrderId")
+                                                if row.get(name) not in (None, "", 0)})
     except (KeyError, TypeError, ValueError, ArithmeticError):
         return {"response": ["LIVE_ACCOUNT_RESPONSE"]}
-    native = {"LONG": Decimal(0), "SHORT": Decimal(0)}
-    for position in cache.positions_open(instrument_id=instrument):
-        if position.strategy_id != strategy:
-            found.setdefault("foreign", []).append(str(position.id))
-            continue
-        native["LONG" if position.side == PositionSide.LONG else "SHORT"] += position.quantity.as_decimal()
-    if venue != native:
-        found["positions"] = [{"venue": {side: str(value) for side, value in venue.items()},
-                               "native": {side: str(value) for side, value in native.items()}}]
-    ids: set[str] = set()
-    for order in cache.orders(instrument_id=instrument):
-        if order.is_closed or order.status == OrderStatus.INITIALIZED:
-            continue
-        if order.status in IN_FLIGHT or order.venue_order_id is None:
-            found.setdefault("in_flight", []).append(str(order.client_order_id))
-            continue
-        if order.strategy_id != strategy:
-            found.setdefault("foreign", []).append(str(order.client_order_id))
-        ids.add(str(order.venue_order_id))
-    unknown = [sorted(row) for row in at_venue if not row & ids]
-    if unknown:
-        found["unknown_orders"] = unknown
-    missing = sorted(ids - set().union(*at_venue))
-    if missing:
-        found["native_only"] = missing
+    for symbol, strategy in strategies.items():
+        instrument = contract_id(symbol)
+        native = {"LONG": Decimal(0), "SHORT": Decimal(0)}
+        for position in cache.positions_open(instrument_id=instrument):
+            if position.strategy_id != strategy:
+                found.setdefault("foreign", []).append(str(position.id))
+                continue
+            native["LONG" if position.side == PositionSide.LONG else "SHORT"] += position.quantity.as_decimal()
+        if venue[symbol] != native:
+            found.setdefault("positions", []).append(
+                {"symbol": symbol, "venue": {side: str(value) for side, value in venue[symbol].items()},
+                 "native": {side: str(value) for side, value in native.items()}})
+        ids: set[str] = set()
+        for order in cache.orders(instrument_id=instrument):
+            if order.is_closed or order.status == OrderStatus.INITIALIZED:
+                continue
+            if order.status in IN_FLIGHT or order.venue_order_id is None:
+                found.setdefault("in_flight", []).append(str(order.client_order_id))
+                continue
+            if order.strategy_id != strategy:
+                found.setdefault("foreign", []).append(str(order.client_order_id))
+            ids.add(str(order.venue_order_id))
+        unknown = [sorted(row) for row in at_venue[symbol] if not row & ids]
+        if unknown:
+            found.setdefault("unknown_orders", {})[symbol] = unknown
+        missing = sorted(ids - set().union(*at_venue[symbol]))
+        if missing:
+            found.setdefault("native_only", []).extend(missing)
     return found
 
 
@@ -439,7 +465,7 @@ def tick(session, observer, now: float) -> None:
         return
     checking = bool(state.closed) and set(state.closed) <= RECOVERABLE or rewarm_pending(session, observer.cache)
     interval = (COMPARE_RETRY_SECONDS if state.agreed is None or not checking else COMPARE_SPACING_SECONDS) \
-        if checking or state.suspect else CONTRACT_SECONDS if "contract_status" in state.closed else PERIODIC_SECONDS
+        if checking or state.suspect else CONTRACT_SECONDS if state.halted else PERIODIC_SECONDS
     if now - state.last_compare >= interval:
         state.last_compare = now
         state.observation = commands.observe_account(session.account_reader, tuple(session.manifest["symbols"]),
@@ -449,23 +475,28 @@ def tick(session, observer, now: float) -> None:
 
 
 def contract(session, snapshot: dict) -> None:
-    """Binance's status of the run's contract, from a comparison's read or an entry's own (the user, 2026-11-13):
-    not TRADING closes entries, and an entry is then denied natively and the run goes on; working entries and
-    positions with their exchange stops stay. Back at TRADING, entries reopen once the account check passes."""
-    try:
-        status = snapshot["symbols"][session.manifest["symbols"][0]]["instrument"]["status"]
-    except (KeyError, TypeError, IndexError):
-        return  # an incomplete read says nothing about the contract
-    if not isinstance(status, str) or not re.fullmatch(r"[A-Z_]{1,40}", status):
-        return
-    state = session.connection
-    if status != "TRADING":
-        close_entries(session, "contract_status", withdraw=False, status=status)
-    elif "contract_status" in state.closed:
-        del state.closed["contract_status"]
-        state.closed.setdefault("unverified", time.monotonic())
-        state.agreed = None
-        session.event("entries_checking", strict=False, reasons=sorted(state.closed), status=status)
+    """Binance's status of each contract of the run, from a comparison's read or an entry's own (the user,
+    2026-11-13): not TRADING closes entries on that contract alone, and an entry on it is then denied natively and the
+    run goes on; working entries and positions with their exchange stops stay. Back at TRADING, the run's entries
+    reopen once the account check passes."""
+    for symbol in session.manifest["symbols"]:
+        try:
+            status = snapshot["symbols"][symbol]["instrument"]["status"]
+        except (KeyError, TypeError, IndexError):
+            continue  # an incomplete read says nothing about the contract
+        if not isinstance(status, str) or not re.fullmatch(r"[A-Z_]{1,40}", status):
+            continue
+        state = session.connection
+        if status != "TRADING" and symbol not in state.halted:
+            state.halted[symbol] = time.monotonic()
+            session.event("entries_closed", reason="contract_status", strict=False, symbol=symbol, status=status)
+            deny_staged(session, "contract_status", symbol)
+        elif status == "TRADING" and symbol in state.halted:
+            del state.halted[symbol]
+            state.closed.setdefault("unverified", time.monotonic())
+            state.agreed = None
+            session.event("entries_checking", strict=False, reasons=sorted(state.closed), symbol=symbol,
+                          status=status)
 
 
 def judge(session, cache, snapshot: dict) -> None:
@@ -497,11 +528,12 @@ def judge(session, cache, snapshot: dict) -> None:
     state.agreed = None
     if "unknown_orders" in found:
         close_entries(session, "unknown_orders", orders=found["unknown_orders"])
-        if session.source is not None:
-            # Every order on the contract, at the venue (HTTP cancel-all for regular and conditional orders):
-            # the cache cannot say which of them protect a position.
-            Strategy.cancel_all_orders(session.source, InstrumentId.from_str(
-                f"{session.manifest['symbols'][0]}-PERP.BINANCE"), None, None, False)
+        for symbol in found["unknown_orders"]:
+            source = session.sources.get(symbol)
+            if source is not None:
+                # Every order on the contract, at the venue (HTTP cancel-all for regular and conditional orders):
+                # the cache cannot say which of them protect a position.
+                Strategy.cancel_all_orders(source, contract_id(symbol), None, None, False)
         return
     for reason in ("account_mode", "foreign"):
         if reason in found:
@@ -517,9 +549,9 @@ def orphans(session, cache, observed_ns: int) -> None:
     """Flat after a missing bar, with reduce-only orders that Binance still holds (this read agreed with the cache):
     the run cannot warm up again while they stay. After ORPHAN_NS the user is told once; nothing cancels them and
     entries stay closed (the user, 2026-11-13)."""
-    state, strategy = session.connection, source_strategy_id(session.manifest)
-    left = [order for order in cache.orders(strategy_id=strategy) if not order.is_closed]
-    if "bars_missing" not in state.closed or cache.positions_open(strategy_id=strategy) or not left \
+    state = session.connection
+    left = [order for order in owned(cache.orders, session.manifest) if not order.is_closed]
+    if "bars_missing" not in state.closed or owned(cache.positions_open, session.manifest) or not left \
             or not all(order.is_reduce_only for order in left):
         state.orphans_since = None
         state.notified.discard("orphans")

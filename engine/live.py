@@ -46,10 +46,13 @@ from engine.live_node import build_node
 INTERRUPTED = 3  # the exit status of a run that starts again as itself
 # What a paired control reads from this runner: the arguments it starts it with (live/host.py runner_args), the
 # events and files it judges a start by (live/runs.py: RUN_ENDED, FLAT, `stopping`, `connecting`, armed.json, STOP),
-# the files it writes for the runner (STOP; SWITCH, from 2: engine.live_connection.SWITCH) and the exit statuses. A new control takes over a running runner only of the same number, read from Git by the
-# release host (deploy/release.py); raise it with a new baseline (tests/live/runner-contract-N.json) whenever that
-# reading changes (docs/plans/live-continuous-step6-adopt-20261113.zh.md).
-RUNNER_CONTRACT = 2
+# the files it writes for the runner (STOP; SWITCH, from 2: engine.live_connection.SWITCH) and the exit statuses; from 3
+# the run has one instance per contract, each with its own strategy ID (engine.live_records.strategy_ids), so a runner
+# of 2 cannot reconcile a run of 3 (docs/plans/cross-line-fusion-20261111.zh.md 5.2). A new control takes over a
+# running runner only of the same number, read from Git by the release host (deploy/release.py); raise it with a new
+# baseline (tests/live/runner-contract-N.json) whenever that reading changes
+# (docs/plans/live-continuous-step6-adopt-20261113.zh.md).
+RUNNER_CONTRACT = 3
 IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}\Z")
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -63,7 +66,8 @@ def read_manifest(path: Path) -> dict:
         if not HASH.fullmatch(value["credential_binding"]):
             raise ValueError
         symbols = value["symbols"]
-        if not isinstance(symbols, list) or len(symbols) != 1 or not re.fullmatch(r"[A-Z0-9]+USDT", symbols[0]):
+        if not isinstance(symbols, list) or not symbols or len(set(symbols)) != len(symbols) \
+                or any(not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9]+USDT", symbol) for symbol in symbols):
             raise ValueError
         source, candidate, runtime, config = value["source"], value["candidate"], value["runtime"], value["config"]
         if (runtime["runtime_contract"] != RUNTIME_CONTRACT
@@ -82,7 +86,8 @@ def read_manifest(path: Path) -> dict:
         if not is_leverage(config["leverage"]):
             raise ValueError
         market = value["market"]
-        if not isinstance(market["market_day"], str) or not isinstance(market["terms"][symbols[0]], dict):
+        if not isinstance(market["market_day"], str) or any(not isinstance(market["terms"][symbol], dict)
+                                                            for symbol in symbols):
             raise ValueError
         if not isinstance(value["strategy_file"], str) or not isinstance(value["universe_file"], str):
             raise ValueError
@@ -93,7 +98,7 @@ def read_manifest(path: Path) -> dict:
             raise ValueError
         return value
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
-        raise Refusal("LIVE_MANIFEST_INVALID", "Live needs a complete immutable single-symbol manifest") from exc
+        raise Refusal("LIVE_MANIFEST_INVALID", "Live needs a complete immutable manifest") from exc
 
 
 
@@ -276,7 +281,8 @@ def execute(args) -> int:
                 if node is not None:
                     session.evidence.reports(node.cache, Venue("BINANCE"))
                     node.dispose()
-                session.node, session.source, session.entry_gate = None, None, None
+                session.node, session.entry_gate = None, None
+                session.sources = {}
                 if session.warmup_catalog is not None:
                     shutil.rmtree(session.warmup_catalog, ignore_errors=True)
             finally:

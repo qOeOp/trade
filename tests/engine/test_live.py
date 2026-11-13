@@ -21,6 +21,7 @@ from engine import live
 from engine import live_commands as commands, live_lifecycle, live_node, live_session, live_source as live_source_runtime
 from engine.config import Refusal
 from engine.live_errors import LiveRefusal
+from engine.live_records import strategy_ids
 from engine.live_venue import Credentials
 
 
@@ -75,6 +76,7 @@ class LiveTests(unittest.TestCase):
             "evidence": [{"trial_id": 7, "starting_balance_usdt": "100",
                           "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "c" * 64}],
         }
+        self.instance = strategy_ids(self.manifest)["BTCUSDT"]  # the BTCUSDT instance's native identity
 
     def test_manifest_cannot_rebind_account_source_or_runtime(self):
         live.bind_manifest(self.output, self.manifest)
@@ -84,9 +86,13 @@ class LiveTests(unittest.TestCase):
             live.bind_manifest(self.output, changed)
         self.assertEqual(json.loads((self.output / "manifest.json").read_text()), self.manifest)
 
-    def test_invalid_manifest_no_nan_and_single_symbol(self):
+    def test_invalid_manifest_no_nan_and_distinct_symbols_with_terms(self):
         path = self.output / "input.json"
-        for change in ({"symbols": ["BTCUSDT", "ETHUSDT"]},
+        terms = {**self.manifest["market"]["terms"], "ETHUSDT": self.manifest["market"]["terms"]["BTCUSDT"]}
+        path.write_text(json.dumps({**self.manifest, "symbols": ["BTCUSDT", "ETHUSDT"],
+                                    "market": {**self.manifest["market"], "terms": terms}}))
+        self.assertEqual(live.read_manifest(path)["symbols"], ["BTCUSDT", "ETHUSDT"])  # one instance each
+        for change in ({"symbols": ["BTCUSDT", "ETHUSDT"]}, {"symbols": ["BTCUSDT", "BTCUSDT"]}, {"symbols": []},
                        {"config": {**self.manifest["config"], "drawdown_brake": "NaN"}},
                        {"config": {**self.manifest["config"], "duration_seconds": True}}):
             with self.subTest(change=change):
@@ -136,7 +142,7 @@ class LiveTests(unittest.TestCase):
         with mock.patch.object(live_node, "live_source") as source:
             node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1))
             source.assert_not_called()
-            self.assertIsNone(session.source)
+            self.assertEqual(session.sources, {})
             self.assertIsNone(session.entry_gate)  # nothing to deny without a source
             self.assertEqual(str(node.environment), "LIVE")
             node.dispose()
@@ -147,7 +153,7 @@ class LiveTests(unittest.TestCase):
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1),
                                live.source_for_run(self.manifest))
         try:
-            source = session.source
+            source = session.sources["BTCUSDT"]
             iid = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
             order = source.order_factory.market(iid, OrderSide.BUY, Quantity.from_str("0.001"))
             commands = (
@@ -178,7 +184,7 @@ class LiveTests(unittest.TestCase):
             session.event("clean_stop")  # a disconnect no longer taints a flat end
         finally:
             node.dispose()
-            session.node, session.source = None, None
+            session.node, session.sources = None, {}
 
     def test_post_connect_admission_rechecks_account_and_failure_preserves_custody(self):
         from tests.engine.test_live_venue import fixture
@@ -260,9 +266,9 @@ class LiveTests(unittest.TestCase):
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
         def cleanup():
             node.dispose()
-            session.node, session.source = None, None
+            session.node, session.sources = None, {}
         self.addCleanup(cleanup)
-        source = session.source
+        source = session.sources["BTCUSDT"]
         source.on_bar(SimpleNamespace(ts_event=9999999999999999999, bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
         session.begin_stop("test")
         source.on_bar(SimpleNamespace(ts_event=9999999999999999999, bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
@@ -282,14 +288,14 @@ class LiveTests(unittest.TestCase):
         try:
             self.assertEqual(session.entry_gate.exec_algorithm_id, live_node.ENTRY_GATE)
             self.assertTrue(session.entry_gate.is_registered())
-            order = session.source.order_factory.limit(InstrumentId.from_str("BTCUSDT-PERP.BINANCE"), OrderSide.BUY,
+            order = session.sources["BTCUSDT"].order_factory.limit(InstrumentId.from_str("BTCUSDT-PERP.BINANCE"), OrderSide.BUY,
                                                        Quantity.from_str("0.001"), Price.from_str("90.00"))
             # Denied in the node's own cache; a started source also hears it (tests/engine/test_live_entry.py).
             session.entry_gate.deny_order(order, "bars_missing")
             self.assertEqual(node.cache.order(order.client_order_id).status, OrderStatus.DENIED)
         finally:
             node.dispose()
-            session.node, session.source, session.entry_gate = None, None, None
+            session.node, session.sources, session.entry_gate = None, {}, None
 
     def test_a_run_node_purges_account_states_in_memory_and_keeps_orders_and_positions(self):
         loaded = live.source_for_run(self.manifest)
@@ -309,7 +315,7 @@ class LiveTests(unittest.TestCase):
             self.assertIsNone(native.purge_closed_positions_interval_mins)
         finally:
             node.dispose()
-            session.node, session.source, session.entry_gate = None, None, None
+            session.node, session.sources, session.entry_gate = None, {}, None
 
     def test_the_native_account_is_refreshed_every_minute(self):
         session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)
@@ -322,13 +328,13 @@ class LiveTests(unittest.TestCase):
 
     def test_an_entrys_own_account_read_also_refreshes_the_native_account(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
-        session.source = object()
+        session.sources = {"BTCUSDT": object()}
         with mock.patch.object(commands, "Strategy") as native, mock.patch.object(commands, "observe_account"):
             commands.start_observation(session, "connected")  # the start's own check: no entry to admit
             native.query_account.assert_not_called()
             session.account_observation = None
             commands.start_observation(session, "entry")
-            native.query_account.assert_called_once_with(session.source, AccountId(self.manifest["account_id"]))
+            native.query_account.assert_called_once_with(session.sources["BTCUSDT"], AccountId(self.manifest["account_id"]))
             session.account_observation, native.query_account.side_effect = None, RuntimeError("closed")
             commands.start_observation(session, "entry")  # a failed refresh never refuses the entry
         self.assertIsNotNone(session.account_observation)
@@ -341,7 +347,7 @@ class LiveTests(unittest.TestCase):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
         try:
-            source = session.source
+            source = session.sources["BTCUSDT"]
             session.stop_requested.set()
             order = source.order_factory.market(InstrumentId.from_str("BTCUSDT-PERP.BINANCE"),
                                                 OrderSide.BUY, Quantity.from_str("0.001"))
@@ -352,7 +358,7 @@ class LiveTests(unittest.TestCase):
             self.assertEqual(source.observed, [])
         finally:
             node.dispose()
-            session.node, session.source = None, None
+            session.node, session.sources = None, {}
 
     def test_the_source_hears_the_minutes_after_its_t(self):
         loaded = live.source_for_run(self.manifest)
@@ -362,13 +368,13 @@ class LiveTests(unittest.TestCase):
             node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
         try:
             at = start + 60_000_000_000  # the first whole minute at least 30 s after the start (engine.history)
-            self.assertEqual(session.source._replay_input_start_ns, at)
-            session.source.on_bar(SimpleNamespace(ts_event=at - 1_000_000, bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
-            session.source.on_bar(SimpleNamespace(ts_event=at + 60_000_000_000 - 1_000_000, bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
-            self.assertEqual(session.source.observed, ["bar"])
+            self.assertEqual(session.sources["BTCUSDT"]._replay_input_start_ns, at)
+            session.sources["BTCUSDT"].on_bar(SimpleNamespace(ts_event=at - 1_000_000, bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
+            session.sources["BTCUSDT"].on_bar(SimpleNamespace(ts_event=at + 60_000_000_000 - 1_000_000, bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
+            self.assertEqual(session.sources["BTCUSDT"].observed, ["bar"])
         finally:
             node.dispose()
-            session.node, session.source = None, None
+            session.node, session.sources = None, {}
 
     def test_existing_stop_never_initializes_source(self):
         loaded = live.source_for_run(self.manifest)
@@ -386,7 +392,7 @@ class LiveTests(unittest.TestCase):
         try:
             session.cache_guard = mock.Mock()
             session.cache_guard.health.side_effect = LiveRefusal("LIVE_CACHE_HEALTH", "unavailable")
-            source = session.source
+            source = session.sources["BTCUSDT"]
             iid = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
             entry = source.order_factory.market(iid, OrderSide.BUY, Quantity.from_str("0.001"))
             with self.assertRaisesRegex(LiveRefusal, "LIVE_ENTRY_STOPPED"):
@@ -402,7 +408,7 @@ class LiveTests(unittest.TestCase):
                 session.event("clean_stop")
         finally:
             node.dispose()
-            session.node, session.source = None, None
+            session.node, session.sources = None, {}
 
     def test_journal_failure_keeps_fill_callback_and_prevents_clean_claim(self):
         loaded = live.source_for_run(self.manifest)
@@ -410,23 +416,25 @@ class LiveTests(unittest.TestCase):
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
         try:
             with mock.patch.object(live.os, "fsync", side_effect=OSError("disk full")):
-                session.source.on_order_event(SimpleNamespace(to_dict=lambda: {"type": "OrderFilled"}))
-            self.assertEqual(session.source.observed, ["order"])
+                session.sources["BTCUSDT"].on_order_event(SimpleNamespace(to_dict=lambda: {"type": "OrderFilled"}))
+            self.assertEqual(session.sources["BTCUSDT"].observed, ["order"])
             self.assertTrue(session.stopping)
             self.assertTrue(session.journal_failed)
             with self.assertRaisesRegex(LiveRefusal, "LIVE_JOURNAL_UNAVAILABLE"):
                 session.event("reconciled_flat")
         finally:
             node.dispose()
-            session.node, session.source = None, None
+            session.node, session.sources = None, {}
 
     def test_storage_and_journal_failure_still_attempt_owned_exit_before_protection_cancel(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
-        session.source, session.node, session.cache_guard = mock.Mock(strategy_id="SOURCE"), mock.Mock(), mock.Mock()
+        source = mock.Mock()
+        session.sources, session.node, session.cache_guard = {"BTCUSDT": source}, mock.Mock(), mock.Mock()
         session.cache_guard.health.side_effect = LiveRefusal("LIVE_CACHE_HEALTH", "unavailable")
         protection = SimpleNamespace(is_reduce_only=True, is_closed=False,
-                                     client_order_id="stop", order_type=OrderType.STOP_MARKET)
-        position = SimpleNamespace(id="position")
+                                     client_order_id="stop", order_type=OrderType.STOP_MARKET,
+                                     strategy_id=self.instance)
+        position = SimpleNamespace(id="position", strategy_id=self.instance)
         cache = mock.Mock()
         cache.positions_open.return_value = [position]
         cache.orders.return_value = [protection]
@@ -435,8 +443,8 @@ class LiveTests(unittest.TestCase):
         observer = SimpleNamespace(session=session, last_query=0, cache=cache)
         with mock.patch.object(live.os, "fsync", side_effect=OSError("disk full")):
             live_lifecycle.Observer.observe(observer)
-        session.source.close_position.assert_called_once_with(position, reduce_only=True)
-        session.source.cancel_order.assert_not_called()
+        source.close_position.assert_called_once_with(position, reduce_only=True)
+        source.cancel_order.assert_not_called()
         self.assertTrue(session.persistence_failed and session.journal_failed and session.stopping)
         self.assertFalse(session.native_flat)
 
@@ -449,12 +457,13 @@ class LiveTests(unittest.TestCase):
 
     def test_source_report_cannot_clear_native_stop_rejection(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
-        session.source = mock.Mock()
-        session.source.replay_integrity_findings.return_value = []
+        source = mock.Mock()
+        session.sources = {"BTCUSDT": source}
+        source.replay_integrity_findings.return_value = []
         cache = mock.Mock()
         cache.orders.return_value = [SimpleNamespace(status=OrderStatus.REJECTED)]
         live.source_outcome(session, cache)
-        session.source.replay_integrity_findings.assert_called_once_with(True)
+        source.replay_integrity_findings.assert_called_once_with(True)
         self.assertTrue(session.failed)
         row = json.loads((self.output / "events.jsonl").read_text())
         self.assertEqual(row["evidence"], "source_self_report")
@@ -462,8 +471,8 @@ class LiveTests(unittest.TestCase):
 
     def test_nonempty_source_findings_preserve_failure_when_native_account_is_flat(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
-        session.source = mock.Mock()
-        session.source.replay_integrity_findings.return_value = ["protective stop acknowledgement deadline"]
+        session.sources = {"BTCUSDT": mock.Mock()}
+        session.sources["BTCUSDT"].replay_integrity_findings.return_value = ["protective stop acknowledgement deadline"]
         cache = mock.Mock()
         cache.orders.return_value = []
         live.source_outcome(session, cache)
@@ -682,12 +691,13 @@ class LiveTests(unittest.TestCase):
     def test_stop_exits_before_canceling_protection_and_waits_for_native_events(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
         session.begin_stop("test")
-        source = mock.Mock(strategy_id="SOURCE")
-        session.source = source
+        source = mock.Mock()
+        session.sources = {"BTCUSDT": source}
         session.node = mock.Mock()
         protection = SimpleNamespace(is_reduce_only=True, is_closed=False, status=OrderStatus.ACCEPTED,
-                                     client_order_id="stop", order_type=OrderType.STOP_MARKET)
-        position = SimpleNamespace(id="position")
+                                     client_order_id="stop", order_type=OrderType.STOP_MARKET,
+                                     strategy_id=self.instance)
+        position = SimpleNamespace(id="position", strategy_id=self.instance)
         cache = mock.Mock()
         cache.positions_open.return_value = [position]
         cache.orders.return_value = [protection]
@@ -712,10 +722,11 @@ class LiveTests(unittest.TestCase):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
         with mock.patch.object(live.time, "monotonic", return_value=100.0):
             session.begin_stop("test")
-        source = mock.Mock(strategy_id="SOURCE")
-        session.source, session.node = source, mock.Mock()
+        source = mock.Mock()
+        session.sources, session.node = {"BTCUSDT": source}, mock.Mock()
         entry = SimpleNamespace(is_reduce_only=False, is_closed=False, client_order_id="entry", side="BUY",
-                                instrument_id="AAA", status=OrderStatus.ACCEPTED, order_type=OrderType.LIMIT)
+                                instrument_id="AAA", status=OrderStatus.ACCEPTED, order_type=OrderType.LIMIT,
+                                strategy_id=self.instance)
         cache = mock.Mock()
         cache.positions_open.return_value = []
         cache.orders.return_value = [entry]
@@ -740,10 +751,11 @@ class LiveTests(unittest.TestCase):
     def test_stop_gives_a_cancel_the_source_already_sent_one_interval(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
         session.begin_stop("test")
-        source = mock.Mock(strategy_id="SOURCE")
-        session.source, session.node = source, mock.Mock()
+        source = mock.Mock()
+        session.sources, session.node = {"BTCUSDT": source}, mock.Mock()
         entry = SimpleNamespace(is_reduce_only=False, is_closed=False, client_order_id="entry", side="BUY",
-                                instrument_id="AAA", status=OrderStatus.PENDING_CANCEL, order_type=OrderType.LIMIT)
+                                instrument_id="AAA", status=OrderStatus.PENDING_CANCEL, order_type=OrderType.LIMIT,
+                                strategy_id=self.instance)
         cache = mock.Mock()
         cache.positions_open.return_value = []
         cache.orders.return_value = [entry]
@@ -756,10 +768,10 @@ class LiveTests(unittest.TestCase):
     def test_stop_waits_for_already_submitted_natural_exit(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
         session.begin_stop("test")
-        source = mock.Mock(strategy_id="SOURCE")
-        session.source, session.node = source, mock.Mock()
+        source = mock.Mock()
+        session.sources, session.node = {"BTCUSDT": source}, mock.Mock()
         cache = mock.Mock()
-        cache.positions_open.return_value = [SimpleNamespace(id="position")]
+        cache.positions_open.return_value = [SimpleNamespace(id="position", strategy_id=self.instance)]
         cache.orders.return_value = [SimpleNamespace(is_reduce_only=True, is_closed=False,
             client_order_id="natural-exit", order_type=OrderType.MARKET)]
         cache.orders_active_local.return_value = []

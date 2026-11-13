@@ -112,8 +112,8 @@ class NativeEntryTests(unittest.TestCase):
         live_brake.arm(self.session, self.snapshot)  # the cash floor: 85 USDT of the fixture's 100
         commands.verify_connected_account(self.session, self.snapshot)
         self.live_risk, risk = configured_risk(self.session)
-        self.source = live_source_runtime.live_source(live.source_for_run(self.manifest), self.session)
-        self.session.source = self.source
+        self.session.sources = live_source_runtime.live_source(live.source_for_run(self.manifest), self.session)
+        self.source = self.session.sources["BTCUSDT"]
         self.session.node = Mock()  # Records stop request; does not replace native execution.
         self.engine = BacktestEngine(BacktestEngineConfig(risk_engine=risk,
             logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
@@ -145,7 +145,8 @@ class NativeEntryTests(unittest.TestCase):
         # After native end/dispose, release Python owners on the creating thread.
         # Mirrors Nautilus's collect_node_cycles fixture; do not defer these
         # unsendable wrappers to a later web request thread's cyclic GC.
-        self.session.source = self.session.node = self.session.entry_gate = None
+        self.session.node = self.session.entry_gate = None
+        self.session.sources = {}
         self.source = self.foreign = self.engine = None
         gc.collect()
 
@@ -239,7 +240,7 @@ class NativeEntryTests(unittest.TestCase):
     def test_the_observer_receives_native_mark_prices_on_a_run_only(self):
         for mode, expected in (("run", True), ("reconcile", False)):
             with self.subTest(mode):
-                self.session.mode, self.session.mark = mode, None
+                self.session.mode, self.session.marks = mode, {}
                 rows = len(self.read_events("minute_result"))
                 engine = BacktestEngine(BacktestEngineConfig(
                     logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
@@ -254,18 +255,19 @@ class NativeEntryTests(unittest.TestCase):
                 ts = self.ts + 1_000_000
                 engine.add_data([MarkPriceUpdate(self.iid, Price.from_str("95.00"), ts, ts)], None, False, True)
                 engine.run(None, ts, None, True)
-                self.assertEqual(self.session.mark is not None, expected)
+                self.assertEqual("BTCUSDT" in self.session.marks, expected)
                 if expected:
-                    self.assertEqual(self.session.mark[1], Price.from_str("95.00"))
+                    self.assertEqual(self.session.marks["BTCUSDT"][1], Price.from_str("95.00"))
                 # The minute's first mark journals the run's result for its chart; a reconciliation has none.
                 self.assertEqual(len(self.read_events("minute_result")) - rows, int(expected))
 
     def test_the_runs_result_is_journalled_at_each_minutes_first_mark_and_at_the_stop(self):
         self.owned_position()  # Long 0.500 at 100.
-        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, minute=None,
+        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, minute=None, minutes={}, last_marks={},
                                    clock=SimpleNamespace(timestamp_ns=lambda: 3 * live_session.MINUTE_NS + 5, cancel_timer=Mock()),
                                    unsubscribe_socket_state=Mock())
-        mark = lambda price, ns: live_lifecycle.Observer.on_mark_price(observer, SimpleNamespace(value=Price.from_str(price), ts_event=ns))
+        mark = lambda price, ns: live_lifecycle.Observer.on_mark_price(observer, SimpleNamespace(
+            instrument_id=self.iid, value=Price.from_str(price), ts_event=ns, ts_init=ns))
         mark("95.00", live_session.MINUTE_NS + 1)
         mark("90.00", live_session.MINUTE_NS + 30_000_000_000)  # the same minute: no second row
         mark("96.00", 2 * live_session.MINUTE_NS)
@@ -278,7 +280,7 @@ class NativeEntryTests(unittest.TestCase):
 
     def test_an_open_position_without_a_price_has_an_unknown_result(self):
         self.owned_position()
-        self.session.record_minute(self.engine.cache, live_session.MINUTE_NS, None)
+        self.session.record_minute(self.engine.cache, live_session.MINUTE_NS, {})
         self.assertIsNone(self.read_events("minute_result")[0]["result"])
         self.assertFalse(self.session.failed)
 
@@ -348,17 +350,28 @@ class NativeEntryTests(unittest.TestCase):
 
     def test_no_recent_mark_with_a_position_open_stops_the_run(self):
         self.owned_position()
-        self.session.mark = (100.0, Price.from_str("99.00"))
+        self.session.marks["BTCUSDT"] = (100.0, Price.from_str("99.00"))
         self.session.check_mark(self.engine.cache, 110.0)  # Exposure is first seen now.
         self.session.check_mark(self.engine.cache, 169.0)
         self.assertFalse(self.session.stopping)
-        self.session.mark = (169.0, Price.from_str("99.00"))
+        self.session.marks["BTCUSDT"] = (169.0, Price.from_str("99.00"))
         self.session.check_mark(self.engine.cache, 228.0)
         self.assertFalse(self.session.stopping)
         self.session.check_mark(self.engine.cache, 229.0)
         self.assertTrue(self.session.stopping)
         self.assertTrue(self.session.failed)
         self.assertEqual(self.read_events("stopping")[0]["reason"], "mark_missing")
+
+    def test_only_a_mark_of_the_positions_own_contract_prices_it(self):
+        self.owned_position()
+        self.session.marks["ETHUSDT"] = (100.0, Price.from_str("2500.00"))  # another contract of the run
+        self.session.check_mark(self.engine.cache, 100.0)
+        self.session.marks["ETHUSDT"] = (160.0, Price.from_str("2500.00"))
+        self.session.check_mark(self.engine.cache, 160.0)
+        self.assertTrue(self.session.stopping and self.session.failed)
+        self.assertEqual(self.read_events("mark_missing")[0]["symbols"], ["BTCUSDT"])
+        self.session.record_minute(self.engine.cache, live_session.MINUTE_NS, {"ETHUSDT": Price.from_str("2500.00")})
+        self.assertIsNone(self.read_events("minute_result")[0]["result"])  # no price of its own: unknown
 
     def test_no_mark_at_all_counts_from_when_the_position_appeared(self):
         self.owned_position()
@@ -370,7 +383,7 @@ class NativeEntryTests(unittest.TestCase):
         self.assertTrue(self.session.failed)
 
     def test_a_mark_too_old_to_use_never_prices_a_position(self):
-        self.session.mark = (0.0, Price.from_str("70.00"))  # Too old to count as a mark.
+        self.session.marks["BTCUSDT"] = (0.0, Price.from_str("70.00"))  # Too old to count as a mark.
         self.session.check_mark(self.engine.cache, 5000.0)
         self.owned_position()
         self.session.check_mark(self.engine.cache, 5001.0)
@@ -383,11 +396,11 @@ class NativeEntryTests(unittest.TestCase):
     def test_flat_needs_no_mark(self):
         self.session.check_mark(self.engine.cache, 10_000.0)
         self.assertFalse(self.session.stopping)
-        self.assertIsNone(self.session.exposed_since)
+        self.assertEqual(self.session.exposed_since, {})
 
     def test_an_exposure_check_that_cannot_run_takes_the_stop_path(self):
         cache = Mock()
-        cache.positions.side_effect = RuntimeError("boom")
+        cache.positions_open.side_effect = RuntimeError("boom")
         self.session.check_mark(cache, 0.0)
         self.assertTrue(self.session.stopping)
         self.assertTrue(self.session.failed)
@@ -732,6 +745,7 @@ class NativeEntryTests(unittest.TestCase):
         commands.dispatch_entry(self.session)  # a late read sends nothing
         # Held across a lost connection, then the contract stops trading: denied, not held 60 s and then refused.
         self.session.connection.closed.clear()
+        self.session.connection.halted.clear()
         live_connection.on_socket_state(self.session, SimpleNamespace(client_id="BINANCE", endpoint="user",
                                                                       state=SocketState.DISCONNECTED))
         held = self.limit(price="96.00")
@@ -751,7 +765,8 @@ class NativeEntryTests(unittest.TestCase):
         commands.dispatch_entry(self.session)
         self.advance()
         self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.DENIED)
-        self.assertEqual(set(self.session.connection.closed), {"contract_status"})
+        self.assertEqual((set(self.session.connection.closed), set(self.session.connection.halted)),
+                         (set(), {"BTCUSDT"}))
         self.assertFalse(self.session.stopping or self.session.failed)
 
     def test_a_contract_not_trading_and_unknown_orders_still_refuse_and_end_the_run(self):
@@ -776,7 +791,7 @@ class NativeEntryTests(unittest.TestCase):
         observer = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
 
         def observe(now):
-            self.session.mark = (now, Price.from_str("99.00"))
+            self.session.marks["BTCUSDT"] = (now, Price.from_str("99.00"))
             with patch.object(live.time, "monotonic", return_value=now), patch.object(live_brake, "tick"):
                 live_lifecycle.Observer.observe(observer)
 
@@ -799,7 +814,7 @@ class NativeEntryTests(unittest.TestCase):
 
     def test_reconciliation_has_no_source_and_runs_no_protection_check(self):
         self.owned_position()
-        self.session.mode, self.session.source = "reconcile", None
+        self.session.mode, self.session.sources = "reconcile", {}
         live_lifecycle.Observer.observe(SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0,
                                               query_account=Mock()))
         self.assertFalse(self.session.failed)
@@ -852,7 +867,7 @@ class NativeEntryTests(unittest.TestCase):
 
     def test_the_check_reads_the_manifests_strategy_not_the_sources_attribute(self):
         position = self.owned_position()
-        self.session.source = SimpleNamespace(strategy_id=StrategyId("LIVE-OTHER"))
+        self.session.sources = {"BTCUSDT": SimpleNamespace(strategy_id=StrategyId("LIVE-OTHER"))}
         self.check(0)
         self.assertEqual(list(self.session.protection_gaps), [str(position.id)])
 

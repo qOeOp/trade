@@ -12,7 +12,7 @@ import urllib.error
 
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import (
-    require_clock,
+    require_clock, require_own_symbol,
     BinanceReadOnly, Credentials, read_credentials, require_account_mode, require_admission,
 )
 
@@ -49,6 +49,20 @@ def fixture():
                 "config": {"drawdown_brake": "0.15", "leverage": "50"},
                 "market": {"market_day": "2026-11-09", "terms": {"BTCUSDT": {
                     "price_increment": "0.1", "size_increment": "0.0010", "min_notional": "50"}}}}
+    return snapshot, manifest
+
+
+def two_contracts():
+    """fixture() with ETHUSDT beside BTCUSDT: one run, an instance on each."""
+    snapshot, manifest = fixture()
+    eth = json.loads(json.dumps(snapshot["symbols"]["BTCUSDT"]))
+    eth["config"][0]["symbol"] = "ETHUSDT"
+    eth["instrument"]["filters"][1]["tickSize"] = "0.01"
+    eth["mark"]["markPrice"] = "2400"
+    snapshot["symbols"]["ETHUSDT"] = eth
+    manifest["symbols"] = ["BTCUSDT", "ETHUSDT"]
+    manifest["market"]["terms"]["ETHUSDT"] = {"price_increment": "0.01", "size_increment": "0.001",
+                                              "min_notional": "50"}
     return snapshot, manifest
 
 
@@ -241,18 +255,43 @@ class LiveAdmissionTest(unittest.TestCase):
             with self.subTest(settings=settings), self.assertRaises(Refusal):
                 require_admission(observation, manifest, Decimal("100"))
 
-    def test_instrument_contract_and_single_symbol_checks_remain(self):
+    def test_instrument_contract_checks_remain(self):
         for key, value in [("status", "PENDING_TRADING"), ("contractType", "CURRENT_QUARTER"),
                            ("marginAsset", "USDC")]:
             observation, manifest = fixture()
             observation["symbols"]["BTCUSDT"]["instrument"][key] = value
             with self.subTest(key=key), self.assertRaises(Refusal):
                 require_admission(observation, manifest, Decimal("100"))
-        for symbols in [[], ["BTCUSDT", "ETHUSDT"], ["BTCUSDT", "BTCUSDT"]]:
-            observation, manifest = fixture()
-            manifest["symbols"] = symbols
-            with self.subTest(symbols=symbols), self.assertRaises(Refusal):
-                require_admission(observation, manifest, Decimal("100"))
+
+    def test_each_contract_of_the_run_is_admitted_with_its_own_settings_and_terms(self):
+        observation, manifest = two_contracts()
+        require_admission(observation, manifest, Decimal("85"))
+        for change, code in ((lambda o: o["symbols"]["ETHUSDT"]["config"][0].update(leverage=20), "LIVE_MARGIN_MODE"),
+                             (lambda o: o["symbols"]["ETHUSDT"]["instrument"].update(status="SETTLING"),
+                              "LIVE_INSTRUMENT"),
+                             (lambda o: o["symbols"]["ETHUSDT"]["instrument"]["filters"][1].update(tickSize="0.05"),
+                              "TERMS_CHANGED")):
+            observation, manifest = two_contracts()
+            change(observation)
+            with self.subTest(code=code), self.assertRaises(Refusal) as caught:
+                require_admission(observation, manifest, Decimal("85"))
+            self.assertEqual(caught.exception.code, code)
+        # An entry checks its own contract's status and terms; the account's modes cover every contract.
+        observation, manifest = two_contracts()
+        observation["symbols"]["ETHUSDT"]["instrument"]["status"] = "SETTLING"
+        require_admission(observation, manifest, Decimal("85"), flat=False, symbols=["BTCUSDT"])
+        with self.assertRaises(Refusal):
+            require_admission(observation, manifest, Decimal("85"), flat=False, symbols=["ETHUSDT"])
+
+    def test_positions_and_orders_on_the_runs_contracts_are_its_own(self):
+        observation, manifest = two_contracts()
+        observation["positions"] = [{"symbol": "ETHUSDT", "positionAmt": "0.1"}]
+        observation["algo_orders"] = [{"symbol": "BTCUSDT"}]
+        require_own_symbol(observation, manifest)
+        observation["orders"] = [{"symbol": "SOLUSDT"}]
+        with self.assertRaises(Refusal) as caught:
+            require_own_symbol(observation, manifest)
+        self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_NOT_FLAT")
 
 
 class AccountModeTest(unittest.TestCase):

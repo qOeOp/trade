@@ -16,13 +16,12 @@ from unittest.mock import Mock
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.model import (
-    Bar, FundingRateUpdate, MarkPriceUpdate, Price, Quantity, TraderId, Venue,
+    Bar, FundingRateUpdate, InstrumentId, MarkPriceUpdate, Price, Quantity, TraderId, Venue,
 )
 from nautilus_trader.persistence import DataCatalogConfig
 
 from engine import history, live, live_lifecycle, live_source as live_source_runtime, warmup
 from engine.config import Refusal
-from engine.cadence import Cadence
 from engine.live_evidence import EVIDENCE, INSTRUMENTS, MARKET, Evidence
 from engine.report import ORDER_EVENTS, write_order_events, write_reports
 from engine.run import ACCOUNT_CONTRACT, add_venue
@@ -80,8 +79,8 @@ class LiveEvidenceTests(unittest.TestCase):
     def test_the_bars_the_source_receives_are_recorded_as_paper_journals_them(self):
         live.strategy_runtime.clear_failures()
         session, loaded = self.session()
-        source = live_source_runtime.live_source(loaded, session)
-        session.source = source
+        session.sources = live_source_runtime.live_source(loaded, session)
+        [source] = session.sources.values()
         engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.ERROR)))
         try:
             add_venue(engine, fixture.fees())
@@ -109,7 +108,7 @@ class LiveEvidenceTests(unittest.TestCase):
             self.assertEqual(source.observed, ["start", "bar", "bar"])
         finally:
             engine.dispose()
-            session.source = session.node = None
+            session.node, session.sources = None, {}
             source = engine = None
             gc.collect()
             live.strategy_runtime.clear_failures()
@@ -122,8 +121,8 @@ class LiveEvidenceTests(unittest.TestCase):
     def on_historical_bars(self, bars):
         self.observed.append((str(bars[0].bar_type).split("-", 2)[2], [bar.ts_event for bar in bars]))
 ''')
-        source = live_source_runtime.live_source(loaded, session)
-        session.source = source
+        session.sources = live_source_runtime.live_source(loaded, session)
+        [source] = session.sources.values()
         engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.ERROR),
                                                      catalogs=[DataCatalogConfig(path=str(session.catalog()))]))
         state = history.STATES[str(source.strategy_id)]
@@ -154,7 +153,7 @@ class LiveEvidenceTests(unittest.TestCase):
             return at, list(source.observed), session, events
         finally:
             engine.dispose()
-            session.source = session.node = None
+            session.node, session.sources = None, {}
             source = engine = None
             gc.collect()
             live.strategy_runtime.clear_failures()
@@ -205,11 +204,14 @@ class LiveEvidenceTests(unittest.TestCase):
         session, _ = self.session()
         session.record_minute = Mock()
         position = SimpleNamespace(id="P-1", signed_qty=Decimal("0.002"))
-        observer = SimpleNamespace(session=session, minute=None, last_mark=None, cadence=Cadence(),
+        observer = SimpleNamespace(session=session, minute=None, minutes={}, last_marks={}, cadences={},
                                    cache=SimpleNamespace(positions_open=lambda instrument_id: [position]))
-        iid = fixture.INSTRUMENT_ID
+        iid, other = fixture.INSTRUMENT_ID, InstrumentId.from_str("ETHUSDT-PERP.BINANCE")
         for ts in (MINUTE_NS + 5, MINUTE_NS + 2_000_000_000, 2 * MINUTE_NS + 7):
             live_lifecycle.Observer.on_mark_price(observer, MarkPriceUpdate(iid, Price.from_str("100.10"), ts, ts))
+        # Another contract's first mark of a minute is evidence too; the run's result is journalled once a minute.
+        live_lifecycle.Observer.on_mark_price(observer, MarkPriceUpdate(other, Price.from_str("2.50"), 2 * MINUTE_NS + 9,
+                                                                        2 * MINUTE_NS + 9))
         settlement = 8 * HOUR_NS
         for ts, following in ((3 * MINUTE_NS, settlement), (settlement + 3, settlement + 8 * HOUR_NS),
                               (settlement + 4, settlement + 8 * HOUR_NS)):
@@ -221,6 +223,8 @@ class LiveEvidenceTests(unittest.TestCase):
              "value": "100.10"},
             {"kind": "mark", "instrument_id": str(iid), "ts_event": 2 * MINUTE_NS + 7, "ts_init": 2 * MINUTE_NS + 7,
              "value": "100.10"},
+            {"kind": "mark", "instrument_id": str(other), "ts_event": 2 * MINUTE_NS + 9, "ts_init": 2 * MINUTE_NS + 9,
+             "value": "2.50"},
             {"kind": "funding_settlement", "instrument_id": str(iid), "settlement_ns": settlement,
              "stream_rate": "0.0001", "mark": "100.10", "mark_ts": 2 * MINUTE_NS + 7,
              "positions": [{"position_id": "P-1", "signed_qty": "0.002"}]},

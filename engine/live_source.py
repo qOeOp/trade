@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 import time
 from typing import Any
-from nautilus_trader.model import BarType, InstrumentId
+from nautilus_trader.model import BarType
 from nautilus_trader.trading import Strategy
 from engine import history, strategy as strategy_runtime
 from engine.cadence import Cadence
@@ -13,7 +13,7 @@ from engine.config import EXECUTION_BAR_MINUTES, Refusal as ContractRefusal
 from engine.live_errors import LiveRefusal as Refusal
 from engine import live_commands as commands, live_connection
 from engine.live_commands import PendingEntry
-from engine.live_records import source_strategy_id
+from engine.live_records import contract, owned, strategy_ids
 from engine.live_session import Session
 from engine.order_rules import OrderRules
 from engine.load import LoadedStrategy, load_strategy, read_regular_file, read_universe
@@ -36,9 +36,8 @@ class _LiveConfigured(history.Warming):
     _orders_allowed: Any  # engine.order_rules.OrderRules, after this class in the source's bases
     _source_constructor_args: tuple[tuple, dict]
 
-    def __new__(cls, session, loaded):
-        symbol = session.manifest["symbols"][0]
-        iid = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
+    def __new__(cls, session, loaded, symbol):
+        iid = contract(symbol)
         # T: the source is warmed then (engine.history), and its input starts with the minute after it.
         start = history.start_at(time.time_ns())
         universe = Path(session.manifest["universe_file"])
@@ -48,12 +47,13 @@ class _LiveConfigured(history.Warming):
         args = (iid, BarType.from_str(f"{iid}-1-MINUTE-LAST-EXTERNAL"))
         kwargs = dict(
             trade_start_ns=start, execution_bar_minutes=EXECUTION_BAR_MINUTES,
-            strategy_id=source_strategy_id(session.manifest),
+            strategy_id=strategy_ids(session.manifest)[symbol],
             universe_membership=membership)
         return strategy_runtime.allocate_strategy(cls, kwargs["strategy_id"], args, kwargs)
 
-    def __init__(self, session: Session, loaded: LoadedStrategy):
+    def __init__(self, session: Session, loaded: LoadedStrategy, symbol: str):
         self._live = session
+        self._live_symbol = symbol  # the instance's own contract: it orders on nothing else (engine.order_rules)
         args, kwargs = self._source_constructor_args
         del self._source_constructor_args
         strategy_runtime.declare(self, loaded.warmup)
@@ -70,31 +70,33 @@ class _LiveConfigured(history.Warming):
             raise Refusal("LIVE_ENTRY_STOPPED", "new entries require healthy private persistence")
         if self._live.observe_stop_intent() and not order.is_reduce_only:
             raise Refusal("LIVE_ENTRY_STOPPED", "new entries are disabled while Live is stopping")
-        if str(order.instrument_id) != f"{self._live.manifest['symbols'][0]}-PERP.BINANCE":
-            raise Refusal("LIVE_INSTRUMENT_SCOPE", "an order must use the manifest instrument")
+        symbol = self._live_symbol
+        if order.instrument_id != contract(symbol):
+            raise Refusal("LIVE_INSTRUMENT_SCOPE", "an order must use its strategy instance's own contract")
         # Live custody first; engine.order_rules follows (OrderRules comes after this class).
         if order.is_reduce_only:
-            commands.require_order_identity(self._live, order)
+            commands.require_order_identity(self._live, order, strategy_ids(self._live.manifest)[symbol])
             position = self.owned_position(position_id)
             return super().submit_order(order, position_id=position.id, client_id=client_id)
         pending = PendingEntry(order, super().submit_order, client_id, self._live.deciding)
         try:
             if self._live.denying:  # not a new decision, even with entries open (engine.live_connection.deny)
                 raise Refusal("LIVE_CONNECTION_UNVERIFIED", "an entry submitted from within a denial's callbacks is refused")
-            closed = self._live.account_verified and not live_connection.entries_open(self._live)
-            # Denied natively: with a position held after a missing bar, or while the contract is not TRADING
-            # (the user, 2026-11-13).
-            denied = closed and not live_connection.holdable(self._live) and live_connection.deniable(self._live) \
-                and ("contract_status" in self._live.connection.closed or bool(Strategy.cache.__get__(
-                    self, type(self)).positions_open(strategy_id=source_strategy_id(self._live.manifest))))
-            if closed and not live_connection.holdable(self._live) and not denied:
-                live_connection.refuse(self._live, live_connection.gate_reason(self._live))
+            closed = self._live.account_verified and not live_connection.entries_open(self._live, symbol)
+            halted = symbol in self._live.connection.halted
+            # Denied natively: with a position of the run held after a missing bar, or while this contract is not
+            # TRADING (the user, 2026-11-13).
+            holdable = live_connection.holdable(self._live, symbol)
+            denied = closed and not holdable and live_connection.deniable(self._live, symbol) and (halted or bool(
+                owned(Strategy.cache.__get__(self, type(self)).positions_open, self._live.manifest)))
+            if closed and not holdable and not denied:
+                live_connection.refuse(self._live, live_connection.gate_reason(self._live, symbol))
             commands.require_entry(self._live, order)
             self._orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
             if denied:
                 # Only this entry, which passed every entry check, is denied, natively.
-                live_connection.deny(self._live, order, "entry_while_contract_not_trading"
-                                     if "contract_status" in self._live.connection.closed else "entry_while_bars_missing")
+                live_connection.deny(self._live, order, "entry_while_contract_not_trading" if halted
+                                     else "entry_while_bars_missing")
                 return None
             if closed:
                 live_connection.hold(self._live, pending)
@@ -111,9 +113,10 @@ class _LiveConfigured(history.Warming):
     def owned_position(self, position_id):
         cache = Strategy.cache.__get__(self, type(self))
         position = cache.position(position_id) if position_id is not None else None
-        if (position is None or not position.is_open or position.strategy_id != source_strategy_id(self._live.manifest)
+        if (position is None or not position.is_open
+                or position.strategy_id != strategy_ids(self._live.manifest)[self._live_symbol]
                 or str(position.account_id) != self._live.manifest["account_id"]
-                or str(position.instrument_id) != f"{self._live.manifest['symbols'][0]}-PERP.BINANCE"):
+                or position.instrument_id != contract(self._live_symbol)):
             raise Refusal("LIVE_ORDER_OWNERSHIP", "a reduction needs this strategy's current native account position")
         return position
 
@@ -248,8 +251,10 @@ def _at_cadence(name: str, method):
     return funding
 
 
-def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str = "engine.live"):
-    history.clear()  # one Live source per process; its node adds the warm-up actor after it
+def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str = "engine.live") -> dict:
+    """One instance of the source per contract of the run, each trading only its own (the user, 2026-11-13): symbol ->
+    instance. Instances coordinate through state the source shares between them, as in a replay."""
+    history.clear()  # one Live source per process; its node adds the warm-up actor after its instances
     callbacks = strategy_runtime.guarded_callbacks(loaded.strategy_class)
     for name in ("on_mark_price", "on_funding_rate"):
         if callbacks.get(name):
@@ -284,4 +289,4 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     callbacks = strategy_runtime.deferred_start(callbacks)
     combined = type("LiveSource_" + loaded.content_hash,
                     (strategy_runtime.Subscriptions, _LiveConfigured, OrderRules, loaded.strategy_class), callbacks)
-    return combined(session, loaded)
+    return {symbol: combined(session, loaded, symbol) for symbol in session.manifest["symbols"]}
