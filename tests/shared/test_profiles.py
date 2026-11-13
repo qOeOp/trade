@@ -1,4 +1,4 @@
-"""One profile structure: `holds` says research, paper or market, `kind` the lifecycle; the old market format is refused."""
+"""One profile structure: `holds` says research, paper or market, `kind` the lifecycle."""
 
 import json
 import os
@@ -9,7 +9,6 @@ from unittest import mock
 
 from ledger import db
 from shared import profiles
-from shared.errors import Refusal
 from tests.helpers import refused
 
 
@@ -35,12 +34,3 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(profiles.market(None)["root"], "/srv/market")
         self.assertEqual(profiles.market("copy")["kind"], "isolated")
         self.assertEqual(refused(profiles.market, "research").code, "LEDGER_KIND")
-
-    def test_a_market_profile_in_the_old_format_is_refused_with_its_rewrite(self):
-        self.write("market", {"name": "market", "kind": "market", "role": "active", "root": "/srv/market"})
-        with self.assertRaises(Refusal) as raised:
-            profiles.market("market")
-        self.assertEqual(raised.exception.code, "LEDGER_KIND")
-        self.assertIn('"holds": "market"', str(raised.exception))
-        with self.assertRaises(Refusal):  # nor is it the active market
-            profiles.market(None)

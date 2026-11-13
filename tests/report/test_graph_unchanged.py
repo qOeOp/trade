@@ -217,11 +217,11 @@ class UnchangedTests(unittest.TestCase):
         self.assertNotIn("market_unread", graph.research_graph(self.world.profile, self.line, workers=1)["scope"])
 
         def unread(*window):
-            raise refuse("UNKNOWN_REF", "no such market day")
+            raise refuse("MARKET_DAY_UNKNOWN", "no such market day")
 
         with seams.use(market_returns=unread):
             scope = graph.research_graph(self.world.profile, self.line, workers=1)["scope"]
-        self.assertEqual(scope["market_unread"], "UNKNOWN_REF: no such market day")
+        self.assertEqual(scope["market_unread"], "MARKET_DAY_UNKNOWN: no such market day")
 
     def test_zz_a_changed_or_deleted_row_or_table_answers_changed_and_a_refusal_stays_one(self):
         since = self.head()

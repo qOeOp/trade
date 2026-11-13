@@ -10,12 +10,17 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import secrets
+from typing import Literal, get_args
 
 from shared.refusals import refuse
 
 
 DEFAULT_HOME = Path.home() / ".local/share/trade/ledgers"
+NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")  # a profile's name, its file's stem
+Kind = Literal["active", "isolated", "temporary"]  # a profile's lifecycle
+KINDS: tuple[str, ...] = get_args(Kind)
 
 
 def home() -> Path:
@@ -64,10 +69,6 @@ def market(value: str | None) -> dict:
             raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory: make one with "
                                            "`market init` or pass --market", missing=("--market",))
         found = active[0]
-    if found.get("kind") == "market":  # the format before profiles said what they hold
-        raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is in the old market format: replace "
-                                    '"kind": "market" and "role": R with "holds": "market" and "kind": R',
-                     missing=("holds",))
     if found.get("holds") != "market" or not found.get("root"):
         raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is not a market", missing=("--market",))
     return found

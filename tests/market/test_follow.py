@@ -406,7 +406,7 @@ class LoopTests(unittest.TestCase):
     def test_an_empty_bar_list_is_refused_at_start(self):
         with self.assertRaises(sources.MarketError) as caught:
             follow.follow({}, scope(bar_symbols=[]), Path("."), Path("status.json"), rounds=1)
-        self.assertEqual(caught.exception.code, "IMPORT_SCOPE")
+        self.assertEqual(caught.exception.code, "EMPTY_SYMBOLS")
 
 class RoundTests(unittest.TestCase):
     def setUp(self):

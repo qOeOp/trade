@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-from cli.common import UsageError, _market_at, _market_option
+from cli.common import _market_at, _market_option
 from engine.live_errors import LiveRefusal
 from shared import profiles
+from shared.refusals import refuse
 
 
 NOUNS = ("live",)
@@ -63,7 +64,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID"),
     ("live", "compare"): (
         "one run's private inputs, journal and evidence pack (one trading start: --segment, default the latest); "
-        "the market at --at (default main), exported into a reused cache under the temporary directory; Binance's "
+        "the market at --at (default the newest day), exported into a reused cache under the temporary directory; Binance's "
         "published funding rates; the run's own runtime image",
         "nothing in any database and nothing in the private root; the new --output directory (replay/ with the "
         "native reports and audit, reconcile.json); never a credential, order or venue connection",
@@ -191,4 +192,4 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         from live import compare
         return compare.compare(args.root, args.run_id, profiles.market(args.market), args.at, Path(args.output),
                                args.timeout_seconds, args.segment, args.since, args.until), 0
-    raise UsageError(f"unknown command {args.noun} {args.verb}")
+    raise refuse("USAGE_ERROR", f"unknown command {args.noun} {args.verb}")

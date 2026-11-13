@@ -192,7 +192,7 @@ def check_replay_window(conn: db.LedgerConnection, line: str | None, trade_start
                                                    f"{end} (exclusive)", expected=f"{first} <= trade window <= {end}")
 
 
-def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: str, market: Callable[[str], dict],
+def select_line(conn: db.LedgerConnection, market_at: str | None, start: str, *, slug: str, market: Callable[[str], dict],
                 reviews: Callable[[db.LedgerConnection, str], list[dict]],
                 targets: tuple[float, float] | None = None, today: date | None = None) -> dict:
     """Append the user's chosen line named `slug`; the same choice as an open line under that name is a replay.
@@ -220,7 +220,7 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
             raise refuse("START_NOT_FOUND", f"no candidate {start} to start the line from", missing=(start,)) from exc
         raise
     try:
-        facts = market(market_at or "main")
+        facts = market(market_at or "head")
     except Refusal as exc:
         raise refuse("MARKET_DAY_UNRESOLVED", f"market reference {market_at!r} did not resolve ({exc.code})",
                      missing=(str(market_at),)) from exc

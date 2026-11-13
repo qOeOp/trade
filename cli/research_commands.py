@@ -12,7 +12,7 @@ import shutil
 import tempfile
 import textwrap
 
-from cli.common import (CANDIDATE_HELP, RUNNER_EPILOG, RUNTIME_DEFAULT_HELP, RUNTIME_HELP, UsageError, _at, _count,
+from cli.common import (CANDIDATE_HELP, RUNNER_EPILOG, RUNTIME_DEFAULT_HELP, RUNTIME_HELP, _at, _count,
                         _json_file, _ledger_option, _market_facts, _market_option, _new_temporary, _op_id,
                         _regular_file, _utc_time, refusal_json)
 from cli.ledger_commands import ledger_export
@@ -230,17 +230,17 @@ def _subject(text: str) -> dict:
     for part in text.split(","):
         key, sep, value = part.partition("=")
         if not sep or not key.strip():
-            raise UsageError(f"--subject {text!r} is not {SUBJECT_FORM} ({SUBJECT_ROLES_HELP})")
+            raise refuse("USAGE_ERROR", f"--subject {text!r} is not {SUBJECT_FORM} ({SUBJECT_ROLES_HELP})")
         found[key.strip()] = value.strip()
     subject: dict[str, str | int | None] = {"role": found.pop("role", None)}
     for key, target in (("candidate", "candidate"), ("trial", "trial_id"), ("registration", "registration_id")):
         if key in found:
             value = found.pop(key)
             if target != "candidate" and not value.isdigit():
-                raise UsageError(f"--subject {key}={value!r} is not an ID")
+                raise refuse("USAGE_ERROR", f"--subject {key}={value!r} is not an ID")
             subject[target] = int(value) if target != "candidate" else value
     if found:
-        raise UsageError(f"--subject has unknown keys {sorted(found)}")
+        raise refuse("USAGE_ERROR", f"--subject has unknown keys {sorted(found)}")
     return subject
 
 
@@ -303,7 +303,7 @@ def line_select(conn: db.LedgerConnection, market: dict, start: str, market_at: 
     """line select: the user's research line (start candidate, pinned market day; the development period is
     the product's rule) and, when given, the user's targets for it."""
     from registration import precheck
-    selected = lines.select_line(conn, market_at or "main", start, slug=slug, market=_market_facts(market),
+    selected = lines.select_line(conn, market_at, start, slug=slug, market=_market_facts(market),
                                  reviews=precheck.review_records, targets=line_targets)
     line = lines.read_line(conn, selected["line_id"])
     return {"line": selected["line"], "line_id": selected["line_id"], "start": start,
@@ -1046,4 +1046,4 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                        args.op_id, args.tsa_url), 0
     if key == ("validation", "report"):
         return validation_report(profile, args.registration_id, args.at), 0
-    raise UsageError(f"unknown command {args.noun} {args.verb}")
+    raise refuse("USAGE_ERROR", f"unknown command {args.noun} {args.verb}")

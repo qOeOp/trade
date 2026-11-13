@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import textwrap
 
-from cli.common import (CANDIDATE_HELP, RUNNER_EPILOG, RUNTIME_DEFAULT_HELP, UsageError, _at, _ledger_option,
+from cli.common import (CANDIDATE_HELP, RUNNER_EPILOG, RUNTIME_DEFAULT_HELP, _at, _ledger_option,
                         _market_at, _market_option)
 from ledger import db
 from shared import profiles
@@ -52,12 +52,12 @@ def replay_report(profile, trial_id: int | None, directory: str | None, at: str 
             raise refuse("DIRECTORY_NOT_FOUND", f"{directory} is not a directory", missing=(directory,))
         return {"source": "directory", **runs.directory_report(Path(directory), account=account)}
     if trial_id is None:
-        raise UsageError("give --trial-id or --directory")
+        raise refuse("USAGE_ERROR", "give --trial-id or --directory")
     with db.read_as_of(profile, at) as conn:
         at = conn.resolved_commit  # CF-11: every part of the report reads this one version
         trial = conn.one("SELECT purpose FROM trial WHERE trial_id = %s", (trial_id,))
     if directory and reproduction:
-        raise UsageError("give either --directory (original cache) or --reproduction (regenerated cache)")
+        raise refuse("USAGE_ERROR", "give either --directory (original cache) or --reproduction (regenerated cache)")
     cache_directory = directory or reproduction
     if trial is not None and trial["purpose"] == "precheck":
         return {"source": "precheck", **runs.precheck_report(
@@ -77,7 +77,7 @@ def replay_report(profile, trial_id: int | None, directory: str | None, at: str 
 
 CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("replay", "explore"): (
-        "--strategy-file; the market at --at (default main), exported into a reused cache under the temporary "
+        "--strategy-file; the market at --at (default the newest day), exported into a reused cache under the temporary "
         "directory; the runtime image (a tag is pulled)",
         "an explore trial with its start receipt and execution capture; the new --output directory (source, "
         "reports, audit, fingerprint, process.json)",
@@ -280,4 +280,4 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("replay", "report"):
         return replay_report(profile, args.trial_id, args.directory, args.at, args.tables, args.reproduction,
                              args.reproduction_trial, args.account, args.exposures), 0
-    raise UsageError(f"unknown command {args.noun} {args.verb}")
+    raise refuse("USAGE_ERROR", f"unknown command {args.noun} {args.verb}")

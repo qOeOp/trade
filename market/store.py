@@ -33,7 +33,7 @@ from market.sources import DAY, MINUTE, MarketError, _refuse
 
 def check_day(market_day) -> str:
     if not isinstance(market_day, str) or files.parse_day(market_day) is None:
-        raise _refuse(f"{market_day!r} is not a resolved market day", "MARKET_DAY_INVALID",
+        raise _refuse(f"{market_day!r} is not a resolved market day", "MARKET_DAY_UNKNOWN",
                       missing=(str(market_day),))
     return market_day
 
@@ -323,7 +323,7 @@ def _scope(symbols) -> list[str] | None:
     if (not isinstance(symbols, (list, tuple)) or not symbols or len(set(symbols)) != len(symbols)
             or any(not isinstance(item, str) or not sources.SYMBOL.fullmatch(item) for item in symbols)):
         raise _refuse("the engineering symbol allowlist is empty, repeats a contract or names a malformed one",
-                      "IMPORT_SCOPE", missing=("--symbols",))
+                      "EMPTY_SYMBOLS", missing=("--symbols",))
     return sorted(symbols)
 
 

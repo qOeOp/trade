@@ -122,7 +122,7 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str], lo
     their files in contract order. A contract's refusal leaves the other contracts' files in place; the refusal
     raised is that of the first refused contract, and its message names the others written."""
     started = time.monotonic()
-    symbols = store._scope(symbols or []) or []  # an empty, repeated or malformed list is IMPORT_SCOPE
+    symbols = store._scope(symbols or []) or []  # an empty, repeated or malformed list is EMPTY_SYMBOLS
     start, end = store.closed_month(month)
     market = files.open_market(profile, "import")
     with files.lock(market):

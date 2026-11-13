@@ -1,4 +1,4 @@
-"""Refusals: their fixed shape, and a catalogue entry for every refusal code the product packages and
+"""Refusals: their fixed shape, and catalogue repairs for every refusal code the product packages and
 the command line raise (the market package's coded errors included) and every failure reason they give."""
 
 from __future__ import annotations
@@ -7,13 +7,13 @@ import ast
 from pathlib import Path
 import unittest
 
-from shared.errors import Refusal, refusal
+from shared.errors import Refusal
 from ledger.problems import REASONS
-from shared.refusals import CATALOGUE, MARKET_CATALOGUE, refuse
+from shared.refusals import CATALOGUE, refuse
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGES = ("cli", "ledger", "registration", "replay", "report", "runtime", "shared")
+PACKAGES = ("cli", "ledger", "live", "paper", "registration", "replay", "report", "runtime", "shared")
 
 
 def literal_codes(names: tuple[str, ...]) -> dict[str, list[str]]:
@@ -33,17 +33,15 @@ def literal_codes(names: tuple[str, ...]) -> dict[str, list[str]]:
 
 
 class RefusalTests(unittest.TestCase):
-    def test_every_raised_code_has_a_meaning_and_repair_commands(self):
-        codes = literal_codes(("refuse", "refusal"))
+    def test_every_raised_code_has_repair_commands(self):
+        codes = literal_codes(("refuse", "Refusal"))
         self.assertTrue(codes)
         for code, sites in codes.items():
             with self.subTest(code=code, sites=sites):
                 self.assertIn(code, CATALOGUE)
-                message, next_actions = CATALOGUE[code]
-                self.assertTrue(message.strip())
-                self.assertTrue(next_actions and all(action.strip() for action in next_actions))
+                self.assertTrue(CATALOGUE[code] and all(action.strip() for action in CATALOGUE[code]))
 
-    def test_every_market_error_code_has_a_meaning_and_repair_commands(self):
+    def test_every_market_error_code_has_repair_commands(self):
         codes: dict[str, list[str]] = {}
         for path in sorted((ROOT / "market").glob("*.py")):
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -63,17 +61,7 @@ class RefusalTests(unittest.TestCase):
         self.assertTrue(codes)
         for code, sites in codes.items():
             with self.subTest(code=code, sites=sites):
-                self.assertTrue(CATALOGUE[code][1])
-
-    def test_a_market_reference_refusal_prints_the_market_repair(self):
-        from cli.common import _market_refusal, refusal_json
-        from market.sources import MarketError
-        for code, (meaning, repairs) in MARKET_CATALOGUE.items():
-            with self.subTest(code=code):
-                self.assertIn(code, CATALOGUE)
-                self.assertTrue(meaning.strip() and repairs)
-                printed = refusal_json(_market_refusal(MarketError("no such market ref", code=code)))
-                self.assertEqual(printed["next_actions"], list(repairs))
+                self.assertTrue(CATALOGUE[code])
 
     def test_every_failure_reason_given_has_a_meaning(self):
         codes = literal_codes(("reason",))
@@ -87,13 +75,13 @@ class RefusalTests(unittest.TestCase):
         self.assertIsInstance(raised, Refusal)
         self.assertEqual(raised.as_dict()["missing"], ["x"])
         self.assertEqual(raised.write_status, "not_written")
-        self.assertEqual(raised.next_actions, CATALOGUE["BUNDLE_EXISTS"][1])
+        self.assertEqual(raised.next_actions, CATALOGUE["BUNDLE_EXISTS"])
 
     def test_malformed_refusals_are_programming_errors(self):
         for kwargs in ({"code": "lower"}, {"code": "OK", "write_status": "maybe"},
                        {"code": "OK", "write_status": "unknown", "operation_id": None}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
-                refusal(kwargs.pop("code"), "message", **kwargs)
-        self.assertEqual(refusal("OK", "m", write_status="unknown", operation_id="op:1").operation_id, "op:1")
+                Refusal(kwargs.pop("code"), "message", **kwargs)
+        self.assertEqual(Refusal("OK", "m", write_status="unknown", operation_id="op:1").operation_id, "op:1")
         with self.assertRaises(KeyError):
             refuse("NOT_IN_THE_CATALOGUE", "m")

@@ -48,7 +48,7 @@ A **market day**, written YYYY-MM-DD, names the market data through that day. At
 rows before the end of D, the universe its months through that of D + 1 (a month's members depend only on the days before it, so a month's eve covers its first day), and the terms observed before the end of D + 1 (a day's
 data is imported the next day and its terms observed then). With no market day named, the latest is the earlier of the last
 complete days of the bars and the followed metrics. A month's last day
-waits for the next month's members, so that market day's membership never changes. A market day after that is `UNKNOWN_REF`. A contract counts as followed when it holds a metrics file in the table's newest month or the one before it, whatever
+waits for the next month's members, so that market day's membership never changes. A market day after that is `MARKET_DAY_UNKNOWN`. A contract counts as followed when it holds a metrics file in the table's newest month or the one before it, whatever
 imported it: a manual `market import-metrics` of another contract in those months holds the latest day back at that
 contract's last day, for up to about two months. A late metrics day or late-imported quote month changes what a pinned D reads, and `REPRODUCTION_MISMATCH`
 shows it: the same inputs give the same rows, and any difference is visible rather than silently kept apart. That fingerprint

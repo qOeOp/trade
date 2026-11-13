@@ -25,6 +25,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Paper (breaking): the run listing (`GET /api/paper/runs`) names a run's readings so far `readings` instead of
   `live`, the name its stream's `readings` event already has. The release gate's probe reads the new name, so
   reinstall the host's control code with the release (`sh deploy/remote/install-release.sh`), as every release does.
+- Refusals (breaking): one code per condition. A market reference is `head` or a day (`main` is refused); a
+  bad or late market day is `MARKET_DAY_UNKNOWN` (was `UNKNOWN_REF` or `MARKET_DAY_INVALID`), a contract the market day
+  lacks `UNKNOWN_SYMBOL` (was `NO_TERMS`), a bad contract list `EMPTY_SYMBOLS` (was `IMPORT_SCOPE`), and Paper with
+  no current-month member `UNIVERSE_EMPTY`. A profile file without `holds` is no longer read as a research ledger.
 - Live: each contract's membership grows month by month as Paper's. The control writes
   `inputs/membership/<YYYY-MM>.json` once a month after the run's market day has begun and the market holds it, and
   the runner denies an entry on a contract outside its membership natively (`entry_outside_membership`; the run goes

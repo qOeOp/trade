@@ -38,7 +38,7 @@ import pyarrow.parquet as pq
 
 from engine.config import EXECUTION_BAR_MINUTES
 from market import coverage, files, instrument, lifecycle, series, universe
-from market.sources import DAY, MINUTE, MarketError, _refuse
+from market.sources import DAY, MINUTE, _refuse
 
 
 NAUTILUS_SCALE = 16  # Nautilus high-precision Catalog decimals: decimal128(38, 16)
@@ -640,16 +640,12 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
     """
     step = MINUTE * 1_000_000
     if type(start_ns) is not int or type(end_ns) is not int or start_ns >= end_ns or start_ns % step or end_ns % step:
-        raise _refuse(f"export window [{start_ns}, {end_ns}) is not a positive one-minute interval", "EXPORT_WINDOW",
+        raise _refuse(f"export window [{start_ns}, {end_ns}) is not a positive one-minute interval", "INTERVAL_INVALID",
                       missing=("start", "end"))
     if not symbols or len(set(symbols)) != len(symbols):
-        raise _refuse("export needs each contract once", "EXPORT_SCOPE", missing=("symbols",))
+        raise _refuse("export needs each contract once", "EMPTY_SYMBOLS", missing=("symbols",))
     market = files.open_market(profile, "reader")
-    try:
-        market_day = files.resolve_day(market, at)
-    except MarketError as exc:
-        raise _refuse(f"market reference {at!r} does not resolve ({exc.code})", "MARKET_DAY_UNKNOWN",
-                      missing=(str(at),)) from exc
+    market_day = files.resolve_day(market, at)
     if fresh:
         if root is not None:
             Path(root).mkdir(parents=True, exist_ok=True)

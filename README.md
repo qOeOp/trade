@@ -85,8 +85,7 @@ uv run --frozen python -m cli.main replay run --help
 `--market` the market profile (default: the active market profile in that directory, which
 the report readers also use). Runner arguments (window and instrument scope) follow `--`. Each profile
 says what it `holds` (research, paper or market) and its lifecycle `kind` (active, isolated, temporary;
-null for a reader's). A market profile in the format before 2026-11-11 (`"kind": "market"` and `"role": R`)
-is refused with `LEDGER_KIND`: replace those two with `"holds": "market"` and `"kind": R`.
+null for a reader's).
 
 ### The ledger and the market
 

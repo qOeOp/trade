@@ -28,7 +28,7 @@ class ResearchLineTests(unittest.TestCase):
         self.addCleanup(self.conn.close)
 
     def select(self, **overrides):
-        arguments = {"market_at": "main", "today": date(2026, 4, 15), "start": "start@1", "slug": "ema-trend", "market": market(),
+        arguments = {"market_at": "head", "today": date(2026, 4, 15), "start": "start@1", "slug": "ema-trend", "market": market(),
                      "reviews": reviewed(source("start")), **overrides}
         return lines.select_line(self.conn, **arguments)
 
@@ -181,7 +181,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.code(start="start@9"), "START_NOT_FOUND")
 
         def unresolved(at):
-            raise refuse("UNKNOWN_REF", "no such market ref")
+            raise refuse("MARKET_DAY_UNKNOWN", "no such market day")
 
         self.assertEqual(self.code(market=unresolved), "MARKET_DAY_UNRESOLVED")
         self.assertEqual(self.code(market=market(universe_rule=None)), "MARKET_DAY_UNRESOLVED")

@@ -129,8 +129,6 @@ def coverage_facts(market: files.Market, market_day: str, symbol: str, start_ms:
     exact market day."""
     _interval(start_ms, end_ms)
     store.check_day(market_day)
-    if instrument.visible(market, market_day, symbol) is None:
-        raise _refuse(f"{symbol} is no instrument at {market_day}", "UNKNOWN_SYMBOL", missing=(symbol,))
     last, mark = _series(last_bars, start_ms, end_ms, True), _series(mark_bars, start_ms, end_ms, False)
     unmatched = int(len(np.setxor1d(np.asarray(last_bars["ts_open"]), np.asarray(mark_bars["ts_open"]))))
     months = [month.isoformat() for month, member in universe.months_of(market, market_day) if member == symbol]
@@ -288,11 +286,11 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
         episodes = lifecycle.validate_lifecycle(body, market_day, evidence)
     found = []
     for symbol in symbols:
+        terms = instrument.terms(market, market_day, symbol)
         last = read_bars(market, market_day, symbol, "LAST", start_ms, end_ms)
         mark = read_bars(market, market_day, symbol, "MARK", start_ms, end_ms)
         funding = read_funding(market, market_day, symbol, start_ms, end_ms)
         facts = coverage_facts(market, market_day, symbol, start_ms, end_ms, last, mark, funding)
-        terms = instrument.terms(market, market_day, symbol)
         found.append({**facts, "interpretation": INTERPRETATION,
                       "funding": {**facts["funding"], **funding_spacing([at for at, _ in funding])},
                       "quotes": quote_facts(market, market_day, symbol, start_ms, end_ms),
