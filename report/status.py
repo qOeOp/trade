@@ -9,7 +9,7 @@ stored records do not verify counts as diagnostic only, with its reason; it does
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from datetime import date, datetime, time
+from datetime import datetime, time
 import hashlib
 import json
 import math
@@ -43,13 +43,13 @@ def _key(row: Mapping) -> str:
     return hashlib.sha256(db.canonical_json(identity).encode("utf-8")).hexdigest()
 
 
-def _identities(conn: db.LedgerConnection, wanted: Iterable[int] | None = None) -> dict[int, dict | None]:
+def _identities(conn: db.LedgerConnection, wanted: Iterable[int] | None = None) -> dict[int, dict]:
     """The execution identity of every trial, by trial ID: its runtime contract, execution and image digest,
     and `keys`: the hash of what registration.check_comparable compares (the trial row's comparable
     identity) and those of the trial's exact reproductions, looked for only among `wanted` trials when
     given (a caller that reads no other trial's keys). Runs compare only under one key."""
     rows = conn.dicts(f"SELECT {IDENTITY_COLUMNS} FROM trial ORDER BY trial_id")
-    identities: dict[int, dict | None] = {
+    identities = {
         row["trial_id"]: {"runtime_contract": row["runtime_contract"], "execution": row["execution"],
                           "image_digest": row["image_digest"], "keys": [_key(row)]} for row in rows}
     kept = None if wanted is None else set(wanted)
@@ -62,19 +62,17 @@ def _identities(conn: db.LedgerConnection, wanted: Iterable[int] | None = None) 
         if row["purpose"] != "explore":
             continue
         for original in by_source.get(row["source_sha256"], ()):
-            identity, reproducing = identities[original], identities[row["trial_id"]]
-            if identity is not None and reproducing is not None and matches(row["trial_id"], original):
-                identity["keys"].append(reproducing["keys"][0])
+            if matches(row["trial_id"], original):
+                identities[original]["keys"].append(identities[row["trial_id"]]["keys"][0])
     return identities
 
 
-def line_identity(conn: db.LedgerConnection, line: str | int, identities: Mapping[int, dict | None]) -> dict | None:
+def line_identity(conn: db.LedgerConnection, line: str | int, identities: Mapping[int, dict]) -> dict | None:
     """The execution identity of a research line: that of its latest research trial (ledger.line_trials),
     None before the first. A contract or execution change ends a line; within one, a rebuilt image
     replaces the identity (research-round's changes.md)."""
-    own = [identities.get(trial_id) for trial_id in lines.line_trials(conn, line)["trials"]]
-    own = [identity for identity in own if identity is not None]
-    return own[-1] if own else None
+    own = lines.line_trials(conn, line)["trials"]
+    return identities[own[-1]] if own else None
 
 
 def _same(identity: Mapping | None, other: Mapping | None) -> bool:
@@ -222,9 +220,7 @@ def research_status(ledger, at: str | None = None, line: str | None = None) -> d
         def assess(trial_ids: list[int]) -> dict[int, dict]:
             """Each passed run's economic-evidence assessment, each run loaded and assessed once."""
             todo = [trial_id for trial_id in trial_ids if trial_id not in assessed]
-            loaded = metrics.load_runs(conn, todo, series=False, listing=True) if todo else {}
-            for trial_id in todo:
-                assessed[trial_id] = report_candidates.assess_listed(conn, trial_id, checker, records, loaded[trial_id])
+            assessed.update(report_candidates.assess_runs(conn, todo, checker, records))
             return {trial_id: assessed[trial_id] for trial_id in trial_ids}
 
         counted = {"unfinished": 0, "invalid": 0, "passed": 0, "valid": 0, "diagnostic": 0}
@@ -268,12 +264,6 @@ def research_status(ledger, at: str | None = None, line: str | None = None) -> d
 def _contracts(value) -> set[str]:
     """The Binance symbols of a counted trial (counted_trials' `instruments`, from input_identity.symbols)."""
     return {item for item in value if isinstance(item, str)} if isinstance(value, (list, tuple)) else set()
-
-
-def _window(line: Mapping) -> tuple[datetime, datetime]:
-    """A line's development window [dev_start, dev_end) as trial-row trading-window datetimes."""
-    return (datetime.combine(date.fromisoformat(line["dev_start"]), time()),
-            datetime.combine(date.fromisoformat(line["dev_end"]), time()))
 
 
 def overlapping_trials(trials: Iterable[Mapping], instruments: set[str], start: datetime, end: datetime) -> list:
@@ -352,7 +342,7 @@ def _overlapping_line(conn: db.LedgerConnection, line: str | int, counted: Itera
     instruments = line_instruments(conn, record["line_id"])
     if instruments is None:
         return None
-    start, end = _window(record)
+    start, end = lines.dev_window(record)
     return record, instruments, overlapping_trials(counted, instruments, start, end)
 
 
@@ -389,17 +379,19 @@ def sweeps(conn: db.LedgerConnection, line_id: int, found: Sequence[Mapping]) ->
     return {"sweep_variants": total, "undeclared_sweeps": undeclared}
 
 
-def trial_counts(conn: db.LedgerConnection, line: str | int, counted: Iterable[Mapping]) -> dict | None:
-    """The counts of multiple_testing alone, which need no return series: `research_trials`,
-    `all_purpose_trials`, `sweep_variants`, `undeclared_sweeps` and `trials_with_sweeps`. Null before the
-    line's first research trial."""
-    overlap = _overlapping_line(conn, line, counted)
-    if overlap is None:
-        return None
-    record, _, found = overlap
+def _counts(conn: db.LedgerConnection, record: Mapping, found: Sequence[Mapping]) -> dict:
+    """`research_trials`, `all_purpose_trials`, `sweep_variants`, `undeclared_sweeps` and `trials_with_sweeps` of a
+    line's overlapping trials (_overlapping_line)."""
     swept = sweeps(conn, record["line_id"], found)
     return {"research_trials": sum(trial["purpose"] == "research" for trial in found), "all_purpose_trials": len(found),
             **swept, "trials_with_sweeps": len(found) + swept["sweep_variants"]}
+
+
+def trial_counts(conn: db.LedgerConnection, line: str | int, counted: Iterable[Mapping]) -> dict | None:
+    """The counts of multiple_testing alone, which need no return series (_counts). Null before the line's first
+    research trial."""
+    overlap = _overlapping_line(conn, line, counted)
+    return None if overlap is None else _counts(conn, overlap[0], overlap[2])
 
 
 def multiple_testing(conn: db.LedgerConnection, line: str | int, counted: Iterable[Mapping],
@@ -438,10 +430,8 @@ def multiple_testing(conn: db.LedgerConnection, line: str | int, counted: Iterab
         if sharpe is not None:
             daily[trial_id] = sharpe / math.sqrt(365)
     correlation = mean_correlation([series[trial_id] for trial_id in daily])
-    swept = sweeps(conn, record["line_id"], found)
     return {"line": record["name"], "dev_start": record["dev_start"], "dev_end": record["dev_end"],
-            "instruments": sorted(instruments), "research_trials": len(research), "all_purpose_trials": len(found),
-            **swept, "trials_with_sweeps": len(found) + swept["sweep_variants"],
+            "instruments": sorted(instruments), **_counts(conn, record, found),
             "runs_with_returns": len(daily), "mean_correlation": correlation,
             "effective_trials": effective_trials(correlation, len(research)),
             "daily_sharpe_variance": statistics.variance(daily.values()) if len(daily) > 1 else None}
@@ -456,13 +446,6 @@ def _stamp(conn: db.LedgerConnection, registration_id: int):
 
 
 # The comparison table
-
-def _headline(facts: Mapping, names) -> dict:
-    """The named measures of one run (its measures.run_facts) as its single-run report gives them
-    (report.derive_measures)."""
-    derived = measures.derive_measures(facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for the state"})
-    return {name: derived[name] for name in names}
-
 
 def _passed_research_runs(conn: db.LedgerConnection, checker: Mapping, records: list,
                           window: tuple[datetime, datetime] | None = None, universe_rule: object = None,
@@ -482,9 +465,9 @@ def _passed_research_runs(conn: db.LedgerConnection, checker: Mapping, records: 
                           tuple(line_ids or ())):
         if window is None or ((row["trade_start"], row["trade_end"]) == window and row["universe_rule"] == universe_rule):
             rows.append(row)
-    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows], series=False, listing=True)
+    assessments = report_candidates.assess_runs(conn, [row["trial_id"] for row in rows], checker, records)
     for row in rows:
-        assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
+        assessed = assessments[row["trial_id"]]
         item = {"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"],
                 "trade_start": row["trade_start"], "trade_end": row["trade_end"], "universe_rule": row["universe_rule"]}
         if assessed["economic_evidence_available"]:
@@ -517,46 +500,52 @@ def deflated_range(facts: Mapping, testing: Mapping | None) -> dict | None:
             for name in ("effective_trials", "trials_with_sweeps")}
 
 
+def _compared(conn: db.LedgerConnection, record: Mapping, checker: Mapping, records: list) -> tuple:
+    """(identities, the line's identity, passed runs with and without economic evidence, `candidates`) of the
+    comparison table, read before any run's measures, so a recommendation's check (compared_candidates) reads none."""
+    identities = _identities(conn)
+    current = line_identity(conn, record["line_id"], identities)
+    own = set(lines.line_trials(conn, record["line_id"])["trials"])
+    passed, without = _passed_research_runs(conn, checker, records, lines.dev_window(record), record["universe_rule"])
+    candidates = sorted({row["candidate"] for row in passed if _same(identities[row["trial_id"]], current)
+                         and (row["trial_id"] in own or row["candidate"] == record["start"])})
+    return identities, current, passed, without, candidates
+
+
 def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mapping, records: list,
                      testing: Mapping | None = None) -> dict:
     """Every passed research run with economic evidence whose trading window is the line's development
     window and whose universe rule is the line's (older candidates and other lines included), with
     its execution identity (_identities), the four measures of its report and whether another run of
-    the same identity dominates it on them. `non_dominated` is null for a run missing a measure or
-    without a readable identity. `execution_identity` is the line's (line_identity) and `candidates`
-    the candidates with a run of it among the line's own trials (line_trials), and the line's start
+    the same identity dominates it on them. `non_dominated` is null for a run missing a measure.
+    `execution_identity` is the line's (line_identity) and `candidates` (_compared) the candidates with a run of it among the line's own trials (line_trials), and the line's start
     with a run of it, which a recommendation must name; other lines' runs stay in `runs`. Passed runs
     of that window without economic evidence are listed apart with their reasons and no measures. With the
     line's multiple-testing reading (`testing`), each run carries its deflated Sharpe range (deflated_range),
     else null. Each run shows its worst development year and its return without the best one (DEV_YEAR_COLUMNS),
     null unless the window is three whole years. Nothing is ranked, scored or stored."""
     record = lines.read_line(conn, line)  # LINE_UNKNOWN for a bad name
-    window = _window(record)
-    identities = _identities(conn)
-    current = line_identity(conn, record["line_id"], identities)
-    own = set(lines.line_trials(conn, record["line_id"])["trials"])
-    passed, without = _passed_research_runs(conn, checker, records, window, record["universe_rule"])
-    read = {trial_id: (_headline(facts, TABLE_MEASURES), deflated_range(facts, testing), measures.dev_years(facts))
+    identities, current, passed, without, candidates = _compared(conn, record, checker, records)
+    read = {trial_id: (measures.derive_measures(facts), deflated_range(facts, testing), measures.dev_years(facts))
             for trial_id, facts in measures.runs_facts(conn, [row["trial_id"] for row in passed])}
     found = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
-              "execution_identity": identities.get(row["trial_id"]),
-              "measures": read[row["trial_id"]][0], "deflated_sharpe": read[row["trial_id"]][1],
+              "execution_identity": identities[row["trial_id"]],
+              "measures": {name: read[row["trial_id"]][0][name] for name in TABLE_MEASURES},
+              "deflated_sharpe": read[row["trial_id"]][1],
               **{name: (read[row["trial_id"]][2] or {}).get(key) for name, key in DEV_YEAR_COLUMNS.items()}}
              for row in passed]
     excluded = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
-                 "execution_identity": identities.get(row["trial_id"]), "reasons": row["reasons"]} for row in without]
+                 "execution_identity": identities[row["trial_id"]], "reasons": row["reasons"]} for row in without]
     for item in found:
         complete = all(item["measures"][name]["value"] is not None for name in TABLE_MEASURES)
         item["dominated_by"] = [other["trial_id"] for other in found if other is not item
                                 and _same(other["execution_identity"], item["execution_identity"])
                                 and _dominates(other["measures"], item["measures"])]
-        item["non_dominated"] = (not item["dominated_by"]) if complete and item["execution_identity"] else None
+        item["non_dominated"] = (not item["dominated_by"]) if complete else None
     return {"line": record["name"], "dev_start": record["dev_start"], "dev_end": record["dev_end"],
             "universe_rule": record["universe_rule"], "execution_identity": current,
             "measures": list(TABLE_MEASURES), "lower_is_better": list(LOWER_IS_BETTER), "runs": found,
-            "candidates": sorted({item["candidate"] for item in found if _same(item["execution_identity"], current)
-                                  and (item["trial_id"] in own or item["candidate"] == record["start"])}),
-            "without_economic_evidence": excluded}
+            "candidates": candidates, "without_economic_evidence": excluded}
 
 
 # Every run by one measure (`research runs`)
@@ -569,9 +558,9 @@ def _day(moment: datetime) -> str:
     return moment.date().isoformat() if moment.time() == time() else moment.isoformat()
 
 
-def _identity_groups(found: list[dict], identities: Mapping[int, dict | None]) -> dict[int, int | None]:
+def _identity_groups(found: list[dict], identities: Mapping[int, dict]) -> dict[int, int]:
     """A group number for each run, from 1 in trial order: runs share a group when their identities share a key
-    (_same, joined transitively); None for a run without a readable identity."""
+    (_same, joined transitively)."""
     parent: dict[int, int] = {}
 
     def root(trial_id: int) -> int:
@@ -581,19 +570,15 @@ def _identity_groups(found: list[dict], identities: Mapping[int, dict | None]) -
 
     first_with: dict[str, int] = {}
     for row in found:
-        identity = identities.get(row["trial_id"])
-        if identity is None:
-            continue
         parent[row["trial_id"]] = row["trial_id"]
-        for key in identity["keys"]:
+        for key in identities[row["trial_id"]]["keys"]:
             if key in first_with:
                 one, other = root(first_with[key]), root(row["trial_id"])
                 parent[max(one, other)] = min(one, other)
             else:
                 first_with[key] = row["trial_id"]
     numbers: dict[int, int] = {}
-    return {row["trial_id"]: (numbers.setdefault(root(row["trial_id"]), len(numbers) + 1)
-                              if row["trial_id"] in parent else None) for row in found}
+    return {row["trial_id"]: numbers.setdefault(root(row["trial_id"]), len(numbers) + 1) for row in found}
 
 
 def research_runs(ledger, at: str | None = None, line: str | None = None, by: str | None = None,
@@ -613,7 +598,7 @@ def research_runs(ledger, at: str | None = None, line: str | None = None, by: st
         records = precheck.review_records(conn)
         if line is not None:
             record = lines.read_line(conn, line)  # LINE_UNKNOWN for a bad name
-            found, without = _passed_research_runs(conn, checker, records, _window(record), record["universe_rule"])
+            found, without = _passed_research_runs(conn, checker, records, lines.dev_window(record), record["universe_rule"])
         else:  # L11: the open lines' runs
             opened = [item["line_id"] for item in lines.lines(conn, open_only=True)]
             found, without = _passed_research_runs(conn, checker, records, line_ids=opened)
@@ -627,8 +612,7 @@ def research_runs(ledger, at: str | None = None, line: str | None = None, by: st
         listed = []
         derived: dict[int, dict] = {}  # each run's RUN_MEASURES only, so its series go with its chunk
         for trial_id, facts in measures.runs_facts(conn, [row["trial_id"] for row in found]):
-            measured = measures.derive_measures(facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for a "
-                                                                        "listing"})
+            measured = measures.derive_measures(facts)
             derived[trial_id] = {key: measured[key] for key in RUN_MEASURES}
         for row in found:
             measured = derived[row["trial_id"]]
@@ -646,8 +630,8 @@ def research_runs(ledger, at: str | None = None, line: str | None = None, by: st
         kept = listed if limit is None else listed[:limit]
         described: dict[int, dict] = {}
         for item, row in kept:
-            identity = identities.get(row["trial_id"])
-            if identity is not None and item["group"] not in described:
+            identity = identities[row["trial_id"]]
+            if item["group"] not in described:
                 described[item["group"]] = {
                     "group": item["group"], "runtime_contract": identity["runtime_contract"],
                     "execution": identity["execution"], "image_digest": identity["image_digest"],
@@ -665,10 +649,11 @@ def research_runs(ledger, at: str | None = None, line: str | None = None, by: st
 
 
 def compared_candidates(profile, line: str, at: str) -> list[str]:
-    """The `candidates` of the line's comparison table at `at` (what a recommendation must name)."""
+    """The `candidates` of the line's comparison table at `at` (what a recommendation must name), without its
+    measures."""
     checker = availability.check_identity()
     with db.read_as_of(db.profile(profile), at) as conn:
-        return comparison_table(conn, line, checker, precheck.review_records(conn))["candidates"]
+        return _compared(conn, lines.read_line(conn, line), checker, precheck.review_records(conn))[-1]
 
 
 # The research state
@@ -703,15 +688,21 @@ SUBJECT_COLUMNS = "s.judgment_id, s.seq, s.role, c.strategy_id, c.revision, s.tr
 SUBJECTS = "judgment_subject s LEFT JOIN candidate c ON c.source_sha256 = s.source_sha256"
 
 
+def line_subjects(conn: db.LedgerConnection, line_id: int) -> dict[int, list[dict]]:
+    """The subjects of every judgment of a line, superseded ones included, by judgment ID in their order."""
+    subjects: dict[int, list[dict]] = {}
+    for row in conn.dicts(f"SELECT {SUBJECT_COLUMNS} FROM {SUBJECTS} JOIN judgment j ON j.judgment_id = s.judgment_id "
+                          "WHERE j.line_id = %s ORDER BY s.judgment_id, s.seq", (line_id,)):
+        subjects.setdefault(row.pop("judgment_id"), []).append(row)
+    return subjects
+
+
 def _judgments(conn: db.LedgerConnection, line_id: int) -> dict[str, list[dict]]:
     found: dict[str, list[dict]] = {kind: [] for kind in (*SINGLE_KINDS, *MANY_KINDS)}
     rows = conn.dicts("SELECT judgment_id, kind, based_on_commit, body, created_at FROM judgment j WHERE "
                       "line_id = %s AND NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) "
                       "ORDER BY judgment_id", (line_id,))
-    subjects: dict[int, list[dict]] = {}
-    for row in conn.dicts(f"SELECT {SUBJECT_COLUMNS} FROM {SUBJECTS} JOIN judgment j ON j.judgment_id = s.judgment_id "
-                          "WHERE j.line_id = %s ORDER BY s.judgment_id, s.seq", (line_id,)):
-        subjects.setdefault(row.pop("judgment_id"), []).append(row)
+    subjects = line_subjects(conn, line_id)
     for row in rows:
         found[row["kind"]].append({**row, "subjects": subjects.get(row["judgment_id"], [])})
     for kind in SINGLE_KINDS:
@@ -733,7 +724,8 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
         value = report_candidates.assess_listed(conn, trial["trial_id"], checker, records)
         headline = None
         if trial["status"] == "passed" and value["economic_evidence_available"]:
-            headline = _headline(measures.run_facts(conn, trial["trial_id"]), measures.HEADLINE)
+            derived = measures.derive_measures(measures.run_facts(conn, trial["trial_id"]))
+            headline = {name: derived[name] for name in measures.HEADLINE}
         return {"trial": trial, "availability": value, "headline": headline}
     return {"registration_id": subject.get("research_registration_id")}
 
@@ -901,7 +893,7 @@ def research_state(conn: db.LedgerConnection, line: str | None = None, at: str |
         current = line_identity(pinned, line_id, identities)
         unreviewed = [trial_id for trial_id in (
             lines.line_trials(pinned, line_id, since_commit=recommendation["based_on_commit"])["trials"]
-            if recommendation else on_line["trials"]) if _same(identities.get(trial_id), current)]
+            if recommendation else on_line["trials"]) if _same(identities[trial_id], current)]
         earlier = None
         if not full and recommendation is not None:
             earlier = {}

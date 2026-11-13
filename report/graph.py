@@ -80,33 +80,18 @@ class _Lineage:
         return sorted((self.by_id[key] for key in seen), key=lambda r: (r["created_at"], r["strategy_id"], r["revision"]))
 
     def members(self, line_id: int, start: str) -> tuple[list[dict], set[int]]:
-        """line_members for the line `line_id`: its start and the candidates of its research trials are the seeds,
-        and a candidate whose research runs are all another line's (`elsewhere`) does not draw that line here."""
+        """The candidates a line's graph draws, oldest first, and its research trials: those connected (walk) to its
+        start (`start`) and to the candidates of its research trials, never through a candidate whose research runs
+        are all another line's (`elsewhere`): one parent across lines does not draw that line here."""
         sources = self.sources.get(line_id, set())
         seeds = {start}.union(*(self.of_source.get(source, ()) for source in sources))
         elsewhere = set().union(*(self.of_source.get(source, ()) for source in self.researched - sources))
         return self.walk(seeds, elsewhere), self.trials.get(line_id, set())
 
 
-def _lineage(rows: list[dict], seeds: set[str], elsewhere: set[str]) -> list[dict]:
-    """The candidates connected to the seeds (the line's start and the candidates of its research
-    trials) through parents or a shared strategy id, never through a candidate in `elsewhere` (its
-    research runs are all another line's): one parent across lines does not draw that line here."""
-    return _Lineage(rows, []).walk(seeds, elsewhere)
-
-
 def research_trials(conn: db.LedgerConnection) -> list[dict]:
-    """Every research trial's ID, source and line, in one read (line_members' `researched`)."""
+    """Every research trial's ID, source and line, in one read (_Lineage's `researched`)."""
     return conn.dicts("SELECT trial_id, source_sha256, line_id FROM trial WHERE purpose = 'research'")
-
-
-def line_members(conn: db.LedgerConnection, line: str, start: str, rows: list[dict],
-                 researched: list[dict] | None = None) -> tuple[list[dict], set[int]]:
-    """The candidates (of `rows`, the candidate table) a line's graph draws, oldest first, and its research
-    trials: those connected (_lineage) to its start (`start`) and to the candidates of its research trials.
-    `researched` is research_trials' read when the caller already has it."""
-    researched = research_trials(conn) if researched is None else researched
-    return _Lineage(rows, researched).members(lines.read_line(conn, line)["line_id"], start)
 
 
 def _candidate_rows(conn: db.LedgerConnection) -> list[dict]:
@@ -121,8 +106,8 @@ def _run_reading(conn: db.LedgerConnection, trial_id: int, checker: Mapping, rec
     value = report_candidates.assess_listed(conn, trial_id, checker, records, run)
     reading["eligible"] = bool(value["economic_evidence_available"])
     if reading["eligible"] and not isinstance(run, Refusal):  # a run that refuses is never eligible
-        headline = status._headline(measures.facts_of(run), status.TABLE_MEASURES)
-        reading.update({field: headline[name]["value"] for name, field in MEASURE_KEYS.items()})
+        derived = measures.derive_measures(measures.facts_of(run))
+        reading.update({field: derived[name]["value"] for name, field in MEASURE_KEYS.items()})
     else:
         reading["ineligible_reason"] = "; ".join(value["reasons"]) or None
     return reading, value.get("source_check")
@@ -355,9 +340,9 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
         return conn.rows(f"SELECT DISTINCT {names} FROM dolt_diff(%s, %s, '{table}') WHERE diff_type = 'added'", pair)
 
     record = lines.read_line(conn, line)
-    rows = _candidate_rows(conn)
-    members, _ = line_members(conn, line, record["start"], rows)
-    connected = _lineage(rows, {f"{r['strategy_id']}@{r['revision']}" for r in members}, set())
+    lineage = _Lineage(_candidate_rows(conn), research_trials(conn))
+    members, _ = lineage.members(record["line_id"], record["start"])
+    connected = lineage.walk({f"{r['strategy_id']}@{r['revision']}" for r in members}, set())
     sources = {r["source_sha256"] for r in connected}
     trials = dict(conn.rows("SELECT trial_id, source_sha256 FROM trial"))
     for (control,) in conn.rows("SELECT DISTINCT r.control_trial_id FROM trial t JOIN research_registration r ON "
@@ -410,8 +395,8 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
         line = line_name or lines.open_line(conn)["name"]
         record = lines.read_line(conn, line)
         in_force = line_targets.targets_for(conn, record["line_id"])
-        rows = _candidate_rows(conn)
-        members, on_line = line_members(conn, line, record["start"], rows)
+        members, on_line = _Lineage(_candidate_rows(conn), research_trials(conn)).members(record["line_id"],
+                                                                                          record["start"])
         source_of = {f"{r['strategy_id']}@{r['revision']}": r["source_sha256"] for r in members}
         wanted = sorted(set(source_of.values()))
         text_of = {r["source_sha256"]: bytes(r["source"]).decode() for r in conn.dicts(
@@ -430,12 +415,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
                                   "IS NOT NULL"))
         judged = conn.dicts("SELECT judgment_id, kind, body, created_at, supersedes FROM judgment WHERE line_id = %s "
                             "ORDER BY judgment_id", (record["line_id"],))
-        subjects: dict[int, list[dict]] = {}
-        for row in conn.dicts("SELECT s.judgment_id, s.role, c.strategy_id, c.revision, s.trial_id, "
-                              "s.research_registration_id FROM judgment_subject s JOIN judgment j ON j.judgment_id = "
-                              "s.judgment_id LEFT JOIN candidate c ON c.source_sha256 = s.source_sha256 "
-                              "WHERE j.line_id = %s ORDER BY s.judgment_id, s.seq", (record["line_id"],)):
-            subjects.setdefault(row.pop("judgment_id"), []).append(row)
+        subjects = status.line_subjects(conn, record["line_id"])
         replaced = {row["supersedes"] for row in judged if row["supersedes"] is not None}
         since_at = None
         if since is not None:

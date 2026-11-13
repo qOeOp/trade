@@ -21,7 +21,7 @@ a holdout, so another line's explore or closing replays count here; searches out
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import datetime, time
 import math
 import statistics
 
@@ -35,9 +35,9 @@ SHORT_DAYS = 90  # about three months
 MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "cycles", "plan_win_rate")
 
 
-def _kind(row: dict, dev_start: datetime, dev_end: datetime) -> str:
-    """veto, control, holdout or forward (ledger.lines.history_segments)."""
-    if row["trade_start"] >= datetime.combine(lines.holdout_end(dev_end.date()), time()):
+def _kind(row: dict, dev_start: datetime, dev_end: datetime, held: datetime) -> str:
+    """veto, control, holdout or forward (ledger.lines.history_segments; `held` is the holdout's end)."""
+    if row["trade_start"] >= held:
         return "forward"
     if row["trade_start"] >= dev_end:
         return "holdout"
@@ -60,7 +60,7 @@ def _cell(conn: db.LedgerConnection, row: dict, kind: str, returns: dict[int, li
             "short": (row["trade_end"] - row["trade_start"]).days < SHORT_DAYS}
     if row["status"] == "passed":
         facts = measures.run_facts(conn, row["trial_id"])
-        derived = measures.derive_measures(facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for history"})
+        derived = measures.derive_measures(facts)
         cell["measures"] = {key: derived[key]["value"] for key in MEASURES}
         if kind == "holdout" and returns is not None:
             returns[row["trial_id"]] = [value for ts, value, _ in facts["returns"]
@@ -142,15 +142,14 @@ def _control_reproduces(conn: db.LedgerConnection, control: dict | None, run_id:
     return mine is not None and mine == theirs
 
 
-def _prior_trials(conn: db.LedgerConnection, line_id: int, dev_end: datetime, own: set[int],
+def _prior_trials(conn: db.LedgerConnection, line_id: int, dev_end: datetime, end: datetime, own: set[int],
                   counted: list[dict]) -> dict | None:
     """`holdout_prior_trials`: the counted trials on the line's instruments (status.line_instruments) whose trading
-    window overlaps [dev_end, holdout end), the line's own history trials (`own`) left out, by line (null for a
+    window overlaps [dev_end, end), the holdout, the line's own history trials (`own`) left out, by line (null for a
     trial on none) and purpose; None before the line's first research trial."""
     instruments = status.line_instruments(conn, line_id)
     if instruments is None:
         return None
-    end = datetime.combine(lines.holdout_end(dev_end.date()), time())
     found = [trial["trial_id"] for trial in status.overlapping_trials(counted, instruments, dev_end, end)
              if trial["trial_id"] not in own]
     groups: dict[tuple, int] = {}
@@ -169,8 +168,8 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     summaries, ordered by development-period Sharpe; the line's targets in force, its research trial count and
     the earlier searches of its holdout among `counted` (status.counted_trials' counted trials)."""
     record = lines.read_line(conn, line)
-    dev_start = datetime.combine(date.fromisoformat(record["dev_start"]), time())
-    dev_end = datetime.combine(date.fromisoformat(record["dev_end"]), time())
+    dev_start, dev_end = lines.dev_window(record)
+    held = datetime.combine(lines.holdout_end(dev_end.date()), time())
     targets = line_targets.targets_for(conn, record["line_id"])
     found = lines.history_trials(conn, record["line_id"])
     rows: list[dict] = []
@@ -179,8 +178,8 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
         "SELECT source_sha256, strategy_id, revision FROM candidate")}
     for participant in lines.history_participants(conn, record["line_id"]):
         own = [row for row in found if row["source_sha256"] == participant["source_sha256"]]
-        cells = [_cell(conn, row, _kind(row, dev_start, dev_end), returns) for row in own]
-        control = next((row for row in own if _kind(row, dev_start, dev_end) == "control"), None)
+        cells = [_cell(conn, row, _kind(row, dev_start, dev_end, held), returns) for row in own]
+        control = next((row for row in own if _kind(row, dev_start, dev_end, held) == "control"), None)
         researched = conn.one("SELECT trial_id, trade_start, trade_end FROM trial WHERE trial_id = %s",
                               (participant["trial_id"],))
         assert researched is not None  # a participant is a run's trial
@@ -198,7 +197,7 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     return {"line": record["name"], "closed": record["closed"], "dev_start": record["dev_start"],
             "dev_end": record["dev_end"], "targets": targets, "participants": len(rows),
             "research_trials": research["n"] if research else 0, "discount": discount,
-            "holdout_prior_trials": _prior_trials(conn, record["line_id"], dev_end,
+            "holdout_prior_trials": _prior_trials(conn, record["line_id"], dev_end, held,
                                                   {row["trial_id"] for row in found}, counted),
             "rows": rows}
 

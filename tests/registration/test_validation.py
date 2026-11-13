@@ -498,7 +498,7 @@ class ValidationTests(unittest.TestCase):
 
         def audit_findings(at=None):
             with db.connect(self.world.profile, "reader") as conn:
-                audited = ledger_review.review_all(conn, at, trial_ids=[])
+                audited = ledger_review.review_all(conn, at)
             return [item for item in audited["findings"] if item["code"].startswith("WITNESS_")
                     and item["record_id"] in registrations]
 

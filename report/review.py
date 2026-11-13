@@ -22,31 +22,6 @@ from shared.refusals import refuse
 from registration import validation
 
 
-# Finding codes and their meaning (findings are reported, never stored).
-FINDINGS = {
-    "ROW_CHANGED": "A row of a commitment table was modified or removed in the ledger history.",
-    "HISTORY_REWRITTEN": "The latest backup's head commit, or the commit the review continues from, is no ancestor of "
-                         "the research head: a commit was rewritten (the writer account can amend its last commit).",
-    "BACKUP_BEHIND": "The latest backup's head is an earlier commit of the research branch: the commits after it "
-                     "have no copy (`line close` and `ledger export --kind backup` sync the backup).",
-    "BACKUP_UNREADABLE": "The latest backup exists but its head commit cannot be read (restore failed, timed out or "
-                         "returned no readable branch list); rewritten history was not checked.",
-    "CONSTRAINT_VIOLATED": "A row matches no row of a table its foreign key names (the writer can turn foreign key "
-                           "checks off in its session).",
-    "READING_REPLACED_OUTSIDE_RESEAL": "A run_reading row was changed or removed by a commit that is not a reseal "
-                                       "of that reading, or a reseal commit also wrote a commitment row.",
-    "WITNESS_UNBOUND": "A witness token stamps a commit that did not add its validation registration, or a commit "
-                       "outside the branch's history.",
-    "READING_MISMATCH": "A value the stored cycles or daily series determine (the profit bridge, plan tags, the "
-                        "whole-day series behind the monthly figures) differs from the run's reading.",
-    "SEALED_RESULT_MISSING": "A passed run has no reading row.",
-    "CAPTURE_MISSING": "A run's trial has no original execution capture.",
-    "CAPTURE_UNREADABLE": "A run's execution capture or start receipt does not verify.",
-    "REGISTRATION_AFTER_TRIAL": "A research trial's registration was recorded no earlier than the trial, or was "
-                                "added in the trial's own commit.",
-    "WITNESS_MISSING": "The original validation registration commit has no verified timestamp token.",
-    "WITNESS_LATE": "The original validation registration's timestamp is not before its window start.",
-}
 # Not commitments: the write coordination row and the one replaceable reading per run (checked apart).
 UNCHECKED = ("ledger_head", "run_reading")
 READINGS = "run_reading"
@@ -116,10 +91,6 @@ def _in_branch(profile: db.LedgerProfile, commit: str) -> bool:
     return bool(count)
 
 
-def _ns(moment) -> int:
-    return metrics.utc_ns(moment.replace(tzinfo=None).isoformat() + "Z")
-
-
 def _sealed_rows_findings(conn: db.LedgerConnection, trial_id: int, commit: str, report: Mapping,
                           trial: Mapping, native_economics=None) -> list[dict]:
     """What the stored cycles and daily series determine against the reading: the whole-day series behind the
@@ -138,7 +109,8 @@ def _sealed_rows_findings(conn: db.LedgerConnection, trial_id: int, commit: str,
     activity = report.get("activity") or {}
     if (activity.get("returns_compound_to_equity") or {}).get("passed") and final is not None:
         limitations: list[str] = []
-        summary = {"period_start_utc": str(_ns(trial["trade_start"])), "period_end_utc": str(_ns(trial["trade_end"])),
+        summary = {"period_start_utc": str(metrics.moment_ns(trial["trade_start"])),
+                   "period_end_utc": str(metrics.moment_ns(trial["trade_end"])),
                    "starting_balance_usdt": str(starting), "final_equity_usdt": str(final)}
         if metrics.daily_returns(returns, summary, limitations) is None:
             mismatch("run_return", "the monthly figures have no whole daily series: " + "; ".join(limitations))
@@ -306,8 +278,7 @@ def _constraint_findings(conn: db.LedgerConnection, new: str, args: tuple) -> li
     return found
 
 
-def review_all(conn: db.LedgerConnection, at: str | None = None, since: str | None = None,
-               trial_ids: list | None = None) -> dict:
+def review_all(conn: db.LedgerConnection, at: str | None = None, since: str | None = None) -> dict:
     """The review at one exact version with the reader account, of the commits after `since` (the commit an
     earlier review checked; every commit without it); every difference a finding."""
     admin.require_reader(conn)
@@ -329,12 +300,10 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, since: str | No
                                           lambda commit: _after(conn.profile, commit))
         findings += found
         limitations += unread
-        wanted = None if trial_ids is None else {int(item) for item in trial_ids}
         changed = ("SELECT to_trial_id FROM dolt_diff_run WHERE diff_type = 'added'" + new
                    + f" UNION SELECT to_trial_id FROM dolt_diff_{READINGS} WHERE diff_type <> 'removed'" + new)
-        runs = [row for row in pinned.dicts(f"SELECT trial_id, status FROM run WHERE trial_id IN ({changed}) "
-                                            "ORDER BY trial_id", args + args)
-                if wanted is None or row["trial_id"] in wanted]
+        runs = pinned.dicts(f"SELECT trial_id, status FROM run WHERE trial_id IN ({changed}) ORDER BY trial_id",
+                            args + args)
         for row in runs:
             findings += _run_findings(pinned, row, commit)
         found, registrations = _registration_findings(pinned, commit, new, args)
@@ -342,5 +311,5 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, since: str | No
         found, validations = _validation_findings(pinned, commit)
         findings += found
     return {"at": at, "since": start, "commit": commit, "tables_checked": checked, "runs_checked": len(runs),
-            "captures_checked": len(runs), "registrations_checked": registrations, "validations_checked": validations,
+            "registrations_checked": registrations, "validations_checked": validations,
             "history": history, "ok": not findings, "findings": findings, "limitations": limitations}

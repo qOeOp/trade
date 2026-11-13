@@ -21,9 +21,7 @@ from report import measures
 
 
 def _sharpe(conn: db.LedgerConnection, trial_id: int) -> float | None:
-    derived = measures.derive_measures(measures.run_facts(conn, trial_id),
-                                       market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for an order"})
-    return derived["sharpe_365"]["value"]
+    return measures.derive_measures(measures.run_facts(conn, trial_id))["sharpe_365"]["value"]
 
 
 def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, limit: int | None = None) -> dict:
