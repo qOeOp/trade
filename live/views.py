@@ -5,6 +5,7 @@ before return; changing or incomplete sources produce unknown, never a flat clai
 """
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import hashlib
@@ -19,9 +20,9 @@ from engine.live_errors import REFUSALS, LiveRefusal
 from live import daily, runs, state
 
 
-MAX_BYTES = 16 * 1024 * 1024
+MAX_BYTES = 16 * 1024 * 1024  # a JSON sample, or one journal row
 MAX_ROWS = 200
-MAX_MINUTES = 1442  # a run's longest duration, one day, in minutes, and the minute it stops in
+MAX_MINUTES = 1442  # the equity chart's window: one day in minutes, and the minute a run stops in
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
 OBSERVATION = re.compile(r"(?:preflight|connected-account|entry-account|final-account)-[0-9]{1,20}\.json\Z")
@@ -78,6 +79,7 @@ class _Sample:
     status: str
     observed_ns: str | None
     read_ns: str
+    lines: tuple[int, ...] = ()  # a journal's kept rows' line numbers
 
     def evidence(self):
         return {"source": self.source, "cursor": self.cursor, "observed_ns": self.observed_ns,
@@ -91,38 +93,60 @@ def _sample(path: Path, source: str, *, journal=False) -> _Sample:
         if any(parent.is_symlink() for parent in (path.parent, path.parent.parent)):
             raise ValueError
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        digest, lines = hashlib.sha256(), ()
         with os.fdopen(fd, "rb") as stream:
             before = os.fstat(stream.fileno())
-            if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_BYTES:
+            if not stat.S_ISREG(before.st_mode) or (not journal and before.st_size > MAX_BYTES):
                 raise ValueError
-            raw = stream.read(MAX_BYTES + 1)
+            if journal:
+                size, kept = _journal(stream, digest)
+                lines, data = tuple(index for index, _ in kept), [row for _, row in kept]
+            else:
+                raw = stream.read(MAX_BYTES + 1)
+                if len(raw) > MAX_BYTES:
+                    raise ValueError
+                digest.update(raw)
+                size = len(raw)
             after = os.fstat(stream.fileno())
-        if len(raw) > MAX_BYTES:
-            raise ValueError
         if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
                 after.st_size, after.st_mtime_ns, after.st_ctime_ns):
             return _Sample(path, source, None, None, "changed", None, read_ns)
-        cursor = hashlib.sha256(raw).hexdigest() + ":" + str(len(raw))
+        cursor = digest.hexdigest() + ":" + str(size)
         if journal:
-            if raw and not raw.endswith(b"\n"):
-                raise ValueError
-            data = [json.loads(line) for line in raw.splitlines()]
-            if not all(isinstance(row, dict) and isinstance(row.get("event"), str)
-                       and isinstance(row.get("run_id"), str) and _integer(row.get("observed_ns")) is not None
-                       for row in data):
-                raise ValueError
-            observed = next((_integer(row.get("observed_ns")) for row in reversed(data)
-                             if _integer(row.get("observed_ns")) is not None), None)
+            observed = _integer(data[-1]["observed_ns"]) if data else None
         else:
             data = json.loads(raw)
             if not isinstance(data, dict):
                 raise ValueError
             observed = _integer(data.get("observed_ns"))
-        return _Sample(path, source, data, cursor, "complete", observed, read_ns)
+        return _Sample(path, source, data, cursor, "complete", observed, read_ns, lines)
     except FileNotFoundError:
         return _Sample(path, source, None, None, "missing", None, read_ns)
     except (OSError, ValueError, UnicodeError, RecursionError):
         return _Sample(path, source, None, None, "invalid", None, read_ns)
+
+
+def _journal(stream, digest):
+    """Read a journal a row at a time, checking every row, and keep each run's and event's first row and its
+    latest MAX_MINUTES rows, as (line, row) in journal order: every projection below reads only those, so a run
+    that never ends is read whole without holding its whole journal."""
+    size, kept, latest = 0, [], {}
+    for number, line in enumerate(iter(lambda: stream.readline(MAX_BYTES + 1), b"")):
+        if len(line) > MAX_BYTES or not line.endswith(b"\n"):
+            raise ValueError
+        digest.update(line)
+        row = json.loads(line)
+        if not (isinstance(row, dict) and isinstance(row.get("event"), str)
+                and isinstance(row.get("run_id"), str) and _integer(row.get("observed_ns")) is not None):
+            raise ValueError
+        key = (row["run_id"], row["event"])
+        if key in latest:
+            latest[key].append((number, row))
+        else:
+            latest[key] = deque(maxlen=MAX_MINUTES)
+            kept.append((number, row))
+        size += len(line)
+    return size, sorted(kept + [item for queue in latest.values() for item in queue], key=lambda item: item[0])
 
 
 def _stop_marker(path: Path) -> _Sample:
@@ -157,7 +181,7 @@ def _rows(sample: _Sample, run_id: str):
 
 
 def _ref(sample: _Sample, index: int):
-    return {"source": sample.source, "cursor": f"{sample.cursor}:{index}"}
+    return {"source": sample.source, "cursor": f"{sample.cursor}:{sample.lines[index]}"}
 
 
 def _identity(manifest):

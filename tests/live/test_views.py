@@ -77,6 +77,23 @@ class LiveViewTests(LiveFixture):
                                                     ["180000000000", None]])
         self.assertNotIn("SECRET", json.dumps(result))
 
+    def test_a_journal_longer_than_a_sample_is_read_whole_and_keeps_its_first_and_latest_rows(self):
+        self.native("equity_peak", equity="100", observed_ns=1)
+        self.native("order", native={"type": "OrderFilled", "last_qty": "0.001"})
+        rows = [state.encode({"event": "minute_result", "run_id": self.run_id, "observed_ns": 2 + minute,
+                              "minute_ns": minute * 60_000_000_000, "result": str(minute)}) for minute in range(50)]
+        with (self.directory / "out" / "events.jsonl").open("ab") as stream:
+            stream.write(b"".join(rows))
+        self.native("equity_peak", equity="104", observed_ns=60)
+        self.native("clean_stop", observed_ns=61)
+        with patch.object(views, "MAX_BYTES", 1024), patch.object(views, "MAX_MINUTES", 3):
+            result = views.run_view(self.root, self.run_id)
+        self.assertEqual(next(row for row in result["evidence"] if row["source"] == "native")["state"], "complete")
+        self.assertEqual(result["minute_results"], [[str(minute * 60_000_000_000), str(minute)] for minute in (47, 48, 49)])
+        self.assertEqual((result["brake"]["start"], result["brake"]["peak"]), ("100", "104"))
+        self.assertEqual(result["orders"][0]["event_ref"]["cursor"].rsplit(":", 1)[1], "1")  # its line in the journal
+        self.assertEqual(result["terminal"]["event_ref"]["cursor"].rsplit(":", 1)[1], "53")
+
     def test_the_entry_gate_shows_known_reasons_only(self):
         self.native("entries_closed", reason="disconnected", socket="BINANCE wss://fstream.binance.com/ws")
         self.native("entries_checking", reasons=["unverified"])
