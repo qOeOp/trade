@@ -130,3 +130,42 @@ test("a start holding around an inherited position says so until a later start o
   assert.equal(held([resuming("1", true)], "clean_stopped"), null);
   assert.equal(held(undefined), null, "an older service sends no restarts");
 });
+
+test("a running run's entries are closed until its latest start warms up, then for each reason the gate gave since", () => {
+  const entries = (restarts, gate = [], state = "running") => liveRunPresentation({ ...run(), host: { ...run().host, state }, restarts, gate }, []).entries;
+  const restart = (ns, event, held = null) => ({ event, observed_ns: ns, held });
+  const gate = (ns, event, reasons) => ({ event, observed_ns: ns, reasons, socket: null });
+  assert.deepEqual(entries([]), { open: false, text: "Closed · warming up" });
+  assert.deepEqual(entries([restart("1", "warmup")]), { open: true, text: "Open" });
+  assert.deepEqual(entries([restart("1", "warmup")], [gate("2", "entries_closed", ["disconnected"]), gate("3", "entries_closed", ["bars_missing"])]),
+    { open: false, text: "Closed · connection lost, a bar is missing" });
+  assert.deepEqual(entries([restart("1", "warmup")], [gate("2", "entries_closed", ["disconnected"]), gate("3", "entries_opened", ["disconnected"])]),
+    { open: true, text: "Open" });
+  // a missing bar ends the start; the next one warms up again and trades
+  const rewarm = [restart("1", "warmup"), restart("3", "rewarming"), restart("4", "resuming", false)];
+  assert.deepEqual(entries(rewarm, [gate("2", "entries_closed", ["bars_missing"])]), { open: false, text: "Closed · warming up" });
+  assert.deepEqual(entries([...rewarm, restart("5", "warmup")], [gate("2", "entries_closed", ["bars_missing"])]), { open: true, text: "Open" });
+  assert.deepEqual(entries([restart("1", "resuming", true)]), { open: false, text: "Closed · inherited position" });
+  assert.equal(entries([restart("1", "warmup")], [], "clean_stopped"), null);
+  assert.equal(entries(null), null, "an older service reports no restarts: unknown, not closed");
+});
+
+test("the latest comparison and the continuous facts read the control's records as they are", () => {
+  const mapped = (compare, extra = {}) => liveRunPresentation({ ...run(), compare, ...extra }, []);
+  assert.deepEqual(mapped({ day: "2026-11-12", state: "done", unexplained_count: 0, measures: { groups: 9 } }).compared,
+    { day: "2026-11-12", text: "0 of 9 unexplained", attention: false });
+  assert.deepEqual(mapped({ day: "2026-11-12", state: "done", unexplained_count: 2, measures: { groups: 9 } }).compared,
+    { day: "2026-11-12", text: "2 of 9 unexplained", attention: true });
+  assert.deepEqual(mapped({ day: "2026-11-12", state: "failed", code: "LIVE_COMPARE_EMPTY", failures: 2 }).compared,
+    { day: "2026-11-12", text: "failed (LIVE_COMPARE_EMPTY), 2 days running", attention: true });
+  assert.equal(mapped({ day: "2026-11-12", state: "waiting" }).compared.text, "waiting for the market");
+  assert.equal(mapped(undefined).compared, null);
+  const facts = mapped(undefined, { restarts: [{ event: "warmup", observed_ns: "10", held: null }, { event: "warmup", observed_ns: "30", held: null }],
+    gate: [{ event: "entries_opened", observed_ns: "20", reasons: ["disconnected", "unverified"], socket: null }] }).continuity;
+  assert.deepEqual(facts.map((item) => [item.label, item.value, item.format ?? null, item.attention ?? false]), [["Trading for", "10", "since", false],
+    ["Latest warm-up", "30", "nanoseconds", false], ["Entries", "Open", null, false], ["Last reconnect", "20", "nanoseconds", false], ["Replay", null, null, false]]);
+  const closed = mapped({ day: "2026-11-12", state: "done", unexplained_count: 2, measures: { groups: 9 } }, { restarts: [] }).continuity;
+  assert.deepEqual(closed.filter((item) => item.attention).map((item) => [item.label, item.value]),
+    [["Entries", "Closed · warming up"], ["Replay", "2026-11-12 · 2 of 9 unexplained"]]);
+  assert.deepEqual(liveRunPresentation({ ...run(), host: { ...run().host, mode: "preflight" } }, []).continuity, []);
+});

@@ -56,6 +56,7 @@ export function LivePage({ id }: { id: string }) {
         <PhoneHeading title="Facts" />
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-3 pb-4 text-dense">
           <dt className="text-fg-muted">Account check</dt><dd className="text-right">{check ? `${check.state}${check.readAt ? ` · ${clock(Date.parse(check.readAt), zone)}` : ""}` : "–"}</dd>
+          {run.entries && <><dt className="text-fg-muted">Entries</dt><dd className={`text-right ${run.entries.open ? "" : textClass("misses")}`}>{run.entries.text}</dd></>}
           <dt className="text-fg-muted">Fills</dt><dd className="text-right tabular-nums">{fills}</dd>
           <dt className="text-fg-muted">Telegram last sent</dt><dd className="text-right">{view.notify?.configured ? sent !== null ? `${ago(sent, now)} ago` : "Not yet" : "Not set up"}</dd>
         </dl>

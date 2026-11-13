@@ -15,7 +15,7 @@ function LiveRunDetailsView({ run, actions }: LiveRunView) {
   return <div className="space-y-3 px-3 pb-4 text-dense">
     <div className="pt-3"><h2 className="break-words font-semibold">{run.candidate}</h2><p className="mt-1 text-small text-fg-faint">{livePurposeLabel(run.purpose)}</p></div>
     <LiveFacts title="Account observation" facts={run.account} />
-    <LiveFacts title="Run status" facts={run.host} />
+    <LiveFacts title="Run status" facts={[...run.host, ...run.continuity ?? []]} />
     <LiveFacts title="Native completion" facts={run.execution} />
     <LiveFacts title="Stopping and custody" facts={run.ending} />
     <LiveFacts title="Frozen plan" facts={run.config} />

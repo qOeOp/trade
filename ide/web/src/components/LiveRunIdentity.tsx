@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { copyText } from "../lib/clipboard";
 import type { LiveRun } from "../model/liveTrading";
 import { IconButton } from "./IconButton";
+import { textClass } from "../theme/roles";
 
 const PHASES: Record<string, string> = { preflight: "Account check", run: "Live execution", reconcile: "Reconciliation" };
 
@@ -24,11 +25,19 @@ export function liveRunStatus(run: LiveRun): readonly (readonly [string, ReactNo
     ["Phase", mode ? PHASES[mode] ?? mode : "Not reported"]];
 }
 
+/** While the run trades, its entries and its latest comparison with a replay; closed entries and a comparison
+ *  that needs a look in the misses colour. */
+function liveRunOperation(run: LiveRun): readonly (readonly [string, ReactNode])[] {
+  return [...run.entries ? [["Entries", <span className={run.entries.open ? undefined : textClass("misses")}>{run.entries.text}</span>] as const] : [],
+    ...run.compared ? [["Replay", <span>{run.compared.day.slice(5)} · <span className={run.compared.attention ? textClass("misses") : undefined}>{run.compared.text}</span></span>] as const] : []];
+}
+
 /** Keep the complete retained identity visible wherever a run is reviewed: one readout line, each name
- *  faint and 4px from its value, the values 12px apart. */
-export function LiveRunIdentity({ run }: { run: LiveRun }) {
+ *  faint and 4px from its value, the values 12px apart. With `operation`, the run's entries and latest
+ *  comparison with a replay follow on the same line. */
+export function LiveRunIdentity({ run, operation = false }: { run: LiveRun; operation?: boolean }) {
   return <dl className="flex flex-wrap items-center gap-x-3 gap-y-1 text-small">
-    {([["Run ID", <LiveRunId id={run.id} />], ...liveRunStatus(run)] as const).map(([name, value]) =>
+    {([["Run ID", <LiveRunId id={run.id} />], ...liveRunStatus(run), ...operation ? liveRunOperation(run) : []] as const).map(([name, value]) =>
       <div key={name} className="flex min-w-0 items-center gap-1"><dt className="shrink-0 text-fg-faint">{name}</dt><dd className="min-w-0">{value}</dd></div>)}
   </dl>;
 }

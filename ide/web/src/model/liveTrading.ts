@@ -3,7 +3,8 @@ export type { LiveRequest } from "../lib/liveTradingDto";
 
 /** Non-persistent presentation values. The transport maps the frozen API DTOs into these;
  * this is not a backend schema and contains no venue credential or private path. */
-export type LiveFact = { label: string; value: string | null; format?: "nanoseconds" };
+/** `since`: a time in ns shown as how long ago and when; `attention`: shown in the misses colour. */
+export type LiveFact = { label: string; value: string | null; format?: "nanoseconds" | "since"; attention?: boolean };
 export type LiveEvidence = { source: string; cursor: string | null; observedNs: string | null; complete: boolean | null; readNs?: string; state?: string };
 export type LiveSource = {
   id: string; candidate: string; sourceHash: string; entryClass: string;
@@ -30,6 +31,12 @@ export type LiveRun = {
   hostState?: string | null; accountOwned?: boolean | null;
   /** Set while the latest start holds around a position or orders it inherited (model/liveTradingMap.ts HELD_NOTICE). */
   heldNotice?: string | null;
+  /** A running run's entries: open, or closed and why (model/liveTradingMap.ts entriesOf); null once it ended. */
+  entries?: { open: boolean; text: string } | null;
+  /** The control's latest daily comparison with a replay: its day and its result in words; null before the first. */
+  compared?: { day: string; text: string; attention: boolean } | null;
+  /** How the run has kept running: since when it trades, its warm-up, entries, last reconnect, latest comparison. */
+  continuity?: readonly LiveFact[];
   /** When the account was observed and the run's native terminal event, as ns; whether it executes now. */
   observedNs: { account: string | null; terminal: string | null }; running: boolean;
   /** The host reports the run ended, so Request stop has nothing to stop. */

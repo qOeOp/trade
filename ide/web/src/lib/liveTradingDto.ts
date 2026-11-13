@@ -58,7 +58,15 @@ export type LiveRunDto = {
   purpose?: "natural" | "controlled" | null;
   /** Interruptions and starts again of the same run (live/views.py _restarts); absent from an older service. */
   restarts?: { event: string; observed_ns: string; held: boolean | null }[] | null;
+  /** The entry gate's events (live/views.py _gate): when entries closed, why, and when they reopened. */
+  gate?: { event: string; observed_ns: string; reasons: string[]; socket: string | null }[] | null;
+  /** The control's latest daily comparison with a replay (live/daily.py); absent from an older control. */
+  compare?: LiveCompareDto | null;
   review?: LiveReviewDto | null; review_error?: { code: string } | null;
+};
+export type LiveCompareDto = {
+  day: string; state: "running" | "done" | "waiting" | "failed" | "empty"; code?: string | null; failures?: number;
+  unexplained_count?: number; measures?: { groups?: number } | null;
 };
 export type LiveHomeDto = {
   availability: "ready"; write_enabled: boolean; maintenance_enabled: boolean; write_reason: string | null;
