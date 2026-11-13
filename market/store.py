@@ -162,8 +162,12 @@ def prepare(job: dict) -> dict:
                           missing=(job["symbol"], *exc.missing)) from exc
 
 
+def pace(rest: float, funding: float) -> None:
+    """A pool worker's REST intervals: the process's request budget shared among the pool's workers."""
+    sources.REST_INTERVAL, sources.FUNDING_INTERVAL = rest, funding
+
+
 def _prepare(job: dict) -> dict:
-    sources.REST_INTERVAL, sources.FUNDING_INTERVAL = job["rest_interval"]
     started = time.monotonic()
     symbol, cache, end, trading = job["symbol"], Path(job["cache"]), job["end"], job["trading"]
     held = job["held"] if job["held"] is not None else job["start"]  # stored before this: compared, never written
@@ -423,8 +427,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
                          "stored": {kind: stored_bars.get((symbol, kind), empty) for kind in ("LAST", "MARK")},
                          "resumed": {kind: (symbol, kind) in resumed for kind in ("LAST", "MARK")},
                          "trading": item is not None and item["status"] == "TRADING",
-                         "terms": {key: terms[key] for key in ("price_increment", "size_increment")} if terms else None,
-                         "rest_interval": (sources.REST_INTERVAL * workers, sources.FUNDING_INTERVAL * workers)})
+                         "terms": {key: terms[key] for key in ("price_increment", "size_increment")} if terms else None})
     stored_funding = _stored_funding(market, start_ms, held_ms) if held_ms is not None and jobs else {}
 
     totals: dict[str, Any] = {"bar_rows": 0, "funding_rows": 0, "rounded_volumes": 0, "gaps": {}, "inferred_terms": [],
@@ -433,7 +436,10 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     prepared: dict[str, str] = {}
     settlements: list[tuple[str, int, str]] = []
     # One worker prepares in this process; more prepare in a process pool (speed only, same result).
-    pool = ProcessPoolExecutor(min(workers, len(jobs))) if workers > 1 and len(jobs) > 1 else None
+    size = min(workers, len(jobs))
+    pool = ProcessPoolExecutor(size, initializer=pace,
+                               initargs=(sources.REST_INTERVAL * size, sources.FUNDING_INTERVAL * size)) \
+        if size > 1 else None
     try:
         reports = (future.result() for future in as_completed([pool.submit(prepare, job) for job in jobs])) \
             if pool is not None else (prepare(job) for job in jobs)
