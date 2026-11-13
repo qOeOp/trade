@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { AgentCard } from "../../components/chat/AgentCard";
 import { FormButton } from "../../components/chat/Field";
-import { agentApi, errorText, type Agent } from "../../lib/agentApi";
+import { agentApi, type Agent } from "../../lib/agentApi";
+import { errorText } from "../../lib/transport";
 import { agents, refreshAgents, replaceAgent, useAgents } from "../../state/agent";
 import { AgentEditor } from "./AgentEditor";
 

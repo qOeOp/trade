@@ -1,6 +1,6 @@
 import { atom } from "./atom";
 import { sessionRequired } from "./session";
-import { pageFetch } from "../lib/paperApi";
+import { pageFetch } from "../lib/transport";
 
 /** One move of the mirror's main, newest first: when (UTC) and between which commits; the oldest kept has no
  *  previous commit. */

@@ -2,7 +2,7 @@
 // the readings (or, once sealed, the seal): equity and what moved it since the start (closed trades
 // before fees, fees, funding, open positions), the drawdown now and at its deepest, the return a minimum
 // annual return asks for by now, and what its closed trades say.
-import { amount, type JournalLine, type Live, type PaperState, type Seal } from "../lib/paperApi";
+import { amount, type JournalLine, type Readings, type PaperState, type Seal } from "../lib/paperApi";
 import { YEAR_MS } from "../lib/time";
 import { START } from "./chain";
 import { heldSides } from "./held";
@@ -17,7 +17,7 @@ export type Account = {
   start: number | null; end: number; trades: Closed[];
 };
 
-export function account(lines: readonly JournalLine[], state: PaperState | null, readings: Live | null, seal: Seal | null): Account {
+export function account(lines: readonly JournalLine[], state: PaperState | null, readings: Readings | null, seal: Seal | null): Account {
   const fees = lines.reduce((sum, l) => sum + (l.kind === "order" && l.type === "OrderFilled" ? amount(l.commission) ?? 0 : 0), 0);
   const path = readings?.equity ?? [];
   const starting = amount(readings?.starting_balance_usdt) ?? START;

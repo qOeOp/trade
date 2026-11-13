@@ -13,7 +13,7 @@ async function page(replies) {
     return { status: reply.status, ok: reply.status < 300, json: async () => reply.body };
   } });
   const module = await namespace("state/researchSync.ts", { context, sources: [], packages: [],
-    stubs: { "state/atom": { atom }, "state/session": { sessionRequired }, "lib/paperApi": { pageFetch: context.fetch } } });
+    stubs: { "state/atom": { atom }, "state/session": { sessionRequired }, "lib/transport": { pageFetch: context.fetch } } });
   return { ...module, sessionRequired, requests };
 }
 test("sync failure retains the previously observed research version", async () => {

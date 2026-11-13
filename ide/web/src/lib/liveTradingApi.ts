@@ -1,4 +1,4 @@
-import { pageFetch } from "./paperApi";
+import { pageFetch } from "./transport";
 import type { LiveReply } from "./liveTradingDto";
 
 export class LiveApiError extends Error {

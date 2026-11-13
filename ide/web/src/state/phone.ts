@@ -1,5 +1,5 @@
-// Whether the page draws for a phone (the same bundle, another shell), which tab it shows, which run's page is
-// open and what it has to say before a view. A phone in landscape stays a phone; "Desktop layout" asks for the IDE
+// Whether the page draws for a phone (the same bundle, another shell), which tab it shows and which run's page is
+// open. A phone in landscape stays a phone; "Desktop layout" asks for the IDE
 // for as long as the browser tab lasts, through the page loads its links make, so a phone opened later is a phone
 // again. What a phone shows: docs/plans/ide-phone-scope-20261111.zh.md.
 import { useLayoutEffect } from "react";
@@ -29,12 +29,13 @@ type PhoneRun = { kind: "live"; id: string } | { kind: "paper"; id: number };
 
 const address = new URLSearchParams(window.location.search);
 const linked = (): PhoneRun | null => {
-  const live = address.get("live"), paper = Number(address.get("paper"));
+  const live = address.get("live"), paper = Number(address.get("run"));
   return live ? { kind: "live", id: live } : paper > 0 ? { kind: "paper", id: paper } : null;
 };
 /** Runs when it opens; Research when the address names a line or asks for the lines. */
 export const phoneTab = atom<PhoneTab>(!linked() && (address.has("line") || window.location.hash === "#lines") ? "research" : "runs");
-/** The run page open, as the address names it (a Telegram message's link: ?live=<run id>). */
+/** The run page open, as the address names it (a Telegram message's link: ?live=<run id>; a paper run's, as
+ *  the desktop's: ?run=<number>). */
 const phoneRun = atom<PhoneRun | null>(linked());
 export const usePhoneRun = () => useAtom(phoneRun);
 
@@ -53,7 +54,8 @@ export function closeRun(): void {
     // A link's run, closed: the address no longer names it, so a reload opens the Runs tab.
     const url = new URL(window.location.href);
     url.searchParams.delete("live");
-    url.searchParams.delete("paper");
+    url.searchParams.delete("run");
+    url.searchParams.delete("stage");
     history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }
 }
@@ -67,9 +69,6 @@ export function desktopHref(href: string, run: PhoneRun | null, line: string | n
   else if (line) keep.searchParams.set("line", line);
   return keep.href;
 }
-
-type ViewStatus = { text: string; busy: boolean; choices?: { label: string; href: string }[]; next?: string[] };
-export const viewStatus = atom<ViewStatus>({ text: "", busy: true });
 
 /** Marks the page a phone's, for the sizes of theme/tokens.css, while this shell shows, and keeps the page on the
  *  part of the screen an open keyboard leaves (Safari leaves the layout the screen's size and scrolls it instead). */

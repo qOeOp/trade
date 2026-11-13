@@ -1,5 +1,6 @@
 // Every closed or closing line's history test (`research history`), from the page's own server under /api/history at
 // the head or a full ledger commit (ide/research_graph/serve.py). Shapes as report/history.py writes them.
+import { getJson } from "./transport";
 
 export type HistoryMeasures = {
   annual_return: number | null; mark_max_drawdown: number | null; sharpe_365: number | null; cycles: number | null; plan_win_rate: number | null;
@@ -34,12 +35,6 @@ export type HistoryLine = {
 export type History = { ledger_commit: string; short_days: number; lines: HistoryLine[] };
 
 export async function fetchHistory(at: string | null): Promise<{ kind: "ready"; history: History } | { kind: "failed"; message: string }> {
-  try {
-    const response = await fetch(`/api/history${at ? `?at=${encodeURIComponent(at)}` : ""}`, { cache: "no-store" });
-    const body = await response.json().catch(() => null) as (History & { message?: string }) | null;
-    if (response.ok && body) return { kind: "ready", history: body };
-    return { kind: "failed", message: body?.message ?? `HTTP ${response.status}` };
-  } catch (error) {
-    return { kind: "failed", message: String(error) };
-  }
+  const read = await getJson<History>(`/api/history${at ? `?at=${encodeURIComponent(at)}` : ""}`);
+  return read.kind === "ready" ? { kind: "ready", history: read.body } : { kind: "failed", message: read.message };
 }

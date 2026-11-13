@@ -11,7 +11,7 @@ function storage() {
 function page(sessionStorage) {
   let n = 0;
   const context = createContext({ window: { sessionStorage }, crypto: { randomUUID: () => `page-${++n}-${Math.random()}` } });
-  return namespace("lib/pendingStarts.ts", { context, sources: [], packages: [] });
+  return namespace("lib/pendingStarts.ts", { context, sources: ["lib/storage"], packages: [] });
 }
 test("a lost response survives page reload and confirmation removes only its own pending command", async () => {
   const disk = storage(), first = await page(disk);

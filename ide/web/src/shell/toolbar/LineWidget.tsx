@@ -6,7 +6,7 @@ import { Dropdown, DropdownFacts, DropdownItem, DropdownLabel, DropdownSeparator
 import { ResearchLines } from "./ResearchLines";
 import { useResearchLines } from "../../state/researchLines";
 import { useAtom } from "../../state/atom";
-import { viewStatus } from "../../state/phone";
+import { viewStatus } from "../../state/update";
 import { Icon } from "../../icons/Icon";
 
 // The gates `research state` reads before the line's next registration, in words; the message keeps the detail.

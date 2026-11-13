@@ -1,12 +1,12 @@
 // The paper daemon (python -m cli.main paper serve) under /api/paper, reached through the page's own
 // server. Its refusals are { code, message }, as the product's are. A POST carries the token the page's
 // server put in the page, without which that server refuses it.
-import { ApiError } from "./agentApi";
 import { MISSING } from "./format";
+import { serviceApi } from "./transport";
 
 type RunState = "running" | "stopping" | "ended" | "unsealed" | "sealed";
 /** What a seal computes, from the journal so far (paper/serve.py live_readings). */
-export type Live = {
+export type Readings = {
   /** The run's start after its warm-up, derived from the waiting event. Absent on older daemons. */
   input_start_ns?: number | null;
   total_return: number | null; max_drawdown: number; final_equity_usdt: string | null; funding_usdt: string;
@@ -38,7 +38,7 @@ export type PaperRun = {
   status: "complete" | "invalid" | null; reasons: string[] | null; total_return: number | null; max_drawdown: number | null;
   /** The listing leaves the equity path to the run's stream; it has the path's outline (at most 120 points,
    *  [minute ns, equity]) and the runner's last open positions and orders (null before its first state). */
-  live?: Omit<Live, "equity"> & { outline?: [number, number][]; held?: { minute_ns: number | null; positions: OpenPosition[]; orders: OpenOrder[] } | null };
+  live?: Omit<Readings, "equity"> & { outline?: [number, number][]; held?: { minute_ns: number | null; positions: OpenPosition[]; orders: OpenOrder[] } | null };
   seal?: Seal;
   recovery?: { code: string; message: string };
 };
@@ -63,43 +63,9 @@ export type PaperState = {
   positions: OpenPosition[]; orders: OpenOrder[];
 };
 
-/** The page's token for Paper, research-sync, setup and Live writes; empty when none of them is configured. */
-const paperToken = () => document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]')?.content ?? "";
-
-/** A write refused before forwarding after a release can renew its nonce and retry exactly once. */
-export async function pageFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  const writing = !["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase());
-  const send = () => {
-    const headers = new Headers(init.headers);
-    if (writing) headers.set("x-trade-paper-token", paperToken());
-    return fetch(url, { ...init, headers });
-  };
-  let response = await send();
-  const renewed = writing && response.status === 403 ? response.headers.get("x-trade-paper-token") : null;
-  const meta = renewed && document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]');
-  if (meta && renewed) { meta.content = renewed; response = await send(); }
-  return response;
-}
-
 /** One JSON request to the paper daemon; throws its refusal as an ApiError. */
-export async function paperApi<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
-  let response: Response;
-  try {
-    response = await pageFetch(`/api/paper${path}`, {
-      method: init.method ?? "GET", cache: "no-store",
-      headers: init.method === "POST" ? { "content-type": "application/json" } : undefined,
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    });
-  } catch (error) {
-    throw new ApiError("PAPER_UNAVAILABLE", String(error));
-  }
-  if (response.status === 401) {
-    throw new ApiError("AUTH_REQUIRED", "Sign in again; Paper runs continue on the server");
-  }
-  const body = await response.json().catch(() => ({ code: "PAPER_FAILED", message: `${response.status} ${response.statusText}` }));
-  if (!response.ok) throw new ApiError(body.code ?? "PAPER_FAILED", body.message ?? "");
-  return body as T;
-}
+export const paperApi = <T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> =>
+  serviceApi<T>("PAPER", `/api/paper${path}`, init, "Sign in again; Paper runs continue on the server");
 
 /** What a page holds of a run's journal, for its stream to leave out: its first `lines` lines but bars,
  *  the last written at `last` (wall ns), and the bars (or every contract's closes) up to `bars` (ns). */

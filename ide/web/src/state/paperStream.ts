@@ -2,7 +2,7 @@
 // the contract its chart shows (every line but other contracts' bars), with state.json, the readings
 // and the exceptions its strategy raised. The page's links: the time the chart should show and the
 // event to highlight, the Trades window's tab, and the day picked in the calendar.
-import { streamUrl, type JournalLine, type Live, type PaperState, type RuntimeFailure, type Seal } from "../lib/paperApi";
+import { streamUrl, type JournalLine, type Readings, type PaperState, type RuntimeFailure, type Seal } from "../lib/paperApi";
 import { CATEGORIES, type Category } from "../model/paper";
 import { atom, persistedAtom, useAtom } from "./atom";
 
@@ -10,7 +10,7 @@ export type Stream = {
   paperId: number; symbol: string | null; lines: JournalLine[]; bars: JournalLine[];
   /** Every contract's bar closes ([bar time ns, close]), by symbol: the Account view's stream only. */
   closes: Record<string, [number, number][]>;
-  state: PaperState | null; readings: Live | null; seal: Seal | null; failures: RuntimeFailure[]; connected: boolean;
+  state: PaperState | null; readings: Readings | null; seal: Seal | null; failures: RuntimeFailure[]; connected: boolean;
 };
 const stream = atom<Stream | null>(null);
 export const useStream = () => useAtom(stream);

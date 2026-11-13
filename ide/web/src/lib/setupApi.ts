@@ -1,5 +1,5 @@
 // A deployment's first start (`ledger service run --setup`, forwarded by the page's server under /api/setup/).
-import { pageFetch } from "./paperApi";
+import { pageFetch } from "./transport";
 
 export type SetupRefusal = { code: string; message: string };
 export type Setup = {

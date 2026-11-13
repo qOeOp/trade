@@ -9,8 +9,7 @@ async function page(replies) {
     requests.push({ url, init, token: init.headers.get("x-trade-paper-token") });
     return replies.shift();
   } });
-  const module = await namespace("lib/paperApi.ts", { context, sources: [], packages: [],
-    stubs: { "lib/agentApi": { ApiError: Error }, "lib/format": { MISSING: "–" } } });
+  const module = await namespace("lib/transport.ts", { context, sources: [], packages: [] });
   return { ...module, requests, meta };
 }
 const reply = (status, nonce) => new Response("{}", { status, headers: nonce ? { "x-trade-paper-token": nonce } : {} });
