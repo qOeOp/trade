@@ -59,8 +59,10 @@ PLAN[5], WRITES[5] = PLAN[4], WRITES[4]
 # at the run's first start, and a run may have no duration (docs/plans/live-continuous-operation-design-20261110.zh.md).
 PLAN[6], WRITES[6] = PLAN[5] - {"budget_usdt", "max_loss_usdt"} | {"drawdown_brake"}, WRITES[5]
 # Protocol 7 moves the contracts from the Live settings onto each source, which trades them one instance each
-# (docs/plans/cross-line-fusion-20261111.zh.md, L1 b).
-PLAN[7], WRITES[7] = PLAN[6], WRITES[6]
+# (docs/plans/cross-line-fusion-20261111.zh.md, L1 b), and switches a continuous run to a confirmed runtime image.
+PLAN[7], WRITES[7] = PLAN[6], (*WRITES[6],
+                               (f"/api/live/runs/{RUN}/runtime_switch", "runtime_switch", RUN, {"request_id"}),
+                               (f"/api/live/runs/{RUN}/runtime_switch_cancel", "runtime_switch_cancel", RUN, {"request_id"}))
 
 
 class ProtocolRequestTests(unittest.TestCase):

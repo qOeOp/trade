@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { namespace } from "./load.mjs";
 
-const { liveRunPresentation, liveHomePresentation, HELD_NOTICE } = await namespace("model/liveTradingMap.ts", { sources: ["model/liveRuntimeMap"], packages: [] });
+const { liveRunPresentation, liveHomePresentation, HELD_NOTICE } = await namespace("model/liveTradingMap.ts", { sources: ["model/liveRuntimeMap", "model/liveLaunchText"], packages: [] });
 const run = () => ({
   run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, candidate: { strategy_id: "retest", revision: "1" },
   runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: null,
@@ -102,7 +102,7 @@ test("minute results become the account on the equity the run armed with, unknow
   const brake = { start: "100", peak: "104", fired: null };
   assert.deepEqual(liveRunPresentation({ ...run(), brake, minute_results: results }, []).equity,
     { budget: 100, minutes: [[60, 97.5], [120, null], [180, 101.25]] });
-  assert.equal(liveRunPresentation(run(), []).equity, null, "an older service sends none");
+  assert.equal(liveRunPresentation(run(), []).equity, null, "no minute results, no chart");
   assert.equal(liveRunPresentation({ ...run(), brake: { ...brake, start: null }, minute_results: results }, []).equity, null);
   assert.deepEqual(liveHomePresentation({ availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [],
     credentials: [], runs: [], defaults: { drawdown_brake: "0.15", duration_seconds: null, leverage: "3" } }, new Map()).planFields.slice(0, 2),
@@ -128,7 +128,7 @@ test("a start holding around an inherited position says so until a later start o
   assert.equal(held([resuming("1", true), { event: "venue_flat_while_held", observed_ns: "2", held: null }]), null);
   assert.equal(held([resuming("1", true), resuming("3", false)]), null);
   assert.equal(held([resuming("1", true)], "clean_stopped"), null);
-  assert.equal(held(undefined), null, "an older service sends no restarts");
+  assert.equal(held(undefined), null, "restarts unknown");
 });
 
 test("a running run's entries are closed until its latest start warms up, then for each reason the gate gave since", () => {
@@ -153,7 +153,7 @@ test("a running run's entries are closed until its latest start warms up, then f
   assert.deepEqual(entries([...rewarm, restart("5", "warmup")], [gate("2", "entries_closed", ["bars_missing"])]), { open: true, text: "Open" });
   assert.deepEqual(entries([restart("1", "resuming", true)]), { open: false, text: "Closed · inherited position" });
   assert.equal(entries([restart("1", "warmup")], [], "clean_stopped"), null);
-  assert.equal(entries(null), null, "an older service reports no restarts: unknown, not closed");
+  assert.equal(entries(null), null, "restarts unknown: unknown, not closed");
 });
 
 test("the latest comparison and the continuous facts read the control's records as they are", () => {
@@ -173,6 +173,12 @@ test("the latest comparison and the continuous facts read the control's records 
   const closed = mapped({ day: "2026-11-12", state: "done", unexplained_count: 2, measures: { groups: 9 } }, { restarts: [] }).continuity;
   assert.deepEqual(closed.filter((item) => item.attention).map((item) => [item.label, item.value]),
     [["Entries", "Closed · warming up"], ["Replay", "2026-11-12 · 2 of 9 unexplained"]]);
+  const key = (rows) => mapped(undefined, { key_checks: rows }).continuity.find((item) => item.label === "API key");
+  const check = (event, ns, code = null) => ({ event, code, observed_ns: ns });
+  assert.deepEqual(key([check("key_check_failed", "1", "LIVE_KEY_WITHDRAWAL")]), { label: "API key",
+    value: "This API key allows withdrawals. Turn that off at Binance, or save a key without it.", attention: true });
+  assert.equal(key([check("key_check_failed", "1", "LIVE_KEY_WITHDRAWAL"), check("key_check_passed", "2")]), undefined, "a later pass clears it");
+  assert.equal(key(null), undefined);
   assert.deepEqual(liveRunPresentation({ ...run(), host: { ...run().host, mode: "preflight" } }, []).continuity, []);
 });
 
@@ -197,5 +203,5 @@ test("a running run on another image is offered the release's build with its evi
   const failed = { ...base.switch, offered: null, events: [{ event: "runtime_switch_failed", observed_ns: "9", code: "LIVE_RUNTIME_START", reason: null, digest: null }] };
   assert.deepEqual(liveRunPresentation({ ...base, switch: failed }, []).continuity.at(-1),
     { label: "Last switch", value: "Failed (LIVE_RUNTIME_START), kept the previous image", attention: true });
-  assert.equal(liveRunPresentation(run(), []).continuity.some((f) => f.label === "Runtime"), false);  // an older control
+  assert.equal(liveRunPresentation(run(), []).continuity.some((f) => f.label === "Runtime"), false);  // no switch view
 });

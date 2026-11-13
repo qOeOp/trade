@@ -54,19 +54,21 @@ export type LiveRunDto = {
   } | null;
   orders: LiveEventRow[] | null; positions: LiveEventRow[] | null; event_limit: 200; evidence: LiveEvidenceDto[]; complete: boolean;
   /** The equity the run armed with, its highest equity and the drawdown brake once it fired (engine/live_brake.py). */
-  brake?: { start: string | null; peak: string | null; fired: { equity: string | null; peak: string | null; drawdown: string | null; observed_ns: string | null } | null } | null;
-  /** The run's result at each minute's first mark and when it stopped, [minute_ns, result] (live/views.py); absent from an older service. */
-  minute_results?: [string, string | null][] | null;
-  purpose?: "natural" | "controlled" | null;
-  /** Interruptions and starts again of the same run (live/views.py _restarts); absent from an older service. */
-  restarts?: { event: string; observed_ns: string; held: boolean | null; switch?: boolean }[] | null;
+  brake: { start: string | null; peak: string | null; fired: { equity: string | null; peak: string | null; drawdown: string | null; observed_ns: string | null } | null } | null;
+  /** The run's result at each minute's first mark and when it stopped, [minute_ns, result] (live/views.py). */
+  minute_results: [string, string | null][] | null;
+  purpose: "natural" | "controlled" | null;
+  /** Interruptions and starts again of the same run (live/views.py _restarts). */
+  restarts: { event: string; observed_ns: string; held: boolean | null; switch?: boolean }[] | null;
   /** The entry gate's events (live/views.py _gate): when entries closed, why, and when they reopened. */
-  gate?: { event: string; observed_ns: string; reasons: string[]; socket: string | null; status?: string | null }[] | null;
-  /** The control's latest daily comparison with a replay (live/daily.py); absent from an older control. */
-  compare?: LiveCompareDto | null;
+  gate: { event: string; observed_ns: string; reasons: string[]; socket: string | null; status?: string | null }[] | null;
+  /** The control's hourly checks of the run's key that failed, and a pass after one (live/views.py _key_checks). */
+  key_checks: { event: "key_check_failed" | "key_check_passed"; code: string | null; observed_ns: string }[] | null;
+  /** The control's latest daily comparison with a replay (live/daily.py). */
+  compare: LiveCompareDto | null;
   /** The runtime image the latest start runs on, a confirmed switch it waits for, how earlier ones ended, and the
-   *  release's image when it differs (live/views.py _switch, live/control.py _offered); absent from an older control. */
-  switch?: LiveSwitchDto | null;
+   *  release's image when it differs (live/views.py _switch, live/control.py _offered). */
+  switch: LiveSwitchDto | null;
   review?: LiveReviewDto | null; review_error?: { code: string } | null;
 };
 export type LiveImageDto = { digest: string | null; build_revision: string | null };
