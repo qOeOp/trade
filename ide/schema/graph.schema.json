@@ -291,7 +291,7 @@
                     "null"
                   ]
                 },
-                "win_rate": {
+                "plan_win_rate": {
                   "type": [
                     "number",
                     "null"

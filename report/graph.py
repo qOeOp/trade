@@ -23,7 +23,7 @@ from report import comparison, measures, seams, status
 
 FORMAT = "research-graph@3"
 MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_drawdown", "sharpe_365": "sharpe",
-                "plan_win_rate": "win_rate"}
+                "plan_win_rate": "plan_win_rate"}
 EVENT_KINDS = {"recommendation": "recommendation", "priority": "priority", "interpretation": "interpretation",
                "search_exposure": "other"}
 # A priority judgment recording a decision made for the user opens with one of these exactly (`judgment add` refuses
@@ -454,7 +454,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
                                           if row["purpose"] == "research" and row["status"] is not None], listing=True)
         for key, row in drawn:
             trial = {"trial_id": row["trial_id"], "purpose": row["purpose"], "status": row["status"],
-                     "annual_return": None, "max_drawdown": None, "sharpe": None, "win_rate": None,
+                     "annual_return": None, "max_drawdown": None, "sharpe": None, "plan_win_rate": None,
                      "eligible": None, "ineligible_reason": None, "at": _iso(row["created_at"])}
             if row["purpose"] == "research" and row["status"] is not None:
                 reading, check = _run_reading(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])

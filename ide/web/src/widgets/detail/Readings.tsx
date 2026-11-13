@@ -14,7 +14,7 @@ const DAY_MS = 86_400_000;
 // What a max drawdown is measured on: a sealed run's equity marked at bar closes, a paper run's minute snapshots.
 const SEALED = "Measured on mark-to-market equity at bar closes", MINUTES = "Measured on the account's minute snapshots";
 
-type Values = { annual: number | null | undefined; short?: number; maxDrawdown: number | null | undefined; sharpe: number | null | undefined; winRate: number | null | undefined };
+type Values = { annual: number | null | undefined; short?: number; maxDrawdown: number | null | undefined; sharpe: number | null | undefined; winRate: number | null | undefined; plans?: true };
 
 /** Every reading of one stage in one card: its three targets (the max drawdown against the limit, the
  *  return against what the minimum annual return asks for by now, never annualized, and the annual
@@ -34,7 +34,7 @@ function Readout({ of, targets, basis, full = false, a: held = null, stats: t = 
   const fresh = stale ? null : held;
   const facts: Facts = {
     basis, limit: targets?.max_drawdown ?? null, minimum, mdd: of.maxDrawdown, annual: of.annual, short: of.short, sharpe: of.sharpe,
-    winRate: of.winRate ?? (stale ? null : t?.winRate),
+    winRate: of.winRate, plans: of.plans,
     account: held || full ? { ret: held?.ret, needed, ahead, usdt: ahead === null || !held ? null : ahead * held.starting,
                               dd: !fresh ? null : fresh.drawdown ?? "stop", ended, stale } : undefined,
     stats: t || full ? { pf: t?.profitFactor, avgWin: t?.avgWin, avgLoss: t?.avgLoss, perTrade: t?.perTrade, hold: t?.hold,
@@ -55,7 +55,7 @@ export function Readings({ c, targets }: { c: Candidate; targets: Targets | null
   if (runs) return <StageReadings targets={targets} />;
   if (version === c.id && trial) return <><Name>{stageName("backtest", trial, null)}</Name><Tested targets={targets} /></>;
   const t = (c.trials ?? []).filter((x) => x.purpose === "research").at(-1);
-  return <Readout of={{ annual: t?.annual_return, maxDrawdown: t?.max_drawdown, sharpe: t?.sharpe, winRate: t?.win_rate }} targets={targets} basis={SEALED} />;
+  return <Readout of={{ annual: t?.annual_return, maxDrawdown: t?.max_drawdown, sharpe: t?.sharpe, winRate: t?.plan_win_rate, plans: true }} targets={targets} basis={SEALED} />;
 }
 
 /** The shown backtest's readings: its research run's figures and, once its report is read, its account and trades. */
@@ -64,7 +64,7 @@ function Tested({ targets }: { targets: Targets | null }) {
   const ready = testing && backtest?.kind === "ready" && backtest.b.account ? { a: backtest.b.account, stats: backtest.b.stats } : null;
   const tested = useHeld(ready, testing && backtest?.kind === "reading");
   return <Eased>
-    <Readout of={{ annual: trial?.annual_return, maxDrawdown: trial?.max_drawdown, sharpe: trial?.sharpe, winRate: trial?.win_rate }} targets={targets}
+    <Readout of={{ annual: trial?.annual_return, maxDrawdown: trial?.max_drawdown, sharpe: trial?.sharpe, winRate: trial?.plan_win_rate, plans: true }} targets={targets}
              basis={SEALED} full a={tested?.a} stats={tested?.stats} stale={!ready} ended />
   </Eased>;
 }

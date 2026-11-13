@@ -12,7 +12,7 @@ export type Trial = {
   annual_return?: number | null;
   max_drawdown?: number | null;
   sharpe?: number | null;
-  win_rate?: number | null;
+  plan_win_rate?: number | null;
   eligible?: boolean | null;
   ineligible_reason?: string | null;
   at?: string | null;
@@ -63,7 +63,7 @@ export type SummaryWidget = Widget & {
    *  standing now (`masked` when its latest research run is no longer eligible). */
   recommended: string | null;
   status: Status | null;
-  reading: { annual_return: number | null; max_drawdown: number | null; sharpe: number | null; win_rate: number | null } | null;
+  reading: { annual_return: number | null; max_drawdown: number | null; sharpe: number | null; plan_win_rate: number | null } | null;
   recommendations: number;
   recommendations_unchanged: number;
   runs_since_recommendation_changed: number;
@@ -103,7 +103,7 @@ export type ScatterWidget = Widget & {
 export type TableRow = {
   id: string; parent?: string | null; role?: Role | null; status: Status; prediction: Prediction;
   first_trial: number | null; runs: number;
-  annual_return?: number | null; max_drawdown?: number | null; sharpe?: number | null; win_rate?: number | null;
+  annual_return?: number | null; max_drawdown?: number | null; sharpe?: number | null; plan_win_rate?: number | null;
 };
 export type TableWidget = Widget & { targets: Targets | null; rows: TableRow[] };
 

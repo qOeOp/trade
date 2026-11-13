@@ -9,7 +9,7 @@ from collections import Counter
 
 from .layout import research_runs, seconds
 
-MEASURES = ("annual_return", "max_drawdown", "sharpe", "win_rate")
+MEASURES = ("annual_return", "max_drawdown", "sharpe", "plan_win_rate")
 FIELDS = ("change", "source", "hypothesis", "duties", "registration", "control_trial", "interpretation")
 
 
