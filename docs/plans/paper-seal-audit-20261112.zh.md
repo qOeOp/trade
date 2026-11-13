@@ -41,11 +41,32 @@
 
 同一探针改后审计通过，最长滞后 5.4 ms。
 
+## 交易所先撤、策略后请求撤单（用户 2026-11-13 选 A）
+
+多合约 Paper 探针（BTCUSDT、ETHUSDT，34 分钟）封存时有 6 条 `EVENT_OUT_OF_ORDER`，每张被撤的止损一条。这不是我们代码的
+问题，是 rc7 本身的行为（`matching_engine/mod.rs` 的 `sync_reduce_only_orders`）：平仓成交后，撮合引擎自己撤掉剩下的只减仓
+止损，比成交晚 7–1720 µs。Paper 的执行事件是异步送进缓存的，策略的 `on_position_closed` 先因成交被调用，看到止损还开着，
+就再请求撤一次。它的 `OrderPendingCancel` 比交易所的 `OrderCanceled` 晚 0.9–96 ms 盖时间，却先写进订单。回放里事件同步
+生效，策略看的时候止损已关，所以没有这个问题。
+
+用户选 A（"都同意"）：只对 Paper，下列条件全部满足才不算发现：
+
+- 订单是只减仓单；
+- `OrderCanceled` 是它的最后一个事件，并且紧跟在 `OrderPendingCancel` 之后，这也是它唯一一处时间倒退；
+- 撤单时间不早于同合约在撤单请求之前的最近一次成交；
+- 撤单最多比请求早 1 秒。
+
+该合约在请求之前没有任何成交时也不放行：交易所撤只减仓单总要先有一笔平仓成交，所以这比批准的条件更严一点。
+
+其余情况仍是 `EVENT_OUT_OF_ORDER`，回放审计不变。实现是 `engine.audit.venue_cancel_lead`，只在概要 `clock` 为 `live` 时启用。
+审计结果记 `venue_cancels`（次数）和 `venue_cancel_lead_ns_max`（最长提前量），Paper 存进封存读数。同一次探针改后，6 条
+全部按此放行，最长提前 96 ms。
+
 ## 新增的存储内容
 
 | 内容 | 位置 | 使用者 | 为什么现有内容表达不了 |
 | --- | --- | --- | --- |
-| `audit`（`passed`、`findings`、`scope`、`fill_account_lag_ns_max`） | `seal.json` | IDE 的 Paper 运行页和列表读 `reasons`；对照（R3.2）和用户判断这次运行的证据是否守了订单规则和保护单 | 是封存时算出的读数；日志里只有运行中每秒一次的保护单缺口，没有原生报告之间的核对 |
+| `audit`（`passed`、`findings`、`scope`、`fill_account_lag_ns_max`、`venue_cancels`、`venue_cancel_lead_ns_max`） | `seal.json` | IDE 的 Paper 运行页和列表读 `reasons`；对照（R3.2）和用户判断这次运行的证据是否守了订单规则和保护单 | 是封存时算出的读数；日志里只有运行中每秒一次的保护单缺口，没有原生报告之间的核对 |
 | `AUDIT_FINDINGS`、`AUDIT_NOT_RUN` | `seal.json` 的 `reasons` | 同上 | 原因列表是 Paper 判定的唯一出口 |
 | `reports/`（`orders.csv`、`fills.csv`、`positions.csv`、`account.csv`、`order_events.jsonl.gz`） | `paper_file` | 复核审计；R3.2 对照按原生成交比较 | 实盘行情下的运行不能重放出同一份原生报告，属于"不能再现的观察"，只能存原件；日志里的订单事件是 `repr` 和挑出的字段，不是原生 `to_dict`；`order_events.jsonl.gz` 与日志的订单事件有重叠，但审计读的是原生形式 |
 
@@ -63,3 +84,7 @@ Paper 记录是执行记录，在 Paper 自己的数据库里，不进研究账�
   要配对规则才能得出。
 - 最终余额检查（`engine.audit` 里的 `live` 是收尾时仍开着的仓位）：收尾空仓时，账户报告的最终余额与运行器概要的
   `balance_total` 核对；仍有持仓时与回放一样跳过。Sandbox 不结算资金费，账户报告里没有资金费变动，资金费检查无事可查。
+- `venue_cancels` 和 `venue_cancel_lead_ns_max`（2026-11-13，加字段前独立子代理审查）：两个都保留。使用者与
+  `fill_account_lag_ns_max` 相同。两者都要套用配对规则才能从已存的原生事件里得出：被放行的交叉不产生发现，事件里只有
+  原始时间戳。最长提前量证明 1 秒上限守住了。次数在原则上可以重算，但它数的是被放行的异常，不同于已删掉的原生行数；
+  没有它，提前量为空就分不清是"没有"还是"不是实时时钟"。用户也点名要这两个读数。
