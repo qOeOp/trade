@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { namespace } from "./load.mjs";
 
-const { liveChart } = await namespace("model/liveChart.ts");
+const { liveChart, sideOf } = await namespace("model/liveChart.ts");
 
 const MIN = 60_000, T = Date.UTC(2026, 10, 6, 20, 3), ns = (ms) => String(BigInt(ms) * 1_000_000n);
 const order = (type, ms, extra = {}) => ({ event_type: type, ts_event: ns(ms), observed_ns: ns(ms + 40), event_ref: { source: "native", cursor: `${type}:${ms}` },
@@ -31,4 +31,22 @@ test("a running run reaches now; nothing placing a run in time draws no chart; a
   assert.equal(liveChart(run({ symbols: null }), now), null);
   const long = liveChart(run({ observedNs: { account: ns(T - 10 * 86_400_000), terminal: ns(T + 41_000) } }), T + 86_400_000);
   assert.equal(long.to - long.from, 3 * 86_400_000);
+});
+
+test("a run on several contracts charts the one asked for, with only its own fills and decimals, over the run's window", () => {
+  const two = run({ symbols: ["BTCUSDT", "ETHUSDT"], orders: [...run().orders,
+    order("OrderFilled", T + 9_000, { instrument_id: "ETHUSDT-PERP.BINANCE", order_side: "BUY", last_px: "2500.123", last_qty: "0.0100" })] });
+  const btc = liveChart(two, T + 86_400_000), eth = liveChart(two, T + 86_400_000, "ETHUSDT");
+  assert.equal(btc.symbol, "BTCUSDT", "the first contract by default");
+  assert.deepEqual([eth.symbol, eth.fills.length, eth.fills[0].px, eth.places, eth.size], ["ETHUSDT", 1, 2500.123, 3, 4]);
+  assert.deepEqual([eth.from, eth.to], [btc.from, btc.to]);
+  assert.equal(btc.fills.length, 2);
+  assert.equal(liveChart(two, T, "SOLUSDT"), null, "a contract the run does not trade");
+});
+
+test("a contract's side is its latest position event's, none once closed or the run ended", () => {
+  const pos = (type, symbol, side) => ({ event_type: type, instrument_id: `${symbol}-PERP.BINANCE`, side });
+  const held = run({ symbols: ["BTCUSDT", "ETHUSDT"], positions: [pos("PositionOpened", "BTCUSDT", "SHORT"), pos("PositionClosed", "BTCUSDT", "FLAT"), pos("PositionOpened", "ETHUSDT", "LONG")] });
+  assert.deepEqual([sideOf(held, "BTCUSDT"), sideOf(held, "ETHUSDT")], [null, "LONG"]);
+  assert.equal(sideOf({ ...held, ended: true }, "ETHUSDT"), null);
 });
