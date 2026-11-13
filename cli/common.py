@@ -177,6 +177,8 @@ RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
   --initial-margin R --maintenance-margin R   decimal rates, 0 < maintenance <= initial < 1
   --starting-balance USDT                  the account's starting balance (default 100000); runs with different
                                            balances are not comparable
+  --leverage N                             the account's leverage, an integer from 1 to 125 (default 3); part of
+                                           the effective configuration
   --trade-ticks                            quotes only: export every stored aggregate trade as custom data for the
                                            strategy's subscribe_data(DataType("TradeTick", metadata={"instrument_id":
                                            ...})); native subscribe_trades is TRADES_NOT_SERVED (signal input; trades
