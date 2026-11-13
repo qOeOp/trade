@@ -111,3 +111,13 @@
 - 新立 20261113-07：同类的 meets、fail、recommended 文字色与 misses 标记对比度不足，照 -06 的拆法以后修；涨跌色由用户定，不在内。
 - **20261113-07**（用户 11-13 “开始吧”）：四种数据色各设逐主题文字色 `--recommended-fg` light-dark(#255DCB, #81ADFE)、`--meets-fg` light-dark(#1C7144, #6EBD8A)、`--misses-fg` light-dark(#8A5904, #E39F40)、`--fail-fg` light-dark(#A93F49, #FD8B90)，在 frame、island、island-alt、popup 及 island、island-alt、popup 上的选中行都 ≥4.5:1；标记与图标保留验证色。axe-core 4.10.3 在 12 个视图明暗下数据色文字违规由 32/17 降到 0/0。第一轮审美复查否决（亮色在 island-alt 上的选中行只有 4.29–4.33），按复查给的更深亮色改后第二轮通过。80c200c02 [#2871](https://github.com/qOeOp/trade/pull/2871)。亮色 frame 上的 `--misses` 标记 2.71 要动验证过的四色，另立 20261113-08。
 - **20261113-08**（用户 11-13 “Fix -08”）：不止 misses，meets 在亮色 frame、fail 在暗色 frame 与 popup 也低于 3:1。单一值无法两主题都过 3:1 又保住色觉区分，改为逐主题验证的两套：亮 meets #419368、misses #B87701、fail #A63D47，暗 meets #4AA87F、misses #BE880A、fail #BE5354，recommended 不变；dataviz 验证器 all-pairs 亮色色觉 ΔE 8.3、正常视觉 16.6，暗色 8.2、15.7，全部 ≥3:1；`check-rules.mjs` 按主题锁定。审美复查通过，并采纳其可选建议把亮色 meets 由 #36956D 改为 #419368（更贴近文字色、离盈利绿更远）。330873072 [#2877](https://github.com/qOeOp/trade/pull/2877)。
+
+## 测量项的结果
+
+用户 2026-11-13 答“可以”（先 -01，再并行 -05 与 23-03，最后 12-15）。
+
+- **20261113-01**：隔离临时账本里 65,535 字节正文完整写入；65,536 与 70,000 字节 ASCII、75,000 字节中文都被拒为 `DOLT_SQL_ERROR`，`not_written` 并回滚，消息为 “too large for column 'body'”，下一步提示写明 65,535 上限；没有截断。不是缺陷，`rejected`。
+- **20261113-05**：问题在题面不在 skill，只改 Q3，4383c4be7 [#2913](https://github.com/qOeOp/trade/pull/2913)。
+- **20261023-03**：旧账本 A2 首推 60,306 字节（>32 KB）触发规则；首推改为只权衡 `candidates` 与表中未被支配的他线运行，47cda88f6 [#2918](https://github.com/qOeOp/trade/pull/2918)。唯一一次跨线改推荐（1778 选 1513）在新规则下仍会被权衡。`all-comparable-candidates` 新文本 3/3，无需另开 Q1 PR。
+- **20261112-15**：对 dow 线 43 个研究运行只读跑 `hypothesis compare`（40 个可比），重放到期次数：R0 5 次；R1 4 次，同号检验 6/6，采纳；R2 5 次，不采纳；R3 只报告（34/40 的可检测差大于到目标的差距）。R1 是计数改动，草稿 [#2919](https://github.com/qOeOp/trade/pull/2919) 待用户看过再合。
+
