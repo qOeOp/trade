@@ -222,10 +222,6 @@ def _reports_complete(workdir: Path) -> bool:
                for name in execution.NATIVE_REPORTS)
 
 
-class ReplayTimeout(Exception):
-    """The replay's timeout expired; the replay ends as interrupted."""
-
-
 def _memory_refusal(stage: str, exc: seams.MemoryLimit, write_status) -> Refusal:
     return refuse("STAGE_MEMORY_LIMIT", f"the {stage} stage exceeded its memory limit of {container.STAGE_MEMORY} "
                                         f"and was killed (exit code {exc.exit_code})", write_status=write_status)
@@ -245,7 +241,8 @@ def _stop(name: str) -> None:
 
 def _stage(command: list[str], container: str, workdir: Path, name: str, left: float | None,
            timeout: float | None) -> int:
-    """Run one stage's container to its end with its logs in `workdir`; an interrupt or the timeout stops it."""
+    """Run one stage's container to its end with its logs in `workdir`; an interrupt or the timeout stops it
+    (the timeout, which only an unrecorded replay sets, is refused REPLAY_TIMEOUT)."""
     out, err = StageLog(workdir / f"{name}.stdout.txt"), StageLog(workdir / f"{name}.stderr.txt")
     try:
         return seams.current.run(command, out, err, left)
@@ -256,7 +253,8 @@ def _stage(command: list[str], container: str, workdir: Path, name: str, left: f
         return 127
     except subprocess.TimeoutExpired as exc:
         _stop(container)
-        raise ReplayTimeout(f"the replay exceeded its timeout of {timeout} s in stage {name}") from exc
+        raise refuse("REPLAY_TIMEOUT", f"the replay exceeded its timeout of {timeout} s in stage {name}",
+                     write_status="not_written") from exc
     except BaseException:
         _stop(container)
         raise

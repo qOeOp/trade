@@ -87,7 +87,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "terms_differ, equity_max_difference}, replay {status, problems, path}",
         "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (not sealed); PAPER_RECONCILE_EMPTY (no interval); "
         "PAPER_RECONCILE_UNCOVERED (the market lacks the interval's minutes); NOT_TEMPORARY_PATH, PATH_EXISTS "
-        "(--output); RUNTIME_UNAVAILABLE"),
+        "(--output); RUNTIME_UNAVAILABLE; REPLAY_TIMEOUT (--timeout-seconds)"),
 }
 
 
