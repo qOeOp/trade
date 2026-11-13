@@ -11,7 +11,7 @@ services:
     networks: [default]
     command: [caddy, run, --config, /etc/caddy/release/active.json]
     volumes:
-      - ${TRADE_RELEASE_HOME:-/var/lib/trade-release}/paper-router:/etc/caddy/release:ro
+      - /var/lib/trade-release/paper-router:/etc/caddy/release:ro
     tmpfs: [/config, /data]
     logging:
       driver: json-file

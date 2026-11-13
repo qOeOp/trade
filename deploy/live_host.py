@@ -11,8 +11,8 @@ import stat
 import subprocess
 import time
 
-from .release_host import (REVISION, RUNTIME_REF, SERVICE_REF, UNPRIVILEGED, WEB, ahead, contained, durable_json,
-                           revision, until_ready)
+from .release_host import (BACKEND, READERS, REVISION, RUNTIME_REF, SERVICE_REF, UNPRIVILEGED, WEB, ahead, contained,
+                           durable_json, revision, until_ready)
 from .live_configuration import DECLARATION as DECLARATION
 from .live_configuration import (CONTROL, OPERATOR_FIELDS, absolute, declaration, read_object, snapshot)
 
@@ -105,8 +105,8 @@ class LiveHost:
                 raise RuntimeError("Live custody root changed; a release cannot move the account's runs")
             self.checked(previous)
         sha = target["revision"]
-        self.web.pull_execution(target.get("service"), SERVICE_REF, sha)
-        runtime_source = self.web.pull_execution(target.get("runtime"), RUNTIME_REF)
+        self.web.pull(target.get("service"), SERVICE_REF, sha)
+        runtime_source = self.web.pull(target.get("runtime"), RUNTIME_REF)
         self.source.require_runtime(runtime_source, sha)
         self.source.ensure(target)
         name = WEB + sha
@@ -137,7 +137,7 @@ class LiveHost:
         owner = root.stat()
         # Every mount is a deployment declaration or existing reader volume; never load key bytes.
         args = ["--user", f"{owner.st_uid}:{owner.st_gid}", *UNPRIVILEGED, "--cap-add", "DAC_READ_SEARCH",
-                "--network", self.web.config.backend, "--env", "TRADE_DOLT_HOST=ledger",
+                "--network", BACKEND, "--env", "TRADE_DOLT_HOST=ledger",
                 "--env", "HOME=/tmp", "--env", "DOCKER_CONFIG=/tmp/docker-public",
                 "--env", "DOCKER_HOST=unix:///var/run/docker.sock",
                 # Telegram notices end with the run's page here (live/notify.py).
@@ -146,7 +146,7 @@ class LiveHost:
                 "--group-add", str(DOCKER_SOCKET.stat().st_gid),
                 "--mount", f"type=bind,src={root},dst={root}" + (",readonly" if helper else ""),
                 "--mount", f"type=bind,src={self.state},dst={self.state},readonly",
-                "--mount", f"type=volume,src={self.web.config.readers},dst=/run/trade/ledger-readers,readonly"]
+                "--mount", f"type=volume,src={READERS},dst=/run/trade/ledger-readers,readonly"]
         # A source's bytes come from the research ledger; only the reader profile and universe are files.
         paths = {absolute(value["research_ledger"]), absolute(value["universe_file"])}
         for path in sorted(paths):

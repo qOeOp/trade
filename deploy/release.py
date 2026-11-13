@@ -16,7 +16,7 @@ import subprocess
 import sys
 import traceback
 
-from .paper_host import PAPER, PaperHost, runtime_default
+from .paper_host import PAPER, PaperHost
 from .paper_release import PaperRelease
 from .release_host import (
     AGENT,
@@ -38,12 +38,23 @@ from .runtime_inputs import DOCKERFILE, project
 from .telegram import Failure, settings, telegram
 
 
-# What a Live control never loads and what cannot change one already running: the browser's and the other
-# services' sources (in its image, never imported by `live`), and paths outside its build context
-# (deploy/Dockerfile.dockerignore). A diff from the owner's revision touching only these keeps the control.
-CONTROL_UNCHANGED = ("ide/web/", "ide/overview/", "ide/agent/", "docs/", "tests/", ".agents/", ".github/",
-                     "deploy/remote/")
-CONTROL_UNCHANGED_FILES = frozenset({"deploy/README.md", "deploy/compose.yaml"})
+# Paths outside the images' build context (deploy/Dockerfile.dockerignore), plus top-level *.md: a diff touching
+# only these changes no container.
+OUTSIDE_IMAGE = ("docs/", "tests/", ".agents/", ".github/", "deploy/remote/")
+OUTSIDE_IMAGE_FILES = frozenset({"deploy/README.md", "deploy/compose.yaml"})
+# What a Live control never loads and what cannot change one already running: those paths and the browser's and
+# the other services' sources (in its image, never imported by `live`). A diff from the owner's revision touching
+# only these keeps the control.
+CONTROL_UNCHANGED = ("ide/web/", "ide/overview/", "ide/agent/")
+# The same for the Agent, which runs ide/agent and the product's Python but never the browser, the overview or
+# deploy's host modules; deploy/Dockerfile, which builds its image, is a change.
+AGENT_UNCHANGED = ("ide/web/", "ide/overview/", "deploy/")
+
+
+def outside_image(path: str) -> bool:
+    return path.startswith(OUTSIDE_IMAGE) or path in OUTSIDE_IMAGE_FILES or ("/" not in path and path.endswith(".md"))
+
+
 # The browser's contract with a Live control, read as text from a revision and never executed. Equal numbers
 # let a Web serve beside an older control while Live is busy (docs/plans/live-web-first-release-20261108.zh.md).
 PROTOCOL_FILE = "live/protocol.py"
@@ -240,7 +251,7 @@ class GitSource:
         self.state = state
         self.repo = state / "source.git"
 
-    def git(self, *args: str, check: bool = True, raw: bool = False) -> str:
+    def git(self, *args: str, raw: bool = False) -> str:
         env = {
             "PATH": os.defpath,
             "GIT_CONFIG_GLOBAL": "/dev/null",
@@ -255,9 +266,9 @@ class GitSource:
             timeout=120,
             check=False,
         )
-        if check and result.returncode:
+        if result.returncode:
             raise RuntimeError(f"public git {args[0]} failed")
-        return (result.stdout if raw else result.stdout.strip()) if result.returncode == 0 else ""
+        return result.stdout if raw else result.stdout.strip()
 
     def refresh(self) -> None:
         self.state.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -290,21 +301,14 @@ class GitSource:
         if not self.ancestor(before, after):
             raise RuntimeError("Agent revision is not an ancestor of the candidate")
         paths = self.git("diff", "--no-renames", "--name-only", before, after).splitlines()
-        return any(
-            path == "deploy/Dockerfile"
-            or not path.startswith(("ide/web/", "ide/overview/", "docs/", ".github/", "deploy/"))
-            for path in paths
-        )
+        return any(path == "deploy/Dockerfile" or not (outside_image(path) or path.startswith(AGENT_UNCHANGED))
+                   for path in paths)
 
     def control_changed(self, before: str, after: str) -> bool:
         if not self.ancestor(before, after):
             raise RuntimeError("Live owner revision is not an ancestor of the candidate")
         paths = self.git("diff", "--no-renames", "--name-only", before, after).splitlines()
-        return any(
-            not (path.startswith(CONTROL_UNCHANGED) or path in CONTROL_UNCHANGED_FILES
-                 or ("/" not in path and path.endswith(".md")))
-            for path in paths
-        )
+        return any(not (outside_image(path) or path.startswith(CONTROL_UNCHANGED)) for path in paths)
 
     def runtime_inputs(self, sha: str) -> tuple:
         if not REVISION.fullmatch(sha):
@@ -346,13 +350,13 @@ class GitSource:
     def declared(self, sha: str, path: str, pattern: re.Pattern, what: str) -> int | None:
         """A number the revision declares as one plain line of `path`, or None when it has no declaration.
 
-        A declaration that is not one plain line is a ValueError; a failed read raises as any Git failure."""
+        More than one declaration is a ValueError; a failed read raises as any Git failure."""
         if not REVISION.fullmatch(sha):
             raise RuntimeError(f"invalid {what} revision")
         if not self.git("ls-tree", "--name-only", sha, "--", path).strip():
             return None
         found = pattern.findall(self.git("show", f"{sha}:{path}", raw=True))
-        if len(found) > 1 or not found and what == "protocol":
+        if len(found) > 1:
             raise ValueError(f"the {what} declaration is not one plain line")
         return int(found[0]) if found else None
 
@@ -510,9 +514,9 @@ class Release:
         print(f"Restored previous Web release {previous}", flush=True)
 
     def cleared(self, previous: str, beside_live: bool) -> bool:
-        """Before a journal that brings no control (no Live installed, or a Web beside the owner's control):
-        stop stale Webs and check headroom. False keeps the current Web; a paired release does this inside
-        its account admission instead."""
+        """Stop stale Webs and check headroom: before the journal of a release that brings no control (no Live
+        installed, or a Web beside the owner's control), and inside a paired release's account admission. False
+        keeps the current Web; only beside Live is it not an error."""
         for name in self.host.managed(WEB, running_only=True):
             if name != previous:
                 self.host.stop(name)
@@ -532,9 +536,9 @@ class Release:
         try:
             mine, theirs = self.github.protocol(sha), self.github.protocol(owner)
         except ValueError:
-            return "a browser protocol is malformed"
+            mine = theirs = None
         if mine is None or theirs is None:
-            return "a browser protocol is undeclared"
+            return "a browser protocol is undeclared or malformed"
         if mine != theirs:
             return f"the owner's browser protocol {theirs} differs from {mine}"
         return None
@@ -617,7 +621,8 @@ class Release:
             except LiveBusy:
                 if not adopting and not web_first():
                     return
-        image = self.host.pull(sha, target["image"])
+        image = target["image"]
+        self.host.pull(image, IMAGE_REF, sha)
         self.github.ensure(target)
         agent_before = agent if change_agent else None
         transaction = None
@@ -652,11 +657,7 @@ class Release:
             " with a control that can take over running Live runners" if adopting else ""), flush=True)
         try:
             if paired:
-                for name in self.host.managed(WEB, running_only=True):
-                    if name != previous:
-                        self.host.stop(name)
-                if not self.host.memory_available():
-                    raise RuntimeError("insufficient candidate memory headroom; keep current release")
+                self.cleared(previous, False)
                 self.live.create(candidate, target["service"])
                 self.live.start(candidate)
                 self.live.warm(candidate)
@@ -729,7 +730,8 @@ class Release:
         sha = target["revision"]
         if target["image"] is None:
             raise RuntimeError("the newest deploy-ready version is not admitted; install after a version is admitted")
-        image = self.host.pull(sha, target["image"])
+        image = target["image"]
+        self.host.pull(image, IMAGE_REF, sha)
         paper.pull(target["service"], SERVICE_REF, sha)
         self.github.require_runtime(paper.pull(target["runtime"], RUNTIME_REF), sha)
         self.github.ensure(target)
@@ -761,9 +763,9 @@ class Release:
         if self.transaction.exists() or (self.state / "paper-transaction.json").exists():
             return
         try:
-            active = {self.host.disk_route(), self.paper().host.disk_route()}
-            runtimes = {runtime_default(json.loads(self.host.docker("inspect", "--format", "{{json .Config.Cmd}}", name)))
-                        for name in self.host.managed(PAPER)}
+            paper_host = self.paper().host
+            active = {self.host.disk_route(), paper_host.disk_route()}
+            runtimes = {paper_host.runtime(name) for name in paper_host.managed(PAPER)}
             prefixes: tuple[str, ...] = (WEB, AGENT, PAPER)
             revisions = {path.name for path in self.failed.iterdir()} if self.failed.exists() else set()
             failed = {prefix + sha for sha in revisions for prefix in (WEB, AGENT)} | {WEB + sha + AHEAD for sha in revisions}

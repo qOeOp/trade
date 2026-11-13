@@ -1,4 +1,5 @@
-"""The deliberately small Docker boundary of remote Web releases; never owns Paper lifecycle."""
+"""The Docker boundary of the release plane: fixed names, routes, image admission, the Web and Agent containers
+and the pruning of every managed kind. PaperHost and LiveHost build on it; Live reads its names and routes."""
 
 from dataclasses import dataclass
 import json
@@ -14,8 +15,16 @@ from urllib.request import ProxyHandler, Request, build_opener, urlopen
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 WEB = "trade-release-web-"
 AGENT = "trade-release-agent-"
+# What compose (project `trade-ide`, deploy/compose.yaml and deploy/remote/) names: fixed, not settings.
 LEDGER = "trade-ide-ledger-1"
 ROUTER = "trade-ide-ide-router-1"
+DOCKER_API = "trade-ide-docker-api-1"
+DOCKER_API_NETWORK = "trade-ide_docker-api"
+BACKEND = "trade-ide_default"
+FRONTEND = "trade-ide_frontend"
+READERS = "trade-ide_trade-ledger-readers"
+AGENTS = "trade-ide_trade-ide-agent"
+WARM_SECONDS, PROBE_SECONDS = 1800, 5  # how long a candidate may take to warm, and the interval between probes
 # CD serves the author's own deployment only: the source, image names and digest patterns below are the
 # author's repository and GHCR namespace, deliberately not settings (deploy/remote/README.md, Who this is for).
 SOURCE = "https://github.com/qOeOp/trade"
@@ -176,13 +185,7 @@ class Config:
     state: Path = Path("/var/lib/trade-release")
     data: Path = Path("/srv/trade")
     domain: str = "trade.example.com"
-    backend: str = "trade-ide_default"
-    frontend: str = "trade-ide_frontend"
-    readers: str = "trade-ide_trade-ledger-readers"
-    agents: str = "trade-ide_trade-ide-agent"
-    warm_seconds: int = 1800
     observe_seconds: int = 90
-    probe_seconds: int = 5
     paper_memory: str = ""  # TRADE_PAPER_MEMORY for the Paper controllers it creates; empty: paper/runs.py's default
 
     @classmethod
@@ -267,7 +270,7 @@ class DockerHost:
         return running[0] if running else None
 
     def protected(self) -> dict:
-        names = [LEDGER, "trade-ide-docker-api-1"]
+        names = [LEDGER, DOCKER_API]
         names += self.docker("ps", "--filter", "label=trade.paper.ledger", "--format", "{{.Names}}").splitlines()
         return {
             name: {
@@ -336,28 +339,11 @@ class DockerHost:
                          if row.get("Type") == "bind" and row.get("Destination") == "/run/trade-live")
         return found
 
-    def pull(self, sha: str, image: str) -> str:
-        if not REVISION.fullmatch(sha):
-            raise RuntimeError("invalid product revision")
-        if not IMAGE_REF.fullmatch(image):
-            raise RuntimeError("only an admitted immutable IDE digest can be pulled")
-        self.docker("pull", image, timeout=600)
-        found = json.loads(self.docker("image", "inspect", "--format", "{{json .}}", image))
-        labels = found["Config"]["Labels"]
-        if (
-            found["Architecture"] != "amd64"
-            or labels.get("org.opencontainers.image.revision") != sha
-            or labels.get("org.opencontainers.image.source") != SOURCE
-        ):
-            raise RuntimeError("image platform, source or revision does not match successful CI")
-        if image not in found["RepoDigests"]:
-            raise RuntimeError("pulled image does not match its admitted repository digest")
-        return image
-
-    def pull_execution(self, reference: str, pattern, sha: str | None = None) -> str:
-        """The existing execution-image admission, shared by Paper and Live controllers."""
+    def pull(self, reference: str, pattern, sha: str | None = None) -> str:
+        """Pull an admitted digest and check what CI built: amd64, this repository and, given `sha`, that revision.
+        The revision it was built from."""
         if not isinstance(reference, str) or not pattern.fullmatch(reference):
-            raise RuntimeError("execution release has no immutable admitted digest")
+            raise RuntimeError("release has no immutable admitted digest")
         self.docker("pull", reference, timeout=600)
         value = json.loads(self.docker("image", "inspect", "--format", "{{json .}}", reference))
         labels = value["Config"]["Labels"]
@@ -370,7 +356,7 @@ class DockerHost:
             or (sha is not None and source != sha)
             or reference not in value["RepoDigests"]
         ):
-            raise RuntimeError("execution image source, platform or revision differs from admission")
+            raise RuntimeError("image source, platform or revision differs from admission")
         return source
 
     def requires_live(self, name: str) -> bool:
@@ -389,7 +375,7 @@ class DockerHost:
         )
 
     def create(self, name: str, image: str, agent: bool = False, live_socket: Path | None = None) -> None:
-        self.checked_image_name(name, agent)
+        revision(name, AGENT if agent else WEB)
         if agent and live_socket is not None:
             raise RuntimeError("Agent containers cannot mount the Live control socket")
         if self.exists(name):
@@ -401,7 +387,7 @@ class DockerHost:
             name,
             *contained("1024m" if agent else "1536m", "0.5" if agent else "1.5"),
             "--network",
-            self.config.backend,
+            BACKEND,
             *UNPRIVILEGED,
             # Reader service.json is 0600 under the service UID; Agent data remains 0700 root.
             # Retain the existing IDE DAC override; every research/market mount stays read-only.
@@ -416,7 +402,7 @@ class DockerHost:
             "--mount",
             f"type=bind,src={self.state / 'profiles'},dst=/run/trade/ledgers,readonly",
             "--mount",
-            f"type=volume,src={self.config.readers},dst=/run/trade/ledger-readers,readonly",
+            f"type=volume,src={READERS},dst=/run/trade/ledger-readers,readonly",
             "--mount",
             f"type=bind,src={self.config.data / 'market'},dst={self.config.data / 'market'},readonly",
         ]
@@ -425,7 +411,7 @@ class DockerHost:
                 "--network-alias",
                 "agent",
                 "--mount",
-                f"type=volume,src={self.config.agents},dst=/data/agent",
+                f"type=volume,src={AGENTS},dst=/data/agent",
                 "--entrypoint",
                 "node",
                 image,
@@ -453,11 +439,7 @@ class DockerHost:
                 args += ["--live-socket=/run/trade-live/control.sock", "--live-router=ide-router"]
         self.docker(*args)
         if not agent:
-            self.docker("network", "connect", self.config.frontend, name)
-
-    @staticmethod
-    def checked_image_name(name: str, agent: bool) -> None:
-        revision(name, AGENT if agent else WEB)
+            self.docker("network", "connect", FRONTEND, name)
 
     def start(self, name: str) -> None:
         self.checked(name, AGENT if name.startswith(AGENT) else WEB)
@@ -496,7 +478,7 @@ class DockerHost:
 
     def lines(self, name: str) -> list[str]:
         """The research lines a candidate draws before it serves: those of active Paper runs, else the newest.
-        None while the research ledger it read has no line yet (a new ledger): there is no graph to warm."""
+        Empty while the research ledger it read has no line yet (a new ledger): there is no graph to warm."""
         lines = self.probe(name, "/api/lines")["lines"]
         if not lines:
             return []
@@ -508,13 +490,13 @@ class DockerHost:
         found = {line["name"] for line in lines if any(candidate in line["versions"] for candidate in active)}
         return sorted(found or {max(lines, key=lambda line: line["created_at"])["name"]})
 
-    def health(self, name: str, lines: list[str], routed: bool = False, agent: bool = True) -> None:
-        if agent:
-            self.agent()
+    def health(self, name: str, lines: list[str], routed: bool = False) -> None:
+        self.agent()
         for path in [
             "/api/paper/health",
             "/api/overview/health",
-            *(["/api/agent/health", "/api/agent/agents"] if agent else []),
+            "/api/agent/health",
+            "/api/agent/agents",
             *(["/api/live"] if routed and self.requires_live(name) else []),
         ]:
             value = self.probe(name, path, routed)
@@ -526,7 +508,7 @@ class DockerHost:
             if not self.probe(name, f"/api/view?line={quote(line)}", routed).get("ready"):
                 raise RuntimeError("candidate research graph is still warming")
 
-    def warm(self, name: str, protected: dict, agent: bool = True) -> list[str]:
+    def warm(self, name: str, protected: dict) -> list[str]:
         lines: list[str] = []
 
         def guard() -> None:
@@ -536,10 +518,10 @@ class DockerHost:
 
         def check() -> list[str]:
             lines[:] = lines or self.lines(name)
-            self.health(name, lines, agent=agent)
+            self.health(name, lines)
             return lines
 
-        return until_ready(check, self.config.warm_seconds, self.config.probe_seconds, guard,
+        return until_ready(check, WARM_SECONDS, PROBE_SECONDS, guard,
                            (RuntimeError, ValueError, KeyError))
 
     def observe(self, name: str, lines: list[str], protected: dict) -> None:
@@ -567,7 +549,7 @@ class DockerHost:
                 ):
                     raise RuntimeError("Paper observations did not advance during release observation")
                 return
-            time.sleep(self.config.probe_seconds)
+            time.sleep(PROBE_SECONDS)
 
     def auth_denied(self) -> None:
         opener = build_opener(ProxyHandler({}))

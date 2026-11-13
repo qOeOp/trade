@@ -86,8 +86,8 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual([(item["name"], item["closed"]) for item in found["lines"]],
                          [(first["line"], True), (second["line"], False)])
         self.assertEqual(found["lines"][0]["dev_start"], "2021-04-01")
-        self.assertEqual(set(found["lines"][0]), {*lines.LISTED, "targets"}, "deploy.release_host reads these entries")
-        self.assertEqual(set(test_release.LINE_KEYS), {*lines.LISTED, "targets"}, "and its test writes them out")
+        self.assertEqual(set(found["lines"][0]), {*lines.LISTED, "targets"})
+        self.assertLessEqual(set(test_release.HOST_LINE_KEYS), set(lines.LISTED), "deploy.release_host reads these keys")
         self.assertEqual([item["targets"] for item in found["lines"]], [None, None])
         historical = lines.list_lines(self.profile, first_head)
         self.assertEqual([(item["name"], item["closed"]) for item in historical["lines"]], [(first["line"], False)])
