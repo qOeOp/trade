@@ -63,7 +63,7 @@ export function RunList({ order, runs: all, front, now, pick, query, anyLine = f
   const note = (r: PaperRun) => {
     const twin = order.some((o) => o.candidate === r.candidate && strategyKey(o) !== strategyKey(r)) ? contracts(r.symbols) : null;
     if (r.candidate === null || anyLine || isKnown(r.candidate)) return twin ?? undefined;
-    const line = lineOf(lines, r.candidate), on = line ? `Line ${line.name.replace(/^research-line-/, "")}` : OTHER_LINE;
+    const line = lineOf(lines, r.candidate), on = line ? `Line ${line.name}` : OTHER_LINE;
     return twin ? `${twin} · ${on}` : on;
   };
   const q = query.trim().toLowerCase();

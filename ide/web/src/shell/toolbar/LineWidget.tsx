@@ -24,7 +24,7 @@ export function LineWidget() {
   const asked = new URLSearchParams(window.location.search).get("line");
   if (!line.bundle && asked && status.busy) return (
     <Dropdown label="Research line" trigger={<>
-      <span className="truncate font-mono font-semibold text-fg-muted">{asked.replace(/^research-line-/, "")}</span>
+      <span className="truncate font-mono font-semibold text-fg-muted">{asked}</span>
       <Icon name="loading" size={12} className="shrink-0 text-icon motion-safe:animate-spin" />
     </>}>
       <DropdownLabel>{status.text}</DropdownLabel>
@@ -35,7 +35,7 @@ export function LineWidget() {
   if (!line.bundle) return <Dropdown label="Research line" trigger={<span className="text-fg-muted">No line</span>}><ResearchLines index={index} /></Dropdown>;
   return (
     <Dropdown label="Research line" trigger={<>
-      <span className="truncate font-mono font-semibold">{line.bundle.replace(/^research-line-/, "")}</span>
+      <span className="truncate font-mono font-semibold">{line.bundle}</span>
       {gates.length > 0 && <i role="img" aria-label={`${gates.length} ${gates.length === 1 ? "gate" : "gates"} before the next registration`} className="size-1.5 shrink-0 rounded-full bg-misses" />}
     </>}>
       {gates.length > 0 && <>

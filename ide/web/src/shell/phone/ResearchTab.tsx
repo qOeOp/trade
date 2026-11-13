@@ -12,7 +12,6 @@ import { useResearchLines } from "../../state/researchLines";
 import { Track } from "../../widgets/detail/ReadingsBoard";
 import { PhoneTop } from "./PhoneTop";
 
-const short = (bundle: string) => bundle.replace(/^research-line-/, "");
 const Said = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => <span className={ok ? "text-meets-fg" : "text-misses-fg"}>{ok ? yes : no}</span>;
 
 /** What a line recommends, opened in its row: the version, its max drawdown along the track to the limit, its annual
@@ -60,7 +59,7 @@ export function ResearchTab() {
             <PhoneDisclosure key={line.name} open={open === line.name} onToggle={() => setOpen(open === line.name ? null : line.name)}
               head={<><ReadingBadge reading={r && r.eligible !== false ? r : null} targets={line.targets ?? null}
                                     status={r?.eligible === false ? "Ineligible" : r === null ? "None" : undefined} />
-                <span className={`min-w-0 flex-1 truncate font-mono text-dense ${line.closed ? "text-fg-muted" : ""}`}>{short(line.name)}</span>
+                <span className={`min-w-0 flex-1 truncate font-mono text-dense ${line.closed ? "text-fg-muted" : ""}`}>{line.name}</span>
                 <span className="shrink-0 text-dense tabular-nums text-fg-faint">{line.versions.length}</span></>}>
               <Opened line={line} r={r} read={read} />
             </PhoneDisclosure>

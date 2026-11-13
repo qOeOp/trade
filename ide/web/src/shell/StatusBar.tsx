@@ -73,7 +73,7 @@ export function StatusBar() {
       {!live && !line.bundle && !status.busy && (runs || market) && <span role="status" className="min-w-0 truncate text-fg-muted">{status.text}</span>}
       {live && <span className="min-w-0 truncate">Execution runs independently of this page</span>}
       {!live && line.bundle && <Breadcrumbs items={[
-        { id: "line", label: line.bundle.replace(/^research-line-/, ""), onSelect: () => requestFocus("") },
+        { id: "line", label: line.bundle, onSelect: () => requestFocus("") },
         ...path.map((v) => ({ id: v, label: v, onSelect: () => select(v, { reveal: true }) })),
       ]} />}
       {runs && <StageSource className="min-w-0 truncate text-fg-muted" />}

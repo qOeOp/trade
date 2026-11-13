@@ -15,7 +15,7 @@ export const LIMIT = 20_000;  // characters of output the model sees from one ca
 
 const ref = z.string().regex(/^[\w./@-]{1,100}$/).refine((s) => !s.startsWith("-"), "must not start with -");
 const at = ref.optional().describe("ledger commit, tag or branch (default: the head)");
-const line = z.string().regex(/^research-line-[\w-]{1,100}$/).optional().describe("research line bundle (default: the only open line; name one when several are open)");
+const line = z.string().max(48).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional().describe("research line name (its slug; default: the only open line; name one when several are open)");
 const flag = (name: string, on: boolean | undefined) => (on ? [`--${name}`] : []);
 const opt = (name: string, value: string | number | undefined) => (value === undefined ? [] : [`--${name}=${value}`]);
 
