@@ -107,8 +107,7 @@ With `--market-import=FILE` (the status file `market follow` writes; in compose 
 volume, mounted read-only), `/api/market-import` answers that file as it is, read at each request, with
 `stale` when its round is older than 26 hours (`market.follow.check()`'s rule); 503 without a readable
 status. The status bar then names the service's state (`Market: caught up`, `waiting`, `lagging`,
-`stopped — CODE`), and clicking it lists each kind and contract as the file has them. Design:
-[`docs/plans/ide-market-import-status.zh.md`](../docs/plans/ide-market-import-status.zh.md).
+`stopped — CODE`), and clicking it lists each kind and contract as the file has them.
 
 The Research line menu lists every line, including closed lines, through `/api/lines?at=<commit>`
 and the read-only `line list` command. A live page preloads the current index at startup and follows

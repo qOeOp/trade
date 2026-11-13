@@ -1,6 +1,6 @@
 # Binance 双向账户与多策略 Live 设计
 
-日期：2026-11-06。状态：设计稿，供评审；尚未实施账户模式、并发或恢复语义变更。
+日期：2026-11-06。状态：账户模式检查与单成员实现已落地（#2226，见[实现记录](binance-live-hedge-implementation.zh.md)）；现行行为以 `engine/` 为准。
 代码基线：`main` / `dc49edba7751e0732563200fc9347e42aeaac79e`。
 原生依赖：`uv.lock` 固定的 Nautilus `2.0.0rc7`。
 

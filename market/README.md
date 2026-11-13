@@ -108,7 +108,7 @@ any stored row in the contract month is `MONTH_EXISTS`.
 
 Quote imports derive from this table. An export reads it only on request (`--trade-ticks`), one TradeTick per
 stored row; a bars or quotes export without that flag does not read it.
-Measurements, the independent field review and release gates are in
+The independent review of its fields and encoding is in
 [the phase-one record](../docs/plans/aggtrades-source-import.zh.md).
 
 ## Open interest and long/short ratios
@@ -276,8 +276,7 @@ Refusals are sorted by what fixes them:
 
 Anything still missing `LAG_DAYS` (3) days after it closed is `lagging` and polled daily.
 `market.follow.check()` is the healthcheck: unhealthy while anything is stopped, lagging or unknown, or while
-the status is older than 26 hours; skipped months are not. Decisions:
-[metrics](../docs/plans/daily-metrics-import.zh.md), [bars, quotes and aggTrades](../docs/plans/monthly-market-import.zh.md).
+the status is older than 26 hours; skipped months are not.
 
 ## Export
 
