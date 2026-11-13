@@ -233,7 +233,3 @@ class HistoryRunTests(unittest.TestCase):
         (row,) = report_history.research_history(world.profile, line=line)["lines"][0]["rows"]
         self.assertIs(row["control_reproduces"], False)
         self.assertIsNone(row["summary"])
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -50,7 +50,3 @@ class LiveCommandTests(unittest.TestCase):
             container.paper_command(IDENTITY, self.mounts[:1], "engine.live", [], name="paper-one",
                                     network="paper-one", memory="2g", labels={})
         self.assertEqual(caught.exception.code, "MODULE_NOT_IN_LAYOUT")
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -243,7 +243,3 @@ class AllocationReachTests(unittest.TestCase):
         for extra in ("allocate = Strategy.__new__", "value = Strategy.__mro__"):
             with self.subTest(extra=extra):
                 self.assertTrue(source_findings((SOURCE + "\n" + extra + "\n").encode()))
-
-
-if __name__ == "__main__":
-    unittest.main()

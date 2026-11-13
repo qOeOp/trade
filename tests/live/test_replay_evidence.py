@@ -130,7 +130,3 @@ class EvidenceReadAheadTests(unittest.TestCase):
         self.assertEqual(read.call_count, 1)
         self.assertEqual(evidence.view("example"), {"state": "found", "tolerance": str(EVIDENCE_TOLERANCE),
                                                     "replays": [{"trial_id": 7, "starting_balance_usdt": "1000"}]})
-
-
-if __name__ == "__main__":
-    unittest.main()

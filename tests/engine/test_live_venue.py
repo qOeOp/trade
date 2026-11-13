@@ -404,7 +404,3 @@ class ReadOnlyVenueTest(unittest.TestCase):
         self.assertIn("signature=", seen[-1].full_url)
         self.assertNotIn("hidden", str(caught.exception))
         self.assertNotIn("signature", str(caught.exception))
-
-
-if __name__ == "__main__":
-    unittest.main()

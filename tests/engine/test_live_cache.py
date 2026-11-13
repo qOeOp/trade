@@ -121,7 +121,3 @@ class LiveCacheTests(unittest.TestCase):
             with self.assertRaisesRegex(LiveRefusal, "LIVE_CACHE_RUNTIME"):
                 live_cache.LiveCache(Path(directory), resume=False)
             start.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()

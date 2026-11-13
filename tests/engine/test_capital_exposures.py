@@ -91,7 +91,3 @@ class CapitalExposureTests(unittest.TestCase):
         self.assertEqual(capital_findings(missed, 3), [
             "capital observation cannot value X at 1",
             "CAPITAL_TIMESTAMP_COUNT_MISMATCH: capital observation valued 2 of 3 input timestamps"])
-
-
-if __name__ == "__main__":
-    unittest.main()

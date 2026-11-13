@@ -91,7 +91,3 @@ print(json.dumps([window.start_ns, window.trade_start_ns, window.end_ns, window.
         self.assertEqual(config.window.trade_start_ns, config.window.start_ns)
         self.assertEqual(_ns("2025-01-01T09:00:00+09:00"), _ns("2025-01-01T00:00:00Z"))
         self.assertEqual(_ns("1970-01-01T00:00:00.000001Z"), 1000)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -348,7 +348,3 @@ class RecordTests(unittest.TestCase):
             with self.subTest(code), self.assertRaises(Refusal) as caught:
                 paper.delete_paper_run(self.profile, paper_id)
             self.assertEqual(caught.exception.code, code)
-
-
-if __name__ == "__main__":
-    unittest.main()

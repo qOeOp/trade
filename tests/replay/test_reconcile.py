@@ -301,7 +301,3 @@ class Warmup(unittest.TestCase):
                  "open": "1.0", "high": "2.0", "low": "0.5", "close": "1.5", "volume": "3.000"} for i in (1, 0)]
         found = reconcile.received_warmup(rows)[BTC]["1-MINUTE"]
         self.assertEqual(found, reconcile.digest([(close_of(i), "1.0", "2.0", "0.5", "1.5", "3.000") for i in (0, 1)]))
-
-
-if __name__ == "__main__":
-    unittest.main()

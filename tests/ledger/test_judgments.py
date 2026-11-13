@@ -185,7 +185,3 @@ class JudgmentTests(unittest.TestCase):
                                    based_on_commit=self.before_line), "COMMIT_BEFORE_LINE")
         self.assertEqual(self.code(kind="recommendation", body="no such", compared=unread,
                                    subjects=[{"role": "recommended", "candidate": "nobody@1"}]), "SUBJECT_UNKNOWN")
-
-
-if __name__ == "__main__":
-    unittest.main()

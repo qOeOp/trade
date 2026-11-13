@@ -44,7 +44,3 @@ class QuotePrecheckTests(unittest.TestCase):
         self.assertEqual(refused["code"], "MONTH_EXISTS")
         self.assertEqual(refused["message"], "the market already holds 2025-01 quotes of ['ETHUSDT', 'SOLUSDT']")
         self.assertEqual(refused["missing"], ["2025-01"])
-
-
-if __name__ == "__main__":
-    unittest.main()

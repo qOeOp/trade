@@ -119,7 +119,3 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual([line.split(": ")[1] for line in result.stdout.splitlines()],
                          ["templates/gone.md", "references/gone.md"])
-
-
-if __name__ == "__main__":
-    unittest.main()

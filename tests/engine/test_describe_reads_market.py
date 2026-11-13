@@ -45,6 +45,3 @@ class DescribeTests(unittest.TestCase):
                     path.write_bytes(b"not parquet")
                 with self.assertRaises((OSError, ValueError)):  # Nautilus's reader, pyarrow
                     self.describe(root)
-
-if __name__ == "__main__":
-    unittest.main()

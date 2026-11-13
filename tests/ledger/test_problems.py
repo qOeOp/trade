@@ -69,10 +69,6 @@ class FingerprintTests(unittest.TestCase):
         self.assertEqual(code({"state": "exited", "exit_code": 3}), ["FINGERPRINT_FAILED"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ConfigHashTests(unittest.TestCase):
     """The host writes the coverage receipt the image reads; both sides must name the same format."""
 

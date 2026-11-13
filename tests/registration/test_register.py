@@ -723,7 +723,3 @@ class RetryTests(unittest.TestCase):
         self.world.qualification.unavailable.add(trial_id)
         self.world.register({**self.body, "retry_of": first})
         self.world.qualification.unavailable.clear()
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -209,7 +209,3 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(diff["fields"]["source"]["only_a"], ["root@1"])
         self.assertEqual(diff["events"]["a"], diff["events"]["b"])
         self.assertIn("## Parent differs (1)", compare.markdown(diff))
-
-
-if __name__ == "__main__":
-    unittest.main()

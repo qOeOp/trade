@@ -49,7 +49,3 @@ class PinnedReadTests(unittest.TestCase):
                 with self.assertRaises(Refusal):
                     self.read(pinned("a" * 32), -1)
         self.assertEqual(len(self.calls), 4)
-
-
-if __name__ == "__main__":
-    unittest.main()

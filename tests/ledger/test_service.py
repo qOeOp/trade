@@ -371,7 +371,3 @@ class RunTests(unittest.TestCase):
         self.assertEqual(self.code(self.start, origin=newer.as_uri()), "SERVICE_CHECK_FAILED")
         self.assertEqual(list(self.data.iterdir()), [], "nothing is kept")
         self.assertEqual(list(profiles.home().glob("*.json")), [])
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -170,7 +170,3 @@ class EvidenceLedgerTests(unittest.TestCase):
         with patch.object(evidence, "_fetch", altered), self.assertRaises(Refusal) as caught:
             evidence.load_bundle(self.conn, "later")
         self.assertEqual(caught.exception.code, "LEDGER_CORRUPT")
-
-
-if __name__ == "__main__":
-    unittest.main()

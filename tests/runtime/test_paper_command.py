@@ -59,7 +59,3 @@ class PaperCommandTests(unittest.TestCase):
         with self.assertRaises(Refusal) as caught:
             container.container_command(IDENTITY, [self.reports], "engine.paper", [], "replay-x")
         self.assertEqual(caught.exception.code, "MODULE_NOT_IN_LAYOUT")
-
-
-if __name__ == "__main__":
-    unittest.main()

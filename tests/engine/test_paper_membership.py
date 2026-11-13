@@ -143,7 +143,3 @@ class RunningPaperTests(Clocked):
         self.assertEqual([kind for kind, _ in self.lines if kind in ("entry_not_sent", "membership_stale", "membership")],
                          ["membership_stale", "entry_not_sent", "membership"])
         self.assertEqual(strategy_runtime.BREACHES, [])
-
-
-if __name__ == "__main__":
-    unittest.main()

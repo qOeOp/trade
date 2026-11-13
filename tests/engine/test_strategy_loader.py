@@ -500,7 +500,3 @@ class StrategyLoaderTests(unittest.TestCase):
         stages = {(item["stage"], item["exception_type"], item["instrument_id"]) for item in strategy_runtime.FAILURES}
         self.assertEqual(stages, {("set_timer:tick", "ValueError", "unconstructed"),
                                   ("set_time_alert_ns:alert", "KeyError", "unconstructed")})
-
-
-if __name__ == "__main__":
-    unittest.main()

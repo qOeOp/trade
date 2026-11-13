@@ -219,7 +219,3 @@ class Tick(unittest.TestCase):
         probe = notices.watch.call_args.args[0]
         probe("/api/about")
         host.probe.assert_called_with("trade-release-web-" + "a" * 40, "/api/about")
-
-
-if __name__ == "__main__":
-    unittest.main()

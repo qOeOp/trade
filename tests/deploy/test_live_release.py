@@ -820,7 +820,3 @@ class LiveHostBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "identity changed"):
                 self.live.drain(WEB + B)
         self.web.docker.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()

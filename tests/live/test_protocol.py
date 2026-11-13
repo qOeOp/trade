@@ -21,54 +21,32 @@ BASELINE = Path(__file__).with_name(f"protocol-{PROTOCOL}.json")
 RAISE = ("an older control of this protocol would refuse or misread it: raise live/protocol.py PROTOCOL and "
          "record its own baseline (docs/plans/live-web-first-release-20261108.zh.md)")
 RUN, REQUEST, REF = "probe-one", "request-0001", "0" * 32
-# The writes a browser of each protocol sends: path, the control action it reaches, the exact body fields.
-WRITES = {
-    1: (
-        ("/api/live/credentials", "credential_save", None, {"request_id", "api_key", "api_secret"}),
-        ("/api/live/runs", "prepare", None, {"request_id", "run_id", "source_id", "credential_ref", "config"}),
-        (f"/api/live/credentials/{REF}/remove", "credential_remove", REF, {"request_id"}),
-        (f"/api/live/requests/{REQUEST}/resolve", "resolve", REQUEST, {"request_id"}),
-        (f"/api/live/runs/{RUN}/preflight", "preflight", RUN, {"request_id"}),
-        (f"/api/live/runs/{RUN}/start", "start", RUN, {"request_id", "confirm_real_orders"}),
-        (f"/api/live/runs/{RUN}/stop", "stop", RUN, {"request_id"}),
-        (f"/api/live/runs/{RUN}/reconcile", "reconcile", RUN, {"request_id"}),
-        (f"/api/live/runs/{RUN}/maintain", "maintain", RUN, {"request_id"}),
-    ),
-}
-# Protocol 2 adds the Telegram notification settings (docs/plans/live-telegram-notify-20261110.zh.md).
-WRITES[2] = (*WRITES[1],
-             ("/api/live/notify/telegram", "notify_save", None, {"bot_token"}),
-             ("/api/live/notify/test", "notify_test", None, set()),
-             ("/api/live/notify/remove", "notify_remove", None, set()))
-# The plan a prepare carries, field by field, in the units the browser means (USDT; seconds).
-PLAN = {1: {"budget_usdt", "max_notional_per_order", "max_loss_usdt", "duration_seconds"}}
-PLAN[2] = PLAN[1]
-# Protocol 3 drops the fixed entry limit: Live bounds each entry by 3 times USDT equity
-# (docs/plans/live-equity-entry-limit-20261110.zh.md).
-PLAN[3] = PLAN[2] - {"max_notional_per_order"}
-WRITES[3] = WRITES[2]
-# Protocol 4 adds the account's Binance leverage, which the venue's must equal
-# (docs/plans/r1-2d-leverage-terms-20261111.zh.md).
-PLAN[4] = PLAN[3] | {"leverage"}
-WRITES[4] = WRITES[3]
-# Protocol 5 answers the candidate Live runs instead of an origin and a possibly rewritten source: sources and runs
-# name `candidate`, a source has no file availability, and the review drops `rewritten`
-# (docs/plans/execution-paths-replan-20261110.zh.md R2).
-PLAN[5], WRITES[5] = PLAN[4], WRITES[4]
-# Protocol 6 replaces the budget and the per-run loss limit with a drawdown brake: the cash floor is 85% of the wallet
-# at the run's first start, and a run may have no duration (docs/plans/live-continuous-operation-design-20261110.zh.md).
-PLAN[6], WRITES[6] = PLAN[5] - {"budget_usdt", "max_loss_usdt"} | {"drawdown_brake"}, WRITES[5]
-# Protocol 7 moves the contracts from the Live settings onto each source, which trades them one instance each
-# (docs/plans/cross-line-fusion-20261111.zh.md, L1 b), and switches a continuous run to a confirmed runtime image.
-PLAN[7], WRITES[7] = PLAN[6], (*WRITES[6],
-                               (f"/api/live/runs/{RUN}/runtime_switch", "runtime_switch", RUN, {"request_id"}),
-                               (f"/api/live/runs/{RUN}/runtime_switch_cancel", "runtime_switch_cancel", RUN, {"request_id"}))
+# The writes a browser of this protocol sends: path, the control action it reaches, the exact body fields.
+# Protocol 7 moved the contracts from the Live settings onto each source and added the runtime switch writes
+# (docs/plans/cross-line-fusion-20261111.zh.md, L1 b).
+WRITES = (
+    ("/api/live/credentials", "credential_save", None, {"request_id", "api_key", "api_secret"}),
+    ("/api/live/runs", "prepare", None, {"request_id", "run_id", "source_id", "credential_ref", "config"}),
+    (f"/api/live/credentials/{REF}/remove", "credential_remove", REF, {"request_id"}),
+    (f"/api/live/requests/{REQUEST}/resolve", "resolve", REQUEST, {"request_id"}),
+    (f"/api/live/runs/{RUN}/preflight", "preflight", RUN, {"request_id"}),
+    (f"/api/live/runs/{RUN}/start", "start", RUN, {"request_id", "confirm_real_orders"}),
+    (f"/api/live/runs/{RUN}/stop", "stop", RUN, {"request_id"}),
+    (f"/api/live/runs/{RUN}/reconcile", "reconcile", RUN, {"request_id"}),
+    (f"/api/live/runs/{RUN}/maintain", "maintain", RUN, {"request_id"}),
+    ("/api/live/notify/telegram", "notify_save", None, {"bot_token"}),
+    ("/api/live/notify/test", "notify_test", None, set()),
+    ("/api/live/notify/remove", "notify_remove", None, set()),
+    (f"/api/live/runs/{RUN}/runtime_switch", "runtime_switch", RUN, {"request_id"}),
+    (f"/api/live/runs/{RUN}/runtime_switch_cancel", "runtime_switch_cancel", RUN, {"request_id"}),
+)
+# The plan a prepare carries, field by field.
+PLAN = {"duration_seconds", "leverage", "drawdown_brake"}
 
 
 class ProtocolRequestTests(unittest.TestCase):
     def test_each_write_reaches_its_action_with_its_exact_fields(self):
-        self.assertIn(PROTOCOL, WRITES, RAISE)
-        for path, action, target, fields in WRITES[PROTOCOL]:
+        for path, action, target, fields in WRITES:
             with self.subTest(path=path):
                 self.assertEqual(serve.write_route(path), (action, target), RAISE)
                 seen = []
@@ -82,7 +60,7 @@ class ProtocolRequestTests(unittest.TestCase):
                 self.assertEqual(seen[:1], [fields], RAISE)
 
     def test_the_plan_keeps_its_fields(self):
-        self.assertEqual(set(configuration.CONFIG_KEYS), PLAN[PROTOCOL], RAISE)
+        self.assertEqual(set(configuration.CONFIG_KEYS), PLAN, RAISE)
 
 
 def missing(baseline, current, path="") -> list[str]:

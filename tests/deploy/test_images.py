@@ -201,7 +201,3 @@ class WriteEnvTests(unittest.TestCase):
                              "TRADE_UID=1\n# a note\nTRADE_DATA=/x\nTRADE_IDE_IMAGE=new\nTRADE_SERVICE_IMAGE=svc\n")
             self.assertEqual(path.stat().st_mode & 0o777, 0o640)
             self.assertEqual([item.name for item in Path(directory).iterdir()], [".env"])
-
-
-if __name__ == "__main__":
-    unittest.main()

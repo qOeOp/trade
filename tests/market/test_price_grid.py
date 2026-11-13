@@ -45,7 +45,3 @@ class PriceGridTests(unittest.TestCase):
                 made, = ParquetDataCatalog(str(path)).instruments()
                 found[name] = (piece["price_precision"], piece["price_precision_widened"], str(made.price_increment))
         self.assertEqual(found, {"first-day": (2, True, "0.01"), "both-days": (2, True, "0.01")})
-
-
-if __name__ == "__main__":
-    unittest.main()

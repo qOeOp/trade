@@ -132,7 +132,3 @@ class RealContainerMemoryLimitTests(unittest.TestCase):
             self.assertEqual(caught.exception.exit_code, 137)
             gone = subprocess.run(["docker", "inspect", name], capture_output=True, text=True)
             self.assertNotEqual(gone.returncode, 0, "the stage container is removed")
-
-
-if __name__ == "__main__":
-    unittest.main()

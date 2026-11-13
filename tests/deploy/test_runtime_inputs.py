@@ -143,7 +143,3 @@ class GitHistoryTests(unittest.TestCase):
                 source.require_runtime(runtime, changed)
             with self.assertRaisesRegex(RuntimeError, "ancestor"):
                 source.require_runtime(changed, service)
-
-
-if __name__ == "__main__":
-    unittest.main()

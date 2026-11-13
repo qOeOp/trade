@@ -167,7 +167,3 @@ class ComparabilityTests(unittest.TestCase):
         self.assertEqual(code(comparability.check_comparable, {**run, "image_digest": None},
                               {**execution, "image_digest": None}), "COMPARABILITY_MISMATCH",
                          "a missing image digest is never equal")
-
-
-if __name__ == "__main__":
-    unittest.main()

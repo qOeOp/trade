@@ -45,7 +45,3 @@ class SweepTests(unittest.TestCase):
     def test_a_line_without_trials_reads_its_own_judgments(self):
         conn = Conn([], [row(1, 1, "Evaluated variants: 0")])
         self.assertEqual(status.sweeps(conn, 1, []), {"sweep_variants": 0, "undeclared_sweeps": []})
-
-
-if __name__ == "__main__":
-    unittest.main()

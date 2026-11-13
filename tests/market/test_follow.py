@@ -592,7 +592,3 @@ class MonthlyImportTests(unittest.TestCase):
         self.assertEqual(follow.holes(held, JAN), [FEB])
         # Read through outside the lock, the gap month is unsound and the month after it sound.
         self.assertEqual((follow._sound(cache, "BTCUSDT", FEB), follow._sound(cache, "BTCUSDT", MAR)), (False, True))
-
-
-if __name__ == "__main__":
-    unittest.main()

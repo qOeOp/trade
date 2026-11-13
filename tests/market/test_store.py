@@ -784,7 +784,3 @@ class RecoveryTests(unittest.TestCase):
         for table in ("bar", "funding", "universe_month", "instrument"):
             with self.subTest(table=table):
                 self.assertTrue(rows(original, table).equals(rows(rebuilt, table)))
-
-
-if __name__ == "__main__":
-    unittest.main()

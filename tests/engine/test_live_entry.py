@@ -1341,7 +1341,3 @@ class NativeEntryTests(unittest.TestCase):
         exits = [order for order in self.engine.cache.orders() if order.is_reduce_only]
         self.assertEqual(len(exits), 1)
         self.assertEqual(exits[0].status, OrderStatus.FILLED)
-
-
-if __name__ == "__main__":
-    unittest.main()

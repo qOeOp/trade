@@ -635,7 +635,3 @@ class InitRecoveryTests(unittest.TestCase):
         self.assertEqual(self.left("test_cased", "cased")["database"], True)
         with db.connect(db.load_profile("cased"), "reader") as reader:
             self.assertEqual(reader.rows("SELECT version FROM ledger_schema"), [(db.SCHEMA_VERSION,)])
-
-
-if __name__ == "__main__":
-    unittest.main()

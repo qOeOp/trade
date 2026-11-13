@@ -279,7 +279,3 @@ class LiveEvidenceTests(unittest.TestCase):
         self.assertEqual([(row["event"], row["part"]) for row in events],
                          [("evidence_unavailable", "market"), ("evidence_unavailable", "reports")])
         self.assertFalse(session.failed or session.journal_failed or session.stopping)
-
-
-if __name__ == "__main__":
-    unittest.main()

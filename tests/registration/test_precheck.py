@@ -387,7 +387,3 @@ class LineStartTests(unittest.TestCase):
         reviewed(earlier["source"], 3, {})
         reviewed(earlier["source"], 0, {"activity": quiet})
         self.assertEqual(code(earlier["candidate"]), "START_REVIEW_REQUIRED", "the traded pass came first")
-
-
-if __name__ == "__main__":
-    unittest.main()

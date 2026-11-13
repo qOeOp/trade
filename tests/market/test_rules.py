@@ -550,7 +550,3 @@ class ReturnTests(unittest.TestCase):
         self.assertAlmostEqual(found["btc"][1], -0.1)
         self.assertAlmostEqual(found["basket"][0], (0.1 - 0.1) / 2)
         self.assertAlmostEqual(found["basket"][1], 0.5, msg="AAA stopped trading: it drops out after its last return")
-
-
-if __name__ == "__main__":
-    unittest.main()

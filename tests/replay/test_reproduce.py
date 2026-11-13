@@ -400,7 +400,3 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
         self.assertTrue((self.world.output("changed-reports") / "reports").is_dir())
         self.assertEqual([row["export_sha256"] for row in reproduction.reproductions(conn, trial_id)],
                          [changed["export_content_sha256"]], "a different result adds no inputs")
-
-
-if __name__ == "__main__":
-    unittest.main()

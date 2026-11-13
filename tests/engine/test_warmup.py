@@ -260,7 +260,3 @@ class FetchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root, self.assertRaises(Refusal) as caught:
             history.fetch(IID, at, self.DECLARED, (2, 3), Path(root), None, get)
         self.assertEqual(caught.exception.code, "WARMUP_INSUFFICIENT")
-
-
-if __name__ == "__main__":
-    unittest.main()

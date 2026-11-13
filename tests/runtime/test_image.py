@@ -387,7 +387,3 @@ class ContainerTests(unittest.TestCase):
             self.assertEqual(command[:4], ["docker", "run", "--name", "replay-x"])
             self.assertIn(f"type=bind,source={path.resolve()},target=/inputs/catalog,readonly", command)
             self.assertIn(f"type=bind,source={path.resolve()},target=/reports", command)
-
-
-if __name__ == "__main__":
-    unittest.main()

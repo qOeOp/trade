@@ -267,7 +267,3 @@ class EveTests(unittest.TestCase):
         self.assertEqual(made[(JAN, FEB)][1:], (True, 0))  # January's file: no archive read
         self.assertEqual(made[(FEB,)][1:], (True, 1))  # the eve's archive
         self.assertEqual(made[(JAN, FEB)][0], made[(FEB,)][0])
-
-
-if __name__ == "__main__":
-    unittest.main()

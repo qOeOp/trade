@@ -328,7 +328,3 @@ class FeeAndPlanTests(unittest.TestCase):
         self.assertTrue(any(item.startswith("PLAN_TAG_TOO_LONG:") for item in sealed["limitations"]))
         rows = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))
         self.assertIsNone(rows[0]["plan_tag"])
-
-
-if __name__ == "__main__":
-    unittest.main()

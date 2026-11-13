@@ -210,7 +210,3 @@ class ContinuityTests(unittest.TestCase):
             self.assertEqual(refused(self.world.register, {**retry, "control_trial_id": unrelated_run}).code,
                              "RETRY_NOT_ALLOWED")
             self.register({**retry, "control_trial_id": new_run})
-
-
-if __name__ == "__main__":
-    unittest.main()

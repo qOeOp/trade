@@ -639,7 +639,3 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.refused_bind("checks", inspection=other_account), "CONFIG_MISMATCH")
         self.assertEqual(self.refused_bind("unrun", data=self.unrun["source"]), "CONFIG_MISMATCH")
         self.bind("checks")
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -576,7 +576,3 @@ class DirectoryTests(unittest.TestCase):
         exc = refused(runs.load_directory, self.root)
         self.assertEqual(exc.code, "REPORT_PARSE_FAILED")
         self.assertIn("orders.csv:client_order_id", exc.missing)
-
-
-if __name__ == "__main__":
-    unittest.main()

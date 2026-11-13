@@ -687,7 +687,3 @@ class ExecutionIdentityTests(unittest.TestCase):
         self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": self.third}])
         with db.connect(self.world.profile, "reader") as conn:
             self.assertEqual(status.research_state(conn)["unreviewed_trials"], [])
-
-
-if __name__ == "__main__":
-    unittest.main()

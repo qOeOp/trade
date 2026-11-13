@@ -261,7 +261,3 @@ class Container(unittest.TestCase):
                 mock.patch.object(daily.subprocess, "run") as docker:
             self.assertEqual(daily.launch(Path("/r"), Path("/m"), 0), "outside")
         docker.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()

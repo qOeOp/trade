@@ -65,7 +65,3 @@ class TargetTests(unittest.TestCase):
         for drawdown, annual in ((0, 0.2), (1, 0.2), (0.15, 0), (0.15, -0.1), ("nan", 0.2), (0.15, "inf"), (None, 0.2)):
             with self.subTest(drawdown=drawdown, annual=annual):
                 self.assertEqual(self.code(second, drawdown, annual), "TARGETS_INVALID")
-
-
-if __name__ == "__main__":
-    unittest.main()

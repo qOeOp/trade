@@ -579,7 +579,3 @@ class StreamTests(unittest.TestCase):
         kind, readings = events(response)
         self.assertEqual((kind, readings["exceptions"]), ("readings", 4))
         self.assertEqual(events(response), ("end", {"status": "invalid"}))
-
-
-if __name__ == "__main__":
-    unittest.main()
