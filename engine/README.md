@@ -199,8 +199,8 @@ the breach's code; Live refuses at once and takes the STOP path.
   most its quantity; no modifications, order lists, emulation,
   execution algorithms, contingent or linked orders, quote quantities or order parameters; a GTD order expires at
   least 600 seconds after it is sent (Binance's limit); a strategy cancels and closes only its own orders and
-  positions. A source naming `submit_order_list`, `bracket`, `add_exec_algorithm` or `close_all_positions` is
-  refused at load.
+  positions; every order is on the strategy instance's own contract. A source naming `submit_order_list`,
+  `bracket`, `add_exec_algorithm` or `close_all_positions` is refused at load.
 - Stop coverage (`engine.protection`): a position is covered when its own reduce-only stops (submitted with its
   position ID) on the closing side that are ACCEPTED (neither triggered nor filled) hold its quantity in unfilled
   quantity. Native order events do not name a resting stop's position, so the replay audit sums positions and stops

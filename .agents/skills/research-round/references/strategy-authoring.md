@@ -120,8 +120,9 @@ empty ratios read in `replay_diagnostics`.
   positions and entries may be open together on one contract; the instance's open positions (at
   their average open price) and entries (at their limit or trigger price), both sides added, stay
   within 3 times USDT equity. An exit is reduce-only and names its position (`position_id`); one
-  position's working stops hold at most its quantity. Nothing is modified, listed, bracketed,
-  emulated or given params, and a GTD expiry lies at least 600 s ahead. A breach is not sent and
+  position's working stops hold at most its quantity. Every order is on the instance's own
+  contract. Nothing is modified, listed, bracketed, emulated or given params, and a GTD expiry
+  lies at least 600 s ahead. A breach is not sent and
   the run is refused; naming `bracket`, `submit_order_list`, `add_exec_algorithm` or
   `close_all_positions` anywhere in the file is refused at load.
 - Keep one stop per position, submitted on the entry's first fill, and a target or partial exit as
