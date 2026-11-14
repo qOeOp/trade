@@ -122,6 +122,8 @@ class InputTests(unittest.TestCase):
         row = {"config": {"candidate": "example@1", "leverage": "5", "fees": {}}, "symbols": ["BTCUSDT"], "market_day": "2026-10-25",
                "source_sha256": "s" * 64, "image_ref": "image"}
         lines = journal([initialized("P-1", "ENTRY"), filled("P-1", START + 30 * 10**9, "100.0", "1")], 3)
+        lines += [{"kind": "warmup", "instrument_id": BTC, "period": period, "bars": count, "sha256": "h"}
+                  for period, count in (("1-MINUTE", 5), ("1-HOUR", 2), ("1-DAY", 3))]
         argv: list[str] = []
 
         def replayed(market, commit, source, entry_class, image, given, output, name, timeout):
@@ -150,11 +152,14 @@ class InputTests(unittest.TestCase):
             result = json.loads(Path(found["path"]).read_text(encoding="utf-8"))
         return argv, result
 
-    def test_the_replay_runs_at_the_runs_leverage_balance_and_start(self):
+    def test_the_replay_runs_at_the_runs_leverage_balance_and_start_on_the_history_it_received(self):
         argv, result = self.reconciled(True)
         self.assertEqual(argv[argv.index("--leverage") + 1], "5")
         self.assertEqual(argv[argv.index("--starting-balance") + 1], reconcile.ACCOUNT_CONTRACT["starting_balance_usdt"])
-        self.assertEqual(argv[argv.index("--trade-start") + 1], argv[argv.index("--start") + 1])
+        self.assertEqual(argv[argv.index("--trade-start") + 1], "2026-10-25T17:26:00Z")
+        # The replay builds a history only from its window's minutes: the two hours before 17:00 open at 15:00 (and
+        # the five minutes before 17:26 lie inside them); daily bars come from the market's own.
+        self.assertEqual(argv[argv.index("--start") + 1], "2026-10-25T15:00:00Z")
         self.assertEqual((result["summary"]["same"], len(result["groups"])), (1, 1))
 
     def test_a_replay_without_order_events_has_no_order_comparison(self):

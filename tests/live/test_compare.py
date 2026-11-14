@@ -169,9 +169,9 @@ class Compare(unittest.TestCase):
         given: dict = {}
 
         def replayed(market, market_day, source, entry_class, image_ref, symbols, start, end, leverage, balance,
-                     output, name, timeout):
+                     output, name, timeout, received):
             given.update(source=source, entry_class=entry_class, image_ref=image_ref, symbols=symbols, start=start,
-                         end=end, leverage=leverage, balance=balance)
+                         end=end, leverage=leverage, balance=balance, history=shared.history_start(start, received))
             reports = Path(output) / "reports"
             reports.mkdir(parents=True)
             with (reports / "account.csv").open("w", newline="") as handle:
@@ -201,7 +201,9 @@ class Compare(unittest.TestCase):
         given, result = self.compared(pack)
         self.assertEqual(given, {"source": SOURCE, "entry_class": "S", "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "e" * 64,
                                  "symbols": ["BTCUSDT"], "start": START, "end": close_of(pack.minutes - 1) + 10**6,
-                                 "leverage": "5", "balance": "57.5"})
+                                 "leverage": "5", "balance": "57.5",
+                                 # its three warm-up minutes before T, which the replay builds its history from
+                                 "history": START - 3 * MINUTE})
         self.assertEqual((result["kind"], result["starting_balance_usdt"]), ("live", "57.5"))
 
     def test_a_comparison_cut_short_replays_and_reads_only_what_came_before_the_cut(self):

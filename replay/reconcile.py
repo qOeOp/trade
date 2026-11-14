@@ -691,14 +691,30 @@ def archive(market: dict, at: str | None, symbols: list[str], start: int, end: i
     return market_day, found  # type: ignore[return-value]
 
 
+def history_start(start: int, received: Mapping[str, Mapping[str, Mapping]]) -> int:
+    """The first minute a replay warmed at `start` must export so the histories the run `received` ({instrument:
+    {period: digest}}) lie in it: the opening of the first of each period's bars (engine.warmup.history_range), as the
+    replay builds a history only from the window's one-minute bars (engine.run.history_stamps); daily bars come from
+    the market's own."""
+    first = start
+    for periods in received.values():
+        for period, got in periods.items():
+            count = int((got or {}).get("bars") or 0)
+            if count and period != "1-DAY":
+                step = PERIODS[period] * MINUTE_NS
+                first = min(first, start // step * step - count * step)
+    return first
+
+
 def replay(market: dict, market_day: str, source: bytes, entry_class: str, image_ref: str, symbols: list[str],
            start: int, end: int, leverage: str, starting_balance: str, output: Path, name: str,
-           timeout: float | None) -> tuple[dict, list[dict] | None, Path | None]:
+           timeout: float | None, received: Mapping[str, Mapping[str, Mapping]]) -> tuple[dict, list[dict] | None, Path | None]:
     """(the replay's status, its order events or None when it wrote none, its reports directory or None without an
-    account report): the run's source on its image over [start, end), warmed at `start` as the run was, in the bars
-    environment at the run's leverage and starting balance."""
+    account report): the run's source on its image trading [start, end), warmed at `start` on the bars before it that
+    the run `received` (history_start), in the bars environment at the run's leverage and starting balance."""
     from replay import entry
-    argv = ["--symbols", *symbols, "--start", _utc(start), "--trade-start", _utc(start), "--end", _utc(end),
+    argv = ["--symbols", *symbols, "--start", _utc(history_start(start, received)), "--trade-start", _utc(start),
+            "--end", _utc(end),
             "--execution", "bars", "--leverage", str(leverage), "--starting-balance", str(starting_balance)]
     replayed = entry.replay_unrecorded(market, market_day, source, entry_class, image_ref, argv, output, name, timeout)
     reports = Path(replayed["path"]) / entry.REPORTS
