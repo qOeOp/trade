@@ -37,7 +37,7 @@ class LiveWebControlTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="lw-", dir="/tmp")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name).resolve()
-        self.root = self.directory / "custody"
+        self.root = self.directory / "live-root"
         self.source = self.directory / "source.py"
         self.source.write_text("class Example: pass\n")
         self.universe = self.directory / "universe.json"
@@ -53,7 +53,7 @@ class LiveWebControlTests(unittest.TestCase):
                                  "entry_class": "Example",
                                  "source_sha256": hashlib.sha256(self.source.read_bytes()).hexdigest(),
                                  "purpose": "controlled", "symbols": ["BTCUSDT"]}]}
-        self.authority = install(self, self.root, self.raw, release_state=self.directory / "i")
+        self.authority = install(self, self.root, self.raw)
         self.config_file, self.config, self.raw = self.authority.file, self.authority.config, self.authority.raw
         self.binding = self.authority.binding
         inject_cli(self, self.authority.state)

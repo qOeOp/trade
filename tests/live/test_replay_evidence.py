@@ -135,7 +135,7 @@ class EvidenceReadAheadTests(unittest.TestCase):
     OTHER = ("a" * 32, "b" * 64, ("BTCUSDT", "ETHUSDT"))
 
     def setUp(self):
-        self.root = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        self.root = Path(self.enterContext(__import__("tempfile").TemporaryDirectory())) / "live-root"
         self.config = install(self, self.root).config
 
     def test_the_listing_names_no_candidate_or_contracts_and_offers_the_run_defaults(self):

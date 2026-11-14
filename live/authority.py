@@ -65,17 +65,10 @@ class Authority:
             self.retained()
             yield locked
 
-    def _declared(self) -> dict:
-        """The installed declaration, refused unless its operator fields are this snapshot's."""
-        declared = installed.declaration(STATE / "live/configuration.json")
-        if any(declared[key] != self.original[key] for key in installed.OPERATOR_FIELDS):
-            raise unavailable()
-        return declared
-
     def admit_locked(self, root: Path, *, maintenance: bool = False, inventory: bool = True) -> None:
         self.retained()
         try:
-            if root != self.root or self._declared()["root"] != str(root):
+            if root != self.root:
                 raise unavailable()
             release.admission_locked(self.binding, maintenance=maintenance)
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
@@ -115,8 +108,6 @@ def from_file(file: Path, binding: release.Binding | None) -> Authority:
 def inspection(file: Path) -> Authority:
     """Host release already holds the account lock; do not acquire it in its helper."""
     try:
-        result = from_file(file, release.Binding(STATE, release_host.WEB + file.parent.name))
-        result._declared()  # from_file read the snapshot just now
-        return result
+        return from_file(file, release.Binding(STATE, release_host.WEB + file.parent.name))
     except (OSError, ValueError, RuntimeError, KeyError, TypeError):
         raise unavailable() from None

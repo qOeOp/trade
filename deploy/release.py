@@ -6,7 +6,6 @@ version's own control releases it (deploy/control.py). Git and Docker use no exi
 """
 
 import argparse
-from contextlib import nullcontext
 import fcntl
 import json
 import os
@@ -17,6 +16,8 @@ import sys
 import traceback
 
 from .control import HANDOFF, hand_off, running
+from .live_configuration import ROOT
+from .live_host import LIVE, AccountLockBusy, AccountLockWaitExpired, LiveBusy, LiveHost
 from .paper_host import PAPER, PaperHost
 from .paper_release import PaperRelease
 from .release_host import (
@@ -67,8 +68,6 @@ def failure_summary(error: Exception) -> str:
     """Only fixed classifications and code identity cross the journal boundary; exception payloads
     stay private. An unclassified failure names its class and source line so the operator can find
     it without rerunning the release under a traceback wrapper."""
-    from .live_host import AccountLockBusy, AccountLockWaitExpired, LiveBusy
-
     if isinstance(error, AccountLockWaitExpired):
         return "account lock wait expired"
     if isinstance(error, AccountLockBusy):
@@ -91,6 +90,7 @@ def failure_summary(error: Exception) -> str:
             "Live idle observation is unavailable": "Live idle observation unavailable",
             "Live custody path changed during release": "Live custody identity changed",
             "Live account lock identity changed during release": "Live account lock identity changed",
+            "Live custody root differs from its product installation": "Live custody root differs",
             "router has an independent change; preserve transaction and stop": "router identity changed",
             "router changed before commit; preserve independent routing": "router identity changed",
             "router changed during final account admission": "router identity changed",
@@ -130,8 +130,8 @@ class Notices:
     LEDGER_LAG_SECONDS or whose origin history changed elsewhere.
 
     Each kind the tick observed replaces that kind's facts; one it could not observe keeps what was sent. A fact
-    is sent when it first appears and again only after it has cleared. Without Live or a saved token nothing
-    is sent and nothing is marked sent. Sending never raises into the tick.
+    is sent when it first appears and again only after it has cleared. Without a saved token nothing is sent
+    and nothing is marked sent. Sending never raises into the tick.
     """
 
     def __init__(self, state: Path, call=telegram):
@@ -187,12 +187,7 @@ class Notices:
             print(f"Failure notices not sent: {type(error).__name__}", file=sys.stderr, flush=True)
 
     def _token(self) -> tuple[str, int] | None:
-        from .live_configuration import declaration
-
-        path = self.state / "live/configuration.json"
-        if not os.path.lexists(path):
-            return None  # a host without Live has no Telegram chat
-        return settings(Path(declaration(path)["root"]) / "notify")
+        return settings(self.state / ROOT / "notify")  # None until a Live page saves one
 
     def _send(self) -> None:
         path = self.state / "notices.json"
@@ -328,8 +323,9 @@ class GitSource:
 
 
 class Release:
-    """One version moves Web, the Agent, the Live control (when paired) and the Paper controller together: either
-    all reach it, or all stay on the previous version and `failed/<revision>` blocks it. Paper's own journal and the
+    """One version moves Web, the Agent, its Live control and the Paper controller together: either all reach it,
+    or all stay on the previous version and `failed/<revision>` blocks it. Every host pairs a control; the first
+    release of a host without one creates the custody root (deploy/live_host.py). Paper's own journal and the
     roll-forward rule between the two commits are deploy/paper_release.py's."""
 
     def __init__(self, host: DockerHost, github: GitSource, live=None, paper: PaperRelease | None = None):
@@ -338,23 +334,14 @@ class Release:
         self.state = host.state
         self.transaction = self.state / "transaction.json"
         self.failed = self.state / "failed"
-        self.live = live
+        self.live = live or LiveHost(host, github)
         self._paper = paper
-        if self.live is None and os.path.lexists(self.state / "live/configuration.json"):
-            from .live_host import LiveHost
-
-            self.live = LiveHost(host, github)
-
-    def require_live_installation(self, name: str) -> None:
-        if self.live is None and self.host.requires_live(name):
-            raise RuntimeError("installed Live configuration is missing; retain the existing Web/control pair")
 
     def retire_live(self) -> None:
-        if self.live is not None:
-            try:
-                self.live.retire()
-            except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
-                report_failure("retired", error)
+        try:
+            self.live.retire()
+        except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+            report_failure("retired", error)
 
     def journal(self, candidate: str, previous: str, agent_before: str | None = None) -> dict:
         """`agent_before` names the Agent a release replaces; None keeps it."""
@@ -401,15 +388,11 @@ class Release:
             return
         transaction = json.loads(self.transaction.read_text())
         candidate, previous = transaction["candidate"], transaction["previous"]
-        self.require_live_installation(previous)
-        if self.live is None and self.host.exists(candidate):
-            self.require_live_installation(candidate)
         sha = revision(candidate)
         self.host.checked(previous)
         self.known_routes(transaction)
         print(f"Rolling back uncommitted Web release {sha}", flush=True)
-        if self.live is not None:
-            self.live.restore(previous)
+        self.live.restore(previous)
         if "agent_before" in transaction:
             before = transaction["agent_before"]
             after = f"{AGENT}{sha}"
@@ -430,9 +413,7 @@ class Release:
         if self.host.live_route() != previous:
             raise RuntimeError("rollback route changed during final probes; preserve transaction")
         agent = self.host.agent()
-        barrier = (self.live.barrier(candidate, wait_for_lock=True)
-                   if self.live is not None else nullcontext(lambda: None))
-        with barrier as held:
+        with self.live.barrier(candidate, wait_for_lock=True) as held:
             held()
             self.known_routes(transaction)
             if self.host.live_route() != previous:
@@ -450,8 +431,8 @@ class Release:
         print(f"Restored previous Web release {previous}", flush=True)
 
     def cleared(self, previous: str) -> None:
-        """Stop stale Webs and check headroom: before the journal of a release without Live, and inside a paired
-        release's account admission."""
+        """Stop stale Webs and check headroom, inside the release's account admission and before its journal: a
+        transient refusal journals nothing, so it never marks the version failed."""
         for name in self.host.managed(WEB, running_only=True):
             if name != previous:
                 self.host.stop(name)
@@ -462,7 +443,6 @@ class Release:
         sha = target["revision"]
         candidate = f"{WEB}{sha}"
         previous = self.host.disk_route()
-        self.require_live_installation(previous)
         if self.host.live_route() != previous:
             raise RuntimeError("disk and loaded router state disagree")
         if self.failed.joinpath(sha).exists():
@@ -475,16 +455,11 @@ class Release:
         before = revision(agent, AGENT)
         change_agent = self.github.agent_changed(before, sha)
         protected = self.host.protected()
-        # With Live installed every release pairs: the candidate brings its own control and takes the account,
-        # only while Live is idle (0.x keeps no compatibility between versions, the user 2026-11-14).
-        paired = self.live is not None
-        owner = revision(previous) if paired and self.host.requires_live(previous) else None
-        if not paired:
-            self.cleared(previous)
-        from .live_host import AccountLockBusy, LiveBusy
-
-        # A changed Live declaration also pairs: only a new control reads it. The owner's control refuses
-        # every new effect against it, its idle inspection included, so the candidate's inspection answers.
+        # Every release pairs: the candidate brings its own control and takes the account, only while Live is idle
+        # (0.x keeps no compatibility between versions, the user 2026-11-14). A routed Web without a control (a
+        # host's first pairing) has no owner: the candidate's control, on the root prepare creates, answers.
+        owner = revision(previous) if self.host.requires_live(previous) else None
+        # When this host's inputs changed only the candidate's control reads them, so its inspection answers.
         if owner is not None and self.live.current(owner):
             # Ask the owner's control whether Live is busy before preparing anything for the candidate, so
             # a revision waiting to pair costs one inspection per tick. A held account lock is no answer.
@@ -503,28 +478,22 @@ class Release:
         paper_plan = paper.prepare(target)  # its refusals journal nothing
         self.github.ensure(target)
         agent_before = agent if change_agent else None
-        if paired:
-            self.live.prepare(owner, target)
-            try:
-                with self.live.barrier(candidate, target["service"], idle=True) as held:
-                    held()
-                    self.github.ensure(target)
-                    transaction = self.journal(candidate, previous, agent_before)
-            except LiveBusy as busy:
-                print(f"{busy}; the next tick asks again", flush=True)  # it became busy since the owner was asked
-                return
-        else:
-            transaction = self.journal(candidate, previous, agent_before)
+        self.live.prepare(owner, target)
+        try:
+            with self.live.barrier(candidate, target["service"], idle=True) as held:
+                held()
+                self.github.ensure(target)
+                self.cleared(previous)
+                transaction = self.journal(candidate, previous, agent_before)
+        except LiveBusy as busy:
+            print(f"{busy}; the next tick asks again", flush=True)  # it became busy since the owner was asked
+            return
         print(f"Preparing main Web release {sha}", flush=True)
         try:
-            if paired:
-                self.cleared(previous)
-                self.live.create(candidate, target["service"])
-                self.live.start(candidate)
-                self.live.warm(candidate)
-                self.host.create(candidate, image, live_socket=self.live.socket(candidate))
-            else:
-                self.host.create(candidate, image)
+            self.live.create(candidate, target["service"])
+            self.live.start(candidate)
+            self.live.warm(candidate)
+            self.host.create(candidate, image, live_socket=self.live.socket(candidate))
             self.host.start(candidate)
             if change_agent:
                 replacement = f"{AGENT}{sha}"
@@ -543,8 +512,7 @@ class Release:
             self.known_routes(transaction)
             self.host.switch(candidate)
             self.host.observe(candidate, lines, protected)
-            if paired:
-                self.live.health(candidate)
+            self.live.health(candidate)
             self.github.ensure(target)
 
             def unchanged(final: bool) -> None:
@@ -558,9 +526,7 @@ class Release:
                     paper.held(paper_plan["candidate"])
 
             unchanged(False)
-            barrier = (self.live.barrier(candidate, idle=True, wait_for_lock=True)
-                       if paired else nullcontext(lambda: None))
-            with barrier as held:
+            with self.live.barrier(candidate, idle=True, wait_for_lock=True) as held:
                 held()
                 self.github.ensure(target)
                 unchanged(True)
@@ -583,14 +549,12 @@ class Release:
         return self._paper
 
     def install(self) -> None:
-        """A new host's first release: the admitted version's Paper controller, Web and Agent, with both
-        routes written for the routers the installer starts next. Nothing ran before, so nothing rolls back;
+        """A new host's first release: the admitted version's Paper controller, Live control, Web and Agent, with
+        both routes written for the routers the installer starts next. Nothing ran before, so nothing rolls back;
         after a failure, remove the containers it created and install again."""
         paper = self.paper().host
         if (self.host.routes / "active.json").exists() or (paper.routes / "active.json").exists():
             raise RuntimeError("release routing already exists; do not overwrite it")
-        if self.live is not None:
-            raise RuntimeError("install the Live declaration after the first release")
         target = self.github.approved()
         sha = target["revision"]
         if target["image"] is None:
@@ -601,11 +565,15 @@ class Release:
         self.github.require_runtime(paper.pull(target["runtime"], RUNTIME_REF), sha)
         self.github.ensure(target)
         controller, web, agent = PAPER + sha, f"{WEB}{sha}", f"{AGENT}{sha}"
+        self.live.prepare(None, target)  # creates the custody root and the control's snapshot
         paper.persist_route(controller)  # the controller reads its own route to know it is the active one
         paper.create(controller, target["service"], target["runtime"])
-        self.host.create(web, image)
+        self.live.create(web, target["service"])
+        self.host.create(web, image, live_socket=self.live.socket(web))
         self.host.create(agent, image, agent=True)
         paper.start(controller)
+        self.live.start(web)
+        self.live.warm(web)
         self.host.start(web)
         self.host.start(agent)
         self.host.persist_route(web)
@@ -631,22 +599,14 @@ class Release:
             paper_host = self.paper().host
             active = {self.host.disk_route(), paper_host.disk_route()}
             runtimes = {paper_host.runtime(name) for name in paper_host.managed(PAPER)}
-            prefixes: tuple[str, ...] = (WEB, AGENT, PAPER)
             revisions = {path.name for path in self.failed.iterdir()} if self.failed.exists() else set()
-            failed = {prefix + sha for sha in revisions for prefix in (WEB, AGENT, PAPER)}
-            kept: set[str] = set()
-            if self.live is not None:
-                from .live_host import LIVE
-
-                # A Live controller and its directory survive while its Web does: a return by hand needs both.
-                kept = {revision(name) for name in self.host.managed(WEB)}
-                prefixes += (LIVE,)
-                active |= {LIVE + sha for sha in kept}
-                failed |= {LIVE + sha for sha in revisions}
-                runtimes |= self.live.runtimes()  # read before its directories are pruned
-            self.host.prune(prefixes, active, failed, runtimes)
-            if self.live is not None:
-                self.live.prune(kept)
+            failed = {prefix + sha for sha in revisions for prefix in (WEB, AGENT, PAPER, LIVE)}
+            # A Live controller and its directory survive while its Web does: a return by hand needs both.
+            kept = {revision(name) for name in self.host.managed(WEB)}
+            active |= {LIVE + sha for sha in kept}
+            runtimes |= self.live.runtimes()  # read before its directories are pruned
+            self.host.prune((WEB, AGENT, PAPER, LIVE), active, failed, runtimes)
+            self.live.prune(kept)
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("cleanup", error)
 
@@ -682,9 +642,7 @@ class Release:
             return False
         active = self.host.disk_route()
         self.host.checked(active)
-        self.require_live_installation(active)
-        if self.live is not None and self.host.requires_live(active):
-            self.live.restore(active)
+        self.live.restore(active)  # only a Web that uses Live has a control to keep running
         target = self.github.choose(revision(active), self.failed)
         if target:
             self.apply(target)

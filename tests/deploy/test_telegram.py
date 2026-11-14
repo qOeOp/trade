@@ -7,14 +7,13 @@ import contextlib
 import http.client
 import io
 import json
-import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
 from deploy import release, telegram
-from deploy.live_configuration import DECLARATION, OPERATOR_FIELDS
 
 
 TOKEN = "123456789:" + "A" * 35
@@ -96,12 +95,10 @@ class Notices(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         base = Path(temporary.name).resolve()
-        self.state, root = base / "release", base / "custody"
+        self.state = base / "release"
+        self.root = root = self.state / "live-root"  # the custody root every release host has (deploy/live_host.py)
         (root / "notify").mkdir(parents=True, mode=0o700)
         root.chmod(0o700)
-        (self.state / "live").mkdir(parents=True)
-        (self.state / "live/configuration.json").write_text(json.dumps(
-            {**dict.fromkeys(OPERATOR_FIELDS), "root": str(root), "format": DECLARATION}))
         self.saved = root / "notify/telegram.json"
         self.saved.write_text(json.dumps({"bot_token": TOKEN, "chat_id": 42}))
         self.saved.chmod(0o600)
@@ -185,7 +182,7 @@ class Notices(unittest.TestCase):
         self.tick(failed, [], {"unpublished": True, "behind_seconds": 3600, "diverged": False}, call=refusing)
         self.assertEqual(len(refusing.calls), 1)
 
-    def test_without_live_or_a_saved_token_nothing_is_sent_or_marked_and_nothing_raises(self):
+    def test_without_a_custody_root_or_a_saved_token_nothing_is_sent_or_marked_and_nothing_raises(self):
         failed = OSError("disk")
         self.saved.unlink()
         self.tick(failed)
@@ -196,7 +193,7 @@ class Notices(unittest.TestCase):
         self.saved.chmod(0o600)
         self.tick(failed)  # saved later: a failure still present is sent then
         self.assertEqual(len(self.call.texts()), 1)
-        os.unlink(self.state / "live/configuration.json")
+        shutil.rmtree(self.root)  # a host whose first paired release has not run yet
         self.tick(RuntimeError("Agent changed before commit"))
         self.assertEqual(len(self.call.texts()), 1)
 

@@ -11,7 +11,6 @@ import unittest
 from unittest.mock import patch
 
 from cli import main as cli
-from deploy.live_configuration import OPERATOR_FIELDS
 from deploy.release_host import durable_json, route_config
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
@@ -46,10 +45,9 @@ class InstalledAuthorityTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="la-", dir="/tmp")
         self.addCleanup(temporary.cleanup)
         self.work = Path(temporary.name).resolve()
-        self.root = self.work / "custody"
-        self.fixture = install(self, self.root, release_state=self.work / "i", mock_inventory=False)
+        self.root = self.work / "live-root"
+        self.fixture = install(self, self.root, mock_inventory=False)
         self.scope = authority.from_file(self.fixture.file, self.fixture.binding)
-        self.declaration = self.fixture.state / "live/configuration.json"
         self.no_containers = patch.object(host_runtime, "checked", return_value="")
         self.no_containers.start()
         self.addCleanup(self.no_containers.stop)
@@ -60,8 +58,8 @@ class InstalledAuthorityTests(unittest.TestCase):
     def refused(self, action, code="LIVE_RELEASE_UNAVAILABLE"):
         self.assertEqual(refused(action, error=LiveRefusal).code, code)
 
-    def test_missing_declaration_never_falls_back_or_reads_credentials(self):
-        self.declaration.unlink()
+    def test_missing_snapshot_never_falls_back_or_reads_credentials(self):
+        self.fixture.file.unlink()
         before = self.files()
         with patch.object(runs, "_credentials", side_effect=AssertionError("key read")), \
                 patch.object(runs, "launch_locked", side_effect=AssertionError("venue launch")):
@@ -81,7 +79,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         copy = self.work / "copied.json"
         copy.write_bytes(self.fixture.file.read_bytes())
         self.refused(lambda: authority.from_file(copy, self.fixture.binding))
-        self.refused(lambda: authority.from_file(self.fixture.file, release.Binding(self.work, WEB)))
+        self.refused(lambda: authority.from_file(self.fixture.file, release.Binding(self.work / "elsewhere", WEB)))
 
     def test_missing_lock_is_not_recreated_by_new_effect_or_request_recovery(self):
         (self.root / "account.lock").unlink()
@@ -92,12 +90,8 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.assertFalse((self.root / "account.lock").exists())
         self.assertFalse((self.root / "requests").exists())
 
-    def test_declaration_snapshot_and_inode_are_rechecked_after_capture(self):
+    def test_snapshot_and_inode_are_rechecked_after_capture(self):
         scope = authority.from_file(self.fixture.file, self.fixture.binding)
-        declared = state.read(self.declaration)
-        durable_json(self.declaration, {**declared, "defaults": {**declared["defaults"], "duration_seconds": 8101}})
-        self.refused(lambda: scope.admit_locked(self.root))
-        durable_json(self.declaration, declared)
         original = self.fixture.file.read_bytes()
         changed = state.read(self.fixture.file)
         changed["runtime"] = "ghcr.io/qoeop/trade-runtime@sha256:" + "c" * 64
@@ -119,11 +113,11 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.refused(lambda: scope.admit_locked(self.root))
         self.refused(lambda: scope.admit_locked(self.root, maintenance=True))
 
-    def test_exact_receipt_read_survives_current_declaration_loss_without_new_upload(self):
+    def test_exact_receipt_read_survives_retirement_without_new_upload(self):
         body = {"request_id": "original-save", "api_key": "fake-key", "api_secret": "fake-secret"}
         first = control.execute(self.fixture.config, "credential_save", None, body, binding=self.fixture.binding)
         self.assertEqual(first[0], 200, first)
-        self.declaration.unlink()
+        durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
         before = self.files()
         self.assertEqual(control.execute(self.fixture.config, "credential_save", None, body,
                                          binding=self.fixture.binding), first)
@@ -133,21 +127,16 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.assertEqual((status, refused["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
         self.assertEqual(before, self.files())
 
-    def test_actual_web_command_child_preserves_original_stop_with_missing_or_changed_authority(self):
+    def test_actual_web_command_child_preserves_original_stop_without_current_authority(self):
         directory, manifest = prepared(self.root)
         inject_cli(self, self.fixture.state)
-        for kind in ("missing", "changed", "retired"):
+        durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
+        for kind in ("rolled-back", "retired"):
             with self.subTest(kind=kind):
-                if kind == "missing":
-                    self.declaration.unlink()
-                elif kind == "changed":
-                    other = self.work / "other"
-                    with state.serialized(other):
-                        pass
-                    value = {key: self.fixture.raw[key] for key in OPERATOR_FIELDS}
-                    durable_json(self.declaration, {"format": "live-deployment-v1", **value, "root": str(other)})
+                if kind == "rolled-back":  # this control's release is being rolled back to OTHER
+                    durable_json(self.fixture.state / "transaction.json", {"candidate": WEB, "previous": OTHER})
                 else:
-                    durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
+                    (self.fixture.state / "transaction.json").unlink()
                 status, response = serve.command(self.fixture.file, "stop", "original", {"request_id": f"stop-{kind}-request"},
                                                   binding=self.fixture.binding)
                 self.assertEqual(status, 200, response)
@@ -165,7 +154,7 @@ class InstalledAuthorityTests(unittest.TestCase):
     def test_unbound_web_command_and_missing_mount_fail_without_creating_credentials(self):
         # Uses the production fixed path, no injection or real keys. A genuinely installed
         # host runs these negative cases in its isolated service-container fixture instead.
-        if Path("/var/lib/trade-release/live/configuration.json").exists():
+        if Path("/var/lib/trade-release/live-root").exists():
             self.skipTest("this host has an installation; run missing-mount case in isolated container")
         result = subprocess.run([sys.executable, "-m", "cli.main", "live", "web-command", "--configuration",
                                  str(self.fixture.file), "--action", "credential_save"],
@@ -183,7 +172,7 @@ class InstalledAuthorityTests(unittest.TestCase):
 
     def test_status_and_logs_keep_historical_observation_pure(self):
         directory, _ = prepared(self.root)
-        self.declaration.unlink()
+        durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
         before = self.files()
         parser = cli._parser()
         for action in ("status", "logs"):

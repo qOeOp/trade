@@ -7,12 +7,12 @@ installs it follows the author's versions. Another operator runs the base deploy
 and updates it by hand, or forks the repository and changes those names in the fork.
 
 The [continuous Web release plane](../../docs/plans/remote-continuous-delivery.zh.md) runs the Web, its
-single Agent writer and the Paper controller, and publishes admitted versions without recreating Paper
+single Agent writer, its Live control and the Paper controller, and publishes admitted versions without recreating Paper
 runs, the ledger or strategy containers. A merge to `main` is not a release: only a version tag
 ([`CHANGELOG.md`](../../CHANGELOG.md)) moves this host, and each version is released by its own control code
 ([Release control code](#release-control-code)). Bootstrap the plane once on a new host with
 `sh deploy/remote/install-release.sh`, after the whole-project `up` below (step 6). It hands control to the newest
-admitted version, whose control creates the first Paper controller, Web and Agent, starts the internal Web and
+admitted version, whose control creates the first Paper controller, Live control, Web and Agent, starts the internal Web and
 Paper routers that OAuth2 Proxy forwards to, waits until the first release is ready behind the OAuth
 allowlist, then enables `trade-release.timer`. Web switches reload the internal proxy.
 
@@ -76,76 +76,48 @@ A whole-project `compose up` starts only the ledger, the Docker API proxy, OAuth
 services are workstation-only); it never updates the Web or Paper. The release control code changes only with an
 admitted version ([Release control code](#release-control-code)).
 
-### Optional Live control pairing
+### Live control pairing
 
-Live is enabled for the release plane only by an explicitly installed, private
-`/var/lib/trade-release/live/configuration.json`. It is an operator declaration with
-`format: "live-deployment-v1"` and the existing `root`, `research_ledger`, `research_at`, `universe_file`,
-`sources`, `defaults` (exactly `duration_seconds`, a whole number of seconds or `null` for runs until
-stopped, and `leverage`, the account's Binance leverage on each contract; the drawdown brake defaults to the 15% target
-and the cash floor is 85% of the wallet, neither declared), `memory` and
-`market_root` (the market directory `$TRADE_DATA/market`, mounted read-only for the contract terms) fields from
-`live/configuration.py`. Omit `runtime` and
-`socket`: the admitted release supplies the runtime and derives its socket. Do not put an API key or secret
-in this file. Each `sources` row is `source_id`, `candidate` (`ID@N`), its `source_sha256` and `entry_class`, and
-`purpose` (`natural` or `controlled`), and `symbols`, the contracts it trades (those of its replay evidence, one
-strategy instance each); preparation reads that candidate's own source from the research ledger at
-`research_at` and refuses any other hash, so no strategy file is staged.
-Removing a source row retires it once the next paired control reads the declaration: a prepared run keeps
-its own copy of the inputs, and past runs of that source show no declared purpose.
+Every release pairs a Live control with its Web; the operator installs nothing for it. The control is created with
+the same service revision as its Web image and the same qualified runtime pair as the release record, and the routed
+Web uses the control of its own revision, so every release pairs a new control, one that changes only Web paths
+included. Each revision gets `live/<revision>/configuration.json` (a `live-control-v2` snapshot of what the host gives
+it: the custody root, the research reader `/var/lib/trade-release/profiles/research.json` each tick writes, the
+market directory `$TRADE_DATA/market` mounted read-only for the contract terms, the admitted runtime and its socket)
+and `live/<revision>/socket/`. Web mounts only that socket directory read-only and keeps `--live-router=ide-router`;
+Agent, Paper and the browser never mount the custody root. The control mounts the custody root at the same path
+and the release state read-only. It runs as root with every capability dropped but `DAC_READ_SEARCH`, which reads
+the root-only (0700) release state and the private reader metadata: Docker gives a non-root `--user` none of the
+capabilities it adds. A run's runner and egress containers and the daily comparison run as the same user. The
+runner and egress have no capabilities at all and write only their own root-owned run directories. It is a privileged Docker controller, with the host Docker socket, not a hostile-code sandbox.
+It has no TCP listener or frontend-network membership, and a 768 MiB memory cap.
 
-A control is created with the same service revision as its Web image and the same qualified runtime pair as
-the release record, and the routed Web uses the control of its own revision: with Live installed every release
-pairs a new control, one that changes only Web paths included. Each revision gets `live/<revision>/configuration.json` and `live/<revision>/socket/`.
-Web mounts only that socket directory read-only and keeps `--live-router=ide-router`; Agent, Paper and
-the browser never mount the custody root. Control retains its existing operator UID/GID, mounts that
-root at the same path, and uses read-only research/source inputs. It is a privileged Docker controller,
-with the host Docker socket and `DAC_READ_SEARCH` for existing private reader metadata, not a hostile-code
-sandbox. It has no TCP listener or frontend-network membership.
+The custody root is `/var/lib/trade-release/live-root` (`LIVE_ROOT` below). The first release that pairs a control
+creates it, mode 0700 and owned by root, together with its empty `account.lock` (0600, the same owner); a host released before every release paired one gets it on its next release, with no step by hand. Once it
+exists a release only checks it: a root or lock with another owner or mode, a symbolic link or a missing lock is
+refused and never repaired or recreated, and the release keeps the current pair. The root never moves.
 
-A paired release builds its control's snapshot from the installed declaration; a running control and
-its prepared runs keep the snapshot they started with. To change the catalog fields (sources,
-`research_at`, defaults and the rest), wait until no run on the Live page shows **Account custody held**
-Yes and no request is unresolved, pause
-the release timer and let any release service finish. Stage a new universe or reader file beside the existing
-inputs (regular, root-owned, read-only) and keep the old ones while an old control is retained, since it mounts
-them. Then replace the declaration atomically (0600, written beside it and renamed over it) and resume
-the timer. From the swap on, the old control serves only reads and STOP. The next release pairs a
-new control from the declaration; nothing changes until one lands.
-A release is a version whose commit builds the service image (the paths in `.github/workflows/ide-image.yml`);
-a version on a commit of docs, skills or host-side files outside the image (`deploy/remote/`, `deploy/compose.yaml`,
-`deploy/README.md`) alone builds none and leaves the swap waiting; those reach the host through its
-`/opt/trade-app` checkout and `install-release.sh control` ([Release control code](#release-control-code)).
-Restoring the previous declaration undoes a swap that has not paired yet. The custody `root` cannot
-change this way; a release refuses it. Missing or
-malformed configuration cannot silently remove Live from an already paired Web. Without an installed
-declaration, a host that has never enabled Live retains its existing Web/Paper release behavior.
+The candidate, its contracts and leverage are chosen for each run on the Live page, as on the Paper page: the
+version selected in the research graph, read from the research ledger's head when the run is prepared and frozen in
+it. No strategy file is staged and no API key or secret is written on the host.
 
-To enable Live on a host whose first release is verified, make the custody `root` outside `TRADE_DATA`,
-the Paper directories and Git, mode 0700, owned by the operator UID/GID the control will run as, and in it an
-empty `account.lock` (mode 0600, the same owner): a release opens that existing lock and never creates it.
-Stage the declared universe and research reader files as regular, root-owned, read-only files. Then pause
-the timer, let any release service finish, write the declaration (0600, in a 0700
-`/var/lib/trade-release/live/`) and resume the timer. The next release pairs
-the first control. Do not save a credential or start a run as part of installing.
-
-With Live installed, a release waits until Live is idle: no run holds account custody and no request is
-unresolved. The current control inspects the account inside the account lock (`live release-inspect`) before
-anything is prepared, and the candidate's control again before the journal and at commit. While Live is busy or unresolved, or a read in progress holds the lock, the
-current Web/control pair stays, Web-only changes included, and the next tick asks again; an inspection that fails
-to run counts as unavailable. 0.x keeps no compatibility between versions (the user's decision of 2026-11-14): a
-new control does not take over, read or migrate a run an earlier version prepared. Such a run stays on disk under
-`runs/`, and while its runner container still runs the account counts as unavailable. During a paired update,
-new effect-producing Live requests wait for a committed owner; reads and STOP remain available. Existing
-runners are never restarted for publication. Once the new pair is committed, the host verifies each
-retired control's exact Id, disables only its restart policy and sends cooperative SIGTERM. It observes
-completion asynchronously; a slow CLI or handler keeps its old process and originals, without forced
-kill or deletion. This installation does not query a venue, read a key, arm a strategy or change account
-settings. See the [storage and locking decision](../../docs/plans/live-web-control.zh.md).
+A release waits until Live is idle: no run holds account custody and no request is unresolved. The current control
+inspects the account inside the account lock (`live release-inspect`) before anything is prepared, and the
+candidate's control again before the journal and at commit; a host with no runs answers idle (one 256 MiB helper
+run). While Live is busy or unresolved, or a read in progress holds the lock, the current Web/control pair stays,
+Web-only changes included, and the next tick asks again; an inspection that fails to run counts as unavailable. 0.x
+keeps no compatibility between versions (the user's decision of 2026-11-14): a new control does not take over, read
+or migrate a run an earlier version prepared. Such a run stays on disk under `runs/`, and while its runner container
+still runs the account counts as unavailable. During a paired update, new effect-producing Live requests wait for a
+committed owner; reads and STOP remain available. Existing runners are never restarted for publication. Once the new
+pair is committed, the host verifies each retired control's exact Id, disables only its restart policy and sends
+cooperative SIGTERM. It observes completion asynchronously; a slow CLI or handler keeps its old process and
+originals, without forced kill or deletion. Pairing does not query a venue, read a key, arm a strategy or change
+account settings. See the [storage and locking decision](../../docs/plans/live-web-control.zh.md).
 
 Once the paired release is verified, operators use the **Live** page in the existing authenticated IDE.
-Save a credential version, choose a deployed strategy source and prepare its run. **Check account** makes
-a read-only venue connection; **Start live** presents the frozen source hash and configuration before
+Save a credential version, choose the candidate, its contracts and leverage, and prepare its run. **Check account**
+makes a read-only venue connection; **Start live** presents the frozen source hash and configuration before
 submitting a trading start. Credential inputs clear after submission and saved secrets are never returned
 by the page. An active or unresolved run retains its credential version until local custody is resolved.
 The same dialog sets up Telegram notifications: create a bot with @BotFather, send it any message, then save
@@ -157,14 +129,13 @@ that run's page. `LIVE_ROOT/notify/state.json` records what was sent, so a resta
 The release tick sends to the same chat, from the host, what fails outside Live: a tick that failed, a Paper run
 that stopped and could not resume, and a research ledger whose publish has failed for 30 minutes or whose origin
 history changed elsewhere (read through the routed Web). Each is sent once while it lasts and again only after it
-cleared; `/var/lib/trade-release/notices.json` records what was sent. It reads the token file named by the Live
-declaration's `root`; without Live or a saved token nothing is sent.
+cleared; `/var/lib/trade-release/notices.json` records what was sent. It reads the token file under `LIVE_ROOT`;
+without a saved token nothing is sent.
 
 The page remains a controller: closing it does not stop a strategy. **Request stop** remains available
 while a start response is pending or observations cannot refresh. Wait for native terminal evidence and
 account reconciliation; a recorded control request alone does not prove a fill or a flat account. Use
-explicit request recovery for an uncertain response instead of submitting another start. Controlled test
-sources are labelled separately and do not establish natural-signal performance.
+explicit request recovery for an uncertain response instead of submitting another start.
 
 This overlay puts the existing IDE and Paper deployment behind Caddy HTTPS and OAuth2 Proxy. Only members of
 one GitHub team get in; neither organization membership, an email domain nor the page's CSRF token grants login.
@@ -174,7 +145,7 @@ Use a native Linux **amd64** host: the release plane admits and accepts amd64 im
 Engine with the Compose plugin 2.28 or newer (`!reset`, `!override`, and `config --environment`, with which
 the release control reads `/etc/trade/remote.env`), `python3` 3.12 or newer and `git` (the release control
 fetches the public channel with it); no `uv`. Ubuntu 26.04's Docker 29.1, Compose 2.40
-and Python 3.14 packages qualify. Live is enabled only by the declaration above.
+and Python 3.14 packages qualify. Every release pairs a Live control beside its Web.
 Paper runs are admitted by memory, not by count
 ([paper-admission-by-memory](../../docs/plans/paper-admission-by-memory.zh.md)), one per source, within a 3.5 GiB
 budget, or `TRADE_PAPER_MEMORY` (a size such as `4g`) in `/etc/trade/remote.env`. The release plane passes it to each
@@ -323,15 +294,14 @@ containers stay on the host for inspection.
 
 ## Live on this host
 
-Live runs are prepared, started and reconciled only from the Live page, through the optional Live control pairing
+Live runs are prepared, started and reconciled only from the Live page, through the Live control pairing
 above, with a credential saved there ([`engine/README.md`](../../engine/README.md#live-execution)). The base Paper
 overlay mounts no Binance credential. The ledger's Dolt port stays unpublished. Account-mode changes and order tests
 need the user's explicit scope; a successful preflight is not evidence of a completed real trade.
 
-The installed declaration `/var/lib/trade-release/live/configuration.json` is mandatory, and its root is the only
-Live root. A missing declaration/mount, another root or a mismatched release refuses preparation, credential use and
-new connections before their effects. All keys accepted by this installation share the original durable
-run/reconcile custody. REST-only preflights retain their existing overlap behavior and do not certify a later
+`/var/lib/trade-release/live-root` is the only Live root. A missing snapshot or mount, another root or a mismatched
+release refuses preparation, credential use and new connections before their effects. All keys accepted by this
+installation share the original durable run/reconcile custody. REST-only preflights retain their existing overlap behavior and do not certify a later
 start's account state.
 
 Once an hour from 00:30 UTC the Live control starts a comparison container of its own image (2 GiB, one CPU,
@@ -340,8 +310,9 @@ removed when it exits) that replays each run's previous day on the market direct
 `LIVE_ROOT/compare-tmp/` ([daily comparison](../../docs/plans/live-continuous-step7b-daily-compare-20261113.zh.md)).
 A Live contract outside `TRADE_MARKET_ARGS` is never covered, so its comparison waits.
 
-Keep that fixed private root (`LIVE_ROOT`) outside `TRADE_DATA`, the Paper directories and Git, with the universe
-file the declaration names beside it. Saved credentials have private versions under `LIVE_ROOT/credentials/`.
+The release state holds that fixed private root (`LIVE_ROOT`), outside `TRADE_DATA`, the Paper directories and Git.
+Saved credentials have private versions under `LIVE_ROOT/credentials/`, and each run's contract membership under
+`LIVE_ROOT/universes/`.
 
 `live status`, `logs` and `stop` stay on the command line for observation and STOP; they read the root and its containers. Run
 them as a one-off container of the admitted service image, named for the currently committed owner revision: read
@@ -350,6 +321,7 @@ routed Web's revision) and pass it as `LIVE_REVISION`. `deploy.images` verifies 
 provenance.
 
 ```sh
+LIVE_ROOT=/var/lib/trade-release/live-root
 python3 -m deploy.images --revision "$LIVE_REVISION" --env /root/live-images.env || exit
 . /root/live-images.env
 live() {
@@ -381,8 +353,10 @@ umask 077
 tar -C / -czf "/root/live-root-$(date -u +%Y%m%dT%H%M%SZ).tgz" "${LIVE_ROOT#/}"
 ```
 
-To restore, extract into an absent `LIVE_ROOT` at the **same absolute path** (`tar -C / -xpzf ARCHIVE`), preserving
-private permissions and the saved credential versions and metadata, then `live status` each run. Docker resource names come from the root's path, so a
+To restore, stop the release timer and let any release service finish (the next release creates an absent root),
+extract into an absent `LIVE_ROOT` at the **same absolute path** (`tar -C / -xpzf ARCHIVE`), preserving private
+permissions, the root owner and the saved credential versions and metadata, start the timer, then
+`live status` each run. Docker resource names come from the root's path, so a
 root restored elsewhere cannot find an unresolved run's network or runner. A run that was unresolved stays
 unresolved and keeps the slot; settle it as in [Unresolved Live runs](../../engine/README.md#unresolved-live-runs).
 
@@ -440,9 +414,8 @@ overlays (`deploy/remote/`), the same way. Started before the admitted version c
 bootstrap handoff refuses it (the admitted control does not import) and every tick fails until such a version is
 admitted.
 
-With Live, the release host holds the original private `account.lock` read-only over the service-image
-`live release-inspect` call and the transaction and route writes. The systemd service must open that file
-read-only, see the same regular-file inode as the Live control, and use a filesystem with local read-only-fd
-exclusive flock. The release never creates a missing `account.lock` or changes its permissions. Install the Live
-declaration as [Optional Live control pairing](#optional-live-control-pairing) says; a declaration change never
-needs new control code.
+The release host holds the original private `account.lock` read-only over the service-image `live release-inspect`
+call and the transaction and route writes. The systemd service must open that file read-only, see the same
+regular-file inode as the Live control, and use a filesystem with local read-only-fd exclusive flock. The release
+creates the custody root and its lock together, once ([Live control pairing](#live-control-pairing)); it never
+recreates a missing `account.lock` in an existing root or changes its permissions.

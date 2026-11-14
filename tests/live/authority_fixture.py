@@ -1,13 +1,11 @@
 """Isolated installed authority; test-only dependency injection, never a product override."""
 
-import copy
-import hashlib
 import subprocess
 import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from deploy.live_configuration import OPERATOR_FIELDS
+from deploy.live_configuration import CONTROL, READER, ROOT
 from deploy.release_host import durable_json, route_config
 from live import authority, configuration, inventory, release, requests, state
 
@@ -22,27 +20,19 @@ sys.exit(main(sys.argv[2:]))
 """
 
 
-def install(test, root, raw=None, *, release_state=None, mock_inventory=True):
+def install(test, root, raw=None, *, mock_inventory=True):
+    """`root` is `<release state>/live-root`, as on every release host; `raw` may give the snapshot's runtime and
+    market directory, and the release state's own root and reader always replace what it names."""
     root = root.resolve()
+    if root.name != ROOT:
+        raise ValueError(f"an installed custody root is <release state>/{ROOT}")
     with state.serialized(root):
         pass
-    home = release_state or root / "installation"
-    source = root / "fixture-source.py"
-    if raw is None:
-        source.write_text("class Example: pass\n")
-        raw = {"format": "live-control-v1", "root": str(root), "socket": "unused",
-               "research_ledger": str(root / "unused-reader.json"), "research_at": "a" * 32,
-               "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64,
-               "universe_file": str(root / "unused-universe.json"), "memory": "2g",
-               "defaults": {"duration_seconds": 8100, "leverage": "3"},
-               "market_root": str(root / "unused-market"),
-               "sources": [{"source_id": "example", "candidate": "example@1",
-                            "entry_class": "Example", "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-                            "purpose": "controlled", "symbols": ["BTCUSDT"]}]}
-    raw = copy.deepcopy(raw)
-    raw["root"] = str(root)
-    declared = {"format": "live-deployment-v1", **{key: raw[key] for key in OPERATOR_FIELDS}}
-    durable_json(home / "live/configuration.json", declared)
+    home = root.parent
+    raw = raw or {}
+    raw = {"format": CONTROL, "root": str(root), "research_ledger": str(home / READER),
+           "runtime": raw.get("runtime", "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64),
+           "market_root": raw.get("market_root", str(home / "unused-market"))}
     durable_json(home / "router/active.json", route_config(WEB))
 
     def snapshot(web=WEB):

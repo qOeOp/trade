@@ -1,7 +1,6 @@
 """Graceful control retirement retains accepted local work; no Docker or venue access."""
 
 import fcntl
-import hashlib
 import os
 from pathlib import Path
 import signal
@@ -12,7 +11,6 @@ import tempfile
 import time
 import unittest
 
-from live import state
 from tests.live.authority_fixture import install
 
 
@@ -50,7 +48,7 @@ else:
             time.sleep(.01)
         (work / 'maintenance-finished').touch()
     serve.maintain_existing = maintain
-authority.STATE = work / "i"
+authority.STATE = work  # the release state, whose live-root the fixture installed
 serve.serve(config, binding=release.Binding(authority.STATE, "trade-release-web-" + "a" * 40))
 """
 
@@ -60,20 +58,7 @@ class ControlShutdownTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="ld-", dir="/tmp")
         self.addCleanup(temporary.cleanup)
         self.work = Path(temporary.name).resolve()
-        source = self.work / "source.py"
-        source.write_text("class Example: pass\n")
-        self.socket = self.work / "socket" / "control.sock"
-        self.config = self.work / "configuration.json"
-        self.config.write_bytes(state.encode({
-            "format": "live-control-v1", "root": str(self.work / "custody"), "socket": str(self.socket),
-            "research_ledger": str(self.work / "unused-reader.json"), "research_at": "a" * 32,
-            "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64,
-            "universe_file": str(self.work / "universe.json"), "memory": "2g",
-            "defaults": {"duration_seconds": 8100, "leverage": "3"}, "market_root": "/unused-market",
-            "sources": [{"source_id": "example", "candidate": "example@1",
-                         "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "entry_class": "Example",
-                         "purpose": "controlled", "symbols": ["BTCUSDT"]}]}))
-        fixture = install(self, self.work / "custody", state.read(self.config), release_state=self.work / "i")
+        fixture = install(self, self.work / "live-root")
         self.config, self.socket = fixture.file, fixture.config.socket
 
     def wait_for(self, predicate):

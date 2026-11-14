@@ -32,6 +32,17 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `docs/plans/live-run-choices-20261114.zh.md`).
 - Paper: the default contracts of a version (its last research replay's) are read again; the query named a column
   the ledger does not have.
+- Host release (breaking): every release installs Live on every host, with no operator step (doctor 20261114-20).
+  Each release pairs a Live control with its Web; the first release on a host whose Web has none creates the custody
+  root `/var/lib/trade-release/live-root` (0700) and its `account.lock` (0600), both owned by root, and pairs the
+  first control once Live is idle. Controls run as root with every capability dropped but `DAC_READ_SEARCH`: they
+  read the root-only release state, and Docker gives a non-root user none of the capabilities it adds. A root or
+  lock that exists is only checked: another owner or mode, a symbolic link or a missing lock is refused and never
+  repaired. Every release now waits for an idle Live on every host (a host with no runs answers idle). The upgrade
+  drops the operator declaration `/var/lib/trade-release/live/configuration.json` (`live-deployment-v1`), which is
+  no longer read: delete it; the `live-control-v1` snapshots; operator-chosen custody roots (a root kept elsewhere is
+  not read: settle and back up its runs first); and the declaration's `sources` catalog, `purpose`, `research_at`
+  pin, `universe_file`, `defaults` and `memory`. The run manifest `live-run-4` is unchanged.
 
 ## 0.3.1 (2026-11-14)
 
