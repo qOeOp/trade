@@ -62,6 +62,7 @@ class StartIdentityTests(unittest.TestCase):
             replacement.runs = mock.Mock(return_value={"runs": [{"paper_id": 8, "state": "running"}]})
             replacement.stop = mock.Mock()
             replacement.write_months = mock.Mock()
+            replacement.release_route = replacement.release_name = None
             replacement.seal_found()
             replacement.stop.assert_called_once_with(8)
 

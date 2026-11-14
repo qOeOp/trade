@@ -35,7 +35,8 @@ from engine.config import ACCOUNT_CONTRACT, Refusal as RuntimeRefusal, leverage_
 from ledger import db, paper as records
 from shared.refusals import refuse
 from runtime import container, image
-from paper.recovery import bind, launched, serialized, checkpoint
+from engine import paper_checkpoint as checkpoint
+from paper.recovery import bind, identity as recovery_identity, launched, serialized
 
 
 # A runner's limit is its reservation: BASE + PER_CONTRACT per contract, rounded up to STEP, from the peaks
@@ -57,6 +58,7 @@ DOCKER_SECONDS = 120
 EGRESS_START_SECONDS = 3
 LOG_TAIL_LINES = "20000"
 LABEL = "trade.paper"
+CRASH_RESTARTS, CRASH_WINDOW = 3, 3600  # resume: recovery attempts of one source per window (seconds)
 
 
 def _docker(*argv: str, timeout: float = DOCKER_SECONDS) -> subprocess.CompletedProcess:
@@ -117,21 +119,21 @@ def limits(names_: list[str]) -> int:
     return sum(int(value) for value in found.split()) // (1024 * 1024)
 
 
-def memory_state(profile: db.LedgerProfile, present: list[dict] | None = None) -> dict:
-    """This ledger's paper memory in MiB: the budget, what its running containers reserve (their limits), the
-    host's available memory, what a new run may reserve (`free`) and the least a run needs (`smallest`)."""
+def memory_state(present: list[dict]) -> dict:
+    """This ledger's paper memory in MiB, from its containers `present`: the budget, what its running containers
+    reserve (their limits), the host's available memory, what a new run may reserve (`free`) and the least a run
+    needs (`smallest`)."""
     total = budget()
-    reserved = limits([item["name"] for item in (containers(profile) if present is None else present)
-                       if item["running"]])
+    reserved = limits([item["name"] for item in present if item["running"]])
     host = _host_available()
     free = total - reserved if host is None else min(total - reserved, host - HEADROOM_MIB)
     return {"budget": total, "reserved": reserved, "host_available": host, "free": max(free, 0),
             "smallest": mib(runner_memory(1)) + mib(EGRESS_MEMORY)}
 
 
-def admit(profile: db.LedgerProfile, need: int, present: list[dict] | None = None) -> None:
+def admit(need: int, present: list[dict]) -> None:
     """Refuses a run that would reserve `need` MiB beyond the budget or the host's headroom."""
-    state = memory_state(profile, present)
+    state = memory_state(present)
     if need <= state["free"]:
         return
     host = state["host_available"]
@@ -169,6 +171,12 @@ def containers(profile: db.LedgerProfile) -> list[dict]:
                        "role": labels.get(f"{LABEL}.role"), "source_sha256": labels.get(f"{LABEL}.source"),
                        "running": item.get("State") == "running"})
     return result
+
+
+def _source_running(present: list[dict], source_sha256: str) -> bool:
+    """A runner of this source is running among the containers `present`."""
+    return any(item["source_sha256"] == source_sha256 for item in present
+               if item["role"] == "runner" and item["running"])
 
 
 def _membership(market: dict, at: str | None, symbols: list[str] | None, now_ns: int) -> tuple[str, dict, list[str]]:
@@ -310,15 +318,14 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         found = records.copy_source(profile, source, candidate)
     identity = image.resolve(runtime or image.EXECUTION)
     present = containers(profile)
-    if any(item["source_sha256"] == found["source_sha256"] for item in present
-           if item["role"] == "runner" and item["running"]):
+    if _source_running(present, found["source_sha256"]):
         raise refuse("PAPER_RUN_ACTIVE", f"{candidate} already has a running paper run", missing=(candidate,))
     if duration_seconds is not None and duration_seconds < 1:
         raise refuse("USAGE_ERROR", "--duration-seconds must be positive")
     market_day, membership, chosen = _membership(market, at, symbols, time.time_ns())
     terms = _terms(market, market_day, chosen)
     memory = memory or runner_memory(len(chosen))
-    admit(profile, mib(memory) + mib(EGRESS_MEMORY), present)
+    admit(mib(memory) + mib(EGRESS_MEMORY), present)
     config = {"execution": "paper-bars", "fees": {"maker": ASSUMED["maker_fee"], "taker": ASSUMED["taker_fee"]},
               "universe_rule": membership["universe_rule"], "memory": memory, "duration_seconds": duration_seconds,
               "candidate": candidate, "leverage": leverage}
@@ -373,6 +380,77 @@ def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = Non
     return {"paper_id": paper_id, **sealed}
 
 
+def launches(path: Path) -> list[dict]:
+    found: list[dict] = []
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return found
+    for raw in data.splitlines():
+        try:
+            value = json.loads(raw)
+            if value.get("action") in ("start", "resume") and type(value.get("wall_ns")) is int:
+                found.append(value)
+        except (ValueError, AttributeError):
+            continue
+    return found
+
+
+@serialized
+def resume(profile: db.LedgerProfile, market: dict, paper_id: int) -> dict:
+    """Restart the unsealed run `paper_id` from its native checkpoint, with every original input unchanged: the
+    strategy source, the identity the checkpoint binds, the pinned container, and the contract terms, re-exported
+    from the market at the run's market day and compared with inputs/terms.json (CF-18: a terms file changed on the
+    host would otherwise be read silently on restart). PAPER_RECOVERY_UNAVAILABLE otherwise."""
+    with db.connect(profile, "reader") as conn:
+        row = records.read_paper_run(conn, paper_id)
+        if records.seal_of(conn, paper_id) is not None:
+            raise refuse("PAPER_RECOVERY_UNAVAILABLE", "a sealed run is immutable and cannot be resumed")
+        all_rows = records.paper_runs(conn)
+    directory = run_dir(profile, paper_id)
+    if (directory / "out" / "STOP").exists():
+        raise refuse("PAPER_RECOVERY_UNAVAILABLE", "the user stopped this run; recovery is not a new start")
+    named = names(profile, paper_id)
+    if _running(named["runner"]):
+        return {"paper_id": paper_id, "write_status": "replayed", "state": "running"}
+    expected = recovery_identity(row, (directory / "inputs" / "universe.json").read_bytes())
+    if hashlib.sha256((directory / "inputs" / "strategy.py").read_bytes()).hexdigest() != row["source_sha256"]:
+        raise refuse("PAPER_RECOVERY_UNAVAILABLE", "the run's original strategy input has changed")
+    try:
+        held = json.loads((directory / "inputs" / "terms.json").read_bytes())
+    except (OSError, ValueError):
+        held = None
+    expected_terms = json.loads(json.dumps(_terms(market, str(row["market_day"]), list(row["symbols"])),
+                                           sort_keys=True))
+    if held != expected_terms:
+        raise refuse("PAPER_RECOVERY_UNAVAILABLE", "the run's terms input no longer matches the contract terms at "
+                                                   f"its market day {row['market_day']}")
+    try:
+        checkpoint.read(directory / "out", expected)
+    except RuntimeRefusal as exc:
+        raise refuse(exc.code, str(exc)) from exc
+    config = _docker("inspect", "--format", "{{json .Config}}", named["runner"])
+    if config.returncode or json.loads(config.stdout).get("Image") != row["image_ref"]:
+        raise refuse("PAPER_RECOVERY_UNAVAILABLE", "the original pinned runner container is missing or changed")
+    present = containers(profile)
+    if _source_running(present, row["source_sha256"]):
+        raise refuse("PAPER_RECOVERY_UNAVAILABLE", "another run of this source is running")
+    # The run takes back the memory its stopped containers were limited to (admit).
+    admit(limits([name for name in (named["runner"], named["egress"]) if not _running(name)]), present)
+    since = time.time_ns() - CRASH_WINDOW * 1_000_000_000
+    attempts = sum(1 for old in all_rows if old["source_sha256"] == row["source_sha256"]
+                   for attempt in launches(run_dir(profile, old["paper_id"]) / "out" / "launches.jsonl")
+                   if attempt["action"] == "resume" and attempt["wall_ns"] >= since)
+    if attempts >= CRASH_RESTARTS:
+        raise refuse("PAPER_RECOVERY_UNAVAILABLE", f"this source reached {CRASH_RESTARTS} recovery attempts per hour")
+    # Record before Docker: failures before the runner can journal still consume an attempt.
+    launched(directory, "resume")
+    if not _running(named["egress"]):
+        _checked("start", named["egress"])
+    _checked("start", named["runner"])
+    return {"paper_id": paper_id, "write_status": "written", "state": "resuming"}
+
+
 @serialized
 def request_stop(profile: db.LedgerProfile, paper_id: int) -> dict:
     """Persist final user intent before HTTP acknowledges it; recovery must never override STOP."""
@@ -415,7 +493,7 @@ def delete(profile: db.LedgerProfile, paper_id: int) -> dict:
 
 
 def listing(profile: db.LedgerProfile) -> dict:
-    """paper list: every declared run with its state (running, ended, sealed) and seal readings (`seal`, the whole
+    """paper list: every declared run with its state (running, ended, unsealed, sealed) and seal readings (`seal`, the whole
     seal.json, None until sealed)."""
     with db.connect(profile, "reader") as conn:
         rows = records.paper_runs(conn)
@@ -439,4 +517,4 @@ def listing(profile: db.LedgerProfile) -> dict:
                      "total_return": seal_row.get("total_return"), "max_drawdown": seal_row.get("max_drawdown"),
                      "seal": row["seal"]})
     return {"runs": runs, "running": sum(1 for run in runs if run["state"] == "running"),
-            "memory": memory_state(profile, present)}
+            "memory": memory_state(present)}

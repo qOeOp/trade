@@ -14,16 +14,10 @@ from collections.abc import Mapping
 import json
 from pathlib import Path
 
-from engine.config import ACCOUNT_CONTRACT, instrument_id
+from engine.config import ACCOUNT_CONTRACT
 from ledger import db, paper as records
 from replay import reconcile as shared
-from shared import paths
 from shared.refusals import refuse
-
-
-FORMAT = shared.FORMAT
-MINUTE_NS = shared.MINUTE_NS
-_utc = shared._utc
 
 
 def window(lines: list[dict], seal: Mapping) -> tuple[int, int]:
@@ -34,62 +28,34 @@ def window(lines: list[dict], seal: Mapping) -> tuple[int, int]:
     if not started or not isinstance(started.get("input_start_ns"), int) or not isinstance(stopped, int):
         raise refuse("PAPER_RECONCILE_EMPTY", "the run's capture has no input start or no stop time",
                      missing=("started", "stopped_ns"))
-    start, end = started["input_start_ns"], stopped - stopped % MINUTE_NS
+    start, end = started["input_start_ns"], stopped - stopped % shared.MINUTE_NS
     if end <= start:
-        raise refuse("PAPER_RECONCILE_EMPTY", f"the run stopped at {_utc(stopped)}, before its first bar closed",
+        raise refuse("PAPER_RECONCILE_EMPTY", f"the run stopped at {shared.utc(stopped)}, before its first bar closed",
                      missing=("bars",))
     return start, end
 
 
-def run_record(lines: list[dict], settled: list[dict] | None, terms: Mapping | None = None,
+def run_record(lines: list[dict], settled: list[dict], terms: Mapping | None = None,
                fees: Mapping | None = None) -> dict:
-    """The journal as replay.reconcile.compare reads a run: with the funding `settled` (the seal's published
-    settlements, else the journal's estimate)."""
+    """The journal as replay.reconcile.compare reads a run, with the funding `settled`."""
     warmup: dict[str, dict[str, dict]] = {}
     for line in lines:
         if line["kind"] == "warmup":
             warmup.setdefault(line["instrument_id"], {})[line["period"]] = {
                 key: line.get(key) for key in ("bars", "first_ts_event", "last_ts_event", "sha256")}
-    settlements = records.settlements(lines) if settled is None else settled
     return {"bars": [line for line in lines if line["kind"] == "bar"], "warmup": warmup,
-            "events": [line for line in lines if line["kind"] == "order"], "settlements": settlements,
-            "equity": records.equity_path(lines, settlements)[0], "terms": dict(terms or {}), "fees": fees}
-
-
-def compare(lines: list[dict], replay_events: list[dict] | None, archive: Mapping[str, list[list]], reports: Path | None,
-            start: int, end: int, settled: list[dict] | None = None, **context) -> dict:
-    """One run's journal against its replay (replay.reconcile.compare)."""
-    return shared.compare(run_record(lines, settled, context.pop("terms", None), context.pop("fees", None)),
-                          replay_events, archive, reports, start, end, **context)
+            "events": [line for line in lines if line["kind"] == "order"], "settlements": settled,
+            "equity": records.equity_path(lines, settled)[0], "terms": dict(terms or {}), "fees": fees}
 
 
 def _journal(conn: db.LedgerConnection, paper_id: int) -> list[dict]:
     return records.sealed_journal(records.paper_files(conn, paper_id, "events/"))
 
 
-def _archive(market: dict, at: str | None, symbols: list[str], start: int, end: int) -> tuple[str, dict[str, list]]:
-    return shared.archive(market, at, symbols, start, end, "PAPER_RECONCILE_UNCOVERED")
-
-
-def _context(market: dict, run_day: str, market_day: str, symbols: list[str], start: int,
-             lines: list[dict]) -> tuple[dict, dict]:
-    """(each contract's terms at the run's market day, compare()'s replay context: the terms and warm-up at the
-    reconciliation's market day and the fees the replay assumes)."""
-    from market import files, instrument
-    opened = files.open_market(market, "reader")
-    received = run_record(lines, [])["warmup"]
-    replay_terms = {symbol: instrument.terms(opened, market_day, symbol) for symbol in symbols}
-    return ({symbol: instrument.terms(opened, run_day, symbol) for symbol in symbols},
-            {"replay_terms": replay_terms,
-             "replay_fees": {"maker": instrument.ASSUMED["maker_fee"], "taker": instrument.ASSUMED["taker_fee"]},
-             "archived_warmup": {symbol: shared.archive_warmup(market, market_day, symbol, start,
-                                                               received.get(instrument_id(symbol), {}),
-                                                               replay_terms[symbol]) for symbol in symbols}})
-
-
 def reconcile(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: int, output: Path,
               timeout: float | None = None) -> dict:
     """paper reconcile: replay a sealed paper run's interval on the archive and write reconcile.json."""
+    from market import files, instrument
     from paper import runs
     with db.connect(profile, "reader") as conn:
         row = records.read_paper_run(conn, paper_id)
@@ -100,24 +66,21 @@ def reconcile(profile: db.LedgerProfile, market: dict, at: str | None, paper_id:
         lines = _journal(conn, paper_id)
     start, end = window(lines, seal)
     symbols = list(row["symbols"])
-    market_day, archive = _archive(market, at, symbols, start, end)
-    run_terms, context = _context(market, str(row["market_day"]), market_day, symbols, start, lines)
-    output = paths.temporary_path(output)
-    output.mkdir(mode=0o700, parents=True)
-    replayed, events, reports = shared.replay(
-        market, market_day, candidate["source"], candidate["entry_class"], row["image_ref"], symbols, start, end,
+    market_day, archived = shared.archive(market, at, symbols, start, end, "PAPER_RECONCILE_UNCOVERED")
+    opened = files.open_market(market, "reader")
+    run = run_record(lines, records.settlements(lines, records.published_settlements(lines, seal.get("stopped_ns"))),
+                     # Each contract's terms at the run's market day, and the account's one rate on each.
+                     {symbol: instrument.terms(opened, str(row["market_day"]), symbol) for symbol in symbols},
+                     {symbol: row["config"]["fees"] for symbol in symbols} if row["config"].get("fees") else None)
+    output, replayed, compared = shared.reconcile(
+        run, market, market_day, archived, candidate["source"], candidate["entry_class"], row["image_ref"], symbols,
+        start, end,
         # A run declared before its leverage was recorded ran at the default.
         row["config"].get("leverage", ACCOUNT_CONTRACT["default_leverage"]), ACCOUNT_CONTRACT["starting_balance_usdt"],
-        output / "replay", f"trade-paper-reconcile-{runs.ledger_key(profile)}-{paper_id}", timeout,
-        run_record(lines, [])["warmup"])
-    settled = records.settlements(lines, records.published_settlements(lines, seal.get("stopped_ns")))
-    compared = compare(lines, events, archive, reports, start, end, settled, terms=run_terms,
-                       # The account's one rate on each contract it ran.
-                       fees={symbol: row["config"]["fees"] for symbol in symbols} if row["config"].get("fees") else None,
-                       **context)
-    result = {"format": FORMAT, "kind": "paper", "paper_id": paper_id, "candidate": row["config"]["candidate"],
+        output, f"trade-paper-reconcile-{runs.ledger_key(profile)}-{paper_id}", timeout)
+    result = {"format": shared.FORMAT, "kind": "paper", "paper_id": paper_id, "candidate": row["config"]["candidate"],
               "source_sha256": row["source_sha256"], "image_ref": row["image_ref"], "market_day": market_day,
-              "window": {"start": _utc(start), "end": _utc(end)}, "fees": row["config"].get("fees"),
+              "window": {"start": shared.utc(start), "end": shared.utc(end)}, "fees": row["config"].get("fees"),
               "replay": replayed, **compared}
     (output / "reconcile.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
     return {"path": str(output / "reconcile.json"), "summary": result["summary"], "replay": result["replay"]}

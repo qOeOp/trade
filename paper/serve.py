@@ -38,7 +38,8 @@ from engine.config import instrument_id
 from ledger import db, paper as records, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
-from paper import reconcile, runs
+from paper import runs
+from replay import reconcile
 from runtime import container
 
 
@@ -257,7 +258,7 @@ class Daemon:
 
     def active(self) -> bool:
         from paper.release import selected
-        return selected(getattr(self, "release_route", None), getattr(self, "release_name", None))
+        return selected(self.release_route, self.release_name)
 
     # Writes: the command line
 

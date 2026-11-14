@@ -23,7 +23,8 @@ from unittest import mock
 
 from ledger import db, paper as records, strategies
 from shared.errors import Refusal
-from paper import reconcile, runs, serve
+from paper import runs, serve
+from replay import reconcile
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 from tests.ledger.test_paper import ROW, journal, line, snapshot, START, MINUTE
 from tests.helpers import refused
@@ -200,6 +201,7 @@ class RestartTests(unittest.TestCase):
     def daemon(self, root):
         daemon = serve.Daemon.__new__(serve.Daemon)
         daemon.profile, daemon.stopping = SimpleNamespace(database="paper"), {5}
+        daemon.release_route = daemon.release_name = None
         daemon.recovery_failures = {}
         daemon.runs = mock.Mock(return_value={"runs": [
             {"paper_id": i, "state": "sealed" if i == 4 else "running" if i == 6 else "ended"}

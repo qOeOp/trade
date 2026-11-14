@@ -69,9 +69,7 @@ def barrier(profile: db.LedgerProfile) -> None:
                 return
             if command.strip() != "held" or conn is None:
                 raise RuntimeError("invalid release lock protocol")
-            if conn.rows("SELECT IS_USED_LOCK(%s) = CONNECTION_ID()", (f"{profile.database}/paper-lifecycle",)) != [
-                (1,)
-            ]:
+            if conn.rows("SELECT IS_USED_LOCK(%s) = CONNECTION_ID()", (recovery.lock_name(profile),)) != [(1,)]:
                 raise RuntimeError("release lifecycle lock was lost")
             print("held", flush=True)
         raise RuntimeError("release lifecycle lock holder timed out")

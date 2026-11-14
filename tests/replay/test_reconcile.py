@@ -279,7 +279,7 @@ class Attribution(unittest.TestCase):
         first, later = found["groups"]
         self.assertEqual((first["stage"], first["orders"][first["first"]]["class"], first["look_ahead_suspect"]),
                          ("fill", "replay_only", True))
-        self.assertEqual((later["cause"], later["follows"]), ("consequence", reconcile._utc(close_of(1))))
+        self.assertEqual((later["cause"], later["follows"]), ("consequence", reconcile.utc(close_of(1))))
 
     def test_differences_follow_the_first_until_a_group_agrees_again(self):
         run = bracket("a", close_of(1), close_of(1), "A") + bracket("b", close_of(10), close_of(10), "B")
@@ -321,4 +321,9 @@ class Warmup(unittest.TestCase):
         rows = [{"instrument_id": BTC, "bar_type": f"{BTC}-1-MINUTE-LAST-EXTERNAL", "ts_event": close_of(i),
                  "open": "1.0", "high": "2.0", "low": "0.5", "close": "1.5", "volume": "3.000"} for i in (1, 0)]
         found = reconcile.received_warmup(rows)[BTC]["1-MINUTE"]
-        self.assertEqual(found, reconcile.digest([(close_of(i), "1.0", "2.0", "0.5", "1.5", "3.000") for i in (0, 1)]))
+        from nautilus_trader.model import Bar, BarType, Price, Quantity
+        from engine.paper import warmup_digest
+        journaled = warmup_digest([Bar(BarType.from_str(f"{BTC}-1-MINUTE-LAST-EXTERNAL"), Price.from_str("1.0"),
+                                       Price.from_str("2.0"), Price.from_str("0.5"), Price.from_str("1.5"),
+                                       Quantity.from_str("3.000"), close_of(i), close_of(i)) for i in (0, 1)])
+        self.assertEqual(found, journaled)

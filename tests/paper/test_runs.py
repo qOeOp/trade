@@ -11,7 +11,6 @@ from unittest import mock
 from shared.errors import Refusal
 from paper import runs
 
-PROFILE = SimpleNamespace(service_root=Path("/srv/x"), database="paper")
 RUNNING = [{"name": "a-runner", "running": True}, {"name": "a-egress", "running": True},
            {"name": "b-runner", "running": False}]
 
@@ -29,7 +28,7 @@ class AdmissionTests(unittest.TestCase):
         with mock.patch.object(runs, "limits", return_value=reserved) as limits, \
                 mock.patch.object(runs, "_host_available", return_value=host), \
                 mock.patch.dict("os.environ", {runs.BUDGET_ENV: budget}):
-            found = runs.memory_state(PROFILE, RUNNING)
+            found = runs.memory_state(RUNNING)
         limits.assert_called_once_with(["a-runner", "a-egress"])
         return found
 
@@ -37,7 +36,7 @@ class AdmissionTests(unittest.TestCase):
         with mock.patch.object(runs, "limits", return_value=reserved), \
                 mock.patch.object(runs, "_host_available", return_value=host), \
                 mock.patch.dict("os.environ", {runs.BUDGET_ENV: "3g"}), self.assertRaises(Refusal) as caught:
-            runs.admit(PROFILE, need, RUNNING)
+            runs.admit(need, RUNNING)
         self.assertEqual(caught.exception.code, "PAPER_MEMORY_FULL")
         return caught.exception.message
 
@@ -58,7 +57,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertIn("host has 1500 MiB available", self.refused(768, 0, 1500))
         with mock.patch.object(runs, "limits", return_value=0), \
                 mock.patch.object(runs, "_host_available", return_value=None):
-            runs.admit(PROFILE, 768, RUNNING)
+            runs.admit(768, RUNNING)
 
     def test_the_host_reading_is_meminfo_available_or_none(self):
         with tempfile.TemporaryDirectory() as root:
