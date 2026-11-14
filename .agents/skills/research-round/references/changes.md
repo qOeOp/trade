@@ -13,8 +13,8 @@ registrations below concern development research, not another validation opportu
   `research state --line LINE` lists `runs_behind_image` and `current_image`.
   Replay each, one at a time and with memory to spare: `replay reproduce --trial-id T --image <current_image>
   --output <new /tmp directory>`; remove each directory afterwards. On success
-  (`replay reproduce --help`) it stays a control, its p values and the recommendation stand, and the
-  replay is no new test. Report `tables_differing` (account and order tables) to
+  the run has the same fills, positions, exposures and daily returns (`replay reproduce --help`): it
+  stays a control, its p values and the recommendation stand, and the replay is no new test. Report `tables_differing` (account and order tables) to
   the user as what changed; they decide nothing.
 - A `REPRODUCTION_MISMATCH` saying no semantic fingerprint was recorded or computed compared
   nothing: report its reproduction trial and native and audit exits and diagnose that trial, not a
