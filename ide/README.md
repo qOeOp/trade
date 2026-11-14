@@ -19,7 +19,7 @@ node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
 `ide.py serve` serves one ledger's graph as a page that follows the ledger
 (`research_graph/serve.py`, standard library only). It runs the product's command line (`ledger
 sql` for the head, `research graph --at=<hash> --without-comparisons --without-counts` for a graph, `research counts` for its summary's
-trial counts at each commit it is served at, `research comparison` for the one version a page opens, under `/api/comparison?registration=&trial_id=&at=`) and imports no product package. The page keeps a
+trial counts at each commit it is served at, `research comparison` for the one version a page opens, under `/api/comparison?registration=&trial_id=&at=`, `research state --without-image` for the line menu, under `/api/state?line=&at=`) and imports no product package. The page keeps a
 comparison's answer in the browser, by build and commit. The
 page is the web renderer's page: it reads `/api/view?line=&since=&at=` (200 a view,
 202 a state, 503 the failure while no head can be read; a refused graph reaches the page as an
@@ -116,6 +116,10 @@ the loaded choices while a newer index is fetched, so opening the menu performs 
 refresh never replaces useful choices with an empty loading state. Each entry shows its
 window and Open/Closed state. Switching changes `?line=`, retains an explicit `at`, and drops the
 previous line's `since` and selected-version fragment. It does not write a selection to the ledger.
+Opening the menu also reads the line's `research state` at the drawn commit (`/api/state`, kept per line and
+commit): every gate before the next registration, the graph's two until it answers, and under Review the runs since
+the last recommendation and the undistinguished runs in a row, each against `review_every`, with a dot when it is
+reached. The second compares the line's latest runs, which is why the graph leaves it out.
 
 The service warms the line index before exposing a newly synchronized head, caches up to eight
 exact commits, and coalesces concurrent reads of the same commit into one product call. A navigation

@@ -356,6 +356,10 @@ class CommandTests(unittest.TestCase):
         self.assertEqual((counts["trials"], counts["research_attempts"]), (5, 2))  # an exploration, two prechecks
         state = self.ok("research", "state", *ledger)
         self.assertEqual((state["trials_on_line"], state["review_every"]), (2, 5))
+        self.assertIsNotNone(state["current_image"])
+        unpulled = self.ok("research", "state", *ledger, "--without-image")
+        self.assertEqual((unpulled["current_image"], unpulled["runs_behind_image"]), (None, None))
+        self.assertEqual(unpulled["undistinguished_runs"], state["undistinguished_runs"])
         self.assertIn("fixture@1", counts["comparison"]["candidates"])
         candidates = self.ok("candidate", "list", *ledger)
         self.assertEqual([item["revision"] for item in candidates["candidates"]], [1, 2])

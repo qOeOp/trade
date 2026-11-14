@@ -340,13 +340,16 @@ def research_status(profile: db.LedgerProfile, at: str | None, line: str | None)
 
 
 def research_state(conn: db.LedgerConnection, line: str | None, at: str | None, *,
-                   history: bool = False, history_before: int | None = None, full: bool = False) -> dict:
+                   history: bool = False, history_before: int | None = None, full: bool = False,
+                   image: bool = True) -> dict:
     from registration import seams
     from report import status
-    try:
-        current = seams.current.resolve_runtime(None)["image_ref"]
-    except Refusal:
-        current = None
+    current = None
+    if image:
+        try:
+            current = seams.current.resolve_runtime(None)["image_ref"]
+        except Refusal:
+            pass
     return status.research_state(conn, line, at, history=history, history_before=history_before, full=full,
                                  current_image=current)
 
@@ -591,9 +594,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
         "market holds the line's market day (reader)",
         "nothing in the ledger; pulls the main runtime image each time, which moves the local "
-        "`main` tag, to learn the current image",
+        "`main` tag, to learn the current image (not with --without-image)",
         "ledger_commit, line, execution_identity (the line's), current_image (the main image's digest reference; null "
-        "when it cannot be resolved), runs_behind_image (the line's passed runs not yet on it: `replay reproduce "
+        "when it cannot be resolved or with --without-image), runs_behind_image (the line's passed runs not yet on it: `replay reproduce "
         "--image`; null without it), targets, open_lines "
         "[{name, start, dev_start, dev_end, market_day}], recommendation, priority, "
         "review_every, undistinguished_runs {trials, uncompared, distinguished} (the line's latest runs read back "
@@ -869,6 +872,8 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--full", action="store_true",
                          help="every current interpretation and search exposure, and the candidate list and research "
                               "status as facts (default: those after the current recommendation, earlier ones counted)")
+    command.add_argument("--without-image", action="store_true",
+                         help="pull no runtime image: current_image and runs_behind_image are null (the IDE's read)")
     _at(command)
     command = verb(research, "runs", "every research run with its measures, by one measure")
     _ledger_option(command)
@@ -1012,7 +1017,7 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("research", "state"):
         with db.connect(profile, "reader") as conn:
             return research_state(conn, args.line, args.at, history=args.history,
-                                  history_before=args.history_before, full=args.full), 0
+                                  history_before=args.history_before, full=args.full, image=not args.without_image), 0
     if key == ("research", "history"):
         from report import history as report_history
         return report_history.research_history(profile, args.at, args.line), 0
