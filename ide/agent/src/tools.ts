@@ -73,10 +73,10 @@ export const COMMANDS = {
       start: z.string().regex(/^\d{4}-\d\d-\d\dT[\d:.]+Z$/).describe("UTC ISO-8601 with Z"),
       end: z.string().regex(/^\d{4}-\d\d-\d\dT[\d:.]+Z$/).describe("UTC ISO-8601 with Z"),
       symbols: z.array(z.string().regex(/^[A-Z0-9]{2,30}$/)).max(50).optional().describe("Binance symbols (default: every universe member)"),
-      at: ref.optional().describe("market day: the last day to read, as YYYY-MM-DD (default: the newest day)"),
+      market_day: ref.optional().describe("market day: the last day to read, as YYYY-MM-DD (default: the newest day)"),
     }),
-    argv: (i: { start: string; end: string; symbols?: string[]; at?: string }) =>
-      ["market", "coverage", `--start=${i.start}`, `--end=${i.end}`, ...opt("at", i.at), ...(i.symbols?.length ? ["--symbols", ...i.symbols] : [])],
+    argv: (i: { start: string; end: string; symbols?: string[]; market_day?: string }) =>
+      ["market", "coverage", `--start=${i.start}`, `--end=${i.end}`, ...opt("market-day", i.market_day), ...(i.symbols?.length ? ["--symbols", ...i.symbols] : [])],
   },
 } as const;
 

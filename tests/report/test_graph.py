@@ -150,9 +150,8 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertEqual(self.readings()["recommended"], first)
         self.assertNotIn("recommendation", graph.line_list(self.world.profile)["lines"][0], "only with --readings")
         self.assertEqual(found["line"]["targets"], {"max_drawdown": 0.15, "annual_return": 0.2})
-        with db.connect(self.world.profile, "reader") as conn:
-            gates = [{"code": g["code"], "message": g["message"]} for g in status.research_state(conn, found["line"]["name"])["gates"]
-                     if g["code"] in ("INTERPRETATION_REQUIRED", "REVIEW_DUE")]
+        gates = [{"code": g["code"], "message": g["message"]} for g in status.research_state(self.world.profile, found["line"]["name"])["gates"]
+                 if g["code"] in ("INTERPRETATION_REQUIRED", "REVIEW_DUE")]
         self.assertEqual(found["line"]["gates"], gates, "the line carries the registration gates `research state` reads")
 
     def test_1b_the_graph_reads_its_runs_once_as_a_listing(self):

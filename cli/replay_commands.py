@@ -6,7 +6,7 @@ from pathlib import Path
 import textwrap
 
 from cli.common import (CANDIDATE_HELP, RUNNER_EPILOG, RUNTIME_DEFAULT_HELP, _at, _ledger_option,
-                        _market_at, _market_option)
+                        _market_day, _market_option)
 from ledger import db
 from shared import profiles
 from shared.refusals import refuse
@@ -72,7 +72,7 @@ def replay_report(profile, trial_id: int | None, directory: str | None, at: str 
 
 CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("replay", "explore"): (
-        "--strategy-file; the market at --at (default the newest day), exported into a reused cache under the temporary "
+        "--strategy-file; the market at --market-day (default the newest day), exported into a reused cache under the temporary "
         "directory; the runtime image (a tag is pulled)",
         "an explore trial with its start receipt and execution capture; the new --output directory (source, "
         "reports, audit, fingerprint, process.json)",
@@ -84,7 +84,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "RUNNER_OPTION_RESERVED; RUNTIME_NOT_CI_BUILT (the image is no CI build of this repository; any branch's "
         "passes)"),
     ("replay", "precheck"): (
-        "the candidate (reader); the market at --at, exported fresh; the runtime image",
+        "the candidate (reader); the market at --market-day, exported fresh; the runtime image",
         "a precheck trial with its start receipt and execution capture; the new --output directory",
         "purpose, trial_id, source_sha256, image_ref, export_sha256, comparable_config_sha256, status (passed or "
         "failed), problems, path, metrics, scope, exposure_exemption {trading_days, maximum_exempt_days, "
@@ -98,7 +98,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "could open on the instruments); LINE_UNKNOWN, LINE_ENDED; "
         "OUT_OF_SAMPLE_RESERVED"),
     ("replay", "run"): (
-        "the candidate and the registration (writer, head); the market at --at, exported fresh; the runtime image; "
+        "the candidate and the registration (writer, head); the market at --market-day, exported fresh; the runtime image; "
         "the checkout's HEAD (with --validation it must contain origin/main)",
         "the trial naming its research or validation registration, its start receipt and execution capture, one "
         "run row and, when passed, its reading, daily returns and cycles; a "
@@ -160,14 +160,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 def register(verbs, verb, runner) -> None:
     """Add the replay nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
-    replay = verbs("replay", "replays: explore, precheck, run, report, reproduce, reseal")
+    replay = verbs("replay", "replays")
     command = runner(replay, "explore", "replay an unpublished strategy file (not evidence)")
     command.epilog = textwrap.fill(
         "Records an explore trial in the ledger; the replay counts as prior exposure of that source and is never "
         "economic evidence.", 100) + "\n\n" + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
-    _market_at(command)
+    _market_day(command)
     command.add_argument("--strategy-file", required=True, help="the draft strategy source file")
     command.add_argument("--strategy-class", required=True, help="its entry class name")
     command.add_argument("--line", required=True, help="the open research line whose development period the "
@@ -186,7 +186,7 @@ def register(verbs, verb, runner) -> None:
         + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
-    command.add_argument("--at", required=True, help="market day, YYYY-MM-DD, or head for the newest day")
+    _market_day(command, required=True)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--line", help="the open research line whose development period the trading window lies "
@@ -201,7 +201,7 @@ def register(verbs, verb, runner) -> None:
         "explore trial.", 100) + "\n\n" + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
-    _market_at(command)
+    _market_day(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--registration", type=int, help="research registration ID (or --validation)")
@@ -261,15 +261,15 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                 market=profiles.market(args.market), image=args.image), 0
     profile = db.profile(args.ledger, holds="research")
     if key == ("replay", "explore"):
-        found = replay_explore(profile, profiles.market(args.market), args.at, args.strategy_file, args.strategy_class,
+        found = replay_explore(profile, profiles.market(args.market), args.market_day, args.strategy_file, args.strategy_class,
                                args.output, args.runtime, runner_argv, args.line)
         return found, 0
     if key == ("replay", "precheck"):
-        found = replay_precheck(profile, profiles.market(args.market), args.at, args.candidate, args.runtime,
+        found = replay_precheck(profile, profiles.market(args.market), args.market_day, args.candidate, args.runtime,
                                 runner_argv, args.output, args.line)
         return found, 0 if found["status"] == "passed" else 1
     if key == ("replay", "run"):
-        found = replay_run(profile, profiles.market(args.market), args.at, args.candidate, args.runtime, runner_argv,
+        found = replay_run(profile, profiles.market(args.market), args.market_day, args.candidate, args.runtime, runner_argv,
                            args.registration, args.validation, args.output)
         return found, 0 if found.get("status") == "passed" else 1
     if key == ("replay", "report"):

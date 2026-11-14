@@ -512,8 +512,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(found["validation"], {"registered": 0, "bound": 0, "unbound": 0, "unwitnessed": 0})
 
     def test_the_research_state_gives_judgments_unreviewed_trials_and_gates(self):
-        with db.connect(self.profile, "reader") as conn:
-            found = status.research_state(conn, full=True)
+        found = status.research_state(self.profile, full=True)
         line = found["line"]
         self.assertEqual({key: line[key] for key in ("name", "start", "dev_start", "dev_end", "market_day",
                                                      "universe_rule", "closed")},
@@ -528,10 +527,9 @@ class ReportTests(unittest.TestCase):
         self.assertEqual([gate["code"] for gate in found["gates"]], ["INTERPRETATION_REQUIRED"])
         self.assertEqual(found["review_every"], register.REVIEW_EVERY)
         self.assertEqual(found["facts"]["counts"]["research_attempts"], 4)
-        with db.connect(self.profile, "reader") as conn:
-            self.assertEqual(refused(status.research_state, conn, "no-such-line").code, "LINE_UNKNOWN")
-            with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
-                gate = status.research_state(conn)["gates"][-1]
+        self.assertEqual(refused(status.research_state, self.profile, "no-such-line").code, "LINE_UNKNOWN")
+        with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
+            gate = status.research_state(self.profile)["gates"][-1]
         self.assertEqual((gate["code"], gate["missing"]), ("RUNTIME_UNSUPPORTED", ["rsi@1"]),
                          "without a recommendation or priority the line's start")
 

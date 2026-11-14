@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-from cli.common import _market_at, _market_option
+from cli.common import _market_day, _market_option
 from engine.live_errors import LiveRefusal
 from shared import profiles
 from shared.refusals import refuse
@@ -62,7 +62,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID"),
     ("live", "compare"): (
         "one run's private inputs, journal and evidence pack (one trading start: --segment, default the latest); "
-        "the market at --at (default the newest day), exported into a reused cache under the temporary directory; Binance's "
+        "the market at --market-day (default the newest day), exported into a reused cache under the temporary directory; Binance's "
         "published funding rates; the run's own runtime image",
         "nothing in any database and nothing in the private root; the new --output directory (replay/ with the "
         "native reports and audit, comparison.json); never a credential, order or venue connection",
@@ -96,9 +96,9 @@ def compare_instant(text: str) -> int:
 
 def register(verbs, verb, runner) -> None:
     """Add the live nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
-    live = verbs("live", "private Binance USD-M execution, prepared, started and reconciled from the Live page; here status, "
-                         "logs and stop. It places real orders with real money, a loss can exceed the limits you set, "
-                         "and nothing here is investment advice")
+    live = verbs("live", "private Binance USD-M execution, prepared, started and reconciled from the Live page. It "
+                         "places real orders with real money, a loss can exceed the limits you set, and nothing here "
+                         "is investment advice")
     command = verb(live, "serve", "serve the operator Live control API on its configured private Unix socket")
     command.add_argument("--configuration", type=Path, required=True, help=LIVE_CONFIGURATION_HELP)
     command.add_argument("--release-state", type=Path, help="fixed release state directory; requires --release-web")
@@ -131,7 +131,7 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
     command.add_argument("--run-id", required=True, help="the run ID the Live page prepared")
     _market_option(command)
-    _market_at(command)
+    _market_day(command)
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command.add_argument("--timeout-seconds", type=float, help="stop the replay after this long")
     command.add_argument("--segment", type=int, help="the run's Nth trading start (1 is the first; default the latest)")
@@ -183,6 +183,6 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return daily.run(args.root, args.market_root, args.today), 0
     if args.verb == "compare":
         from live import compare
-        return compare.compare(args.root, args.run_id, profiles.market(args.market), args.at, Path(args.output),
+        return compare.compare(args.root, args.run_id, profiles.market(args.market), args.market_day, Path(args.output),
                                args.timeout_seconds, args.segment, args.since, args.until), 0
     raise refuse("USAGE_ERROR", f"unknown command {args.noun} {args.verb}")
