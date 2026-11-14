@@ -145,7 +145,17 @@ class LedgerBaseTests(unittest.TestCase):
         self.assertEqual(refused(lambda: db.init("x", "x", self.profile.service_root, "eternal",
                                                  dolt_binary=BINARY)).code, "INVALID_NAME")
         self.assertEqual(refused(lambda: db.init("base", "other", self.profile.service_root, "isolated",
-                                                 dolt_binary=BINARY)).code, "LEDGER_EXISTS")
+                                                 dolt_binary=BINARY)).code, "PROFILE_EXISTS")
+        # A market's profile or a file that does not read as a profile is never replaced either.
+        for stem, content in (("market", '{"name": "market", "holds": "market", "kind": "isolated", "root": "/m"}'),
+                              ("unreadable", "not json")):
+            with self.subTest(stem=stem):
+                kept = self.service.home / f"{stem}.json"
+                kept.write_text(content)
+                self.addCleanup(kept.unlink)
+                self.assertEqual(refused(lambda: db.init(stem, stem, self.profile.service_root, "isolated",
+                                                         dolt_binary=BINARY)).code, "PROFILE_EXISTS")
+                self.assertEqual(kept.read_text(), content)
         self.assertEqual(refused(lambda: db.init("again", self.profile.database, self.profile.service_root,
                                                  "isolated", dolt_binary=BINARY)).code, "LEDGER_EXISTS")
         self.assertEqual(refused(lambda: db.init("nobin", "nobin", self.profile.service_root, "isolated",

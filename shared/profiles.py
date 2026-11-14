@@ -51,6 +51,15 @@ def read_file(path: Path) -> dict:
     return value
 
 
+def new_file(name: str) -> Path:
+    """The path of a profile `ledger init` or `market init` is to write: no file of that name exists, whatever it
+    holds and whether or not it reads as a profile."""
+    path = home() / f"{name}.json"
+    if path.exists():
+        raise refuse("PROFILE_EXISTS", f"profile file {path} already exists; nothing is replaced", missing=(name,))
+    return path
+
+
 def is_path(value: str) -> bool:
     """Whether a command's profile argument names a file rather than a profile name."""
     return "/" in value or value.endswith(".json")

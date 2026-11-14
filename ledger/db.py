@@ -443,9 +443,8 @@ def init(name: str, database: str, service_root: Path, kind: profile_directory.K
     if holds != "research" and kind == "active":
         raise refuse("LEDGER_KIND", "only a research ledger is active; a paper database is isolated or temporary",
                      expected="isolated | temporary")
+    profile_path = profile_directory.new_file(name)
     found = profiles()
-    if name in found:
-        raise refuse("LEDGER_EXISTS", f"a ledger profile named {name} already exists; nothing is replaced")
     actives = [value for value in found.values() if value.kind == "active"]
     if kind == "active" and actives:
         raise refuse("LEDGER_EXISTS", "an active research ledger already exists; there is only one")
@@ -469,7 +468,7 @@ def init(name: str, database: str, service_root: Path, kind: profile_directory.K
                             holds=holds)
     _provision(service_root, config, database,
                lambda cursor, accounts: _ledger_tables(cursor, database, accounts, holds),
-               profile_directory.home() / f"{name}.json", profile.as_json())
+               profile_path, profile.as_json())
     return {"profile": profile, "branch_grant": BRANCH, "schema_version": SCHEMAS[holds][1]}
 
 

@@ -641,10 +641,8 @@ def init_market(name: str, root: Path, kind: str) -> dict:
     if not isinstance(name, str) or not profiles.NAME.fullmatch(name) or kind not in profiles.KINDS:
         raise _refuse("the profile name or kind is malformed", "INVALID_NAME", missing=(str(name), str(kind)))
     root = Path(root).expanduser().absolute()
-    found = profiles.entries()
-    if name in found or (profiles.home() / f"{name}.json").exists():
-        raise _refuse(f"a profile named {name} already exists; nothing is replaced", "MARKET_EXISTS", missing=(name,))
-    markets = [value for value in found.values() if value.get("holds") == "market"]
+    path = profiles.new_file(name)
+    markets = [value for value in profiles.entries().values() if value.get("holds") == "market"]
     active = [value for value in markets if value.get("kind") == "active" and value.get("root")]
     if kind == "active" and active:
         raise _refuse("an active market directory already exists; there is only one", "MARKET_EXISTS",
@@ -661,5 +659,5 @@ def init_market(name: str, root: Path, kind: str) -> dict:
     (root / "lock").touch()
     _sync_dir(root)
     profile = {"name": name, "holds": "market", "kind": kind, "root": str(root)}
-    profiles.private_write(profiles.home() / f"{name}.json", profile)
-    return {**profile, "profile": str(profiles.home() / f"{name}.json")}
+    profiles.private_write(path, profile)
+    return {**profile, "profile": str(path)}
