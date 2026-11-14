@@ -8,8 +8,6 @@ on:
       - ide/web/**
       - ide/agent/**
       - ide/overview/**
-      - live/protocol.py
-      - tests/live/protocol-*.json
       - .github/actions/ci-paths/**
       - .github/scripts/ci-paths.py
   pull_request:
@@ -43,8 +41,6 @@ jobs:
             ide/web/**
             ide/agent/**
             ide/overview/**
-            live/protocol.py
-            tests/live/protocol-*.json
             .github/actions/ci-paths/**
             .github/scripts/ci-paths.py
 

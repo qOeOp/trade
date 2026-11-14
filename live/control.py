@@ -12,7 +12,6 @@ from engine.live_errors import REFUSALS, LiveRefusal
 from engine.live_venue import EVIDENCE_TOLERANCE
 from ledger import db
 from live import authority, configuration, credentials, key, notify, release, requests, runs, state, views
-from runtime import image
 
 
 MESSAGES = {
@@ -35,7 +34,6 @@ MESSAGES = {
     "LIVE_KEY_IP_UNRESTRICTED": "A Live run needs an API key restricted to this host's IP at Binance.",
     "LIVE_KEY_UNVERIFIED": "The API key permissions could not be verified.",
     "LIVE_CLOCK": "The observed server clock bounds exceed the existing Live limits.",
-    "LIVE_RUN_FORMAT": "This historical run uses an earlier manifest format, which the product no longer reads.",
     "LIVE_IDENTITY_CHANGED": "The retained inputs, confirmation or resource identity do not match.",
     "LIVE_EVIDENCE_MISSING": "No passed replay of this candidate on these instruments runs this image's replay code.",
     "LIVE_EVIDENCE_BALANCE": "No replay of this candidate started near the account's USDT wallet.",
@@ -85,33 +83,10 @@ def _review(config: configuration.Configuration, root: Path, run_id: str) -> dic
     return result
 
 
-def _offered(config: configuration.Configuration, result: dict, source, evidence: Evidence | None) -> dict | None:
-    """The release's runtime image when a running run runs on another (design §3.8): its build, whether the replay
-    that backed the run's first arming runs its replay code (display only: runtime_switch checks it again), and the
-    paired replay of the latest compared day on it (live.daily, never a reason to refuse)."""
-    switch, host = result.get("switch") or {}, result.get("host") or {}
-    digest = config.runtime.rsplit("@", 1)[-1]
-    current = (switch.get("current") or {}).get("digest")
-    if host.get("state") != "running" or host.get("mode") != "run" or current is None or current == digest:
-        return None
-    found = evidence.view(source.source_id) if evidence is not None and source is not None \
-        and list(source.symbols) == result.get("symbols") else {"state": "unknown", "replays": []}
-    trial = switch.get("trial_id")
-    backed = ("found" if any(str(row["trial_id"]) == trial for row in found["replays"]) else "missing") \
-        if found["state"] in {"found", "missing"} and trial else found["state"]
-    paired = (result.get("compare") or {}).get("paired")
-    return {"digest": digest, "build_revision": evidence.revision() if evidence is not None else None,
-            "evidence": backed,
-            "paired": paired if isinstance(paired, dict) and paired.get("image_ref") == config.runtime else None}
-
-
-def run_view(config: configuration.Configuration, run_id: str, *, review: bool = True,
-             evidence: Evidence | None = None) -> dict:
+def run_view(config: configuration.Configuration, run_id: str, *, review: bool = True) -> dict:
     result = views.run_view(config.root, run_id)
     source = configuration.source_of(config.sources, result["source"])
     result["purpose"] = source.purpose if source is not None else None
-    if result.get("switch") is not None:
-        result["switch"]["offered"] = _offered(config, result, source, evidence)
     if review:
         try:
             with state.reading(config.root) as root:
@@ -132,13 +107,7 @@ class Evidence:
 
     def __init__(self) -> None:
         self._found: dict[str, dict] = {}
-        self._revision: str | None = None
         self._lock = threading.Lock()
-
-    def revision(self) -> str | None:
-        """The build revision of the control's runtime image, once read."""
-        with self._lock:
-            return self._revision
 
     def view(self, source_id: str) -> dict:
         with self._lock:
@@ -147,13 +116,6 @@ class Evidence:
         return {"state": state_, "replays": replays, "tolerance": str(EVIDENCE_TOLERANCE)}
 
     def check(self, config: configuration.Configuration) -> None:
-        if self.revision() is None:
-            try:
-                revision = image.resolve(config.runtime).get("build_revision")
-            except Exception:
-                revision = None
-            with self._lock:
-                self._revision = revision
         for source in config.sources.values():
             with self._lock:
                 found = self._found.get(source.source_id)
@@ -198,10 +160,10 @@ def listing(config: configuration.Configuration, *, binding: release.Binding | N
         if directory.is_symlink():
             raise state.fail("LIVE_RECORD_UNAVAILABLE", "the retained runs directory is unavailable")
         if directory.exists():
-            ids = sorted(path.name for path in directory.iterdir())
+            ids = sorted(path.name for path in directory.iterdir() if not runs.earlier(path))
             if any(not state.RUN_ID.fullmatch(run_id) for run_id in ids):
                 raise state.fail("LIVE_RECORD_UNAVAILABLE", "the retained runs directory is incomplete")
-            result["runs"] = [run_view(config, run_id, review=False, evidence=evidence) for run_id in ids]
+            result["runs"] = [run_view(config, run_id, review=False) for run_id in ids]
     return result
 
 
@@ -260,12 +222,6 @@ def _operation(config, action, command, body, root, request_id):
         return None
     if action == "stop":
         return runs.stop_locked(root, run_id)
-    if action == "runtime_switch":
-        # Only the runtime image the release paired with this control (design §3.8).
-        return runs.request_switch_locked(root, run_id, config.runtime, _profile(config), config.research_at,
-                                          request_id=request_id)
-    if action == "runtime_switch_cancel":
-        return runs.cancel_switch_locked(root, run_id, request_id)
     if action == "maintain":
         return runs.maintain_locked(root, run_id)
     mode = "run" if action == "start" else action
@@ -391,7 +347,7 @@ def execute(config: configuration.Configuration, action: str, target: str | None
         scope = authority.retained(config, binding)
         result = requests.dispatch(config.root, request_id, command,
                                    lambda root, identity: _operation(config, action, command, body, root, identity),
-                                   admit_new=None if action in {"stop", "runtime_switch_cancel"} else lambda root: scope.admit_locked(
+                                   admit_new=None if action == "stop" else lambda root: scope.admit_locked(
                                        root, maintenance=action == "maintain"), serialized=scope.serialized)
         return (202 if action in requests.LAUNCHES else 200), {
             "ok": True, "data": {"request": result["request"], **command["target"]}}

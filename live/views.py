@@ -275,11 +275,9 @@ def _restarts(native, lifecycle):
     if native is None or lifecycle is None:
         return None
     rows = [{"event": row["event"], "observed_ns": str(row["observed_ns"]),
-             "held": row.get("held") if isinstance(row.get("held"), bool) else None, "retry": row.get("retry") is True,
-             "switch": row.get("switch") is True}
+             "held": row.get("held") if isinstance(row.get("held"), bool) else None, "retry": row.get("retry") is True}
             for row in native if row.get("event") in RESTART_EVENTS and type(row.get("observed_ns")) is int]
-    rows += [{"event": "restart_limited", "observed_ns": str(row["observed_ns"]), "held": None, "retry": False,
-              "switch": False}
+    rows += [{"event": "restart_limited", "observed_ns": str(row["observed_ns"]), "held": None, "retry": False}
              for row in lifecycle if row.get("event") == "restart_limited" and type(row.get("observed_ns")) is int]
     return sorted(rows, key=lambda row: int(row["observed_ns"]))[-MAX_ROWS:]
 
@@ -290,31 +288,6 @@ def _image(runtime) -> dict:
     digest = image.rsplit("@", 1)[-1] if isinstance(image, str) else ""
     return {"digest": digest if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) else None,
             "build_revision": _text(runtime.get("build_revision"), re.compile(r"[0-9a-f]{40}\Z"))}
-
-
-def _switch(manifest, lifecycle, native):
-    """The runtime image the latest launch runs on, a confirmed switch it waits for, and how earlier switches ended
-    (live.runs, design §3.8)."""
-    if lifecycle is None:
-        return None
-    pinned = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
-    confirmed = {row["runtime"].get("image_ref"): row for row in lifecycle
-                 if row.get("event") == "runtime_switch_requested" and isinstance(row.get("runtime"), dict)}
-    launch = next((row for row in reversed(lifecycle) if row.get("event") == "launch_requested"), None)
-    ref = launch.get("image_ref") if launch else None
-    current = confirmed[ref]["runtime"] if ref in confirmed and ref != pinned.get("image_ref") else pinned
-    rows = [row for row in lifecycle if row.get("event") in runs.SWITCH_EVENTS and type(row.get("observed_ns")) is int]
-    pending = rows[-1] if rows and rows[-1]["event"] == "runtime_switch_requested" else None
-    armed = next((row for row in native or [] if row.get("event") == "replay_evidence"), None)
-    return {"current": _image(current),
-            "pending": {**_image(pending["runtime"]), "requested_ns": str(pending["observed_ns"])} if pending else None,
-            "events": [{"event": row["event"], "observed_ns": str(row["observed_ns"]),
-                        "code": row.get("code") if row.get("code") in {*REFUSALS, "RUNTIME_UNAVAILABLE"} else None,
-                        "reason": _enum(row.get("reason"), {"user", "stopped", "ended"}),
-                        "digest": _image(confirmed.get(row.get("image_ref"), {}).get("runtime")
-                                         if row["event"] != "runtime_switch_requested" else row.get("runtime"))["digest"]}
-                       for row in rows][-MAX_ROWS:],
-            "trial_id": _integer(armed.get("trial_id")) if armed else None}
 
 
 def _brake(native):
@@ -476,7 +449,6 @@ def run_view(root: Path, run_id: str) -> dict:
                   "restarts": _restarts(native, lifecycle),
                   "brake": _brake(native),
                   "key_checks": _key_checks(lifecycle),
-                  "switch": _switch(manifest, lifecycle, native),
                   # The control's daily comparison with a replay (live.daily); never read through a link.
                   "compare": daily.read_record(directory),
                   "event_limit": MAX_ROWS}

@@ -109,21 +109,15 @@ def matcher(conn: db.LedgerConnection) -> Callable[[int, int], bool]:
                         tables=_recorded_tables_of(conn, paired))
         return read
 
-    def capture(trial_id: int) -> Mapping:
-        found = load()["captures"].get(trial_id)
-        if found is None:
-            return execution.read_capture(conn, trial_id)
+    def capture(trial_id: int) -> Mapping:  # matches reads only pairs _pairable put in the batched reads
+        found = load()["captures"][trial_id]
         if isinstance(found, Refusal):
             raise found
         return found
 
-    def recorded(trial_id: int) -> Mapping | None:
-        tables = load()["tables"]
-        return tables[trial_id] if trial_id in tables else _recorded_tables(conn, trial_id)
-
     return lambda reproduction_trial_id, original_trial_id: matches(
         conn, reproduction_trial_id, original_trial_id, record=lambda trial_id: load()["records"].get(trial_id),
-        capture=capture, recorded=recorded)
+        capture=capture, recorded=lambda trial_id: load()["tables"][trial_id])
 
 
 def _pairable(rows: list[dict]) -> list[int]:

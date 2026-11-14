@@ -188,19 +188,10 @@ remain authoritative; regenerated diagnostics never replace the original executi
         # Failure logs and other original observations remain readable even without report caches.
         output["diagnostics"] = {path: data.decode("utf-8", errors="replace")
                                  for path, data in captured.get("files", {}).items() if path.endswith(".txt")}
-        if directory is None:
-            if reproduction is not None:
-                raise _mismatch(Path("/tmp"), trial_id, "a reproduction requires its directory", "directory")
+        if directory is None and reproduction is None:
             return output
-        if reproduction is None:
-            differs = _differing_files(directory, captured.get("listed") or {})
-            if captured["status"] != "captured" or differs:
-                raise _mismatch(directory, trial_id, "original precheck cache differs", *(differs or ["capture"]))
-        else:
-            facts = {"run": {"trial_id": trial_id, "fingerprints": fingerprint},
-                     "trial": trial, "capture": captured}
-            with db.read_as_of(profile) as head:  # deliberately the head: the reproduction is newer than `at`
-                verify_reproduction(head, directory, facts, reproduction)
+        directory = _verify_cache(profile, directory, {"run": {"trial_id": trial_id, "fingerprints": fingerprint},
+                                                       "trial": trial, "capture": captured}, reproduction)
         output.update(reports=_reproduced(directory, account, exposures, positions=True), reports_verified=True,
                       directory=str(directory), reproduction_trial_id=reproduction)
         return output
@@ -256,27 +247,17 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
              "orders": None, "fills": None, "account": None, "exposures": None, "order_events": None,
              "reproduction": None}
     if directory is not None or reproduction is not None:
-        if directory is None:
-            raise refuse("REPRODUCTION_MISMATCH", "a reproduction trial is read only with its directory",
-                         missing=("directory",))
-        if reproduction is None:  # the directory replay.run kept: byte for byte the run's own capture
-            differs = _differing_files(Path(directory), facts["capture"].get("listed") or {})
-            if facts["capture"]["status"] != "captured" or differs:
-                raise _mismatch(Path(directory), trial_id, "the run's original cache differs",
-                                *(differs or ["capture"]))
-        else:
-            with db.read_as_of(profile) as head:  # the reproduction trial is newer than any earlier version read
-                verify_reproduction(head, Path(directory), facts, reproduction)
-        reports = load_directory(Path(directory))
+        directory = _verify_cache(profile, directory, facts, reproduction)
+        reports = load_directory(directory)
         native = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))
         stored = facts["cycles"]
         if len(native) != len(stored):
-            raise _mismatch(Path(directory), trial_id, "native cycle population differs", "positions")
+            raise _mismatch(directory, trial_id, "native cycle population differs", "positions")
         for original, recovered in zip(stored, native, strict=True):
             for name, expected in recovered.items():
                 if original.get(name) is not None and original[name] != expected:
-                    raise _mismatch(Path(directory), trial_id, f"native cycle {recovered['seq']} differs: {name}", name)
-        found.update(_reproduced(Path(directory), account, exposures), reproduction=reproduction,
+                    raise _mismatch(directory, trial_id, f"native cycle {recovered['seq']} differs: {name}", name)
+        found.update(_reproduced(directory, account, exposures), reproduction=reproduction,
                      positions=_typed_cycles(native))
     contract = trial["runtime_contract"]
     found["null_reasons"] = _native_null_reasons(found, trial_id, contract, account, exposures, directory is not None)
@@ -339,6 +320,25 @@ def _differing_files(directory: Path, listed: Mapping) -> list[str]:
             if not path.is_dir() and name not in wanted:
                 differs.append(name)
     return differs
+
+
+def _verify_cache(profile, directory: Path | None, facts: Mapping, reproduction: int | None) -> Path:
+    """`directory`, refused (REPRODUCTION_MISMATCH) unless `directory` verifies as native detail of the run or precheck in `facts`
+    {run, trial, capture}: without `reproduction` the directory replay kept, byte for byte its own capture;
+    with it the one replay.reproduce wrote (verify_reproduction, read at the head: the reproduction is newer
+    than any earlier version read)."""
+    trial_id = facts["trial"]["trial_id"]
+    if directory is None:
+        raise refuse("REPRODUCTION_MISMATCH", "a reproduction trial is read only with its directory",
+                     missing=("directory",))
+    if reproduction is None:
+        differs = _differing_files(Path(directory), facts["capture"].get("listed") or {})
+        if facts["capture"]["status"] != "captured" or differs:
+            raise _mismatch(Path(directory), trial_id, "the original cache differs", *(differs or ["capture"]))
+    else:
+        with db.read_as_of(profile) as head:
+            verify_reproduction(head, Path(directory), facts, reproduction)
+    return Path(directory)
 
 
 def verify_reproduction(conn: db.LedgerConnection, directory: Path, facts: Mapping, reproduction) -> None:

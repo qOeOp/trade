@@ -39,7 +39,6 @@ A `DOLT_BINARY` refusal on the host means the command reads a Dolt backup: run i
 | `PUBLISH_REJECTED` | The DoltHub copy changed elsewhere. Nothing is forced; find out who wrote it before anything else. |
 | `REMOTE_MISMATCH` | The ledger already publishes to another repository. Changing it is a decision, not a repair. |
 | `SCHEMA_MISMATCH` | The code and the ledger are different schema generations. Use the checkout and images of the ledger's generation ([The ledger and the market](../../README.md#the-ledger-and-the-market)). |
-| `LEDGER_KIND` on a market profile | It is in the format before 2026-11-11: replace `"kind": "market"` and `"role": R` with `"holds": "market"` and `"kind": R`. |
 | `BACKUP_DIVERGED`, `LEDGER_CORRUPT` | Stop writing and keep everything as it is; the backup and the DoltHub copy are what a repair starts from. |
 
 ## Market
@@ -66,7 +65,8 @@ A `DOLT_BINARY` refusal on the host means the command reads a Dolt backup: run i
 |---|---|
 | `PAPER_MEMORY_FULL` | Running runs hold the 3.5 GiB memory budget. Stop one, then start again. |
 | `PAPER_START_FAILED` | The containers did not start; the run is sealed with the error in its `runner.log`. Fix Docker, then start a new run. |
-| `EMPTY_SYMBOLS` | No contracts given, a repeated one, or the market has no members for the current month yet. |
+| `EMPTY_SYMBOLS` | An empty contract list or a repeated contract. |
+| `UNIVERSE_EMPTY` | No contracts given and the market has no members for the current month yet. |
 | "Paper daemon offline" | `docker compose -f deploy/compose.yaml restart paper`; runs keep going in their own containers meanwhile. |
 
 ## Live

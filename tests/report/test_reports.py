@@ -12,7 +12,6 @@ import shutil
 import unittest
 from unittest import mock
 
-from cli.common import UsageError
 from cli.replay_commands import replay_report
 from ledger import db, metrics, strategies
 from shared.refusals import refuse
@@ -260,8 +259,8 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(detail["null_reasons"], {"exposures": "NOT_REQUESTED: pass --exposures"})
         shown = replay_report(self.profile, trial_id, str(directory), None, False, None, None, False, False)
         self.assertEqual(len(shown["tables"]["fills"]), 2, "--directory alone reads the run's kept cache")
-        with self.assertRaises(UsageError):
-            replay_report(self.profile, trial_id, str(directory), None, True, str(directory), None, False, False)
+        self.assertEqual(refused(replay_report, self.profile, trial_id, str(directory), None, True, str(directory),
+                                 None, False, False).code, "USAGE_ERROR")
         for mode in ("changed", "missing", "extra"):
             clone = self.world.output(f"control-kept-{mode}")
             shutil.copytree(directory, clone)
@@ -434,7 +433,7 @@ class ReportTests(unittest.TestCase):
             return read
 
         clean = graph.version_comparison(*args)
-        with seams.use(market_returns=failing(refuse("UNKNOWN_REF", "no such market day"))):
+        with seams.use(market_returns=failing(refuse("MARKET_DAY_UNKNOWN", "no such market day"))):
             drawn = graph.research_graph(self.profile, workers=1)
             self.assertIn("market_unread", drawn["scope"])
             shown = next(c["comparison"] for c in drawn["candidates"]
