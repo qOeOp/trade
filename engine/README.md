@@ -547,7 +547,7 @@ window of one of its research trials.
 `start` takes the prepared run ID, the same saved credential version and the run's `source_sha256` as the
 confirmation, then repeats
 account admission. A run trades each of its contracts with its own instance of the source, as a replay does: each
-instance has its own strategy ID (`LIVE-<run>-<coin>`) and orders only on its own contract (`LIVE_INSTRUMENT_SCOPE`),
+instance has its own strategy ID (`LIVE-<run>-<coin>`) and orders only on its own contract (`ORDER_RULE`, as in replay and Paper),
 and instances coordinate legs through state the source shares between them (decision
 `docs/plans/cross-line-fusion-20261111.zh.md` §5–§7). Admission requires a flat account, Hedge/Multi-assets mode, and
 on every contract CROSS margin, the declared leverage, no automatic margin addition and Binance status `TRADING`. The
