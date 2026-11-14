@@ -480,6 +480,22 @@ def terms(symbols: Iterable[str], run_terms: Mapping[str, Mapping], replay_terms
             for symbol in symbols}
 
 
+def traded_terms(replay_terms: Mapping[str, Mapping], reports: Path | None) -> dict[str, dict]:
+    """The terms the replay's instruments traded on: the market's, with the price increment its export widened to
+    where the archive's prices lie off the terms' grid (market.instrument.build_instrument: a current 0.10 tick over
+    history on the 0.01 grid), as the replay's input-coverage.json beside its reports records it."""
+    found = {symbol: dict(item) for symbol, item in replay_terms.items()}
+    coverage = reports.parent / "input-coverage.json" if reports is not None else None
+    if coverage is None or not coverage.is_file():
+        return found
+    for symbol, receipt in (json.loads(coverage.read_text(encoding="utf-8")).get("export_receipts") or {}).items():
+        widened = [piece["price_precision"] for piece in receipt.get("pieces") or ()
+                   if piece.get("price_precision_widened")]
+        if widened and symbol in found:
+            found[symbol]["price_increment"] = format(Decimal(1).scaleb(-max(widened)), "f")
+    return found
+
+
 # Attribution
 
 def _within(closes: Iterable[int], since: int, until: int) -> list[int]:
@@ -607,7 +623,8 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
     `replay_events` None means the replay wrote no order events: its orders are unknown, not none."""
     found = bars(run.get("bars") or [], archive, start, end)
     warmed = warmup(run.get("warmup") or {}, archived_warmup or {})
-    contract = terms(sorted(archive), run.get("terms") or {}, replay_terms or {}, run.get("fees"), replay_fees)
+    contract = terms(sorted(archive), run.get("terms") or {}, traded_terms(replay_terms or {}, reports), run.get("fees"),
+                     replay_fees)
     inputs = {symbol: {"bars": {**{key: item[key] for key in ("archive", "live")},
                                 # The lists stop at LISTED; the counts are complete.
                                 "missing_bars": len(item["missing"]), "late_bars": len(item["late"]),

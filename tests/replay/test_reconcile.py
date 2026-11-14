@@ -8,6 +8,9 @@ difference is taken for a cause of its own, or a warm-up the archive repeats exa
 from __future__ import annotations
 
 from decimal import Decimal
+import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest import mock
 
@@ -210,6 +213,24 @@ class Attribution(unittest.TestCase):
         group = self.replay_only(terms={"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001"}},
                                  replay_terms={"BTCUSDT": {"price_increment": "0.01", "size_increment": "0.001"}})
         self.assertEqual((group["cause"], group["evidence"]["terms"]), ("contract_terms", ["price_increment: market 0.01, exchange 0.10"]))
+
+    def test_a_tick_the_replays_export_widened_explains_a_price_difference(self):
+        # The market's terms agree (0.10 both days), but the replay traded on the 0.01 grid its history needs.
+        with tempfile.TemporaryDirectory() as name:
+            reports = Path(name) / "reports"
+            reports.mkdir()
+            (reports / "account.csv").write_text("ts_event,total\n")
+            (Path(name) / "input-coverage.json").write_text(json.dumps({"export_receipts": {"BTCUSDT": {"pieces": [
+                {"price_precision": 2, "price_precision_widened": True}]}}}))
+            tick = {"price_increment": "0.10", "size_increment": "0.001"}
+            run = bracket("p", close_of(1), close_of(1), "P", px="100.1")
+            replay = bracket("r", close_of(1), close_of(1), "R", px="100.13")
+            bars = [bar(i, "100.0") for i in range(40)]
+            group = reconcile.compare({"bars": bars, "events": run, "terms": {"BTCUSDT": tick}}, replay,
+                                      {"BTCUSDT": archived(40)}, reports, START, START + 40 * MINUTE,
+                                      replay_terms={"BTCUSDT": tick})["groups"][0]
+        self.assertEqual((group["stage"], group["cause"], group["evidence"]["terms"]),
+                         ("decision", "contract_terms", ["price_increment: market 0.01, exchange 0.10"]))
 
     def test_fee_rates_unlike_the_replays_explain_only_a_fee_difference(self):
         run = bracket("p", close_of(1), close_of(1), "P")
