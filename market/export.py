@@ -81,31 +81,19 @@ def _keep(bars: dict[str, np.ndarray], keep: np.ndarray) -> dict[str, np.ndarray
 
 
 def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, start_ns: int, end_ns: int) -> list[dict]:
-    """market.split_episodes: the pieces of one contract; with lifecycle episodes, one native contract
-    per episode holding only its complete minutes and the funding settled inside it."""
+    """market.split_episodes: the pieces of one contract; with lifecycle episodes (market.validate_lifecycle's, in
+    time order), one native contract per episode holding only its complete minutes and the funding settled inside it."""
     if not episodes:
         return [{"index": None, "instrument_id": native_symbol(symbol), "episode": None, "low_ns": start_ns, "high_ns": end_ns, "catalog_dir": "", **series_}]
-    previous_end = None
     pieces: list[dict] = []
     for index, episode in enumerate(episodes, start=1):
-        if (not isinstance(episode, dict) or type(episode.get("start_ns")) is not int
-                or not isinstance(episode.get("events"), list)
-                or any(not isinstance(event, dict) or event.get("type") not in lifecycle.EVENT_TYPES
-                       for event in episode["events"])):
-            raise _refuse(f"episode {index} of {symbol} lacks start_ns or native events", "EPISODE_SHAPE",
-                          missing=(symbol,))
         native = native_symbol(symbol, index)
         if episode.get("instrument_id") != native:
             raise _refuse(f"episode {index} of {symbol} is {episode.get('instrument_id')}, not {native}",
                           "EPISODE_SHAPE", missing=(symbol,))
-        if pieces and (episode["start_ns"] <= pieces[-1]["episode"]["start_ns"] or previous_end is None
-                       or episode["start_ns"] < previous_end):
-            raise _refuse(f"episode {index} of {symbol} does not start after the previous one ended", "EPISODE_ORDER",
-                          missing=(symbol,))
         low = episode["start_ns"] // 1_000_000
         ended = lifecycle.termination(episode)
         high = ended // 1_000_000 if ended is not None else None
-        previous_end = ended
         pieces.append({"index": index, "instrument_id": native, "episode": episode, "low_ns": episode["start_ns"], "high_ns": ended,
                        "catalog_dir": f"episode-{index}", "last": _inside(series_["last"], low, high),
                        "mark": _inside(series_["mark"], low, high),

@@ -335,9 +335,11 @@ class ImportTests(unittest.TestCase):
         tail = [(type(event).__name__, getattr(event, "action", None) and event.action.name)
                 for event in list(run.market_events(rows, start, end))[-2:]]
         self.assertEqual(tail, [("InstrumentStatus", "CLOSE"), ("InstrumentClose", None)])
+        relisted = {**body["episodes"][0], "instrument_id": "CCCUSDT-E2-PERP.BINANCE", "events": []}
         for wrong in ({**body, "market_day": self.market_days[FEB]},
                       {**body, "episodes": [{**body["episodes"][0], "sources": ["absent.txt"]}]},
-                      {**body, "episodes": [{**body["episodes"][0], "events": body["episodes"][0]["events"][2:]}]}):
+                      {**body, "episodes": [{**body["episodes"][0], "events": body["episodes"][0]["events"][2:]}]},
+                      {**body, "episodes": [{**body["episodes"][0], "events": [status("CLOSE", 0)]}, relisted]}):
             with self.subTest(wrong=wrong):
                 self.refused("LIFECYCLE_INPUT", lifecycle.validate_lifecycle, wrong, self.market_days[MAR], files)
         off_grid = {**body, "episodes": [{**body["episodes"][0], "events": [

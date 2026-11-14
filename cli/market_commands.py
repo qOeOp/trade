@@ -4,7 +4,7 @@ import-metrics, follow, lifecycle, coverage, bars)."""
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime, timezone
+from datetime import date
 import json
 from pathlib import Path
 import re
@@ -26,17 +26,14 @@ def market_init(name: str, kind: profiles.Kind, root: Path) -> dict:
     return files.init_market(name, Path(root), kind)
 
 
-def _month_start(month: str, *, started: bool = False) -> date:
-    """The first day of a YYYY-MM month argument (MONTH_INVALID); `started` also refuses a month not begun."""
-    if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
+def _month_start(month: str) -> date:
+    """The first day of a YYYY-MM month argument (MONTH_INVALID); an import refuses a month not begun itself."""
+    if not re.fullmatch(r"\d{4}-\d{2}", month):
         raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
     try:
-        first = date.fromisoformat(month + "-01")
+        return date.fromisoformat(month + "-01")
     except ValueError as exc:
         raise refuse("MONTH_INVALID", f"{month!r} is not a month", expected="YYYY-MM") from exc
-    if started and first > datetime.now(timezone.utc).date():
-        raise refuse("MONTH_INVALID", f"{month} is after the current UTC month", expected="YYYY-MM")
-    return first
 
 
 def _market_cache(cache_root: str | None) -> Path:
@@ -52,7 +49,7 @@ def market_import(market: dict, month: str, cache_root: str | None, workers: int
                   symbols: list[str] | None = None) -> dict:
     """market import: one UTC month of Binance public data; `symbols` narrows the contracts."""
     from market import store
-    first = _month_start(month, started=True)
+    first = _month_start(month)
     return store.import_month(market, first, _market_cache(cache_root), workers, symbols, log=_market_log)
 
 
@@ -60,7 +57,7 @@ def market_import_quotes(market: dict, month: str, cache_root: str | None, symbo
     """market import-quotes: one ended UTC month of best bid/ask inferred from the stored aggTrades
     (market.quotes.RULE); `symbols` defaults to the month's universe members."""
     from market import quotes
-    first = _month_start(month, started=True)
+    first = _month_start(month)
     return quotes.import_quotes(market, first, _market_cache(cache_root), symbols, log=_market_log)
 
 

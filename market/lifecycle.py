@@ -85,7 +85,7 @@ def validate_lifecycle(body: Mapping, market_day: str, files: Mapping[str, bytes
         if instrument_id in ended:
             raise LifecycleInput(f"{instrument_id} terminated and cannot be reused by a later episode")
         previous = grouped.get(symbol, [])
-        if previous and (previous[-1]["instrument_id"] == instrument_id
+        if previous and (previous[-1]["instrument_id"] == instrument_id or start == previous[-1]["start_ns"]
                          or (ended_at := termination(previous[-1])) is None or start < ended_at):
             raise LifecycleInput(f"{symbol}: a relisting needs a new instrument ID after the earlier episode ended")
         clock, terminated = start, None

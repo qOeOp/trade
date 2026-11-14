@@ -391,7 +391,6 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "SYMBOL_SHAPE": ("Export USDT perpetuals by their public names.",),
     "EPISODE_INDEX": ("Number episodes 1, 2, ... in time order.",),
     "EPISODE_SHAPE": ("Fix the lifecycle manifest and write a new bundle with `market lifecycle`.",),
-    "EPISODE_ORDER": ("Fix the lifecycle manifest and write a new bundle with `market lifecycle`.",),
     "BARS_UNSORTED": ("Report the contract named; the market is inconsistent.",),
     "BAR_RAW_INEXACT": ("Report the contract named; the exporter never rounds.",),
     "MARK_UNSORTED": ("Report the contract named; the market is inconsistent.",),
