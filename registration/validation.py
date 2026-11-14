@@ -14,16 +14,11 @@ from collections.abc import Mapping
 import dataclasses
 from datetime import UTC, date, datetime, timedelta
 
-from ledger import db, execution, strategies, witness
+from ledger import db, execution, metrics, strategies, witness
 from ledger import trials
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import register, seams
-
-
-def _ns(moment: datetime) -> int:
-    delta = moment - trials.EPOCH
-    return (delta.days * 86_400 + delta.seconds) * 10**9 + delta.microseconds * 1000
 
 
 def _naive_utc(moment) -> datetime:
@@ -88,7 +83,7 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
     absent = [month for month in _months(start, end) if month not in now]
     if absent:
         raise changed("window months not produced at the market day: " + ", ".join(absent), *absent)
-    derived = adapter.membership_path(identity["market_day"], _ns(end))["membership"]
+    derived = adapter.membership_path(identity["market_day"], metrics.moment_ns(end))["membership"]
     received = inputs.get("membership")
     given = received.get("membership") if isinstance(received, Mapping) else None
     given = given if isinstance(given, Mapping) else {}
@@ -101,7 +96,7 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
         derived = {symbol: derived[symbol] for symbol in subset if symbol in derived}
     for symbol, intervals in sorted(derived.items()):
         for lo, hi in intervals:
-            clipped = (max(lo, _ns(start)), min(hi, _ns(end)))
+            clipped = (max(lo, metrics.moment_ns(start)), min(hi, metrics.moment_ns(end)))
             if clipped[0] < clipped[1] and not _covered(clipped, given.get(symbol)):
                 raise changed(f"{symbol} is removed from or shortened in the strategy's membership",
                               _month_of(trials._utc(clipped[0])), symbol)
@@ -288,7 +283,7 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mappin
                                         f"registered window is [{start}, {end})", missing=("window",))
     receipts = coverage.get("export_receipts")
     receipts = receipts if isinstance(receipts, Mapping) else {}
-    needed = (_ns(row["input_start"]), _ns(row["trade_end"]))
+    needed = (metrics.moment_ns(row["input_start"]), metrics.moment_ns(row["trade_end"]))
     uncovered = [symbol for symbol in instruments if not isinstance(receipts.get(symbol), Mapping)
                  or not receipts[symbol].get("start_ns", needed[0] + 1) <= needed[0]
                  or not receipts[symbol].get("end_ns", needed[1] - 1) >= needed[1]]
