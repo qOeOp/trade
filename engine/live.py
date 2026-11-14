@@ -34,7 +34,7 @@ from engine.live_errors import LiveRefusal as Refusal
 from engine.live_cache import LiveCache
 from engine.live_venue import MANIFEST_FORMAT, BinanceReadOnly, read_credentials, require_clock, require_account_mode, require_admission, require_evidence, require_flat
 from engine.load import read_regular_file
-from engine.live_records import write_json
+from engine.live_records import journal, keep, write_json
 from engine.live_commands import pending_orders
 from engine.live_session import Session
 from engine.live_source import source_for_run
@@ -107,27 +107,33 @@ def read_manifest(path: Path) -> dict:
 ENDED_EVENTS = frozenset({"clean_stop", "reconciled_flat", "venue_flat", "reconcile_stopped", "unresolved"})
 
 
+def latest_start(output: Path) -> list[dict]:
+    """The journal from the run's latest start (its last `preflight` of mode run) on; a damaged journal raises
+    (engine.live_records.journal)."""
+    rows = journal(output)
+    starts = [index for index, row in enumerate(rows) if row.get("event") == "preflight" and row.get("mode") == "run"]
+    return rows[starts[-1] if starts else 0:]
+
+
 def resumable(output: Path) -> bool:
     """Whether this armed run may start again: its latest start did not end it, and no stop was asked for."""
     if (output / "STOP").exists():
         return False
     try:
-        rows = [json.loads(line) for line in read_regular_file(output / "events.jsonl").decode().splitlines() if line]
+        rows = latest_start(output)
     except (OSError, ValueError, Refusal):
         return False
-    starts = [index for index, row in enumerate(rows) if row.get("event") == "preflight" and row.get("mode") == "run"]
-    return not any(row.get("event") in ENDED_EVENTS for row in rows[starts[-1] if starts else 0:])
+    return not any(row.get("event") in ENDED_EVENTS for row in rows)
 
 
 def warmup_retry(output: Path) -> bool:
     """The latest start ended to warm up again after a missing bar (rewarming), not as the retry of a failed warm-up:
     if this start's warm-up fails, the run starts once more (the user, 2026-11-13). Read before this start writes."""
     try:
-        rows = [json.loads(line) for line in read_regular_file(output / "events.jsonl").decode().splitlines() if line]
+        rows = latest_start(output)
     except (OSError, ValueError, Refusal):
         return False
-    starts = [index for index, row in enumerate(rows) if row.get("event") == "preflight" and row.get("mode") == "run"]
-    ended = next((row for row in rows[starts[-1]:] if row.get("event") == "rewarming"), None) if starts else None
+    ended = next((row for row in rows if row.get("event") == "rewarming"), None)
     return ended is not None and not ended.get("retry")
 
 
@@ -196,8 +202,7 @@ def execute(args) -> int:
         snapshot = observer.snapshot(manifest["symbols"])
         if clock is not None:
             snapshot["clock"] = clock
-        observation = "preflight-" + str(snapshot["observed_ns"]) + ".json"
-        write_json(args.output / observation, snapshot)
+        observation = keep(args.output, "preflight", snapshot)
         session.event("preflight", mode=args.mode, observation=observation)
         loaded = None
         if resuming:
@@ -240,7 +245,9 @@ def execute(args) -> int:
                 finally:
                     os.close(directory)
             except FileExistsError:
-                raise Refusal("LIVE_COLD_RESTART", "a previously armed run can only reconcile without source callbacks") from None
+                # An armed run resumes (resuming above); this armed.json is not a regular file.
+                raise Refusal("LIVE_COLD_RESTART", "armed.json exists but is not a regular file, so this start can "
+                                                   "neither arm nor resume the run") from None
             # The run's first highest equity: its start, from which the brake and the page's chart count.
             session.event("equity_peak", equity=str(session.brake.peak), observed_ns=snapshot["observed_ns"])
         else:
@@ -294,8 +301,7 @@ def execute(args) -> int:
                     raise
         if session.native_flat:
             final_snapshot = observer.snapshot(manifest["symbols"])
-            observation = "final-account-" + str(final_snapshot["observed_ns"]) + ".json"
-            write_json(args.output / observation, final_snapshot)
+            observation = keep(args.output, "final-account", final_snapshot)
             require_flat(final_snapshot)
             session.event("clean_stop" if args.mode == "run" else "reconciled_flat",
                           source_failed=session.failed, observation=observation)
@@ -308,8 +314,7 @@ def execute(args) -> int:
             session.event("unresolved", mode=args.mode)
             return 1
         final_snapshot = observer.snapshot(manifest["symbols"])
-        observation = "final-account-" + str(final_snapshot["observed_ns"]) + ".json"
-        write_json(args.output / observation, final_snapshot)
+        observation = keep(args.output, "final-account", final_snapshot)
         if not venue_flat(session, final_snapshot, observation):
             session.event("reconcile_stopped", mode=args.mode)
         return 0

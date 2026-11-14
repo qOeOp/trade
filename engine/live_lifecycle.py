@@ -51,7 +51,8 @@ def source_outcome(session: Session, cache) -> None:
 
 
 class Observer(Strategy):
-    """Observe native state; only a fresh run may ask its source to exit owned positions."""
+    """Observe native state; only a start with sources (a run's first, or a resumed one on a flat account) may ask them
+    to exit owned positions."""
 
     def __init__(self, session: Session):
         super().__init__(StrategyConfig(strategy_id=StrategyId("LIVE-OBSERVER")))

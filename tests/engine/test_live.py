@@ -244,7 +244,7 @@ class LiveTests(unittest.TestCase):
                         live_lifecycle.Observer.on_socket_state(observer, SimpleNamespace(client_id="BINANCE",
                             endpoint="user-stream", state=SocketState.DISCONNECTED))
                     else:
-                        session.stop_requested.set()
+                        (self.output / "STOP").touch()
                         live_lifecycle.Observer.observe(observer)
                     self.assertIsNone(session.account_observation)
                     session.node.handle.return_value.stop.assert_called_once()
@@ -257,6 +257,7 @@ class LiveTests(unittest.TestCase):
                     session.account_reader.snapshot.assert_called_once()
                 finally:
                     release.set()
+                    (self.output / "STOP").unlink(missing_ok=True)
 
     def test_native_source_blocks_entries_after_stop_but_receives_fills(self):
         loaded = live.source_for_run(self.manifest)
@@ -346,7 +347,7 @@ class LiveTests(unittest.TestCase):
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
         try:
             source = session.sources["BTCUSDT"]
-            session.stop_requested.set()
+            (self.output / "STOP").touch()
             order = source.order_factory.market(InstrumentId.from_str("BTCUSDT-PERP.BINANCE"),
                                                 OrderSide.BUY, Quantity.from_str("0.001"))
             with self.assertRaisesRegex(LiveRefusal, "LIVE_ENTRY_STOPPED"):

@@ -46,7 +46,8 @@ WARMING: set[str] = set()  # the strategy IDs whose warm-up has not ended (engin
 CONTRACTS: dict[str, Any] = {}  # strategy ID -> its instance's own InstrumentId (engine.history.Warming._warming_setup)
 
 
-def _cache(source):
+def native_cache(source):
+    """The native cache of `source`, past the source's own read-only `cache` (engine.strategy)."""
     return Strategy.cache.__get__(source, type(source))
 
 
@@ -83,7 +84,7 @@ def violation(source, order, position_id=None, client_id=None, params=None) -> s
     clock = Strategy.clock.__get__(source, type(source))
     if order.time_in_force == TimeInForce.GTD and order.expire_time_ns - clock.timestamp_ns() < GTD_MINIMUM_NS:
         return "a GTD order expires at least 600 seconds after it is sent"
-    cache = _cache(source)
+    cache = native_cache(source)
     if order.is_reduce_only:
         position = cache.position(position_id) if position_id is not None else None
         if (position is None or not position.is_open or position.strategy_id != order.strategy_id
@@ -168,7 +169,7 @@ class OrderRules:
 
     def _foreign(self, client_order_ids) -> list:
         """The IDs of known orders of another strategy (native cancellation ignores an unknown one)."""
-        cache = _cache(self)
+        cache = native_cache(self)
         return [str(identity) for identity in client_order_ids
                 if (found := cache.order(identity)) is not None and found.strategy_id != _strategy_id(self)]
 

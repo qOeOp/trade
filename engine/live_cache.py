@@ -1,7 +1,7 @@
 """Private native Redis persistence for Live; venue reconciliation owns recovery.
 
-This is process custody, not a snapshot or an alternative account ledger. An
-interrupted runner is only reopened in observation/reconciliation mode.
+This is process custody, not a snapshot or an alternative account ledger. A resumed start of an armed run
+(engine.live) and reconciliation reopen the retained cache; only a run's first start opens a new one.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class LiveCache:
         self.closed = False
         self.root = output / "native-cache"
         if resume and not (self.root / "appendonlydir").is_dir():
-            raise Refusal("LIVE_CACHE_MISSING", "reconciliation needs the retained native cache")
+            raise Refusal("LIVE_CACHE_MISSING", "a resumed start or reconciliation needs the retained native cache")
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.root, 0o700)
         self.log = (output / "native-cache.log").open("ab")

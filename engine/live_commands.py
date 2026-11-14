@@ -11,9 +11,9 @@ from nautilus_trader.trading import Strategy
 from engine import live_connection
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import require_admission, require_account_mode, require_clock
-from engine.order_rules import ENTRY_EQUITY_MULTIPLE, ENTRY_TYPES, exposure
+from engine.order_rules import ENTRY_EQUITY_MULTIPLE, ENTRY_TYPES, exposure, native_cache
 from engine.config import symbol_of
-from engine.live_records import strategy_ids, write_json
+from engine.live_records import keep, strategy_ids
 if TYPE_CHECKING:
     from engine.live_session import Session
 
@@ -27,8 +27,9 @@ class AccountObservation:
 CLOCKED = frozenset({"entry", "compare"})
 
 
-def observe_account(reader, symbols: tuple[str, ...], purpose: str) -> AccountObservation:
+def observe_account(session: Session, purpose: str) -> AccountObservation:
     """Read-only I/O must not block native socket, protection or expiry dispatch."""
+    reader, symbols = session.account_reader, list(session.manifest["symbols"])
     future: Future = Future()
 
     def read():
@@ -37,7 +38,7 @@ def observe_account(reader, symbols: tuple[str, ...], purpose: str) -> AccountOb
         try:
             # An entry's read and the connection's comparison also bound the clock (design §3.9, require_clock).
             clock = reader.clock() if purpose in CLOCKED else None
-            snapshot = reader.snapshot(list(symbols))
+            snapshot = reader.snapshot(symbols)
             if clock is not None:
                 snapshot["clock"] = clock
         except BaseException as exc:
@@ -46,7 +47,7 @@ def observe_account(reader, symbols: tuple[str, ...], purpose: str) -> AccountOb
             future.set_result(snapshot)
 
     observation = AccountObservation(purpose, time.monotonic() + 30, future)
-    # The worker holds no Session, strategy, order or native object. A late HTTP
+    # The worker holds no Session, strategy, order or native object: only the reader and the symbols. A late HTTP
     # response cannot re-arm the run, and shutdown never joins this read-only task.
     threading.Thread(target=read, name="live-account-observation", daemon=True).start()
     return observation
@@ -59,6 +60,10 @@ class PendingEntry:
     client_id: Any
     bar_type: Any = None  # the bar the source was handling when it decided, if any
     deadline_ns: int | None = None  # set when the entry is held at a closed gate (engine.live_connection.hold)
+
+    def held_ns(self) -> int | None:
+        """How long a held entry has waited since its decision; None for one never held."""
+        return time.time_ns() - self.order.ts_init if self.deadline_ns is not None else None
 
 
 def pending_orders(cache, strategy_id=None) -> list:
@@ -76,7 +81,7 @@ def require_connection(session: Session) -> None:
 def start_observation(session: Session, purpose: str) -> None:
     if session.account_observation is not None:
         raise Refusal("LIVE_ENTRY_STOPPED", "only one account observation may be outstanding")
-    session.account_observation = observe_account(session.account_reader, tuple(session.manifest["symbols"]), purpose)
+    session.account_observation = observe_account(session, purpose)
     source = session.any_source()
     if purpose == "entry" and source is not None:
         # Nautilus's risk engine checks the entry's margin against the native free balance, which a canceled or expired
@@ -112,8 +117,7 @@ def observed_account(session: Session, purpose: str, observation: AccountObserva
 def verify_connected_account(session: Session, snapshot: dict) -> None:
     if session.connection_failed or session.observe_stop_intent():
         raise Refusal("LIVE_CONNECTION_UNVERIFIED", "a stopped connection cannot accept an account observation")
-    observation = "connected-account-" + str(snapshot["observed_ns"]) + ".json"
-    write_json(session.output / observation, snapshot)
+    observation = keep(session.output, "connected-account", snapshot)
     if session.mode == "run":
         # A contract not TRADING closes entries on it alone (engine.live_connection.contract); the others are admitted.
         live_connection.contract(session, snapshot)
@@ -152,7 +156,7 @@ def require_entry(session: Session, order) -> None:
         raise Refusal("LIVE_ORDER_UNSUPPORTED", "the trial accepts one independent base-quantity LIMIT or STOP_MARKET entry")
     if order.time_in_force == TimeInForce.GTD and order.expire_time_ns <= time.time_ns():
         raise Refusal("LIVE_ENTRY_STOPPED", "an expired entry cannot be dispatched after an account observation")
-    cache = Strategy.cache.__get__(source, type(source))
+    cache = native_cache(source)
     if cache.instrument(order.instrument_id) is None:
         raise Refusal("LIVE_INSTRUMENT_UNKNOWN", "entry valuation requires the native instrument")
 
@@ -162,7 +166,7 @@ def require_entry_size(session: Session, order, equity: Decimal) -> None:
     average open price, open entries and this one at their limit or trigger price) is at most ENTRY_EQUITY_MULTIPLE
     times `equity`, the USDT equity require_admission read from this entry's own account observation."""
     source = session.any_source()
-    cache = Strategy.cache.__get__(source, type(source))
+    cache = native_cache(source)
     found = exposure(cache, order)
     if found is None or not 0 < found <= ENTRY_EQUITY_MULTIPLE * equity:
         raise Refusal("LIVE_BUDGET", "the strategy's exposure with this entry exceeds 3 times the account's USDT equity")
@@ -188,8 +192,7 @@ def dispatch_entry(session: Session) -> None:
         snapshot = observed_account(session, "entry")
         if snapshot is None:
             return
-        observation = "entry-account-" + str(snapshot["observed_ns"]) + ".json"
-        write_json(session.output / observation, snapshot)
+        observation = keep(session.output, "entry-account", snapshot)
         live_connection.contract(session, snapshot)
         if not live_connection.entries_open(session, symbol):
             return  # its contract is not TRADING: the entries on it were denied natively, the others wait
@@ -206,9 +209,8 @@ def dispatch_entry(session: Session) -> None:
             # user, 2026-11-13). Removed first, as before a submit: its callbacks run at once.
             session.pending_entries.pop(0)
             session.account_observation = None
-            held = time.time_ns() - pending.order.ts_init if pending.deadline_ns is not None else None
             try:
-                live_connection.deny(session, pending.order, "entry_clock_skew", held, reason="clock")
+                live_connection.deny(session, pending.order, "entry_clock_skew", pending.held_ns(), reason="clock")
             except Exception as failed:
                 live_connection.refused(session, pending, getattr(failed, "code", type(failed).__name__), str(failed)[:1000])
                 raise
@@ -222,7 +224,7 @@ def dispatch_entry(session: Session) -> None:
         session.account_observation = None
         if pending.deadline_ns is not None:
             session.event("entry_released", strict=False, client_order_id=str(pending.order.client_order_id),
-                          held_ns=time.time_ns() - pending.order.ts_init, observation=observation)
+                          held_ns=pending.held_ns(), observation=observation)
         pending.submit(pending.order, client_id=pending.client_id)
         if session.pending_entries and session.account_observation is None:
             start_observation(session, "entry")

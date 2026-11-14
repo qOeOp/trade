@@ -16,7 +16,7 @@ from engine import live_commands as commands, live_connection
 from engine.live_commands import PendingEntry
 from engine.live_records import contract, owned, strategy_ids
 from engine.live_session import Session
-from engine.order_rules import OrderRules
+from engine.order_rules import OrderRules, native_cache
 from engine.load import LoadedStrategy, load_strategy, read_regular_file, read_universe
 from engine.membership import MONTHS, Membership, month_end_ns, opening
 
@@ -38,21 +38,8 @@ class _LiveConfigured(history.Warming):
     _orders_allowed: Any  # engine.order_rules.OrderRules, after this class in the source's bases
     _source_constructor_args: tuple[tuple, dict]
 
-    def __new__(cls, session, loaded, symbol):
+    def __new__(cls, session, loaded, symbol, start, membership):
         iid = contract(symbol)
-        # T: the source is warmed then (engine.history), and its input starts with the minute after it.
-        start = history.start_at(time.time_ns())
-        universe = Path(session.manifest["universe_file"])
-        if hashlib.sha256(read_regular_file(universe)).hexdigest() != session.manifest["universe_sha256"]:
-            raise Refusal("LIVE_IDENTITY_CHANGED", "the captured universe does not match the manifest")
-        # The universe file holds the months to the market day's; each later month comes from the control's month
-        # files beside it, as Paper's (engine.membership; live.runs.write_months_locked).
-        known = month_end_ns(int(datetime.fromisoformat(session.manifest["market"]["market_day"]).replace(
-            tzinfo=UTC).timestamp()) * 10**9)
-        membership = Membership(
-            symbol, opening(read_universe(universe, [symbol])[symbol], start, known), known, universe.parent / MONTHS,
-            now=time.time_ns, record=lambda kind, **fields: session.event(kind, strict=False, **fields),
-            stale_code="LIVE_MEMBERSHIP_STALE")
         args = (iid, BarType.from_str(f"{iid}-1-MINUTE-LAST-EXTERNAL"))
         kwargs = dict(
             trade_start_ns=start, execution_bar_minutes=EXECUTION_BAR_MINUTES,
@@ -60,7 +47,7 @@ class _LiveConfigured(history.Warming):
             universe_membership=membership)
         return strategy_runtime.allocate_strategy(cls, kwargs["strategy_id"], args, kwargs)
 
-    def __init__(self, session: Session, loaded: LoadedStrategy, symbol: str):
+    def __init__(self, session: Session, loaded: LoadedStrategy, symbol: str, start: int, membership: Membership):
         self._live = session
         self._live_symbol = symbol  # the instance's own contract: it orders on nothing else (engine.order_rules)
         args, kwargs = self._source_constructor_args
@@ -98,9 +85,11 @@ class _LiveConfigured(history.Warming):
             # TRADING (the user, 2026-11-13).
             holdable = live_connection.holdable(self._live, symbol)
             denied = closed and not holdable and live_connection.deniable(self._live, symbol) and (halted or bool(
-                owned(Strategy.cache.__get__(self, type(self)).positions_open, self._live.manifest)))
+                owned(native_cache(self).positions_open, self._live.manifest)))
             if closed and not holdable and not denied:
-                live_connection.refuse(self._live, live_connection.gate_reason(self._live, symbol))
+                raise Refusal("LIVE_CONNECTION_UNVERIFIED", f"entries are closed "
+                              f"({live_connection.gate_reason(self._live, symbol)}) until the venue and the native "
+                              "cache agree again")
             commands.require_entry(self._live, order)
             self._orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
             if not self._live_membership.member_at(self._warming_clock().timestamp_ns()):
@@ -126,7 +115,7 @@ class _LiveConfigured(history.Warming):
             raise
 
     def owned_position(self, position_id):
-        cache = Strategy.cache.__get__(self, type(self))
+        cache = native_cache(self)
         position = cache.position(position_id) if position_id is not None else None
         if (position is None or not position.is_open
                 or position.strategy_id != strategy_ids(self._live.manifest)[self._live_symbol]
@@ -228,7 +217,7 @@ def _gated(name: str, method):
             if live_connection.held_bar(self._live, args[0]):
                 return None  # the run ends before the source decides again (engine.live_connection.held_bar)
             if live_connection.rewarm_due(self._live) and live_connection.rewarm_pending(
-                    self._live, Strategy.cache.__get__(self, type(self))):
+                    self._live, native_cache(self)):
                 # A flat source decides on nothing after a gap, or once a new runtime image waits: the next start warms
                 # it up again. A bar withheld for a switch commits this start to end, so a cancel arriving before the
                 # comparisons never lets the source decide again with a bar it did not see.
@@ -304,4 +293,19 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     callbacks = strategy_runtime.deferred_start(callbacks)
     combined = type("LiveSource_" + loaded.content_hash,
                     (strategy_runtime.Subscriptions, _LiveConfigured, OrderRules, loaded.strategy_class), callbacks)
-    return {symbol: combined(session, loaded, symbol) for symbol in session.manifest["symbols"]}
+    # One T for every instance: each is warmed then (engine.history), and its input starts with the minute after it.
+    start = history.start_at(time.time_ns())
+    universe = Path(session.manifest["universe_file"])
+    if hashlib.sha256(read_regular_file(universe)).hexdigest() != session.manifest["universe_sha256"]:
+        raise Refusal("LIVE_IDENTITY_CHANGED", "the captured universe does not match the manifest")
+    # The universe file holds the months to the market day's; each later month comes from the control's month files
+    # beside it, as Paper's (engine.membership; live.runs.write_months_locked).
+    known = month_end_ns(int(datetime.fromisoformat(session.manifest["market"]["market_day"]).replace(
+        tzinfo=UTC).timestamp()) * 10**9)
+    intervals = read_universe(universe, session.manifest["symbols"])
+
+    def record(kind: str, **fields) -> None:
+        session.event(kind, strict=False, **fields)
+    return {symbol: combined(session, loaded, symbol, start, Membership(
+        symbol, opening(intervals[symbol], start, known), known, universe.parent / MONTHS, now=time.time_ns,
+        record=record, stale_code="LIVE_MEMBERSHIP_STALE")) for symbol in session.manifest["symbols"]}

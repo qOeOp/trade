@@ -20,6 +20,7 @@ from engine import live_commands as commands
 from engine.live_commands import AccountObservation, PendingEntry, pending_orders
 from engine.config import symbol_of
 from engine.live_records import owned, strategy_ids
+from engine.order_rules import native_cache
 
 STOP_GRACE_SECONDS = 30
 CANCEL_RETRY_SECONDS = 5
@@ -33,7 +34,6 @@ class Session:
     manifest: dict
     output: Path
     mode: str
-    stop_requested: threading.Event = field(default_factory=threading.Event)
     # SIGTERM or SIGINT (Docker stop, a host shutdown): entries are withdrawn, positions and their exchange stops stay,
     # and the same run resumes when its runner starts again (design §3.4).
     interrupt_requested: threading.Event = field(default_factory=threading.Event)
@@ -129,14 +129,13 @@ class Session:
 
     def observe_stop_intent(self) -> bool:
         """Apply operator intent at dispatch/submission, without waiting for a timer."""
-        if self.rewarming and (strategy_runtime.FAILURES or self.stop_requested.is_set()
-                               or (self.output / "STOP").exists() or self.duration_reached()):
+        if self.rewarming and (strategy_runtime.FAILURES or (self.output / "STOP").exists() or self.duration_reached()):
             self.rewarming = self.stopping = False  # a stop that ends the run supersedes starting it again
             self.failed = self.failed or self.warmup_retried  # a warm-up that failed and is not tried again
         if strategy_runtime.FAILURES:
             self.failed = True
             self.begin_stop("source_failure")
-        elif self.stop_requested.is_set() or (self.output / "STOP").exists():
+        elif (self.output / "STOP").exists():
             self.begin_stop("requested")
         elif self.interrupt_requested.is_set() and not self.stopping:
             self.interrupting = True
@@ -259,7 +258,7 @@ class Session:
         source = self.any_source()
         if source is None:
             return
-        cache = Strategy.cache.__get__(source, type(source))
+        cache = native_cache(source)
         for order in owned(lambda strategy_id: pending_orders(cache, strategy_id), self.manifest):
             if order.is_reduce_only:
                 continue

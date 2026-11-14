@@ -152,9 +152,9 @@ class ConstructionTests(unittest.TestCase):
     def test_live_wrapper_reads_inputs_once_and_uses_native_factory(self):
         loaded = self.load()
         universe = self.root / "universe.json"
-        universe.write_text(json.dumps({"membership": {"BTCUSDT": [[0, 1000]]}}))
+        universe.write_text(json.dumps({"membership": {"BTCUSDT": [[0, 1000]], "ETHUSDT": [[0, 1000]]}}))
         manifest = dict(run_id="constructor", trader_id="LIVE-001", account_id="BINANCE-001",
-                        symbols=["BTCUSDT"], universe_file=str(universe),
+                        symbols=["BTCUSDT", "ETHUSDT"], universe_file=str(universe),
                         universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                         config={"duration_seconds": 30}, market=dict(market_day=MARKET_DAY))
         session = live.Session(manifest, self.root, "run")
@@ -163,12 +163,14 @@ class ConstructionTests(unittest.TestCase):
             node = live.build_node(session, Credentials("fixture", "fixture"),
                                    RedisCacheConfig(host="127.0.0.1", port=1), loaded)
         try:
+            # One read of the universe and one T for every contract's instance.
             read_universe.assert_called_once()
             now.assert_called_once()
-            [source] = session.sources.values()
-            self.assertEqual(source._replay_input_start_ns, history.start_at(123))
-            self.assert_native_config(source)
-            self.assertEqual(type(source).__module__, "engine.live")
+            self.assertEqual(len(session.sources), 2)
+            for source in session.sources.values():
+                self.assertEqual(source._replay_input_start_ns, history.start_at(123))
+                self.assert_native_config(source)
+                self.assertEqual(type(source).__module__, "engine.live")
         finally:
             node.dispose()
             session.node, session.sources, source = None, {}, None
