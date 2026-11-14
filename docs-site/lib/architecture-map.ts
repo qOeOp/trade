@@ -1,19 +1,14 @@
-import type { Locale } from '@/lib/i18n';
-
-export type Copy = Record<Locale, string>;
 export type ArchitectureItem = {
   id: string;
   title: string;
   parent?: string;
   kind: 'region' | 'component';
-  description?: Copy;
   docsRoute: string;
 };
 export type ArchitectureRelation = {
   id: string;
   source: string;
   target: string;
-  description: Copy;
 };
 export type Rect = { x: number; y: number; width: number; height: number };
 export type Point = [number, number];
