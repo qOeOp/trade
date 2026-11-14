@@ -43,6 +43,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Paper (breaking): the run listing (`GET /api/paper/runs`) names a run's readings so far `readings` instead of
   `live`, the name its stream's `readings` event already has. The release gate's probe reads the new name, so
   reinstall the host's control code with the release (`sh deploy/remote/install-release.sh`), as every release does.
+- Command line (breaking): a market day is `--market-day` on every command (was `--at` on `replay explore`,
+  `precheck` and `run`, `market`, `paper` and `live compare`, and `--market-at` on `line select`, `line history` and
+  `validation registration`); `--at` is only a ledger commit. `source review` takes `--trial-id` (was `--precheck-trial`) and `validation report`
+  `--validation` (was `--registration-id`). `ledger export --trial-id`, `paper start --memory` and `paper stop
+  --wait-seconds` are gone: an export lists every run, and Paper sizes its runner and waits 60 s on stop.
 - Refusals (breaking): one code per condition. A market reference is `head` or a day (`main` is refused); a
   bad or late market day is `MARKET_DAY_UNKNOWN` (was `UNKNOWN_REF` or `MARKET_DAY_INVALID`), a contract the market day
   lacks `UNKNOWN_SYMBOL` (was `NO_TERMS`), a bad contract list `EMPTY_SYMBOLS` (was `IMPORT_SCOPE`), and Paper with
