@@ -27,8 +27,7 @@ No image contains market data: a deployment downloads it into its own market dir
 | python-dateutil | Apache-2.0 AND BSD-3-Clause |
 | tzdata | Apache-2.0 |
 | packaging | Apache-2.0 OR BSD-2-Clause |
-| simplejson | MIT OR AFL-2.1 |
-| attrs, choreographer, jsonschema, jsonschema-specifications, kaleido, logistro, narwhals, platformdirs, plotly, pymysql, referencing, rpds-py, six | MIT |
+| attrs, jsonschema, jsonschema-specifications, narwhals, plotly, pymysql, referencing, rpds-py, six | MIT |
 
 ## Binaries in the images
 
