@@ -22,6 +22,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+## 0.3.1 (2026-11-14)
+
+Fixes the release process that failed the 0.3.0 host upgrade (`docs/plans/doctor/2026-11-14-release-control-skew.zh.md`).
+No product or data format changes; only the host's release control.
+
 - Host release: a version moves Web (with its Agent and paired Live control) and the Paper controller together, or
   neither. The Paper controller switches inside the Web release, before the Web candidate warms, so the Web is
   warmed and observed against the Paper controller of its own version; a failure on either side before the Web
@@ -38,6 +43,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   host installed earlier, stop `trade-release.timer` before this version is tagged, then once it is admitted check
   out the tag in `/opt/trade-app` and run `sudo sh deploy/remote/install-release.sh control`; the next tick hands
   over ([Release control code](deploy/remote/README.md#release-control-code)).
+- Host release: deleting a version's `failed/<revision>` marker retries it; the next tick removes the stopped
+  candidate containers of that revision before creating them again. Before, the retained candidate refused the retry
+  (doctor 20261114-17).
+- Host release: a failed tick is logged as `Release tick failed` and its notice no longer claims Web stayed when Web
+  had moved (doctor 20261114-18).
 
 ## 0.3.0 (2026-11-14)
 
