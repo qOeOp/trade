@@ -101,7 +101,7 @@ class Service:
                        dolt_binary=BINARY, holds=holds)["profile"]
 
     def admin(self, profile: db.LedgerProfile, branch: str | None = None):
-        config = db._service(profile.service_root)
+        config = db.service_config(profile.service_root)
         return pymysql.connect(unix_socket=config["socket"], user="root", password=config["root_password"],
                                database=f"{profile.database}/{branch or db.BRANCH}", autocommit=True)
 

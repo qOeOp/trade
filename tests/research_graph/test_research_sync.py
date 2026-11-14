@@ -8,7 +8,7 @@ import unittest
 from unittest import mock
 
 from tests.research_graph.test_serve import FakeProduct, POLL, serve
-from cli import replica
+from ledger import replica
 
 
 class ResearchSyncTests(unittest.TestCase):

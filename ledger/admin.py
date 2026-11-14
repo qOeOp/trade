@@ -62,13 +62,6 @@ def require_reader(conn: db.LedgerConnection) -> None:
         raise refuse("LEDGER_PERMISSION", "the connection's account holds a write privilege; use the reader account")
 
 
-def _admin(profile: db.LedgerProfile):
-    config = db._service(profile.service_root)
-    if config is None:
-        raise refuse("LEDGER_UNKNOWN", f"{profile.service_root} is not a ledger service directory")
-    return config, db._admin(config, database=profile.database)
-
-
 @overload
 def backup_path(profile: db.LedgerProfile, destination: Path) -> Path: ...
 
@@ -183,8 +176,9 @@ def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> None:
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     existing = target.is_dir() and any(target.iterdir())
     previous = backup_head(target) if existing else None
+    config = db._known_service(profile.service_root)
     try:
-        _, admin = _admin(profile)
+        admin = db._admin(config, database=profile.database)
     except pymysql.MySQLError as exc:
         raise refuse("DOLT_BACKUP", "the service administrator could not connect for the backup") from exc
     try:

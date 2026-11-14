@@ -34,10 +34,8 @@ from shared.refusals import refuse
 PATH = "/api/setup/"
 BODY = 4096
 ADDRESS = re.compile(r"[A-Za-z0-9.-]+:[0-9]+")
-HOST = "https://doltremoteapi.dolthub.com/"
-NAME = r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+"
-PAGE_URL = re.compile(rf"(?:https?://)?(?:www\.)?dolthub\.com/repositories/({NAME})(?:[/?#].*)?")
-PLAIN = re.compile(rf"(?:{re.escape(HOST)})?({NAME})/?")
+PAGE_URL = re.compile(rf"(?:https?://)?(?:www\.)?dolthub\.com/repositories/({publish.REPOSITORY})(?:[/?#].*)?")
+PLAIN = re.compile(rf"(?:{re.escape(publish.HOST)})?({publish.REPOSITORY})/?")
 
 
 def _log(text: str) -> None:
@@ -51,7 +49,7 @@ def origin_of(repository: str) -> str:
     if found is None:
         raise refuse("REMOTE_INVALID", f"{text!r} does not name a DoltHub repository", missing=(text,),
                      expected="owner/repository, or the address of its DoltHub page")
-    return HOST + found[1]
+    return publish.HOST + found[1]
 
 
 def _dolt(binary: str, home: Path, *arguments: str) -> subprocess.CompletedProcess:
@@ -120,13 +118,13 @@ class _Page:
 
     def answer(self) -> dict:
         with self.changed:
-            return {"state": self.state, "repository": (self.origin or "").removeprefix(HOST) or None,
+            return {"state": self.state, "repository": (self.origin or "").removeprefix(publish.HOST) or None,
                     "public_key": self.public_key, "step": self.step, "refusal": self.refusal}
 
     def ask(self, repository: str | None) -> dict:
         """Start with `repository` (None: the one already known), unless one is running or nothing can start."""
         with self.changed:
-            known = repository and repository.strip() in (self.origin, (self.origin or "").removeprefix(HOST))
+            known = repository and repository.strip() in (self.origin, (self.origin or "").removeprefix(publish.HOST))
             origin = origin_of(repository) if repository and not known else None
             if self.state == "waiting":
                 if origin is None and self.origin is None:

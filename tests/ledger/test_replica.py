@@ -11,8 +11,7 @@ from unittest.mock import patch
 
 import pymysql
 
-from cli import replica as controller, service
-from ledger import db, paper, publish, replica, strategies
+from ledger import db, paper, publish, replica, service, strategies
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, source
 
@@ -34,7 +33,7 @@ class ReplicaTests(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
         with patch.object(service, "LISTEN", "127.0.0.1"):
-            self.server, self.mirror = controller.start(
+            self.server, self.mirror = replica.start(
                 self.root / "s", self.root / "data", self.root / "backup", self.origin, db._free_port(),
                 self.root / "readers", self.root / "controllers", BINARY, subprocess_log := tempfile.TemporaryFile())
         self.addCleanup(subprocess_log.close)
@@ -93,14 +92,14 @@ class ReplicaTests(unittest.TestCase):
 
     def test_failed_fetch_preserves_visible_research_and_execution(self):
         before = replica.status(self.mirror)["ledger_commit"]
-        original = publish._rows
+        original = db.cursor_rows
 
         def offline(cursor, statement, arguments=()):
             if statement == "CALL DOLT_FETCH('origin')":
                 raise pymysql.OperationalError(2013, "isolated disconnected origin")
             return original(cursor, statement, arguments)
 
-        with patch("ledger.replica.publish._rows", side_effect=offline):
+        with patch("ledger.db.cursor_rows", side_effect=offline):
             with self.assertRaises(Refusal) as caught:
                 replica.sync(self.mirror)
         self.assertEqual(caught.exception.code, "REPLICA_SYNC_FAILED")
@@ -154,8 +153,8 @@ class ReplicaTests(unittest.TestCase):
     def test_background_sync_invokes_one_cli_operation_and_reports_the_new_head(self):
         strategies.publish_candidate(self.research, source("background"), "background", "Fixture", "new source")
         publish.publish(self.research)
-        sync = controller.Sync(self.mirror)
-        with patch("cli.replica.subprocess.run", wraps=controller.subprocess.run) as command:
+        sync = replica.Sync(self.mirror)
+        with patch("ledger.replica.subprocess.run", wraps=replica.subprocess.run) as command:
             self.assertEqual(sync.request(), {"state": "syncing"})
             self.assertEqual(sync.request(), {"state": "syncing"})
             until = time.monotonic() + 15
@@ -168,7 +167,7 @@ class ReplicaTests(unittest.TestCase):
     def test_lost_fast_forward_reply_is_confirmed_without_reset_or_duplicate_work(self):
         strategies.publish_candidate(self.research, source("lost-reply"), "reply", "Fixture", "remote change")
         publish.publish(self.research)
-        original = publish._rows
+        original = db.cursor_rows
 
         def lost_reply(cursor, statement, arguments=()):
             result = original(cursor, statement, arguments)
@@ -176,7 +175,18 @@ class ReplicaTests(unittest.TestCase):
                 raise pymysql.OperationalError(2013, "isolated lost reply after successful fast-forward")
             return result
 
-        with patch("ledger.replica.publish._rows", side_effect=lost_reply):
+        with patch("ledger.db.cursor_rows", side_effect=lost_reply):
             result = replica.sync(self.mirror)
         self.assertTrue(result["changed"])
         self.assertEqual(replica.status(self.mirror)["ledger_commit"], result["ledger_commit"])
+
+
+class OriginTests(unittest.TestCase):
+    def test_the_mirror_takes_only_the_dolthub_repository_form_publish_takes(self):
+        with tempfile.TemporaryDirectory() as root, patch.object(replica.service, "start") as started:
+            for origin in ("https://doltremoteapi.dolthub.com/", "https://doltremoteapi.dolthub.com/a/b/c",
+                           "https://doltremoteapi.dolthub.com/a/b?x=1", "https://user@doltremoteapi.dolthub.com/a/b"):
+                with self.subTest(origin=origin), self.assertRaises(Refusal) as caught:
+                    replica.start(Path(root), Path(root), Path(root), origin, 0, Path(root), Path(root))
+                self.assertEqual(caught.exception.code, "USAGE_ERROR")
+            started.assert_not_called()
