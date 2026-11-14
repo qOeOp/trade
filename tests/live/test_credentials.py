@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from engine.live_errors import LiveRefusal
 from engine.live_venue import read_credentials
-from live import credentials, requests, runs, state
+from live import credentials, release, requests, runs, state
 from tests.live.authority_fixture import recover
 from tests.live.test_runs import IDENTITY
 from tests.helpers import refused
@@ -436,77 +436,25 @@ class CredentialStoreTests(unittest.TestCase):
         self.assertEqual([row["credential_ref"] for row in credentials.listing_locked(self.root) if row["selected"]],
                          [self.other])
 
-    def old_format(self, run_id="old-format"):
-        """A run an earlier release prepared ('live-run' was v0.2.0's format) with the managed credential."""
+    def test_an_earlier_format_run_stays_on_disk_unread_and_holds_nothing(self):
+        """0.x keeps no compatibility (the user, 2026-11-14): a run an earlier version prepared, here
+        launched with no recorded end and no credential version, is neither listed nor read, and blocks no
+        credential change or release; its files stay as they were."""
         self.save()
-        return self.prepared(ref=self.ref, run_id=run_id, manifest_format="live-run")
-
-    def test_never_launched_old_format_run_releases_its_credential(self):
-        directory = self.old_format()
-        with patch.object(runs, "inspect_runner", side_effect=AssertionError("old-format runner inspected")):
-            self.assertEqual(credentials.listing_locked(self.root)[0]["referenced_runs"], [directory.name])
+        directory = self.prepared(run_id="old-format", manifest_format="live-run")
+        self.launch(directory)
+        before = {path: data for path, data in self.files().items() if path.startswith("runs/")}
+        with patch.object(runs, "inspect_runner", side_effect=AssertionError("earlier-format runner inspected")):
+            self.assertEqual(credentials.listing_locked(self.root)[0]["referenced_runs"], [])
             self.save(self.other)
             with state.serialized(self.root):
-                removed = credentials.remove_locked(self.root, self.ref)
-        self.assertTrue(removed["removed"])
-        self.assertEqual(removed["referenced_runs"], [directory.name])
-        with state.serialized(self.root), self.assertRaises(LiveRefusal) as caught:
-            credentials.run_path_locked(self.root, directory.name, "reconcile")
-        self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
-
-    def test_ended_and_recycled_old_format_run_releases_its_credential(self):
-        directory = self.old_format()
-        self.launch(directory)
-        state.append(self.root / "account.jsonl", "reserved", directory.name)
-        state.append(self.root / "account.jsonl", "released", directory.name, reason="native_and_venue_flat")
-        state.append(directory / "lifecycle.jsonl", "recycled", directory.name, state="clean_stopped", exit_code=0)
-        with patch.object(runs, "inspect_runner", side_effect=AssertionError("old-format runner inspected")):
-            self.save(self.other)
-        self.assertEqual([row["credential_ref"] for row in credentials.listing_locked(self.root) if row["selected"]],
-                         [self.other])
-
-    def test_old_format_run_without_a_recorded_end_keeps_its_credential(self):
-        def unsettled(directory):
-            self.launch(directory)
-        def recycled_but_active(directory):
-            self.launch(directory)
-            state.append(self.root / "account.jsonl", "reserved", directory.name)
-            state.append(directory / "lifecycle.jsonl", "recycled", directory.name, state="clean_stopped", exit_code=0)
-        def recycled_unresolved(directory):
-            self.launch(directory)
-            state.append(directory / "lifecycle.jsonl", "recycled", directory.name, state="unresolved", exit_code=1)
-        def armed_without_launch(directory):
-            state.write_new(directory / "out" / "armed.json", b"{}")
-        def native_rows_without_launch(directory):
-            state.append(directory / "out" / "events.jsonl", "connecting", directory.name)
-        for case in (unsettled, recycled_but_active, recycled_unresolved, armed_without_launch,
-                     native_rows_without_launch):
-            with self.subTest(case.__name__):
-                self.setUp()
-                directory = self.old_format()
-                case(directory)
-                before = self.files()
-                with patch.object(runs, "inspect_runner", return_value={"State": {"Status": "exited", "Running": False}}):
-                    caught = refused(self.save, self.other, error=LiveRefusal)
-                    self.assertEqual(caught.code, "LIVE_CREDENTIAL_BUSY")
-                    self.assertIn(f"run {directory.name} was prepared under an earlier manifest format", caught.message)
-                    with state.serialized(self.root), self.assertRaises(LiveRefusal):
-                        credentials.remove_locked(self.root, self.ref)
-                self.assertEqual(self.files(), before)
-                self.assertEqual(credentials.listing_locked(self.root)[0]["referenced_runs"], [directory.name])
-
-    def test_ended_unbound_old_format_run_does_not_need_secret_migration(self):
-        """v0.2.0's operator CLI prepared runs without a credential version."""
-        directory = self.prepared(manifest_format="live-run")
-        self.launch(directory)
-        state.append(self.root / "account.jsonl", "released", directory.name, reason="native_and_venue_flat")
-        state.append(directory / "lifecycle.jsonl", "recycled", directory.name, state="clean_stopped", exit_code=0)
-        state.append(directory / "lifecycle.jsonl", "stop_requested", directory.name)
-        with patch.object(runs, "inspect_runner", side_effect=AssertionError("archived runner inspected")):
-            self.save()
-        with state.serialized(self.root), self.assertRaises(LiveRefusal) as caught:
-            credentials.run_path_locked(self.root, directory.name, "reconcile")
-        self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
+                self.assertTrue(credentials.remove_locked(self.root, self.ref)["removed"])
+                self.assertEqual(release.idle_locked(self.root), "idle")
+                self.assertEqual(refused(credentials.run_path_locked, self.root, directory.name, "reconcile",
+                                         error=LiveRefusal).code, "LIVE_CREDENTIAL_UNMANAGED")
+            self.assertEqual(refused(runs.read_manifest, self.root, directory.name,
+                                     error=LiveRefusal).code, "LIVE_RECORD_UNAVAILABLE")
+        self.assertEqual({path: data for path, data in self.files().items() if path.startswith("runs/")}, before)
 
     def test_current_format_run_without_a_credential_version_is_unknown_ownership(self):
         self.save()

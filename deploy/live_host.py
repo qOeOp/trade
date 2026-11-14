@@ -11,7 +11,7 @@ import stat
 import subprocess
 import time
 
-from .release_host import (BACKEND, READERS, REVISION, RUNTIME_REF, SERVICE_REF, UNPRIVILEGED, WEB, ahead, contained,
+from .release_host import (BACKEND, READERS, REVISION, RUNTIME_REF, SERVICE_REF, UNPRIVILEGED, WEB, contained,
                            durable_json, revision, until_ready)
 from .live_configuration import (CONTROL, OPERATOR_FIELDS, absolute, declaration, read_object, snapshot)
 
@@ -58,15 +58,8 @@ class LiveHost:
         self.web, self.source, self.state = web, source, web.state
         self.declaration = self.state / "live/configuration.json"
 
-    @staticmethod
-    def own(name: str) -> str:
-        """The revision of the plain Web a control is bound to; a Web ahead of its control has none."""
-        if ahead(name):
-            raise RuntimeError("a Web serving ahead of the owner control has no control of its own")
-        return revision(name)
-
     def directory(self, name: str) -> Path:
-        return self.state / "live" / self.own(name)
+        return self.state / "live" / revision(name)
 
     def configuration(self, name: str) -> Path:
         return self.directory(name) / "configuration.json"
@@ -75,7 +68,7 @@ class LiveHost:
         return self.directory(name) / "socket"
 
     def name(self, web: str) -> str:
-        return LIVE + self.own(web)
+        return LIVE + revision(web)
 
     def declaration_value(self) -> dict:
         return declaration(self.declaration)
@@ -93,8 +86,7 @@ class LiveHost:
 
         A changed declaration reaches only a new control, paired while Live is idle; a running control and
         its prepared runs keep what they started with. The custody root never changes this way.
-        `owner` is the revision of the control behind the routed Web, or None when that Web has no Live.
-        Its own Web may be long gone after Web-only releases; only its control and snapshot are read.
+        `owner` is the revision of the routed Web, whose control owns the account, or None when it has no Live.
         """
         declared = self.declaration_value()
         operator = {key: declared[key] for key in OPERATOR_FIELDS}
@@ -192,13 +184,11 @@ class LiveHost:
         if not facts["running"]:
             self.web.docker("start", facts["id"])
 
-    def restore(self, web: str, owner: str | None) -> None:
-        """Keep the account's owner control running behind a Web that uses Live (`owner`: its revision)."""
+    def restore(self, web: str) -> None:
+        """Keep the control of a Web that uses Live running: it owns the account."""
         if self.web.requires_live(web):
-            if owner is None:
-                raise RuntimeError("a Web that uses Live has no owner control")
-            self.start(WEB + owner)
-            self.health(WEB + owner)
+            self.start(web)
+            self.health(web)
 
     def health(self, name: str) -> None:
         facts = self.checked(name)
@@ -217,13 +207,9 @@ class LiveHost:
         until_ready(lambda: self.health(name), 180, 3)
 
     @contextmanager
-    def barrier(self, name: str, service: str | None = None, *, idle: bool = False,
-                adopt: Callable[[list], bool] | None = None, wait_for_lock: bool = False):
-        """The metadata writer itself holds the existing inode; an inspector never owns this lock.
-
-        With `adopt` (only for a control that declares live.release.ADOPT_INSPECT) a busy account also admits, when
-        `adopt` accepts the runtime revisions of its busy runs, still inside the lock. An inspection that fails to
-        run or answer is an unavailable account (docs/plans/live-continuous-step6-adopt-20261113.zh.md)."""
+    def barrier(self, name: str, service: str | None = None, *, idle: bool = False, wait_for_lock: bool = False):
+        """The metadata writer itself holds the existing inode; an inspector never owns this lock. With `idle` the
+        account admits only while Live is idle; an inspection that fails to run or answer is an unavailable one."""
         configured = self.snapshot(name)
         declared = self.declaration_value()
         if configured["root"] != declared["root"]:
@@ -266,15 +252,11 @@ class LiveHost:
                         "run", "--rm", "--init", "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=67108864",
                         "--memory", "256m", *self.common(name, helper=True), "--entrypoint", "python", service,
                         "-m", "cli.main", "live", "release-inspect", "--configuration", str(self.configuration(name)),
-                        *(["--adopt"] if adopt is not None else []), timeout=180))
+                        timeout=180))
                 except (RuntimeError, subprocess.SubprocessError, ValueError):
                     value = {"state": "unavailable"}
                 held()
-                busy = (adopt is not None and isinstance(value, dict) and set(value) == {"state", "runtimes"}
-                        and value["state"] == "busy" and isinstance(value["runtimes"], list))
-                if busy and adopt is not None and adopt(value["runtimes"]):
-                    held()
-                elif busy or value in ({"state": "busy"}, {"state": "unavailable"}):
+                if value in ({"state": "busy"}, {"state": "unavailable"}):
                     raise LiveBusy("Live is active or unresolved; keep the current Web/control pair")
                 elif value != {"state": "idle"}:
                     raise RuntimeError("Live idle observation is unavailable")
@@ -284,10 +266,8 @@ class LiveHost:
             os.close(descriptor)
 
     def kept(self, name: str) -> bool:
-        """The committed owner, and any control whose socket the routed Web mounts, are never drained: the
-        second holds even if a route were written without its owner, so STOP stays reachable."""
-        return (revision(name) in {self.web.disk_owner(), self.web.live_owner()}
-                or self.socket(name) in self.web.mounted_sockets({self.web.disk_route(), self.web.live_route()}))
+        """The control of the committed or loaded Web owns the account and is never drained, so STOP stays reachable."""
+        return name in {self.web.disk_route(), self.web.live_route()}
 
     def _retired(self, name: str, identifier: str) -> dict:
         if (self.state / "transaction.json").exists() or self.kept(name):
@@ -311,26 +291,12 @@ class LiveHost:
         return not self._retired(name, identifier)["running"]
 
     def runtimes(self) -> set[str]:
-        """The runtime images the retained Live snapshots and every Live run name: its manifest's, and each one a
-        confirmed switch named or a launch ran on (lifecycle.jsonl, live/runs.py). A Live run launches with
-        `--pull never` (runtime/container.py), so whatever its state its images stay."""
+        """The runtime images the retained Live snapshots and every Live run name. A Live run launches on its
+        manifest's image with `--pull never` (runtime/container.py), so whatever its state that image stays."""
         found = {read_object(path)["runtime"] for path in (self.state / "live").glob("*/configuration.json")
                  if REVISION.fullmatch(path.parent.name)}
         runs = absolute(self.declaration_value()["root"]) / "runs"
-        found |= {read_object(path)["runtime"]["image_ref"] for path in runs.glob("*/inputs/manifest.json")}
-        for path in runs.glob("*/lifecycle.jsonl"):
-            for line in path.read_text(encoding="utf-8").splitlines():
-                try:
-                    row = json.loads(line)
-                except ValueError:  # an incomplete last line names nothing yet
-                    continue
-                if not isinstance(row, dict):
-                    continue
-                if row.get("event") == "launch_requested" and isinstance(row.get("image_ref"), str):
-                    found.add(row["image_ref"])
-                elif row.get("event") == "runtime_switch_requested" and isinstance(row.get("runtime"), dict):
-                    found.add(row["runtime"]["image_ref"])
-        return found
+        return found | {read_object(path)["runtime"]["image_ref"] for path in runs.glob("*/inputs/manifest.json")}
 
     def prune(self, kept: set[str]) -> None:
         """After the controllers are pruned, remove each revision directory that neither a kept revision nor a

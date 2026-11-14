@@ -41,8 +41,6 @@ class Session:
     interrupting: bool = False
     held_flat: bool = False  # a held resume saw the venue flat: the next start trades again
     rewarming: bool = False  # a missing bar while flat: the next start warms the source up again
-    switching: bool = False  # this rewarming was for the new runtime image the user confirmed (SWITCH)
-    switch_withheld: bool = False  # a bar was withheld for SWITCH: this start ends through rewarm, even if canceled
     # This start follows one that ended to warm up again (engine.live warmup_retry): if its warm-up fails, the run
     # starts once more instead of ending (the user, 2026-11-13); warmup_retried says this start does so.
     warmup_retry: bool = False

@@ -607,9 +607,7 @@ instance sees a further bar, and after two agreeing comparisons this start ends
 without closing anything (`rewarming`, exit status 3). The control starts the run again, whose warm-up reads Binance's
 complete bars (decision `docs/plans/live-bars-missing-rewarm-20261113.zh.md`). If that warm-up fails, the start ends the
 same way once more (`rewarming` with `retry`; it counts toward the control's three starts an hour); a second failure ends
-the run. A new runtime image the user confirmed for the run (the control writes `SWITCH` beside `STOP`, runner
-contract 2) takes the same path once the warmed-up strategy holds nothing: `rewarming` with `switch`, and the control
-starts the run again on that image (decision `docs/plans/live-continuous-step8-runtime-switch-20261113.zh.md`). Flat with only reduce-only orders left at Binance, the run waits with entries closed and cancels nothing. Once
+the run. Flat with only reduce-only orders left at Binance, the run waits with entries closed and cancels nothing. Once
 agreeing comparisons (every five minutes) have seen them at Binance for ten minutes, the user is told
 (`orphan_orders`): 10 to 20 minutes after the account went flat. The comparison also
 runs every five minutes while entries are open; two disagreeing reads in a row close them.
@@ -732,12 +730,11 @@ never reused; this run's native records may lack the close, and the account snap
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-4`) binds the checks to the runner: an older image refuses it before arming,
-and a run prepared under an earlier format is refused for every operation (`LIVE_RUN_FORMAT`). Its credential is
-still released when its own records settle it: never launched with no native output, or ended and recycled with no
-account slot. Any other such run blocks credential changes as an unresolved run does (`LIVE_CREDENTIAL_BUSY`).
-Only such a run may lack a credential version (v0.2.0's operator CLI prepared without one); a current-format run
-without one is unknown ownership and blocks credential changes (`LIVE_CREDENTIAL_BUSY`).
+A manifest's format (`live-run-4`) binds the checks to the runner: an older image refuses it before arming. 0.x
+keeps no compatibility between versions: a run an earlier version prepared stays on disk under `runs/`, and no
+listing, release check or operation reads it; only its runner container, while still running, keeps the account
+(`live/inventory.py`). A run without a credential version is unknown ownership and blocks credential changes
+(`LIVE_CREDENTIAL_BUSY`).
 An ended run (`clean_stopped`, `reconciled_flat`, `venue_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network when the paired controller maintains it or another run starts: their logs go to `containers/` in the run directory,
 where `logs` then reads them, and `lifecycle.jsonl` records the result for `status`. An unresolved run, or any runner

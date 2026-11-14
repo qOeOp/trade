@@ -89,10 +89,7 @@ class Host:
 
     def warm(self, name, protected):
         if self.failure == "warm" and name == PAPER + B:
-            raise RuntimeError("incompatible old format")
-
-    def compatible(self, name):
-        pass
+            raise RuntimeError("candidate never became ready")
 
     def switch(self, name, freeze=None):
         self.live = route_config(name, freeze)
@@ -210,8 +207,8 @@ class PaperReleaseTests(unittest.TestCase):
         self.assertEqual(self.host.disk, route_config(PAPER + B))
         self.assertFalse(any(c[0] == "stop" for c in self.host.calls))
 
-    def test_independent_route_change_during_compatibility_check_is_not_overwritten(self):
-        self.host.compatible = lambda _: setattr(self.host, "live", route_config(PAPER + C))
+    def test_independent_route_change_inside_the_lifecycle_barrier_is_not_overwritten(self):
+        self.host.ensure_protected = lambda _: setattr(self.host, "live", route_config(PAPER + C))
         with self.assertRaisesRegex(RuntimeError, "independent"):
             self.release.apply(TARGET)
         self.assertEqual(self.host.live, route_config(PAPER + C))

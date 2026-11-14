@@ -31,7 +31,15 @@ def _identity(found: dict) -> tuple[Path, str, str]:
     return report.parents[2], run_id, role
 
 
+def _exited(found: dict) -> bool:
+    return (found.get("State") or {}).get("Running") is False and (found.get("State") or {}).get("Status") == "exited"
+
+
 def _verified(root: Path, run_id: str, role: str, found: dict) -> None:
+    if runs.earlier(state.directory(root, run_id)):
+        if not _exited(found):  # an earlier version's run is never read, and one still running is never idle
+            raise _unavailable()
+        return
     directory, manifest = runs.read_manifest(root, run_id)
     name = found.get("Name", "").removeprefix("/")
     if role == "runner":
@@ -64,9 +72,7 @@ def require_clear(root: Path) -> None:
             with state.existing(owner, blocking=False):
                 _verified(owner, run_id, role, found)
                 from live import release
-                if (release.idle_locked(owner) != "idle"
-                        or (found.get("State") or {}).get("Running") is not False
-                        or (found.get("State") or {}).get("Status") != "exited"):
+                if release.idle_locked(owner) != "idle" or not _exited(found):
                     raise _unavailable()
     except (LiveRefusal, OSError, ValueError, KeyError, TypeError, AttributeError):
         raise _unavailable() from None

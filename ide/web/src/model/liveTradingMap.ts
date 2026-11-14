@@ -1,6 +1,5 @@
 import type { LiveHomeDto, LiveRunDto, LiveSourceDto } from "../lib/liveTradingDto";
 import { refusalText } from "./liveLaunchText";
-import { build, lastSwitch, runtimeOf } from "./liveRuntimeMap";
 import type { LiveAccountCheck, LiveFact, LiveRun, LiveTradingView } from "./liveTrading";
 
 const yesNo = (value: boolean | null | undefined) => value == null ? null : value ? "Yes" : "No";
@@ -109,8 +108,7 @@ function continuityOf(run: LiveRunDto, entries: LiveRun["entries"], compared: Li
   return [fact("Trading for", warmups[0]?.observed_ns ?? null, "since"), fact("Latest warm-up", warmups.at(-1)?.observed_ns ?? null, "nanoseconds"),
     { ...fact("Entries", entries?.text ?? null), attention: entries?.open === false }, fact("Last reconnect", reconnectOf(run), "nanoseconds"),
     { ...fact("Replay", compared ? `${compared.day} · ${compared.text}` : null), attention: compared?.attention ?? false },
-    ...key?.event === "key_check_failed" ? [{ ...fact("API key", refusalText(key.code ?? undefined)), attention: true }] : [],
-    ...run.switch ? [fact("Runtime", build(run.switch.current)), ...[lastSwitch(run)].filter((item) => item !== null)] : []];
+    ...key?.event === "key_check_failed" ? [{ ...fact("API key", refusalText(key.code ?? undefined)), attention: true }] : []];
 }
 
 /** Preserve source distinctions and unknowns; no fill aggregation or account-state inference. */
@@ -135,7 +133,7 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
     venue: account ? { canTrade: account.can_trade, hedgeMode: account.hedge_mode, multiAssets: account.multi_assets,
       wallet: account.usdt_wallet, available: account.usdt_available } : null,
     hostState: run.host.state, accountOwned: run.host.account_owned, heldNotice: heldNotice(run),
-    entries, compared, continuity: run.host.mode === "run" ? continuityOf(run, entries, compared) : [], runtime: runtimeOf(run),
+    entries, compared, continuity: run.host.mode === "run" ? continuityOf(run, entries, compared) : [],
     orders: run.orders, positions: run.positions, equity: equityOf(run), review: review?.review ?? run.review ?? null, reviewError: review?.review_error?.code ?? run.review_error?.code ?? null,
   };
 }
