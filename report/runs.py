@@ -236,8 +236,7 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
         value = availability.require(conn, _row(run, trial))
         commit = db.head_commit(conn)
     limitations = list(value["limitations"])
-    summary = {"period_start_utc": str(facts["trade_start_ns"]), "period_end_utc": str(facts["trade_end_ns"]),
-               "starting_balance_usdt": str(facts["starting_balance"]), "final_equity_usdt": str(facts["final_equity"])}
+    summary = {"period_start_utc": str(facts["trade_start_ns"]), "period_end_utc": str(facts["trade_end_ns"])}
     series = None
     if facts["final_equity"] is not None:
         series = metrics.daily_returns([(ts, value) for ts, value, _ in facts["returns"]], summary, limitations)

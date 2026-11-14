@@ -328,8 +328,7 @@ def predictions(body: Mapping, slices: Mapping) -> list[dict]:
             found.append({**entry, "observed": None, "same_sign": None, "observed_as": None,
                           "reason": "NO_SLICE: the registration names no slice measuring this duty"})
             continue
-        measured = ((slices.get(item["slice"]) or {}).get("measures") or {}).get(item["measure"]) \
-            if item.get("measure") in measures.MEASURES else None
+        measured = ((slices.get(item["slice"]) or {}).get("measures") or {}).get(item.get("measure"))
         pairwise = (measured or {}).get("pairwise")
         source = pairwise if pairwise is not None else measured
         observed = None if source is None else source["value" if pairwise is not None else "difference"]

@@ -206,8 +206,7 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
 RUN_PURPOSES = ("research", "validation", "history")
 SEALED_REPORTS = (metrics.SUMMARY, *metrics.REPORT_FILES.values())
 # Refusals of the coverage check that come from what the runner wrote: they make the run invalid.
-CONTENT_REFUSALS = frozenset({"INPUT_IDENTITY_MISMATCH", "COVERAGE_RECEIPT_INVALID", "COVERAGE_MISMATCH",
-                              *coverage.LIFECYCLE_REFUSALS})
+CONTENT_REFUSALS = frozenset({"COVERAGE_RECEIPT_INVALID", "COVERAGE_MISMATCH", *coverage.LIFECYCLE_REFUSALS})
 METRIC_ERRORS = (ValueError, ArithmeticError, KeyError, TypeError, IndexError)  # Decimal and native value errors
 
 
@@ -255,7 +254,7 @@ def _verified_files(capture: Mapping, trial_id: int, workdir: Path) -> dict[str,
     return found
 
 
-def _sealed_report(conn: db.LedgerConnection, trial_id: int, files: Mapping[str, bytes], input_identity: Mapping,
+def _sealed_report(capture: Mapping, trial_id: int, files: Mapping[str, bytes],
                    checkout: Path | None) -> tuple[list[dict], tuple]:
     """(failure reasons, (product commit, report, daily rows, cycle rows)) of a run whose capture gave no reason:
     whatever the runner wrote that the report cannot read is a reason, never a refusal."""
@@ -269,7 +268,7 @@ def _sealed_report(conn: db.LedgerConnection, trial_id: int, files: Mapping[str,
         return [reason("NATIVE_REPORT_MISSING", f"a passed run needs reports/{name}", f"reports/{name}")
                 for name in absent], ()
     try:
-        reports.lifecycle_events = coverage.original_coverage(conn, trial_id, input_identity)
+        reports.lifecycle_events = coverage.original_coverage(capture, trial_id)
     except Refusal as exc:
         if exc.code not in CONTENT_REFUSALS:
             raise
@@ -343,7 +342,7 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
     fingerprints, _ = problems.capture_fingerprint(capture, files)
     revision, report, daily, cycle_rows = None, None, [], []
     if not reasons:
-        reasons, sealed = _sealed_report(conn, trial_id, files, start["input_identity"], checkout)
+        reasons, sealed = _sealed_report(capture, trial_id, files, checkout)
         if sealed:
             revision, report, daily, cycle_rows = sealed
     reasons = problems.unique(reasons)
@@ -384,13 +383,13 @@ RESEAL = "reseal"  # the write kind of a reseal: db.write commits it as `reseal:
 
 
 def reseal_reading(conn: db.LedgerConnection, trial_id: int, reproduction_id: int, workdir: Path,
-                   input_identity: Mapping, checkout: Path | None) -> dict:
+                   capture: Mapping, checkout: Path | None) -> dict:
     """Replace the reading of the passed run `trial_id` with the report the current metrics code (`checkout`'s HEAD)
     computes from the verified files of its reproduction `reproduction_id` in `workdir`, in one `reseal:<op_id>`
     commit; a reading the current code computes alike is left as it is. Returns {product_commit,
     previous_product_commit, resealed, ledger_commit[, op_id]}."""
     files = _verified_files(execution.read_capture(conn, reproduction_id), reproduction_id, workdir)
-    reasons, sealed = _sealed_report(conn, trial_id, files, input_identity, checkout)
+    reasons, sealed = _sealed_report(capture, trial_id, files, checkout)
     if reasons:
         raise refuse("REPORT_UNREADABLE", f"the current metrics code cannot read the reproduction of run "
                      f"{trial_id}: " + "; ".join(item["message"] for item in reasons), missing=(str(trial_id),))

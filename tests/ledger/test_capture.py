@@ -32,7 +32,6 @@ def coverage_receipt(**identity) -> dict:
 
 
 COVERAGE = json.dumps(coverage_receipt()).encode()
-INPUT_IDENTITY = coverage_receipt()["input_identity"]
 
 
 def native_summary(**changes) -> dict:
@@ -352,21 +351,17 @@ class VerifyCoverageTests(unittest.TestCase):
 class OriginalCoverageTests(LedgerCase):
     """Ingest trusts only the coverage receipt and summary of the trial's original capture."""
 
-    def sealed(self, audit_exit: int | None = 0) -> int:
+    def sealed(self) -> int:
         workdir = self.workdir({"reports/summary.json": json.dumps(native_summary()).encode()})
         trial_id = self.trial(workdir)
-        stages = {"native": {"state": "exited", "exit_code": 0},
-                  "audit": None if audit_exit is None else {"state": "exited", "exit_code": audit_exit}}
-        self.seal(trial_id, workdir, stages)
+        self.seal(trial_id, workdir, {"native": {"state": "exited", "exit_code": 0},
+                                      "audit": {"state": "exited", "exit_code": 0}})
         return trial_id
 
     def test_coverage_is_rebuilt_from_the_original_capture_only(self):
-        identity = INPUT_IDENTITY
-        self.assertEqual(coverage.original_coverage(self.conn, self.sealed(), identity), ())
+        sealed = self.sealed()
+        self.assertEqual(coverage.original_coverage(execution.read_capture(self.conn, sealed), sealed), ())
         unsealed = self.trial(self.workdir({}))
-        self.assertEqual(self.refused(lambda: coverage.original_coverage(self.conn, unsealed, identity)),
-                         "CAPTURE_INCOMPLETE")
-        failed, passed = self.sealed(audit_exit=1), self.sealed()
-        self.assertEqual(self.refused(lambda: coverage.original_coverage(self.conn, failed, identity)), "PHASE_FAILED")
         self.assertEqual(self.refused(lambda: coverage.original_coverage(
-            self.conn, passed, {**identity, "export_content_sha256": "0" * 64})), "INPUT_IDENTITY_MISMATCH")
+            execution.read_capture(self.conn, unsealed), unsealed)), "CAPTURE_INCOMPLETE")
+

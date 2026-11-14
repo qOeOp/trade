@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import hashlib
 
-from ledger import db, execution, problems
+from ledger import execution, problems
 from shared.refusals import refuse
 
 
@@ -87,31 +87,14 @@ def verify_coverage(coverage, summary) -> tuple[dict, ...]:
     return tuple(lifecycle_events(coverage, summary))
 
 
-def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: Mapping) -> tuple[dict, ...]:
-    """Lifecycle events rebuilt only from the trial's original capture; any gap or mismatch refuses."""
-    capture = execution.read_capture(conn, trial_id)
-    stages = given if isinstance(given := capture.get("stages"), Mapping) else {}
-    files = capture.get("files") or {}
-    sealed = execution.listed_sha256(capture, problems.COVERAGE) if capture["status"] == "captured" else None
-    if (capture["status"] != "captured" or not isinstance(capture.get("start"), Mapping)
-            or not isinstance(stages.get("native"), Mapping) or problems.SUMMARY not in files or sealed is None):
-        raise refuse("CAPTURE_INCOMPLETE", f"trial {trial_id} has no complete original capture (start receipt, "
-                                           "stages, coverage receipt and native summary)",
+def original_coverage(capture: Mapping, trial_id: int) -> tuple[dict, ...]:
+    """Lifecycle events rebuilt only from the trial's original capture as ingest read it (captured, every stage
+    exited 0, the native summary captured): the coverage receipt the container read must be the start receipt's."""
+    sealed = execution.listed_sha256(capture, problems.COVERAGE)
+    if sealed is None:
+        raise refuse("CAPTURE_INCOMPLETE", f"the original capture of trial {trial_id} lists no hashed coverage receipt",
                      missing=(f"trial-{trial_id}-execution",))
-    for name in ("native", "audit"):
-        stage = stages.get(name)
-        if not isinstance(stage, Mapping) or stage.get("state") != "exited" or stage.get("exit_code") != 0:
-            code = stage.get("exit_code") if isinstance(stage, Mapping) else None
-            raise refuse("PHASE_FAILED", f"stage {name} of trial {trial_id} did not exit 0 (exit code {code})",
-                         missing=(name,))
-    started = capture.get("input_coverage_bytes")
-    coverage = problems.json_object(started)
-    # The capture hashes the receipt the container read; its bytes are the start receipt's.
-    if (started is None or hashlib.sha256(started).hexdigest() != sealed or not isinstance(coverage, Mapping)
-            or coverage.get("input_identity") != capture["start"].get("input_identity")):
+    if hashlib.sha256(capture["input_coverage_bytes"]).hexdigest() != sealed:
         raise refuse("COVERAGE_MISMATCH", f"the sealed coverage receipt of trial {trial_id} is not the one its start "
                                           "receipt holds", missing=(problems.COVERAGE,))
-    if not isinstance(coverage, Mapping) or coverage.get("input_identity") != input_identity:
-        raise refuse("INPUT_IDENTITY_MISMATCH", f"the sealed coverage receipt of trial {trial_id} names other "
-                                                "inputs than the stored input identity", missing=("input_identity",))
-    return verify_coverage(coverage, problems.json_object(files[problems.SUMMARY]))
+    return verify_coverage(capture["input_coverage"], problems.json_object(problems.sealed(capture, problems.SUMMARY)))

@@ -149,6 +149,7 @@ class ExposureRows:
 
     def __init__(self, data: bytes):
         self.data = data
+        self.table: ExposureTable | None = None  # typed once (_typed_exposures) for every reader of one run
         for _ in self:  # read once at load: a file that does not parse is unreadable, not a missing metric
             pass
 
@@ -287,7 +288,7 @@ def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bo
         for trial_id, symbol in conn.rows(f"SELECT trial_id, instrument_id FROM trial_instrument WHERE trial_id IN "
                                           f"({marks}) ORDER BY trial_id, instrument_id", chunk):
             trials[trial_id].setdefault("instruments", []).append(symbol)
-        for row in conn.dicts(f"SELECT trial_id, report, product_commit, computed_at FROM run_reading WHERE trial_id IN "
+        for row in conn.dicts(f"SELECT trial_id, report, product_commit FROM run_reading WHERE trial_id IN "
                               f"({marks})", chunk):
             report = row["report"]
             readings[row["trial_id"]] = {**(json.loads(report) if isinstance(report, (str, bytes)) else report),
@@ -549,7 +550,8 @@ def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], f
 # Daily returns, the mark-equity path and drawdown
 
 def daily_returns(returns: list[tuple[int, float]], summary: dict, limitations: list[str]):
-    """Trade-window UTC daily returns that compound to final equity; None with a named limitation otherwise."""
+    """Trade-window UTC daily returns that compound to the summary's final equity when it names one (sealing: the
+    native one); None with a named limitation otherwise."""
     start, end = utc_ns(summary["period_start_utc"]), utc_ns(summary["period_end_utc"])
     window = [(ts, value) for ts, value in returns if ts >= start]
     if not window or any(value <= -1 for _, value in window):
@@ -561,8 +563,9 @@ def daily_returns(returns: list[tuple[int, float]], summary: dict, limitations: 
     if times != expected:
         limitations.append("RETURN_CLOCK_GAP: the daily returns miss, repeat or misplace a UTC day")
         return None
+    final = summary.get("final_equity_usdt")
     growth = Decimal(repr(math.prod(1 + value for _, value in window)))
-    if abs(Decimal(summary["starting_balance_usdt"]) * growth - Decimal(summary["final_equity_usdt"])) > EQUITY_TOLERANCE:
+    if final is not None and abs(Decimal(summary["starting_balance_usdt"]) * growth - Decimal(final)) > EQUITY_TOLERANCE:
         limitations.append("RETURN_COMPOUNDING_MISMATCH: the daily returns do not compound to final equity")
         return None
     return window
@@ -601,7 +604,8 @@ class ExposureTable:
             yield self._typed(row)
 
     def rows_at(self, label: int) -> list[dict]:
-        return [row for row in self.rows() if row["ts_event_ns"] == label]
+        # every row was typed once building the table: only the label's rows are typed again
+        return [self._typed(row) for row in self._source if int(row["ts_event_ns"]) == label]
 
     def __bool__(self) -> bool:
         return bool(self.by_label)
@@ -612,10 +616,15 @@ def _typed_exposures(rows) -> ExposureTable | None:
         return None
     if isinstance(rows, ExposureTable):
         return rows
+    if isinstance(rows, ExposureRows) and rows.table is not None:
+        return rows.table
     try:
-        return ExposureTable(rows)
+        table = ExposureTable(rows)
     except (KeyError, ValueError, ArithmeticError, TypeError, OSError, EOFError, csv.Error) as exc:
         raise unreconciled("EXPOSURE_REPORT_MISSING", "the exposure report is unreadable") from exc
+    if isinstance(rows, ExposureRows):
+        rows.table = table
+    return table
 
 
 def _labels(summary: dict, exposures: ExposureTable) -> tuple[int, list[int]]:
