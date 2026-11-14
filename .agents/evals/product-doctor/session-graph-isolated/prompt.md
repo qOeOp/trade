@@ -7,7 +7,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 这是一次 product-doctor 全面审计里的账本保真测试，审一个 Codex 研究会话，研究线 `research-line-ema-cross-btc-daily`。账本图已经用 `research graph --line research-line-ema-cross-btc-daily --at n4o5p6…` 生成，在 `/tmp/doctor-01c4d5e6/ledger-graph.json`。现在要出第二张图：会话图。
 
-手边有这些：会话 transcript（主 rollout 和两个子会话）、`ledger sql`、`research status`、会话写在 `/tmp/research-01c4/` 下的策略文件和报告、账本图、`research-graph@3` schema。这次 transcript 里，策略 `ema_cross@3` 的源码只在一次 `sed -n 1,40p` 的输出里露过前 40 行。
+手边有这些：会话 transcript（主 rollout 和两个子会话）、`ledger sql`、`research status`、会话写在 `/tmp/research-01c4/` 下的策略文件和报告、账本图、`research-graph@4` schema。这次 transcript 里，策略 `ema_cross@3` 的源码只在一次 `sed -n 1,40p` 的输出里露过前 40 行。
 
 1. 写出给做会话图的子代理的简报全文。
 2. 它交回的第一版，`ide.py check` 报 `$.candidates[3].parent: unknown candidate ema_cross@2`。你怎么处理？

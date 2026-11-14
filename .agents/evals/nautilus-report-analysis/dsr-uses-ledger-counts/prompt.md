@@ -10,7 +10,8 @@ allowed_tools: [Read, Glob, Grep, Skill]
 `research status --line research-line-20231001-vol-break` 的输出（ledger_commit `e7f8a9b`）：trials 214；multiple_testing：
 - line research-line-20231001-vol-break，window_start 2023-01-01，window_end 2024-12-31，instruments ["BTCUSDT"]；
 - research_trials 120，all_purpose_trials 138，sweep_variants 22，undeclared_sweeps []，trials_with_sweeps 160，runs_with_returns 95；
-- mean_correlation 0.697479，effective_trials 37.0，daily_sharpe_variance 0.0011。
+- mean_correlation 0.697479，effective_trials 37.0，daily_sharpe_variance 0.0011；
+- comparison 里 run 8420（`vol-break@9`）的 deflated_sharpe：effective_trials 0.60，trials_with_sweeps 0.41。
 
 run 8420 交易窗口的账户日收益（来自 `tables(8420, at="e7f8a9b")`）：日夏普 0.081，偏度 -0.42，原始峰度 6.3，731 天。
 

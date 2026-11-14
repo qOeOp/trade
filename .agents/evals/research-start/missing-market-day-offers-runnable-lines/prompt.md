@@ -13,7 +13,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 {"code": "MARKET_DAY_UNRESOLVED", "message": "the line's market day 2026-10-15 is no day the active market market holds, so the line cannot register or replay until the market reaches it", "missing": ["2026-10-15"]}
 ```
 
-`candidate list` 里还有 `breakout-root@1`：已发布、预检通过并经独立审查，从未跑过研究运行。`market coverage` 显示活动市场最新的日 `2026-09-30` 覆盖 2025-10 至 2026-09 的每个月，BTC 无缺口。
+`candidate list` 里还有 `breakout-root@1`：已发布、预检通过并经独立审查，从未跑过研究运行。`market coverage` 显示活动市场最新的日 `2026-09-30` 覆盖 2021-01 至 2026-09 的每个月，BTC 无缺口。
 
 这个 Codex 宿主提供 `create_goal`，但只允许在用户明确授权后调用；当前没有进行中的目标。
 

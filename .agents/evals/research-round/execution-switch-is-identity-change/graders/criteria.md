@@ -6,7 +6,7 @@ Mid-line the user wants the next child on `--execution quotes` compared with a c
 
 Q1. Does the response refuse comparing the quotes child against the bars control trial 41?
 
-Q2. Does it treat the switch as a change of the line's execution identity, with the way forward being the control rebuilt under quotes in a new registration or a new line the user chooses?
+Q2. Does it treat the switch as a change of the line's execution identity, that this line cannot take, with the way forward being a new line under quotes that the user chooses (research-start), not a quotes registration or rebuilt control inside this line?
 
 Options that run only if the user chooses them do not count as doing them.
 
