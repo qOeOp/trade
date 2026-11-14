@@ -1,5 +1,6 @@
-"""The exported instrument's price grid is the contract's at the market day, never the window's: two windows of
-one market day, one of them holding a minute off the terms' tick, trade on one grid."""
+"""The exported instrument's price grid is the one in force from the window's start at the market day, never a
+function of the window's end: two windows from one start, one of them holding a minute off the terms' tick, trade on
+one grid; a window starting after the contract's last minute off the tick trades on the tick, as Paper and Live do."""
 
 from datetime import date
 from decimal import Decimal
@@ -19,7 +20,7 @@ START = day_ms(JAN)
 
 
 class PriceGridTests(unittest.TestCase):
-    def test_two_windows_of_one_market_day_get_one_grid(self):
+    def test_windows_from_one_start_share_a_grid_and_one_after_the_last_off_tick_minute_trades_on_the_tick(self):
         from nautilus_trader.persistence import ParquetDataCatalog
         profile = directory(self.addCleanup)
         times = START + np.arange(2 * 1440, dtype=np.int64) * MINUTE
@@ -36,12 +37,14 @@ class PriceGridTests(unittest.TestCase):
                       members=[(JAN, "BTCUSDT")])
         with tempfile.TemporaryDirectory() as temp:
             found = {}
-            for name, days in (("first-day", 1), ("both-days", 2)):
+            for name, first, last in (("first-day", START, START + DAY), ("both-days", START, START + 2 * DAY),
+                                      ("after-the-off-minute", START + DAY + 120 * MINUTE, START + 2 * DAY)):
                 path = Path(temp) / name
                 receipt = export.export_episode({"profile": profile, "market_day": market_day, "symbol": "BTCUSDT",
-                                                 "start_ns": START * 10**6, "end_ns": (START + days * DAY) * 10**6,
+                                                 "start_ns": first * 10**6, "end_ns": last * 10**6,
                                                  "path": str(path), "include_quotes": False})
                 piece, = receipt["pieces"]
                 made, = ParquetDataCatalog(str(path)).instruments()
                 found[name] = (piece["price_precision"], piece["price_precision_widened"], str(made.price_increment))
-        self.assertEqual(found, {"first-day": (2, True, "0.01"), "both-days": (2, True, "0.01")})
+        self.assertEqual(found, {"first-day": (2, True, "0.01"), "both-days": (2, True, "0.01"),
+                                 "after-the-off-minute": (2, False, "0.10")})
