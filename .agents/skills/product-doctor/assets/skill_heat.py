@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable, Iterator
+from compression import zstd
 from datetime import UTC, datetime
 import json
 import os
@@ -30,7 +31,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from typing import Any
+from typing import IO, Any
 
 SKILLS = ".agents/skills/"
 DOCTOR = "product-doctor/"
@@ -164,8 +165,15 @@ def transcripts(claude: Path, codex: Path, checkout: Path) -> Iterator[tuple[str
         if project.name == slug or project.name.startswith(slug + "-"):
             yield from (("claude", path) for path in sorted(project.glob("*.jsonl")))
             yield from (("claude", path) for path in sorted(project.glob("*/subagents/*.jsonl")))
-    for pattern_ in ("sessions/**/*.jsonl", "archived_sessions/*.jsonl"):
+    for pattern_ in ("sessions/**/*.jsonl", "archived_sessions/*.jsonl", "archived_sessions/*.jsonl.zst"):
         yield from (("codex", path) for path in sorted(codex.glob(pattern_)))
+
+
+def open_transcript(path: Path) -> IO[str]:
+    """A transcript's text; Codex archives some as `.jsonl.zst`."""
+    if path.suffix == ".zst":
+        return zstd.open(path, "rt", encoding="utf-8", errors="replace")
+    return path.open(encoding="utf-8", errors="replace")
 
 
 def remote(url: str) -> str:
@@ -241,11 +249,11 @@ Used = dict[str, dict[str, dict[str, str]]]  # file: term: call id: time
 def observe(host: str, path: Path, terms: Terms, main: Path, origin: str) -> tuple[Record, Used] | None:
     """One session's record, and per loaded file the calls behind each identifier it used (to credit a call
     that another transcript copied only once); None for another repository's or an empty session."""
-    session, parent, inherited = path.stem, None, 0
+    session, parent, inherited = path.name.removesuffix(".zst").removesuffix(".jsonl"), None, 0
     if host == "claude" and path.parent.name == "subagents":
         parent = path.parent.parent.name
-        session = f"{parent}/{path.stem}"
-    with path.open(encoding="utf-8", errors="replace") as handle:
+        session = f"{parent}/{session}"
+    with open_transcript(path) as handle:
         first = handle.readline()
         if host == "codex":  # the first line says where the session ran: skip other repositories unread
             try:
@@ -256,7 +264,7 @@ def observe(host: str, path: Path, terms: Terms, main: Path, origin: str) -> tup
             url = str(git_meta.get("repository_url") or "") if isinstance(git_meta, dict) else ""
             if not isinstance(meta, dict) or not same_repository(str(meta.get("cwd") or ""), url, main, origin):
                 return None
-            session, parent = str(meta.get("id") or path.stem), meta.get("parent_thread_id")
+            session, parent = str(meta.get("id") or session), meta.get("parent_thread_id")
             inherited = int(meta.get("subagent_history_start_ordinal") or 0)  # lines a fork copied from its parent
         lines = [first, *handle]
     if host == "claude":  # a project directory's name can also fit a sibling checkout (`trade-graph`)

@@ -1,5 +1,6 @@
 """If this fails, the skill heat tool miscounts what sessions did after loading a skill, or forgets sessions."""
 
+from compression import zstd
 import contextlib
 import importlib.util
 import io
@@ -160,6 +161,16 @@ class SkillHeatTests(unittest.TestCase):
         paras, data = self.run_tool()
         self.assertEqual(sum(paras["alpha", "ledger review"]["hit"]), 1)
         self.assertEqual(data["meta"]["groups"][4:6], [1, 1])  # cx1, and cx3 marked maintenance by its patch
+
+    def test_compressed_codex_archives_are_read(self):
+        lines = [codex_meta("cx9", str(self.main)),
+                 codex_call("2026-10-05T00:01:00Z", "z1", "cat .agents/skills/alpha/SKILL.md"),
+                 codex_call("2026-10-05T00:02:00Z", "z2", "python -m cli.main ledger review")]
+        archive = self.codex / "archived_sessions/rollout-z.jsonl.zst"
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_bytes(zstd.compress(("\n".join(lines) + "\n").encode()))
+        paras, _ = self.run_tool()
+        self.assertEqual(sum(paras["alpha", "ledger review"]["hit"]), 1)
 
     def test_sessions_stay_counted_after_their_transcripts_are_deleted(self):
         session = self.research_session()
