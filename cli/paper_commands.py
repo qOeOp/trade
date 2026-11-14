@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import textwrap
 
-from cli.common import (CANDIDATE_HELP, EXECUTION_DEFAULT_HELP, UsageError, _market_at, _market_option, _op_id,
+from cli.common import (CANDIDATE_HELP, EXECUTION_DEFAULT_HELP, _market_at, _market_option, _op_id,
                         _paper_option)
 from engine.config import ACCOUNT_CONTRACT
 from ledger import db
@@ -20,7 +20,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("paper", "start"): (
         "the candidate in the research ledger (reader; --research-ledger, default the active one, at "
         "--research-at, default its head); this Paper database's containers on Docker; the runtime image (a tag "
-        "is pulled); the market day --at (default main) and its current-month membership",
+        "is pulled); the market day --at (default the newest day) and its current-month membership",
         "the candidate's source copied into the Paper database (once per source) and one paper_run row; the run "
         "directory <service>/paper/<database>/<paper_id> (source, membership); an internal Docker network with "
         "the runner and the egress proxy, left running (the command returns at once); the same --op-id again "
@@ -28,6 +28,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "paper_id, candidate, source_sha256, image_ref, symbols, market_day, directory, containers, "
         "ledger_commit, write_status (a replay gives paper_id, write_status, directory)",
         "PAPER_RUN_ACTIVE (this source already runs); PAPER_MEMORY_FULL (its reservation exceeds the free paper memory); EMPTY_SYMBOLS; "
+        "UNIVERSE_EMPTY (no --symbols and no member for the current month); "
         "UNKNOWN_CANDIDATE, BAD_REF; RUNTIME_UNAVAILABLE; LEDGER_KIND (--ledger is not a Paper database); "
         "PAPER_START_FAILED (the containers did not start; the run is sealed with START_FAILED, write_status written)"),
     ("paper", "resume"): (
@@ -79,7 +80,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "FORBIDDEN (a Host or origin not allowed), NOT_FOUND, USAGE_ERROR (a bad body), NO_LAST_REPLAY, and the "
         "start, stop and seal refusals"),
     ("paper", "compare"): (
-        "the sealed paper run, its source and its files (reader); the market at --at (default main), exported "
+        "the sealed paper run, its source and its files (reader); the market at --at (default the newest day), exported "
         "into a reused cache under the temporary directory; the run's own runtime image",
         "nothing in any database (no trial, no exposure); the new --output directory (replay/ with the native "
         "reports and audit, comparison.json)",
@@ -203,4 +204,4 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         serve.serve(args.ledger, args.market, args.host, args.port, args.hosts, Path(__file__).resolve().parents[1],
                     args.runtime, args.research_ledger, args.release_route, args.release_name)
         return {}, 0
-    raise UsageError(f"unknown command {args.noun} {args.verb}")
+    raise refuse("USAGE_ERROR", f"unknown command {args.noun} {args.verb}")

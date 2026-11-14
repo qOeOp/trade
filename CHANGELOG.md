@@ -26,9 +26,22 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `live compare` has; its HTTP path is `/api/paper/runs/<id>/compare`, its refusals `PAPER_COMPARE_EMPTY` and
   `PAPER_COMPARE_UNCOVERED`, and Paper's and Live's result file `comparison.json`. "Reconcile" now names only Live's
   account reconciliation. A comparison made before the release is replayed again when asked for.
+- Deploy (breaking): during 0.x a version keeps no compatibility with earlier ones. `deploy.images` no longer
+  names a runtime built before the replay/execution image split (its combined `sha-<commit>` index); an admitted
+  runtime is always read at `exec-sha-<commit>`. Going back to an earlier version's images is no longer supported:
+  `--revision` stays only to name the admitted revision the host routes, as Live on the host does.
+- Ledger (breaking): no compatibility with services or runs of earlier ledger generations (0.x keeps none). A
+  service start no longer checks for a commit verification group left by a pre-gen-1 product, and `ledger init`
+  no longer clears one; a service that still has one fails its first commit. The single-run report reads
+  `fill_volumes.csv` as a required report: a run without it gets a `FILL_VOLUME_MISSING` limitation instead of an
+  empty participation reading. Nothing on disk is deleted or moved.
 - Paper (breaking): the run listing (`GET /api/paper/runs`) names a run's readings so far `readings` instead of
   `live`, the name its stream's `readings` event already has. The release gate's probe reads the new name, so
   reinstall the host's control code with the release (`sh deploy/remote/install-release.sh`), as every release does.
+- Refusals (breaking): one code per condition. A market reference is `head` or a day (`main` is refused); a
+  bad or late market day is `MARKET_DAY_UNKNOWN` (was `UNKNOWN_REF` or `MARKET_DAY_INVALID`), a contract the market day
+  lacks `UNKNOWN_SYMBOL` (was `NO_TERMS`), a bad contract list `EMPTY_SYMBOLS` (was `IMPORT_SCOPE`), and Paper with
+  no current-month member `UNIVERSE_EMPTY`. A profile file without `holds` is no longer read as a research ledger.
 - Live: each contract's membership grows month by month as Paper's. The control writes
   `inputs/membership/<YYYY-MM>.json` once a month after the run's market day has begun and the market holds it, and
   the runner denies an entry on a contract outside its membership natively (`entry_outside_membership`; the run goes

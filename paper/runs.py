@@ -191,7 +191,7 @@ def _membership(market: dict, at: str | None, symbols: list[str] | None, now_ns:
         symbols = sorted(symbol for symbol, intervals in members.items()
                          if any(low <= now_ns < high for low, high in intervals))
         if not symbols:
-            raise refuse("EMPTY_SYMBOLS", f"market day {market_day} has no member for the current month",
+            raise refuse("UNIVERSE_EMPTY", f"market day {market_day} has no member for the current month",
                          missing=("symbols",))
     if not symbols or len(set(symbols)) != len(symbols):
         raise refuse("EMPTY_SYMBOLS", "the contract list is empty or repeats a contract", missing=("symbols",))

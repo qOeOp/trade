@@ -85,8 +85,7 @@ uv run --frozen python -m cli.main replay run --help
 `--market` the market profile (default: the active market profile in that directory, which
 the report readers also use). Runner arguments (window and instrument scope) follow `--`. Each profile
 says what it `holds` (research, paper or market) and its lifecycle `kind` (active, isolated, temporary;
-null for a reader's). A market profile in the format before 2026-11-11 (`"kind": "market"` and `"role": R`)
-is refused with `LEDGER_KIND`: replace those two with `"holds": "market"` and `"kind": R`.
+null for a reader's).
 
 ### The ledger and the market
 
@@ -96,11 +95,8 @@ has one `trial_id`; its sealed run uses that same primary key. Commands and regi
 market directory (`market/README.md`), independent of the ledger's versions. Paper's runs are not research:
 they live in a separate `paper` database (`ledger/paper.sql`) that is never published.
 
-A ledger made before 2026-11-11 (schema generation 3 or earlier) is refused with `SCHEMA_MISMATCH`. Retain
-its database and backup unchanged and read them with their matching old checkout (schema 3:
-`ebe86166113af394e5cf6e5ca4ce50bc9016eb89`; schema 2: `f7e7c1df974da88d2478ec5731551f13689a649c`); do not
-rewrite old records. Creating or switching the active ledger or market needs the user's authority
-([`AGENTS.md`](AGENTS.md) owns that list). A new ledger does not erase previous research exposure or transfer
+Creating or switching the active ledger or market needs the user's authority ([`AGENTS.md`](AGENTS.md) owns
+that list). A new ledger does not erase previous research exposure or transfer
 an old line's qualification; continuing across ledgers needs an explicit handoff before research resumes.
 The command below is for a fresh installation:
 

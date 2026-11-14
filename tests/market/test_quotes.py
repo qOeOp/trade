@@ -95,15 +95,17 @@ class RuleTests(unittest.TestCase):
         from nautilus_trader.persistence import ParquetDataCatalog
         from market import export
         iid = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
-        rows = [(1_000, 100_00, 101_00), (1_000, 100_00, 102_00), (1_000, 99_00, 102_00), (1_001, 99_00, 103_00),
-                (1_002, 98_00, 103_00), (1_002, 98_00, 104_00), (1_002, 97_00, 104_00)]
+        unit = 10 ** files.TRADE_SCALE
+        rows = [(ts, bid * unit, ask * unit) for ts, bid, ask in (
+            (1_000, 100, 101), (1_000, 100, 102), (1_000, 99, 102), (1_001, 99, 103), (1_002, 98, 103),
+            (1_002, 98, 104), (1_002, 97, 104))]
         with tempfile.TemporaryDirectory() as temp:
             catalog = ParquetDataCatalog(temp)
             with patch.object(export, "CHUNK", 2):
-                written = export.write_quotes(catalog, iid, [rows[:2], rows[2:]], 2, "1000", 3, 2)
+                written = export.write_quotes(catalog, iid, [rows[:2], rows[2:]], 2, "1000", 3)
             back = catalog.query_quote_ticks([str(iid)])
         self.assertEqual((written, [(q.ts_event // 10**6, str(q.bid_price), str(q.ask_price)) for q in back]),
-                         (7, [(ts, f"{bid / 100:.2f}", f"{ask / 100:.2f}") for ts, bid, ask in rows]))
+                         (7, [(ts, f"{bid // unit}.00", f"{ask // unit}.00") for ts, bid, ask in rows]))
 
 
 def exchange(gap: bool = True) -> Exchange:
@@ -137,7 +139,7 @@ class ImportQuotesTests(unittest.TestCase):
         with serving(cls.exchange):
             cls.bars = store.import_month(cls.market, JAN, cls.cache, 1, ["BTCUSDT"], log=lambda line: None)
             cls.trades = aggtrades.import_month(cls.market, JAN, cls.cache, ["BTCUSDT"], log=lambda line: None)
-            cls.result = store.import_quotes(cls.market, JAN, cls.cache, ["BTCUSDT"], log=lambda line: None)
+            cls.result = quotes.import_quotes(cls.market, JAN, cls.cache, ["BTCUSDT"], log=lambda line: None)
         # February's members: January's last day waits for them.
         forged(cls.market, "universe_month", FEB, rows={"universe_rule": [universe.RULE], "month": [FEB],
                                                         "symbol": ["BTCUSDT"]})
@@ -180,11 +182,11 @@ class ImportQuotesTests(unittest.TestCase):
                           for path in Path(self.market["root"]).rglob("*.parquet"))
         before = held()
         with serving(self.exchange):
-            self.refused("MONTH_EXISTS", store.import_quotes, self.market, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
-            self.refused("UNIVERSE_UNKNOWN", store.import_quotes, self.market, MAR, self.cache, None, log=lambda _: None)
+            self.refused("MONTH_EXISTS", quotes.import_quotes, self.market, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
+            self.refused("UNIVERSE_UNKNOWN", quotes.import_quotes, self.market, MAR, self.cache, None, log=lambda _: None)
             self.refused("SEQUENCE_GAP", aggtrades.import_month, self.market, FEB, self.cache, ["BTCUSDT"],
                          log=lambda _: None)
-            refused = self.refused("TRADES_NOT_HELD", store.import_quotes, self.market, FEB, self.cache, ["BTCUSDT"],
+            refused = self.refused("TRADES_NOT_HELD", quotes.import_quotes, self.market, FEB, self.cache, ["BTCUSDT"],
                                    log=lambda _: None)  # no aggTrades of the month: nothing to infer from
             self.assertIn("the market holds no 2025-02 aggTrades", refused.message)
         self.assertEqual(held(), before)
@@ -258,7 +260,7 @@ class EveTests(unittest.TestCase):
                 for month in months:
                     aggtrades.import_month(profile, month, cache, ["BTCUSDT"], log=lambda _: None)
                 with patch.object(sources, "fetch_archive", wraps=sources.fetch_archive) as fetched:
-                    found = store.import_quotes(profile, FEB, cache, ["BTCUSDT"], log=lambda _: None)
+                    found = quotes.import_quotes(profile, FEB, cache, ["BTCUSDT"], log=lambda _: None)
                 held = Path(profile["root"]) / "quote" / "2025-02" / "BTCUSDT.parquet"
                 made[months] = (held.read_bytes(), found["per_symbol"]["BTCUSDT"]["eve"], fetched.call_count)
         self.assertEqual(made[(JAN, FEB)][1:], (True, 0))  # January's file: no archive read

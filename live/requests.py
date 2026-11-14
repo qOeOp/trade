@@ -178,10 +178,6 @@ def _run_effect(root: Path, claim: dict) -> dict | None:
                     continue
                 if action == "start" and command["inputs"].get("confirm_real_orders") != manifest["source"]["source_sha256"]:
                     continue
-                prepared = next((item for item in rows if item.get("event") == "prepared"), None)
-                if "credential_ref" in command["target"] and (
-                        not prepared or prepared.get("credential_ref") != command["target"]["credential_ref"]):
-                    continue
             # Completed removal/release has its own identity checks; no missing-container shortcut.
             after = rows[index + 1:]
             next_launch = next((offset for offset, item in enumerate(after) if item.get("event") == "launch_requested"), len(after))
@@ -363,12 +359,6 @@ def dispatch(root: Path, request_id: str, command: dict, operation: Callable[[Pa
             admit_new(root)
         if command["action"] not in NONCONFLICTING:
             require_clear(root)
-        if command["action"] == "credential_save" and (root / "requests").exists():
-            for path in (root / "requests").iterdir():
-                other = read_locked(root, path.stem)
-                if other and not is_closed(other) and other["command"]["action"] == "credential_save" \
-                        and other["command"]["target"] == command["target"]:
-                    raise state.fail("LIVE_REQUEST_CONFLICT", "a credential version belongs to its original upload request")
         state.private_directory(root / "requests")
         state.write_new(_path(root, request_id), state.encode({"event": "claimed", "observed_ns": time.time_ns(),
                                                              "command": command}))
