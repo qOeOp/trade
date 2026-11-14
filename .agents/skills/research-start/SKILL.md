@@ -80,7 +80,8 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   the archive holds you import once its line is chosen (readiness.md), never an option to wait on.
   A frozen
   rule is tested again only by out-of-sample validation at the user's request (research-round's
-  validation), never on earlier months.
+  validation), on a window after its registration, never on months already past, the holdout
+  included.
 - When no existing candidate can start a line, design two or three complete new starts yourself:
   each a source that has never run (a revision with a substantive change, or a root), marked not yet replayed, with its contract scope and why,
   market day, execution environment (research-round), readiness result and
