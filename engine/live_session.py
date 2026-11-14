@@ -18,7 +18,8 @@ from engine.live_connection import Connection
 from engine.live_evidence import Evidence
 from engine import live_commands as commands
 from engine.live_commands import AccountObservation, PendingEntry, pending_orders
-from engine.live_records import owned, strategy_ids, symbol_of
+from engine.config import symbol_of
+from engine.live_records import owned, strategy_ids
 
 STOP_GRACE_SECONDS = 30
 CANCEL_RETRY_SECONDS = 5

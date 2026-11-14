@@ -35,6 +35,7 @@ import math
 from pathlib import Path
 import secrets
 
+from engine.config import instrument_id
 from ledger import paper as records
 from live import state
 from replay import reconcile as shared
@@ -183,7 +184,7 @@ def wallet(pack: Mapping) -> tuple[str, dict]:
 
 def _minutes(pack: Mapping) -> set[str]:
     """The one-minute bar type of each of the run's contracts."""
-    return {f"{symbol}-PERP.BINANCE-{shared.MINUTE_BAR}" for symbol in pack["manifest"]["symbols"]}
+    return {f"{instrument_id(symbol)}-{shared.MINUTE_BAR}" for symbol in pack["manifest"]["symbols"]}
 
 
 def _fees(snapshot: Mapping, symbols: list[str]) -> dict:
@@ -224,15 +225,10 @@ def gate(events: list[dict]) -> dict:
 
 def run_record(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dict]) -> dict:
     """The pack as replay.reconcile.compare reads a run."""
-    funding = sorted((item["settlement_ns"], item["funding"]) for item in settled)
-    equity, applied, paid = [], 0, Decimal(0)
-    for row in sorted((row for row in pack["events"] if row.get("event") == "minute_result"
-                       and isinstance(row.get("minute_ns"), int) and row.get("result") is not None),
-                      key=lambda row: row["minute_ns"]):
-        while applied < len(funding) and funding[applied][0] <= row["minute_ns"] + shared.MINUTE_NS:
-            paid += funding[applied][1]
-            applied += 1
-        equity.append((row["minute_ns"], Decimal(balance) + Decimal(row["result"]) + paid))
+    equity, _ = records.with_funding(sorted(
+        ((row["minute_ns"], Decimal(balance) + Decimal(row["result"])) for row in pack["events"]
+         if row.get("event") == "minute_result" and isinstance(row.get("minute_ns"), int)
+         and row.get("result") is not None), key=lambda point: point[0]), settled)
     return {"bars": [row for row in pack["market"] if row.get("kind") == "bar"], "gate": gate(pack["events"]),
             "warmup": shared.received_warmup(row for row in pack["market"] if row.get("kind") == "historical_bar"),
             "events": pack["orders"], "settlements": settled, "equity": equity,
@@ -323,7 +319,7 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     settled = records.settlements(lines, records.published_settlements(lines, end))
     run = run_record(pack, balance, snapshot, settled)
     archived = {symbol: shared.archive_warmup(market, market_day, symbol, start,
-                                              run["warmup"].get(f"{symbol}-PERP.BINANCE", {}), replay_terms[symbol])
+                                              run["warmup"].get(instrument_id(symbol), {}), replay_terms[symbol])
                 for symbol in symbols}
     output = paths.temporary_path(output)
     output.mkdir(mode=0o700, parents=True)

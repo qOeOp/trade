@@ -74,7 +74,6 @@ jobs:
             engine/fill.py
             engine/history.py
             engine/klines.py
-            engine/live_errors.py
             engine/load.py
             engine/native_csv.py
             engine/order_rules.py

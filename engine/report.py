@@ -17,7 +17,8 @@ from nautilus_trader.analysis import SharpeRatio
 from nautilus_trader.model import ClientOrderId
 from nautilus_trader.model import Venue
 
-from engine.config import EXECUTION_BAR_MINUTES, MINUTE_NS, AccountContract, Refusal, Window, utc_text
+from engine.config import (EXECUTION_BAR_MINUTES, MARK_CARRY_MAX_MINUTES, MINUTE_NS, AccountContract, Refusal, Window,
+                           utc_text)
 from engine.load import DAY_NS, LIFECYCLE_COUNTS, diagnostics
 
 
@@ -289,7 +290,6 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
         "integrity_findings": integrity_findings,
         "integrity_passed": not integrity_findings,
         "execution": account["execution"],  # bars | quotes, the environment of the effective configuration
-        "sizing": {"mode": "strategy_source"},
         **statistics,
         "closed_trades": len(closed),
         "winning_trades": wins,
@@ -319,12 +319,12 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
                "minutes, delivered as custom data 10 minutes after the archive's create_time and describing the "
                "instant 5 minutes after it; a ratio the archive left empty is None"]
               if any("metrics" in row["counts"] for row in instruments) else []),
-            *([f"Positions on a contract without a MARK at a bar were valued at its latest MARK, at most 60 "
-               f"minutes old ({len(replay.observer.carried)} intervals in mark_carry)"]
-              if getattr(replay.observer, "carried", None) else []),
+            *([f"Positions on a contract without a MARK at a bar were valued at its latest MARK, at most "
+               f"{MARK_CARRY_MAX_MINUTES} minutes old ({len(replay.observer.carried)} intervals in mark_carry)"]
+              if replay.observer.carried else []),
             *dict.fromkeys(limitations),
         ],
-        "mark_carry": list(getattr(replay.observer, "carried", None) or []),
+        "mark_carry": list(replay.observer.carried),
     }
     payload = json.dumps(json_safe(summary), indent=2, allow_nan=False)
     (output / "summary.json").write_text(payload + "\n")  # not echoed to stdout: the capture keeps it once

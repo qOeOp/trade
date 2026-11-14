@@ -30,7 +30,7 @@ IMAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}\Z")
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 PLATFORMS = frozenset({"linux/arm64", "linux/amd64"})
-LAYOUTS = {
+LAYOUTS: dict[str, dict] = {
     "replay-contract@v8": {"runner_module": "engine.run", "audit_module": "engine.audit",
                            "fingerprint_module": "engine.compare",
                            "source_paths": {
@@ -47,9 +47,14 @@ LAYOUTS = {
                                "warmup_source_sha256": "engine/warmup.py",
                                "history_source_sha256": "engine/history.py",
                                "klines_source_sha256": "engine/klines.py",
-                               "native_csv_source_sha256": "engine/native_csv.py",
-                               "live_errors_source_sha256": "engine/live_errors.py"},
+                               "native_csv_source_sha256": "engine/native_csv.py"},
                            "audit_path": "engine/audit.py", "lock_path": "uv.lock"},
+}
+# The source maps earlier images of a contract report, which still reproduce their runs; a new image reports its
+# layout's. Until 2026-11-13 the v8 replay image also held engine/live_errors.py (doctor 20261113-113).
+EARLIER_SOURCE_PATHS = {
+    "replay-contract@v8": ({**LAYOUTS["replay-contract@v8"]["source_paths"],
+                            "live_errors_source_sha256": "engine/live_errors.py"},),
 }
 # The modules Paper and Live run. They are only in the execution image, which adds the rest of engine/ and Redis to
 # the replay image's files (engine/runtime/Dockerfile); the replay image holds only LAYOUTS' files.
@@ -93,7 +98,7 @@ def _copy(value: dict) -> dict:
 
 
 def _supported_source_paths(runtime_contract: str, paths: dict) -> bool:
-    return paths == layout(runtime_contract)["source_paths"]
+    return paths == layout(runtime_contract)["source_paths"] or paths in EARLIER_SOURCE_PATHS.get(runtime_contract, ())
 
 
 def validate_identity(value) -> dict:

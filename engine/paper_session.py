@@ -177,8 +177,7 @@ class Session:
                      "minute": recorder.minute,
                      "marks": {iid: [ts, str(price)] for iid, (ts, price) in recorder.marks.items()},
                      "funding": {iid: item.next_funding_ns for iid, item in recorder.cadence.items()},
-                     **({"protection": {"since": recorder.gaps.since, "reported": sorted(recorder.gaps.reported)}}
-                        if recorder.uses_stop_loss else {}),
+                     "protection": {"since": recorder.gaps.since, "reported": sorted(recorder.gaps.reported)},
                  }}
         self.journal.sync()
         return self.backend.snapshot(cache, value)

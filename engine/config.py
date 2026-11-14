@@ -21,8 +21,6 @@ import sys
 from pathlib import Path
 from typing import TypedDict
 
-from engine.live_errors import REFUSALS as LIVE_REFUSALS
-
 
 # replay-contract@v8 (docs/plans/r1-runtime-contract-20261110.zh.md): the runner allocates and configures the
 # source (HEDGING positions), warms it from its WARMUP declaration before on_start (engine.history), and applies
@@ -36,6 +34,21 @@ RUNTIME_CONTRACT = "replay-contract@v8"
 EXECUTIONS = ("bars", "quotes")
 EXECUTION_BAR_MINUTES = 1  # design constant: one-minute bars, matched as such
 MINUTE_NS = 60_000_000_000
+# A one-minute hole in a contract's MARK data is valued at its latest MARK up to this age (uncalibrated example
+# value); an older MARK leaves the position unvalued (CAPITAL_VALUATION_GAP). It is also the auditor's tolerance
+# for bars that stop before the window's end (DATA_ENDS_WITHOUT_TERMINATION): a shorter trailing hole is a hole.
+MARK_CARRY_MAX_MINUTES = 60
+
+
+def instrument_id(symbol: str) -> str:
+    """The native ID of a Binance USD-M contract in Paper and Live (a replay's Catalog spells its own,
+    market.export.native_symbol)."""
+    return f"{symbol}-PERP.BINANCE"
+
+
+def symbol_of(native_id) -> str:
+    """The contract symbol of a native ID, a replay episode's SYMBOL-E<n>-PERP.BINANCE included."""
+    return str(native_id).split("-", 1)[0]
 
 # The runtime source files hashed into the identity: with AUDIT_PATH, the import closure of engine.run,
 # engine.audit and engine.compare, which is all the replay image holds (runtime.image.LAYOUTS and
@@ -56,7 +69,6 @@ RUNTIME_SOURCE_PATHS = {
     "history_source_sha256": "engine/history.py",
     "klines_source_sha256": "engine/klines.py",
     "native_csv_source_sha256": "engine/native_csv.py",
-    "live_errors_source_sha256": "engine/live_errors.py",
 }
 AUDIT_PATH = "engine/audit.py"
 
@@ -154,7 +166,6 @@ def execution_account(execution: str, margin_rates: tuple[str, str] | None,
 # engine.compare_reports raises is in REFUSALS; the auditor's finding codes are in engine.audit.FINDINGS.
 
 REFUSALS: dict[str, str] = {
-    **dict.fromkeys(LIVE_REFUSALS, "Live account admission or private execution custody failed."),
     "UNKNOWN_OPTION": "The command line holds an option the runner does not define, such as a strategy parameter.",
     "REPLAY_ARGUMENT_MISSING": "A replay lacks the strategy file, class, hash or output, or an option lacks its value.",
     "SYMBOL_DUPLICATE": "A contract appears twice in --symbols.",
@@ -194,7 +205,6 @@ REFUSALS: dict[str, str] = {
     "METRICS_NOT_SERVED": "A strategy subscribed to metrics the run does not stream (no --metrics, or paper "
                           "trading); it would see none.",
     "DATA_COUNT_MISMATCH": "The engine consumed another number of events than the export receipts hold.",
-    "OBSERVER_COUNT_MISMATCH": "The capital observer did not start exactly once.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",
     "LIFECYCLE_BUNDLE_MISSING": "The summary counts lifecycle events but the inputs name no lifecycle bundle.",
     "LIFECYCLE_COVERAGE_MISMATCH": "The coverage receipt's format, window or market day differs from the summary.",
@@ -202,7 +212,8 @@ REFUSALS: dict[str, str] = {
     "LIFECYCLE_EVENT_INVALID": "A lifecycle event is not a native event, has inconsistent clocks or an invalid close.",
     "LIFECYCLE_DUPLICATE_EVENT": "A lifecycle event of one type, instance and time appears twice.",
     # engine.load_strategy
-    "SOURCE_UNREADABLE": "The strategy source is not a regular file, is a link or cannot be read.",
+    "SOURCE_UNREADABLE": "A file the runner reads (the strategy source, universe or execution binding) is not a "
+                         "regular file, is a link or cannot be read.",
     "CONTENT_HASH_INVALID": "The expected content hash is not 64 lowercase hexadecimal characters.",
     "CONTENT_HASH_MISMATCH": "The source bytes' SHA-256 differs from the expected content hash.",
     "SOURCE_REACH": "The source imports beyond the standard computation modules and the native strategy API, "
@@ -256,7 +267,6 @@ REFUSALS: dict[str, str] = {
     # engine.paper (paper trading on live public data; see its module docstring)
     "PAPER_CREDENTIALS_PRESENT": "An exchange credential variable is in the paper runner's environment; it starts "
                                  "only with an allowlisted one.",
-    "PAPER_INSTRUMENT_UNKNOWN": "Binance lists no USD-M contract of a paper run's symbol.",
     "PAPER_NOT_IN_UNIVERSE": "A paper run's contract is not in the universe at its input start.",
     "PAPER_RECOVERY_UNAVAILABLE": "Paper has no consistent native checkpoint or cannot safely continue it; the "
                                   "original run is retained instead of starting a new account.",

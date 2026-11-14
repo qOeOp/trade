@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 from nautilus_trader.model import InstrumentId, StrategyId
+from engine.config import instrument_id
 from engine.load import strategy_id
 
 def write_json(path: Path, value: dict) -> None:
@@ -26,11 +27,7 @@ def strategy_ids(manifest: dict) -> dict[str, StrategyId]:
 
 
 def contract(symbol: str) -> InstrumentId:
-    return InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
-
-
-def symbol_of(instrument_id) -> str:
-    return str(instrument_id).removesuffix("-PERP.BINANCE")
+    return InstrumentId.from_str(instrument_id(symbol))
 
 
 def owned(query, manifest: dict, **filters) -> list:

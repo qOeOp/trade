@@ -8,7 +8,8 @@ from nautilus_trader.trading import Strategy, StrategyConfig
 from engine import live_brake, live_commands as commands, live_connection
 from engine.cadence import Cadence
 from engine.live_commands import pending_orders
-from engine.live_records import contract, owned, symbol_of
+from engine.config import symbol_of
+from engine.live_records import contract, owned
 from engine.live_session import MARK_SECONDS, MINUTE_NS, Session, STOP_GRACE_SECONDS
 
 # The periodic native account refresh. rc7's Redis cache appends every account state (about 0.85 KB) to a list it never

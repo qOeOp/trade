@@ -60,6 +60,7 @@ from engine.config import (
     execution_account,
     EXECUTION_BAR_MINUTES,
     EXECUTION_BINDING_FIELDS,
+    MARK_CARRY_MAX_MINUTES,
     MINUTE_NS,
     RUNTIME_CONTRACT,
     Refusal,
@@ -81,7 +82,9 @@ from engine.load import (
     read_regular_file,
     read_universe,
     strategy_metadata,
+    termination,
     terms_approximations,
+    trading_end,
 )
 from engine import history, order_rules, warmup
 
@@ -116,9 +119,9 @@ def execution_metadata(config) -> dict:
     return {"runtime_identity": identity, "effective_config_sha256": effective.digest}
 
 
-# Engine components. Each strategy instance and the capital observer register themselves here, for
-# the report to read, however they were built (engine.configure_strategy and engine.capital_observer
-# build them; their classes stay importable for a BacktestNode configuration).
+# Engine components. The capital observer registers itself here however it was built: a replay keeps the one
+# engine.capital_observer returns, and a BacktestNode, which hands out no actor, leaves its observer only here
+# (the observer and strategy classes stay importable for a BacktestNode configuration).
 
 OBSERVERS: list = []
 SHUTDOWN: list = []  # reasons of ShutdownSystem requests the sources made
@@ -185,26 +188,16 @@ def configure_strategy(strategy: LoadedStrategy, inputs: Any, class_of=_runner_c
 
 # Lifecycle episodes (engine.episode_active, engine.episode_membership)
 
-def _termination(episode: dict) -> int | None:
-    """The earliest CLOSE status or InstrumentClose (delisting settlement) of an episode."""
-    found = [int(event["ts_event"]) for event in episode.get("events") or ()
-             if event.get("type") == "InstrumentClose" or event.get("action") == "CLOSE"]
-    return min(found) if found else None
-
-
 def episode_active(episode: dict | None, start_ns: int, end_ns: int) -> bool:
     """engine.episode_active: a lifecycle that intersects the input window gets an instance; missing
     bars never matter. PRE_CLOSE is not a termination: positions opened before it still need closing."""
     if episode is None:
         return True
-    end = _termination(episode)
+    end = termination(episode)
     return episode.get("start_ns", 0) < end_ns and (end is None or end > start_ns)
 
 
-# A one-minute hole in a contract's MARK data is valued at its latest MARK up to this age
-# (uncalibrated example value); an older MARK leaves the position unvalued (CAPITAL_VALUATION_GAP).
-MARK_CARRY_MAX_MINUTES = 60
-MARK_CARRY_MAX_NS = MARK_CARRY_MAX_MINUTES * 60 * 10**9
+MARK_CARRY_MAX_NS = MARK_CARRY_MAX_MINUTES * MINUTE_NS
 
 
 def resident_bytes() -> int:
@@ -734,7 +727,7 @@ def plan_instances(rows: list[dict], window: Window, strategy: LoadedStrategy,
         if not episode_active(episode, window.trade_start_ns, window.end_ns):
             continue
         earliest = max(window.trade_start_ns, (episode or {}).get("start_ns") or 0)
-        end = min(window.end_ns, _termination(episode) or window.end_ns) if episode else window.end_ns
+        end = trading_end(episode, window.end_ns)
         found = warmup.first_start(stamps.get(str(row["instrument_id"]), {}), strategy.warmup, earliest, end)
         if found is None:
             waiting += needed
@@ -837,9 +830,7 @@ def _replay(rows, window, strategy, pool, output_dir, account, metrics, derived:
         for row, trade_start in planned:
             if not (quotes if kind == "QuoteTick" else metrics if kind == "Metrics" else "trade" in row["counts"]):
                 continue
-            episode = row["episode"]
-            end = min(window.end_ns, (_termination(episode) if episode else None) or window.end_ns)
-            months = months_missing(row, kind, trade_start, end)
+            months = months_missing(row, kind, trade_start, trading_end(row["episode"], window.end_ns))
             if months:
                 missing.append(f"{row['symbol']} {', '.join(months)}")
         if missing:
@@ -867,13 +858,13 @@ def _replay(rows, window, strategy, pool, output_dir, account, metrics, derived:
             universe_membership=[[max(low, trade_start), high] for low, high in
                                  episode_membership(pool[row["symbol"]], row["episode"]) if high > trade_start],
         )))
-    engine.add_actor(capital_observer(tuple(str(row["instrument_id"]) for row in rows), output_dir / report.EXPOSURES,
-                                      tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)))
+    observer = capital_observer(tuple(str(row["instrument_id"]) for row in rows), output_dir / report.EXPOSURES,
+                                tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None))
+    engine.add_actor(observer)
     stream(engine, market_events(rows, window.start_ns, window.end_ns, quotes=quotes), account["chunk_size"])
     found = strategy_runtime.breaches()
     if found is not None:
-        for observer in OBSERVERS:
-            observer.abandon()
+        observer.abandon()
         code, subscriptions = found
         hint = {"TRADES_NOT_SERVED": ". Replay with --trade-ticks (quote environment) and subscribe through "
                                      "subscribe_data",
@@ -886,10 +877,8 @@ def _replay(rows, window, strategy, pool, output_dir, account, metrics, derived:
     if result.iterations != expected_iterations:
         raise Refusal("DATA_COUNT_MISMATCH", f"the engine consumed {result.iterations} events, the export receipts "
                                              f"hold {expected_iterations}")
-    if len(OBSERVERS) != 1:
-        raise Refusal("OBSERVER_COUNT_MISMATCH", "the native capital observer did not start exactly once")
     strategies = {row["coin"]: strategy_runtime.STRATEGIES.get(str(row["instrument_id"])) for row in rows}
-    finished = Replay(engine, result, OBSERVERS[0], trade_start_by_strategy)
+    finished = Replay(engine, result, observer, trade_start_by_strategy)
     finished.observer.finish(finished.cache)
     return finished, strategies, limitations
 
@@ -940,7 +929,6 @@ def main(argv: list[str] | None = None) -> None:
             "effective_config_sha256": effective.digest,
             "engine_version": importlib.metadata.version("nautilus_trader"),
             "market_day": config.market_day,
-            "strategy": strategy.entry_class,
         }
         _, findings = report.write_native_reports(config.output, finished, strategies, rows, identity, window,
                                                   account, limitations, mark_timestamps(rows))

@@ -99,7 +99,7 @@ from engine.paper_redis import NativeCache
 from engine.paper_session import Session
 from engine.paper_signals import Signals
 from engine.cadence import Cadence
-from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, leverage_of,
+from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, instrument_id, leverage_of,
                            runtime_source_metadata, terms_changed, utc_text)
 from engine.load import (
     LoadedStrategy, diagnostics, load_strategy, read_universe, strategy_id, strategy_metadata,
@@ -131,10 +131,6 @@ CREDENTIAL_NAME = re.compile(
 def credential_names(environ) -> list[str]:
     """engine.paper.credential_names: the environment variable names that may hold an exchange credential."""
     return sorted(name for name in environ if CREDENTIAL_NAME.search(name))
-
-
-def instrument_id(symbol: str) -> str:
-    return f"{symbol}-PERP.{VENUE}"
 
 
 def warmup_digest(bars: list[Bar]) -> dict:
@@ -455,7 +451,6 @@ def request_stop(reason: str) -> None:
 @dataclass
 class RecorderConfig:
     instrument_ids: list
-    uses_stop_loss: bool
     terms: dict  # instrument ID -> the market's terms at the run's market day (paper start's inputs/terms.json)
 
 
@@ -471,7 +466,6 @@ class Recorder(DataActor):
     def __init__(self, config: RecorderConfig):
         super().__init__(None)
         self.instrument_ids = [InstrumentId.from_str(value) for value in config.instrument_ids]
-        self.uses_stop_loss = config.uses_stop_loss
         self.terms = config.terms
         self.last_bar: dict[str, int] = {}
         self.marks: dict[str, tuple[int, Price]] = {}
@@ -628,8 +622,7 @@ class Recorder(DataActor):
                     stop_quantity=str(stops), since_ns=self.gaps.since[key])
 
     def on_stop_timer(self, _event):
-        if self.uses_stop_loss:
-            self._protection()
+        self._protection()
         if SESSION and not SESSION.ready and time.monotonic() >= SESSION.restore_deadline and not STOP.is_set():
             checkpoint.dirty(SESSION.backend.output)
             journal("refusal", code="PAPER_RECOVERY_UNAVAILABLE", reason="native initialization did not complete")
@@ -709,7 +702,7 @@ class Membership(membership_months.Membership):
                          record=lambda kind, **fields: journal(kind, **fields), stale_code="PAPER_MEMBERSHIP_STALE")
 
 
-def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_loss: bool, proxy_url: str | None,
+def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: str | None,
                fees: tuple[Decimal, Decimal], catalog: Path, leverage: str, terms: dict,
                session: Session | None = None):
     account = ACCOUNT_CONTRACT
@@ -765,7 +758,7 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_los
     node.add_actor(history.WarmupActor(history.WarmupActorConfig(live=True)))
     node.add_actor_from_config(ImportableActorConfig("engine.paper:Recorder", "engine.paper:RecorderConfig",
                                                      {"instrument_ids": [item.instrument_id for item in planned],
-                                                      "uses_stop_loss": uses_stop_loss, "terms": terms}))
+                                                      "terms": terms}))
     return node
 
 
@@ -904,7 +897,7 @@ def _main(args) -> None:
         RECORDERS.clear()
         FINDINGS.clear()
         market_terms = json.loads(args.terms.read_bytes())
-        node = build_node(planned, loaded, getattr(loaded.strategy_class, "USES_STOP_LOSS", True), args.proxy_url,
+        node = build_node(planned, loaded, args.proxy_url,
                           (args.maker_fee, args.taker_fee), catalog, args.leverage,
                           {instrument_id(symbol): market_terms[symbol] for symbol in args.symbols}, SESSION)
         if len(RECORDERS) != 1:

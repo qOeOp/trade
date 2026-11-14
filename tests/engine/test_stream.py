@@ -535,7 +535,7 @@ class StreamTests(unittest.TestCase):
             finished, strategies, limitations = run.replay(rows, window, loaded, {"AAAUSDT": ((0, 10**20),)}, output)
             try:
                 summary, _ = write_native_reports(output, finished, strategies, rows,
-                                                  {"strategy_uses_stop_loss": False, "market_day": "c" * 32}, window, ACCOUNT_CONTRACT,
+                                                  {"market_day": "c" * 32}, window, ACCOUNT_CONTRACT,
                                                   limitations, run.mark_timestamps(rows))
                 self.assertEqual(summary["trade_start_by_strategy"], {"R1-AAA": window.trade_start_ns})
                 self.assertEqual(strategies["AAA"].trade_start, 0)

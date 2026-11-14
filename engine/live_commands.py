@@ -12,7 +12,8 @@ from engine import live_connection
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import require_admission, require_account_mode, require_clock
 from engine.order_rules import ENTRY_EQUITY_MULTIPLE, ENTRY_TYPES, exposure
-from engine.live_records import strategy_ids, symbol_of, write_json
+from engine.config import symbol_of
+from engine.live_records import strategy_ids, write_json
 if TYPE_CHECKING:
     from engine.live_session import Session
 

@@ -167,22 +167,22 @@ class LoadedStrategy:
     content_hash: str
     entry_class: str
     strategy_class: type[Strategy]
-    uses_stop_loss: bool = True
     warmup: tuple[tuple[str, int], ...] = ()  # engine.warmup.declared
 
 
 def read_regular_file(path: Path) -> bytes:
-    """Read through one descriptor; never follow a symlink at the file boundary."""
+    """Read through one descriptor; never follow a symlink at the file boundary. Besides the strategy source it
+    reads the universe file, the execution binding and Live's records, so its refusal names the path."""
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         if not stat.S_ISREG(path.lstat().st_mode):
-            raise Refusal("SOURCE_UNREADABLE", f"strategy source must be a regular file: {path}")
+            raise Refusal("SOURCE_UNREADABLE", f"not a regular file: {path}")
         descriptor = os.open(path, flags)
     except OSError as error:
-        raise Refusal("SOURCE_UNREADABLE", f"cannot read strategy source: {path}: {error}") from error
+        raise Refusal("SOURCE_UNREADABLE", f"cannot read {path}: {error}") from error
     with os.fdopen(descriptor, "rb") as stream:
         if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise Refusal("SOURCE_UNREADABLE", f"strategy source must be a regular file: {path}")
+            raise Refusal("SOURCE_UNREADABLE", f"not a regular file: {path}")
         return stream.read()
 
 
@@ -258,24 +258,12 @@ def load_strategy(
     if declared:
         raise Refusal("ENVIRONMENT_DECLARED", "the execution environment is the runner's --execution and margin rates, "
                                               "not the source's " + ", ".join(declared))
-    return LoadedStrategy(source_path, actual_sha256, entry_class, strategy_class,
-                          getattr(strategy_class, "USES_STOP_LOSS", True), warmup)
+    return LoadedStrategy(source_path, actual_sha256, entry_class, strategy_class, warmup)
 
 
 def strategy_metadata(loaded: LoadedStrategy) -> dict:
-    """engine.strategy_metadata: the run identity of the verified source and its two declarations."""
-    return {
-        "source_sha256": loaded.content_hash,
-        "strategy_entry_class": loaded.entry_class,
-        "strategy_runtime_contract": RUNTIME_CONTRACT,
-        "strategy_uses_stop_loss": loaded.uses_stop_loss,
-        "strategy_warmup": dict(loaded.warmup),
-        "strategy_source": {
-            "path": str(loaded.source_path),
-            "content_hash": loaded.content_hash,
-            "entry_class": loaded.entry_class,
-        },
-    }
+    """engine.strategy_metadata: the run identity of the verified source, its hash and entry class."""
+    return {"source_sha256": loaded.content_hash, "strategy_entry_class": loaded.entry_class}
 
 
 RESERVED_DIAGNOSTICS = {"coin", "instrument", "quantity", "counts", "positions"}
@@ -335,15 +323,28 @@ def read_universe(universe_path: Path | None, symbols: list[str]) -> dict[str, t
 
 
 
+def termination(episode: dict) -> int | None:
+    """engine.termination: the earliest CLOSE status or InstrumentClose (delisting settlement) of an episode."""
+    found = [int(event["ts_event"]) for event in episode.get("events") or ()
+             if event.get("type") == "InstrumentClose" or event.get("action") == "CLOSE"]
+    return min(found) if found else None
+
+
+def trading_end(episode: dict | None, end_ns: int) -> int:
+    """The earlier of `end_ns` and the episode's termination."""
+    found = termination(episode) if episode else None
+    return end_ns if found is None else min(end_ns, found)
+
+
 def episode_membership(intervals: tuple[tuple[int, int], ...], episode: dict | None) -> tuple[tuple[int, int], ...]:
-    """engine.episode_membership: membership cut at the listing and at the first PRE_CLOSE, CLOSE or
-    settlement; empty intervals are dropped."""
+    """engine.episode_membership: membership cut at the listing and at the termination or an earlier
+    PRE_CLOSE; empty intervals are dropped."""
     if episode is None:
         return tuple(intervals)
     low = episode.get("start_ns") or 0
-    stops = [int(event["ts_event"]) for event in episode.get("events") or ()
-             if event.get("type") == "InstrumentClose" or event.get("action") in ("PRE_CLOSE", "CLOSE")]
-    high = min(stops) if stops else None
+    stops = [termination(episode), *(int(event["ts_event"]) for event in episode.get("events") or ()
+                                     if event.get("action") == "PRE_CLOSE")]
+    high = min((stop for stop in stops if stop is not None), default=None)
     found = []
     for start, end in intervals:
         start, end = max(start, low), end if high is None else min(end, high)
