@@ -537,7 +537,6 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         "audit": audited,
         "limitations": ["Sandbox settles no funding: equity adds each settlement Binance published, at its rate and "
                         "the MARK a replay settles at, for the positions the journal held then",
-                        *((summary or {}).get("limitations") or []),
                         *(["Killed from outside: no summary; the equity at the stop is the journal's last, and "
                            "runtime failures are those the runner wrote up to a second before the kill"]
                           if ended_by_kill else [])],

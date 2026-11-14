@@ -15,7 +15,6 @@ from typing import Callable
 
 EVIDENCE = "evidence"
 MARKET = "market.jsonl"
-INSTRUMENTS = "instruments.json"
 
 
 class Evidence:
@@ -53,43 +52,16 @@ class Evidence:
             return
         self._append(kind, **fields)
 
-    def mark(self, update) -> None:
-        """The first MARK of a minute, the one a replay values positions with."""
-        try:
-            fields = dict(instrument_id=str(update.instrument_id), ts_event=update.ts_event, ts_init=update.ts_init,
-                          value=str(update.value))
-        except Exception as exc:
-            self._fail("market", exc)
-            return
-        self._append("mark", **fields)
-
-    def funding(self, settled, mark: tuple[int, object] | None, positions) -> None:
-        """A funding settlement (engine.cadence.Cadence.funding) with the open positions it applies to, as Paper
-        journals it."""
-        try:
-            fields = dict(instrument_id=str(settled.instrument_id), settlement_ns=settled.ts_event,
-                          stream_rate=str(settled.rate), mark=str(mark[1]) if mark else None,
-                          mark_ts=mark[0] if mark else None,
-                          positions=[{"position_id": str(position.id), "signed_qty": str(position.signed_qty)}
-                                     for position in positions])
-        except Exception as exc:
-            self._fail("market", exc)
-            return
-        self._append("funding_settlement", **fields)
-
     def reports(self, cache, venue) -> None:
-        """Every order, fill, position and account state in the native cache as a replay writes them, and the
-        native instruments the run traded, into ``reports-<observed_ns>/``. A reconciliation resumes the run's
-        cache, so its reports hold the whole run; the account states only the last day once the node ran an hour
-        (the native purge, engine.live_node)."""
+        """Every order, fill, position and account state in the native cache as a replay writes them, into
+        ``reports-<observed_ns>/``. A reconciliation resumes the run's cache, so its reports hold the whole run; the
+        account states only the last day once the node ran an hour (the native purge, engine.live_node)."""
         try:
             from engine.report import write_cache_reports
             name = f"reports-{time.time_ns()}"
             partial = self.root / f".{name}.partial"
             partial.mkdir(mode=0o700, parents=True)
             write_cache_reports(partial, cache, venue)
-            instruments = {str(value.id): type(value).to_dict(value) for value in cache.instruments()}
-            (partial / INSTRUMENTS).write_text(json.dumps(instruments, sort_keys=True, indent=1, default=str) + "\n")
             os.replace(partial, self.root / name)
         except Exception as exc:
             self._fail("reports", exc)

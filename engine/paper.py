@@ -118,10 +118,6 @@ LATE_BAR_NS = 2_000_000_000  # a bar arriving later than this after its close is
 STOP_CANCEL_SECONDS = 10
 # The order in which data callbacks were held, across strategies (release_before).
 SEQUENCE = itertools.count()
-LIMITATIONS = (
-    "paper-bars: Sandbox settles no funding; the sealing step settles each settlement Binance published for the "
-    "positions events.jsonl held then",
-)
 # Names of variables that may hold an exchange credential. Matching is on names only: values are never read.
 CREDENTIAL_NAME = re.compile(
     r"^(BINANCE|BNB|OKX|OKEX|BYBIT|BITMEX|BITGET|COINBASE|KRAKEN|DERIBIT|HYPERLIQUID|DYDX|GATE|KUCOIN|MEXC|HTX|"
@@ -134,7 +130,7 @@ def credential_names(environ) -> list[str]:
 
 
 def warmup_digest(bars: list[Bar]) -> dict:
-    """A history the source received (engine.history), as the journal and summary record it."""
+    """A history the source received (engine.history), as the journal records it."""
     text = "\n".join(f"{bar.ts_event},{bar.open},{bar.high},{bar.low},{bar.close},{bar.volume}" for bar in bars)
     return {"bars": len(bars), "first_ts_event": bars[0].ts_event if bars else None,
             "last_ts_event": bars[-1].ts_event if bars else None,
@@ -376,10 +372,6 @@ def _late(self, event) -> None:
     """PAPER_RELEASE_LATE: a fill stamped before a dispatch whose held callbacks already ran reached the cache after
     them, so they ran without it."""
     if type(event).__name__ == "OrderFilled" and event.ts_event <= self._paper_released_ns:
-        message = (f"{event.client_order_id} filled at {event.ts_event}, after the callbacks held until "
-                   f"{self._paper_released_ns} ran")
-        if f"PAPER_RELEASE_LATE: {message}" not in FINDINGS:
-            FINDINGS.append(f"PAPER_RELEASE_LATE: {message}")
         journal("release_late", code="PAPER_RELEASE_LATE", client_order_id=str(event.client_order_id),
                 ts_event=event.ts_event, released_ns=self._paper_released_ns)
 
@@ -422,9 +414,6 @@ def paper_callbacks(strategy_class: type) -> dict:
                  "on_order_event": on_order_event, "on_position_event": on_position_event}
     return {**{name: mutation(value) if callable(value) else value for name, value in callbacks.items()},
             "clock": property(_paper_clock)}
-
-
-FINDINGS: list[str] = []
 
 
 def paper_class(loaded: LoadedStrategy) -> type:
@@ -472,8 +461,6 @@ class Recorder(DataActor):
         self.cadence: dict[str, Cadence] = {}
         self.minute: int | None = None
         self.gaps = protection.Gaps()  # position ID -> since when it exceeded its resting stops (engine.protection)
-        self.settlements: list[dict] = []
-        self.findings = FINDINGS
         self.stopping_since: float | None = None
         self.handle = None
         self.checked_account = False
@@ -547,7 +534,6 @@ class Recorder(DataActor):
         record = {"instrument_id": iid, "settlement_ns": settled.ts_event, "stream_rate": str(settled.rate),
                   "mark": str(mark[1]) if mark else None, "mark_ts": mark[0] if mark else None,
                   "positions": positions}
-        self.settlements.append(record)
         journal("funding_settlement", **record)
 
     def _check_terms(self) -> None:
@@ -564,7 +550,6 @@ class Recorder(DataActor):
                             (("margin_init", instrument.margin_init), ("margin_maint", instrument.margin_maint))
                             if Decimal(str(rate)) != LOADER_MARGIN]
             if changed:
-                self.findings.append(f"TERMS_CHANGED: {iid}: {'; '.join(changed)}")
                 journal("refusal", code="TERMS_CHANGED", instrument_id=str(iid), changed=changed)
                 request_stop("TERMS_CHANGED")
 
@@ -574,7 +559,6 @@ class Recorder(DataActor):
             return
         self.checked_account = True
         if "SANDBOX" not in str(account.id):
-            self.findings.append(f"PAPER_EXEC_CLIENT_NOT_SANDBOX: the account is {account.id}")
             journal("refusal", code="PAPER_EXEC_CLIENT_NOT_SANDBOX", account_id=str(account.id))
             request_stop("PAPER_EXEC_CLIENT_NOT_SANDBOX")
 
@@ -630,7 +614,6 @@ class Recorder(DataActor):
         found = strategy_runtime.breaches()
         if found is not None and not STOP.is_set():
             code, subscriptions = found
-            self.findings.append(f"{code}: " + "; ".join(subscriptions))
             journal("refusal", code=code, subscriptions=subscriptions)
             request_stop(code)
             return  # the next tick runs the stop sequence
@@ -794,14 +777,9 @@ def summary(args, loaded: LoadedStrategy, planned: list[PaperInputs], recorder: 
         "symbols": args.symbols, "started_ns": started_ns, "stopped_ns": time.time_ns(),
         "stop_reason": STOP_REASON[0] if STOP_REASON else "node_stopped",
         "instances": instances,
-        "warmup": {inputs.instrument_id: {period: warmup_digest(bars) for period, bars in
-                                          history.STATES.get(inputs.strategy_id, {}).get("delivered", {}).items()}
-                   for inputs in planned},
         "balance_total": str(account.balance_total(usdt)) if account else None,
         "positions_at_stop": positions,
-        "orders_open_at_stop": [str(order.client_order_id) for order in cache.orders_open()],
-        "orders_denied_or_rejected": denied, "funding_settlements": recorder.settlements,
-        "findings": recorder.findings, "limitations": list(LIMITATIONS),
+        "orders_denied_or_rejected": denied,
     }
 
 
@@ -888,7 +866,6 @@ def _main(args) -> None:
         order_rules.CONTRACTS.clear()
         history.clear()
         RECORDERS.clear()
-        FINDINGS.clear()
         market_terms = json.loads(args.terms.read_bytes())
         node = build_node(planned, loaded, args.proxy_url,
                           (args.maker_fee, args.taker_fee), catalog, args.leverage,

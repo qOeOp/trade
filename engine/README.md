@@ -750,12 +750,11 @@ Each Live run keeps what a replay of its source needs for comparison in `evidenc
 (`engine/live_evidence.py`), never the ledger:
 
 - `market.jsonl`, in Paper's journal shape: every bar the source received (`bar`; `historical_bar` for one a
-  history request delivered), the first MARK of each minute (`mark`), and each funding settlement with the open
-  positions it applies to (`funding_settlement`, found as Paper finds it, `engine/cadence.py`). Bars after a stop
-  request reach neither the source nor the file. Quotes, trades and the other MARKs are not kept.
+  history request delivered). Bars after a stop request reach neither the source nor the file. Quotes, trades,
+  MARKs and funding rates are not kept: `live compare` settles funding at Binance's published rates.
 - `reports-<ns>/`, written when the node stops in `run` and `reconcile`: `orders.csv`, `fills.csv`,
   `positions.csv`, `account.csv` and `order_events.jsonl.gz` from the native cache, through the same writers a
-  replay uses (`engine.write_reports`), and the native instruments the venue client loaded (`instruments.json`).
+  replay uses (`engine.write_reports`).
   A reconciliation resumes the run's cache, so its reports cover the whole run; `account.csv` does too for a node that
   ran under an hour, and otherwise holds the last day of account states (the native purge above).
 

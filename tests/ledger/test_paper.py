@@ -39,8 +39,7 @@ def summary(**overrides) -> dict:
     found = {"identity": {"source_sha256": SOURCE}, "account": {"starting_balance_usdt": "100000", "default_leverage": "3"},
              "stop_reason": "SIGTERM", "runtime_failures": 0, "started_ns": START, "stopped_ns": START + 4 * MINUTE,
              "balance_total": "99990.00000000 USDT",
-             "positions_at_stop": [{"signed_qty": "0.01", "unrealized_pnl": "30.00000000 USDT"}],
-             "limitations": ["paper-bars: aggregated bars skip the first incomplete one"]}
+             "positions_at_stop": [{"signed_qty": "0.01", "unrealized_pnl": "30.00000000 USDT"}]}
     found.update(overrides)
     return found
 

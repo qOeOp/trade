@@ -1,12 +1,11 @@
-"""The Live evidence pack records the bars the source receives, the minute MARKs and funding settlements a replay
-uses, and the native reports in the replay's own form; a failed write never changes the run. Live warms its source
-at T from Binance's klines as replay and Paper do (engine.history), offline here: a BacktestEngine drives the Live
-wrapper and synthetic klines stand in for Binance's."""
+"""The Live evidence pack records the bars the source receives and the native reports in the replay's own form; a
+failed write never changes the run. Live warms its source at T from Binance's klines as replay and Paper do
+(engine.history), offline here: a BacktestEngine drives the Live wrapper and synthetic klines stand in for
+Binance's."""
 
 import gc
 import hashlib
 import json
-from decimal import Decimal
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -16,13 +15,13 @@ from unittest.mock import Mock
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.model import (
-    Bar, FundingRateUpdate, InstrumentId, MarkPriceUpdate, Price, Quantity, TraderId, Venue,
+    Bar, MarkPriceUpdate, Price, Quantity, TraderId, Venue,
 )
 from nautilus_trader.persistence import DataCatalogConfig
 
-from engine import history, live, live_lifecycle, live_source as live_source_runtime, warmup
+from engine import history, live, live_source as live_source_runtime, warmup
 from engine.config import Refusal
-from engine.live_evidence import EVIDENCE, INSTRUMENTS, MARKET, Evidence
+from engine.live_evidence import EVIDENCE, MARKET, Evidence
 from engine.report import ORDER_EVENTS, write_order_events, write_reports
 from engine.run import ACCOUNT_CONTRACT, add_venue
 from tests.engine import test_fill_model as fixture
@@ -201,37 +200,6 @@ class LiveEvidenceTests(unittest.TestCase):
                 (self.output / "events.jsonl").unlink()
                 (self.output / "evidence").exists() and __import__("shutil").rmtree(self.output / "evidence")
 
-    def test_the_observer_records_each_minutes_first_mark_and_each_funding_settlement(self):
-        session, _ = self.session()
-        session.record_minute = Mock()
-        position = SimpleNamespace(id="P-1", signed_qty=Decimal("0.002"))
-        observer = SimpleNamespace(session=session, minute=None, minutes={}, last_marks={}, cadences={},
-                                   cache=SimpleNamespace(positions_open=lambda instrument_id: [position]))
-        iid, other = fixture.INSTRUMENT_ID, InstrumentId.from_str("ETHUSDT-PERP.BINANCE")
-        for ts in (MINUTE_NS + 5, MINUTE_NS + 2_000_000_000, 2 * MINUTE_NS + 7):
-            live_lifecycle.Observer.on_mark_price(observer, MarkPriceUpdate(iid, Price.from_str("100.10"), ts, ts))
-        # Another contract's first mark of a minute is evidence too; the run's result is journalled once a minute.
-        live_lifecycle.Observer.on_mark_price(observer, MarkPriceUpdate(other, Price.from_str("2.50"), 2 * MINUTE_NS + 9,
-                                                                        2 * MINUTE_NS + 9))
-        settlement = 8 * HOUR_NS
-        for ts, following in ((3 * MINUTE_NS, settlement), (settlement + 3, settlement + 8 * HOUR_NS),
-                              (settlement + 4, settlement + 8 * HOUR_NS)):
-            live_lifecycle.Observer.on_funding_rate(observer, FundingRateUpdate(
-                iid, Decimal("0.0001"), ts, ts, None, following))
-        recorded = [{key: value for key, value in row.items() if key != "wall_ns"} for row in rows(self.output)]
-        self.assertEqual(recorded, [
-            {"kind": "mark", "instrument_id": str(iid), "ts_event": MINUTE_NS + 5, "ts_init": MINUTE_NS + 5,
-             "value": "100.10"},
-            {"kind": "mark", "instrument_id": str(iid), "ts_event": 2 * MINUTE_NS + 7, "ts_init": 2 * MINUTE_NS + 7,
-             "value": "100.10"},
-            {"kind": "mark", "instrument_id": str(other), "ts_event": 2 * MINUTE_NS + 9, "ts_init": 2 * MINUTE_NS + 9,
-             "value": "2.50"},
-            {"kind": "funding_settlement", "instrument_id": str(iid), "settlement_ns": settlement,
-             "stream_rate": "0.0001", "mark": "100.10", "mark_ts": 2 * MINUTE_NS + 7,
-             "positions": [{"position_id": "P-1", "signed_qty": "0.002"}]},
-        ])
-        self.assertEqual(session.record_minute.call_count, 2)
-
     def test_reports_from_the_live_cache_equal_the_replays_own(self):
         engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(ACCOUNT_CONTRACT["trader_id"]),
                                                      logging=LoggerConfig(stdout_level=LogLevel.ERROR)))
@@ -261,19 +229,14 @@ class LiveEvidenceTests(unittest.TestCase):
             for name in ("orders.csv", "fills.csv", "positions.csv", "account.csv", ORDER_EVENTS):
                 self.assertEqual((written / name).read_bytes(), (replay / name).read_bytes(), name)
             self.assertEqual(len((written / "fills.csv").read_text().splitlines()), 5)
-            instruments = json.loads((written / INSTRUMENTS).read_text())
-            self.assertEqual(list(instruments), [str(fixture.INSTRUMENT_ID)])
-            self.assertEqual(instruments[str(fixture.INSTRUMENT_ID)]["price_increment"], "0.01")
         finally:
             engine.dispose()
 
     def test_a_failed_write_is_journaled_once_and_never_fails_the_run(self):
         session, _ = self.session()
         (self.output / EVIDENCE).write_text("not a directory")
-        update = MarkPriceUpdate(fixture.INSTRUMENT_ID, Price.from_str("100.10"), MINUTE_NS, MINUTE_NS)
-        session.evidence.mark(update)
-        session.evidence.mark(update)
         session.evidence.bar(bar(MINUTE_NS))
+        session.evidence.bar(bar(2 * MINUTE_NS))
         session.evidence.reports(SimpleNamespace(), Venue("BINANCE"))
         events = [json.loads(line) for line in (self.output / "events.jsonl").read_text().splitlines()]
         self.assertEqual([(row["event"], row["part"]) for row in events],

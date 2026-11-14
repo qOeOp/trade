@@ -38,7 +38,6 @@ class HoldTests(unittest.TestCase):
                       mock.patch.dict(paper.strategy_runtime.STRATEGIES, clear=True)):
             patch.start()
             self.addCleanup(patch.stop)
-        self.addCleanup(paper.FINDINGS.clear)
 
     def source(self, seen: list, name: str = "BTC"):
         class Source:
@@ -96,14 +95,13 @@ class HoldTests(unittest.TestCase):
             btc.on_order_event(filled)
         late = [call for call in journal.call_args_list if call.args[0] == "release_late"]
         self.assertEqual(len(late), 1)
-        self.assertEqual(late[0].kwargs["released_ns"], DAY)
-        self.assertEqual([found.split(":")[0] for found in paper.FINDINGS], ["PAPER_RELEASE_LATE"])
+        self.assertEqual((late[0].kwargs["code"], late[0].kwargs["released_ns"]), ("PAPER_RELEASE_LATE", DAY))
 
 
 class TradeSubscriptionTests(unittest.TestCase):
     def test_a_trade_or_metrics_subscription_stops_the_run_since_paper_streams_neither(self):
         self.assertTrue(issubclass(paper._PaperConfigured, paper.strategy_runtime.Subscriptions))
-        held = (paper.STOP, paper.STOP_REASON, paper.FINDINGS, paper.strategy_runtime.BREACHES)
+        held = (paper.STOP, paper.STOP_REASON, paper.strategy_runtime.BREACHES)
         for value in held:
             self.addCleanup(value.clear)
         for code, subscription in (
@@ -120,7 +118,6 @@ class TradeSubscriptionTests(unittest.TestCase):
                 paper.strategy_runtime.BREACHES.append((code, subscription))
                 recorder.on_stop_timer(None)
                 self.assertEqual(paper.STOP_REASON, [code])
-                self.assertEqual(recorder.findings, [f"{code}: {subscription}"])
                 journal.assert_called_once_with("refusal", code=code, subscriptions=[subscription])
 
 
@@ -205,26 +202,23 @@ class TermsTests(unittest.TestCase):
         recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {str(IID): self.MARKET}))
         self.addCleanup(paper.STOP.clear)
         self.addCleanup(paper.STOP_REASON.clear)
-        self.addCleanup(paper.FINDINGS.clear)
         cache = SimpleNamespace(instrument=lambda iid: SimpleNamespace(**loaded))
         with mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock, return_value=cache), \
                 mock.patch.object(paper, "journal") as journal:
             recorder._check_terms()
-        return recorder.findings, journal
+        return journal
 
     def test_the_markets_terms_and_the_loader_rates_pass(self):
-        findings, journal = self.check()
-        self.assertEqual((findings, paper.STOP_REASON), ([], []))
+        journal = self.check()
+        self.assertEqual(paper.STOP_REASON, [])
         journal.assert_not_called()
 
     def test_another_tick_or_margin_rate_stops_the_run_with_both_values(self):
         for changes, text in (({"price_increment": Price.from_str("0.01")}, "price_increment: market 0.10, exchange 0.01"),
                               ({"margin_init": Decimal("0.05")}, "margin_init: 0.05, leverage set from 0.1")):
             with self.subTest(text=text):
-                findings, journal = self.check(**changes)
+                journal = self.check(**changes)
                 self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
-                self.assertEqual(findings, [f"TERMS_CHANGED: {IID}: {text}"])
                 journal.assert_called_once_with("refusal", code="TERMS_CHANGED", instrument_id=str(IID), changed=[text])
                 paper.STOP.clear()
                 paper.STOP_REASON.clear()
-                paper.FINDINGS.clear()
