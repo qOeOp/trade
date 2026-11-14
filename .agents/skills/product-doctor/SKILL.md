@@ -17,8 +17,9 @@ research conclusions and experiment selection belong to `research-round`.
   ([lenses.md](references/lenses.md#product-contracts-and-delivery)). Never write the ledger or the
   market (`replay reproduce` records an explore trial). Never read `dolt/service.json` under the data directory
   (passwords) or fetch a running IDE's home page (paper token): `ledger review` gives the backup head.
+  Read no research data key.
 - AGENTS.md owns common authority and implementation boundaries; reference it rather than copying
-  its rules. This skill additionally retains item-by-item user authority for stored-field changes.
+  its rules.
   Diagnosis grants no implementation authority, except an attach session's fixes
   ([attach.md](references/attach.md#diagnoses)).
 - A full audit runs in a fresh session, on either host, that shares no context with the round: not

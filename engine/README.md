@@ -426,9 +426,10 @@ Neither result establishes consistency for untested sources, windows or hosts.
 
 ## Paired acceptance
 
-A change that should preserve behavior (runner, data adaptation, dependency or Nautilus) is
-accepted by paired native replays of the same source, inputs, window and account: the reference in
-the current main image, the candidate in the pull request's image. Run a BTC/ETH pilot of each
+A change that should preserve behavior (strategy refactor, runner, data adaptation, dependency or
+Nautilus) is accepted by paired native replays of the same source, inputs, window and account: the reference in
+the current main image, the candidate in the pull request's image (a research change to a strategy
+follows the `research-round` skill instead). Run a BTC/ETH pilot of each
 affected source, then the full instrument set:
 
 ```bash

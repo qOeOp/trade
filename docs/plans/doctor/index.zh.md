@@ -1,6 +1,6 @@
 # Doctor 未结项
 
-按 `.agents/skills/product-doctor` 维护，每份诊断记录写完后更新本表。格式按 record.md（2026-10-29 起）：状态格只写一个状态词加设定它的记录链接（`in PR` 链接 PR），经过写在记录里；状态词为 `open`、`in PR`、`fixed <commit>`（只表示已合入）、`verified`（之后的研究会话触发该路径且未复发，或修复加了没有它就会失败的测试或 CI 检查，状态格写明测试）、`unobserved`（之后的研究会话没走到该路径，不算验证）、`recurred`、`rejected`，`verified` 或 `rejected` 才移到已结；整体审计在自己的检出上重跑每个 `fixed`、`unobserved` 行的证明，仍出现记 `recurred`，不再出现则以 `fixed` 移到已结并链接该审计记录；下一次诊断报告状态有变化的行。来源列为 `doctor`、`user`（用户先于诊断指出，括号内是 `references/lenses.md` 三个工作流里本应发现它的那个）或 `attach`；代价列为实测代价等级 `none`、`minutes`、`hours`、`wrong output`，未计量为 `unknown`。2026-10-29 之前的行由 [格式转换记录](2026-10-29-index-format-conversion.zh.md) 机械转换，旧状态格原文都在那里；此前已结的行按当时的规矩关闭。
+按 `.agents/skills/product-doctor` 维护，每份诊断记录写完后更新本表。修复某个发现时从它的诊断记录和本表出发，不从做审计的会话出发（attach 会话修自己已核实的诊断除外，见 product-doctor `attach.md`）；一个根因一个 PR，PR 正文写发现 id。格式按 record.md（2026-10-29 起）：状态格只写一个状态词加设定它的记录链接（`in PR` 链接 PR），经过写在记录里；状态词为 `open`、`in PR`、`fixed <commit>`（只表示已合入）、`verified`（之后的研究会话触发该路径且未复发，或修复加了没有它就会失败的测试或 CI 检查，状态格写明测试）、`unobserved`（之后的研究会话没走到该路径，不算验证）、`recurred`、`rejected`，`verified` 或 `rejected` 才移到已结；整体审计在自己的检出上重跑每个 `fixed`、`unobserved` 行的证明，仍出现记 `recurred`，不再出现则以 `fixed` 移到已结并链接该审计记录；下一次诊断报告状态有变化的行。来源列为 `doctor`、`user`（用户先于诊断指出，括号内是 `references/lenses.md` 三个工作流里本应发现它的那个）或 `attach`；代价列为实测代价等级 `none`、`minutes`、`hours`、`wrong output`，未计量为 `unknown`。2026-10-29 之前的行由 [格式转换记录](2026-10-29-index-format-conversion.zh.md) 机械转换，旧状态格原文都在那里；此前已结的行按当时的规矩关闭。
 
 本次状态校准只回读已合入的修复、既有工程测试与技能评测记录；没有重跑这些历史验收或取得新的研究会话证据。下表的通过读数均限定于所引记录，不把文档回读记为 `verified`。
 

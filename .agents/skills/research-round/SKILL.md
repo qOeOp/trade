@@ -7,8 +7,10 @@ description: Advances strategy research on a user-selected research line through
 
 Work within the line selected through `research-start`: its starting candidate, development window
 and market day. Choose hypotheses, parents, controls and priorities within that scope. Follow
-AGENTS.md's authority boundaries and design-variable ownership; stop and explain before a listed
-action. A sizing value you proposed stays your design variable when the user picks or repeats it.
+AGENTS.md's authority boundaries; stop and explain before a listed action. Position size, per-plan
+risk and notional limits are your design variables, set in strategy source; changing them needs no
+authority. A sizing value you proposed stays your design variable when the user picks or repeats it,
+never a user constraint.
 
 ## Research loop
 
@@ -64,7 +66,8 @@ alters; while one never ran, activity is `unresolved` until a precheck on a wind
 a probe on a `ledger temp` ledger, shows it. Readiness: no decision before
 each indicator has converged on its warm-up history, not research-start's input-coverage check.
 Native `initialized` is not convergence for a recursive indicator (strategy-authoring.md). `replay
-explore` is never economic evidence.
+explore` records an explore trial in the active ledger, which counts as exposure to its data, and is
+never economic evidence.
 
 Choose the execution environment, the runner argument `--execution` (never the source), before a
 line's first precheck. Pass the same runner arguments except the window to every precheck, registration and replay,
