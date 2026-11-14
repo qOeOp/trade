@@ -73,7 +73,7 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                        "quoted excerpts, never the complete transcript.",),
     "EVIDENCE_TOO_LARGE": ("Store a derived, smaller file instead of the original.",),
     "BUNDLE_EXISTS": ("Use a new bundle name; to correct a bundle, add a correction-* bundle naming it.",),
-    "UNKNOWN_BUNDLE": ("List bundles with `ledger sql \"SELECT DISTINCT bundle FROM v_evidence\"`.",),
+    "UNKNOWN_BUNDLE": ("List bundles with `ledger sql \"SELECT bundle FROM evidence_bundle\"`.",),
     "LEDGER_CORRUPT": ("Report it with the bundle or candidate named; run `ledger review` and restore from the "
                        "backup with the administrator.",),
     # Candidates

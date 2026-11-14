@@ -139,7 +139,7 @@ kept only as evidence or split into changes of this line's source; the user choo
   on it. A host outage (Docker, the ledger service, the market-import container): read its state
   (`ledger service status`, `docker ps -a --filter name=trade-ide`) and tell the user once; an
   exited service was stopped on purpose, and the user runs `docker compose ... start SERVICE` from
-  the main checkout, never `up` (AGENTS.md). Wait with the host's wait tool, backing off to every 30 minutes for at most 6 hours, writing nothing;
+  the main checkout, never `up`. Wait with the host's wait tool, backing off to every 30 minutes for at most 6 hours, writing nothing;
   without one, end the turn blocked. Once the ledger answers, continue only if it is the same
   ledger and `research state --line LINE --history` holds what you last read; otherwise say what
   changed once and stop. Another agent's or
