@@ -133,19 +133,6 @@ class LiveCustodyTests(LiveFixture):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def retained_format_launch(self, retained, mode):
-        manifest = {**self.manifest, "format": retained}
-        (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(manifest))
-        return launch(self.root, self.run_id, self.credentials, mode, scope=self.scope)
-
-    def test_a_run_prepared_before_the_current_format_is_refused(self):
-        for mode in ("run", "preflight", "reconcile"):
-            with self.subTest(mode=mode), patch.object(runs, "_network") as network:
-                self.assertEqual(refused(self.retained_format_launch, "live-run-v7", mode,
-                                         error=LiveRefusal).code, "LIVE_RUN_FORMAT")
-                network.assert_not_called()
-        self.assertFalse((self.root / "account.jsonl").exists())
-
     def test_market_terms_are_read_at_the_latest_market_day_and_an_unreadable_market_is_refused(self):
         self.assertEqual(refused(MARKET_TERMS, self.root / "no-market", ["BTCUSDT"],
                                  error=LiveRefusal).code, "LIVE_MARKET_TERMS")
@@ -214,17 +201,6 @@ class LiveCustodyTests(LiveFixture):
                 stream.write(b'{"event":"par')
             result = maintain(self.root, self.run_id)
         self.assertEqual((result["state"], result["exit_code"], result["stop_reason"]), ("unresolved", 137, None))
-
-    def test_preflight_again_on_a_run_of_an_earlier_format_names_the_format(self):
-        (self.directory / "inputs" / "manifest.json").write_bytes(
-            state.encode({**self.manifest, "format": "live-run-v7"}))
-        universe = self.root / "universe.json"
-        universe.write_text("{}")
-        self.assertEqual(refused(prepare, self.root, self.run_id, object(), "a" * 32, "original@2", ["BTCUSDT"],
-                                 universe, self.credentials, IDENTITY["image_ref"], scope=self.scope,
-                                 drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
-                                 market_root=Path("unused"), credential_ref="a" * 32,
-                                 error=LiveRefusal).code, "LIVE_RUN_FORMAT")
 
     def test_failed_launch_retains_account_custody_and_inputs(self):
         with patch.object(runs, "_network", return_value={"network": "network"}), \

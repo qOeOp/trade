@@ -154,14 +154,7 @@ def load_lifecycle(profile: db.LedgerProfile, bundle: str, market_day: str, *, m
         body = json.loads(files[LIFECYCLE].decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise refuse("LIFECYCLE_INPUT", f"{bundle}/{LIFECYCLE} is not JSON", missing=(f"{bundle}/{LIFECYCLE}",)) from exc
-    try:
-        episodes = market.validate_lifecycle(body, market_day, files)
-    except Refusal as exc:
-        if exc.code == "LIFECYCLE_INPUT":
-            raise
-        raise refuse("LIFECYCLE_INPUT", f"{bundle} does not validate ({exc.code}): {exc.message}",
-                     missing=(str(bundle),)) from exc
-    return episodes, dict(files)
+    return market.validate_lifecycle(body, market_day, files), dict(files)
 
 
 def _intersects(intervals, start: int, end: int) -> bool:

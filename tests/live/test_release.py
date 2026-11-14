@@ -15,7 +15,7 @@ from deploy.release_host import durable_json, route_config
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
 from live import control, release, requests, runs, state
-from tests.live.test_runs import IDENTITY, LiveFixture
+from tests.live.test_runs import LiveFixture
 from tests.live.authority_fixture import inject_cli, install, recover
 from tests.helpers import refused
 
@@ -32,7 +32,7 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         self.binding = release.Binding(self.directory, OLD)
         self.route = self.directory / "router" / "active.json"
         self.transaction = self.directory / "transaction.json"
-        durable_json(self.route, route_config(OLD, None))
+        durable_json(self.route, route_config(OLD))
 
     def refused(self, binding=None, *, maintenance=False):
         self.assertEqual(refused(release.admission_locked, binding or self.binding, maintenance=maintenance,
@@ -43,7 +43,7 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         release.admission_locked(self.binding, maintenance=True)
         candidate = release.Binding(self.directory, NEW)
         self.refused(candidate)
-        durable_json(self.route, route_config(NEW, None))
+        durable_json(self.route, route_config(NEW))
         self.refused()
         self.refused(maintenance=True)
         release.admission_locked(candidate)
@@ -52,7 +52,7 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         candidate = release.Binding(self.directory, NEW)
         durable_json(self.transaction, {"candidate": NEW, "previous": OLD})
         for route in (OLD, NEW):
-            durable_json(self.route, route_config(route, None))
+            durable_json(self.route, route_config(route))
             self.refused()
             self.refused(candidate)
             release.admission_locked(self.binding, maintenance=True)
@@ -61,66 +61,11 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         release.admission_locked(candidate)
         self.refused(maintenance=True)
 
-    def test_a_web_only_route_and_transaction_keep_the_owner_admitted(self):
-        third = "trade-release-web-" + "c" * 40
-        owner, newer = release.Binding(self.directory, NEW), release.Binding(self.directory, third)
-        durable_json(self.route, route_config(NEW, "a" * 40))
-        release.admission_locked(self.binding)
-        self.refused(owner)
-        durable_json(self.transaction, {"candidate": third, "previous": NEW, "candidate_owner": "a" * 40})
-        for route in (NEW, third):
-            durable_json(self.route, route_config(route, "a" * 40))
-            release.admission_locked(self.binding)  # the account's work goes on through the Web's move
-            self.refused(owner)
-            self.refused(newer, maintenance=True)
-        durable_json(self.route, route_config(third, None))
-        self.refused(maintenance=True)
-
-    def test_a_web_ahead_of_its_control_keeps_the_owner_admitted_until_its_own_control_pairs(self):
-        ahead = NEW + "-pre"
-        durable_json(self.transaction, {"candidate": ahead, "previous": OLD, "candidate_owner": "a" * 40})
-        for route in (OLD, ahead):
-            durable_json(self.route, route_config(ahead, "a" * 40) if route == ahead else route_config(OLD, None))
-            release.admission_locked(self.binding)  # the owner's account work goes on beside the newer Web
-            release.admission_locked(self.binding, maintenance=True)
-        self.transaction.unlink()
-        release.admission_locked(self.binding)
-        own = release.Binding(self.directory, NEW)
-        self.refused(own)
-        durable_json(self.transaction, {"candidate": NEW, "previous": ahead, "previous_owner": "a" * 40})
-        self.refused()
-        release.admission_locked(self.binding, maintenance=True)
-        self.refused(own, maintenance=True)
-        self.transaction.unlink()
-        durable_json(self.route, route_config(NEW, None))
-        release.admission_locked(own)
-        self.refused(maintenance=True)
-        with self.assertRaises(LiveRefusal):
-            release.Binding(self.directory, ahead)  # a control is only ever bound to a plain Web
-
-    def test_a_paired_release_from_a_web_only_state_keeps_maintenance_with_the_owner(self):
-        third = "trade-release-web-" + "c" * 40
-        newer = release.Binding(self.directory, third)
-        durable_json(self.transaction, {"candidate": third, "previous": NEW, "previous_owner": "a" * 40})
-        for route, owner in ((NEW, "a" * 40), (third, None)):
-            durable_json(self.route, route_config(route, owner))
-            self.refused()
-            release.admission_locked(self.binding, maintenance=True)
-            self.refused(release.Binding(self.directory, NEW), maintenance=True)
-            self.refused(newer, maintenance=True)
-        self.transaction.unlink()
-        release.admission_locked(newer)
-        self.refused(maintenance=True)
-
     def test_corrupt_ambiguous_missing_and_nonregular_metadata_are_unavailable(self):
         for value in ({"candidate": NEW}, {"candidate": NEW, "previous": OLD, "unexpected": 1},
                       {"candidate": NEW, "previous": OLD, "agent_before": None},
                       {"candidate": NEW, "previous": NEW},
-                      {"candidate": NEW, "previous": OLD, "candidate_owner": "a" * 40, "previous_owner": "a" * 40},
-                      {"candidate": NEW, "previous": OLD, "candidate_owner": "not-a-revision"},
-                      {"candidate": NEW, "previous": OLD, "previous_owner": None},
-                      {"candidate": NEW + "-pre", "previous": OLD},
-                      {"candidate": NEW + "-post", "previous": OLD, "candidate_owner": "a" * 40}):
+                      {"candidate": NEW + "-x", "previous": OLD}):
             with self.subTest(value=value):
                 durable_json(self.transaction, value)
                 self.refused()
@@ -131,15 +76,11 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         self.transaction.symlink_to(self.directory / "missing")
         self.refused(maintenance=True)
         self.transaction.unlink()
-        value = route_config(NEW, "a" * 40)
-        value["apps"]["http"]["servers"]["ide"]["routes"][0]["@id"] = "live-unknown"
+        value = route_config(OLD)
+        value["apps"]["http"]["servers"]["ide"]["routes"][0]["handle"][0]["upstreams"][0]["dial"] = OLD + "-x:8765"
         durable_json(self.route, value)
         self.refused()
-        value = route_config(NEW + "-pre", "a" * 40)
-        del value["apps"]["http"]["servers"]["ide"]["routes"][0]["@id"]
-        durable_json(self.route, value)
-        self.refused()
-        value = route_config(OLD, None)
+        value = route_config(OLD)
         value["apps"]["http"]["servers"]["ide"]["routes"].append({"handle": []})
         durable_json(self.route, value)
         self.refused()
@@ -170,7 +111,7 @@ class LiveReleaseTests(LiveFixture):
         self.binding = self.authority.binding
         self.route = self.release_state / "router" / "active.json"
         self.transaction = self.release_state / "transaction.json"
-        durable_json(self.route, route_config(OLD, None))
+        durable_json(self.route, route_config(OLD))
         self.config = self.authority.config
 
     def files(self):
@@ -211,39 +152,17 @@ class LiveReleaseTests(LiveFixture):
         with patch.object(runs, "inspect_runner", side_effect=runner):
             self.assertEqual(release.idle_locked(self.root), "busy")
 
-    def test_adopt_inspection_lists_each_busy_runtime_only_after_every_run_was_read(self):
+    def test_a_busy_run_does_not_hide_a_later_unreadable_one(self):
         self.launch_record()
-        original = runs.read_manifest
-        built = "b" * 40
-
-        def manifest(root, run_id):
-            directory, value = original(root, run_id)
-            return directory, {**value, "runtime": {**value["runtime"], "build_revision": built}}
-
-        running = {"State": {"Running": True, "Status": "running"}}
-        with patch.object(runs, "inspect_runner", return_value=running):
-            self.assertEqual(release.inspect_locked(self.root), ("busy", [None]))  # this manifest names no revision
-            with patch.object(runs, "read_manifest", side_effect=manifest):
-                self.assertEqual(release.inspect_locked(self.root), ("busy", [built]))
-                # After a confirmed switch the run answers with the build its latest launch runs on (design §3.8).
-                switched = {**IDENTITY, "image_ref": IDENTITY["image_ref"][:-64] + "f" * 64, "build_revision": "f" * 40}
-                state.append(self.directory / "lifecycle.jsonl", "runtime_switch_requested", self.run_id,
-                             runtime=switched, request_id="switch-1")
-                state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id, mode="run",
-                             container="runner", image_ref=switched["image_ref"])
-                self.assertEqual(release.inspect_locked(self.root), ("busy", ["f" * 40]))
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": True, "Status": "running"}}):
+            self.assertEqual(release.idle_locked(self.root), "busy")
             later = self.root / "runs" / "zz-unreadable"  # read after the busy run: no inputs, no outputs
             later.mkdir(mode=0o700)
-            self.assertEqual(release.inspect_locked(self.root), ("unavailable", []))
-            self.assertEqual(release.idle_locked(self.root), "unavailable", "a busy run no longer hides a later one")
+            self.assertEqual(release.idle_locked(self.root), "unavailable")
             later.rmdir()
-        args = SimpleNamespace(verb="release-inspect", configuration=self.authority.file, adopt=True)
-        with patch.object(release, "inspect_locked", return_value=("busy", [built, None])):
-            self.assertEqual(live_commands.dispatch(args, []), ({"state": "busy", "runtimes": [built, None]}, 0))
-            self.assertEqual(live_commands.dispatch(SimpleNamespace(**{**vars(args), "adopt": False}), []),
-                             ({"state": "busy"}, 0))
-        with patch.object(release, "inspect_locked", return_value=("idle", [])):
-            self.assertEqual(live_commands.dispatch(args, []), ({"state": "idle"}, 0))
+        args = SimpleNamespace(verb="release-inspect", configuration=self.authority.file)
+        with patch.object(release, "idle_locked", return_value="busy"):
+            self.assertEqual(live_commands.dispatch(args, []), ({"state": "busy"}, 0))
 
     def test_invalid_run_set_partial_native_and_unknown_request_do_not_mean_idle(self):
         other = self.root / "runs" / "invalid_name"
@@ -421,9 +340,5 @@ except LiveRefusal as exc:
                                     str(configuration)], capture_output=True, text=True, timeout=10)
         self.assertEqual(child.returncode, 0, child.stderr)
         self.assertEqual(json.loads(child.stdout), {"state": "idle"})
-        with state.serialized(self.root):
-            child = subprocess.run([sys.executable, "-m", "cli.main", "live", "release-inspect", "--configuration",
-                                    str(configuration), "--adopt"], capture_output=True, text=True, timeout=10)
-        self.assertEqual((child.returncode, json.loads(child.stdout)), (0, {"state": "idle"}), child.stderr)
         self.assertEqual(before, self.files())
 

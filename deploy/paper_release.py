@@ -91,8 +91,6 @@ class PaperRelease:
             with self.host.barrier(target["service"]) as held:
                 self.host.known({candidate, previous})
                 self.host.ensure_protected(protected)
-                # Include a start accepted by the previous controller during candidate preparation.
-                self.host.compatible(candidate)
                 protected = self.host.protected()
                 held()
                 self.host.phase(previous, "all", None)

@@ -260,9 +260,6 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mappin
         raise refuse("MEMBERSHIP_CHANGED", f"the membership file the trial read is of market day "
                                            f"{read}, not the trial's market day "
                                            f"{row['market_day']}", missing=("membership",))
-    if row["universe_rule"] != registration["universe_rule"]:
-        raise refuse("MEMBERSHIP_CHANGED", f"universe rule {row['universe_rule']} is not the registered "
-                                           f"{registration['universe_rule']}", missing=("universe_rule",))
     start, end = registration["window_start"], registration["window_end"]
     stamp = witness.registration_stamp(conn, origin["registration_id"])
     if stamp is None or not stamp[1] < start.replace(tzinfo=UTC):

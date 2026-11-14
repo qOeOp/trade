@@ -43,7 +43,7 @@ def terms(market: files.Market, market_day: str, symbol: str) -> dict:
     """market.terms: the terms row of `symbol` at the exact market day (`visible`)."""
     found = visible(market, market_day, symbol)
     if found is None:
-        raise _refuse(f"{symbol}: no terms at market day {market_day}", "NO_TERMS", missing=(symbol,))
+        raise _refuse(f"{symbol} is no instrument at market day {market_day}", "UNKNOWN_SYMBOL", missing=(symbol,))
     return {key: found[key] for key in SNAPSHOT}
 
 

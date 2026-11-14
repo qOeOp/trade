@@ -235,25 +235,8 @@ class PaperHost(DockerHost):
             timeout=25,
         )
 
-    def compatible(self, name: str) -> None:
-        self.docker(
-            "exec",
-            name,
-            "python",
-            "-m",
-            "paper.release",
-            "check",
-            "--ledger=paper",
-            f"--runtime={self.runtime(name)}",
-            timeout=300,
-        )
-
     def warm(self, name: str, protected: dict) -> None:
-        def check() -> None:
-            self.health(name)
-            self.compatible(name)
-
-        until_ready(check, 180, 3, lambda: self.ensure_protected(protected))
+        until_ready(lambda: self.health(name), 180, 3, lambda: self.ensure_protected(protected))
 
     @contextmanager
     def barrier(self, service: str):

@@ -22,14 +22,10 @@ from live import state
 
 REQUEST_ID = re.compile(r"[a-z0-9][a-z0-9-]{7,63}\Z")
 # The actions on one prepared run (POST /api/live/runs/<run_id>/<action>, live.serve).
-RUN_ACTIONS = frozenset({"preflight", "start", "reconcile", "stop", "maintain", "runtime_switch",
-                         "runtime_switch_cancel"})
+RUN_ACTIONS = frozenset({"preflight", "start", "reconcile", "stop", "maintain"})
 ACTIONS = RUN_ACTIONS | {"prepare", "credential_save", "credential_remove"}
-# A confirmed runtime switch and its cancel (live.runs): the lifecycle row that names the request is its effect.
-SWITCH_ROWS = {"runtime_switch": ("runtime_switch_requested", "request_id"),
-               "runtime_switch_cancel": ("runtime_switch_canceled", "cancel_request_id")}
 LAUNCHES = frozenset({"preflight", "start", "reconcile"})
-NONCONFLICTING = frozenset({"stop", "maintain", "runtime_switch_cancel"})  # each only takes an effect away
+NONCONFLICTING = frozenset({"stop", "maintain"})
 SECRET_FIELDS = frozenset({"api_key", "api_secret", "secret", "password", "authorization", "listenkey", "signature"})
 
 
@@ -154,9 +150,6 @@ def _run_effect(root: Path, claim: dict) -> dict | None:
         runs.read_manifest(root, run_id)
         return {"source": "stop", "cursor": "1"}
     for index, row in enumerate(rows):
-        if action in SWITCH_ROWS and (row.get("event"), row.get(SWITCH_ROWS[action][1])) \
-                == (SWITCH_ROWS[action][0], claim["request_id"]):
-            return {"source": "lifecycle", "cursor": str(index + 1)}
         if action == "prepare" and row.get("event") == "prepared":
             if row.get("request_id") != claim["request_id"]:
                 previous = read_locked(root, row["request_id"]) if row.get("request_id") else None
@@ -177,10 +170,6 @@ def _run_effect(root: Path, claim: dict) -> dict | None:
                 if row.get("mode") != expected_mode:
                     continue
                 if action == "start" and command["inputs"].get("confirm_real_orders") != manifest["source"]["source_sha256"]:
-                    continue
-                prepared = next((item for item in rows if item.get("event") == "prepared"), None)
-                if "credential_ref" in command["target"] and (
-                        not prepared or prepared.get("credential_ref") != command["target"]["credential_ref"]):
                     continue
             # Completed removal/release has its own identity checks; no missing-container shortcut.
             after = rows[index + 1:]
@@ -289,12 +278,6 @@ def _no_dispatch(root: Path, claim: dict) -> bool:
         mode = final.lstat().st_mode
         return stat.S_ISREG(mode) and not mode & 0o077 and any(row.get("event") == "saved" for row in rows)
     if action not in LAUNCHES:
-        if action in SWITCH_ROWS:  # both write one lifecycle row naming the request, or nothing
-            from live import runs
-            runs.read_manifest(root, target["run_id"])
-            event, field = SWITCH_ROWS[action]
-            return not any(row.get("event") == event and row.get(field) == claim["request_id"]
-                           for row in state.events(state.directory(root, target["run_id"]) / "lifecycle.jsonl"))
         if action == "prepare":
             directory = state.directory(root, target["run_id"])
             if not os.path.lexists(directory):
@@ -363,30 +346,19 @@ def dispatch(root: Path, request_id: str, command: dict, operation: Callable[[Pa
             admit_new(root)
         if command["action"] not in NONCONFLICTING:
             require_clear(root)
-        if command["action"] == "credential_save" and (root / "requests").exists():
-            for path in (root / "requests").iterdir():
-                other = read_locked(root, path.stem)
-                if other and not is_closed(other) and other["command"]["action"] == "credential_save" \
-                        and other["command"]["target"] == command["target"]:
-                    raise state.fail("LIVE_REQUEST_CONFLICT", "a credential version belongs to its original upload request")
         state.private_directory(root / "requests")
         state.write_new(_path(root, request_id), state.encode({"event": "claimed", "observed_ns": time.time_ns(),
                                                              "command": command}))
         try:
             operation(root, request_id)
-        except Exception as exc:
-            # A switch writes one lifecycle row or nothing: with none written, any failure of one is a refusal, so it
-            # never leaves an unknown outcome that blocks the run's later restarts.
-            if not isinstance(exc, LiveRefusal) and command["action"] not in SWITCH_ROWS:
-                raise
+        except LiveRefusal as exc:
             claim = read_locked(root, request_id)
             try:
                 absent = claim is not None and _no_dispatch(root, claim)
             except (LiveRefusal, OSError, KeyError, TypeError, ValueError):
                 absent = False
             if absent:
-                _append(_path(root, request_id), "refused",
-                        code=exc.code if isinstance(exc, LiveRefusal) else "LIVE_SWITCH_CHECK")
+                _append(_path(root, request_id), "refused", code=exc.code)
             raise
         if command["action"] == "maintain":
             # A read/maintenance command can successfully inspect an already unchanged run.

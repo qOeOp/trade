@@ -28,7 +28,7 @@ class ResearchLineTests(unittest.TestCase):
         self.addCleanup(self.conn.close)
 
     def select(self, **overrides):
-        arguments = {"market_at": "main", "today": date(2026, 4, 15), "start": "start@1", "slug": "ema-trend", "market": market(),
+        arguments = {"market_at": "head", "today": date(2026, 4, 15), "start": "start@1", "slug": "ema-trend", "market": market(),
                      "reviews": reviewed(source("start")), **overrides}
         return lines.select_line(self.conn, **arguments)
 
@@ -135,8 +135,8 @@ class ResearchLineTests(unittest.TestCase):
             with self.subTest(covered=covered), self.assertRaises(Refusal) as caught:
                 lines.development_period(today, latest, covered)
             self.assertEqual(caught.exception.code, "LINE_HISTORY_SHORT")
-        months = {"BTCUSDT": date(2020, 2, 1), "OPUSDT": date(2022, 7, 1)}
-        self.assertEqual([lines.covered_from(found, date(2020, 2, 1), months) for found in
+        members = [("2022-07", "OPUSDT"), ("2020-02", "BTCUSDT"), ("2022-08", "OPUSDT"), ("2020-03", "BTCUSDT")]
+        self.assertEqual([lines.covered_from(found, members) for found in
                           (None, ["BTCUSDT"], ["BTCUSDT", "OPUSDT"], ["BTCUSDT", "WIFUSDT"])],
                          [date(2020, 2, 1), date(2020, 2, 1), date(2022, 7, 1), None])
         self.assertEqual([lines.selection(argv) for argv in ('["--symbols", "BTCUSDT", "ETHUSDT", "--start", "x"]',
@@ -181,7 +181,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.code(start="start@9"), "START_NOT_FOUND")
 
         def unresolved(at):
-            raise refuse("UNKNOWN_REF", "no such market ref")
+            raise refuse("MARKET_DAY_UNKNOWN", "no such market day")
 
         self.assertEqual(self.code(market=unresolved), "MARKET_DAY_UNRESOLVED")
         self.assertEqual(self.code(market=market(universe_rule=None)), "MARKET_DAY_UNRESOLVED")

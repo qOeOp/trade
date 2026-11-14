@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { namespace } from "./load.mjs";
 
-const { liveRunPresentation, liveHomePresentation, HELD_NOTICE } = await namespace("model/liveTradingMap.ts", { sources: ["model/liveRuntimeMap", "model/liveLaunchText"], packages: [] });
+const { liveRunPresentation, liveHomePresentation, HELD_NOTICE } = await namespace("model/liveTradingMap.ts", { sources: ["model/liveLaunchText"], packages: [] });
 const run = () => ({
   run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, candidate: { strategy_id: "retest", revision: "1" },
   runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: null,
@@ -180,28 +180,4 @@ test("the latest comparison and the continuous facts read the control's records 
   assert.equal(key([check("key_check_failed", "1", "LIVE_KEY_WITHDRAWAL"), check("key_check_passed", "2")]), undefined, "a later pass clears it");
   assert.equal(key(null), undefined);
   assert.deepEqual(liveRunPresentation({ ...run(), host: { ...run().host, mode: "preflight" } }, []).continuity, []);
-});
-
-test("a running run on another image is offered the release's build with its evidence and paired replay, then waits", () => {
-  const current = { digest: `sha256:${"a".repeat(64)}`, build_revision: null };
-  const offered = { digest: `sha256:${"f".repeat(64)}`, build_revision: "e".repeat(40), evidence: "found",
-    paired: { image_ref: "x", day: "2026-11-12", state: "done", unexplained_week: 1, measures: { groups: 9 } } };
-  const base = { ...run(), compare: { day: "2026-11-12", state: "done", unexplained_week: 0 }, switch: { current, pending: null, events: [], trial_id: "7", offered } };
-  const shown = liveRunPresentation(base, []);
-  assert.equal(shown.runtime.current, "a".repeat(12));
-  assert.deepEqual(shown.runtime.offered.facts.map((f) => [f.label, f.value]), [["Build", "e".repeat(12)],
-    ["Start replay on it", "Passes"], ["Paired replay", "2026-11-12 · 1 of 9 unexplained (current build 0)"]]);
-  assert.equal(shown.runtime.offered.ready, true);
-  assert.deepEqual(shown.continuity.find((f) => f.label === "Runtime"), { label: "Runtime", value: "a".repeat(12) });
-  const missing = liveRunPresentation({ ...base, switch: { ...base.switch, offered: { ...offered, evidence: "missing", paired: null } } }, []);
-  assert.equal(missing.runtime.offered.ready, false);  // the request would be refused: the button stays greyed
-  assert.equal(missing.runtime.offered.facts[2].value, "Waiting for the next comparison pass");
-  const waiting = liveRunPresentation({ ...base, switch: { ...base.switch, pending: { ...offered, requested_ns: "5" } } }, []);
-  assert.deepEqual(waiting.runtime.pending, { build: "e".repeat(12), sinceNs: "5" });
-  assert.equal(liveRunPresentation({ ...base, host: { ...base.host, state: "interrupted" } }, []).runtime, null);
-  assert.equal(liveRunPresentation({ ...base, switch: { ...base.switch, offered: null } }, []).runtime, null);
-  const failed = { ...base.switch, offered: null, events: [{ event: "runtime_switch_failed", observed_ns: "9", code: "LIVE_RUNTIME_START", reason: null, digest: null }] };
-  assert.deepEqual(liveRunPresentation({ ...base, switch: failed }, []).continuity.at(-1),
-    { label: "Last switch", value: "Failed (LIVE_RUNTIME_START), kept the previous image", attention: true });
-  assert.equal(liveRunPresentation(run(), []).continuity.some((f) => f.label === "Runtime"), false);  // no switch view
 });

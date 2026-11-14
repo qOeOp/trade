@@ -1,6 +1,6 @@
-"""Complete source aggTrades: bounded ZIP/CSV ingestion, exact independent scale-8 codec.
+"""Complete source aggTrades: bounded ZIP/CSV ingestion, exact codec at the trade scale (files.TRADE_SCALE).
 
-Quote imports infer best bid/ask from the stored rows (market.store.import_quotes); bar reads do not read them,
+Quote imports infer best bid/ask from the stored rows (market.quotes.import_quotes); bar reads do not read them,
 and a replay exports them as trade ticks only on request (market.export.write_trades). Each ended contract month is
 one data file, written under the import lock and never again; the contracts of one call are written at once, each
 in its own process, and their files placed one after another.
@@ -21,16 +21,16 @@ import zlib
 import pyarrow as pa
 
 from market import files, series, sources, store
-from market.sources import MarketError, _refuse
+from market.sources import _refuse
 
 
 CODEC = "binance-aggtrades-int64-scale8-v1"
-SCALE = 100_000_000
+SCALE = 10 ** files.TRADE_SCALE
 MAX_INT = (1 << 63) - 1
 MIN_VALUE = Decimal("0.00000001")
 MAX_VALUE = Decimal("92233720368.54775807")
 BATCH_ROWS = 100_000
-COLUMNS = tuple(field.name for field in sources.AGGTRADES_SCHEMA)
+COLUMNS = ("agg_trade_id", "price", "quantity", "first_trade_id", "last_trade_id", "transact_time", "is_buyer_maker")
 
 
 def scaled(text: str, label: str) -> int:
@@ -58,6 +58,17 @@ class State:
     last_trade: int | None = None  # the previous row's last raw trade id
 
 
+def follows(last_id: int | None, last_time: int | None, last_trade: int | None, identity: int, moment: int,
+            first: int) -> bool:
+    """Whether an aggTrade (its id, transact time and first raw trade id) continues the sequence the previous row
+    ended (its id, time and last raw trade id; None before any): the next id, or, since Binance's archive gives one
+    id twice to two distinct trades (SOLUSDT 2025-07-16), a repeated id later in time whose raw trade ids follow the
+    previous row's (user, 2026-10-31); an identical or same-moment repeat does not."""
+    return (last_id is None or identity == last_id + 1
+            or (identity == last_id and last_time is not None and last_trade is not None and moment > last_time
+                and first > last_trade))
+
+
 def batches(path: Path, symbol: str, day: str, state: State, readings: dict, size: int = BATCH_ROWS):
     """One CSV row at a time; retain only a batch of rows and the previous event across days."""
     label = f"{symbol} {day}"
@@ -82,12 +93,7 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
                         raise ValueError("source ID or time is outside signed int64")
                     if first > last or maker not in ("true", "false", "True", "False"):
                         raise ValueError("invalid first/last trade ID or maker flag")
-                    # Binance's archive gives one id twice to two distinct trades (SOLUSDT 2025-07-16): a
-                    # repeated id later in time whose raw trade ids follow the previous row's is kept
-                    # (user, 2026-10-31); an identical or same-moment repeat is not.
-                    repeated = (identity == previous_id and previous_time is not None and previous_trade is not None
-                                and moment > previous_time and first > previous_trade)
-                    if previous_id is not None and identity != previous_id + 1 and not repeated:
+                    if not follows(previous_id, previous_time, previous_trade, identity, moment, first):
                         raise _refuse(f"{label}: aggTrade ids are not contiguous (after agg_trade_id "
                                       f"{previous_id} comes {identity})", "SEQUENCE_GAP", missing=(label,))
                     if previous_time is not None and moment < previous_time:
@@ -122,7 +128,7 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str], lo
     their files in contract order. A contract's refusal leaves the other contracts' files in place; the refusal
     raised is that of the first refused contract, and its message names the others written."""
     started = time.monotonic()
-    symbols = store._scope(symbols or []) or []  # an empty, repeated or malformed list is IMPORT_SCOPE
+    symbols = store._scope(symbols or []) or []  # an empty, repeated or malformed list is EMPTY_SYMBOLS
     start, end = store.closed_month(month)
     market = files.open_market(profile, "import")
     with files.lock(market):
@@ -139,6 +145,22 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str], lo
             "market_day": market_day, "seconds": round(time.monotonic() - started, 1)}
 
 
+def month_rows(cache: Path, symbol: str, start: int, end: int, earlier: bool):
+    """A contract month's daily archives as `batches` rows, each fetched into `cache` or read from it. The eve (the
+    day before) carries the id sequence into the month; it may be unpublished only when the market holds no earlier
+    file of the contract (not `earlier`), and the sequence then starts on the first day."""
+    state = State()
+    eve = series._ms_day(start - store.DAY).isoformat()
+    key = sources.aggtrades_key(symbol, eve)
+    path = sources.fetch_archive(cache, key) if earlier else sources.published(cache, key)
+    if path is not None:
+        for _ in batches(path, symbol, eve, state, {}):
+            pass
+    for moment in range(start, end, store.DAY):
+        day = series._ms_day(moment).isoformat()
+        yield from batches(sources.fetch_archive(cache, sources.aggtrades_key(symbol, day)), symbol, day, state, {})
+
+
 def trade_month(job: dict) -> dict:
     """One contract month as one file (in a worker process): {written, result}."""
     started = time.monotonic()
@@ -146,27 +168,13 @@ def trade_month(job: dict) -> dict:
     if job["held"]:  # this contract only: the others of the call go on
         raise _refuse(f"the market already holds {series._ms_day(start):%Y-%m} aggTrades of {symbol}", "MONTH_EXISTS",
                       missing=(f"{series._ms_day(start):%Y-%m}",))
-    state = State()
-    eve = series._ms_day(start - store.DAY).isoformat()
-    try:
-        path = sources.fetch_archive(cache, sources.aggtrades_key(symbol, eve))
-    except MarketError as exc:
-        if exc.code != "ARCHIVE_NOT_PUBLISHED" or job["earlier"]:
-            raise
-    else:
-        for _ in batches(path, symbol, eve, state, {}):
-            pass
     total = 0
 
     def rows():
         nonlocal total
-        for moment in range(start, end, store.DAY):
-            day = series._ms_day(moment).isoformat()
-            path = sources.fetch_archive(cache, sources.aggtrades_key(symbol, day))
-            readings = {}
-            for found in batches(path, symbol, day, state, readings):
-                yield record_batch(found)
-            total += readings["trades"]
+        for found in month_rows(cache, symbol, start, end, job["earlier"]):
+            total += len(found)
+            yield record_batch(found)
 
     written = files.write_file(store.worker_market(job), "agg_trade", series._ms_day(start), symbol, rows())
     return {"written": written, "result": {"month": series._ms_day(start).strftime("%Y-%m"), "symbols": [symbol],

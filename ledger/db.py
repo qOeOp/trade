@@ -55,7 +55,6 @@ from shared.refusals import refuse
 SCHEMA_VERSION = 1
 PAPER_SCHEMA_VERSION = 1
 DOLT_VERSION = "2.7.2"
-KINDS = ("active", "isolated", "temporary")
 ROLES = ("writer", "reader")
 SOCKET_LIMIT = 100  # macOS sun_path holds 104 bytes
 # The host every service is reached at over TCP, on its own port, instead of its Unix socket: set in a
@@ -69,7 +68,6 @@ PAPER_SCHEMA = Path(__file__).with_name("paper.sql")
 # What a database holds: its schema file and generation.
 SCHEMAS = {"research": (SCHEMA, SCHEMA_VERSION), "paper": (PAPER_SCHEMA, PAPER_SCHEMA_VERSION)}
 BRANCH = "main"  # the one branch of a research ledger
-NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 DATABASE = re.compile(r"[A-Za-z0-9_]{1,64}\Z")
 REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
 COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
@@ -103,11 +101,11 @@ class LedgerProfile:
 
     @classmethod
     def from_json(cls, value: dict) -> LedgerProfile:
-        if value.get("holds", "research") not in ("research", "paper"):
+        if value["holds"] not in ("research", "paper"):
             raise KeyError("holds")  # a market's profile
         return cls(name=value["name"], database=value["database"], service_root=Path(value["service"]),
                    kind=value.get("kind"), backup_root=Path(value["backup"]) if value.get("backup") else None,
-                   holds=value.get("holds", "research"))
+                   holds=value["holds"])
 
 
 def profiles() -> dict[str, LedgerProfile]:
@@ -434,20 +432,19 @@ def _statements(text: str) -> list[str]:
     return [part.strip().rstrip(";") for part in "\n".join(lines).split(";\n") if part.strip().rstrip(";")]
 
 
-def init(name: str, database: str, service_root: Path, kind: Literal["active", "isolated", "temporary"],
+def init(name: str, database: str, service_root: Path, kind: profile_directory.Kind,
          backup_root: Path | None = None, dolt_binary: Path | None = None, holds: str = "research") -> dict:
     """Create the database, its schema and accounts on a (new or running) service; write the profile."""
-    if (not isinstance(name, str) or not NAME.fullmatch(name) or not isinstance(database, str)
-            or not DATABASE.fullmatch(database) or kind not in KINDS or holds not in SCHEMAS):
+    if (not isinstance(name, str) or not profile_directory.NAME.fullmatch(name) or not isinstance(database, str)
+            or not DATABASE.fullmatch(database) or kind not in profile_directory.KINDS or holds not in SCHEMAS):
         raise refuse("INVALID_NAME", "the profile name, database name, kind or content is malformed",
                      expected="name [A-Za-z0-9_-], database [A-Za-z0-9_], kind active|isolated|temporary, "
                               "holds research|paper")
     if holds != "research" and kind == "active":
         raise refuse("LEDGER_KIND", "only a research ledger is active; a paper database is isolated or temporary",
                      expected="isolated | temporary")
+    profile_path = profile_directory.new_file(name)
     found = profiles()
-    if name in found:
-        raise refuse("LEDGER_EXISTS", f"a ledger profile named {name} already exists; nothing is replaced")
     actives = [value for value in found.values() if value.kind == "active"]
     if kind == "active" and actives:
         raise refuse("LEDGER_EXISTS", "an active research ledger already exists; there is only one")
@@ -471,7 +468,7 @@ def init(name: str, database: str, service_root: Path, kind: Literal["active", "
                             holds=holds)
     _provision(service_root, config, database,
                lambda cursor, accounts: _ledger_tables(cursor, database, accounts, holds),
-               profile_directory.home() / f"{name}.json", profile.as_json())
+               profile_path, profile.as_json())
     return {"profile": profile, "branch_grant": BRANCH, "schema_version": SCHEMAS[holds][1]}
 
 
@@ -483,9 +480,6 @@ def _secure(cursor, config: dict) -> None:
         cursor.execute("INSERT IGNORE INTO dolt_branch_control VALUES ('%', '%', 'root', 'localhost', 'admin')")
         cursor.execute("DELETE FROM dolt_branch_control WHERE `database` = '%' AND branch = '%' "
                        "AND user = '%' AND host = '%'")
-    # The ledger keeps no commit verification tests; a service secured by an earlier product version runs
-    # its persisted group on every commit, and a database without tests in it cannot commit.
-    cursor.execute("SET PERSIST dolt_commit_verification_groups = ''")
 
 
 def _account_name(database: str, role: str) -> str:
@@ -709,7 +703,7 @@ def _connection_error(exc: pymysql.MySQLError) -> Refusal:
 def connect(profile: LedgerProfile, role: Literal["writer", "reader"]) -> LedgerConnection:
     """Open a writer or reader connection on `BRANCH`."""
     if role not in ROLES:
-        raise refuse("INVALID_ROLE", f"role must be writer or reader, got {role!r}", expected="writer | reader")
+        raise ValueError(f"role must be writer or reader, got {role!r}")
     config = service_config(profile.service_root) or {}
     accounts = config.get("databases", {}).get(profile.database)
     if accounts is None or role not in accounts:

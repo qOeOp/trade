@@ -9,14 +9,14 @@ profile directory without profiles (anything else is BOOTSTRAP_REFUSED and nothi
 - `research` is cloned from its public copy, which stays its `origin`, and every remote branch becomes a
   local one. An active or isolated service whose copy holds no data yet (the operator's new repository) makes a
   new ledger instead, with that copy as `origin`, and publishes it before anything else can write;
-- it is checked (schema version, no commit verification group) before any account exists;
+- its schema version is checked before any account exists;
 - root gets its password and `'root'@'%'` (the published port and the other containers are not
   localhost), the service is secured, the database gets its accounts as `ledger init` would make them;
 - service.json (no socket: a service compose runs) and the profile are written last.
 
 A bootstrap that fails removes what it made (the directories were empty) and raises. With a
-service.json it checks before serving: no commit verification group, every recorded database, the
-schema version of each profile's database; any failure stops the server and is SERVICE_CHECK_FAILED.
+service.json it checks before serving: every recorded database, the schema version of each profile's
+database; any failure stops the server and is SERVICE_CHECK_FAILED.
 config.yaml is written from the arguments at every start: the data directory may be a volume only the
 container sees (a Dolt lock does not reach the host across a Docker Desktop bind mount, measured). It keeps
 Dolt's automatic garbage collection on: Dolt collects only chunks no branch, tag or working set reaches,
@@ -262,17 +262,11 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
 
 
 def _check_service(service_root: Path, config: dict) -> None:
-    """The checks of every start: no commit verification group (the ledger keeps no commit tests, so a group
-    left by an earlier product version would refuse every commit), every database service.json records,
-    the schema version of each ledger profile's database on this service."""
+    """The checks of every start: every database service.json records, the schema version of each
+    ledger profile's database on this service."""
     conn = db._admin(config)
     try:
         with conn.cursor() as cursor:
-            (group,), = db.cursor_rows(cursor, "SELECT @@GLOBAL.dolt_commit_verification_groups")
-            if group:
-                raise refuse("SERVICE_CHECK_FAILED", f"the service's commit verification group is {group!r}, not "
-                                                     "empty; `ledger init` of a new database clears it",
-                             missing=("dolt_commit_verification_groups",))
             present = {name.lower() for (name,) in db.cursor_rows(cursor, "SHOW DATABASES")}
             missing = sorted(name for name in config.get("databases", {}) if name.lower() not in present)
             if missing:

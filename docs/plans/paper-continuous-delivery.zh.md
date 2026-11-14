@@ -38,7 +38,7 @@ runtime，既有 resume 与 reconcile 仍用自身记录的旧镜像。
 
 发布文件预写事务并 fsync，观察中核对 ledger/docker-api 与既有 runner/egress 的 ID、StartedAt、
 OOM 和重启计数及行情继续推进；失败恢复旧控制器和路由。未知独立路由改变保留事务并停止。
-runtime 镜像全部保留，因为运行固定了它们的摘要；控制器和 Web 的旧容器每种留最新 3 个成功版本和最新 1 个失败版本，其余连同无人使用的镜像在发布完成后删除（用户 2026-11-07 授权）。协议/存储破坏性迁移不在自动替换范围，候选不兼容应留在旧版本。
+runtime 镜像全部保留，因为运行固定了它们的摘要；控制器和 Web 的旧容器每种留最新 3 个成功版本和最新 1 个失败版本，其余连同无人使用的镜像在发布完成后删除（用户 2026-11-07 授权）。0.x 版本之间不保持兼容（用户 2026-11-14 决定）：新控制器不读取、不迁移旧格式的运行，它们留在磁盘上；同格式的运行照常交给新控制器，其余由 checkpoint 读取时的格式检查拒绝恢复。
 
 ## 新状态的独立审阅
 
@@ -63,9 +63,8 @@ actual Paper router 配置本身是实际路由，不另存 owner/active SHA/阶
 生产旧 service 的实际 `paper.recovery.operation` 已实读核实含同名 `paper/paper-lifecycle`
 GET_LOCK/RELEASE_LOCK 协议，生命周期调用整体 serialized；旧控制器 UID/GID 为 1000:1000，
 默认 runtime 固定为 `ghcr.io/qoeop/trade-runtime@sha256:8948075d6cfe47231ae39cc4ce945ed24239e65bc21ec3f993f6b1f7bee25268`。
-新控制器检查现有 runtime contract、checkpoint 格式/身份及完整日志前缀；运行中 dirty 或空日志
-不被误当格式不兼容，也不执行恢复或转换。发布器持锁 helper 的每次 held 响应都由同一连接
-核实锁仍属于自己；在停止旧控制器前后和耗时检查后重查精确路由，不能覆盖独立切流。
+发布器持锁 helper 的每次 held 响应都由同一连接核实锁仍属于自己；在停止旧控制器前后重查精确路由，
+不能覆盖独立切流。发布前不再检查旧运行的 checkpoint 格式和日志能否被候选读取（用户 2026-11-14 决定）。
 
 本机 Ruff、mypy、Compose dummy 边界和脚本语法通过。完整 suite 初次 1009 项，5 项错误
 均为本机 Dolt 1.80.2 与要求 2.4.2 不符，306 项跳过；后续新回归定向复验。

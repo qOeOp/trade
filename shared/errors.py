@@ -1,4 +1,4 @@
-"""The one refusal type every product function raises (`refusal`).
+"""The one refusal type every product function raises (`Refusal`).
 
 A refusal says which code was refused, what is missing, the expected shape, whether this call
 wrote anything, and the commands that supply what is missing. It never carries SQL, service
@@ -19,10 +19,11 @@ WRITE_STATUSES = ("not_written", "unknown", "written")
 
 
 class Refusal(Exception):
-    """A coded refusal; `as_dict()` is what a command prints before it exits nonzero."""
+    """A coded refusal; `as_dict()` is what a command prints before it exits nonzero. Malformed arguments are
+    programming errors (ValueError)."""
 
-    def __init__(self, code: str, message: str, *, missing: tuple[str, ...] = (),
-                 write_status: Literal["not_written", "unknown", "written"] = "unknown",
+    def __init__(self, code: str, message: str, missing: tuple[str, ...] = (),
+                 write_status: Literal["not_written", "unknown", "written"] = "not_written",
                  operation_id: str | None = None,
                  expected: str | None = None, next_actions: tuple[str, ...] = ()):
         if not isinstance(code, str) or not CODE.fullmatch(code):
@@ -55,14 +56,5 @@ class Refusal(Exception):
         return f"{self._code}: {self._message}"
 
     def __reduce__(self):  # a refusal raised in a worker process reaches its caller whole
-        return (refusal, (self._code, self._message, self._missing, self._write_status, self._operation_id,
+        return (Refusal, (self._code, self._message, self._missing, self._write_status, self._operation_id,
                           self._expected, self._next_actions))
-
-
-def refusal(code: str, message: str, missing: tuple[str, ...] = (),
-            write_status: Literal["not_written", "unknown", "written"] = "unknown",
-            operation_id: str | None = None,
-            expected: str | None = None, next_actions: tuple[str, ...] = ()) -> Refusal:
-    """Build (not raise) a refusal; malformed arguments are programming errors (ValueError)."""
-    return Refusal(code, message, missing=missing, write_status=write_status, operation_id=operation_id,
-                   expected=expected, next_actions=next_actions)

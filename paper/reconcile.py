@@ -75,8 +75,7 @@ def reconcile(profile: db.LedgerProfile, market: dict, at: str | None, paper_id:
     output, replayed, compared = shared.reconcile(
         run, market, market_day, archived, candidate["source"], candidate["entry_class"], row["image_ref"], symbols,
         start, end,
-        # A run declared before its leverage was recorded ran at the default.
-        row["config"].get("leverage", ACCOUNT_CONTRACT["default_leverage"]), ACCOUNT_CONTRACT["starting_balance_usdt"],
+        row["config"]["leverage"], ACCOUNT_CONTRACT["starting_balance_usdt"],
         output, f"trade-paper-reconcile-{runs.ledger_key(profile)}-{paper_id}", timeout)
     result = {"format": shared.FORMAT, "kind": "paper", "paper_id": paper_id, "candidate": row["config"]["candidate"],
               "source_sha256": row["source_sha256"], "image_ref": row["image_ref"], "market_day": market_day,

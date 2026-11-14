@@ -12,7 +12,6 @@ import json
 import os
 from pathlib import Path
 import platform
-from typing import Callable
 import sys
 import tempfile
 from urllib.request import Request, urlopen
@@ -27,12 +26,9 @@ FIELDS = (
     ("service", "TRADE_SERVICE_IMAGE", SERVICE_REF),
     ("runtime", "TRADE_RUNTIME_IMAGE", RUNTIME_REF),
 )
-# The tag prefix of a release runtime's platform index. The release's runtime is the execution image for Paper and
-# Live (`exec-sha-REV` in ghcr.io/qoeop/trade-runtime, beside the replay image's `sha-REV`). A runtime built before
-# the split (its revision has no SPLIT file) is the one combined image, which replays and executes; its own index is
-# `sha-REV`, and its amd64 child must still be the admitted digest.
-EXECUTION = "exec-"
-SPLIT = "engine/runtime/replay.Dockerfile"
+# The tag prefix of a field's platform index. The release's runtime is the execution image for Paper and Live
+# (`exec-sha-REV` in ghcr.io/qoeop/trade-runtime, beside the replay image's `sha-REV`).
+PREFIXES = {"runtime": "exec-"}
 CHANNELS = {"deploy": "deploy-ready", "main": "main-ready"}
 ARCHITECTURES = {"arm64": "arm64", "aarch64": "arm64", "amd64": "amd64", "x86_64": "amd64"}
 
@@ -83,9 +79,9 @@ def admitted(history, revision: str | None = None) -> dict:
 
 
 def native(registry: Registry, reference: str, pattern, architecture: str, revision: str | None,
-           prefix: str | Callable[[str], str] = "") -> tuple[str, str]:
+           prefix: str = "") -> tuple[str, str]:
     """This CPU's image of an admitted digest's build, and the revision it was built from. `prefix` is the tag
-    prefix of the build's platform index, or a function of the build's revision that gives it."""
+    prefix of the build's platform index."""
     if not isinstance(reference, str) or not pattern.fullmatch(reference):
         raise RuntimeError(f"not an admitted image reference: {reference!r}")
     repository, digest = reference.split("@")
@@ -106,7 +102,7 @@ def native(registry: Registry, reference: str, pattern, architecture: str, revis
     source = built(digest, "amd64")
     if revision is not None and source != revision:
         raise RuntimeError(f"{reference} was built from {source}, not the admitted {revision}")
-    index = registry.manifest(repository, f"{prefix(source) if callable(prefix) else prefix}sha-{source}")
+    index = registry.manifest(repository, f"{prefix}sha-{source}")
     children = {
         item.get("platform", {}).get("architecture"): item["digest"]
         for item in index.get("manifests", [])
@@ -141,17 +137,11 @@ def resolve(source: GitSource, registry: Registry, architecture: str, revision: 
     record = admitted(records(source, branch), revision)
     sha = record["revision"]
     main = source.git("rev-parse", "refs/heads/main")
-
-    def runtime_prefix(built: str) -> str:
-        if not source.ancestor(built, main):
-            raise RuntimeError(f"the runtime was built from {built}, which is not on main")
-        return EXECUTION if source.git("ls-tree", "--name-only", built, "--", SPLIT).strip() else ""
-
     values = {}
     for field, key, pattern in FIELDS:
         # A runtime carries forward from an earlier build; the IDE and service are built from the record's revision.
         reference, built = native(registry, record[field], pattern, architecture,
-                                  None if field == "runtime" else sha, runtime_prefix if field == "runtime" else "")
+                                  None if field == "runtime" else sha, PREFIXES.get(field, ""))
         if not source.ancestor(built, main):
             raise RuntimeError(f"{reference} was built from {built}, which is not on main")
         if field == "runtime":
@@ -163,7 +153,7 @@ def resolve(source: GitSource, registry: Registry, architecture: str, revision: 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env", required=True, type=Path, help="the compose env file these three keys are replaced in")
-    parser.add_argument("--revision", help="an earlier admitted revision, to go back to it (default: the newest)")
+    parser.add_argument("--revision", help="an admitted revision, such as the one the host routes (default: the newest)")
     parser.add_argument("--channel", choices=tuple(CHANNELS), default="deploy",
                         help="deploy: the admitted versions (default); main: every checked main build, for staging")
     parser.add_argument("--arch", choices=("arm64", "amd64"), help="the Docker engine's CPU (default: this machine's)")
