@@ -26,6 +26,7 @@ from engine.fill import fill_model
 from engine.load import load_strategy, read_market, read_universe
 from market import export, instrument, lifecycle
 from market.sources import MarketError
+from tests.helpers import refused
 
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -641,15 +642,13 @@ class StreamTests(unittest.TestCase):
             # The same environment on an export without quotes is refused before anything runs.
             bare = market(root / "bare")
             rows = read_market(root / "bare", bare, "c" * 32, START * 10**6, END * 10**6)
-            with self.assertRaises(Refusal) as caught:
-                run.replay(rows, window, loaded, universe, root / "stream", account)
-            self.assertEqual(caught.exception.code, "QUOTES_MISSING")
+            self.assertEqual(refused(run.replay, rows, window, loaded, universe, root / "stream", account,
+                                     error=Refusal).code, "QUOTES_MISSING")
             # A source that declares the environment is refused: the environment is the runner's, not the source's.
             source.write_text(LEVERED.replace("NOTIONAL", "290000").replace("15%).\"\"\"\n",
                                                                            "15%).\"\"\"\n    QUOTE_EXECUTION = True\n"))
-            with self.assertRaises(Refusal) as caught:
-                load_strategy(source, "Levered", hashlib.sha256(source.read_bytes()).hexdigest())
-            self.assertEqual(caught.exception.code, "ENVIRONMENT_DECLARED")
+            self.assertEqual(refused(load_strategy, source, "Levered", hashlib.sha256(source.read_bytes()).hexdigest(),
+                                     error=Refusal).code, "ENVIRONMENT_DECLARED")
 
     def test_trade_ticks_follow_their_millisecond_quotes_and_never_match(self):
         """Exported trades reach the strategy in (time, aggregate ID) order, after the quotes of their millisecond
@@ -800,9 +799,8 @@ class StreamTests(unittest.TestCase):
             row = {"catalog_path": str(catalog_path), "instrument_id": native}
             self.assertEqual(run.months_missing(row, "TradeTick", START * 10**6, (march + DAY) * 10**6), ["2026-02"])
             self.assertEqual(run.months_missing(row, "TradeTick", START * 10**6, february * 10**6), [])
-            with self.assertRaises(MarketError) as caught:
-                export.write_trades(store, iid, [[(march + 1, 4, 10**10 + 1, 10**5, 0)]], 2, 3)
-            self.assertEqual(caught.exception.code, "TRADE_INEXACT")
+            self.assertEqual(refused(export.write_trades, store, iid, [[(march + 1, 4, 10**10 + 1, 10**5, 0)]], 2, 3,
+                                     error=MarketError).code, "TRADE_INEXACT")
 
     def test_metrics_months_follow_create_time_not_the_delivery_past_month_end(self):
         """January's last rows (23:50, 23:55) are delivered on 1 February; they never make February held. A
@@ -838,9 +836,8 @@ class StreamTests(unittest.TestCase):
             receipt = json.loads(path.read_text())
             receipt["pieces"][0]["catalog_dir"] = "episode-2"
             path.write_text(json.dumps(receipt))
-            with self.assertRaises(Refusal) as caught:
-                read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
-            self.assertEqual(caught.exception.code, "EPISODE_MAPPING_MISMATCH")
+            self.assertEqual(refused(read_market, root / "market", symbols, "c" * 32, START * 10**6, END * 10**6,
+                                     error=Refusal).code, "EPISODE_MAPPING_MISMATCH")
 
     def test_trading_after_a_settlement_is_rejected_by_the_market_and_refused_by_the_audit(self):
         from engine.audit import audit

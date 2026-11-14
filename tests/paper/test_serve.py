@@ -26,6 +26,7 @@ from shared.errors import Refusal
 from paper import reconcile, runs, serve
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 from tests.ledger.test_paper import ROW, journal, line, snapshot, START, MINUTE
+from tests.helpers import refused
 
 
 HOST = "paper.test:8767"
@@ -136,14 +137,9 @@ class ListenTests(unittest.TestCase):
     """Loopback only on a host; inside a container (compose) on its own address, with TMPDIR a host
     directory mounted at its own path, since the containers it starts are mounted by host path."""
 
-    def refused(self, call) -> str:
-        with self.assertRaises(Refusal) as caught:
-            call()
-        return caught.exception.code
-
     def test_a_host_daemon_listens_on_loopback_only(self):
         with mock.patch.object(serve, "CONTAINER_MARK", Path("/nonexistent/.dockerenv")):
-            self.assertEqual(self.refused(lambda: serve.serve(None, None, "0.0.0.0", 0, [], Path("."))), "USAGE_ERROR")
+            self.assertEqual(refused(lambda: serve.serve(None, None, "0.0.0.0", 0, [], Path("."))).code, "USAGE_ERROR")
 
     def test_in_a_container_it_needs_a_usable_tmpdir(self):
         with tempfile.TemporaryDirectory() as root:
@@ -156,7 +152,7 @@ class ListenTests(unittest.TestCase):
                     with self.subTest(given), mock.patch.dict("os.environ", given, clear=False):
                         if "TMPDIR" not in given:
                             os.environ.pop("TMPDIR", None)
-                        self.assertEqual(self.refused(lambda: serve.serve(None, None, "0.0.0.0", 0, [], Path("."))),
+                        self.assertEqual(refused(lambda: serve.serve(None, None, "0.0.0.0", 0, [], Path("."))).code,
                                          "USAGE_ERROR")
                 with mock.patch.dict("os.environ", {"TMPDIR": str(shared)}):
                     serve.shared_tmpdir()

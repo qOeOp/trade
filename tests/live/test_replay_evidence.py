@@ -18,6 +18,7 @@ from tests.live.authority_fixture import install, prepare
 from tests.live.test_runs import IDENTITY, LiveFixture
 from tests.ledger.dolt import source
 from tests.registration.world import World, capture
+from tests.helpers import refused
 
 CODE = {"source_files_sha256": {"run_source_sha256": "1" * 64}, "audit_source_sha256": "2" * 64,
         "dependency_lock_sha256": "3" * 64}
@@ -98,9 +99,8 @@ class ReplayEvidenceTests(LiveFixture):
         # The runner compares that balance with the USDT wallet the venue reports when it starts.
         near = Decimal("100000") * (1 + EVIDENCE_TOLERANCE)
         self.assertEqual(require_evidence(wallet(str(near)), manifest), found)
-        with self.assertRaises(LiveRefusal) as caught:
-            require_evidence(wallet("90"), manifest)
-        self.assertEqual(caught.exception.code, "LIVE_EVIDENCE_BALANCE")
+        self.assertEqual(refused(require_evidence, wallet("90"), manifest,
+                                 error=LiveRefusal).code, "LIVE_EVIDENCE_BALANCE")
 
 
 class EvidenceReadAheadTests(unittest.TestCase):

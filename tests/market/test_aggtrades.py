@@ -20,6 +20,7 @@ from cli import main
 from market import aggtrades as trades, export, files, sources, store
 from tests.market.directory import directory, read, seed
 from tests.market.exchange import aggtrades_csv, day_ms, zipped
+from tests.helpers import refused
 
 
 JAN = date(2025, 1, 1)
@@ -194,9 +195,8 @@ class CompleteImportTests(unittest.TestCase):
         self.assertEqual(stored(profile), self.expected)
         self.assertEqual(stored(profile, JAN.isoformat()), [row for row in self.expected if row[1] < START + store.DAY])
         self.assertEqual(trade_files(profile), ['2025-01/BTCUSDT.parquet'])
-        with self.assertRaises(sources.MarketError) as caught:
-            trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)
-        self.assertEqual(caught.exception.code, 'MONTH_EXISTS')
+        self.assertEqual(refused(trades.import_month, profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None,
+                                 error=sources.MarketError).code, 'MONTH_EXISTS')
 
     def test_late_gap_or_precision_failure_writes_nothing_and_the_import_lock_is_shared(self):
         profile = self.market()
@@ -215,9 +215,8 @@ class CompleteImportTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, code)
             self.assertEqual(trade_files(profile), [])
         with files.lock(files.open_market(profile, 'import')):
-            with self.assertRaises(sources.MarketError) as caught:
-                trades.import_month(profile, JAN, self.cache, ['BTCUSDT'])
-            self.assertEqual(caught.exception.code, 'CONCURRENT_IMPORT')
+            self.assertEqual(refused(trades.import_month, profile, JAN, self.cache, ['BTCUSDT'],
+                                     error=sources.MarketError).code, 'CONCURRENT_IMPORT')
 
     def test_contracts_of_one_month_are_written_at_once_one_file_each_and_a_refusal_keeps_the_others(self):
         days = list(enumerate(range(START - store.DAY, day_ms(date(2025, 2, 1)), store.DAY)))
@@ -305,10 +304,9 @@ class StoredTradeExportTests(unittest.TestCase):
         self.assertNotIn('trade', plain['receipts']['BTCUSDT']['pieces'][0]['counts'])
         self.assertFalse(list(Path(plain['root']).rglob('trades')))
         coarse = self.imported('0.001')
-        with self.assertRaises(sources.MarketError) as caught:
-            export.export_catalogs(coarse, None, ['BTCUSDT'], low, high, fresh=True, root=Path(self.temp.name),
-                                   workers=1, include_trades=True)
-        self.assertEqual(caught.exception.code, 'TRADE_INEXACT')
+        self.assertEqual(refused(export.export_catalogs, coarse, None, ['BTCUSDT'], low, high, fresh=True,
+                                 root=Path(self.temp.name), workers=1, include_trades=True,
+                                 error=sources.MarketError).code, 'TRADE_INEXACT')
 
 if __name__ == '__main__':
     unittest.main()

@@ -20,6 +20,7 @@ from tests.ledger.dolt import BINARY, MARKET_DAY, RUNTIME, SKIP, context, sha
 from tests.registration.world import LINE_WINDOW, RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.replay.test_precheck_cache import ARGV
+from tests.helpers import refused
 
 
 FINGERPRINT = {"fills": {"rows": 2, "sha256": "1" * 64}}
@@ -88,9 +89,8 @@ class ReproduceTests(unittest.TestCase):
         stored = metrics.load_run(self.world.conn, self.forged(self.forged_refs[0]))
         self.assertEqual(stored["evidence"]["capture"], "missing")
         self.assertEqual([item.split(":")[0] for item in stored["evidence"]["unavailable"]], ["CAPTURE_MISSING"])
-        with self.assertRaises(Refusal) as caught:
-            metrics.load_run(self.world.conn, self.forged(self.forged_refs[1], "0" * 64))
-        self.assertEqual(caught.exception.code, "EXECUTION_IDENTITY")
+        self.assertEqual(refused(metrics.load_run, self.world.conn,
+                                 self.forged(self.forged_refs[1], "0" * 64)).code, "EXECUTION_IDENTITY")
 
     def test_a_matching_fingerprint_hands_over_the_reproduced_reports(self):
         self.world.fingerprint = FINGERPRINT
@@ -113,9 +113,7 @@ class ReproduceTests(unittest.TestCase):
             self.assertEqual((caught.exception.code, caught.exception.write_status),
                              ("REPRODUCTION_MISMATCH", "written"), "the reproduction's own trial was committed")
             self.assertTrue((self.world.output(name) / "reports").is_dir())
-        with self.assertRaises(Refusal) as caught:
-            self.reproduce(9999, "unknown")
-        self.assertEqual(caught.exception.code, "UNKNOWN_RUN")
+        self.assertEqual(refused(self.reproduce, 9999, "unknown").code, "UNKNOWN_RUN")
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -200,9 +198,8 @@ class AnotherImageTests(unittest.TestCase):
         self.assertEqual([row["image_digest"] for row in record["reproductions"]], [NEW_IMAGE["image_digest"]])
         plan = {**comparability.comparable_identity(record), "image_digest": NEW_IMAGE["image_digest"]}
         comparability.check_comparable(record, plan)
-        with self.assertRaises(Refusal) as caught:
-            comparability.check_comparable({**record, "reproductions": []}, plan)
-        self.assertEqual(caught.exception.code, "COMPARABILITY_MISMATCH")
+        self.assertEqual(refused(comparability.check_comparable, {**record, "reproductions": []},
+                                 plan).code, "COMPARABILITY_MISMATCH")
         runs.verify_reproduction(self.world.conn, Path(done["directory"]), metrics.load_run(self.world.conn, self.moved),
                                  done["reproduction_trial_id"])
         self.assertIn(done["reproduction_trial_id"],
@@ -223,17 +220,13 @@ class AnotherImageTests(unittest.TestCase):
 
     def test_a_missing_result_table_is_no_match(self):
         self.world.fingerprint = {table: entry for table, entry in ALL_TABLES.items() if table != "exposures"}
-        with self.assertRaises(Refusal) as caught:
-            self.replay(self.third, "missing-table")
-        self.assertEqual(caught.exception.code, "REPRODUCTION_MISMATCH")
+        self.assertEqual(refused(self.replay, self.third, "missing-table").code, "REPRODUCTION_MISMATCH")
 
     def test_another_image_must_be_a_main_build(self):
         def not_main(identity, inspection):
             raise refuse("RUNTIME_NOT_MAIN", "not on main")
         before = self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0]
-        with self.assertRaises(Refusal) as caught:
-            self.replay(self.unbuilt, "unbuilt", main_build=not_main)
-        self.assertEqual(caught.exception.code, "RUNTIME_NOT_MAIN")
+        self.assertEqual(refused(self.replay, self.unbuilt, "unbuilt", main_build=not_main).code, "RUNTIME_NOT_MAIN")
         self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0], before,
                          "nothing is written before the check")
 

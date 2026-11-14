@@ -16,7 +16,6 @@ from unittest.mock import patch
 
 from ledger import admin, db, witness
 from shared import paths
-from shared.errors import Refusal
 from registration import validation
 from replay import entry
 from report import comparison, review
@@ -24,17 +23,10 @@ from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, source
 from tests.ledger.tsa import LocalAuthority
 from tests.registration.world import DESIGN, RUNNER_ARGV, World
 from tests.replay.world import ReplayWorld, registered_grid
+from tests.helpers import refused
 
 
 FINGERPRINT = {"fills": {"rows": 2, "sha256": "1" * 64}}
-
-
-def refused(function, *args, **kwargs) -> Refusal:
-    try:
-        function(*args, **kwargs)
-    except Refusal as exc:
-        return exc
-    raise AssertionError("no refusal")
 
 
 def codes(found: dict) -> list[str]:

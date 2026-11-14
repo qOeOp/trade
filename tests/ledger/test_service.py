@@ -27,6 +27,7 @@ from ledger import admin, db, publish, service, strategies
 from shared import profiles
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, source
+from tests.helpers import refused
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -87,11 +88,6 @@ class RunTests(unittest.TestCase):
         self.addCleanup(service._stop, server)
         return server, config
 
-    def code(self, function, *arguments, **options) -> str:
-        with self.assertRaises(Refusal) as caught:
-            function(*arguments, **options)
-        return caught.exception.code
-
     def test_a_first_start_bootstraps_the_ledger_from_its_public_copy(self):
         server, config = self.start()
         written = db.service_config(self.service_root)
@@ -132,7 +128,7 @@ class RunTests(unittest.TestCase):
             self.assertEqual(service.check(ledger), {"action": "check", "running": True,
                                                      "ledger_commit": conn.resolved_commit})
         self.assertEqual(db.start_service(self.service_root)["pid"], None, "the host only waits for it")
-        self.assertEqual(self.code(db.stop_service, self.service_root), "SERVICE_MANAGED")
+        self.assertEqual(refused(db.stop_service, self.service_root).code, "SERVICE_MANAGED")
         self.assertIsNone(server.poll(), "and never stops it")
 
     def test_every_later_start_checks_the_service_before_serving(self):
@@ -144,9 +140,9 @@ class RunTests(unittest.TestCase):
         config = db.service_config(self.service_root)
         profiles.private_write(self.service_root / "service.json",
                           {**config, "databases": {**config["databases"], "gone": config["databases"]["research"]}})
-        self.assertEqual(self.code(self.start), "SERVICE_CHECK_FAILED")
+        self.assertEqual(refused(self.start).code, "SERVICE_CHECK_FAILED")
         profiles.private_write(self.service_root / "service.json", {**config, "socket": str(self.root / "x.sock")})
-        self.assertEqual(self.code(self.start), "SERVICE_CHECK_FAILED", "a service the host runs is not served here")
+        self.assertEqual(refused(self.start).code, "SERVICE_CHECK_FAILED", "a service the host runs is not served here")
 
     def test_disk_dolt_no_longer_needs_is_reclaimed(self):
         server, config = self.start()
@@ -176,9 +172,9 @@ class RunTests(unittest.TestCase):
         ledger = db.LedgerProfile(name="research", database="research", service_root=readers, kind=None)
         with db.read_as_of(ledger) as conn:
             self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)])
-        self.assertEqual(self.code(db.connect, ledger, "writer"), "LEDGER_UNKNOWN")
+        self.assertEqual(refused(db.connect, ledger, "writer").code, "LEDGER_UNKNOWN")
         for administrator in (publish._admin, lambda profile: admin._sync_backup(profile, self.root / "backup", "")):
-            self.assertEqual(self.code(administrator, ledger), "LEDGER_UNKNOWN", "nor the service administrator")
+            self.assertEqual(refused(administrator, ledger).code, "LEDGER_UNKNOWN", "nor the service administrator")
         with db.read_as_of(ledger) as conn:
             for statement in (f"SELECT strategy_id FROM candidate INTO OUTFILE '{self.root / 'cloned.txt'}'",
                               f"SELECT LOAD_FILE('{self.service_root / 'service.json'}')"):
@@ -205,36 +201,36 @@ class RunTests(unittest.TestCase):
         research = db.LedgerProfile(name="research", database="research", service_root=controllers, kind=None)
         with db.read_as_of(research) as conn:
             self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)])
-        self.assertEqual(self.code(db.connect, research, "writer"), "LEDGER_UNKNOWN")
+        self.assertEqual(refused(db.connect, research, "writer").code, "LEDGER_UNKNOWN")
         for administrator in (publish._admin, lambda profile: admin._sync_backup(profile, self.root / "backup", "")):
-            self.assertEqual(self.code(administrator, research), "LEDGER_UNKNOWN", "nor the service administrator")
+            self.assertEqual(refused(administrator, research).code, "LEDGER_UNKNOWN", "nor the service administrator")
         execution = db.LedgerProfile(name="paper", database="paper", service_root=controllers, kind="isolated",
                                      holds="paper")
         with db.connect(execution, "writer") as conn:
             self.assertEqual(conn.role, "writer")
         service._stop(server)
-        self.assertEqual(self.code(self.start, controllers=self.service_root), "USAGE_ERROR")
+        self.assertEqual(refused(self.start, controllers=self.service_root).code, "USAGE_ERROR")
 
     def test_readers_never_replace_the_service_file(self):
         server, _ = self.start()
         service._stop(server)
         before = (self.service_root / "service.json").read_bytes()
-        self.assertEqual(self.code(self.start, readers=self.service_root), "USAGE_ERROR")
+        self.assertEqual(refused(self.start, readers=self.service_root).code, "USAGE_ERROR")
         self.assertEqual((self.service_root / "service.json").read_bytes(), before)
 
     def test_a_bootstrap_refused_or_failed_leaves_nothing_it_made(self):
         self.data.mkdir()
         (self.data / "keep").write_text("someone's", encoding="utf-8")
-        self.assertEqual(self.code(self.start), "BOOTSTRAP_REFUSED")
+        self.assertEqual(refused(self.start).code, "BOOTSTRAP_REFUSED")
         self.assertEqual([path.name for path in self.data.iterdir()], ["keep"], "nothing was touched")
         self.assertFalse(self.service_root.exists())
         (self.data / "keep").unlink()
-        self.assertEqual(self.code(self.start, credentials=self.root / "none"), "DOLTHUB_CREDENTIALS")
+        self.assertEqual(refused(self.start, credentials=self.root / "none").code, "DOLTHUB_CREDENTIALS")
         self.assertFalse(self.service_root.exists(), "the key is checked before anything is made")
         (self.service_root / "paper").mkdir(parents=True)  # compose's mount of the paper run directory
         not_a_copy = self.root / "not-a-copy"
         not_a_copy.write_text("not a Dolt remote", encoding="utf-8")
-        self.assertEqual(self.code(self.start, origin=not_a_copy.as_uri()), "BOOTSTRAP_FAILED")
+        self.assertEqual(refused(self.start, origin=not_a_copy.as_uri()).code, "BOOTSTRAP_FAILED")
         self.assertEqual([path.name for path in self.service_root.iterdir()], ["paper"],
                          "an empty directory counts as empty and stays")
         self.assertEqual(list(self.data.iterdir()), [])
@@ -315,7 +311,7 @@ class RunTests(unittest.TestCase):
         origin.mkdir()
         self.addCleanup(shutil.rmtree, origin, True)
         with patch.object(publish, "_push", side_effect=publish.refuse("PUBLISH_FAILED", "the key cannot write")):
-            self.assertEqual(self.code(self.start, origin=origin.as_uri()), "PUBLISH_FAILED")
+            self.assertEqual(refused(self.start, origin=origin.as_uri()).code, "PUBLISH_FAILED")
         self.assertEqual(list(self.data.iterdir()), [])
         self.assertEqual(list(profiles.home().glob("*.json")), [])
         self.assertFalse((self.service_root / "service.json").exists())
@@ -324,8 +320,8 @@ class RunTests(unittest.TestCase):
         origin = self.remotes / f"mirror-{self.port}"
         origin.mkdir()
         self.addCleanup(shutil.rmtree, origin, True)
-        self.assertEqual(self.code(service.start, self.service_root, self.data, self.backups, None, origin.as_uri(),
-                                   self.port, BINARY, None, self.log), "BOOTSTRAP_FAILED")
+        self.assertEqual(refused(service.start, self.service_root, self.data, self.backups, None, origin.as_uri(),
+                                 self.port, BINARY, None, self.log).code, "BOOTSTRAP_FAILED")
 
     def test_a_first_start_without_an_origin_says_what_to_set(self):
         with self.assertRaises(Refusal) as caught:
@@ -367,6 +363,6 @@ class RunTests(unittest.TestCase):
         subprocess.run([BINARY, "remote", "add", "newer", newer.as_uri()], cwd=work, env=environment, check=True,
                        capture_output=True)
         subprocess.run([BINARY, "push", "newer", "main"], cwd=work, env=environment, check=True, capture_output=True)
-        self.assertEqual(self.code(self.start, origin=newer.as_uri()), "SERVICE_CHECK_FAILED")
+        self.assertEqual(refused(self.start, origin=newer.as_uri()).code, "SERVICE_CHECK_FAILED")
         self.assertEqual(list(self.data.iterdir()), [], "nothing is kept")
         self.assertEqual(list(profiles.home().glob("*.json")), [])

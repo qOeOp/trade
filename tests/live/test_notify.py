@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from engine.live_errors import LiveRefusal
 from live import notify, state
-from tests.live import test_views
+from tests.live.test_views import LiveViewFixture
 
 
 TOKEN = "123456789:" + "A" * 35
@@ -358,7 +358,7 @@ class Sending(Base):
         notify.tick(self.config, call=Telegram(), now=DAY + 40)
 
 
-class Collecting(test_views.LiveViewTests):
+class Collecting(LiveViewFixture):
     def test_collect_reads_the_browser_safe_view_with_a_safe_stop_reason_and_the_configured_source(self):
         self.native("order", native={"type": "OrderFilled", "client_order_id": "cid-1", "trade_id": "t1",
                                      "instrument_id": "BTCUSDT-PERP.BINANCE", "ts_event": 1794000000000000001,
@@ -383,7 +383,3 @@ class Collecting(test_views.LiveViewTests):
         self.assertEqual(notify.collect(SimpleNamespace(root=self.root, sources={},
                                                         runtime=self.manifest["runtime"]["image_ref"]), {"probe-one"}),
                          [])
-
-
-for _name in [name for name in vars(test_views.LiveViewTests) if name.startswith("test_")]:
-    setattr(Collecting, _name, None)  # only the fixture is borrowed; the view tests run in test_views

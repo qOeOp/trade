@@ -22,6 +22,7 @@ from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, bind
                                coverage, grid_point, sha, source)
 from tests.ledger.tsa import LocalAuthority
 from tests.registration.world import ACCOUNT, DESIGN, MONTHS, SYMBOLS, FakeMarket, World, capture, config, months_rows
+from tests.helpers import refused
 
 GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
@@ -277,11 +278,6 @@ class ValidationTests(unittest.TestCase):
         self.conn = self.world.conn
         self.binds = 0
 
-    def code(self, function, *args, **kwargs) -> str:
-        with self.assertRaises(Refusal) as caught:
-            function(*args, **kwargs)
-        return caught.exception.code
-
     def market_inputs(self, start, end, selection=None) -> dict:
         window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
         return with_file(registration_inputs.market_inputs(self.world.market, MARKET_DAY, window,
@@ -310,7 +306,7 @@ class ValidationTests(unittest.TestCase):
 
     def refused_bind(self, label, **kwargs) -> str:
         seq = self.world.seq()
-        code = self.code(self.bind, label, **kwargs)
+        code = refused(self.bind, label, **kwargs).code
         self.assertEqual(self.world.seq(), seq, "a refused binding writes no trial")
         return code
 
@@ -402,9 +398,9 @@ class ValidationTests(unittest.TestCase):
         corrected = "2026-03-08"
         self.world.market.market_days[corrected] = list(self.world.market.market_days[MARKET_DAY])
         seq = self.world.seq()
-        self.assertEqual(self.code(self.register, "successful-retry", market=corrected,
-                                   retry_of=self.registered["successful"]["registration_id"],
-                                   window_start=start, window_end=end), "RETRY_NOT_ALLOWED")
+        self.assertEqual(refused(self.register, "successful-retry", market=corrected,
+                                 retry_of=self.registered["successful"]["registration_id"],
+                                 window_start=start, window_end=end).code, "RETRY_NOT_ALLOWED")
         self.assertEqual(self.world.seq(), seq)
 
     def test_a_registration_is_witnessed_and_its_one_replay_binds_it(self):
@@ -439,7 +435,7 @@ class ValidationTests(unittest.TestCase):
                  ({"window_start": datetime.now(UTC) - timedelta(days=1)}, "REGISTRATION_TOO_LATE")]
         for overrides, expected in cases:
             with self.subTest(overrides=overrides):
-                self.assertEqual(self.code(self.register, f"refused-{expected}", **overrides), expected)
+                self.assertEqual(refused(self.register, f"refused-{expected}", **overrides).code, expected)
         self.assertEqual(self.world.seq(), seq)
 
     def test_an_unwitnessed_registration_stays_but_cannot_bind(self):
@@ -460,9 +456,9 @@ class ValidationTests(unittest.TestCase):
         for field, value in (("seed", 8), ("alpha", 0.01), ("minimum_effect", 0.02),
                              ("design_reason", "a different rationale after seeing the window")):
             with self.subTest(field=field):
-                self.assertEqual(self.code(self.register, f"retry-changed-{field}",
-                                           retry_of=original["registration_id"], window_start=start, window_end=end,
-                                           design={**DESIGN, field: value}), "RETRY_NOT_ALLOWED")
+                self.assertEqual(refused(self.register, f"retry-changed-{field}",
+                                         retry_of=original["registration_id"], window_start=start, window_end=end,
+                                         design={**DESIGN, field: value}).code, "RETRY_NOT_ALLOWED")
                 self.assertEqual(self.world.seq(), seq)
         retry = self.register("retry", retry_of=original["registration_id"], window_start=start, window_end=end)
         self.assertEqual(retry["witness"]["status"], "stamped")
@@ -482,7 +478,7 @@ class ValidationTests(unittest.TestCase):
         start, end = self.windows["interrupted"]
         trial_id = self.bind("interrupted")
         retry = {"retry_of": original["registration_id"], "window_start": start, "window_end": end}
-        self.assertEqual(self.code(self.register, "interrupted-retry", **retry), "RETRY_NOT_ALLOWED")
+        self.assertEqual(refused(self.register, "interrupted-retry", **retry).code, "RETRY_NOT_ALLOWED")
         capture(self.conn, trial_id, source("root"), purpose="validation", outcome="interrupted")
         self.assertEqual(self.register("interrupted-retry", **retry)["witness"]["status"], "stamped")
 
@@ -566,7 +562,7 @@ class ValidationTests(unittest.TestCase):
         seq = self.world.seq()
         for overrides in cases:
             with self.subTest(overrides=overrides):
-                self.assertEqual(self.code(self.register, "bound", **overrides), "OP_ID_CONFLICT")
+                self.assertEqual(refused(self.register, "bound", **overrides).code, "OP_ID_CONFLICT")
         self.assertEqual(self.world.seq(), seq)
         self.assertTrue(self.register("bound")["replayed"])
 
@@ -595,8 +591,8 @@ class ValidationTests(unittest.TestCase):
         seq = self.world.seq()
         for purpose in ("explore", "precheck"):
             with self.subTest(purpose=purpose):
-                self.assertEqual(self.code(trial, source("root"), start - timedelta(seconds=30),
-                                           start + timedelta(milliseconds=1), purpose), "OUT_OF_SAMPLE_RESERVED")
+                self.assertEqual(refused(trial, source("root"), start - timedelta(seconds=30),
+                                         start + timedelta(milliseconds=1), purpose).code, "OUT_OF_SAMPLE_RESERVED")
         self.assertEqual(self.world.seq(), seq)
         trial(source("root"), end, end + timedelta(seconds=1))  # touching the last window is outside it
         variant = trial(self.unrun["source"], start, end)  # another candidate's source
@@ -615,8 +611,8 @@ class ValidationTests(unittest.TestCase):
             self.assertEqual(self.refused_bind("checks"), "STALE_CHECKOUT")
         with seams.use(require_main_build=lambda identity, inspection: (_ for _ in ()).throw(
                 Refusal("RUNTIME_NOT_MAIN", "not a main build", write_status="not_written"))):
-            self.assertEqual(self.code(validation.validation_bind, self.conn, 1, {}, sha(root), IDENTITY, {},
-                                       market=self.world.market), "RUNTIME_NOT_MAIN")
+            self.assertEqual(refused(validation.validation_bind, self.conn, 1, {}, sha(root), IDENTITY, {},
+                                     market=self.world.market).code, "RUNTIME_NOT_MAIN")
         other_image = {**IDENTITY, "image_digest": "sha256:" + "c" * 64}
         self.assertEqual(self.refused_bind("checks", identity=other_image), "RUNTIME_NOT_MAIN")
         self.assertEqual(self.refused_bind(999_999), "REGISTRATION_UNKNOWN")

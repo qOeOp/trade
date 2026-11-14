@@ -20,14 +20,12 @@ from ledger import db, evidence, judgments, lines, strategies, trials
 from shared.refusals import refuse
 from market import universe
 from registration import precheck, register, seams
-from tests.ledger.dolt import (IDENTITY, MARKET_DAY, RUNTIME, Service, context, coverage, january,
+from tests.ledger.dolt import (DAY, IDENTITY, JAN, MARKET_DAY, RUNTIME, Service, context, coverage, january,
                                market as line_market, reviewed, sha, source)
 
 
 OTHER_DAY = "n" * 32
-DAY = 86_400 * 10**9
-DEC31 = 1_767_139_200 * 10**9  # 2025-12-31T00:00:00Z
-JAN = DEC31 + DAY
+DEC31 = JAN - DAY  # 2025-12-31T00:00:00Z
 FEB = JAN + 31 * DAY
 LINE_WINDOW = {"start": DEC31, "trade_start": JAN, "end": FEB}
 RUNNER_ARGV = ["--start", "2025-12-31T00:00:00Z", "--trade-start", "2026-01-01T00:00:00Z", "--end",

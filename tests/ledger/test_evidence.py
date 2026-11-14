@@ -11,6 +11,7 @@ from unittest.mock import patch
 from ledger import db, evidence
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service
+from tests.helpers import refused
 
 
 class EvidenceShapeTests(unittest.TestCase):
@@ -137,9 +138,7 @@ class EvidenceLedgerTests(unittest.TestCase):
 
         write({"plan.json": b"{}"})
         self.assertEqual(write({"plan.json": b"{}"})["write_status"], "replayed")
-        with self.assertRaises(Refusal) as caught:
-            write({"plan.json": b"{\"other\": 1}"})
-        self.assertEqual(caught.exception.code, "BUNDLE_EXISTS")
+        self.assertEqual(refused(write, {"plan.json": b"{\"other\": 1}"}).code, "BUNDLE_EXISTS")
         for kind, trial_id in (("start", None), ("agent", 1), ("unknown", None)):
             with self.subTest(kind=kind, trial_id=trial_id), self.assertRaises(ValueError):
                 write({"a": b"a"}, "product-kind", kind, trial_id)

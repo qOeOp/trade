@@ -169,6 +169,14 @@ def inspect(identity, runner_argv, inputs):
     return {**found, "effective_config_sha256": engine_config.config_sha256(found["effective_config"])}
 
 
+def stand_in(mounts, module, argv, name, scenario: dict, fingerprint: dict | None) -> tuple[dict, list[str]]:
+    """The spec of a stand-in container and the local process that plays it."""
+    kind = "audit" if module.endswith("audit") else "fingerprint" if module.endswith("compare") else "runner"
+    spec = {"module": kind, "mounts": {target: str(host) for host, target, _ in mounts}, "argv": list(argv),
+            "scenario": scenario, "fingerprint": fingerprint, "name": name}
+    return spec, [sys.executable, "-c", RUNNER, json.dumps(spec), *argv]
+
+
 class ReplayWorld(World):
     """The registration world with a stand-in runtime; `scenario` steers the next stand-in replay."""
 
@@ -203,11 +211,9 @@ class ReplayWorld(World):
         super().close()
 
     def command(self, identity, mounts, module, argv, name):
-        kind = "audit" if module.endswith("audit") else "fingerprint" if module.endswith("compare") else "runner"
-        spec = {"module": kind, "mounts": {target: str(host) for host, target, _ in mounts}, "argv": list(argv),
-                "scenario": self.scenario, "fingerprint": self.fingerprint, "name": name}
+        spec, command = stand_in(mounts, module, argv, name, self.scenario, self.fingerprint)
         self.commands.append(spec)
-        return [sys.executable, "-c", RUNNER, json.dumps(spec), *argv]
+        return command
 
     def output(self, name: str) -> Path:
         return self.tmp / name

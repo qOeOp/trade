@@ -10,6 +10,7 @@ from unittest import mock
 from ledger import db
 from shared import profiles
 from shared.errors import Refusal
+from tests.helpers import refused
 
 
 class ProfileTests(unittest.TestCase):
@@ -33,9 +34,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(sorted(db.profiles()), ["research"])
         self.assertEqual(profiles.market(None)["root"], "/srv/market")
         self.assertEqual(profiles.market("copy")["kind"], "isolated")
-        with self.assertRaises(Refusal) as raised:
-            profiles.market("research")
-        self.assertEqual(raised.exception.code, "LEDGER_KIND")
+        self.assertEqual(refused(profiles.market, "research").code, "LEDGER_KIND")
 
     def test_a_market_profile_in_the_old_format_is_refused_with_its_rewrite(self):
         self.write("market", {"name": "market", "kind": "market", "role": "active", "root": "/srv/market"})

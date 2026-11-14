@@ -14,6 +14,7 @@ from engine.live_venue import read_credentials
 from live import credentials, requests, runs, state
 from tests.live.authority_fixture import recover
 from tests.live.test_runs import IDENTITY
+from tests.helpers import refused
 
 
 class CredentialStoreTests(unittest.TestCase):
@@ -124,27 +125,21 @@ class CredentialStoreTests(unittest.TestCase):
         self.save()
         directory = self.partial_prepare()
         self.launch(directory)
-        with self.assertRaises(LiveRefusal) as caught:
-            self.resolve_partial_path()
-        self.assertEqual(caught.exception.code, "LIVE_RUN_CONFLICT")
+        self.assertEqual(refused(self.resolve_partial_path, error=LiveRefusal).code, "LIVE_RUN_CONFLICT")
 
     def test_partial_prepare_with_native_output_is_not_local_recovery(self):
         self.save()
         directory = self.partial_prepare()
         state.private_directory(directory / "out")
         state.write_new(directory / "out" / "armed.json", b"{}")
-        with self.assertRaises(LiveRefusal) as caught:
-            self.resolve_partial_path()
-        self.assertEqual(caught.exception.code, "LIVE_RUN_CONFLICT")
+        self.assertEqual(refused(self.resolve_partial_path, error=LiveRefusal).code, "LIVE_RUN_CONFLICT")
 
     def test_partial_prepare_with_even_released_account_history_is_not_local(self):
         self.save()
         self.partial_prepare()
         state.append(self.root / "account.jsonl", "reserved", "partial-run")
         state.append(self.root / "account.jsonl", "released", "partial-run", reason="never_armed")
-        with self.assertRaises(LiveRefusal) as caught:
-            self.resolve_partial_path()
-        self.assertEqual(caught.exception.code, "LIVE_RUN_CONFLICT")
+        self.assertEqual(refused(self.resolve_partial_path, error=LiveRefusal).code, "LIVE_RUN_CONFLICT")
 
     def test_partial_prepare_cannot_change_target_or_credential_reference(self):
         self.save()
@@ -158,16 +153,12 @@ class CredentialStoreTests(unittest.TestCase):
         self.save()
         self.save(self.other)
         self.partial_prepare()
-        with self.assertRaises(LiveRefusal) as caught:
-            self.resolve_partial_path()
-        self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_CHANGED")
+        self.assertEqual(refused(self.resolve_partial_path, error=LiveRefusal).code, "LIVE_CREDENTIAL_CHANGED")
 
     def test_partial_prepare_requires_complete_original_input_declaration(self):
         self.save()
         self.partial_prepare(inputs_change=lambda value: value["config"].pop("memory"))
-        with self.assertRaises(LiveRefusal) as caught:
-            self.resolve_partial_path()
-        self.assertEqual(caught.exception.code, "LIVE_RUN_CONFLICT")
+        self.assertEqual(refused(self.resolve_partial_path, error=LiveRefusal).code, "LIVE_RUN_CONFLICT")
 
     def test_secret_is_private_and_only_metadata_is_returned(self):
         result = self.upload()
@@ -205,12 +196,10 @@ class CredentialStoreTests(unittest.TestCase):
         before = self.files()
         with state.serialized(self.root) as root:
             claim = requests.read_locked(root, "prepare-original")
-            with self.assertRaises(LiveRefusal) as caught:
-                credentials.recover_locked(root, claim)
-            self.assertEqual(caught.exception.code, "LIVE_REQUEST_CLOSED_UNCLAIMED")
-            with self.assertRaises(LiveRefusal) as caught:
-                credentials.resolve_prepare_path_locked(root, "partial-run", self.ref, "prepare-original")
-            self.assertEqual(caught.exception.code, "LIVE_RUN_CONFLICT")
+            self.assertEqual(refused(credentials.recover_locked, root, claim,
+                                     error=LiveRefusal).code, "LIVE_REQUEST_CLOSED_UNCLAIMED")
+            self.assertEqual(refused(credentials.resolve_prepare_path_locked, root, "partial-run", self.ref,
+                                     "prepare-original", error=LiveRefusal).code, "LIVE_RUN_CONFLICT")
         self.assertEqual(self.files(), before)
 
     def test_listing_does_not_open_secret_bytes_or_change_files(self):
@@ -406,9 +395,7 @@ class CredentialStoreTests(unittest.TestCase):
         self.launch(directory, mode="preflight")
         self.assertIsNone(runs.active_run(self.root))
         with patch.object(runs, "inspect_runner", return_value={"State": {"Status": "running"}}):
-            with self.assertRaises(LiveRefusal) as caught:
-                self.save(self.other)
-            self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_BUSY")
+            self.assertEqual(refused(self.save, self.other, error=LiveRefusal).code, "LIVE_CREDENTIAL_BUSY")
             with state.serialized(self.root), self.assertRaises(LiveRefusal):
                 credentials.remove_locked(self.root, self.ref)
 

@@ -12,6 +12,7 @@ from nautilus_trader.persistence import ParquetDataCatalog
 
 from engine import audit, config, load, report, run
 from market import export, instrument
+from tests.helpers import refused
 
 
 ENGINE = Path(__file__).resolve().parents[2] / "engine"
@@ -73,11 +74,6 @@ class LoadRefusalTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
 
-    def code(self, call, *args):
-        with self.assertRaises(config.Refusal) as caught:
-            call(*args)
-        return caught.exception.code
-
     def test_a_contract_starts_when_its_declared_history_first_holds_and_none_starts_without_it(self):
         from types import SimpleNamespace
         window = config.parse_window(config.utc_text(START * 10**6), None, config.utc_text((START + 30 * DAY) * 10**6))
@@ -98,7 +94,8 @@ class LoadRefusalTests(unittest.TestCase):
         self.assertEqual(len(limitations), 2)
         self.assertIn("BBBUSDT: its warm-up first holds at 2026-01-21T00:00:00Z", limitations[0])
         self.assertIn("CCCUSDT", limitations[1])
-        self.assertEqual(self.code(run.plan_instances, [never], window, warm, stamps), "WARMUP_INSUFFICIENT")
+        self.assertEqual(refused(run.plan_instances, [never], window, warm, stamps, error=config.Refusal).code,
+                         "WARMUP_INSUFFICIENT")
         self.assertEqual(run.plan_instances([never], window, SimpleNamespace(warmup=()), stamps)[1], [])
 
     def test_mark_timestamps_count_distinct_stamps_and_refuse_a_missing_file(self):
@@ -107,11 +104,11 @@ class LoadRefusalTests(unittest.TestCase):
         self.assertEqual(run.mark_timestamps([]), 0)
         empty = self.root / "CCCUSDT"
         empty.mkdir()
-        self.assertEqual(self.code(run.mark_timestamps, [{"symbol": "CCCUSDT", "catalog_path": empty,
-                                                           "counts": {"mark": 3}}]), "EXPORT_MARKS_UNREADABLE")
+        marks = [{"symbol": "CCCUSDT", "catalog_path": empty, "counts": {"mark": 3}}]
+        self.assertEqual(refused(run.mark_timestamps, marks, error=config.Refusal).code, "EXPORT_MARKS_UNREADABLE")
         broken = next((rows[0]["catalog_path"] / "data" / "mark_prices").rglob("*.parquet"))
         broken.write_bytes(b"not parquet")
-        self.assertEqual(self.code(run.mark_timestamps, rows), "EXPORT_MARKS_UNREADABLE")
+        self.assertEqual(refused(run.mark_timestamps, rows, error=config.Refusal).code, "EXPORT_MARKS_UNREADABLE")
 
     def test_diagnostics_are_a_json_dict_apart_from_the_native_facts(self):
         class Source:
@@ -124,15 +121,10 @@ class LoadRefusalTests(unittest.TestCase):
         for value, code in (([], "DIAGNOSTICS_NOT_DICT"), ({"positions": 1}, "DIAGNOSTICS_RESERVED_KEY"),
                             ({"when": object()}, "DIAGNOSTICS_NOT_JSON")):
             with self.subTest(code=code):
-                self.assertEqual(self.code(load.diagnostics, Source(value)), code)
+                self.assertEqual(refused(load.diagnostics, Source(value), error=config.Refusal).code, code)
 
 
 class ReportRefusalTests(unittest.TestCase):
-    def code(self, call, *args):
-        with self.assertRaises(config.Refusal) as caught:
-            call(*args)
-        return caught.exception.code
-
     def test_order_events_and_statistics_refuse_what_they_cannot_hold(self):
         from decimal import Decimal
         from types import SimpleNamespace
@@ -142,15 +134,15 @@ class ReportRefusalTests(unittest.TestCase):
                                    events=lambda: [SimpleNamespace(to_dict=lambda value=value: value) for value in values])
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "order_events.jsonl.gz"
-            self.assertEqual(self.code(report.write_order_events, [order("O-2", {"a": 1}), order("O-1")], path),
-                             "ORDER_WITHOUT_EVENTS")
-            self.assertEqual(self.code(report.write_order_events, [order("O-1", {"px": float("nan")})], path),
-                             "NON_FINITE_EVENT_FIELD")
+            self.assertEqual(refused(report.write_order_events, [order("O-2", {"a": 1}), order("O-1")], path,
+                                     error=config.Refusal).code, "ORDER_WITHOUT_EVENTS")
+            self.assertEqual(refused(report.write_order_events, [order("O-1", {"px": float("nan")})], path,
+                                     error=config.Refusal).code, "NON_FINITE_EVENT_FIELD")
         day = 86_400 * 10**9
-        self.assertEqual(self.code(report.summary_statistics, {}, day, day, Decimal(100000), Decimal(100000)),
-                         "TRADING_WINDOW_EMPTY")
-        self.assertEqual(self.code(report.summary_statistics, {}, 0, day, Decimal(0), Decimal(100000)),
-                         "STARTING_BALANCE_NOT_POSITIVE")
+        self.assertEqual(refused(report.summary_statistics, {}, day, day, Decimal(100000), Decimal(100000),
+                                 error=config.Refusal).code, "TRADING_WINDOW_EMPTY")
+        self.assertEqual(refused(report.summary_statistics, {}, 0, day, Decimal(0), Decimal(100000),
+                                 error=config.Refusal).code, "STARTING_BALANCE_NOT_POSITIVE")
 
 
     def test_statistics_cover_the_trading_window_and_note_what_cannot_be_computed(self):

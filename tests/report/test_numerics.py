@@ -11,23 +11,14 @@ import unittest
 
 import numpy as np
 
-from shared.errors import Refusal
 from report import attribution, comparison, measures
+from tests.helpers import refused
+from tests.ledger.dolt import DAY, JAN
 
 
 DESIGN = {"method": "paired-circular-log-mean-v1", "block_days": 2, "resamples": 999, "inner_resamples": 99,
           "seed": 11, "alpha": 0.05, "minimum_effect": 0.0, "design_reason": "fixture"}
-DAY = 86_400 * 10**9
-JAN = 1_767_225_600 * 10**9  # 2026-01-01T00:00:00Z
 MINUTE = 60 * 10**9
-
-
-def refused(function, *args, **kwargs) -> str:
-    try:
-        function(*args, **kwargs)
-    except Refusal as exc:
-        return exc.code
-    raise AssertionError("no refusal")
 
 
 class PairedTests(unittest.TestCase):
@@ -137,15 +128,15 @@ class PairedTests(unittest.TestCase):
         self.assertIsNone(found["detectable_annual_return_difference_80pct_normal_approx"])
 
     def test_malformed_inputs_are_refused_before_any_number(self):
-        self.assertEqual(refused(comparison.paired, [0.0] * 3, [0.0] * 3, DESIGN, 1), "COMPARISON_UNAVAILABLE")
-        self.assertEqual(refused(comparison.paired, [0.0] * 4, [0.0] * 5, DESIGN, 1), "COMPARISON_UNAVAILABLE")
-        self.assertEqual(refused(comparison.paired, [0.0, -1.0, 0.0, 0.0], [0.0] * 4, DESIGN, 1),
+        self.assertEqual(refused(comparison.paired, [0.0] * 3, [0.0] * 3, DESIGN, 1).code, "COMPARISON_UNAVAILABLE")
+        self.assertEqual(refused(comparison.paired, [0.0] * 4, [0.0] * 5, DESIGN, 1).code, "COMPARISON_UNAVAILABLE")
+        self.assertEqual(refused(comparison.paired, [0.0, -1.0, 0.0, 0.0], [0.0] * 4, DESIGN, 1).code,
                          "COMPARISON_UNAVAILABLE")
-        self.assertEqual(refused(comparison.paired, [0.0, float("nan"), 0.0, 0.0], [0.0] * 4, DESIGN, 1),
+        self.assertEqual(refused(comparison.paired, [0.0, float("nan"), 0.0, 0.0], [0.0] * 4, DESIGN, 1).code,
                          "COMPARISON_UNAVAILABLE")
-        self.assertEqual(refused(comparison.paired, [0.0] * 4, [0.0] * 4, {**DESIGN, "resamples": 10}, 1),
+        self.assertEqual(refused(comparison.paired, [0.0] * 4, [0.0] * 4, {**DESIGN, "resamples": 10}, 1).code,
                          "REGISTRATION_INVALID")
-        self.assertEqual(refused(comparison.paired, [0.0] * 4, [0.0] * 4, DESIGN, 0), "REGISTRATION_INVALID")
+        self.assertEqual(refused(comparison.paired, [0.0] * 4, [0.0] * 4, DESIGN, 0).code, "REGISTRATION_INVALID")
 
 
 class SingleAndHolmTests(unittest.TestCase):
@@ -161,8 +152,8 @@ class SingleAndHolmTests(unittest.TestCase):
         self.assertTrue(0 < found["p_one_sided"] <= 1)
         flat = comparison.single([0.01] * 6, DESIGN, 1)
         self.assertEqual((flat["p_one_sided"], flat["sharpe_annualised"]), (None, None))
-        self.assertEqual(refused(comparison.single, [0.01] * 3, DESIGN, 1), "COMPARISON_UNAVAILABLE")
-        self.assertEqual(refused(comparison.single, [0.01] * 6, DESIGN, 0), "COMPARISON_UNAVAILABLE")
+        self.assertEqual(refused(comparison.single, [0.01] * 3, DESIGN, 1).code, "COMPARISON_UNAVAILABLE")
+        self.assertEqual(refused(comparison.single, [0.01] * 6, DESIGN, 0).code, "COMPARISON_UNAVAILABLE")
 
     def test_holm_steps_down_keeps_the_order_and_caps_at_one(self):
         self.assertEqual(comparison.holm([0.01, 0.04, 0.03]), [0.03, 0.06, 0.06])
@@ -174,10 +165,10 @@ class SingleAndHolmTests(unittest.TestCase):
         self.assertEqual(comparison.holm([0.6, 0.2], 2), comparison.holm([0.6, 0.2]))
         for bad in ([], [1.2], [-0.1], [float("nan")]):
             with self.subTest(bad=bad):
-                self.assertEqual(refused(comparison.holm, bad), "COMPARISON_UNAVAILABLE")
+                self.assertEqual(refused(comparison.holm, bad).code, "COMPARISON_UNAVAILABLE")
         for family_size in (1, 2.0, True):
             with self.subTest(family_size=family_size):
-                self.assertEqual(refused(comparison.holm, [0.1, 0.2], family_size), "COMPARISON_UNAVAILABLE")
+                self.assertEqual(refused(comparison.holm, [0.1, 0.2], family_size).code, "COMPARISON_UNAVAILABLE")
 
 
 class RegressionTests(unittest.TestCase):

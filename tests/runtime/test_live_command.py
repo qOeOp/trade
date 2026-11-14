@@ -7,6 +7,7 @@ import unittest
 from engine.config import RUNTIME_CONTRACT
 from shared.errors import Refusal
 from runtime import container
+from tests.helpers import refused
 
 
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
@@ -46,7 +47,6 @@ class LiveCommandTests(unittest.TestCase):
                 self.command(**options)
 
     def test_paper_cannot_select_live_module(self):
-        with self.assertRaises(Refusal) as caught:
-            container.paper_command(IDENTITY, self.mounts[:1], "engine.live", [], name="paper-one",
-                                    network="paper-one", memory="2g", labels={})
-        self.assertEqual(caught.exception.code, "MODULE_NOT_IN_LAYOUT")
+        self.assertEqual(refused(container.paper_command, IDENTITY, self.mounts[:1], "engine.live", [],
+                                 name="paper-one", network="paper-one", memory="2g",
+                                 labels={}).code, "MODULE_NOT_IN_LAYOUT")

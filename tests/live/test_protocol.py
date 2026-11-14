@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from live import configuration, control, serve, state
 from live.protocol import PROTOCOL
-from tests.live import test_views
+from tests.live.test_views import LiveViewFixture
 
 
 BASELINE = Path(__file__).with_name(f"protocol-{PROTOCOL}.json")
@@ -75,7 +75,7 @@ def missing(baseline, current, path="") -> list[str]:
     return []
 
 
-class ProtocolBaselineTests(test_views.LiveViewTests):
+class ProtocolBaselineTests(LiveViewFixture):
     """The baseline is something a control of this protocol answers: today's control answers at least it."""
 
     def test_todays_listing_still_holds_every_part_of_the_baseline(self):
@@ -90,7 +90,3 @@ class ProtocolBaselineTests(test_views.LiveViewTests):
         listing = control.listing(self.authority.config, binding=self.authority.binding)
         self.assertEqual(missing(json.loads(BASELINE.read_text()), listing), [],
                          "the baseline names what no control of this protocol answers")
-
-
-for _name in [name for name in vars(test_views.LiveViewTests) if name.startswith("test_")]:
-    setattr(ProtocolBaselineTests, _name, None)  # only its fixture is borrowed; the view tests run in test_views

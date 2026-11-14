@@ -16,6 +16,7 @@ from engine.live_venue import (
     require_clock, require_own_symbol,
     BinanceReadOnly, Credentials, read_credentials, require_account_mode, require_admission,
 )
+from tests.helpers import refused
 
 
 def venue_clock() -> list[dict]:
@@ -88,9 +89,7 @@ class LiveClockTest(unittest.TestCase):
                 if code is None:
                     require_clock(snapshot)
                 else:
-                    with self.assertRaises(Refusal) as caught:
-                        require_clock(snapshot)
-                    self.assertEqual(caught.exception.code, code)
+                    self.assertEqual(refused(require_clock, snapshot, error=Refusal).code, code)
 
     def test_a_missing_time_is_refused(self):
         for snapshot in ({}, {"clock": []}, {"clock": [{"sent_ns": 1, "received_ns": 2}]},
@@ -118,9 +117,7 @@ class LiveClockTest(unittest.TestCase):
         client = BinanceReadOnly(Credentials("key", "secret"))
         self.assertEqual(client.ORIGIN, "https://fapi.binance.com")
         self.assertEqual({path.split("/")[1] for path in client.PUBLIC | client.PRIVATE}, {"fapi"})
-        with self.assertRaises(Refusal) as caught:
-            client.get("/sapi/v1/capital/withdraw/apply")
-        self.assertEqual(caught.exception.code, "LIVE_READ_PATH")
+        self.assertEqual(refused(client.get, "/sapi/v1/capital/withdraw/apply", error=Refusal).code, "LIVE_READ_PATH")
 
 
 class LiveAdmissionTest(unittest.TestCase):
@@ -159,9 +156,8 @@ class LiveAdmissionTest(unittest.TestCase):
     def test_tiny_usdt_wallet_is_not_replaced_by_shared_collateral_available(self):
         observation, manifest = fixture()
         observation["account"]["assets"][0]["walletBalance"] = "0.01"
-        with self.assertRaises(Refusal) as caught:
-            require_admission(observation, manifest, Decimal("100"))
-        self.assertEqual(caught.exception.code, "LIVE_FUNDS")
+        self.assertEqual(refused(require_admission, observation, manifest, Decimal("100"),
+                                 error=Refusal).code, "LIVE_FUNDS")
 
     def test_usdt_available_and_margin_eligibility_are_required(self):
         for available, eligible in [("50", True), ("NaN", True), ("Infinity", True),
@@ -294,9 +290,8 @@ class LiveAdmissionTest(unittest.TestCase):
         observation["algo_orders"] = [{"symbol": "BTCUSDT"}]
         require_own_symbol(observation, manifest)
         observation["orders"] = [{"symbol": "SOLUSDT"}]
-        with self.assertRaises(Refusal) as caught:
-            require_own_symbol(observation, manifest)
-        self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_NOT_FLAT")
+        self.assertEqual(refused(require_own_symbol, observation, manifest,
+                                 error=Refusal).code, "LIVE_ACCOUNT_NOT_FLAT")
 
 
 class AccountModeTest(unittest.TestCase):

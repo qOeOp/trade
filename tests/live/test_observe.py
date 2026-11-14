@@ -6,6 +6,7 @@ from engine.live_errors import LiveRefusal
 from live import host as host_runtime
 from live import runs, state
 from tests.live.test_runs import LiveFixture
+from tests.helpers import refused
 
 
 class LiveObservationTests(LiveFixture):
@@ -64,7 +65,6 @@ class LiveObservationTests(LiveFixture):
     def test_incomplete_host_journal_does_not_become_a_prepared_run(self):
         (self.directory / "lifecycle.jsonl").write_bytes(b'{"event":"launch_')
         before = self.files()
-        with self.assertRaises(LiveRefusal) as caught:
-            runs.observe(self.root, self.run_id)
-        self.assertEqual(caught.exception.code, "LIVE_JOURNAL_UNAVAILABLE")
+        self.assertEqual(refused(runs.observe, self.root, self.run_id,
+                                 error=LiveRefusal).code, "LIVE_JOURNAL_UNAVAILABLE")
         self.assertEqual(self.files(), before)

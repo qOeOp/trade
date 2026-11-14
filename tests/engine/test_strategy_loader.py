@@ -23,6 +23,7 @@ from engine.load import RUNTIME_CONTRACT, load_strategy, source_findings, strate
 from engine import run
 from engine.strategy import STRATEGIES
 from engine.run import StrategyInputs, effective_configuration, execution_metadata, parse_configuration
+from tests.helpers import refused
 
 
 def importable(loaded) -> str:
@@ -232,9 +233,7 @@ class StrategyLoaderTests(unittest.TestCase):
         (self.root / "moved.json").write_text('{"membership": {}}')
         self.assertNotEqual(effective_configuration(moved).digest, resolved.digest)
         missing = dataclasses.replace(args, universe_path=self.root / "absent.json")
-        with self.assertRaises(Refusal) as caught:
-            effective_configuration(missing)
-        self.assertEqual(caught.exception.code, "UNIVERSE_FILE_UNREADABLE")
+        self.assertEqual(refused(effective_configuration, missing, error=Refusal).code, "UNIVERSE_FILE_UNREADABLE")
         self.universe()
         identity = {
             "image_ref": "example/runtime@sha256:" + "a" * 64,
@@ -303,9 +302,7 @@ class StrategyLoaderTests(unittest.TestCase):
                 if code is None:
                     self.load(digest=digest)
                     continue
-                with self.assertRaises(Refusal) as caught:
-                    self.load(digest=digest)
-                self.assertEqual(caught.exception.code, code)
+                self.assertEqual(refused(self.load, digest=digest, error=Refusal).code, code)
 
     def test_the_execution_environment_is_a_runner_argument_in_the_effective_configuration(self):
         """--execution quotes needs both margin rates in (0, 1) with maintenance <= initial; bars takes none; the
@@ -393,9 +390,9 @@ class StrategyLoaderTests(unittest.TestCase):
             strategy_path=importable(loaded), config_path="engine.run:StrategyInputs", config=config))
         with self.assertRaisesRegex(RuntimeError, "boom"):
             engine.run()
-        with self.assertRaises(Refusal) as caught:
-            run.configure_strategy(loaded, StrategyInputs(**{**config, "instrument_id": "not an instrument"}))
-        self.assertEqual(caught.exception.code, "STRATEGY_CONSTRUCTION_FAILED")
+        self.assertEqual(refused(run.configure_strategy, loaded,
+                                 StrategyInputs(**{**config, "instrument_id": "not an instrument"}),
+                                 error=Refusal).code, "STRATEGY_CONSTRUCTION_FAILED")
         written = [json.loads(line) for line in receipts.read_text().splitlines()]
         self.assertEqual(written, strategy_runtime.FAILURES)
         self.assertEqual([(item["stage"], item["exception_type"], item["instrument_id"], item["count"], item["code"])

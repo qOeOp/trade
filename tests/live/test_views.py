@@ -7,7 +7,7 @@ from live import daily, runs, state, views
 from tests.live.test_runs import LiveFixture
 
 
-class LiveViewTests(LiveFixture):
+class LiveViewFixture(LiveFixture):
     def setUp(self):
         super().setUp()
         with state.serialized(self.root):
@@ -42,6 +42,8 @@ class LiveViewTests(LiveFixture):
         self.native(event, observation=filename)
         return self.directory / "out" / filename
 
+
+class LiveViewTests(LiveViewFixture):
     def test_safe_whitelist_and_read_does_not_change_any_file(self):
         self.manifest["config"].update(drawdown_brake="0.1",
                                        duration_seconds=8100, proxy_url="https://SECRET_PROXY", secret="SECRET_CONFIG")

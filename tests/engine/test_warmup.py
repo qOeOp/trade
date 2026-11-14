@@ -15,6 +15,7 @@ from engine import history, klines, run, warmup
 from engine.config import Refusal, parse_window, utc_text
 from engine.load import load_strategy, read_market
 from tests.engine.test_stream import DAY, DAYS, END, MIN, START, contract
+from tests.helpers import refused
 
 NS = 10**6  # per millisecond
 WARMED = '''
@@ -80,9 +81,8 @@ class DeclarationTests(unittest.TestCase):
         for value in ({"2-DAY": 1}, {"1-WEEK": 1}, {"15-MINUTE": -1}, {"15-MINUTE": 1.0}, {"15-MINUTE": True},
                       {"1-DAY": "3"}, ["1-DAY"], True):
             with self.subTest(value=value):
-                with self.assertRaises(Refusal) as caught:
-                    warmup.declared(type("Invalid", (), {"WARMUP": value}))
-                self.assertEqual(caught.exception.code, "WARMUP_INVALID")
+                self.assertEqual(refused(warmup.declared, type("Invalid", (), {"WARMUP": value}),
+                                         error=Refusal).code, "WARMUP_INVALID")
 
     def test_a_derived_bar_follows_the_daily_rule_and_only_complete_buckets(self):
         kind = BarType.from_str("AAAUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")
@@ -174,9 +174,8 @@ class ReplayWarmupTests(unittest.TestCase):
         # Derived histories start at the window's start: eight quarters first hold two hours in.
         seen, _ = self.replay(source(self.root, {"15-MINUTE": 8}), START)
         self.assertEqual(next(event for event in seen if event[0] == "start"), ("start", (START + 2 * 3_600_000) * NS))
-        with self.assertRaises(Refusal) as caught:
-            self.replay(source(self.root, {"1-DAY": 2}), START + 3_600_000)
-        self.assertEqual(caught.exception.code, "WARMUP_INSUFFICIENT")
+        self.assertEqual(refused(self.replay, source(self.root, {"1-DAY": 2}), START + 3_600_000,
+                                 error=Refusal).code, "WARMUP_INSUFFICIENT")
 
     def test_no_order_before_on_start_no_request_and_no_undeclared_aggregation(self):
         cases = (

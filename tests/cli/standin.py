@@ -23,11 +23,8 @@ from tests.replay import world
 
 
 def _command(identity, mounts, module, argv, name):
-    kind = "audit" if module.endswith("audit") else "fingerprint" if module.endswith("compare") else "runner"
-    spec = {"module": kind, "mounts": {target: str(host) for host, target, _ in mounts}, "argv": list(argv),
-            "scenario": json.loads(os.environ.get("CLI_STANDIN_SCENARIO") or "{}"),
-            "fingerprint": world.DEFAULT_FINGERPRINT, "name": name}
-    return [sys.executable, "-c", world.RUNNER, json.dumps(spec), *argv]
+    scenario = json.loads(os.environ.get("CLI_STANDIN_SCENARIO") or "{}")
+    return world.stand_in(mounts, module, argv, name, scenario, world.DEFAULT_FINGERPRINT)[1]
 
 
 def main() -> int:

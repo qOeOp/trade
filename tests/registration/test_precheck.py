@@ -13,6 +13,7 @@ from registration import precheck
 from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, coverage, market,
                                product_bundle, sha)
 from tests.registration.world import World, capture, config
+from tests.helpers import refused
 
 OTHER_RUNTIME = {**RUNTIME, "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "c" * 64,
                  "image_digest": "sha256:" + "c" * 64}
@@ -46,11 +47,6 @@ class PrecheckTests(unittest.TestCase):
     def setUp(self):
         self.conn = self.world.conn
 
-    def code(self, function, *args, **kwargs) -> str:
-        with self.assertRaises(Refusal) as caught:
-            function(*args, **kwargs)
-        return caught.exception.code
-
     def sealed(self, data=None, runtime=None, identity=None, **options) -> int:
         data = data or self.data
         trial_id = self.world.open_precheck(data, identity, runtime=runtime)
@@ -81,13 +77,13 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(read["input_coverage"]["effective_config"]["symbols"], ["AAAUSDT"])
         unsealed = self.world.open_precheck(self.data)
         self.assertEqual(execution.read_capture(self.conn, unsealed)["status"], "missing")
-        self.assertEqual(self.code(execution.read_capture, self.conn, 999_999), "TRIAL_NOT_FOUND")
+        self.assertEqual(refused(execution.read_capture, self.conn, 999_999).code, "TRIAL_NOT_FOUND")
 
     def test_a_capture_that_disagrees_with_its_trial_or_listing_is_refused(self):
         def forged(listed, stored) -> str:
             trial_id = self.world.open_precheck(self.data)
             forge_capture(self.conn, trial_id, listed, stored)
-            return self.code(execution.read_capture, self.conn, trial_id)
+            return refused(execution.read_capture, self.conn, trial_id).code
 
         ran = ("native.stdout.txt", "captured", None, None)
         self.assertEqual(forged([ran], {"native.stdout.txt": b"ran", "extra.txt": b"x"}), "LEDGER_CORRUPT")
@@ -125,10 +121,10 @@ class PrecheckTests(unittest.TestCase):
         seq = self.world.seq()
         for value in malformed:
             with self.subTest(value=value):
-                self.assertEqual(self.code(precheck.record_review, self.world.profile, value, "b"), "REVIEW_INVALID")
+                self.assertEqual(refused(precheck.record_review, self.world.profile, value, "b").code, "REVIEW_INVALID")
         self.assertEqual(self.world.seq(), seq)
-        self.assertEqual(self.code(precheck.record_review, self.world.profile,
-                                   self.world.review_body(999_999), "b"), "TRIAL_NOT_FOUND")
+        self.assertEqual(refused(precheck.record_review, self.world.profile,
+                                 self.world.review_body(999_999), "b").code, "TRIAL_NOT_FOUND")
         unsealed = self.world.open_precheck(self.data)
         explored = trials.open_trial(self.conn, "explore", sha(self.data), RUNTIME,
                                      coverage(effective_config=config(), symbols=["AAAUSDT"]),
@@ -138,8 +134,8 @@ class PrecheckTests(unittest.TestCase):
         seq = self.world.seq()
         for target in (unsealed, explored):
             with self.subTest(target=target):
-                self.assertEqual(self.code(precheck.record_review, self.world.profile,
-                                           self.world.review_body(target), "b"), "PRECHECK_CAPTURE_MISSING")
+                self.assertEqual(refused(precheck.record_review, self.world.profile,
+                                         self.world.review_body(target), "b").code, "PRECHECK_CAPTURE_MISSING")
         self.assertEqual(self.world.seq(), seq)
 
     # Admission
@@ -158,7 +154,7 @@ class PrecheckTests(unittest.TestCase):
                  (review, sha(self.data), self.identity(market_day="2026-03-02"))]
         for case in cases:
             with self.subTest(case=case):
-                self.assertEqual(self.code(precheck.require_precheck, self.conn, *case), "SOURCE_PRECHECK_REQUIRED")
+                self.assertEqual(refused(precheck.require_precheck, self.conn, *case).code, "SOURCE_PRECHECK_REQUIRED")
 
     def test_review_records_are_the_product_reviews_of_a_source(self):
         trial_id = self.sealed()
@@ -174,10 +170,10 @@ class PrecheckTests(unittest.TestCase):
     def test_lifecycle_inputs_are_compared_both_ways(self):
         with_lifecycle = self.review(self.sealed(identity={"lifecycle_bundle": LIFECYCLE}))
         without = self.review(self.sealed())
-        self.assertEqual(self.code(precheck.require_precheck, self.conn, with_lifecycle, sha(self.data),
-                                   self.identity()), "SOURCE_PRECHECK_REQUIRED")
-        self.assertEqual(self.code(precheck.require_precheck, self.conn, without, sha(self.data),
-                                   self.identity(lifecycle_bundle=LIFECYCLE)), "SOURCE_PRECHECK_REQUIRED")
+        self.assertEqual(refused(precheck.require_precheck, self.conn, with_lifecycle, sha(self.data),
+                                 self.identity()).code, "SOURCE_PRECHECK_REQUIRED")
+        self.assertEqual(refused(precheck.require_precheck, self.conn, without, sha(self.data),
+                                 self.identity(lifecycle_bundle=LIFECYCLE)).code, "SOURCE_PRECHECK_REQUIRED")
         self.assertIsInstance(precheck.require_precheck(self.conn, with_lifecycle, sha(self.data),
                                                         self.identity(lifecycle_bundle=LIFECYCLE)), int)
 
@@ -192,15 +188,15 @@ class PrecheckTests(unittest.TestCase):
                                                            self.identity(effective)), trial_id)
         for effective in ({**config(), "execution_bar_minutes": 5}, config(account={"balance_usdt": "5000"})):
             with self.subTest(effective=effective):
-                self.assertEqual(self.code(precheck.require_precheck, self.conn, review, sha(self.data),
-                                           self.identity(effective)), "SOURCE_PRECHECK_REQUIRED")
+                self.assertEqual(refused(precheck.require_precheck, self.conn, review, sha(self.data),
+                                         self.identity(effective)).code, "SOURCE_PRECHECK_REQUIRED")
 
     def test_any_failed_review_of_the_precheck_fails_admission(self):
         trial_id = self.sealed()
         passed = self.review(trial_id)
         self.assertEqual(precheck.require_precheck(self.conn, passed, sha(self.data), self.identity()), trial_id)
         self.review(trial_id, "failed", causal={"status": "failed", "note": "reads the next bar's close"})
-        self.assertEqual(self.code(precheck.require_precheck, self.conn, passed, sha(self.data), self.identity()),
+        self.assertEqual(refused(precheck.require_precheck, self.conn, passed, sha(self.data), self.identity()).code,
                          "SOURCE_PRECHECK_FAILED")
 
     def test_a_failed_precheck_or_review_item_fails_admission(self):
@@ -209,13 +205,13 @@ class PrecheckTests(unittest.TestCase):
         for options in cases:
             with self.subTest(options=options):
                 review = self.review(self.sealed(**options))
-                self.assertEqual(self.code(precheck.require_precheck, self.conn, review, sha(self.data),
-                                           self.identity()), "SOURCE_PRECHECK_FAILED")
+                self.assertEqual(refused(precheck.require_precheck, self.conn, review, sha(self.data),
+                                         self.identity()).code, "SOURCE_PRECHECK_FAILED")
         for status in ("failed", "unresolved"):
             with self.subTest(status=status):
                 review = self.review(self.sealed(), "failed", readiness={"status": status, "note": "indicator cold"})
-                self.assertEqual(self.code(precheck.require_precheck, self.conn, review, sha(self.data),
-                                           self.identity()), "SOURCE_PRECHECK_FAILED")
+                self.assertEqual(refused(precheck.require_precheck, self.conn, review, sha(self.data),
+                                         self.identity()).code, "SOURCE_PRECHECK_FAILED")
 
     # Exposure exemption
 
@@ -235,17 +231,17 @@ class PrecheckTests(unittest.TestCase):
             with self.subTest(effective=effective):
                 self.assertFalse(precheck.exposure_exempt(self.conn, exempt, sha(self.data), self.identity(effective)))
         self.assertFalse(precheck.exposure_exempt(self.conn, exempt, sha(self.world.publish("x")["source"]), identity))
-        self.assertEqual(self.code(precheck.exposure_exempt, self.conn, 999_999, sha(self.data), identity),
+        self.assertEqual(refused(precheck.exposure_exempt, self.conn, 999_999, sha(self.data), identity).code,
                          "TRIAL_NOT_FOUND")
         ran = ("native.stdout.txt", "captured", None, None)
         damaged = self.world.open_precheck(self.data)
         forge_capture(self.conn, damaged, [ran, ("lost.txt", "captured", None, None)], {"native.stdout.txt": b"ran"})
-        self.assertEqual(self.code(precheck.exposure_exempt, self.conn, damaged, sha(self.data), identity),
+        self.assertEqual(refused(precheck.exposure_exempt, self.conn, damaged, sha(self.data), identity).code,
                          "LEDGER_CORRUPT")
         malformed = self.world.open_precheck(self.data)
         forge_capture(self.conn, malformed, [ran, ("source/strategy.py", "hashed", sha(b"other"), 5)],
                       {"native.stdout.txt": b"ran"})
-        self.assertEqual(self.code(precheck.exposure_exempt, self.conn, malformed, sha(self.data), identity),
+        self.assertEqual(refused(precheck.exposure_exempt, self.conn, malformed, sha(self.data), identity).code,
                          "SOURCE_PRECHECK_REQUIRED")
 
     def test_a_precheck_longer_than_seven_trading_days_is_not_exempt(self):

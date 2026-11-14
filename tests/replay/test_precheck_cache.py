@@ -15,6 +15,7 @@ from replay import entry, reproduce
 from report import status
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_DAY, SKIP
 from tests.replay.world import ReplayWorld
+from tests.helpers import refused
 
 
 ARGV = ["--start", "2026-01-05T00:00:00Z", "--trade-start", "2026-01-06T00:00:00Z",
@@ -63,9 +64,8 @@ class PrecheckCacheTests(unittest.TestCase):
         self.assertEqual((detail["reports_verified"], len(detail["reports"]["orders"])), (True, 2))
         self.assertIn("positions", detail["reports"])
         self.assertEqual(self.world.seq(), before, "verified cache reads write nothing")
-        with self.assertRaises(Refusal) as caught:
-            metrics.load_run(self.world.conn, trial_id)
-        self.assertEqual(caught.exception.code, "UNKNOWN_RUN", "a precheck has no economic result")
+        self.assertEqual(refused(metrics.load_run, self.world.conn,
+                                 trial_id).code, "UNKNOWN_RUN", "a precheck has no economic result")
 
     def test_original_cache_rejects_modified_missing_extra_and_linked_reports(self):
         original = self.checked()
@@ -133,9 +133,7 @@ class PrecheckCacheTests(unittest.TestCase):
         with self.assertRaises(Refusal) as caught:
             reproduce.reproduce(original["trial_id"], world.output("changed"), ledger=world.profile, market=world.market)
         self.assertEqual((caught.exception.code, caught.exception.write_status), ("REPRODUCTION_MISMATCH", "written"))
-        with self.assertRaises(Refusal) as caught:
-            world.register(self.body(review))
-        self.assertEqual(caught.exception.code, "SOURCE_ALREADY_EXPOSED")
+        self.assertEqual(refused(world.register, self.body(review)).code, "SOURCE_ALREADY_EXPOSED")
         self.assertEqual(status.research_status(world.profile)["excluded_trials"]["reproductions"], [])
 
     def test_later_success_never_replaces_failed_original_or_failed_review(self):
@@ -150,9 +148,7 @@ class PrecheckCacheTests(unittest.TestCase):
             reproduce.reproduce(original["trial_id"], world.output("later"), ledger=world.profile, market=world.market)
         self.assertEqual(execution.read_capture(world.conn, original["trial_id"])["stages"]["audit"]["exit_code"], 1)
         passed = self.review(original["trial_id"])
-        with self.assertRaises(Refusal) as caught:
-            world.register(self.body(passed))
-        self.assertEqual(caught.exception.code, "SOURCE_PRECHECK_FAILED")
+        self.assertEqual(refused(world.register, self.body(passed)).code, "SOURCE_PRECHECK_FAILED")
 
     def test_failed_review_of_a_clean_precheck_is_not_erased_by_regeneration(self):
         world = self.world
@@ -160,7 +156,5 @@ class PrecheckCacheTests(unittest.TestCase):
         self.review(original["trial_id"], "failed")
         passed = self.review(original["trial_id"])
         reproduce.reproduce(original["trial_id"], world.output("again"), ledger=world.profile, market=world.market)
-        with self.assertRaises(Refusal) as caught:
-            world.register(self.body(passed))
-        self.assertEqual(caught.exception.code, "SOURCE_PRECHECK_FAILED")
+        self.assertEqual(refused(world.register, self.body(passed)).code, "SOURCE_PRECHECK_FAILED")
         self.assertEqual(self.report(original["trial_id"])["stages"]["native"]["exit_code"], 0)
