@@ -140,8 +140,7 @@ empty ratios read in `replay_diagnostics`.
   stamps sit 1 ms before the minute, so a whole-minute deadline reports one bar late. Never add a
   target the source lacks.
 - The audit refuses a run in which a position is larger than its resting stops (reduce-only, closing
-  side, accepted and neither triggered nor filled) for longer than one one-minute bar. Every source
-  has a stop loss: `USES_STOP_LOSS = False` is refused.
+  side, accepted and neither triggered nor filled) for longer than one one-minute bar.
   Shortfalls lasting at most one minute are neither refused nor listed as uncovered intervals;
   a passing audit does not prove continuous protection. This tolerance applies only to stop
   coverage; the entry cutoff above has no such grace period.
