@@ -309,7 +309,7 @@ the stricter form as well.
 
 ## Reading prices
 
-`market bars --symbol S [--price-type LAST|MARK] [--timeframe 1m|1d] --start T --end T [--at C]
+`market bars --symbol S [--price-type LAST|MARK] [--timeframe 1m|1d] --start T --end T [--market-day C]
 [--limit N | --output FILE]` gives a source reviewer the prices a replay of market day C reads, without a
 trial or an exposure: the stored 1-minute LAST or MARK bars, or the daily LAST bars the export
 derives (whole UTC days only), and the funding settlements of the interval, each bar with the time

@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 import sys
 
-from cli.common import _count, _ledger_option, _market_at, _market_option, _new_temporary, _op_id
+from cli.common import _count, _ledger_option, _market_day, _market_option, _new_temporary, _op_id
 from ledger import db
 from shared import profiles
 from shared.refusals import refuse
@@ -80,12 +80,9 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
 def market_follow(market: dict, scope, cache_root: str | None, status: str | None) -> dict:
     """Keep the configured range of the market's bars and the named contracts' metrics, complete aggTrades and quotes
     imported, unattended; runs until stopped."""
-    from market import follow, store
-
-    return follow.follow(market, scope, Path(cache_root) if cache_root else store.default_cache(),
-                         Path(status) if status else follow.default_status(),
-                         log=lambda line: print(line, file=sys.stderr, flush=True),
-                         report=lambda line: print(line, flush=True))
+    from market import follow
+    return follow.follow(market, scope, _market_cache(cache_root), Path(status) if status else follow.default_status(),
+                         log=_market_log, report=lambda line: print(line, flush=True))
 
 
 def market_lifecycle(profile: db.LedgerProfile, market: dict, at: str | None, manifest: str, notices: list[str],
@@ -274,7 +271,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "everything; any other refusal or error stops its contract's kind (for bars, the bars: a month missing between "
         "the stored ones is MONTH_INVALID); stops last until the process restarts"),
     ("market", "lifecycle"): (
-        "the market day --at (reader); --manifest and each --notice, validated against that market day before "
+        "the market day of --market-day (reader); --manifest and each --notice, validated against that market day before "
         "anything is written",
         "the ledger bundle lifecycle-<market day> (lifecycle.json and the notices); the same content again is "
         "a replay",
@@ -283,7 +280,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "BUNDLE_EXISTS (a different manifest; a correction belongs to a new market day); "
         "MARKET_DAY_UNRESOLVED"),
     ("market", "coverage"): (
-        "bars, mark prices, funding, quotes, trades, metrics, instruments and universe members at --at "
+        "bars, mark prices, funding, quotes, trades, metrics, instruments and universe members at --market-day "
         "(reader); without --symbols, every member of the months [--start, --end) touches; with --lifecycle-bundle, "
         "that ledger bundle",
         "nothing",
@@ -292,7 +289,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "INTERVAL_INVALID (not UTC whole minutes, or start not before end); EMPTY_SYMBOLS; UNKNOWN_SYMBOL; "
         "MARKET_DAY_UNKNOWN; LIFECYCLE_INPUT"),
     ("market", "bars"): (
-        "bar, funding and instrument at --at (reader), through the exporter's own reads "
+        "bar, funding and instrument at --market-day (reader), through the exporter's own reads "
         "(market.read_bars, market.daily_bars, market.read_funding)",
         "nothing in any database; with --output, one new file under the temporary root",
         "market_day, symbol, price_type, timeframe, interval {start, end, ms}, next_start, bars {columns, count, rows}, "
@@ -304,8 +301,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 def register(verbs, verb, runner) -> None:
     """Add the market nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
-    market = verbs("market", "market data: init, import, import-quotes, import-trades, import-metrics, "
-                             "follow, lifecycle, coverage, bars")
+    market = verbs("market", "market data")
     command = verb(market, "init", "create an empty market directory and its profile")
     command.add_argument("--name", required=True, help="profile name")
     command.add_argument("--kind", required=True, choices=profiles.KINDS,
@@ -354,13 +350,13 @@ def register(verbs, verb, runner) -> None:
     command = verb(market, "lifecycle", "write the lifecycle bundle of a market day")
     _ledger_option(command)
     _market_option(command)
-    _market_at(command)
+    _market_day(command)
     command.add_argument("--manifest", required=True, help="lifecycle.json (native-lifecycle-v1)")
     command.add_argument("--notice", action="append", dest="notices", default=[], help="an exchange notice it cites")
     _op_id(command)
     command = verb(market, "coverage", "per-contract coverage facts at a market day", COVERAGE_EPILOG)
     _market_option(command)
-    _market_at(command)
+    _market_day(command)
     command.add_argument("--symbols", nargs="+", help="Binance symbols (default: every universe member in the window)")
     command.add_argument("--start", required=True, help="input interval start, UTC ISO-8601 with Z")
     command.add_argument("--end", required=True, help="input interval end, UTC ISO-8601 with Z")
@@ -369,7 +365,7 @@ def register(verbs, verb, runner) -> None:
 
     command = verb(market, "bars", "one contract's stored bars and funding at a market day", BARS_EPILOG)
     _market_option(command)
-    _market_at(command)
+    _market_day(command)
     command.add_argument("--symbol", required=True, help="one Binance symbol such as BTCUSDT")
     command.add_argument("--price-type", choices=("LAST", "MARK"), default="LAST",
                          help="LAST trade bars or MARK price bars (default: LAST; 1d is LAST only)")
@@ -407,13 +403,13 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                              trades_from=trades_from, quotes_from=quotes_from, bar_symbols=args.bar_symbols)
         return market_follow(profiles.market(args.market), scope, args.cache_root, args.status), 0
     if key == ("market", "coverage"):
-        return market_coverage(profiles.market(args.market), args.at, args.symbols, args.start, args.end, args.ledger,
+        return market_coverage(profiles.market(args.market), args.market_day, args.symbols, args.start, args.end, args.ledger,
                                args.lifecycle_bundle), 0
     if key == ("market", "bars"):
-        return market_bars(profiles.market(args.market), args.at, args.symbol, args.price_type, args.timeframe,
+        return market_bars(profiles.market(args.market), args.market_day, args.symbol, args.price_type, args.timeframe,
                            args.start, args.end, args.limit, args.output), 0
     profile = db.profile(args.ledger, holds="research")
     if key == ("market", "lifecycle"):
-        return market_lifecycle(profile, profiles.market(args.market), args.at, args.manifest, args.notices,
+        return market_lifecycle(profile, profiles.market(args.market), args.market_day, args.manifest, args.notices,
                                 args.op_id), 0
     raise refuse("USAGE_ERROR", f"unknown command {args.noun} {args.verb}")

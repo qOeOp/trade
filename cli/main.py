@@ -66,12 +66,14 @@ def _parser() -> Parser:
         groups[name] = noun.add_subparsers(dest="verb", required=True, parser_class=Parser)
         return groups[name]
 
-    def verb(group, name: str, help_text: str, epilog: str | None = None):
-        return group.add_parser(name, help=help_text, description=help_text, epilog=epilog,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    def verb(group, name: str, help_text: str, epilog: str | None = None, takes_runner: bool = False):
+        command = group.add_parser(name, help=help_text, description=help_text, epilog=epilog,
+                                   formatter_class=argparse.RawDescriptionHelpFormatter)
+        command.set_defaults(takes_runner=takes_runner)  # runner arguments after -- (_dispatch)
+        return command
 
     def runner(group, name: str, help_text: str):
-        return verb(group, name, help_text, RUNNER_EPILOG)
+        return verb(group, name, help_text, RUNNER_EPILOG, takes_runner=True)
 
     for commands in GROUPS:
         commands.register(verbs, verb, runner)
@@ -85,13 +87,9 @@ def _parser() -> Parser:
     return parser
 
 
-RUNNER_COMMANDS = {("replay", "explore"), ("replay", "precheck"), ("replay", "run"), ("registration", "add")}
-
-
 def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     """(result, exit code) of one parsed command."""
-    key = (args.noun, args.verb)
-    if runner_argv and key not in RUNNER_COMMANDS:
+    if runner_argv and not args.takes_runner:
         raise refuse("USAGE_ERROR", f"{args.noun} {args.verb} takes no runner arguments after --")
     return BY_NOUN[args.noun].dispatch(args, runner_argv)
 

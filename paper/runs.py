@@ -294,7 +294,7 @@ def _collect(profile: db.LedgerProfile, paper_id: int) -> None:
 
 @serialized
 def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: str, symbols: list[str] | None,
-          runtime: str | None, memory: str | None = None, duration_seconds: int | None = None,
+          runtime: str | None, duration_seconds: int | None = None,
           op_id: str | None = None, *, research: db.LedgerProfile, research_at: str | None = None,
           leverage: str = ACCOUNT_CONTRACT["default_leverage"]) -> dict:
     """paper start: copy a published candidate's source from the research ledger `research` (at `research_at`,
@@ -324,7 +324,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         raise refuse("USAGE_ERROR", "--duration-seconds must be positive")
     market_day, membership, chosen = _membership(market, at, symbols, time.time_ns())
     terms = _terms(market, market_day, chosen)
-    memory = memory or runner_memory(len(chosen))
+    memory = runner_memory(len(chosen))
     admit(mib(memory) + mib(EGRESS_MEMORY), present)
     config = {"execution": "paper-bars", "fees": {"maker": ASSUMED["maker_fee"], "taker": ASSUMED["taker_fee"]},
               "universe_rule": membership["universe_rule"], "memory": memory, "duration_seconds": duration_seconds,
@@ -464,9 +464,9 @@ def request_stop(profile: db.LedgerProfile, paper_id: int) -> dict:
 
 
 @serialized
-def stop(profile: db.LedgerProfile, paper_id: int, wait_seconds: int = STOP_SECONDS) -> dict:
+def stop(profile: db.LedgerProfile, paper_id: int) -> dict:
     """paper stop: ask the runner to stop through its STOP file (it cancels its working orders, journals
-    the cancels and writes its summary), SIGTERM it after `wait_seconds` and SIGKILL after STOP_KILL_SECONDS
+    the cancels and writes its summary), SIGTERM it after STOP_SECONDS and SIGKILL after STOP_KILL_SECONDS
     more, then seal the run. SIGTERM is only the fallback: the node then shuts down on its own as well,
     and the strategy no longer receives the cancels (measured 2026-10-25)."""
     with db.connect(profile, "reader") as conn:
@@ -477,7 +477,7 @@ def stop(profile: db.LedgerProfile, paper_id: int, wait_seconds: int = STOP_SECO
         env = {name: os.environ[name] for name in container.DOCKER_ENV if name in os.environ}
         try:
             subprocess.run(["docker", "wait", named["runner"]], capture_output=True, check=False,
-                           timeout=wait_seconds, env=env)
+                           timeout=STOP_SECONDS, env=env)
         except subprocess.TimeoutExpired:
             _checked("stop", "--time", str(STOP_KILL_SECONDS), named["runner"],
                      timeout=STOP_KILL_SECONDS + DOCKER_SECONDS)
