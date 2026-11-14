@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, among versions differing only in one constant whose comparisons leave them undistinguished, the recommendation picks one whose neighbours on that constant also hold up rather than the highest reading, and gives the neighbours' range of Sharpe and annual return.
+description: Rule check — with the skill, among versions differing only in one constant whose comparisons leave them undistinguished, the recommendation picks one whose neighbours on that constant also hold up rather than the highest reading, and gives the neighbours' range of Sharpe and annual return in the message to the user, never in the judgment body.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -17,6 +17,6 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 两两之间的 `hypothesis compare` 三个区间都含零。买入持有参照已经跑过并引用（trial 620）。
 
-这次推荐哪个版本？写出推荐结论和理由（提纲即可）。
+这次推荐哪个版本？写出 `judgment add --kind recommendation` 的正文全文（英文），再另外用几句话告诉我推荐结论和理由。正文里哪些数写、哪些只引用，按这个 skill 的规则定。
 
 （离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）
