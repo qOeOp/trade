@@ -4,10 +4,12 @@ A pull request compares with its base, as ci-paths.py does. A push to main compa
 replay image (`main`) was built from, read from its label: a replay input changed since that build, or no such build
 can be read, selects a build. Comparing with the image, not with the previous push, means a cancelled or failed run
 leaves the next one to build, so `main` never stays behind the replay inputs on main. Any other event builds.
-A difference only in what the image copies but never executes selects no build, since a new digest would leave every
-passed run behind the image: this project's own version (`pyproject.toml`'s `project.version` and that package's
-entry in `uv.lock`), which a release raises, and `pyproject.toml`'s `build-system` and `tool.uv.build-backend`,
-which a package move changes and an install with `--no-install-project` never reads.
+A difference only in what the image copies but never reads selects no build, since a new digest would leave every
+passed run behind the image: `pyproject.toml`'s `project.version`, `build-system` and `tool.uv.build-backend`, which
+an install with `--no-install-project` never reads. Any `uv.lock` difference builds, a release's version line
+included: the image hashes the file's bytes into `dependency_lock_sha256` (engine/config.py), and Live backs a run
+only with replays whose value equals its execution image's (live/runs.py REPLAY_CODE), which rebuilds on every
+`uv.lock` change.
 """
 
 import json
@@ -75,27 +77,21 @@ def _show(revision: str, name: str) -> str:
     return subprocess.run(["git", "show", f"{revision}:{name}"], check=True, capture_output=True, text=True).stdout
 
 
-def _replayed(name: str, text: str, own: str) -> dict:
-    """`pyproject.toml` or `uv.lock` parsed, without the version of the project named `own` or pyproject's build
-    backend."""
+def _replayed(text: str) -> dict:
+    """`pyproject.toml` parsed, without its project version or build backend."""
     data = tomllib.loads(text)
-    packages = [data["project"]] if name == "pyproject.toml" else data["package"]
-    for package in packages:
-        if package["name"] == own:
-            package.pop("version", None)
-    if name == "pyproject.toml":
-        data.pop("build-system", None)
-        data.get("tool", {}).get("uv", {}).pop("build-backend", None)
+    data["project"].pop("version", None)
+    data.pop("build-system", None)
+    data.get("tool", {}).get("uv", {}).pop("build-backend", None)
     return data
 
 
 def _same_replay(name: str, base: str) -> bool:
-    """Whether `name` differs between `base` and HEAD only in what the replay image never executes."""
-    if name not in ("pyproject.toml", "uv.lock"):
+    """Whether `name` differs between `base` and HEAD only in what the replay image never reads."""
+    if name != "pyproject.toml":
         return False
     try:
-        own = tomllib.loads(_show("HEAD", "pyproject.toml"))["project"]["name"]
-        return _replayed(name, _show(base, name), own) == _replayed(name, _show("HEAD", name), own)
+        return _replayed(_show(base, name)) == _replayed(_show("HEAD", name))
     except (subprocess.CalledProcessError, tomllib.TOMLDecodeError, KeyError, TypeError):
         return False
 

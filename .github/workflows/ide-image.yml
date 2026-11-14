@@ -429,8 +429,8 @@ jobs:
           digest() { docker buildx imagetools inspect --format '{{json .Manifest}}' "$1" | jq -er .digest; }
           # The runtime this commit's replays pair with: its own replay image when replay-changed.py, given
           # runtime-image.yml's replay CI_PATHS, selects a replay build against the same base, otherwise the current
-          # replay image `main`. A commit that changes only the execution image's inputs or this project's own
-          # version builds no replay image to wait for.
+          # replay image `main`. A commit that changes only the execution image's inputs builds no replay image to
+          # wait for.
           case "$EVENT" in pull_request) base="$PR_BASE";; push) base="$BEFORE";; *) base="$(git rev-parse HEAD^1)";; esac
           paths="$(python3 -c '
           import re, sys
