@@ -65,7 +65,7 @@ force=false，源码 revision 也必须单调前进。相同源码允许 image=n
 | transaction.candidate | 恢复程序、阻止重试；本次未提交的 Web 目标 | OCI revision 不区分本次目标、旧备用与以前失败候选 |
 | transaction.previous | 恢复程序；切流前已提交的 Web 目标 | 切流后当前路由已改变，创建顺序和 Git 顺序不证明曾经接流量 |
 | transaction.agent_before（仅替换 Agent 时） | 恢复单写者；旧 Agent 的容器身份，bootstrap 为 null | Agent 可能早于旧 Web，当前网络别名也不能恢复旧身份 |
-| failed/REVISION | 自动选择；该提交曾失败或中断、未成功提交，不再自动尝试 | CI 成功与当前路由均不能表达这个主机发布决定 |
+| failed/REVISION | 自动选择；该提交曾失败或中断、未成功提交，不再自动尝试（Web 与 Paper 控制器共用，见 paper-continuous-delivery.zh.md） | CI 成功与当前路由均不能表达这个主机发布决定 |
 
 独立审阅也明确通过 release.revision/image 两项：artifact 精确绑定和 CI 资格是不同于源码的事实。
 不存 agent_after（由 candidate revision 与固定命名推导），不增 active SHA、阶段、时间戳或指标

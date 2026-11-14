@@ -15,7 +15,7 @@ from deploy.live_configuration import DECLARATION
 from deploy.live_host import LIVE, OPERATOR_FIELDS, LiveBusy, LiveHost
 from deploy.release import Release
 from deploy.release_host import AGENT, FRONTEND, RUNTIME_REF, SERVICE_REF, SOURCE, WEB, Config, DockerHost
-from tests.deploy.test_release import A, B, C, Host, Crash, TARGET
+from tests.deploy.test_release import A, B, C, Host, Crash, TARGET, paper_release
 
 
 SERVICE = "ghcr.io/qoeop/trade-service@sha256:" + "d" * 64
@@ -136,7 +136,7 @@ class PairedReleaseTests(unittest.TestCase):
         self.source = Mock()
         self.source.agent_changed.return_value = False
         self.live = PairLive(self.host, self.source)
-        self.release = Release(self.host, self.source, live=self.live)
+        self.release = Release(self.host, self.source, live=self.live, paper=paper_release(self.host))
         original = self.release.journal
 
         def journal(*args, **kwargs):
@@ -307,6 +307,40 @@ class PairedReleaseTests(unittest.TestCase):
         self.assertEqual((self.host.disk, self.host.inspected), (WEB + A, [A, B]))
         self.assertFalse(self.release.transaction.exists())
         self.assertFalse(self.release.failed.exists())
+
+    def test_a_live_busy_or_account_lock_wait_journals_neither_side(self):
+        from deploy.paper_host import PAPER, route_config
+
+        def owner_busy():
+            self.host.idle = "busy"
+
+        def candidate_busy():
+            answers = iter(("idle", "busy"))
+            self.host.inspect_hook = lambda: setattr(self.host, "idle", next(answers))
+
+        for wait in (owner_busy, candidate_busy):
+            with self.subTest(wait=wait.__name__):
+                self.setUp()
+                paper = self.release.paper()
+                wait()
+                self.release.apply(PAIR)
+                self.assertFalse(self.release.transaction.exists())
+                self.assertFalse(paper.transaction.exists())
+                self.assertEqual(paper.host.live, route_config(PAPER + A))
+                self.assertNotIn(PAPER + B, paper.host.running)
+                self.assertFalse(self.release.failed.exists())
+        self.setUp()
+        paper = self.release.paper()
+        fd = os.open(self.host.lock, os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH)
+            self.release.apply(PAIR)
+        finally:
+            os.close(fd)
+        self.assertFalse(paper.transaction.exists())
+        self.assertNotIn(PAPER + B, paper.host.running)
+        self.release.apply(PAIR)
+        self.assertEqual((self.host.disk, paper.host.disk), (WEB + B, route_config(PAPER + B)))
 
     def test_a_failing_inspection_is_an_unavailable_account_and_fails_no_tick(self):
         self.host.inspect_failure = True

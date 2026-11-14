@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 from deploy.paper_host import PAPER, PaperHost, route_config, route_name
 from deploy.paper_release import PaperRelease
-from deploy.release_host import LEDGER, Config
+from deploy.release_host import LEDGER, WEB, Config
 
 A, B, C = (letter * 40 for letter in "abc")
 TARGET = {
@@ -31,8 +31,7 @@ class Host:
         self.locked = False
         self.failure = None
         self.web = Mock()
-        self.web.disk_route.return_value = "trade-release-web-" + B
-        self.web.observe.side_effect = self.observe
+        self.web.disk_route.return_value = WEB + A  # the Web release has not committed B
 
     def exists(self, name):
         return name in self.running
@@ -107,11 +106,6 @@ class Host:
     def health(self, name):
         assert self.running[name]
 
-    def observe(self, *args):
-        assert self.live == route_config(PAPER + B, "starts"), "new runtime starts must wait until commit"
-        if self.failure == "observe":
-            raise RuntimeError("bad observation")
-
     @contextmanager
     def barrier(self, service):
         self.locked = True
@@ -137,9 +131,24 @@ class PaperReleaseTests(unittest.TestCase):
         self.source.ancestor.return_value = True
         self.release = PaperRelease(self.host, self.source)
 
+    def apply(self):
+        """The Paper side as Release.apply drives it; the Web side is reduced to its observation and route."""
+        plan = self.release.prepare(TARGET)
+        try:
+            self.release.switch(TARGET, plan)
+            assert self.host.live == route_config(PAPER + B, "starts"), "new runtime starts must wait until commit"
+            if self.host.failure == "observe":
+                raise RuntimeError("bad observation")  # the Web's observation through Web B and Paper B
+            self.release.held(plan["candidate"])
+            self.host.web.disk_route.return_value = WEB + B  # the Web release commits
+            self.release.commit(plan["candidate"])
+        except Exception:
+            self.release.recover()
+            raise
+
     def test_success_drains_controller_only_and_unfreezes_starts_after_commit(self):
         before = self.host.protected()
-        self.release.apply(TARGET)
+        self.apply()
         self.assertEqual(self.host.live, route_config(PAPER + B))
         self.assertFalse(self.host.running[PAPER + A])
         self.assertTrue(self.host.running[PAPER + B])
@@ -153,7 +162,7 @@ class PaperReleaseTests(unittest.TestCase):
         before = self.host.protected()
         self.source.require_runtime.side_effect = RuntimeError("runtime build inputs differ")
         with self.assertRaisesRegex(RuntimeError, "build inputs"):
-            self.release.apply(TARGET)
+            self.apply()
         self.source.require_runtime.assert_called_once_with(A, B)
         self.assertEqual(self.host.running, {PAPER + A: True})
         self.assertEqual(self.host.live, route_config(PAPER + A))
@@ -167,7 +176,7 @@ class PaperReleaseTests(unittest.TestCase):
                 self.setUp()
                 self.host.failure = failure
                 with self.assertRaises(RuntimeError):
-                    self.release.apply(TARGET)
+                    self.apply()
                 self.assertEqual(self.host.live, route_config(PAPER + A))
                 self.assertTrue(self.host.running[PAPER + A])
                 self.assertFalse(self.host.running[PAPER + B])
@@ -177,7 +186,7 @@ class PaperReleaseTests(unittest.TestCase):
     def test_crash_keeps_frozen_starts_until_recovery(self):
         self.host.failure = "crash"
         with self.assertRaises(Crash):
-            self.release.apply(TARGET)
+            self.apply()
         self.assertTrue(self.release.transaction.exists())
         self.assertEqual(self.host.disk, route_config(PAPER + B, "starts"))
         self.host.failure = None
@@ -188,7 +197,7 @@ class PaperReleaseTests(unittest.TestCase):
     def test_unknown_route_and_lost_barrier_preserve_transaction(self):
         self.host.failure = "crash"
         with self.assertRaises(Crash):
-            self.release.apply(TARGET)
+            self.apply()
         self.host.live = route_config(PAPER + C)
         with self.assertRaisesRegex(RuntimeError, "independent"):
             self.release.recover()
@@ -196,8 +205,36 @@ class PaperReleaseTests(unittest.TestCase):
         self.setUp()
         self.host.failure = "lock"
         with self.assertRaisesRegex(RuntimeError, "lock lost"):
-            self.release.apply(TARGET)
+            self.apply()
         self.assertTrue(self.host.running[PAPER + A])
+        self.assertTrue(self.release.transaction.exists())
+
+    def test_crash_after_the_web_commit_rolls_forward_and_an_open_web_journal_rolls_back(self):
+        plan = self.release.prepare(TARGET)
+        self.release.switch(TARGET, plan)
+        self.host.web.disk_route.return_value = WEB + B
+        (self.host.state / "transaction.json").write_text("{}")  # Web routed B on disk but not yet committed
+        self.release.recover()
+        self.assertEqual(self.host.live, route_config(PAPER + A))
+        self.assertFalse(self.release.failed.exists(), "the Web's verified rollback marks the version")
+        self.setUp()
+        plan = self.release.prepare(TARGET)
+        self.release.switch(TARGET, plan)
+        self.host.web.disk_route.return_value = WEB + B  # the Web release committed B, then the process died
+        self.release.recover()
+        self.assertEqual((self.host.disk, self.host.live), (route_config(PAPER + B), route_config(PAPER + B)))
+        self.assertFalse(self.host.running[PAPER + A])
+        self.assertFalse(self.release.transaction.exists())
+        self.assertFalse(self.release.failed.exists())
+
+    def test_rolling_forward_never_overwrites_an_independent_route(self):
+        plan = self.release.prepare(TARGET)
+        self.release.switch(TARGET, plan)
+        self.host.web.disk_route.return_value = WEB + B
+        self.host.live = route_config(PAPER + C)
+        with self.assertRaisesRegex(RuntimeError, "independent"):
+            self.release.recover()
+        self.assertEqual(self.host.live, route_config(PAPER + C))
         self.assertTrue(self.release.transaction.exists())
 
     def test_commit_before_unfreeze_is_repaired_without_rolling_back_a_new_runtime(self):
@@ -210,7 +247,7 @@ class PaperReleaseTests(unittest.TestCase):
     def test_independent_route_change_inside_the_lifecycle_barrier_is_not_overwritten(self):
         self.host.ensure_protected = lambda _: setattr(self.host, "live", route_config(PAPER + C))
         with self.assertRaisesRegex(RuntimeError, "independent"):
-            self.release.apply(TARGET)
+            self.apply()
         self.assertEqual(self.host.live, route_config(PAPER + C))
         self.assertTrue(self.host.running[PAPER + A])
         self.assertFalse(any(call[0] == "stop" for call in self.host.calls))
@@ -219,7 +256,7 @@ class PaperReleaseTests(unittest.TestCase):
     def test_uncommitted_candidate_independently_unfrozen_must_not_be_stopped_or_rolled_back(self):
         self.host.failure = "crash"
         with self.assertRaises(Crash):
-            self.release.apply(TARGET)
+            self.apply()
         self.host.live = route_config(PAPER + B)
         before = list(self.host.calls)
         with self.assertRaisesRegex(RuntimeError, "independent unfreeze"):

@@ -40,6 +40,34 @@ runtime，既有 resume 与 reconcile 仍用自身记录的旧镜像。
 OOM 和重启计数及行情继续推进；失败恢复旧控制器和路由。未知独立路由改变保留事务并停止。
 runtime 镜像全部保留，因为运行固定了它们的摘要；控制器和 Web 的旧容器每种留最新 3 个成功版本和最新 1 个失败版本，其余连同无人使用的镜像在发布完成后删除（用户 2026-11-07 授权）。0.x 版本之间不保持兼容（用户 2026-11-14 决定）：新控制器不读取、不迁移旧格式的运行，它们留在磁盘上；同格式的运行照常交给新控制器，其余由 checkpoint 读取时的格式检查拒绝恢复。
 
+## Web 与 Paper 控制器同版本发布（2026-11-14）
+
+用户 2026-11-14 决定（doctor 20261114-19）：“Paper 失败时 Web 也一并回滚到旧版并把该版本标为失败”。0.x
+版本之间不兼容，Web N 配 Paper 控制器 N-1 不是受支持的组合，所以一个版本的 Web（连同 Agent、配对时的 Live
+控制）与 Paper 控制器一起到 N，或者一起留在 N-1 并标记该版本失败。此前两者分开提交：Web 先提交，Paper 在 Web
+已到同一 revision 后才切换，失败标记也分开，v0.3.0 的 Paper 切换失败后主机停在 Web 0.3.0 配 Paper 0.2.0 约 25
+分钟；Web 自己的观察也是经 Web N 读 Paper N-1。
+
+`deploy/release.py` `Release.apply` 的顺序：
+
+1. 事务前的拒绝：Web 侧照旧；Paper 侧的路由一致、内存余量、拉取与 runtime 祖先核对（`PaperRelease.prepare`）也在
+   Web 事务之前，暂时性拒绝不标记失败。Live 忙或账户锁占用时照旧直接返回，两侧都不写事务。
+2. 写 Web 事务，创建并启动 Web 候选（配对时先建 Live 控制），交接 Agent。
+3. `PaperRelease.switch`：写 Paper 自己的事务，预热候选控制器，冻结全部写入、在生命周期锁内停旧控制器，
+   把路由切到候选并只冻结新 start。
+4. Web 候选预热、切流、观察：此时 Web N 经路由读的是 Paper N，替代原先 Paper 自己经活动 Web 的观察。
+5. 提交 Web（提交前同时核对 Paper 仍处于“候选、仅冻结 start”），再提交 Paper（删除 Paper 事务、开放新 start）。
+
+提交前任一侧失败：先回滚 Paper，再回滚 Web，标记 `failed/<revision>`。Paper 回滚时若 Web 事务仍在，由随后
+Web 的已验证回滚写标记。
+
+两次提交之间崩溃的规则（`PaperRelease.recover`）：Paper 事务仍在时，只有 Web 事务已删除且 Web 磁盘路由正是
+同一 revision 的 `WEB+<sha>`，才向前完成 Paper 提交；其余情况都回滚。Web 在写入磁盘路由后、删除事务前崩溃，
+Web 照旧保守回滚，所以 Paper 也回滚。每个 tick 先恢复 Paper、再恢复 Web，两者收敛到同一版本。
+
+`paper-failed/` 目录与独立的 Paper tick 删除；0.x 不读旧标记，升级时主机上残留的 `paper-failed/` 不再生效
+（见 `CHANGELOG.md`）。内存余量仍是两侧各自的同一个 2 GiB 检查，没有为两个候选同时运行另加要求。
+
 ## 新状态的独立审阅
 
 AGENTS.md 要求添加存储字段前独立审阅。只读子代理 `/root/paper_release_state_review`
@@ -51,7 +79,7 @@ AGENTS.md 要求添加存储字段前独立审阅。只读子代理 `/root/paper
 | release.runtime | 新 start 的已准入 runtime digest，没重建时保留上次准入产物 | mutable main tag 及源码不能证明哪个产物已完成检查 |
 | Paper transaction.candidate | 恢复本次未提交交接的新控制器 | 当前路由不能区分未提交候选与旧备用 |
 | Paper transaction.previous | 回滚到切换前控制器 | 路由改变后不能推导旧目标 |
-| paper-failed/REVISION | 某次 Paper 升级失败或中断，阻止无限自动重试 | Web 的成功/失败不等于 Paper 发布结果 |
+| failed/REVISION | 该版本的 Web 或 Paper 升级失败或中断，阻止无限自动重试；与 Web 共用一个标记（2026-11-14 起，原 `paper-failed/` 删除） | CI 成功与当前路由不能表达这个主机发布决定 |
 
 actual Paper router 配置本身是实际路由，不另存 owner/active SHA/阶段。runtime 的源码 revision
 从 OCI 标签验证，不另存副本；controller 的默认 runtime 已在其不可变 Docker argv 内。

@@ -17,7 +17,7 @@ from deploy.release import Release, failure_summary, report_failure
 from deploy.release_host import AGENT, WEB, Config, DockerHost
 from live import state
 from tests.deploy.test_live_release import PairHost, PairLive, PAIR, SERVICE
-from tests.deploy.test_release import A, B, C, D
+from tests.deploy.test_release import A, B, C, D, paper_release
 
 
 class Clock:
@@ -43,7 +43,7 @@ class LiveLockWaitTests(unittest.TestCase):
         self.source = Mock()
         self.source.agent_changed.return_value = False
         self.live = PairLive(self.host, self.source)
-        self.release = Release(self.host, self.source, live=self.live)
+        self.release = Release(self.host, self.source, live=self.live, paper=paper_release(self.host))
         self.reader = None
         self.addCleanup(self.release_reader)
         self.clock = Clock()
@@ -196,8 +196,8 @@ class LiveLockWaitTests(unittest.TestCase):
         self.assertTrue(self.host.containers[WEB + B])
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
         diagnostic = self.errors.getvalue()
-        self.assertIn("Primary Web release failure: account lock wait expired", diagnostic)
-        self.assertIn("Web release recovery failure: account lock wait expired", diagnostic)
+        self.assertIn("Primary release failure: account lock wait expired", diagnostic)
+        self.assertIn("Release recovery failure: account lock wait expired", diagnostic)
         self.release_reader()
         self.release.recover()
         self.assertFalse(self.release.transaction.exists())
@@ -352,7 +352,7 @@ class LiveLockWaitTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "CI eligibility"):
             self.release.apply(PAIR)
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
-        self.assertIn("Primary Web release failure: CI eligibility changed", self.errors.getvalue())
+        self.assertIn("Primary release failure: CI eligibility changed", self.errors.getvalue())
 
     def test_agent_change_during_wait_is_not_committed_or_undone(self):
         self.fake_clock()
@@ -431,7 +431,7 @@ class ReleaseDiagnosticTests(unittest.TestCase):
             source = Mock()
             source.agent_changed.return_value = False
             live = PairLive(host, source)
-            release = Release(host, source, live=live)
+            release = Release(host, source, live=live, paper=paper_release(host))
             def reject():
                 raise RuntimeError("CI eligibility was withdrawn or superseded during preparation")
             host.on_observe = reject
@@ -441,8 +441,8 @@ class ReleaseDiagnosticTests(unittest.TestCase):
                     self.assertRaises(AccountLockWaitExpired):
                 release.apply(PAIR)
             self.assertEqual(output.getvalue().splitlines(), [
-                "Primary Web release failure: CI eligibility changed",
-                "Web release recovery failure: account lock wait expired",
+                "Primary release failure: CI eligibility changed",
+                "Release recovery failure: account lock wait expired",
             ])
             self.assertTrue(release.transaction.exists())
 
