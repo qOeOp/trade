@@ -35,6 +35,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   installed every release pairs a new control and waits until Live is idle, Web-only ones included; a new control
   no longer takes over running runners, and no Web is served ahead of its control. Live runs under
   `LIVE_ROOT/runs` and Paper runs in an earlier format are no longer read; they stay on disk.
+- Paper (breaking): a Paper controller release no longer checks that the candidate can read the checkpoint format
+  and journal of unsealed runs an earlier version left; such runs are no longer read and stay on disk, and the
+  checkpoint's own format check still refuses to recover them. `paper reconcile` and a replayed `paper start` read
+  a run's declared leverage as required: a run declared before leverage was recorded is no longer reconciled at
+  the default.
 - Paper (breaking): the run listing (`GET /api/paper/runs`) names a run's readings so far `readings` instead of
   `live`, the name its stream's `readings` event already has. The release gate's probe reads the new name, so
   reinstall the host's control code with the release (`sh deploy/remote/install-release.sh`), as every release does.
