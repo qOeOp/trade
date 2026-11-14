@@ -432,14 +432,16 @@ the current main image, the candidate in the pull request's image. Run a BTC/ETH
 affected source, then the full instrument set:
 
 ```bash
-uv run --frozen python -m cli.main replay explore --runtime ghcr.io/qoeop/trade-runtime:main \
+LEDGER=$(uv run --frozen python -m cli.main ledger temp | jq -r .profile)  # never the active ledger
+uv run --frozen python -m cli.main replay explore --ledger "$LEDGER" --runtime ghcr.io/qoeop/trade-runtime:main \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" --strategy-class ENTRY-CLASS \
   --output "$STRATEGY_WORKDIR/reference" -- RUNNER-ARGS
-uv run --frozen python -m cli.main replay explore --runtime ghcr.io/qoeop/trade-runtime:pr-N \
+uv run --frozen python -m cli.main replay explore --ledger "$LEDGER" --runtime ghcr.io/qoeop/trade-runtime:pr-N \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" --strategy-class ENTRY-CLASS \
   --output "$STRATEGY_WORKDIR/candidate" -- RUNNER-ARGS
 uv run --frozen python -m engine.compare_reports \
   "$STRATEGY_WORKDIR/reference/reports" "$STRATEGY_WORKDIR/candidate/reports"
+uv run --frozen python -m cli.main ledger service stop --ledger "$LEDGER"
 ```
 
 The comparator pairs orders, fills and positions by content: client order IDs are fresh UUIDs every
