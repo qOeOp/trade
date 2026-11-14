@@ -68,8 +68,8 @@ Live runs only on a server with the Live control paired ([Optional Live control
 pairing](../../deploy/remote/README.md#optional-live-control-pairing)). Then, in the IDE:
 
 1. **Live settings…**: enter the API key and secret, **Save credentials**. A key that can withdraw is refused.
-2. **New live run…**: choose the strategy, the account and limits, **Prepare & review**, optionally **Check account**,
-   then **Start live trading**.
+2. **New live run…**: on the launch page choose the strategy, the account and the limits, optionally **Check account**,
+   then **Start live run**, which arms the start, and **Confirm start**, which starts it.
 3. **Request stop** to stop. Closing the page does not stop a run, and a stop request alone does not prove the
    account is flat: check the account.
 
