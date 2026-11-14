@@ -24,18 +24,18 @@ export type Group = {
   funding: { run: string | null; replay: string | null };
   class: "same" | "differs" | "run_only" | "replay_only"; stage: Stage | null; first: number | null;
   cause?: Cause; look_ahead_suspect?: boolean; follows?: string;
-  evidence?: { missing_bars: number; late_bars: number; differing_bars: number; first: string | null; warmup: boolean; terms: string[] };
+  evidence?: { missing_bars: number; late_bars: number; early_bars: number; early_lead_ms: string | null; differing_bars: number; first: string | null; warmup: boolean; terms: string[] };
 };
 /** The group counts are null when the replay wrote no order events. */
 type Summary = {
   run_orders: number; run_fills: number; replay_orders: number | null; replay_fills: number | null; groups: number | null;
   same: number | null; differs: number | null; run_only: number | null; replay_only: number | null; consequences: number | null;
-  look_ahead_suspects: number | null; missing_bars: number; late_bars: number; differing_bars: number;
+  look_ahead_suspects: number | null; missing_bars: number; late_bars: number; early_bars: number; differing_bars: number;
   warmup_differs: number; terms_differ: number; equity_max_difference: string | null;
 };
 /** A contract's bars: complete counts, and the first of each kind listed. */
-type ContractBars = { archive: number; live: number; missing_bars: number; late_bars: number; differing_bars: number;
-                      missing: string[]; late: string[]; live_only: string[];
+type ContractBars = { archive: number; live: number; missing_bars: number; late_bars: number; early_bars: number;
+                      differing_bars: number; missing: string[]; late: string[]; early: { close: string; lead_ms: string }[]; live_only: string[];
                       differing: { close: string; fields: Record<string, [string, string]> }[] };
 /** comparison.json (run-comparison@2026-11-12); `groups` is null when the replay wrote no order events. */
 type Result = {

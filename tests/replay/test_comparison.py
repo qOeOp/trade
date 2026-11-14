@@ -50,8 +50,10 @@ def archived(minutes: int, closes: dict[int, str] | None = None) -> list[list]:
 
 
 def compared(run_events: list[dict], replay_events: list[dict], minutes: int = 40, *, skip: tuple[int, ...] = (),
-             closes: dict[int, str] | None = None, late: tuple[int, ...] = (), **context) -> dict:
+             closes: dict[int, str] | None = None, late: tuple[int, ...] = (), early: tuple[int, ...] = (),
+             **context) -> dict:
     bars = [bar(i, (closes or {}).get(i, "100.0"), close_of(i) + 5 * 10**9 if i in late else None)
+            | {"ts_init": close_of(i) - 10**6 if i in early else close_of(i) + 10**7}
             for i in range(minutes) if i not in skip]
     run = {"bars": bars, "events": run_events, **{key: context.pop(key) for key in ("warmup", "terms", "fees",
                                                                                    "settlements", "gate") if key in context}}
@@ -191,6 +193,28 @@ class Attribution(unittest.TestCase):
                                 bar(1, wall_ns=close_of(1) + 10**6 + comparison.LATE_NS + 1)],
                                {"BTCUSDT": archived(2)}, START, START + 2 * MINUTE)
         self.assertEqual(found["BTCUSDT"]["late"], [close_of(1)])
+
+    def test_an_early_bar_is_shown_beside_a_difference_and_is_no_cause(self):
+        """Found on a two-contract Paper run (2026-11-13): the clock behind the venue's stamped bars before their
+        close, and the Sandbox, matching at that stamp, expired a GTD order due at such a close a bar late. The
+        early bars are shown; the difference stays unexplained and a look-ahead suspect (user 2026-11-14)."""
+        found = comparison.bars([bar(0) | {"ts_init": close_of(0) - 1}, bar(1) | {"ts_init": close_of(1)}, bar(2)],
+                                {"BTCUSDT": archived(3)}, START, START + 3 * MINUTE)["BTCUSDT"]
+        self.assertEqual(found["early"], {close_of(0): 1})
+        result = compared([], bracket("r", close_of(5), close_of(5), "R"), early=(2, 4))
+        self.assertEqual((result["summary"]["early_bars"], result["inputs"]["BTCUSDT"]["bars"]["early"]),
+                         (2, [{"close": utc_text(close_of(i)), "lead_ms": "1"} for i in (2, 4)]))
+        group = result["groups"][0]
+        self.assertEqual((group["cause"], group["look_ahead_suspect"]), ("unexplained", True))
+        self.assertEqual((group["evidence"]["early_bars"], group["evidence"]["early_lead_ms"], group["evidence"]["first"]),
+                         (2, "1", None))
+        # Control: with every bar stamped after its close, nothing is shown.
+        self.assertEqual((self.replay_only()["evidence"]["early_bars"], self.replay_only()["evidence"]["early_lead_ms"]),
+                         (0, None))
+        # An early bar after the group's last order shows nothing about it; a known cause keeps its early bars.
+        self.assertEqual(self.replay_only(early=(9,))["evidence"]["early_bars"], 0)
+        late = self.replay_only(late=(2,), early=(3,))
+        self.assertEqual((late["cause"], late["evidence"]["early_bars"]), ("late_bar", 1))
 
     def test_a_live_aggregation_is_not_a_minute(self):
         hour = {**bar(0), "bar_type": f"{BTC}-1-HOUR-LAST-INTERNAL@1-MINUTE-EXTERNAL", "close": "1"}
