@@ -22,6 +22,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Replay: an export's content hash (`export_content_sha256`, a trial's `export_sha256`) covers only the selected
+  contracts' directories, the lifecycle evidence and the membership file. A `replay explore` reads a shared cache
+  directory that other selections also fill, so its hash no longer depends on which other contracts were cached
+  there, and a repeated identical explore counts as a reproduction. Fresh exports hash as before.
 - Paper (breaking): a sealed run's replay comparison is `paper compare` (was `paper reconcile`), the verb Live's
   `live compare` has; its HTTP path is `/api/paper/runs/<id>/compare`, its refusals `PAPER_COMPARE_EMPTY` and
   `PAPER_COMPARE_UNCOVERED`, and Paper's and Live's result file `comparison.json`. "Reconcile" now names only Live's

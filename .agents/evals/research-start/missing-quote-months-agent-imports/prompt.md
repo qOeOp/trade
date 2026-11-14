@@ -9,7 +9,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 首次回放前的就绪检查：
 
-- `research state` 没有 RUNTIME_UNSUPPORTED；运行时引用解析到唯一镜像；检出在 origin/main 上且干净。
+- `research state` 没有 gate；运行时引用解析到唯一镜像；检出在 origin/main 上且干净。
 - 2026-10-02 里 2020-06 至 2026-09 每个月的 K 线、MARK 和资金费都在，BTCUSDT 没有缺口。
 - 2026-10-02 里 BTCUSDT 的推算报价只有 2025-10 至 2026-09；2021-01 至 2025-09 共 57 个月没有报价。
 - `deploy/compose.yaml` 的 `market-import` 服务是 `market follow --symbols BTCUSDT ETHUSDT SOLUSDT --quotes-from 2025-10`，服务状态正常。
