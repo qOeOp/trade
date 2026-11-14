@@ -22,6 +22,15 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+## 0.3.0 (2026-11-14)
+
+A breaking release with no compatibility with 0.2.0: during 0.x a version reads no earlier format (AGENTS.md). The
+research ledger keeps schema generation 1, so research continues on it. Live runs 0.2.0 made (manifest `live-run`)
+are skipped and stay on disk; Paper runs and their comparison carry over. To upgrade: stop Live (a release switches
+only while Live is idle) and reinstall the host's control code (`sh deploy/remote/install-release.sh`). It lands the
+whole-product slimming audit (`docs/plans/doctor/2026-11-13-whole-product-slimming-audit.zh.md`) and Live trading
+several contracts per run.
+
 - Live: an exit (reduce-only order) submitted with order parameters is now refused as `ORDER_RULE` and not sent,
   as in replay and Paper; before, Live sent it without the parameters. The run goes on and the position's stops
   stay (doctor 20261114-09).
