@@ -220,7 +220,7 @@ class Product:
         """A contract's daily LAST bars from UTC day `start` to `end` (left out) at a market day, all inline."""
         days = (date.fromisoformat(end) - date.fromisoformat(start)).days
         market = [f"--market={self.market}"] if self.market else []
-        return self.run("market", "bars", *market, f"--at={market_day}", f"--symbol={symbol}", "--timeframe=1d", "--price-type=LAST",
+        return self.run("market", "bars", *market, f"--market-day={market_day}", f"--symbol={symbol}", "--timeframe=1d", "--price-type=LAST",
                         f"--start={start}T00:00:00Z", f"--end={end}T00:00:00Z", f"--limit={days}")
 
 

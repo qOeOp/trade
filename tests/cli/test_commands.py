@@ -151,11 +151,11 @@ class CommandTests(unittest.TestCase):
 
     def prechecked(self, ref: str, name: str) -> int:
         """replay precheck and source review of a published candidate; returns the review ID."""
-        found = self.ok("replay", "precheck", "--ledger", self.ledger, "--at", "head", "--candidate", ref,
+        found = self.ok("replay", "precheck", "--ledger", self.ledger, "--market-day", "head", "--candidate", ref,
                         "--output", str(self.tmp / f"precheck-{name}"), "--", *PRECHECK)  # --runtime: the main tag
         self.assertEqual((found["purpose"], found["status"]), ("precheck", "passed"))
         reviewed = self.ok("source", "review", "--ledger", self.ledger, "--candidate", ref, "--runtime", "stand-in:main",
-                           "--precheck-trial", str(found["trial_id"]), "--verdict", "passed",
+                           "--trial-id", str(found["trial_id"]), "--verdict", "passed",
                            "--items", self.review_items(f"items-{name}.json"), "--reviewer", "reviewer-b")
         self.assertEqual(reviewed["precheck_trial"], found["trial_id"])
         return reviewed["review_id"]
@@ -257,7 +257,7 @@ class CommandTests(unittest.TestCase):
                      "2025-12-31T00:00:30Z", "--end", "2026-01-02T00:00:00Z")
         bars = ("market", "bars", "--symbol", "BTCUSDT", "--start", "2026-01-01T00:00:00Z", "--end",
                 "2026-01-03T00:00:00Z")
-        page = self.ok(*bars, "--at", commit)
+        page = self.ok(*bars, "--market-day", commit)
         jan = FIRST + 8 * DAY
         self.assertEqual((page["market_day"], page["bars"]["count"], page["next_start"], page["funding"]["count"]),
                          (commit, 1440, "2026-01-02T00:00:00Z", 3))
@@ -295,7 +295,7 @@ class CommandTests(unittest.TestCase):
 
         # Registration and the sealed replay
         self.refused("PRECHECK_NOT_FOUND", "source", "review", *ledger, "--candidate", "fixture@1", "--runtime",
-                     "stand-in:main", "--precheck-trial", str(explored["trial_id"]), "--verdict", "passed",
+                     "stand-in:main", "--trial-id", str(explored["trial_id"]), "--verdict", "passed",
                      "--items", self.review_items("items-x.json"), "--reviewer", "reviewer-b")
         root_body = self.write("root-body.json", self.body("fixture@1", root_review))
         registered = self.ok("registration", "add", *ledger, "--body", root_body, "--", *RUNNER)
@@ -305,9 +305,9 @@ class CommandTests(unittest.TestCase):
         leftovers = sorted(path.name for path in self.tmp.iterdir() if path.name.startswith(("market-export-",
                                                                                              "registration-inputs-")))
         self.assertEqual(leftovers, [])  # registration removes its fresh export and membership file
-        self.refused("REGISTRATION_REQUIRED", "replay", "run", *ledger, "--at", commit, "--candidate", "fixture@1",
+        self.refused("REGISTRATION_REQUIRED", "replay", "run", *ledger, "--market-day", commit, "--candidate", "fixture@1",
                      "--", *RUNNER)
-        ran = self.ok("replay", "run", *ledger, "--at", commit, "--candidate", "fixture@1", "--registration",
+        ran = self.ok("replay", "run", *ledger, "--market-day", commit, "--candidate", "fixture@1", "--registration",
                       str(registered["registration_id"]), "--", *RUNNER)
         self.assertEqual((ran["purpose"], ran["status"]), ("research", "passed"))
         report = self.ok("replay", "report", *ledger, "--trial-id", str(ran["trial_id"]))
@@ -342,7 +342,7 @@ class CommandTests(unittest.TestCase):
                                rationale={"external": "", "local": "the root's stop is hit early", "conjecture": ""})
         derived = self.ok("registration", "add", *ledger, "--body", self.write("child-body.json", child_body),
                           "--", *RUNNER)
-        second = self.ok("replay", "run", *ledger, "--at", commit, "--candidate", "fixture@2", "--registration",
+        second = self.ok("replay", "run", *ledger, "--market-day", commit, "--candidate", "fixture@2", "--registration",
                          str(derived["registration_id"]), "--", *RUNNER, standin=True, scenario={"returns": CHILD_RETURNS})
         self.assertEqual(second["status"], "passed")
         compared = self.ok("hypothesis", "compare", *ledger, "--registration", str(derived["registration_id"]),
@@ -378,7 +378,7 @@ class CommandTests(unittest.TestCase):
         self.refused("WINDOW_INVALID", "validation", "registration", *ledger, "--candidate", "fixture@2",
                      "--window-start", "2030-01-01T00:00:00+01:00", "--window-end", "2030-02-01T00:00:00Z",
                      "--universe-rule", "usdt-perp-listed30d-v1", "--design", self.write("design2.json", DESIGN))
-        reported = self.ok("validation", "report", *ledger, "--registration-id", str(validation["registration_id"]))
+        reported = self.ok("validation", "report", *ledger, "--validation", str(validation["registration_id"]))
         self.assertIsNone(reported["binding"])
         code, witnessed, err = self.call("ledger", "witness", *ledger, "--tsa-url", "https://timestamp.example.invalid")
         self.assertIsNotNone(witnessed, err)

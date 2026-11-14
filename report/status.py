@@ -837,7 +837,7 @@ def _undistinguished_runs(profile, commit: str, trials: Sequence[tuple[int, int]
 
 
 @seams.reading_once
-def research_state(conn: db.LedgerConnection, line: str | None = None, at: str | None = None, *,
+def research_state(ledger, line: str | None = None, at: str | None = None, *,
                    history: bool = False, history_before: int | None = None, full: bool = False,
                    current_image: str | None = None) -> dict:
     """The research line's whole record (`line`: ledger.read_line's line_id, name, start, development window,
@@ -857,7 +857,8 @@ def research_state(conn: db.LedgerConnection, line: str | None = None, at: str |
     gives every current judgment and the facts. `current_image` is the main image's digest reference, as given;
     `runs_behind_image` lists the line's passed runs that have not reached it (null without it)."""
     checker = availability.check_identity()
-    with db.read_as_of(conn.profile, at) as pinned:
+    profile = db.profile(ledger)
+    with db.read_as_of(profile, at) as pinned:
         commit = db.head_commit(pinned)
         records = precheck.review_records(pinned)
         opened = lines.lines(pinned, open_only=True)
@@ -880,7 +881,7 @@ def research_state(conn: db.LedgerConnection, line: str | None = None, at: str |
                     "current_image": current_image, "runs_behind_image": None,
                     "judgment_history": {"total": 0, "superseded": 0, "entries": [], "next_before": None},
                     "earlier": None,
-                    "facts": _facts(conn.profile, commit) if full else None,
+                    "facts": _facts(profile, commit) if full else None,
                     "next_actions": [step]}
         record = lines.read_line(pinned, line)  # LINE_UNKNOWN for a line that does not exist
         line_id = record["line_id"]
@@ -913,7 +914,7 @@ def research_state(conn: db.LedgerConnection, line: str | None = None, at: str |
         behind = _behind(pinned, on_line["trials"], current_image and current_image.rsplit("@", 1)[-1])
         registered = dict(pinned.rows("SELECT trial_id, research_registration_id FROM trial WHERE line_id = %s "
                                       "AND research_registration_id IS NOT NULL", (line_id,)))
-    undistinguished = _undistinguished_runs(conn.profile, commit, [(trial_id, registered[trial_id]) for trial_id in on_line["trials"]],
+    undistinguished = _undistinguished_runs(profile, commit, [(trial_id, registered[trial_id]) for trial_id in on_line["trials"]],
                                             checker, records)
     # gates first: a consumer that cuts a long answer (the IDE Agent's tools keep the first 20,000 characters) still reads them
     return {"ledger_commit": commit, "gates": gates, "undistinguished_runs": undistinguished, "line": record, "execution_identity": current, "targets": in_force, "open_lines": open_lines,
@@ -921,4 +922,4 @@ def research_state(conn: db.LedgerConnection, line: str | None = None, at: str |
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "current_image": current_image, "runs_behind_image": behind,
             "judgment_history": original, "earlier": earlier,
-            "facts": _facts(conn.profile, commit) if full else None}
+            "facts": _facts(profile, commit) if full else None}

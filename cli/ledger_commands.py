@@ -192,8 +192,7 @@ def ledger_review(conn: db.LedgerConnection, at: str | None, since: str | None) 
     return review.review_all(conn, at, since)
 
 
-def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: str | None,
-                  trial_ids: list[int] | None) -> dict:
+def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: str | None) -> dict:
     """ledger export: the full-history backup and reproduction manifest into a new directory
     (reproduce), or the incremental backup sync to the profile's backup directory (backup)."""
     if kind == "reproduce":
@@ -208,7 +207,7 @@ def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: 
                          missing=("backup",))
         target = Path(profile.backup_root)
     created = not target.exists()
-    exported = admin.export_history(profile, target, at, trial_ids)
+    exported = admin.export_history(profile, target, at)
     manifest = Path(exported["manifest_path"])
     if hashlib.sha256(manifest.read_bytes()).hexdigest() != exported["content_hash"]:
         if created:
@@ -306,14 +305,13 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "problems are findings, not refusals"),
     ("ledger", "export"): (
         "runs, candidates and their sources, and the declaration tables (lines, targets, closings, registrations, "
-        "grid points, designs, source reviews, validations, judgments) at --at (reader); --trial-id limits runs and "
-        "their candidates",
+        "grid points, designs, source reviews, validations, judgments) at --at (reader)",
         "<target>/backup (dolt_backup of the full history, synced to the head regardless of --at) and "
         "<target>/reproduce/ (manifest.json, candidates, runs, one <table>.json per declaration table); target is "
         "the new --output (reproduce) or the profile's backup directory (backup); no ledger write",
         "kind, ledger_commit, target, backup_path, manifest_path, content_hash, runs, candidates (counts)",
         "PATH_EXISTS (--output exists); BACKUP_TARGET_UNSET; EXPORT_PATH_INVALID (target in the service "
-        "directory, the checkout or a Git work tree, or not an export of this ledger); UNKNOWN_RUN; "
+        "directory, the checkout or a Git work tree, or not an export of this ledger); "
         "BACKUP_DIVERGED; DOLT_BACKUP; EXPORT_MISMATCH"),
     ("ledger", "publish"): (
         "the administrator connection from service.json (the service must be running); origin, branches",
@@ -327,8 +325,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 def register(verbs, verb, runner) -> None:
     """Add the ledger nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
-    ledger = verbs("ledger", "the research ledger: init, service, temp, sql, witness, review, export, "
-                             "publish, mirror, sync")
+    ledger = verbs("ledger", "the research ledger")
     command = verb(ledger, "init", "initialize a new research ledger or Paper database profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=profiles.KINDS, help="active, isolated or temporary")
@@ -392,8 +389,6 @@ def register(verbs, verb, runner) -> None:
                          help="reproduce: into a new --output directory; backup: sync to the profile's backup")
     command.add_argument("--output", help="new directory (required for --kind reproduce)")
     _at(command)
-    command.add_argument("--trial-id", type=int, action="append", dest="trial_ids",
-                         help="a run to list in the manifest (repeatable; default: every run)")
     command = verb(ledger, "publish", "push the ledger to its public DoltHub copy (administrator)")
     command.epilog = ("Pushes the research branch and checks the remote head by a fetch. Never "
                       "forces: a remote changed elsewhere is PUBLISH_REJECTED. Commands that change the ledger "
@@ -437,7 +432,7 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("ledger", "sql"):
         return ledger_sql(profile, args.query, args.at), 0
     if key == ("ledger", "export"):
-        return ledger_export(profile, args.kind, args.output, args.at, args.trial_ids), 0
+        return ledger_export(profile, args.kind, args.output, args.at), 0
     if key == ("ledger", "witness"):
         with db.connect(profile, "writer") as conn:
             found = ledger_witness(conn, args.tsa_url)
