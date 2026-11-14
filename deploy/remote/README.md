@@ -35,8 +35,13 @@ backs up completion events when third-party checks finish late. Candidates warm 
 active Paper runs (the newest line when none matches; nothing while the ledger has no line), then pass routed health, authentication, container-identity and data-progress checks.
 
 The [Paper release](../../docs/plans/paper-continuous-delivery.zh.md) publishes the admitted service and
-runtime digests once the Web of the same revision is routed. It warms a read-only controller, pauses new writes while draining the existing lifecycle lock, then
-switches the API. During observation only new starts wait; commit enables the new fixed runtime default.
+runtime digests inside the Web release of the same version: a version moves Web, Agent, Live control and the Paper
+controller together, or none of them. After the Web candidate starts, it warms a read-only controller, pauses new
+writes while draining the existing lifecycle lock, then switches the Paper API, so the Web candidate warms and is
+observed against the Paper controller of its own version. Only new starts wait until the Web commits; the Paper
+commit follows and enables the new fixed runtime default. A failure on either side before the Web commit rolls
+back the Paper controller, then the Web, and marks the version failed; a crash after the Web commit finishes the
+Paper commit on recovery.
 Existing runner/egress containers, checkpoint originals and image_ref stay unchanged. 0.x keeps no compatibility
 between versions (the user's decision of 2026-11-14): a new controller does not read or migrate a run an earlier
 version left in another format; it stays on disk.
@@ -58,8 +63,8 @@ Use `systemctl list-timers trade-release.timer` and `journalctl -u trade-release
 status. A failed/interrupted target stays blocked in `/var/lib/trade-release/failed/`, so the
 timer never loops on it; to retry it after fixing the cause, delete its marker, and the next tick removes the
 stopped candidate containers of that revision before creating them again. A pending transaction is recovered before
-any new selection. Paper has a separate recovery journal and `paper-failed/` marker, with starts
-kept paused until commit so rollback never replaces a newly started account. Unknown independent routing/Agent changes stop automatic operations and preserve
+any new selection. Paper keeps its own recovery journal beside the Web's (one `failed/` marker covers the
+version), with starts kept paused until commit so rollback never replaces a newly started account. Unknown independent routing/Agent changes stop automatic operations and preserve
 the journal for the operator. After a settled tick the three newest good containers of each kind (Web, Agent, Paper controller,
 Live controller) and the newest failed one stay, older stopped ones are removed, and so are IDE and service images no container
 uses (and old docker-api images), since they can be pulled again by digest. A Live controller also stays while its Web

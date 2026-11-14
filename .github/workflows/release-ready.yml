@@ -26,7 +26,7 @@ on:
   # release-ready.cjs admits only push runs on main of qoeop/trade, by head SHA and artifact identity.
   # in_progress appends a withheld record once a newer main commit's ide-image run exists (main-ready only), or a
   # rerun starts (deploy-ready only for the version's commit or its ancestors): the host's release tick
-  # (deploy/release.py choose, ensure; deploy/paper_release.py tick) then holds instead of switching to, or
+  # (deploy/release.py choose, ensure) then holds instead of switching to, or
   # finishing a switch to, a commit that is no longer the channel's newest decision.
   workflow_run:  # zizmor: ignore[dangerous-triggers]
     workflows: [quality, ide-web, ide-image, runtime-image, remote-paper-auth]  # docs-pages is not part of a release

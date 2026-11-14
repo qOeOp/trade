@@ -11,7 +11,10 @@ from unittest.mock import Mock, patch
 
 from deploy.release import GitSource, Release
 from deploy.paper_host import PAPER, PaperHost
+from deploy.paper_host import route_config as paper_route
+from deploy.paper_release import PaperRelease
 from deploy.release_host import AGENT, KEPT_RELEASES, WEB, Config, DockerHost, revision, route_config, route_name
+from tests.deploy.test_paper_release import Host as PaperStandIn
 
 # The keys of a `line list` entry DockerHost.lines reads besides `versions` (graph.line_list), written out: the
 # release controller's tests run on the host's system Python, which cannot import the ledger.
@@ -27,6 +30,14 @@ TARGET = {"revision": B, "image": "ghcr.io/qoeop/trade-ide@sha256:" + "e" * 64,
 
 class Crash(BaseException):
     pass
+
+
+def paper_release(web):
+    """The real Paper side of a release over a stand-in controller host that shares the Web's state directory
+    and reads the Web's route, as PaperHost does on the host."""
+    host = PaperStandIn(web.state)
+    host.web = web
+    return PaperRelease(host, Mock())
 
 
 class Host:
@@ -150,7 +161,7 @@ class ReleaseTests(unittest.TestCase):
         self.host = Host(Path(temporary.name))
         self.github = Mock()
         self.github.agent_changed.return_value = True
-        self.release = Release(self.host, self.github)
+        self.release = Release(self.host, self.github, paper=paper_release(self.host))
 
     def test_success_switches_only_after_readiness_and_commits_disk_route(self):
         before = self.host.protected()
@@ -188,7 +199,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.host.live, WEB + B)
         self.assertEqual(self.host.disk, WEB + A)
         self.host.fail = None
-        Release(self.host, self.github).recover()
+        Release(self.host, self.github, paper=self.release.paper()).recover()
         self.assertEqual((self.host.disk, self.host.live, self.host.agent()), (WEB + A, WEB + A, AGENT + D))
         self.assertFalse(self.release.transaction.exists())
 
@@ -255,6 +266,105 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
         self.assertNotIn(("route", WEB + B), self.host.calls)
         self.assertEqual(self.host.agent(), AGENT + D)
+
+
+class JointReleaseTests(unittest.TestCase):
+    """A version moves Web and the Paper controller together or neither (doctor 20261114-19): 0.x keeps no
+    compatibility between versions, so Web N never settles beside a Paper controller N-1."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.host = Host(Path(temporary.name))
+        self.github = Mock()
+        self.github.agent_changed.return_value = True
+        self.release = Release(self.host, self.github, paper=paper_release(self.host))
+        self.paper = self.release.paper()
+        self.controller = self.paper.host
+
+    def settled(self, version):
+        self.assertEqual((self.host.disk, self.host.live), (WEB + version, WEB + version))
+        self.assertEqual((self.controller.disk, self.controller.live), (paper_route(PAPER + version),) * 2)
+        self.assertTrue(self.controller.running[PAPER + version])
+        self.assertFalse(self.release.transaction.exists())
+        self.assertFalse(self.paper.transaction.exists())
+
+    def test_a_version_commits_web_and_the_paper_controller(self):
+        self.release.apply(TARGET)
+        self.settled(B)
+        self.assertFalse(self.controller.running[PAPER + A])
+        self.assertEqual(self.host.agent(), AGENT + B)
+        self.assertFalse(self.release.failed.exists())
+
+    def test_the_web_warms_and_observes_against_the_paper_controller_of_its_version(self):
+        seen = []
+        self.host.on_warm = lambda name: seen.append(self.controller.live)
+        self.host.on_observe = lambda: seen.append(self.controller.live)
+        self.release.apply(TARGET)
+        self.assertEqual(seen, [paper_route(PAPER + B, "starts")] * 2, "new starts wait for the commit")
+
+    def test_a_paper_failure_rolls_the_web_back_and_marks_the_version_failed(self):
+        self.controller.failure = "warm"
+        with self.assertRaisesRegex(RuntimeError, "never became ready"):
+            self.release.apply(TARGET)
+        self.settled(A)
+        self.assertFalse(self.controller.running[PAPER + B])
+        self.assertFalse(self.host.containers[WEB + B])
+        self.assertEqual(self.host.agent(), AGENT + D)
+        self.assertTrue((self.release.failed / B).exists())
+        self.assertFalse((self.host.state / "paper-failed").exists(), "one marker per version")
+
+    def test_a_web_failure_after_the_paper_switch_rolls_the_paper_controller_back(self):
+        for failure in ("warm", "observe", "protected"):
+            with self.subTest(failure=failure):
+                self.setUp()
+                self.host.fail = failure
+                with self.assertRaises(RuntimeError):
+                    self.release.apply(TARGET)
+                self.assertIn(("switch", PAPER + B, "starts"), self.controller.calls)
+                self.settled(A)
+                self.assertFalse(self.controller.running[PAPER + B])
+                self.assertTrue((self.release.failed / B).exists())
+
+    def test_a_crash_after_the_web_commit_rolls_the_paper_controller_forward(self):
+        with patch.object(PaperRelease, "commit", side_effect=Crash()), self.assertRaises(Crash):
+            self.release.apply(TARGET)
+        self.assertEqual(self.host.disk, WEB + B)
+        self.assertFalse(self.release.transaction.exists())
+        self.assertTrue(self.paper.transaction.exists())
+        self.assertEqual(self.controller.disk, paper_route(PAPER + B, "starts"))
+        Release(self.host, self.github, paper=self.paper).recover()
+        self.settled(B)
+        self.assertFalse(self.release.failed.exists())
+
+    def test_a_crash_before_the_web_journal_is_removed_rolls_both_back(self):
+        clear = self.release.clear
+        self.release.clear = Mock(side_effect=Crash())
+        with self.assertRaises(Crash):
+            self.release.apply(TARGET)
+        self.assertEqual(self.host.disk, WEB + B, "Web's route is on disk, its journal still open")
+        self.release.clear = clear
+        self.release.recover()
+        self.settled(A)
+        self.assertTrue((self.release.failed / B).exists())
+
+    def test_a_paper_refusal_before_the_journal_changes_nothing_and_marks_nothing_failed(self):
+        def low_memory():
+            self.controller.memory_available = lambda: False
+
+        def mismatched_runtime():
+            self.paper.source.require_runtime.side_effect = RuntimeError("runtime build inputs differ")
+
+        for refuse in (low_memory, mismatched_runtime):
+            with self.subTest(refusal=refuse.__name__):
+                self.setUp()
+                refuse()
+                with self.assertRaises(RuntimeError):
+                    self.release.apply(TARGET)
+                self.settled(A)
+                self.assertNotIn(WEB + B, self.host.containers)
+                self.assertNotIn(PAPER + B, self.controller.running)
+                self.assertFalse(self.release.failed.exists())
 
 
 class InstallTests(unittest.TestCase):
@@ -416,8 +526,6 @@ class PruneTests(unittest.TestCase):
             root = Path(directory)
             (root / "failed").mkdir()
             (root / "failed" / B).write_text("")
-            (root / "paper-failed").mkdir()
-            (root / "paper-failed" / C).write_text("")
             host = Mock(state=root)
             host.disk_route.return_value = WEB + A
             paper.return_value.host.disk_route.return_value = PAPER + A
@@ -427,7 +535,7 @@ class PruneTests(unittest.TestCase):
             Release(host, Mock()).prune()
             paper.return_value.host.runtime.assert_called_once_with(PAPER + A)
             self.assertEqual(host.prune.call_args.args[:2], ((WEB, AGENT, PAPER), {WEB + A, PAPER + A}))
-            self.assertEqual(host.prune.call_args.args[2], {WEB + B, AGENT + B, PAPER + C})
+            self.assertEqual(host.prune.call_args.args[2], {WEB + B, AGENT + B, PAPER + B})
             self.assertEqual(host.prune.call_args.args[3], {runtime}, "the Paper controller's runtime stays")
 
     def test_settled_tick_prunes_and_a_failure_changes_nothing(self):

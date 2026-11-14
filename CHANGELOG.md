@@ -22,6 +22,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Host release: a version moves Web (with its Agent and paired Live control) and the Paper controller together, or
+  neither. The Paper controller switches inside the Web release, before the Web candidate warms, so the Web is
+  warmed and observed against the Paper controller of its own version; a failure on either side before the Web
+  commit rolls back both and marks the version failed, and a crash between the Web and the Paper commit finishes
+  the Paper commit on recovery. Before, Web committed first and Paper followed, so a failed Paper switch left Web N
+  with Paper N-1 (doctor 20261114-19). The upgrade drops the separate `paper-failed/` marker directory: one
+  `failed/<revision>` now covers the version, and a `paper-failed/` entry left on a host is no longer read.
+
 ## 0.3.0 (2026-11-14)
 
 A breaking release with no compatibility with 0.2.0: during 0.x a version reads no earlier format (AGENTS.md). The

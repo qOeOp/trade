@@ -108,7 +108,7 @@ def failure_summary(error: Exception) -> str:
 
 
 def report_failure(phase: str, error: Exception) -> None:
-    labels = {"primary": "Primary Web release failure", "recovery": "Web release recovery failure",
+    labels = {"primary": "Primary release failure", "recovery": "Release recovery failure",
               "retired": "Retired Live controller retained", "cleanup": "Release cleanup skipped",
               "release": "Release tick failed"}
     try:
@@ -327,13 +327,18 @@ class GitSource:
 
 
 class Release:
-    def __init__(self, host: DockerHost, github: GitSource, live=None):
+    """One version moves Web, the Agent, the Live control (when paired) and the Paper controller together: either
+    all reach it, or all stay on the previous version and `failed/<revision>` blocks it. Paper's own journal and the
+    roll-forward rule between the two commits are deploy/paper_release.py's."""
+
+    def __init__(self, host: DockerHost, github: GitSource, live=None, paper: PaperRelease | None = None):
         self.host = host
         self.github = github
         self.state = host.state
         self.transaction = self.state / "transaction.json"
         self.failed = self.state / "failed"
         self.live = live
+        self._paper = paper
         if self.live is None and os.path.lexists(self.state / "live/configuration.json"):
             from .live_host import LiveHost
 
@@ -381,7 +386,10 @@ class Release:
             raise RuntimeError("router has an independent change; preserve transaction and stop")
 
     def recover(self) -> None:
+        """Paper first: it rolls forward only when the Web commit already happened, else it rolls back while the
+        Web journal is still open, and the Web rolls back after it."""
         try:
+            self.paper().recover()
             self._recover()
         except Exception as error:
             report_failure("recovery", error)
@@ -490,6 +498,8 @@ class Release:
                 return
         image = target["image"]
         self.host.pull(image, IMAGE_REF, sha)
+        paper = self.paper()
+        paper_plan = paper.prepare(target)  # its refusals journal nothing
         self.github.ensure(target)
         agent_before = agent if change_agent else None
         if paired:
@@ -524,6 +534,9 @@ class Release:
                 if self.host.agent() is not None:
                     raise RuntimeError("Agent writer appeared during handoff")
                 self.host.start(replacement)
+            if paper_plan is not None:
+                # Before the Web warms: its readiness and observation read Paper through the router.
+                paper.switch(target, paper_plan)
             lines = self.host.warm(candidate, protected)
             self.github.ensure(target)
             self.known_routes(transaction)
@@ -540,6 +553,8 @@ class Release:
                 if self.host.agent() != (f"{AGENT}{sha}" if change_agent else agent):
                     raise RuntimeError("Agent changed during final account admission" if final else "Agent changed before commit")
                 self.host.ensure_protected(protected)
+                if paper_plan is not None:
+                    paper.held(paper_plan["candidate"])
 
             unchanged(False)
             barrier = (self.live.barrier(candidate, idle=True, wait_for_lock=True)
@@ -552,6 +567,8 @@ class Release:
                 self.host.persist_route(candidate)
                 self.clear()
             print(f"Committed Web release {sha} as {image}", flush=True)
+            if paper_plan is not None:
+                paper.commit(paper_plan["candidate"])  # a crash before this rolls Paper forward on recovery
         except Exception as error:
             # If recovery itself fails, retain the journal and every side for the next invocation/operator.
             report_failure("primary", error)
@@ -560,7 +577,9 @@ class Release:
         self.retire_live()
 
     def paper(self) -> PaperRelease:
-        return PaperRelease(PaperHost(self.host.config), self.github)
+        if self._paper is None:
+            self._paper = PaperRelease(PaperHost(self.host.config), self.github)
+        return self._paper
 
     def install(self) -> None:
         """A new host's first release: the admitted version's Paper controller, Web and Agent, with both
@@ -613,10 +632,7 @@ class Release:
             runtimes = {paper_host.runtime(name) for name in paper_host.managed(PAPER)}
             prefixes: tuple[str, ...] = (WEB, AGENT, PAPER)
             revisions = {path.name for path in self.failed.iterdir()} if self.failed.exists() else set()
-            failed = {prefix + sha for sha in revisions for prefix in (WEB, AGENT)}
-            paper = self.state / "paper-failed"
-            if paper.exists():
-                failed |= {PAPER + path.name for path in paper.iterdir()}
+            failed = {prefix + sha for sha in revisions for prefix in (WEB, AGENT, PAPER)}
             kept: set[str] = set()
             if self.live is not None:
                 from .live_host import LIVE
@@ -634,8 +650,6 @@ class Release:
             report_failure("cleanup", error)
 
     def tick(self) -> None:
-        paper = self.paper()
-        paper.recover()
         self.recover()
         active = self.host.disk_route()
         self.host.checked(active)
@@ -647,7 +661,6 @@ class Release:
             self.apply(target)
         else:
             print(f"No newer successful main image; keeping {active}", flush=True)
-        paper.tick()
         self.retire_live()
         self.prune()
 
