@@ -17,7 +17,7 @@ never their numbers, which your message to the user gives under the reports' nam
 the rest instead of restating it. Among candidates that differ only in constants
 and that their comparisons leave undistinguished, recommend one whose neighbours on each changed
 constant also hold up, not the highest reading, and give the neighbours' range of Sharpe and annual
-return beside it. State trade-offs and retained references; unavailable measures
+return beside it in your message, not the body. State trade-offs and retained references; unavailable measures
 keep their reasons, and invalid or diagnostic-only runs stay separate and are not recommended.
 
 The table's non_dominated set is neither eligibility nor a ranking or gate.
