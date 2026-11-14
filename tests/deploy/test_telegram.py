@@ -128,8 +128,9 @@ class Notices(unittest.TestCase):
         failed = RuntimeError("router has an independent change; preserve transaction and stop")
         self.tick(failed)
         self.tick(failed)
-        self.assertEqual(self.call.texts(), ["Release tick failed on the host: router identity changed. The current "
-                                             "Web and Paper controller stay; see journalctl -u trade-release.service."])
+        self.assertEqual(self.call.texts(), ["Release tick failed on the host: router identity changed. Web and the "
+                                             "Paper controller each stay on the route they last committed; see "
+                                             "journalctl -u trade-release.service."])
         self.assertEqual(self.call.calls[0][:2], (TOKEN, "sendMessage"))
         self.assertEqual(self.call.calls[0][2]["chat_id"], 42)
         self.assertEqual((self.state / "notices.json").stat().st_mode & 0o777, 0o600)

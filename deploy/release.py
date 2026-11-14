@@ -109,9 +109,10 @@ def failure_summary(error: Exception) -> str:
 
 def report_failure(phase: str, error: Exception) -> None:
     labels = {"primary": "Primary Web release failure", "recovery": "Web release recovery failure",
-              "retired": "Retired Live controller retained", "cleanup": "Release cleanup skipped"}
+              "retired": "Retired Live controller retained", "cleanup": "Release cleanup skipped",
+              "release": "Release tick failed"}
     try:
-        print(f"{labels.get(phase, 'Web release kept or rolled back')}: {failure_summary(error)}",
+        print(f"{labels.get(phase, 'Release failure')}: {failure_summary(error)}",
               file=sys.stderr, flush=True)
     except (OSError, ValueError):
         pass  # A closed diagnostic stream must not prevent transaction recovery.
@@ -142,8 +143,9 @@ class Notices:
     def released(self, error: Exception | None) -> None:
         summary = None if error is None else failure_summary(error)
         self.observe("release", {} if summary is None else {
-            f"release:{summary}": f"Release tick failed on the host: {summary}. The current Web and Paper "
-                                  "controller stay; see journalctl -u trade-release.service."})
+            f"release:{summary}": f"Release tick failed on the host: {summary}. Web and the Paper controller "
+                                  "each stay on the route they last committed; see journalctl -u "
+                                  "trade-release.service."})
 
     def watch(self, probe) -> None:
         """Read Paper runs and the ledger's publication through the routed Web; `probe(path)` is its facts."""
