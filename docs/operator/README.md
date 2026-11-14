@@ -64,8 +64,8 @@ run. An Agent changes Live code but never starts a run, places or cancels an ord
 [Start here](../../README.md#start-here) says why this release does not support it: read that before connecting an
 account.
 
-Live runs only on a server with the Live control paired ([Optional Live control
-pairing](../../deploy/remote/README.md#optional-live-control-pairing)). Then, in the IDE:
+Live runs only on a server, whose every release pairs the Live control ([Live control
+pairing](../../deploy/remote/README.md#live-control-pairing)). Then, in the IDE:
 
 1. **Live settings…**: enter the API key and secret, **Save credentials**. A key that can withdraw is refused.
 2. **New live run…**: on the launch page choose the strategy, the account and the limits, optionally **Check account**,
@@ -83,7 +83,7 @@ Back up the Live root after each run ([Backing up the Live root](../../deploy/re
 | Market directory | `$TRADE_DATA/market` | none: market-import recomputes it from Binance's archives |
 | Agent settings and API keys, chat threads | the `trade-ide_trade-ide-agent` volume | none |
 | Paper runs | the `paper` database in the same volume; run directories in `$TRADE_DATA/dolt/paper` | a local backup of the database in `$TRADE_DATA/dolt-backups/paper`, synced every 5 minutes while the service runs; never published |
-| Live root (server) | outside `TRADE_DATA` | yours to make |
+| Live root (server) | `/var/lib/trade-release/live-root`, outside `TRADE_DATA` | yours to make |
 
 After a research session, refresh the local backup and check the ledger against it. Both read the backup with Dolt,
 which the ledger container has and the host need not:

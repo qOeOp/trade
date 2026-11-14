@@ -272,7 +272,7 @@ strings, is the same in every process that runs a replay.
   unchanged, then the pinned Redis and the rest of `engine/`. It is built whenever an `engine/` file or another image
   input changes. Tags: `exec-main`, `exec-pr-N`, `exec-sha-COMMIT`. Its tested digest is the release's runtime
   (`TRADE_RUNTIME_IMAGE`, deploy/README.md), and `paper start` and `paper serve` default to `exec-main`;
-  Live runs the digest its declaration names.
+  Live runs the release's digest, which each run freezes when it is prepared.
 
 Each image's shared tags are published after both native checks pass and the reports of their protected-entry replay
 (`tests.engine.test_fill_model.audited_replay`: a market entry with its reduce-only stop, written and audited by the
@@ -522,7 +522,8 @@ the Paper Sandbox account, delayed callbacks, fee model, funding adjustments or 
 A run is prepared, started and reconciled only from the Live page, through the paired control
 ([Live on this host](../deploy/remote/README.md#live-on-this-host)), with a credential saved there. It uses a private
 execution directory and never writes an execution into the research ledger or Paper database. Every effect requires
-the installed declaration and current release authority. All installed keys share one durable run/reconcile slot.
+the release's own control snapshot and current release authority. All installed keys share one durable run/reconcile
+slot.
 Missing installation metadata does not enable standalone execution. `python -m cli.main live status|logs|stop` takes
 the canonical `--root` and a run ID: `status` and `logs` only observe, `stop` only requests STOP; the paired
 controller performs host cleanup. Native account/order/position ownership is unchanged.

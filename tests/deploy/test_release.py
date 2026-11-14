@@ -1,5 +1,6 @@
 """Deployment control tests use temporary files and stand-ins, never an active ledger or engine."""
 
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
+from deploy.live_host import LIVE
 from deploy.release import GitSource, Release
 from deploy.paper_host import PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
@@ -38,6 +40,40 @@ def paper_release(web):
     host = PaperStandIn(web.state)
     host.web = web
     return PaperRelease(host, Mock())
+
+
+class IdleLive:
+    """A Live control that is always idle; every release pairs one (tests/deploy/test_live_release.py covers it)."""
+
+    def __init__(self, host):
+        self.host = host
+
+    def current(self, owner):
+        return True
+
+    def prepare(self, owner, target):
+        pass
+
+    @contextmanager
+    def barrier(self, name, service=None, *, idle=False, wait_for_lock=False):
+        yield lambda: None
+
+    def create(self, *args):
+        pass
+
+    start = warm = health = restore = create
+
+    def socket(self, name):
+        return self.host.state / "live" / revision(name) / "socket"
+
+    def retire(self):
+        pass
+
+    def runtimes(self):
+        return set()
+
+    def prune(self, kept):
+        pass
 
 
 class Host:
@@ -161,7 +197,7 @@ class ReleaseTests(unittest.TestCase):
         self.host = Host(Path(temporary.name))
         self.github = Mock()
         self.github.agent_changed.return_value = True
-        self.release = Release(self.host, self.github, paper=paper_release(self.host))
+        self.release = Release(self.host, self.github, live=IdleLive(self.host), paper=paper_release(self.host))
 
     def test_success_switches_only_after_readiness_and_commits_disk_route(self):
         before = self.host.protected()
@@ -199,7 +235,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.host.live, WEB + B)
         self.assertEqual(self.host.disk, WEB + A)
         self.host.fail = None
-        Release(self.host, self.github, paper=self.release.paper()).recover()
+        Release(self.host, self.github, live=self.release.live, paper=self.release.paper()).recover()
         self.assertEqual((self.host.disk, self.host.live, self.host.agent()), (WEB + A, WEB + A, AGENT + D))
         self.assertFalse(self.release.transaction.exists())
 
@@ -260,7 +296,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(self.release.transaction.exists())
 
     def test_withdrawal_during_warmup_rolls_back_before_switch(self):
-        self.github.ensure.side_effect = [None, RuntimeError("eligibility withdrawn")]
+        self.github.ensure.side_effect = [None, None, RuntimeError("eligibility withdrawn")]  # after the journal
         with self.assertRaisesRegex(RuntimeError, "withdrawn"):
             self.release.apply(TARGET)
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
@@ -278,7 +314,7 @@ class JointReleaseTests(unittest.TestCase):
         self.host = Host(Path(temporary.name))
         self.github = Mock()
         self.github.agent_changed.return_value = True
-        self.release = Release(self.host, self.github, paper=paper_release(self.host))
+        self.release = Release(self.host, self.github, live=IdleLive(self.host), paper=paper_release(self.host))
         self.paper = self.release.paper()
         self.controller = self.paper.host
 
@@ -333,7 +369,7 @@ class JointReleaseTests(unittest.TestCase):
         self.assertFalse(self.release.transaction.exists())
         self.assertTrue(self.paper.transaction.exists())
         self.assertEqual(self.controller.disk, paper_route(PAPER + B, "starts"))
-        Release(self.host, self.github, paper=self.paper).recover()
+        Release(self.host, self.github, live=self.release.live, paper=self.paper).recover()
         self.settled(B)
         self.assertFalse(self.release.failed.exists())
 
@@ -381,21 +417,40 @@ class InstallTests(unittest.TestCase):
         patcher = patch.object(Release, "paper", return_value=Mock(host=self.paper))
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.release = Release(self.host, self.github)
+        self.live = Mock()
+        self.live.socket.side_effect = IdleLive(self.host).socket
+        self.release = Release(self.host, self.github, live=self.live)
 
-    def test_a_new_host_gets_the_admitted_builds_controller_web_and_agent_with_routes(self):
+    def test_a_new_host_gets_the_admitted_builds_controller_live_control_web_and_agent_with_routes(self):
         order = []
         self.paper.persist_route.side_effect = lambda name: order.append(("paper route", name))
         self.paper.create.side_effect = lambda name, *args: order.append(("paper create", name))
+        self.paper.start.side_effect = lambda name: order.append(("paper start", name))
+        for step in ("prepare", "create", "start", "warm"):
+            getattr(self.live, step).side_effect = lambda *args, step=step: order.append((f"live {step}", *args))
+        created = self.host.create
+
+        def create(name, image, agent=False, live_socket=None):
+            order.append(("create", name, live_socket))
+            created(name, image, agent, live_socket)
+
+        self.host.create = create
+        self.host.start = lambda name: order.append(("start", name)) or self.host.containers.update({name: True})
         self.release.install()
-        self.assertEqual(order, [("paper route", PAPER + B), ("paper create", PAPER + B)],
-                         "the controller reads its own route to know it is active")
+        socket = self.host.state / "live" / B / "socket"
+        self.assertEqual(order, [("live prepare", None, TARGET),  # creates the custody root
+                                 ("paper route", PAPER + B), ("paper create", PAPER + B),
+                                 ("live create", WEB + B, TARGET["service"]), ("create", WEB + B, socket),
+                                 ("create", AGENT + B, None), ("paper start", PAPER + B),
+                                 ("live start", WEB + B), ("live warm", WEB + B),
+                                 ("start", WEB + B), ("start", AGENT + B)],
+                         "the controller reads its own route to know it is active; the Web reaches a ready control")
         self.paper.create.assert_called_once_with(PAPER + B, TARGET["service"], TARGET["runtime"])
         self.github.require_runtime.assert_called_once_with(B, B)
         self.assertEqual(self.host.containers, {WEB + B: True, AGENT + B: True})
         self.assertEqual(self.host.disk, WEB + B)
 
-    def test_install_refuses_an_installed_host_live_or_an_unadmitted_build(self):
+    def test_install_refuses_an_installed_host_or_an_unadmitted_build(self):
         (self.host.state / "router").mkdir()
         (self.host.state / "router" / "active.json").write_text("{}")
         with self.assertRaisesRegex(RuntimeError, "already exists"):
@@ -409,10 +464,9 @@ class InstallTests(unittest.TestCase):
         self.github.approved.return_value = {**TARGET, "image": None, "service": None, "runtime": None}
         with self.assertRaisesRegex(RuntimeError, "not admitted"):
             self.release.install()
-        with self.assertRaisesRegex(RuntimeError, "Live"):
-            Release(self.host, self.github, live=Mock()).install()
         self.assertEqual(self.host.calls, [])
         self.paper.create.assert_not_called()
+        self.live.prepare.assert_not_called()
 
 
 class FakeDocker(DockerHost):
@@ -532,10 +586,11 @@ class PruneTests(unittest.TestCase):
             paper.return_value.host.managed.return_value = [PAPER + A]
             runtime = "ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64
             paper.return_value.host.runtime.return_value = runtime
-            Release(host, Mock()).prune()
+            host.managed.return_value = []
+            Release(host, Mock(), live=IdleLive(host)).prune()
             paper.return_value.host.runtime.assert_called_once_with(PAPER + A)
-            self.assertEqual(host.prune.call_args.args[:2], ((WEB, AGENT, PAPER), {WEB + A, PAPER + A}))
-            self.assertEqual(host.prune.call_args.args[2], {WEB + B, AGENT + B, PAPER + B})
+            self.assertEqual(host.prune.call_args.args[:2], ((WEB, AGENT, PAPER, LIVE), {WEB + A, PAPER + A}))
+            self.assertEqual(host.prune.call_args.args[2], {WEB + B, AGENT + B, PAPER + B, LIVE + B})
             self.assertEqual(host.prune.call_args.args[3], {runtime}, "the Paper controller's runtime stays")
 
     def test_settled_tick_prunes_and_a_failure_changes_nothing(self):
@@ -544,9 +599,9 @@ class PruneTests(unittest.TestCase):
             host.disk_route.return_value = WEB + A
             host.managed.return_value = []
             paper.return_value.host.disk_route.return_value = PAPER + A
-            release = Release(host, Mock())
+            release = Release(host, Mock(), live=IdleLive(host))
             release.prune()
-            host.prune.assert_called_once_with((WEB, AGENT, PAPER), {WEB + A, PAPER + A}, set(), set())
+            host.prune.assert_called_once_with((WEB, AGENT, PAPER, LIVE), {WEB + A, PAPER + A}, set(), set())
             host.prune.side_effect = RuntimeError("docker rm failed")
             release.prune()
 
@@ -560,17 +615,15 @@ class PruneTests(unittest.TestCase):
             github.approved.return_value = {"revision": A, "image": TARGET["image"]}  # the running control's
             github.choose.return_value = None
             with patch("deploy.release.running", return_value=A):
-                self.assertFalse(Release(host, github).tick())
+                self.assertFalse(Release(host, github, live=IdleLive(host)).tick())
             host.prune.assert_called_once()
             host.prune.reset_mock()
             github.choose.side_effect = RuntimeError("git failed")
             with self.assertRaises(RuntimeError), patch("deploy.release.running", return_value=A):
-                Release(host, github).tick()
+                Release(host, github, live=IdleLive(host)).tick()
             host.prune.assert_not_called()
 
     def test_retired_live_controllers_go_except_those_of_remaining_webs(self):
-        from deploy.live_host import LIVE
-
         with tempfile.TemporaryDirectory() as directory, patch.object(Release, "paper") as paper:
             root = Path(directory)
             (root / "failed").mkdir()
@@ -590,27 +643,25 @@ class PruneTests(unittest.TestCase):
             live.prune.assert_called_once_with({B, C})
 
     def test_live_directories_go_with_their_controllers(self):
-        from deploy.live_host import LIVE, LiveHost
+        from deploy.live_host import LiveHost
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "live"
             for sha in (A, B, C, D):
                 (root / sha / "socket").mkdir(parents=True)
                 (root / sha / "configuration.json").write_text(json.dumps({"runtime": "r-" + sha[0]}))
-            (root / "configuration.json").write_text("{}")  # the installed declaration
             (root / ".configuration-backup").write_text("{}")
             web = Mock(state=Path(directory))
             web.managed.return_value = [LIVE + B]
-            custody = Path(directory) / "custody"
+            custody = Path(directory) / "live-root"  # the custody root, beside live/: no revision's directory
             (custody / "runs" / "live-1" / "inputs").mkdir(parents=True)
             (custody / "runs" / "live-1" / "inputs" / "manifest.json").write_text(json.dumps({"runtime": {"image_ref": "r-run"}}))
             live = LiveHost(web, Mock())
-            with patch.object(LiveHost, "declaration_value", return_value={"root": str(custody)}):
-                self.assertEqual(live.runtimes(), {"r-a", "r-b", "r-c", "r-d", "r-run"}, "a Live run never pulls again")
-            LiveHost(web, Mock()).prune({A})
+            self.assertEqual(live.runtimes(), {"r-a", "r-b", "r-c", "r-d", "r-run"}, "a Live run never pulls again")
+            live.prune({A})
             web.managed.assert_called_once_with(LIVE)
-            self.assertEqual(sorted(path.name for path in root.iterdir()),
-                             sorted([".configuration-backup", "configuration.json", A, B]))
+            self.assertEqual(sorted(path.name for path in root.iterdir()), sorted([".configuration-backup", A, B]))
+            self.assertTrue((custody / "runs" / "live-1" / "inputs" / "manifest.json").exists())
 
     def test_open_transactions_block_pruning(self):
         with tempfile.TemporaryDirectory() as directory:

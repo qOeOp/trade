@@ -47,7 +47,7 @@ class LiveFixture(unittest.TestCase):
         self.addCleanup(market.stop)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name).resolve()
+        self.root = Path(temporary.name).resolve() / "live-root"  # as under every release state
         self.authority = install(self, self.root)
         self.scope = authority.from_file(self.authority.file, self.authority.binding)
         self.credentials = self.root / "credentials.json"

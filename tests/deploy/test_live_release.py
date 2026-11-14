@@ -1,18 +1,20 @@
 """Paired releases use fake Docker and isolated custody; no venue or active ledger is touched."""
 
 import copy
+import dataclasses
 import fcntl
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from deploy.live_configuration import DECLARATION
-from deploy.live_host import LIVE, OPERATOR_FIELDS, LiveBusy, LiveHost
+from deploy.live_configuration import CONTROL
+from deploy.live_host import LIVE, LiveBusy, LiveHost
 from deploy.release import Release
 from deploy.release_host import AGENT, FRONTEND, RUNTIME_REF, SERVICE_REF, SOURCE, WEB, Config, DockerHost
 from tests.deploy.test_release import A, B, C, Host, Crash, TARGET, paper_release
@@ -21,6 +23,7 @@ from tests.deploy.test_release import A, B, C, Host, Crash, TARGET, paper_releas
 SERVICE = "ghcr.io/qoeop/trade-service@sha256:" + "d" * 64
 RUNTIME = "ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64
 PAIR = {**TARGET, "service": SERVICE, "runtime": RUNTIME}
+OWNER = (os.getuid(), os.getgid())  # root's on a host (LiveHost.owner); this test's own here
 
 
 def write(path, value):
@@ -35,9 +38,11 @@ class PairHost(Host):
         self.live_web = {WEB + A}
         self.socket_mounts = {}
         self.idle = "idle"
-        self.lock = state / "custody/account.lock"
+        self.lock = state / "live-root/account.lock"  # as A's pairing created it (LiveHost.ensure_root)
         self.lock.parent.mkdir(mode=0o700)
         self.lock.touch(mode=0o600)
+        for path in (self.lock.parent, self.lock):
+            os.chown(path, *OWNER)  # the owner's group, not the directory's
         self.containers[LIVE + A] = True
         self.controls = []
         self.inspect_hook = None
@@ -84,17 +89,17 @@ class PairLive(LiveHost):
     """Only container machinery is doubled; the production fd/lock/idle boundary is exercised."""
     def __init__(self, host, source):
         super().__init__(host, source)
-        self.configs = {WEB + A: {**dict.fromkeys(OPERATOR_FIELDS), "root": str(host.lock.parent)}}
+        self.configs = {WEB + A: self.facts()}
         self.created = []
         self.health_failure = False
-        self.declared = None
+
+    def owner(self):
+        return OWNER
 
     def prepare(self, owner, target):
+        self.ensure_root()
         self.source.require_runtime(A, target["revision"])
-        self.configs[WEB + target["revision"]] = dict(self.declaration_value())
-
-    def declaration_value(self):
-        return self.declared or self.configs[WEB + A]
+        self.configs[WEB + target["revision"]] = self.facts()
 
     def snapshot(self, name):
         return self.configs[name]
@@ -239,13 +244,27 @@ class PairedReleaseTests(unittest.TestCase):
         self.assertEqual(self.host.disk, WEB + A)
         self.assertTrue(self.host.containers[LIVE + A])
 
-    def test_missing_installation_cannot_turn_a_committed_live_web_into_web_only(self):
-        with self.assertRaisesRegex(RuntimeError, "configuration is missing"):
-            Release(self.host, self.source).apply(PAIR)
-        self.assertFalse(self.release.transaction.exists())
+    def test_a_web_without_a_control_gets_one_and_the_custody_root_with_no_operator_step(self):
+        # A host released before Live was installed everywhere: its routed Web has no --live-socket.
+        shutil.rmtree(self.live.root)
+        self.host.live_web.clear()
+        del self.host.containers[LIVE + A], self.live.configs[WEB + A]
+        self.release.apply(PAIR)
+        self.assertEqual((self.host.disk, self.host.live), (WEB + B, WEB + B))
+        # No owner to ask: the candidate's control answers on the new root, at its journal and at its commit.
+        self.assertEqual(self.host.inspected, [B, B])
+        self.assertEqual(self.host.socket_mounts, {WEB + B: self.host.state / "live" / B / "socket"})
+        self.assertEqual(self.host.controls, [("start", WEB + B)])
+        root, lock = self.live.root.lstat(), self.host.lock.lstat()
+        self.assertEqual((root.st_mode & 0o777, lock.st_mode & 0o777), (0o700, 0o600))
+        self.assertEqual({(root.st_uid, root.st_gid), (lock.st_uid, lock.st_gid)}, {(os.getuid(), os.getgid())})
+        self.assertFalse(os.path.lexists(self.host.state / "live-root.new"))
+        self.release.apply({**PAIR, "revision": C})  # the next release pairs as any other, on the same root
+        self.assertEqual((self.host.disk, self.host.inspected), (WEB + C, [B, B, B, C, C]))
+        self.assertEqual(self.host.lock.lstat().st_ino, lock.st_ino)
 
     def test_lock_missing_symlink_or_replaced_inode_is_not_a_new_lock(self):
-        self.live.configs[WEB + B] = {**dict.fromkeys(OPERATOR_FIELDS), "root": str(self.host.lock.parent)}
+        self.live.configs[WEB + B] = self.live.facts()
         self.host.lock.unlink()
         with self.assertRaises(FileNotFoundError):
             with self.live.barrier(WEB + B, SERVICE, idle=True):
@@ -266,7 +285,7 @@ class PairedReleaseTests(unittest.TestCase):
                 held()
 
     def test_host_keeps_lock_after_read_only_inspector_returns_until_metadata_is_written(self):
-        self.live.configs[WEB + B] = {**dict.fromkeys(OPERATOR_FIELDS), "root": str(self.host.lock.parent)}
+        self.live.configs[WEB + B] = self.live.facts()
         code = ("import fcntl,os,sys; f=os.open(sys.argv[1],os.O_RDONLY); print('waiting',flush=True);"
                 "fcntl.flock(f,fcntl.LOCK_EX); print('acquired',flush=True)")
         with self.live.barrier(WEB + B, SERVICE, idle=True):
@@ -348,18 +367,18 @@ class PairedReleaseTests(unittest.TestCase):
         self.assertEqual((self.host.disk, self.live.created), (WEB + A, []))
         self.assertFalse(self.release.failed.exists())
 
-    def test_a_changed_declaration_pairs_a_new_control_once_live_is_idle(self):
-        self.live.declared = {**self.live.configs[WEB + A], "research_at": "b" * 32}
+    def test_a_changed_market_directory_pairs_a_new_control_once_live_is_idle(self):
+        self.live.configs[WEB + A] = {**self.live.facts(), "market_root": "/earlier/market"}
         self.host.idle = "busy"
         self.release.apply(PAIR)
         self.assertEqual(self.host.disk, WEB + A, "a busy account keeps the pair")
         self.host.idle = "idle"
         self.release.apply(PAIR)
         self.assertEqual(self.host.disk, WEB + B)
-        # The owner's control refuses inspection against a changed declaration; only the candidate's answers.
+        # Only the candidate's control reads the host's current inputs, so only its inspection answers.
         self.assertEqual(set(self.host.inspected), {B})
-        self.assertEqual(self.live.configs[WEB + B]["research_at"], "b" * 32)
-        self.assertEqual(self.live.configs[WEB + A]["research_at"], None, "the old control keeps its inputs")
+        self.assertEqual(self.live.configs[WEB + B]["market_root"], str(self.host.config.data / "market"))
+        self.assertEqual(self.live.configs[WEB + A]["market_root"], "/earlier/market", "the old control keeps its inputs")
 
 
 class LiveHostBoundaryTests(unittest.TestCase):
@@ -367,67 +386,134 @@ class LiveHostBoundaryTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.base = Path(temporary.name).resolve()
-        self.root = self.base / "custody"
-        self.root.mkdir(mode=0o700)
-        (self.root / "account.lock").touch(mode=0o600)
-        self.inputs = [self.base / name for name in ("reader.json", "universe.json")]
-        for path in self.inputs:
-            path.write_text("{}")
-        self.declared = {"format": DECLARATION, "root": str(self.root), "research_ledger": str(self.inputs[0]),
-                         "research_at": "a" * 32, "universe_file": str(self.inputs[1]),
-                         "sources": [{"source_id": "example"}],
-                         "defaults": {}, "memory": "2g", "market_root": str(self.base)}
-        self.web = DockerHost(Config(state=self.base / "release"))
+        self.market = self.base / "data/market"
+        self.market.mkdir(parents=True)
+        self.web = DockerHost(Config(state=self.base / "release", data=self.base / "data"))
+        self.web.state.mkdir(mode=0o700)
         self.web.docker = Mock()
         self.web.requires_live = Mock(return_value=False)
         self.web.pull = Mock(return_value=A)
         self.web.exists = Mock(return_value=False)
         self.source = Mock()
         self.live = LiveHost(self.web, self.source)
-        write(self.live.declaration, self.declared)
+        self.live.owner = Mock(return_value=OWNER)
+        self.root = self.web.state / "live-root"
         self.live.prepare(None, PAIR)
 
-    def test_declaration_has_no_runtime_socket_and_a_change_reaches_only_a_new_control(self):
-        value = self.live.snapshot(WEB + B)
-        self.assertEqual(value["runtime"], RUNTIME)
-        self.assertEqual(value["socket"], str(self.live.socket(WEB + B) / "control.sock"))
-        self.assertEqual(value["sources"], [{"source_id": "example"}])
+    def write_snapshot(self, name, **changes):
+        path = self.live.configuration(name)
+        path.write_text(json.dumps({**json.loads(path.read_text()), **changes}))
+
+    def test_the_snapshot_is_the_hosts_inputs_and_a_changed_market_reaches_only_a_new_control(self):
+        self.assertEqual(self.live.snapshot(WEB + B), {
+            "format": CONTROL, "root": str(self.root),
+            "research_ledger": str(self.web.state / "profiles/research.json"), "market_root": str(self.market),
+            "runtime": RUNTIME, "socket": str(self.live.socket(WEB + B) / "control.sock")})
+        self.assertEqual(self.live.configuration(WEB + B).stat().st_mode & 0o777, 0o600)
         with patch.object(self.live, "checked") as checked:
             self.live.prepare(B, {**PAIR, "revision": C})
         checked.assert_called_once_with(WEB + B)
         self.web.requires_live.assert_not_called()
         self.assertTrue(self.live.current(B))
-        changed = {**self.declared, "research_at": "b" * 32}
-        write(self.live.declaration, changed)
+        moved = self.base / "moved/market"
+        moved.mkdir(parents=True)
+        self.web.config = dataclasses.replace(self.web.config, data=moved.parent)
         self.assertFalse(self.live.current(B))
         with self.live.barrier(WEB + B) as held:
             held()  # the owner stays inspectable: its custody is unchanged
         with patch.object(self.live, "checked"):
             self.live.prepare(B, {**PAIR, "revision": A})
-        self.assertEqual(self.live.snapshot(WEB + A)["research_at"], "b" * 32)
-        self.assertEqual(self.live.snapshot(WEB + B)["research_at"], "a" * 32)
-        moved = self.base / "moved"
-        moved.mkdir(mode=0o700)
-        write(self.live.declaration, {**changed, "root": str(moved)})
-        with self.assertRaisesRegex(RuntimeError, "custody root changed"):
-            self.live.prepare(B, {**PAIR, "revision": C})
-        with self.assertRaisesRegex(RuntimeError, "different custody authority"):
-            with self.live.barrier(WEB + B):
-                pass
+        self.assertEqual(self.live.snapshot(WEB + A)["market_root"], str(moved))
+        self.assertEqual(self.live.snapshot(WEB + B)["market_root"], str(self.market))
 
-    def test_a_snapshot_without_a_control_follows_the_declaration_and_one_with_a_control_is_kept(self):
-        changed = {**self.declared, "research_at": "b" * 32}
-        write(self.live.declaration, changed)
+    def test_a_snapshot_names_only_its_own_states_root_and_reader_in_the_current_format(self):
+        for changes in ({"root": str(self.base / "custody")},
+                        {"research_ledger": str(self.base / "reader.json")},
+                        {"format": "live-control-v1"},
+                        {"sources": []},
+                        {"market_root": "relative/market"}):
+            with self.subTest(changes=changes):
+                original = self.live.configuration(WEB + B).read_bytes()
+                self.write_snapshot(WEB + B, **changes)
+                with self.assertRaisesRegex(RuntimeError, "does not match its release|absolute bind paths"):
+                    self.live.prepare(B, {**PAIR, "revision": C})
+                with self.assertRaisesRegex(RuntimeError, "does not match its release|absolute bind paths"):
+                    with self.live.barrier(WEB + B):
+                        pass
+                self.live.configuration(WEB + B).write_bytes(original)
+
+    def test_a_snapshot_without_a_control_follows_the_host_and_one_with_a_control_is_kept(self):
+        self.web.config = dataclasses.replace(self.web.config, data=self.base / "moved")
+        (self.base / "moved/market").mkdir(parents=True)
         self.live.prepare(None, PAIR)  # the earlier attempt at B created no control
-        self.assertEqual(self.live.snapshot(WEB + B)["research_at"], "b" * 32)
-        write(self.live.declaration, self.declared)
+        self.assertEqual(self.live.snapshot(WEB + B)["market_root"], str(self.base / "moved/market"))
+        self.web.config = dataclasses.replace(self.web.config, data=self.base / "data")
         self.web.exists.return_value = True
         with self.assertRaisesRegex(RuntimeError, "binds different inputs"):
             self.live.prepare(None, PAIR)
-        self.assertEqual(self.live.snapshot(WEB + B)["research_at"], "b" * 32)
-        write(self.live.declaration, {**self.declared, "runtime": RUNTIME})
-        with self.assertRaisesRegex(RuntimeError, "without runtime or socket"):
-            self.live.prepare(B, {**PAIR, "revision": C})
+        self.assertEqual(self.live.snapshot(WEB + B)["market_root"], str(self.base / "moved/market"))
+
+    def test_the_first_pairing_creates_the_root_and_lock_once_for_their_owner(self):
+        root, lock = self.root.lstat(), (self.root / "account.lock").lstat()
+        self.assertEqual((root.st_mode & 0o7777, lock.st_mode & 0o7777), (0o700, 0o600))
+        self.assertEqual({(root.st_uid, root.st_gid), (lock.st_uid, lock.st_gid)}, {(os.getuid(), os.getgid())})
+        self.live.prepare(None, PAIR)
+        self.assertEqual((self.root / "account.lock").lstat().st_ino, lock.st_ino, "never created again")
+        self.assertEqual(LiveHost.owner(self.live), (0, 0), "on a host, root's")
+        # The owner's group, even where the release state's directory would give another.
+        other = next((gid for gid in os.getgroups() if gid != os.getgid()), None)
+        if other is None:
+            self.skipTest("this user belongs to one group only")
+        shutil.rmtree(self.root)
+        self.live.owner.return_value = (os.getuid(), other)
+        self.live.prepare(None, PAIR)
+        for path in (self.root, self.root / "account.lock"):
+            self.assertEqual((path.lstat().st_uid, path.lstat().st_gid), (os.getuid(), other))
+
+    def test_an_existing_root_that_differs_is_refused_and_never_repaired(self):
+        lock = self.root / "account.lock"
+
+        def refused():
+            with self.assertRaisesRegex(RuntimeError, "differs from its product installation"):
+                self.live.prepare(None, PAIR)
+
+        self.live.owner.return_value = (os.getuid(), os.getgid() + 4242)  # another owner
+        refused()
+        self.assertEqual((self.root.lstat().st_gid, lock.lstat().st_gid), (os.getgid(), os.getgid()))
+        self.live.owner.return_value = OWNER
+        for mode, path in ((0o750, self.root), (0o640, lock)):
+            path.chmod(mode)
+            refused()
+            self.assertEqual(path.lstat().st_mode & 0o777, mode)
+            path.chmod(mode & 0o700)
+        lock.unlink()
+        refused()
+        self.assertFalse(os.path.lexists(lock), "a missing lock is never recreated in an existing root")
+        self.root.rmdir()
+        elsewhere = self.base / "elsewhere"
+        elsewhere.mkdir(mode=0o700)
+        (elsewhere / "account.lock").touch(mode=0o600)
+        self.root.symlink_to(elsewhere, target_is_directory=True)
+        refused()
+        self.assertTrue(self.root.is_symlink())
+
+    def test_an_unfinished_creation_is_started_again_and_no_other_state_is_touched(self):
+        shutil.rmtree(self.root)
+        staged = self.web.state / "live-root.new"
+        staged.mkdir(mode=0o700)
+        (staged / "account.lock").touch(mode=0o600)
+        (staged / "stray").write_text("")
+        self.live.prepare(None, PAIR)
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()), ["account.lock"])
+        self.assertFalse(os.path.lexists(staged))
+
+    def test_prune_and_runtimes_without_any_paired_control(self):
+        shutil.rmtree(self.web.state / "live")
+        shutil.rmtree(self.root)
+        self.web.managed = Mock(return_value=[])
+        self.live.prune(set())
+        self.assertEqual(self.live.runtimes(), set())
+        self.assertFalse(os.path.lexists(self.web.state / "live"))
 
     def test_control_and_inspector_mount_scopes_and_immutable_image_pair(self):
         self.web.pull.assert_any_call(SERVICE, SERVICE_REF, B)
@@ -439,6 +525,8 @@ class LiveHostBoundaryTests(unittest.TestCase):
             inspector = self.live.common(WEB + B, helper=True)
         self.assertIn(f"type=bind,src={self.root},dst={self.root}", control)
         self.assertIn(f"type=bind,src={self.root},dst={self.root},readonly", inspector)
+        self.assertIn(f"type=bind,src={self.market},dst={self.market},readonly", control)
+        self.assertFalse(any("research.json" in arg for arg in control), "the state mount holds the reader profile")
         self.assertIn(f"type=bind,src={self.live.state},dst={self.live.state},readonly", control)
         self.assertIn(f"type=bind,src={self.live.socket(WEB + B)},dst={self.live.socket(WEB + B)}", control)
         self.assertNotIn(FRONTEND, control)

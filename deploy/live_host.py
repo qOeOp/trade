@@ -1,4 +1,5 @@
-"""Live's companion container in the existing Web transaction; no separate release state machine."""
+"""Live's companion container in the existing Web transaction; no separate release state machine. Every release
+host pairs one: the product owns the custody root, its account lock and every input a control reads."""
 
 from contextlib import contextmanager
 from collections.abc import Callable
@@ -12,8 +13,8 @@ import subprocess
 import time
 
 from .release_host import (BACKEND, READERS, REVISION, RUNTIME_REF, SERVICE_REF, UNPRIVILEGED, WEB, contained,
-                           durable_json, revision, until_ready)
-from .live_configuration import (CONTROL, OPERATOR_FIELDS, absolute, declaration, read_object, snapshot)
+                           durable_json, revision, sync_directory, until_ready)
+from .live_configuration import CONTROL, HOST_FIELDS, READER, ROOT, absolute, read_object, snapshot
 
 
 LIVE = "trade-release-live-"
@@ -56,7 +57,7 @@ def _acquire_account_lock(descriptor: int, held: Callable[[], None], *, wait_for
 class LiveHost:
     def __init__(self, web, source):
         self.web, self.source, self.state = web, source, web.state
-        self.declaration = self.state / "live/configuration.json"
+        self.root = self.state / ROOT
 
     def directory(self, name: str) -> Path:
         return self.state / "live" / revision(name)
@@ -70,29 +71,75 @@ class LiveHost:
     def name(self, web: str) -> str:
         return LIVE + revision(web)
 
-    def declaration_value(self) -> dict:
-        return declaration(self.declaration)
+    def facts(self) -> dict:
+        """What this host gives every control (HOST_FIELDS): the reader profile each tick writes and the market
+        directory the Web mounts."""
+        return {"root": str(self.root), "research_ledger": str(self.state / READER),
+                "market_root": str(self.web.config.data / "market")}
 
     def snapshot(self, name: str) -> dict:
         return snapshot(self.configuration(name), self.socket(name) / "control.sock")
 
     def current(self, owner: str) -> bool:
-        """Whether the owner's control runs the installed declaration; a changed one needs a new control."""
-        existing, declared = self.snapshot(WEB + owner), self.declaration_value()
-        return all(existing[key] == declared[key] for key in OPERATOR_FIELDS)
+        """Whether the owner's control reads this host's inputs; a changed market directory needs a new control."""
+        existing, host = self.snapshot(WEB + owner), self.facts()
+        return all(existing[key] == host[key] for key in HOST_FIELDS)
+
+    def owner(self) -> tuple[int, int]:
+        """Root owns the custody root, and every control runs as it (common()): a control reads the release state,
+        which is root's alone (0700), and Docker gives a non-root `--user` none of the capabilities it adds, so only
+        root's own DAC_READ_SEARCH reaches it. Every capability but that one stays dropped; the control already
+        holds the Docker socket."""
+        return 0, 0
+
+    def ensure_root(self) -> None:
+        """Create the custody root and its account lock together, once, owned by `owner()`; then only
+        check them. An existing root is never repaired: a missing lock is never recreated in it."""
+        uid, gid = self.owner()
+        if not os.path.lexists(self.root):
+            staged = self.state / (ROOT + ".new")
+            if os.path.lexists(staged):  # an attempt that stopped before its rename: no control ever used it
+                if staged.is_symlink() or not staged.is_dir():
+                    staged.unlink()
+                else:
+                    shutil.rmtree(staged)
+            staged.mkdir(mode=0o700)
+            staged.chmod(0o700)
+            descriptor = os.open(staged / "account.lock", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            try:
+                os.fchmod(descriptor, 0o600)
+                found = os.fstat(descriptor)
+                if (found.st_uid, found.st_gid) != (uid, gid):
+                    os.fchown(descriptor, uid, gid)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            found = staged.lstat()
+            if (found.st_uid, found.st_gid) != (uid, gid):
+                os.chown(staged, uid, gid, follow_symlinks=False)
+            sync_directory(staged)
+            os.rename(staged, self.root)
+            sync_directory(self.state)
+        try:
+            root, lock = self.root.lstat(), (self.root / "account.lock").lstat()
+        except FileNotFoundError:
+            raise RuntimeError("Live custody root differs from its product installation") from None
+        if (not stat.S_ISDIR(root.st_mode) or root.st_mode & 0o077 or (root.st_uid, root.st_gid) != (uid, gid)
+                or not stat.S_ISREG(lock.st_mode) or lock.st_mode & 0o077
+                or (lock.st_uid, lock.st_gid) != (uid, gid)):
+            raise RuntimeError("Live custody root differs from its product installation")
 
     def prepare(self, owner: str | None, target: dict) -> None:
-        """Build the candidate's snapshot from the installed declaration.
+        """Build the candidate's snapshot from this host's inputs, creating the custody root on the first pairing.
 
-        A changed declaration reaches only a new control, paired while Live is idle; a running control and
-        its prepared runs keep what they started with. The custody root never changes this way.
+        A running control and its prepared runs keep what they started with. The custody root never moves.
         `owner` is the revision of the routed Web, whose control owns the account, or None when it has no Live.
         """
-        declared = self.declaration_value()
-        operator = {key: declared[key] for key in OPERATOR_FIELDS}
+        self.ensure_root()
+        host = self.facts()
         if owner is not None:
             previous = WEB + owner
-            if self.snapshot(previous)["root"] != operator["root"]:
+            if self.snapshot(previous)["root"] != host["root"]:
                 raise RuntimeError("Live custody root changed; a release cannot move the account's runs")
             self.checked(previous)
         sha = target["revision"]
@@ -101,11 +148,11 @@ class LiveHost:
         self.source.require_runtime(runtime_source, sha)
         self.source.ensure(target)
         name = WEB + sha
-        value = {"format": CONTROL, **operator, "runtime": target["runtime"],
+        value = {"format": CONTROL, **host, "runtime": target["runtime"],
                  "socket": str(self.socket(name) / "control.sock")}
         path = self.configuration(name)
         if os.path.lexists(path) and read_object(path) != value:
-            # Left by an attempt that created no control before the declaration changed; a control binds it.
+            # Left by an attempt that created no control before the host's inputs changed; a control binds it.
             if self.web.exists(self.name(name)):
                 raise RuntimeError("retained Live configuration binds different inputs")
             durable_json(path, value, mode=0o600)
@@ -114,19 +161,20 @@ class LiveHost:
         socket_directory = self.socket(name)
         if not socket_directory.exists():
             socket_directory.mkdir(mode=0o700)
-            owner = absolute(value["root"]).stat()
-            if (socket_directory.stat().st_uid, socket_directory.stat().st_gid) != (owner.st_uid, owner.st_gid):
-                os.chown(socket_directory, owner.st_uid, owner.st_gid)
+            custody = self.root.stat()
+            if (socket_directory.stat().st_uid, socket_directory.stat().st_gid) != (custody.st_uid, custody.st_gid):
+                os.chown(socket_directory, custody.st_uid, custody.st_gid)
         socket_stat = socket_directory.lstat()
         if (not stat.S_ISDIR(socket_stat.st_mode) or socket_stat.st_mode & 0o077
-                or socket_stat.st_uid != absolute(value["root"]).stat().st_uid):
+                or socket_stat.st_uid != self.root.stat().st_uid):
             raise RuntimeError("Live socket directory differs from its private release binding")
 
     def common(self, name: str, *, helper: bool = False) -> list[str]:
         value = self.snapshot(name)
         root = absolute(value["root"])
         owner = root.stat()
-        # Every mount is a deployment declaration or existing reader volume; never load key bytes.
+        # Every mount is the release's own state or an existing reader volume; never load key bytes. The state mount
+        # holds the reader profile (research_ledger); the custody root and socket directory are writable over it.
         args = ["--user", f"{owner.st_uid}:{owner.st_gid}", *UNPRIVILEGED, "--cap-add", "DAC_READ_SEARCH",
                 "--network", BACKEND, "--env", "TRADE_DOLT_HOST=ledger",
                 "--env", "HOME=/tmp", "--env", "DOCKER_CONFIG=/tmp/docker-public",
@@ -138,15 +186,9 @@ class LiveHost:
                 "--mount", f"type=bind,src={root},dst={root}" + (",readonly" if helper else ""),
                 "--mount", f"type=bind,src={self.state},dst={self.state},readonly",
                 "--mount", f"type=volume,src={READERS},dst=/run/trade/ledger-readers,readonly"]
-        # A source's bytes come from the research ledger; only the reader profile and universe are files.
-        paths = {absolute(value["research_ledger"]), absolute(value["universe_file"])}
-        for path in sorted(paths):
-            if path.is_symlink() or not path.is_file():
-                raise RuntimeError("Live declared inputs must retain their regular source files")
-            args += ["--mount", f"type=bind,src={path},dst={path},readonly"]
         market = absolute(value["market_root"])
         if market.is_symlink() or not market.is_dir():
-            raise RuntimeError("Live's declared market directory must be a directory")
+            raise RuntimeError("Live's market directory must be a directory")
         # Read-only: preparation reads the contract terms Live compares with exchangeInfo (TERMS_CHANGED).
         args += ["--mount", f"type=bind,src={market},dst={market},readonly"]
         if not helper:
@@ -210,10 +252,9 @@ class LiveHost:
         """The metadata writer itself holds the existing inode; an inspector never owns this lock. With `idle` the
         account admits only while Live is idle; an inspection that fails to run or answer is an unavailable one."""
         configured = self.snapshot(name)
-        declared = self.declaration_value()
-        if configured["root"] != declared["root"]:
+        if configured["root"] != str(self.root):
             raise RuntimeError("Live release cannot inspect a different custody authority")
-        root = absolute(configured["root"])
+        root = self.root
         if root.is_symlink() or root.resolve() != root:
             raise RuntimeError("Live custody path changed during release")
         original_root = root.stat()
@@ -225,7 +266,7 @@ class LiveHost:
                     or original.st_uid != root.stat().st_uid):
                 raise RuntimeError("Live release requires the original private account lock")
             def held() -> None:
-                if self.declaration_value() != declared or self.snapshot(name) != configured:
+                if self.snapshot(name) != configured:
                     raise RuntimeError("Live custody authority changed during release")
                 if root.is_symlink() or root.resolve() != root:
                     raise RuntimeError("Live custody path changed during release")
@@ -294,14 +335,17 @@ class LiveHost:
         manifest's image with `--pull never` (runtime/container.py), so whatever its state that image stays."""
         found = {read_object(path)["runtime"] for path in (self.state / "live").glob("*/configuration.json")
                  if REVISION.fullmatch(path.parent.name)}
-        runs = absolute(self.declaration_value()["root"]) / "runs"
+        runs = self.root / "runs"
         return found | {read_object(path)["runtime"]["image_ref"] for path in runs.glob("*/inputs/manifest.json")}
 
     def prune(self, kept: set[str]) -> None:
         """After the controllers are pruned, remove each revision directory that neither a kept revision nor a
-        remaining controller uses. Its configuration is a derived snapshot; the installed declaration stays."""
+        remaining controller uses. Its configuration is a derived snapshot; the custody root is no revision's."""
+        directory = self.state / "live"
+        if not directory.is_dir():
+            return  # no control was paired yet
         here = kept | {revision(name, LIVE) for name in self.web.managed(LIVE)}
-        for path in (self.state / "live").iterdir():
+        for path in directory.iterdir():
             if REVISION.fullmatch(path.name) and path.name not in here and not path.is_symlink() and path.is_dir():
                 shutil.rmtree(path)
 
