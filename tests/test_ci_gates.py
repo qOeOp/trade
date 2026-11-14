@@ -277,13 +277,14 @@ class ReplaySelectorTests(unittest.TestCase):
         self.assertTrue(self.select("push", built=None))  # no readable image: build
         self.assertTrue(self.select("push", built="f" * 40))  # a revision this history lacks: build
 
-    def test_a_change_only_to_this_project_s_version_selects_no_build(self):
-        def write(version, dependency="1.0"):
+    def test_a_release_builds_because_the_image_hashes_the_lock(self):
+        def write(version, locked=None):
             (self.repo / "pyproject.toml").write_text(
                 f'[project]\nname = "trade-research"\nversion = "{version}"\ndependencies = ["a"]\n')
             (self.repo / "uv.lock").write_text(
-                f'version = 1\n\n[[package]]\nname = "a"\nversion = "{dependency}"\n\n'
-                f'[[package]]\nname = "trade-research"\nversion = "{version}"\nsource = {{ editable = "." }}\n')
+                f'version = 1\n\n[[package]]\nname = "a"\nversion = "1.0"\n\n'
+                f'[[package]]\nname = "trade-research"\nversion = "{locked or version}"\n'
+                'source = { editable = "." }\n')
             self.git("add", ".")
             self.git("-c", "user.name=CI", "-c", "user.email=ci@example.com", "commit", "-qm", version)
             return self.git("rev-parse", "HEAD")
@@ -291,10 +292,10 @@ class ReplaySelectorTests(unittest.TestCase):
         self.selector.built_from = lambda image: built
         def select():
             return self.selector.changed("push", ["pyproject.toml", "uv.lock"], "", "registry.example/name:main")
+        write("0.3.0", locked="0.2.0")
+        self.assertFalse(select(), "pyproject's version alone is never read by the replay image")
         write("0.3.0")
-        self.assertFalse(select(), "a release's version bump leaves the replay digest alone")
-        write("0.3.0", dependency="1.1")
-        self.assertTrue(select(), "a locked dependency is a replay input")
+        self.assertTrue(select(), "dependency_lock_sha256 hashes uv.lock, version line included, and Live matches it")
 
     def test_a_change_only_to_the_build_backend_selects_no_build(self):
         def write(modules, dependencies='["a"]'):

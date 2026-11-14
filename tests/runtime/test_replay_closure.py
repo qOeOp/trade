@@ -109,7 +109,7 @@ class ReplayClosureTests(unittest.TestCase):
     def test_fresh_install_waits_for_a_replay_image_only_when_the_replay_inputs_changed(self):
         """ide-image's fresh-install replays on this commit's replay image when its replay inputs changed, else on
         `main`: it must read runtime-image.yml's replay filter and select with replay-changed.py, or a change to the
-        execution image or to the project's own version alone would leave it waiting for a replay image no build makes."""
+        execution image or to pyproject's build backend alone would leave it waiting for a replay image no build makes."""
         job = (ROOT / ".github/workflows/ide-image.yml").read_text().split("\n  fresh-install:\n", 1)[1]
         script = textwrap.dedent(job.split("python3 -c '", 1)[1].split("\n          ')\"", 1)[0])
         found = subprocess.run([sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, check=True)
