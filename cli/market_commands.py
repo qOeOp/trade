@@ -4,13 +4,13 @@ import-metrics, follow, lifecycle, coverage, bars)."""
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime, timezone
+from datetime import date
 import json
 from pathlib import Path
 import re
 import sys
 
-from cli.common import Kind, UsageError, _count, _ledger_option, _market_at, _market_option, _new_temporary, _op_id
+from cli.common import _count, _ledger_option, _market_at, _market_option, _new_temporary, _op_id
 from ledger import db
 from shared import profiles
 from shared.refusals import refuse
@@ -19,24 +19,21 @@ from shared.refusals import refuse
 NOUNS = ("market",)
 
 
-def market_init(name: str, kind: Kind, root: Path) -> dict:
+def market_init(name: str, kind: profiles.Kind, root: Path) -> dict:
     """market init: an empty market directory and its profile (market.init_market); `--kind active` needs
     the user's authority, isolated and temporary markets are plain directories."""
     from market import files
     return files.init_market(name, Path(root), kind)
 
 
-def _month_start(month: str, *, started: bool = False) -> date:
-    """The first day of a YYYY-MM month argument (MONTH_INVALID); `started` also refuses a month not begun."""
-    if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
+def _month_start(month: str) -> date:
+    """The first day of a YYYY-MM month argument (MONTH_INVALID); an import refuses a month not begun itself."""
+    if not re.fullmatch(r"\d{4}-\d{2}", month):
         raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
     try:
-        first = date.fromisoformat(month + "-01")
+        return date.fromisoformat(month + "-01")
     except ValueError as exc:
         raise refuse("MONTH_INVALID", f"{month!r} is not a month", expected="YYYY-MM") from exc
-    if started and first > datetime.now(timezone.utc).date():
-        raise refuse("MONTH_INVALID", f"{month} is after the current UTC month", expected="YYYY-MM")
-    return first
 
 
 def _market_cache(cache_root: str | None) -> Path:
@@ -52,16 +49,16 @@ def market_import(market: dict, month: str, cache_root: str | None, workers: int
                   symbols: list[str] | None = None) -> dict:
     """market import: one UTC month of Binance public data; `symbols` narrows the contracts."""
     from market import store
-    first = _month_start(month, started=True)
+    first = _month_start(month)
     return store.import_month(market, first, _market_cache(cache_root), workers, symbols, log=_market_log)
 
 
 def market_import_quotes(market: dict, month: str, cache_root: str | None, symbols: list[str] | None = None) -> dict:
     """market import-quotes: one ended UTC month of best bid/ask inferred from the stored aggTrades
     (market.quotes.RULE); `symbols` defaults to the month's universe members."""
-    from market import store
-    first = _month_start(month, started=True)
-    return store.import_quotes(market, first, _market_cache(cache_root), symbols, log=_market_log)
+    from market import quotes
+    first = _month_start(month)
+    return quotes.import_quotes(market, first, _market_cache(cache_root), symbols, log=_market_log)
 
 
 def market_import_trades(market: dict, month: str, cache_root: str | None, symbols: list[str]) -> dict:
@@ -107,7 +104,7 @@ def market_coverage(market: dict, at: str | None, symbols: list[str] | None, sta
     lifecycle = None
     if lifecycle_bundle is not None:
         if ledger is None:
-            raise UsageError("--lifecycle-bundle needs --ledger")
+            raise refuse("USAGE_ERROR", "--lifecycle-bundle needs --ledger")
         market_day = market_files.resolve_day(market_files.open_market(market, "reader"), at)
         _, files = inputs.load_lifecycle(db.profile(ledger), lifecycle_bundle, market_day,
                                          market=seams.current.market(market))
@@ -125,8 +122,6 @@ def market_bars(market: dict, at: str | None, symbol: str, price_type: str, time
     """market bars: one contract's stored bars and funding settlements at a market day, inline up to
     --limit bar periods or whole into a new temporary file."""
     from market import read
-    if timeframe == "1d" and price_type != "LAST":
-        raise UsageError("market bars --timeframe 1d gives the daily LAST bars only; drop --price-type MARK")
     target = _new_temporary(output) if output else None
     found = read.stored_bars(market, at, symbol, price_type, timeframe, start, end, None if target else limit)
     if target is None:
@@ -185,7 +180,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the market directory at --root with its lock alone (the first import writes the first file) and the profile "
         "file {name, holds: market, kind, root}",
         "name, holds, kind, root, profile",
-        "MARKET_EXISTS (the profile or an active market exists, or --root is not an empty directory); "
+        "PROFILE_EXISTS (a profile file of that name exists); MARKET_EXISTS (an active market exists, or --root is "
+        "not an empty directory); "
         "ISOLATION_BREACH (an active market in the checkout or a temporary root, or another market in the active "
         "one's directory); INVALID_NAME"),
     ("market", "import"): (
@@ -203,7 +199,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "it, the month after it once it is complete, or the month just before the earliest (a backfill); a skipped "
         "month; a month not begun; a first import with no closed UTC day; on the current month's first day the import "
         "writes its members only); MONTH_EXISTS (the month is complete, a backfilled month already holds bars or other funding rows, or "
-        "stored rows no longer match the sources); IMPORT_SCOPE (--symbols is empty, repeats or malforms a contract); "
+        "stored rows no longer match the sources); EMPTY_SYMBOLS (--symbols is empty, repeats or malforms a contract); "
         "UNIVERSE_CHANGED (members differ from the stored ones); CONCURRENT_IMPORT (the lock is held, or a file "
         "changed under the import); CHECK_FAILED; DATA_TESTS_FAILED; CHECKSUM_MISMATCH, ARCHIVE_NOT_PUBLISHED, "
         "SOURCE_UNREACHABLE"),
@@ -229,7 +225,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "month, imports (one per contract in symbol order: month, symbols, codec (binance-aggtrades-int64-scale8-v1: "
         "price and quantity exactly x1e8), trade_rows, seconds), trade_rows (all contracts), market_day, seconds; a "
         "line per placed contract on stderr",
-        "MONTH_INVALID (the month has not ended; any earlier month in any order); IMPORT_SCOPE (a repeated or malformed "
+        "MONTH_INVALID (the month has not ended; any earlier month in any order); EMPTY_SYMBOLS (a repeated or malformed "
         "symbol); the first refused contract's refusal, naming the contracts written; MARKET_EMPTY; MONTH_EXISTS; "
         "SCALE_LOSS (any value is inexact or outside signed int64: refuse the whole month, no rounding or fallback); "
         "SEQUENCE_GAP (within/between batches, days or eve); SOURCE_SHAPE; CHECKSUM_MISMATCH; ARCHIVE_NOT_PUBLISHED; "
@@ -243,7 +239,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "month, imports (one per contract in symbol order: month, from, through (exclusive end day), symbols, readings "
         "(daily rows, repeated_rows merged, empty ratios), unpublished (days without an archive), metrics_rows), "
         "metrics_rows (all contracts), market_day, seconds; daily progress on stderr",
-        "MONTH_INVALID (no closed UTC day); IMPORT_SCOPE; UNIVERSE_UNKNOWN; MONTH_EXISTS (every closed day already "
+        "MONTH_INVALID (no closed UTC day); EMPTY_SYMBOLS; UNIVERSE_UNKNOWN; MONTH_EXISTS (every closed day already "
         "held); ARCHIVE_NOT_PUBLISHED (no day published); SOURCE_SHAPE (header, symbol, a create_time off the "
         "five-minute grid of its day, no open interest, a negative or non-decimal value, two different rows at one "
         "create_time; identical repeats are merged and counted); SCALE_LOSS (a value needs more than 16 decimals or 22 "
@@ -270,7 +266,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "process restarts); quotes and trades next_month, skipped, filled}, round_refusal, "
         "next_round (an hour later while anything waits or the market is unreadable, else 00:30 UTC of the next "
         "day); import progress on stderr",
-        "IMPORT_SCOPE at start. Rounds never exit: ARCHIVE_NOT_PUBLISHED, CONCURRENT_IMPORT, "
+        "EMPTY_SYMBOLS at start. Rounds never exit: ARCHIVE_NOT_PUBLISHED, CONCURRENT_IMPORT, "
         "MARKET_UNREACHABLE, MARKET_EMPTY, SOURCE_UNREACHABLE, CHECKSUM_MISMATCH, "
         "TRADES_NOT_HELD and (but for bars) MONTH_EXISTS retry next round; a quotes or aggTrades SEQUENCE_GAP downloads "
         "the month again once, then skips the month (a gap on the eve stops the contract's kind instead); "
@@ -294,16 +290,15 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "market_day, scope {symbols, start, end, expanded}, input_interval_ms, coverage [per contract], lifecycle, "
         "lifecycle_missing, interpretation",
         "INTERVAL_INVALID (not UTC whole minutes, or start not before end); EMPTY_SYMBOLS; UNKNOWN_SYMBOL; "
-        "UNKNOWN_REF; LIFECYCLE_INPUT"),
+        "MARKET_DAY_UNKNOWN; LIFECYCLE_INPUT"),
     ("market", "bars"): (
         "bar, funding and instrument at --at (reader), through the exporter's own reads "
         "(market.read_bars, market.daily_bars, market.read_funding)",
         "nothing in any database; with --output, one new file under the temporary root",
         "market_day, symbol, price_type, timeframe, interval {start, end, ms}, next_start, bars {columns, count, rows}, "
         "funding {columns, count, rows}, output",
-        "INTERVAL_INVALID (not UTC whole minutes, start not before end; 1d: not whole UTC days); NO_TERMS (no such "
-        "contract at the market day); UNKNOWN_REF; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); USAGE_ERROR (1d with "
-        "MARK)"),
+        "INTERVAL_INVALID (not UTC whole minutes, start not before end; 1d: not whole UTC days or MARK); UNKNOWN_SYMBOL "
+        "(no such contract at the market day); MARKET_DAY_UNKNOWN; NOT_TEMPORARY_PATH, PATH_EXISTS (--output)"),
 }
 
 
@@ -313,7 +308,7 @@ def register(verbs, verb, runner) -> None:
                              "follow, lifecycle, coverage, bars")
     command = verb(market, "init", "create an empty market directory and its profile")
     command.add_argument("--name", required=True, help="profile name")
-    command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"),
+    command.add_argument("--kind", required=True, choices=profiles.KINDS,
                          help="active (needs the user's authority), isolated or temporary")
     command.add_argument("--root", required=True, type=Path, help="the market directory (absent or empty)")
     command = verb(market, "import", "import one month of bars, funding and terms")
@@ -421,4 +416,4 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("market", "lifecycle"):
         return market_lifecycle(profile, profiles.market(args.market), args.at, args.manifest, args.notices,
                                 args.op_id), 0
-    raise UsageError(f"unknown command {args.noun} {args.verb}")
+    raise refuse("USAGE_ERROR", f"unknown command {args.noun} {args.verb}")

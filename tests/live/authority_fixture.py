@@ -43,7 +43,7 @@ def install(test, root, raw=None, *, release_state=None, mock_inventory=True):
     raw["root"] = str(root)
     declared = {"format": "live-deployment-v1", **{key: raw[key] for key in OPERATOR_FIELDS}}
     durable_json(home / "live/configuration.json", declared)
-    durable_json(home / "router/active.json", route_config(WEB, None))
+    durable_json(home / "router/active.json", route_config(WEB))
 
     def snapshot(web=WEB):
         file = home / "live" / web.removeprefix("trade-release-web-") / "configuration.json"

@@ -176,11 +176,16 @@ def _verified(target: Path, checksum: Path) -> bool:
         return False
 
 
+def _cached(cache_root: Path, key: str) -> tuple[Path, Path]:
+    """Where the cache keeps an archive and its .CHECKSUM."""
+    target = Path(cache_root) / key
+    return target, target.with_name(target.name + ".CHECKSUM")
+
+
 def fetch_archive(cache_root: Path, key: str) -> Path:
     """market.fetch_archive: one monthly or daily archive, copied to disk in bounded chunks and checked
     against its published SHA-256 before it enters the cache."""
-    target = Path(cache_root) / key
-    checksum = target.with_name(target.name + ".CHECKSUM")
+    target, checksum = _cached(cache_root, key)
     if _verified(target, checksum):
         return target
     partial = target.with_name(target.name + ".part")
@@ -205,6 +210,38 @@ def fetch_archive(cache_root: Path, key: str) -> Path:
     finally:
         partial.unlink(missing_ok=True)
     return target
+
+
+def published(cache_root: Path, key: str) -> Path | None:
+    """fetch_archive, None for an archive Binance has not published."""
+    try:
+        return fetch_archive(cache_root, key)
+    except MarketError as exc:
+        if exc.code != "ARCHIVE_NOT_PUBLISHED":
+            raise
+        return None
+
+
+def forget(cache_root: Path, key: str) -> None:
+    """Drop an archive and its .CHECKSUM from the cache."""
+    for path in _cached(cache_root, key):
+        path.unlink(missing_ok=True)
+
+
+def republished(cache_root: Path, key: str) -> bool | None:
+    """None when the cache never held `key`; else whether Binance has published another checksum for it since (the
+    stale copy is then dropped). An archive no longer published has not changed."""
+    _, checksum = _cached(cache_root, key)
+    if not checksum.is_file():
+        return None
+    try:
+        remote = _get(ARCHIVE + urllib.parse.quote(key) + ".CHECKSUM").split()
+    except _NotPublished:
+        return False
+    if remote and remote[0].decode("ascii", errors="replace").lower() != checksum.read_text().split()[0].lower():
+        forget(cache_root, key)
+        return True
+    return False
 
 
 def fetch_all(cache_root: Path, keys: list[str]) -> list[Path]:
@@ -288,17 +325,11 @@ def monthly_archives(cache_root: Path, kind: str, symbol: str, interval: str | N
     stem = _stem("monthly", kind, symbol, interval)
     if len(months) > 3:
         listed, _ = _listing(stem, delimiter=None)
-        published = {period(key) for key in listed if key.endswith(".zip")}
-        wanted = [month for month in months if month in published]
+        out = {period(key) for key in listed if key.endswith(".zip")}
+        wanted = [month for month in months if month in out]
         return dict(zip(wanted, fetch_all(cache_root, [f"{stem}{month}.zip" for month in wanted]), strict=True))
-    found = {}
-    for month in months:
-        try:
-            found[month] = fetch_archive(cache_root, f"{stem}{month}.zip")
-        except MarketError as exc:
-            if exc.code != "ARCHIVE_NOT_PUBLISHED":
-                raise
-    return found
+    found = {month: published(cache_root, f"{stem}{month}.zip") for month in months}
+    return {month: path for month, path in found.items() if path is not None}
 
 
 def daily_archives(cache_root: Path, kind: str, symbol: str, days: list[str]) -> dict[str, Path]:
@@ -323,9 +354,11 @@ def _csv(path: Path) -> bytes:
         return archive.read(names[0])
 
 
-def kline_table(path: Path) -> pa.Table:
-    """An archive's klines as (open_time, open, high, low, close, volume, close_time), prices and volumes
-    as the exchange's decimal strings."""
+def archive_table(path: Path, period: str, low: int, high: int) -> pa.Table:
+    """An archive's klines as (open_time, open, high, low, close, volume, close_time), prices and volumes as the
+    exchange's decimal strings; refused SOURCE_SHAPE unless every row is a closed one-minute kline inside the
+    archive's own month or day `period`, [low, high) (checked before any trimming to a window, so a file in other
+    units or of another period is never silently dropped)."""
     raw = _csv(path)
     header = raw.startswith(b"open_time")
     try:
@@ -335,24 +368,7 @@ def kline_table(path: Path) -> pa.Table:
                                                 column_types={field.name: field.type for field in KLINE_SCHEMA}))
     except pa.ArrowInvalid as exc:
         raise _refuse(f"{path}: rows do not parse as klines ({exc})", "SOURCE_SHAPE", missing=(str(path),)) from exc
-    return table.select(list(COLUMNS)).cast(KLINE_SCHEMA)
-
-
-def period_bounds(period: str) -> tuple[int, int]:
-    """[start, end) UTC milliseconds of an archive period, 'YYYY-MM' or 'YYYY-MM-DD'."""
-    from datetime import date, timedelta
-    from market import series, universe
-    day = date.fromisoformat(period + "-01" if len(period) == 7 else period)
-    following = universe.next_month(day) if len(period) == 7 else day + timedelta(days=1)
-    return series._day_ms(day), series._day_ms(following)
-
-
-def archive_table(path: Path, period: str) -> pa.Table:
-    """An archive's klines, refused SOURCE_SHAPE unless every row is a closed one-minute kline inside the
-    archive's own month or day (checked before any trimming to a window, so a file in other units or of
-    another period is never silently dropped)."""
-    table = kline_table(path)
-    low, high = period_bounds(period)
+    table = table.select(list(COLUMNS)).cast(KLINE_SCHEMA)
     opens, closes = table["open_time"].to_numpy(), table["close_time"].to_numpy()
     bad = (opens < low) | (opens >= high) | (opens % MINUTE != 0) | (closes != opens + MINUTE - 1)
     if bad.any():
@@ -506,11 +522,6 @@ def contract_terms(item: dict) -> dict:
 
 
 # aggTrades daily archives (the complete aggTrades import's source)
-
-AGGTRADES_SCHEMA = pa.schema([("agg_trade_id", pa.int64()), ("price", pa.string()), ("quantity", pa.string()),
-                              ("first_trade_id", pa.int64()), ("last_trade_id", pa.int64()),
-                              ("transact_time", pa.int64()), ("is_buyer_maker", pa.bool_())])
-
 
 def aggtrades_key(symbol: str, day: str) -> str:
     """The archive key of one UTC day's aggTrades of `symbol`."""

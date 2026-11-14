@@ -27,7 +27,7 @@ import tomllib
 
 from cli import (ledger_commands, live_commands, market_commands, paper_commands, replay_commands,
                  research_commands)
-from cli.common import RUNNER_EPILOG, Parser, UsageError, _market_refusal, _print, refusal_json
+from cli.common import RUNNER_EPILOG, Parser, _market_refusal, _print, refusal_json
 from engine.live_errors import LiveRefusal
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -92,7 +92,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     """(result, exit code) of one parsed command."""
     key = (args.noun, args.verb)
     if runner_argv and key not in RUNNER_COMMANDS:
-        raise UsageError(f"{args.noun} {args.verb} takes no runner arguments after --")
+        raise refuse("USAGE_ERROR", f"{args.noun} {args.verb} takes no runner arguments after --")
     return BY_NOUN[args.noun].dispatch(args, runner_argv)
 
 
@@ -107,10 +107,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = _parser().parse_args(argv)
         result, code = _dispatch(args, runner_argv)
-    except UsageError as exc:
-        found = refuse("USAGE_ERROR", str(exc))
-        _print(sys.stderr, refusal_json(found))
-        return 1
     except Refusal as exc:
         _print(sys.stderr, refusal_json(exc))
         return 1

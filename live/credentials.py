@@ -21,7 +21,7 @@ from live import configuration, runs, state
 REF = re.compile(r"[0-9a-f]{32}\Z")
 
 
-def _ref(value: str) -> str:
+def _ref(value: object) -> str:
     if not isinstance(value, str) or not REF.fullmatch(value):
         raise state.fail("LIVE_CREDENTIAL_REF", "the credential version reference is invalid")
     return value
@@ -105,10 +105,8 @@ def _append(root: Path, event: str, credential_ref: str) -> None:
 UNRESOLVED = "an active or unresolved execution still requires its credentials"
 
 
-def _runs(root: Path, *, exclude_run_id: str | None = None) -> list[tuple[str, Path, dict | None, list[dict], str | None]]:
-    """Each retained run with its prepared credential reference. A run prepared under an earlier manifest format has
-    no manifest here (None): its lifecycle and outputs are still read, and only they can settle it (``_in_use``).
-    Only such a run may lack a credential reference (an earlier release prepared runs without one)."""
+def _runs(root: Path, *, exclude_run_id: str | None = None) -> list[tuple[str, Path, dict, list[dict], str]]:
+    """Each retained run of this version with its prepared credential reference (runs.earlier: no other is read)."""
     directory = root / "runs"
     if not os.path.lexists(directory):
         return []
@@ -119,31 +117,21 @@ def _runs(root: Path, *, exclude_run_id: str | None = None) -> list[tuple[str, P
         for item in sorted(directory.iterdir()):
             if item.is_symlink() or not item.is_dir() or not state.RUN_ID.fullmatch(item.name):
                 raise ValueError
-            if item.name == exclude_run_id:
+            if item.name == exclude_run_id or runs.earlier(item):
                 continue  # Only the explicitly proved local partial-prepare target may be excluded.
-            manifest: dict | None
-            try:
-                run_dir, manifest = runs.read_manifest(root, item.name)
-            except LiveRefusal as exc:
-                if exc.code != "LIVE_RUN_FORMAT":
-                    raise
-                run_dir, manifest = item, None
+            run_dir, manifest = runs.read_manifest(root, item.name)
             events = runs.host_events(run_dir)
             prepared = [row for row in events if row.get("event") == "prepared"]
             if len(prepared) != 1:
                 raise ValueError
-            credential_ref = prepared[0].get("credential_ref")
-            if credential_ref is not None:
-                _ref(credential_ref)
-            elif manifest is not None:
-                raise ValueError
+            credential_ref = _ref(prepared[0].get("credential_ref"))
             result.append((item.name, run_dir, manifest, events, credential_ref))
     except (OSError, ValueError, KeyError, TypeError, LiveRefusal):
         raise state.fail("LIVE_CREDENTIAL_BUSY", "retained Live execution ownership is unknown") from None
     return result
 
 
-def _in_use(root: Path, item: tuple[str, Path, dict | None, list[dict], str | None], active: str | None) -> bool:
+def _in_use(root: Path, item: tuple[str, Path, dict, list[dict], str], active: str | None) -> bool:
     run_id, directory, manifest, rows, _ = item
     if active == run_id:
         return True
@@ -154,8 +142,6 @@ def _in_use(root: Path, item: tuple[str, Path, dict | None, list[dict], str | No
     recycled = runs.recycled(directory)
     if recycled and recycled.get("state") in runs.ENDED:
         return False  # Original cleanup verified all retained runners before recording this fact.
-    if manifest is None:
-        return True  # An earlier format's runners can no longer be identified: only a recorded end settles it.
     for launch in launches:
         actual = runs.inspect_runner(root, run_id, directory, manifest, launch)
         if (actual is None or actual["State"].get("Status") != "exited"
@@ -166,8 +152,7 @@ def _in_use(root: Path, item: tuple[str, Path, dict | None, list[dict], str | No
     return runs.settled_state(root, run_id, launches[-1]) is None
 
 
-def _require_idle(root: Path, *, credential_ref: str | None = None, legacy_only: bool = False,
-                  exclude_run_id: str | None = None) -> None:
+def _require_idle(root: Path, *, credential_ref: str | None = None, exclude_run_id: str | None = None) -> None:
     """No state repair: mutation is blocked until the original host path resolves it."""
     blocking = None
     try:
@@ -176,21 +161,26 @@ def _require_idle(root: Path, *, credential_ref: str | None = None, legacy_only:
         if active is not None and active not in {item[0] for item in retained}:
             raise ValueError
         for item in retained:
-            bound = item[4]
-            if legacy_only and bound is not None:
-                continue
-            if credential_ref is not None and bound is not None and bound != credential_ref:
+            if credential_ref is not None and item[4] != credential_ref:
                 continue
             if _in_use(root, item, active):
                 blocking = item
                 break
     except (OSError, ValueError, KeyError, TypeError, LiveRefusal):
         raise state.fail("LIVE_CREDENTIAL_BUSY", UNRESOLVED) from None
-    if blocking is not None and blocking[2] is None:
-        raise state.fail("LIVE_CREDENTIAL_BUSY", f"run {blocking[0]} was prepared under an earlier manifest format "
-                                                 "and has no recorded end, so it keeps its credentials")
     if blocking is not None:
         raise state.fail("LIVE_CREDENTIAL_BUSY", UNRESOLVED)
+
+
+def _require_known(root: Path) -> None:
+    """Every retained run and the account slot read whole: a new effect never proceeds beside unknown ownership."""
+    try:
+        retained = {item[0] for item in _runs(root)}
+        active = runs.active_run(root)
+        if active is not None and active not in retained:
+            raise ValueError
+    except (OSError, ValueError, KeyError, TypeError, LiveRefusal):
+        raise state.fail("LIVE_CREDENTIAL_BUSY", UNRESOLVED) from None
 
 
 def _clear(root: Path, request_id: str | None) -> None:
@@ -278,7 +268,7 @@ def remove_locked(root: Path, credential_ref: str, *, request_id: str | None = N
 
 def prepare_path_locked(root: Path, expected_ref: str, *, request_id: str | None = None) -> Path:
     _clear(root, request_id)
-    _require_idle(root, legacy_only=True)
+    _require_known(root)
     rows = events_locked(root)
     if _current(rows) != _ref(expected_ref):
         raise state.fail("LIVE_CREDENTIAL_CHANGED", "the selected credential changed; prepare the run again")
@@ -355,12 +345,9 @@ def run_path_locked(root: Path, run_id: str, mode: str, *, request_id: str | Non
     if len(matches) != 1:
         raise state.fail("LIVE_CREDENTIAL_UNMANAGED", "this run has no managed credential version")
     credential_ref = matches[0][4]
-    if matches[0][2] is None or credential_ref is None:  # _runs binds every current-format run
-        raise state.fail("LIVE_RUN_FORMAT", "this run was prepared under an earlier manifest format, which is no "
-                                            "longer read")
     rows = events_locked(root)
     if mode != "reconcile":
-        _require_idle(root, legacy_only=True)
+        _require_known(root)
         if _current(rows) != credential_ref:
             raise state.fail("LIVE_CREDENTIAL_CHANGED", "the selected credential changed; prepare the run again")
     return _require_present(root, credential_ref, rows)

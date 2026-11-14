@@ -1,4 +1,4 @@
-"""Release role and old-run compatibility checks never write a ledger or touch native accounts."""
+"""The release role and lifecycle barrier never write a ledger or touch native accounts."""
 
 from contextlib import contextmanager
 import json
@@ -9,8 +9,6 @@ import unittest
 from unittest.mock import Mock, patch
 
 from deploy.paper_host import PAPER, route_config
-from engine.config import RUNTIME_CONTRACT
-from ledger import db, paper as records
 from paper import release, serve
 from tests.paper.test_serve import request, server
 from tests.ledger.dolt import BINARY, SKIP, Service
@@ -49,60 +47,6 @@ class ReleaseRoleTests(unittest.TestCase):
             )
             path.write_text("corrupt")
             self.assertFalse(daemon.active())
-
-    def test_compatibility_keeps_old_image_and_rejects_unsupported_native_checkpoint(self):
-        with tempfile.TemporaryDirectory() as root:
-            profile = SimpleNamespace(service_root=Path(root), database="isolated")
-            old = {"paper_id": 3, "seal": None, "image_ref": "old@sha256:" + "a" * 64}
-
-            @contextmanager
-            def conn(*_):
-                yield Mock()
-
-            identity = {"image_ref": "new@sha256:" + "b" * 64, "runtime_contract": RUNTIME_CONTRACT}
-            with (
-                patch.object(db, "connect", conn),
-                patch.object(records, "paper_runs", return_value=[old]),
-                patch.object(release.image, "resolve", return_value=identity) as resolve,
-            ):
-                result = release.compatible(profile, identity["image_ref"])
-                self.assertEqual(result["runs"], [3])
-                resolve.assert_any_call(old["image_ref"])
-                directory = release.runs.run_dir(profile, 3)
-                (directory / "out/recovery").mkdir(parents=True)
-                (directory / "inputs").mkdir()
-                (directory / "inputs/universe.json").write_text("{}")
-                (directory / "out/recovery/current.json").write_text('{"format":"unknown","identity":"original"}')
-                with (
-                    patch.object(release.recovery, "identity", return_value="original"),
-                    self.assertRaisesRegex(RuntimeError, "checkpoint format"),
-                ):
-                    release.compatible(profile, identity["image_ref"])
-                self.assertEqual(old["image_ref"], "old@sha256:" + "a" * 64)
-
-    def test_empty_or_partial_first_journal_line_is_not_an_incompatible_format(self):
-        with tempfile.TemporaryDirectory() as root:
-            profile = SimpleNamespace(service_root=Path(root), database="isolated")
-            row = {"paper_id": 3, "seal": None, "image_ref": "original"}
-            output = release.runs.run_dir(profile, 3) / "out"
-            output.mkdir(parents=True)
-
-            @contextmanager
-            def conn(*_):
-                yield Mock()
-
-            identity = {"image_ref": "new", "runtime_contract": RUNTIME_CONTRACT}
-            with (
-                patch.object(db, "connect", conn),
-                patch.object(records, "paper_runs", return_value=[row]),
-                patch.object(release.image, "resolve", return_value=identity),
-            ):
-                for data in (b"", b'{"kind":'):
-                    (output / "events.jsonl").write_bytes(data)
-                    self.assertEqual(release.compatible(profile, "new")["runs"], [3])
-                (output / "events.jsonl").write_bytes(b"invalid complete line\n")
-                with self.assertRaisesRegex(RuntimeError, "native journal"):
-                    release.compatible(profile, "new")
 
     def test_barrier_heartbeats_detect_a_lost_database_lock(self):
         import io

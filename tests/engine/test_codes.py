@@ -59,18 +59,18 @@ def catalog(root: Path, minutes: np.ndarray, days: int = 0, symbol="AAAUSDT") ->
     path = root / symbol
     path.mkdir()
     store = ParquetDataCatalog(str(path))
-    native = export.native_symbol(symbol)["instrument_id"]
+    native = export.native_symbol(symbol)
     store.write_instruments([instrument.build_instrument(symbol, TERMS, 2, native, on_grid=True)[0]])
     iid = InstrumentId.from_str(native)
     bars = {"ts_open": START + minutes * MINUTE}
     for name in ("open", "high", "low", "close"):
         bars[name] = np.full(len(minutes), 100 * 10**8, dtype=np.int64)
     bars["volume"] = np.full(len(minutes), 10**4, dtype=np.int64)
-    export.write_marks(store, iid, bars, MINUTE, 8, 8)
+    export.write_marks(store, iid, bars, MINUTE, 8)
     if days:
         daily = {name: np.resize(values[:1], days) for name, values in bars.items()}
         daily["ts_open"] = START - DAY * days + DAY * np.arange(days)
-        export.write_bars(store, f"{iid}-1-DAY-LAST-EXTERNAL", daily, DAY, 2, 3, 8, 4)
+        export.write_bars(store, f"{iid}-1-DAY-LAST-EXTERNAL", daily, DAY, 2, 3)
     return {"symbol": symbol, "catalog_path": path, "instrument_id": iid, "counts": {"mark": len(minutes)}}
 
 
@@ -89,7 +89,7 @@ class LoadRefusalTests(unittest.TestCase):
                        for name in ("open", "high", "low", "close", "volume")}
         later_daily["ts_open"] = START + DAY * np.arange(30)
         export.write_bars(ParquetDataCatalog(str(later["catalog_path"])), f"{later['instrument_id']}-1-DAY-LAST-EXTERNAL",
-                          later_daily, DAY, 2, 3, 8, 4)
+                          later_daily, DAY, 2, 3)
         never = {**catalog(self.root, np.arange(3), symbol="CCCUSDT"), "episode": None}
         warm = SimpleNamespace(warmup=(("1-DAY", 200),))
         stamps = run.history_stamps([ready, later, never], window, warm, self.root)

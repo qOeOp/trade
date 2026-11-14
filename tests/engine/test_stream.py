@@ -228,13 +228,13 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0
     catalog_path = path / "episode-1" if index else path
     catalog_path.mkdir(parents=True)
     store = ParquetDataCatalog(str(catalog_path))
-    native = export.native_symbol(symbol, index)["instrument_id"]
+    native = export.native_symbol(symbol, index)
     made = instrument.build_instrument(symbol, TERMS, 2, native, on_grid=True)[0]
     store.write_instruments([run.with_margins(made, margins) if margins else made])
     iid = InstrumentId.from_str(native)
     bars = series(seed, minutes)
-    counts = {"last": export.write_bars(store, f"{iid}-1-MINUTE-LAST-EXTERNAL", bars, MIN, 2, 3, 8, 4),
-              "mark": export.write_marks(store, iid, bars, MIN, 8, 8),
+    counts = {"last": export.write_bars(store, f"{iid}-1-MINUTE-LAST-EXTERNAL", bars, MIN, 2, 3),
+              "mark": export.write_marks(store, iid, bars, MIN, 8),
               "funding": export.write_funding(catalog_path, str(iid),
                                               [(at, Decimal("0.0001")) for at in sorted(funding)])}
     if quotes:
@@ -242,7 +242,7 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0
         rows = []
         for at, low, high in zip(bars["ts_open"].tolist(), bars["low"].tolist(), bars["high"].tolist(), strict=True):
             rows += [(at + 20_000, low, low + tick), (at + 40_000, high - tick, high)]
-        counts["quote"] = export.write_quotes(store, iid, [rows], 2, "1000", 3, 8)
+        counts["quote"] = export.write_quotes(store, iid, [rows], 2, "1000", 3)
     if trades:
         rows = [(at + offset, 3 * index + number, 10**8, 10**5, number % 2)
                 for index, at in enumerate(bars["ts_open"].tolist())
@@ -273,7 +273,7 @@ def market(root: Path, quotes: bool = False, margins=None, trades: bool = False,
     keep[(every >= 600) & (every < 1500)] = False  # a gap longer than a session window
     contract(root, "币安USDT", every[keep], eight, seed=2, quotes=quotes, margins=margins, trades=trades,
              metrics=metrics)
-    iid = InstrumentId.from_str(export.native_symbol("CCCUSDT", 1)["instrument_id"])
+    iid = InstrumentId.from_str(export.native_symbol("CCCUSDT", 1))
     pre, settled = (START + DAY + 10 * MIN - 1) * 10**6, (START + DAY + 12 * 3_600_000) * 10**6
     events = [InstrumentStatus(iid, MarketStatusAction.PRE_CLOSE, pre, pre).to_dict(),
               InstrumentStatus(iid, MarketStatusAction.CLOSE, settled, settled).to_dict(),
@@ -787,7 +787,7 @@ class StreamTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             catalog_path = Path(temp)
             store = ParquetDataCatalog(str(catalog_path))
-            native = export.native_symbol("AAAUSDT", None)["instrument_id"]
+            native = export.native_symbol("AAAUSDT", None)
             store.write_instruments([instrument.build_instrument("AAAUSDT", TERMS, 2, native, on_grid=True)[0]])
             iid = InstrumentId.from_str(native)
             february, march = START + 31 * DAY, START + (31 + 28) * DAY
@@ -809,7 +809,7 @@ class StreamTests(unittest.TestCase):
         self.assertEqual(run.METRICS_VISIBLE_NS, export.METRICS_VISIBLE_MS * 10**6)
         with tempfile.TemporaryDirectory() as temp:
             catalog_path = Path(temp)
-            native = export.native_symbol("AAAUSDT", None)["instrument_id"]
+            native = export.native_symbol("AAAUSDT", None)
             february, march = START + 31 * DAY, START + (31 + 28) * DAY
             value = (Decimal("1"), Decimal("1"), Decimal("1"), Decimal("1"))
             january = [(stamp, *value) for stamp in range(START, february, 5 * MIN)]

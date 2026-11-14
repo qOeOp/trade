@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import type { LiveEvidence, LiveFact, LiveRequest, LiveRun } from "../model/liveTrading";
 import { duration } from "../lib/format";
 import { dateTime, nsMilliseconds } from "../lib/time";
@@ -13,7 +12,7 @@ const LONG = 24;  // a value longer than this (a hash, a digest, an ID) takes it
 
 /** Recorded facts as a ledger: each a line, its name at the left and its value at the right edge, rules
  *  between them; a long value stands under its name across the line, so it never squeezes the name. */
-export function LiveFacts({ title, facts, children }: { title: string; facts: readonly LiveFact[]; children?: ReactNode }) {
+export function LiveFacts({ title, facts }: { title: string; facts: readonly LiveFact[] }) {
   const zone = useTimeZone();
   return (
     <Section title={title}>
@@ -26,7 +25,6 @@ export function LiveFacts({ title, facts, children }: { title: string; facts: re
           <dd title={format && value !== null ? `${value} ns` : undefined} className={`min-w-0 wrap-anywhere tabular-nums ${long ? "mt-0.5" : "text-right"} ${attention ? textClass("misses") : ""}`}>{shown ?? <span className="text-fg-faint">Unknown</span>}</dd>
         </div>;
       })}</dl> : <p className="text-dense text-fg-faint">No observation received.</p>}
-      {children}
     </Section>
   );
 }

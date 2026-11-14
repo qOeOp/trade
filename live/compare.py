@@ -283,30 +283,17 @@ def measures(compared: Mapping, events: list[dict], since: int | None = None, un
                                         and inside(row.get("ts_init")) for row in events)}}
 
 
-def segment_image(directory: Path, manifest: Mapping, pack: Mapping) -> str:
-    """The runtime image the segment's process ran on: that of the latest launch requested before its first journal
-    line (live.runs.launch_runtime; the manifest's for a launch that names none)."""
-    from live import runs
-    first = next((row["observed_ns"] for row in pack["events"] if isinstance(row.get("observed_ns"), int)), None)
-    launches = [row for row in state.events(directory / "lifecycle.jsonl") if row.get("event") == "launch_requested"
-                and (first is None or row.get("observed_ns", 0) <= first)]
-    return runs.launch_runtime(directory, dict(manifest), launches[-1] if launches else None)["image_ref"]
-
-
 def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path, timeout: float | None = None,
-            number: int | None = None, since: int | None = None, until: int | None = None,
-            image_ref: str | None = None) -> dict:
+            number: int | None = None, since: int | None = None, until: int | None = None) -> dict:
     """live compare: replay one trading start of a Live run (the latest by default) up to `until` (its last minute by
     default) on the archive and write reconcile.json, with its measures over [since, until). Its result also lists
     the decisions the comparison could not explain (cause unexplained, at the decision stage), so a caller never
-    reads reconcile.json. The replay runs on the image the start ran on, or on `image_ref` (the paired replay of an
-    offered runtime image, live.daily)."""
-    directory = state.directory(root, run_id)
-    pack, numbered = segment(read_pack(directory), number)
-    image_ref = image_ref or segment_image(directory, pack["manifest"], pack)
+    reads reconcile.json. The replay runs on the run's runtime image."""
+    pack, numbered = segment(read_pack(state.directory(root, run_id)), number)
     if until is not None:
         pack = cut(pack, until)
     manifest = pack["manifest"]
+    image_ref = manifest["runtime"]["image_ref"]
     symbols = list(manifest["symbols"])
     start, end = window(pack)
     balance, snapshot = wallet(pack)

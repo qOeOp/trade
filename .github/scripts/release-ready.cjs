@@ -12,9 +12,7 @@ const IMAGE = /^ghcr\.io\/qoeop\/trade-ide@sha256:[0-9a-f]{64}$/;
 const SERVICE = /^ghcr\.io\/qoeop\/trade-service@sha256:[0-9a-f]{64}$/;
 const RUNTIME = /^ghcr\.io\/qoeop\/trade-runtime@sha256:[0-9a-f]{64}$/;
 const ownJobs = new Set(['release-ready', 'eligibility-tests']);
-// Versions before v0.2.0 predate this gate; v0.1.0 names a pre-refactor commit.
 const VERSION = /^v(\d+)\.(\d+)\.(\d+)$/;
-const FIRST = [0, 2, 0];
 const STAGING = 'main-ready', PRODUCTION = 'deploy-ready';
 // The host never reports back, so the record says only what CI did.
 const ADMITTED = 'admitted to deploy-ready; the host switches on its next release tick';
@@ -151,11 +149,11 @@ function newer(a, b) {
 const compare = async (github, repo, before, after) =>
   forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${before}...${after}` }));
 
-// The highest version tag at or after FIRST whose commit main contains, or null.
+// The highest version tag whose commit main contains, or null.
 async function version(github, repo, main) {
   const tags = await github.paginate(github.rest.repos.listTags, { ...repo, per_page: 100 });
   const ranked = tags.map((tag) => ({ name: tag.name, sha: tag.commit?.sha, parts: VERSION.exec(tag.name)?.slice(1).map(Number) }))
-    .filter((tag) => tag.parts && SHA.test(tag.sha) && newer(tag.parts, FIRST) >= 0)
+    .filter((tag) => tag.parts && SHA.test(tag.sha))
     .sort((a, b) => newer(b.parts, a.parts));
   for (const tag of ranked) if (await compare(github, repo, tag.sha, main)) return tag;
   return null;

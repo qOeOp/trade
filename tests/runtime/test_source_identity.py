@@ -18,9 +18,9 @@ from tests.helpers import refused
 
 CONTRACT = "replay-contract@v8"
 CURRENT = image.layout(CONTRACT)["source_paths"]
-# The five-file map of builds before replay-contract@v8; no image of this contract reports it.
-LEGACY = {key: CURRENT[key] for key in ("config_source_sha256", "runner_source_sha256", "load_source_sha256",
-                                        "report_source_sha256", "fingerprint_source_sha256")}
+# An incomplete map: five of the current files; no image of this contract reports it.
+INCOMPLETE = {key: CURRENT[key] for key in ("config_source_sha256", "runner_source_sha256", "load_source_sha256",
+                                            "report_source_sha256", "fingerprint_source_sha256")}
 # The map v8 images built before 2026-11-13 report: their runs still reproduce.
 EARLIER, = image.EARLIER_SOURCE_PATHS[CONTRACT]
 
@@ -37,7 +37,7 @@ class SourceIdentityTests(unittest.TestCase):
         cls.root = Path(cls.temporary.name)
         cls.git("init", "--quiet", "--initial-branch", "main")
         cls.builds = []
-        for paths in (LEGACY, CURRENT, EARLIER):
+        for paths in (INCOMPLETE, CURRENT, EARLIER):
             files = {path: (path + "\n").encode() for path in (*paths.values(), "engine/audit.py", "uv.lock")}
             files["engine/config.py"] = declaration(paths)
             for path, raw in files.items():
@@ -76,13 +76,13 @@ class SourceIdentityTests(unittest.TestCase):
         before = json.dumps(self.builds, sort_keys=True)
         self.assertEqual(self.check(1), self.builds[1][0]["build_revision"])
         self.assertEqual(json.dumps(self.builds, sort_keys=True), before)
-        with self.assertRaises(Refusal):  # a revision declaring the older, shorter map
+        with self.assertRaises(Refusal):  # a revision declaring the shorter map
             self.check(0)
-        self.refused(1, self.builds[0][1])  # no new-revision downgrade to the complete old map
+        self.refused(1, self.builds[0][1])  # no new-revision downgrade to the shorter map
         downgraded = deepcopy(self.builds[1][1])
-        downgraded["source_file_paths"] = dict(LEGACY)
+        downgraded["source_file_paths"] = dict(INCOMPLETE)
         downgraded["source_files_sha256"] = {key: value for key, value in downgraded["source_files_sha256"].items()
-                                            if key in LEGACY}
+                                            if key in INCOMPLETE}
         self.refused(1, downgraded)  # even when all five reported hashes match the new revision
         self.refused(0, self.builds[1][1])  # do not rewrite history with new fields
 
@@ -143,7 +143,7 @@ class SourceIdentityTests(unittest.TestCase):
         probe = helper.probe(source_file_paths=dict(CURRENT), source_files_sha256={key: "d" * 64 for key in CURRENT})
         result, _ = helper.inspect(probe=probe)
         self.assertEqual(result["source_file_paths"], CURRENT)
-        bad = [dict(LEGACY), dict(CURRENT)]
+        bad = [dict(INCOMPLETE), dict(CURRENT)]
         bad[1].pop("fill_source_sha256")
         bad += [{**CURRENT, "fill_source_sha256": "engine/run.py"},
                 {**CURRENT, "extra_source_sha256": "engine/extra.py"}]
@@ -162,7 +162,7 @@ class SourceIdentityTests(unittest.TestCase):
 
     def test_dynamic_ambiguous_unknown_or_missing_trusted_declaration_is_refused(self):
         variants = [b"", b"not Python !!!", b"RUNTIME_SOURCE_PATHS = make_paths()\n",
-                    declaration(CURRENT) + declaration(LEGACY),
+                    declaration(CURRENT) + declaration(INCOMPLETE),
                     declaration(CURRENT) + b"RUNTIME_SOURCE_PATHS.update({})\n",
                     declaration(CURRENT) + b"RUNTIME_SOURCE_PATHS['x'] = 'x'\n",
                     declaration(CURRENT) + b"RUNTIME_SOURCE_PATHS |= {}\n",

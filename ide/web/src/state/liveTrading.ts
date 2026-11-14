@@ -28,7 +28,7 @@ const client = createLiveCommands({
   }, onError: recordError, onNotice: (text) => { commandNotice = text; publish(); }, refresh: () => readLiveHome(),
 });
 
-const perRun = (action: "preflight" | "start" | "stop" | "reconcile" | "maintain" | "runtime_switch" | "runtime_switch_cancel", id: string, extra = {}) =>
+const perRun = (action: "preflight" | "start" | "stop" | "reconcile" | "maintain", id: string, extra = {}) =>
   client.invoke(action, `/runs/${encodeURIComponent(id)}/${action}`, { run_id: id }, () => extra);
 const writes: LiveTradingActions = {
   saveCredentials: async (input) => { await client.invoke("credential_save", "/credentials", {}, () => input); },
@@ -44,7 +44,6 @@ const writes: LiveTradingActions = {
   },
   preflight: (id) => perRun("preflight", id), start: (id, source) => perRun("start", id, { confirm_real_orders: source }),
   stop: async (id) => { await perRun("stop", id); }, reconcile: async (id) => { await perRun("reconcile", id); }, maintain: async (id) => { await perRun("maintain", id); },
-  switchRuntime: (id) => perRun("runtime_switch", id), cancelSwitch: (id) => perRun("runtime_switch_cancel", id),
   resolveRequest: (id) => client.resolve(id),
 };
 // Notification settings are not account operations: no request ID, so a plain call and a fresh read.
@@ -65,7 +64,7 @@ function publish(): void {
   view.requests = [...requests.values()];
   // STOP remains available during a release or failed observation. Cleanup has its
   // own owner; the server rechecks these derived permissions under the custody lock.
-  const retained = home ? { stop: writes.stop, cancelSwitch: writes.cancelSwitch, maintain: home.maintenance_enabled ? writes.maintain : undefined,
+  const retained = home ? { stop: writes.stop, maintain: home.maintenance_enabled ? writes.maintain : undefined,
     resolveRequest: home.write_enabled ? writes.resolveRequest : undefined } : {};
   liveTrading.set({ view, actions: { ...(home?.write_enabled && !readError ? writes : {}), ...retained, ...(home?.notify && !readError ? notifyWrites : {}),
     refresh: refreshLiveTrading, inspect: inspectLiveRun } });

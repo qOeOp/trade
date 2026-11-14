@@ -2,7 +2,7 @@
 
 The version is `pyproject.toml`'s; `python -m cli.main --version` and the IDE's About name it beside the commit.
 A version is what releases to the author's host ([`deploy/remote/README.md`](deploy/remote/README.md)): CI admits
-the commit of the highest version tag (`v0.2.0` or later, on `main`) to the `deploy-ready` channel the host reads.
+the commit of the highest version tag on `main` to the `deploy-ready` channel the host reads.
 A merge only reaches `main-ready`, the staging channel every checked `main` build goes to. Shipping a version is the
 user's call each time.
 
@@ -22,9 +22,31 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Deploy (breaking): during 0.x a version keeps no compatibility with earlier ones. `deploy.images` no longer
+  names a runtime built before the replay/execution image split (its combined `sha-<commit>` index); an admitted
+  runtime is always read at `exec-sha-<commit>`. Going back to an earlier version's images is no longer supported:
+  `--revision` stays only to name the admitted revision the host routes, as Live on the host does.
+- Ledger (breaking): no compatibility with services or runs of earlier ledger generations (0.x keeps none). A
+  service start no longer checks for a commit verification group left by a pre-gen-1 product, and `ledger init`
+  no longer clears one; a service that still has one fails its first commit. The single-run report reads
+  `fill_volumes.csv` as a required report: a run without it gets a `FILL_VOLUME_MISSING` limitation instead of an
+  empty participation reading. Nothing on disk is deleted or moved.
+- Release (breaking): 0.x keeps no compatibility between versions (the user's decision of 2026-11-14). With Live
+  installed every release pairs a new control and waits until Live is idle, Web-only ones included; a new control
+  no longer takes over running runners, and no Web is served ahead of its control. Live runs under
+  `LIVE_ROOT/runs` and Paper runs in an earlier format are no longer read; they stay on disk.
+- Paper (breaking): a Paper controller release no longer checks that the candidate can read the checkpoint format
+  and journal of unsealed runs an earlier version left; such runs are no longer read and stay on disk, and the
+  checkpoint's own format check still refuses to recover them. `paper reconcile` and a replayed `paper start` read
+  a run's declared leverage as required: a run declared before leverage was recorded is no longer reconciled at
+  the default.
 - Paper (breaking): the run listing (`GET /api/paper/runs`) names a run's readings so far `readings` instead of
   `live`, the name its stream's `readings` event already has. The release gate's probe reads the new name, so
   reinstall the host's control code with the release (`sh deploy/remote/install-release.sh`), as every release does.
+- Refusals (breaking): one code per condition. A market reference is `head` or a day (`main` is refused); a
+  bad or late market day is `MARKET_DAY_UNKNOWN` (was `UNKNOWN_REF` or `MARKET_DAY_INVALID`), a contract the market day
+  lacks `UNKNOWN_SYMBOL` (was `NO_TERMS`), a bad contract list `EMPTY_SYMBOLS` (was `IMPORT_SCOPE`), and Paper with
+  no current-month member `UNIVERSE_EMPTY`. A profile file without `holds` is no longer read as a research ledger.
 - Live: each contract's membership grows month by month as Paper's. The control writes
   `inputs/membership/<YYYY-MM>.json` once a month after the run's market day has begun and the market holds it, and
   the runner denies an entry on a contract outside its membership natively (`entry_outside_membership`; the run goes
@@ -32,30 +54,24 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `membership_stale` (`LIVE_MEMBERSHIP_STALE`) is journalled once.
 - Live (breaking): each source in the Live declaration names its own contracts (`symbols`, those of its replay
   evidence, one strategy instance each) instead of one top-level `symbols`; the launch page shows the chosen source's,
-  and the comparison replays and reconciles every contract of a run, each against its own commission. Web protocol 7.
+  and the comparison replays and reconciles every contract of a run, each against its own commission.
   Before releasing, with no run holding the account, move the declaration's `symbols` into each `sources` row
   (`deploy/remote/README.md`).
 - Live (breaking): a 15% drawdown-from-highest-equity brake (wallet plus unrealized, fees and funding counted, read
   over REST every 15 s; a run may set it tighter) replaces the per-run loss limit, and the cash floor is 85% of the
-  wallet at the run's first start instead of a declared budget. Manifest format `live-run-4` and web protocol 6:
-  runs prepared earlier are refused (`LIVE_RUN_FORMAT`). Before releasing, with no run holding the account, replace
+  wallet at the run's first start instead of a declared budget. Before releasing, with no run holding the account, replace
   the Live declaration's `defaults` with `{"duration_seconds": …, "leverage": …}` (`deploy/remote/README.md`).
 - Live (breaking): every run needs an API key restricted to the host's IP (`LIVE_KEY_IP_UNRESTRICTED`), timed or
   not, and a run may have no duration. Each entry and comparison bounds the clock: an entry over the limit is denied
   natively and the run goes on. A contract Binance lists as not `TRADING` closes entries (new ones denied natively,
   positions keep their exchange stops) until it trades again. The control reads a running run's key permissions
   hourly and tells the user when they fail.
-- Live (breaking): a running run can take the release's runtime image without ending (`runtime_switch`, "Switch at
-  next flat" on its page): at its next flat moment the start ends without closing anything and the run starts again
-  on the new image, keeping its brake, highest equity, cash floor and history; one that does not reach its warm-up
-  falls back to the previous image once. The daily comparison also replays the latest compared day on the offered
-  image. Runner contract 2 (the runner reads `SWITCH`): a control of contract 1 cannot adopt its runners.
 - Live (breaking): the runner trades several contracts, one instance of the source per contract as in a replay, each
   with its own strategy ID (`LIVE-<run>-<coin>`) and ordering only on its own contract; instances coordinate legs
   through state the source shares between them. Margin settings, terms, status, the 3-times limit, the comparison and
   mark prices are per contract; the brake, cash floor, account modes and entry queue per account. A contract not
   `TRADING` denies entries on it alone; a missing bar on any contract closes entries on all, and the run warms up
-  again once flat. `LIVE_SYMBOL_SCOPE` is gone. Runner contract 3: a control of contract 2 cannot adopt its runners.
+  again once flat. `LIVE_SYMBOL_SCOPE` is gone.
 
 ## 0.2.0 (2026-11-11)
 

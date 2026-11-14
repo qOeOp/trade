@@ -78,8 +78,11 @@ def native() -> metrics.Reports:
     audit = {"passed": True, "findings": [], "native_economics": {
         "reported_realized_pnl_usdt": "9.70000000", "fill_commissions_usdt": "0.30000000",
         "reported_funding_usdt": "0", "final_balance_usdt": "100009.70000000"}}
+    volumes = [{"event_id": event, "instrument_id": IID, "bar_ts_open_ns": minute, "bar_volume": volume}
+               for event, minute, volume in (("E-1", "1", "4"), ("E-2", "2", "10"), ("E-3", "3", "2"))]
     return metrics.Reports(summary=summary, audit=audit, orders=orders, fills=fills, positions=positions,
-                           account=account, returns=returns, exposures=exposures, order_events=[])
+                           account=account, returns=returns, exposures=exposures, order_events=[],
+                           fill_volumes=volumes)
 
 
 def report(reports: metrics.Reports) -> dict:
@@ -116,7 +119,9 @@ class SealedReportTests(unittest.TestCase):
         self.assertEqual(sealed["limitations"], [])
         daily = metrics.daily_rows(native())
         self.assertEqual([mean for _, _, mean in daily], [Decimal(0), Decimal(1100), Decimal(600), Decimal(800)])
-        self.assertEqual(capital["participation"], {"value": None, "population": "fills"})  # an older image
+        self.assertEqual(capital["participation"]["value"],
+                         {"execution": None, "fills": 3, "median": 0.25, "p95": 0.5, "p99": 0.5, "max": 0.5,
+                          "minute_max": 0.5, "no_bar": 0, "zero_volume": 0, "above_volume": 0, "engine_fills": 0})
 
     def test_the_order_funnel_leaves_out_every_child_and_every_reduce_only_order(self):
         reports = native()

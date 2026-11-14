@@ -75,6 +75,14 @@ class ForeignInventoryTests(unittest.TestCase):
         self.assertEqual(runner.call_args.args[0], self.canonical)
         self.assertEqual(runner.call_args.args[4]["mode"], "preflight")
 
+    def test_an_earlier_format_runs_container_is_never_read_and_holds_the_account_only_while_running(self):
+        manifest = self.canonical / "runs/same-run/inputs/manifest.json"
+        manifest.write_bytes(state.encode({**state.read(manifest), "format": "live-run"}))
+        self.found["Mounts"][0]["Source"] = str(self.canonical / "runs/same-run/out")
+        self.refused()  # still running: no release or new run beside it
+        self.found["State"] = {"Running": False, "Status": "exited", "ExitCode": 0}
+        self.check().assert_not_called()
+
     def test_inaccessible_foreign_history_does_not_get_mounted_or_initialized(self):
         absent = self.work / "not-mounted"
         self.found["Mounts"][0]["Source"] = str(absent / "runs/same-run/out")
