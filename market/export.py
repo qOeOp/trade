@@ -136,17 +136,22 @@ def on_grid(values: np.ndarray, increment: str, scale: int) -> bool:
     return step == step.to_integral_value() and (not len(values) or not np.any(values % int(step)))
 
 
-def price_grid(market: files.Market, market_day: str, symbol: str, increment: str) -> tuple[int, bool]:
-    """(decimals, on grid) of every one-minute LAST price of `symbol` stored by the market day: the fewest decimals
-    that represent them all, and whether each is a whole multiple of `increment`. The contract's whole history,
-    never the window's, so the instrument's tick is a function of the market day alone and every window of
-    one market day trades on one grid (a few seconds for a contract's 3.6 million minutes)."""
+def price_grid(market: files.Market, market_day: str, symbol: str, increment: str, start_ms: int) -> tuple[int, bool]:
+    """(decimals, on grid) of `symbol`'s one-minute LAST prices stored by the market day: the fewest decimals that
+    represent the contract's whole history, and whether every price from `start_ms` (a window's first minute, its
+    warm-up included) to the market day is a whole multiple of `increment`. The tick a window trades on is thereby
+    the one in force from its start on, as Paper and Live trade on it, and depends on the market day and the window's
+    start but never on its end: a window that reaches back before the contract's last minute off the terms' tick
+    (BTCUSDT: 0.01 until 2022-02, then a few stray minutes to 2024-08) widens to the prices' finest step, which
+    Nautilus needs to match every bar (docs/plans/trust-boundary-deferred.zh.md)."""
     places, grid = 0, True
     prices = [COLUMNS.index(name) for name in ("open", "high", "low", "close")]
+    opened = COLUMNS.index("ts_open")
     for block in coverage.bar_blocks(market, market_day, symbol, "LAST", 0, None):
-        values = block[:, prices].ravel()
-        places = max(places, needed_decimals(values, series.PRICE_SCALE))
-        grid = grid and on_grid(values, increment, series.PRICE_SCALE)
+        values = block[:, prices]
+        places = max(places, needed_decimals(values.ravel(), series.PRICE_SCALE))
+        if grid:
+            grid = on_grid(values[block[:, opened] >= start_ms].ravel(), increment, series.PRICE_SCALE)
     return places, grid
 
 
@@ -518,7 +523,7 @@ def _export_episode(job: dict, path: Path) -> dict:
     dailies = [daily_bars(market, market_day, symbol, -(-piece["low_ns"] // 1_000_000) if piece["index"] else 0,
                           piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None and piece["index"]
                           else None, end) for piece in split]
-    places, grid = price_grid(market, market_day, symbol, terms["price_increment"])
+    places, grid = price_grid(market, market_day, symbol, terms["price_increment"], start)
     precision = max(instrument.decimals(terms["price_increment"]), places)
     size_increment = instrument.decimals(terms["size_increment"])
     pieces, record = [], None
