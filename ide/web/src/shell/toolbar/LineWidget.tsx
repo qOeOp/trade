@@ -14,7 +14,7 @@ import { useLineState } from "../../state/lineState";
 // The gates `research state` reads before the line's next registration, in words; the message keeps the detail.
 const GATES: Record<string, string> = {
   INTERPRETATION_REQUIRED: "Runs await interpretation", REVIEW_DUE: "Recommendation review due",
-  RUNTIME_UNSUPPORTED: "Runtime no longer runs the line", MARKET_DAY_UNRESOLVED: "Market day not in the market",
+  MARKET_DAY_UNRESOLVED: "Market day not in the market",
 };
 const trialList = (ids: number[]) => `${ids.length === 1 ? "trial" : "trials"} ${ids.join(", ")}`;
 
