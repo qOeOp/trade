@@ -40,14 +40,12 @@ class OpenLinesStateTests(unittest.TestCase):
         world = World("state-lines")
         self.addCleanup(world.close)
         mine = world.line["line"]
-        with db.connect(world.profile, "reader") as conn:
-            state = status.research_state(conn)
+        state = status.research_state(world.profile)
         self.assertEqual((state["line"]["name"], [item["name"] for item in state["open_lines"]]), (mine, [mine]))
         with pinned(date(2026, 1, 1), date(2026, 3, 1)):
             other = lines.select_line(world.conn, MARKET_DAY, "rsi@1", slug="rsi-wider", market=market(),
                                       reviews=reviewed(source("root")))["line"]
-        with db.connect(world.profile, "reader") as conn:
-            state, named = status.research_state(conn), status.research_state(conn, other)
+        state, named = status.research_state(world.profile), status.research_state(world.profile, other)
         self.assertIsNone(state["line"])
         self.assertEqual([(gate["code"], gate["missing"]) for gate in state["gates"]],
                          [("LINE_AMBIGUOUS", [mine, other])])
@@ -57,8 +55,7 @@ class OpenLinesStateTests(unittest.TestCase):
         self.assertEqual(named["line"]["name"], other)
         self.assertIsNone(status.research_status(world.profile)["comparison"])
         lines.close_line(world.profile, mine, b"rsi root summary", MARKET_DAYS)
-        with db.connect(world.profile, "reader") as conn:
-            self.assertEqual(status.research_state(conn)["line"]["name"], other)
+        self.assertEqual(status.research_state(world.profile)["line"]["name"], other)
 
 
 class UndistinguishedRunsTests(unittest.TestCase):
@@ -194,27 +191,26 @@ class TrialCountTests(unittest.TestCase):
                                       db.head_commit(world.conn), "corrected conclusion",
                                       subjects=[{"role": "about", "candidate": "rsi@1"}],
                                       supersedes=first["judgment_id"])
-        with db.connect(world.profile, "reader") as conn:
-            default = status.research_state(conn)
-            first_page = status.research_state(conn, history=True)
-            self.assertEqual(default["judgment_history"], {"total": 22, "superseded": 1,
-                                                           "entries": [], "next_before": None})
-            self.assertEqual(default["gates"], first_page["gates"])
-            self.assertEqual(default["interpretations"], first_page["interpretations"])
-            history = first_page["judgment_history"]
-            self.assertEqual(len(history["entries"]), 20)
-            self.assertEqual(history["entries"][0]["supersedes"], first["judgment_id"])
-            older = status.research_state(conn, at=first_page["ledger_commit"], history_before=history["next_before"])
-            tail = older["judgment_history"]
-            self.assertEqual(len(tail["entries"]), 2)
-            original = tail["entries"][-1]
-            self.assertEqual((original["body"], original["superseded_by"]),
-                             ("original conclusion", last["judgment_id"]))
-            self.assertEqual(original["subjects"][0]["strategy_id"], "rsi")
-            self.assertIsNone(tail["next_before"])
-            pinned = status.research_state(conn, at=first["ledger_commit"], history=True)
-            self.assertEqual(pinned["judgment_history"]["total"], 1)
-            self.assertIsNone(pinned["judgment_history"]["entries"][0]["superseded_by"])
+        default = status.research_state(world.profile)
+        first_page = status.research_state(world.profile, history=True)
+        self.assertEqual(default["judgment_history"], {"total": 22, "superseded": 1,
+                                                       "entries": [], "next_before": None})
+        self.assertEqual(default["gates"], first_page["gates"])
+        self.assertEqual(default["interpretations"], first_page["interpretations"])
+        history = first_page["judgment_history"]
+        self.assertEqual(len(history["entries"]), 20)
+        self.assertEqual(history["entries"][0]["supersedes"], first["judgment_id"])
+        older = status.research_state(world.profile, at=first_page["ledger_commit"], history_before=history["next_before"])
+        tail = older["judgment_history"]
+        self.assertEqual(len(tail["entries"]), 2)
+        original = tail["entries"][-1]
+        self.assertEqual((original["body"], original["superseded_by"]),
+                         ("original conclusion", last["judgment_id"]))
+        self.assertEqual(original["subjects"][0]["strategy_id"], "rsi")
+        self.assertIsNone(tail["next_before"])
+        pinned = status.research_state(world.profile, at=first["ledger_commit"], history=True)
+        self.assertEqual(pinned["judgment_history"]["total"], 1)
+        self.assertIsNone(pinned["judgment_history"]["entries"][0]["superseded_by"])
 
     def test_reproductions_and_trials_stopped_before_the_strategy_are_not_counted(self):
         world = self.world
@@ -390,10 +386,9 @@ class ComparisonTableTests(unittest.TestCase):
         first, second = self.refs
         self.world.judge("priority", subjects=[{"role": "parent", "candidate": first},
                                                {"role": "control", "candidate": second}])
-        with db.connect(self.world.profile, "reader") as conn:
-            self.assertNotIn("RUNTIME_UNSUPPORTED", [gate["code"] for gate in status.research_state(conn)["gates"]])
-            with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
-                gate = status.research_state(conn)["gates"][-1]
+        self.assertNotIn("RUNTIME_UNSUPPORTED", [gate["code"] for gate in status.research_state(self.world.profile)["gates"]])
+        with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
+            gate = status.research_state(self.world.profile)["gates"][-1]
         self.assertEqual((gate["code"], gate["missing"]), ("RUNTIME_UNSUPPORTED", sorted(self.refs)))
         self.assertIn(strategies.RUNTIME_CONTRACT, gate["message"])
         self.assertIn("replay-contract@v99", gate["message"])
@@ -410,10 +405,9 @@ class ComparisonTableTests(unittest.TestCase):
                 self.world.open_precheck(source(tag), runtime=runtime, purpose="explore")
 
         def gates() -> list[str]:
-            with db.connect(self.world.profile, "reader") as conn, \
-                    mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True), \
+            with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True), \
                     mock.patch.object(reproduction, "matches", return_value=True):
-                return [gate["code"] for gate in status.research_state(conn)["gates"]]
+                return [gate["code"] for gate in status.research_state(self.world.profile)["gates"]]
 
         reproduce_all(strategies.RUNTIME_CONTRACT)
         self.assertIn("RUNTIME_UNSUPPORTED", gates(), "a reproduction under the old contract moved nothing")
@@ -424,29 +418,27 @@ class ComparisonTableTests(unittest.TestCase):
         trials = sorted(run["trial_id"] for run in self.runs.values())
         own = self.runs[self.refs[0]]
         with db.connect(self.world.profile, "reader") as conn:
-            self.assertIsNone(status.research_state(conn)["runs_behind_image"], "unknown without the current image")
+            self.assertIsNone(status.research_state(self.world.profile)["runs_behind_image"], "unknown without the current image")
             digest = conn.one(f"SELECT {db.IMAGE_DIGEST} FROM trial WHERE trial_id = %s", (own["trial_id"],))["image_digest"]
-            self.assertEqual(status.research_state(conn, current_image=digest)["runs_behind_image"], [])
-            behind = status.research_state(conn, current_image="ghcr.io/x/y@sha256:new")
+            self.assertEqual(status.research_state(self.world.profile, current_image=digest)["runs_behind_image"], [])
+            behind = status.research_state(self.world.profile, current_image="ghcr.io/x/y@sha256:new")
             self.assertEqual((behind["current_image"], behind["runs_behind_image"]), ("ghcr.io/x/y@sha256:new", trials))
         newer = "sha256:" + "9" * 64
         first = self.runs[self.refs[0]]["trial_id"]
         explore = self.world.open_precheck(source("first"), runtime={**RUNTIME, "image_ref": "ghcr.io/x/y@" + newer,
                                                                      "image_digest": newer}, purpose="explore")
-        with db.connect(self.world.profile, "reader") as conn:
-            self.assertEqual(status.research_state(conn, current_image=newer)["runs_behind_image"], trials,
-                             "an explore that does not reproduce the run moves nothing")
-            with mock.patch.object(reproduction, "matches", side_effect=lambda _, later, original, **__: (later, original) == (explore, first)):
-                self.assertEqual(status.research_state(conn, current_image=newer)["runs_behind_image"],
-                                 [trial_id for trial_id in trials if trial_id != first], "its reproduction on the image")
+        self.assertEqual(status.research_state(self.world.profile, current_image=newer)["runs_behind_image"], trials,
+                         "an explore that does not reproduce the run moves nothing")
+        with mock.patch.object(reproduction, "matches", side_effect=lambda _, later, original, **__: (later, original) == (explore, first)):
+            self.assertEqual(status.research_state(self.world.profile, current_image=newer)["runs_behind_image"],
+                             [trial_id for trial_id in trials if trial_id != first], "its reproduction on the image")
 
     def test_y_the_default_state_keeps_the_judgments_after_the_recommendation(self):
         first, second = self.refs
         self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": first},
                                                      {"role": "about", "candidate": second}])
         later = self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.runs[first]["trial_id"]}])
-        with db.connect(self.world.profile, "reader") as conn:
-            default, full = status.research_state(conn), status.research_state(conn, full=True)
+        default, full = status.research_state(self.world.profile), status.research_state(self.world.profile, full=True)
         self.assertEqual([item["judgment_id"] for item in default["interpretations"]], [later])
         self.assertEqual(default["earlier"], {"interpretations": len(full["interpretations"]) - 1,
                                               "search_exposures": len(full["search_exposures"])})
@@ -644,10 +636,9 @@ class ExecutionIdentityTests(unittest.TestCase):
                          ("RECOMMENDATION_INCOMPLETE", tuple(sorted(self.refs))))
 
     def test_c_the_unreviewed_trials_are_those_of_the_lines_identity_and_the_count_keeps_every_one(self):
-        with db.connect(self.world.profile, "reader") as conn:
-            empty = status.research_state(conn, at=self.selected)
-            old = status.research_state(conn, at=self.before)
-            new = status.research_state(conn)
+        empty = status.research_state(self.world.profile, at=self.selected)
+        old = status.research_state(self.world.profile, at=self.before)
+        new = status.research_state(self.world.profile)
         self.assertEqual((empty["execution_identity"], empty["unreviewed_trials"]), (None, []))
         self.assertEqual(old["unreviewed_trials"], [self.trials[ref] for ref in self.refs])
         self.assertEqual(new["unreviewed_trials"], [self.trials[self.third]])
@@ -685,5 +676,4 @@ class ExecutionIdentityTests(unittest.TestCase):
 
     def test_d_a_recommendation_of_the_new_identity_need_not_name_the_old_one(self):
         self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": self.third}])
-        with db.connect(self.world.profile, "reader") as conn:
-            self.assertEqual(status.research_state(conn)["unreviewed_trials"], [])
+        self.assertEqual(status.research_state(self.world.profile)["unreviewed_trials"], [])

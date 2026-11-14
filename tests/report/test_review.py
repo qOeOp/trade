@@ -90,7 +90,7 @@ class TamperTests(unittest.TestCase):
         self.assertEqual([item["record_id"] for item in missing], [str(self.unwitnessed["registration_id"])])
         with db.connect(self.profile, "writer") as writer:
             self.assertEqual(refused(review.review_all, writer).code, "LEDGER_PERMISSION")
-        exported = admin.export_history(self.profile, self.profile.backup_root, trial_ids=[self.fixture_run])
+        exported = admin.export_history(self.profile, self.profile.backup_root)
         manifest = json.loads(Path(exported["manifest_path"]).read_text())
         self.assertEqual((manifest["ledger_name"], manifest["commit"], len(manifest["runs"])),
                          (self.profile.name, exported["commit"], 1))
@@ -102,7 +102,7 @@ class TamperTests(unittest.TestCase):
         self.assertEqual((backed["history"]["status"], backed["limitations"]), ("current", []))
         self.assertNotIn("BACKUP_BEHIND", codes(backed))
         with patch.object(admin, "_sync_backup"):
-            again = admin.export_history(self.profile, self.profile.backup_root, trial_ids=[self.fixture_run])
+            again = admin.export_history(self.profile, self.profile.backup_root)
         self.assertEqual(again["runs"], 1, "an earlier export of this ledger is refreshed")
         self.admin_sql("CALL DOLT_COMMIT('--allow-empty', '-m', 'a later commit')")
         with self.reader() as conn:
@@ -110,19 +110,17 @@ class TamperTests(unittest.TestCase):
         self.assertEqual((later["history"]["status"], later["history"]["commits_behind"]), ("behind", 1))
         self.assertIn("BACKUP_BEHIND", codes(later), "U2: a backup behind the head is a finding")
 
-    def test_2_an_export_goes_outside_checkouts_and_names_only_sealed_runs(self):
+    def test_2_an_export_goes_outside_checkouts_and_refuses_a_broken_backup(self):
         inside = paths.REPOSITORY / "export-here"
         self.assertEqual(refused(admin.export_history, self.profile, inside).code, "EXPORT_PATH_INVALID")
         foreign = self.backups / "foreign"
         foreign.mkdir()
         self.assertEqual(refused(admin.export_history, self.profile, foreign).code, "EXPORT_PATH_INVALID")
-        self.assertEqual(refused(admin.export_history, self.profile, self.backups / "new", trial_ids=[999]).code,
-                         "UNKNOWN_RUN")
         broken = self.backups / "broken"
         with patch.object(admin, "_sync_backup"):
-            admin.export_history(self.profile, broken, trial_ids=[self.fixture_run])
+            admin.export_history(self.profile, broken)
         (broken / "backup").write_text("not a backup directory")
-        self.assertEqual(refused(admin.export_history, self.profile, broken, trial_ids=[self.fixture_run]).code,
+        self.assertEqual(refused(admin.export_history, self.profile, broken).code,
                          "DOLT_BACKUP")
 
     def test_3_the_out_of_sample_report_lists_the_registration_family_and_no_verdict(self):
@@ -177,7 +175,7 @@ class TamperTests(unittest.TestCase):
                                                              "'rsi' AND revision = 1")
         self.admin_sql("UPDATE candidate SET description = 'rewritten' WHERE strategy_id = 'rsi' AND revision = 1",
                        "CALL DOLT_COMMIT('-a', '-m', 'tamper: change a row')")
-        backed = admin.export_history(self.profile, self.profile.backup_root, trial_ids=[self.fixture_run])["commit"]
+        backed = admin.export_history(self.profile, self.profile.backup_root)["commit"]
         self.admin_sql("CALL DOLT_COMMIT('--amend', '--allow-empty', '-m', 'tamper: amend the backed-up head')")
         self.admin_sql("SET FOREIGN_KEY_CHECKS = 0",
                        "INSERT INTO trial_instrument (trial_id, instrument_id) VALUES (9999, 'AAAUSDT')",
@@ -190,8 +188,7 @@ class TamperTests(unittest.TestCase):
         changed = next(item for item in found["findings"] if item["code"] == "ROW_CHANGED")
         self.assertEqual((changed["table"], changed["record_id"]), ("candidate", rsi))
         # the backup of the amended head is evidence: the next backup sync refuses rather than overwrite it
-        self.assertEqual(refused(admin.export_history, self.profile, self.profile.backup_root,
-                                 trial_ids=[self.fixture_run]).code, "BACKUP_DIVERGED")
+        self.assertEqual(refused(admin.export_history, self.profile, self.profile.backup_root).code, "BACKUP_DIVERGED")
         self.assertEqual(admin.backup_head(admin.backup_path(self.profile)), backed)
         with self.reader() as conn:
             again = review.review_all(conn)
