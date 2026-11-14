@@ -26,6 +26,10 @@ unlike the replay's, or a lone group at the window's end. Only when none applies
 unexplained difference that the replay made alone (a group or an order only the replay had) is a look-ahead
 suspect. Once the paths part, the positions they trade from differ, so each later difference up to the next
 agreeing group is a consequence of that first one.
+
+A first difference also carries the early bars of its contract over the same span with the largest lead (a live bar
+the run's clock stamped before its close: that clock was behind the venue's). They are shown, not a cause: they do not
+change the attribution or a look-ahead suspect (user 2026-11-14).
 """
 
 from __future__ import annotations
@@ -347,7 +351,12 @@ def _period(bar_type: str, instrument_id: str) -> str:
 def bars(run_bars: list[dict], archive: Mapping[str, list[list]], start: int, end: int) -> dict[str, dict]:
     """Per contract, the one-minute bars the run's source received against the archive's: {missing: closes of
     archive bars no live bar matched, late: closes of live bars that reached the source more than LATE_NS after
-    their close, differing: {close: {field: [live, archive]}}, live_only}."""
+    their close, early: {close: ns by which the source's clock stamped (ts_init) the live bar before its close},
+    differing: {close: {field: [live, archive]}}, live_only}.
+
+    A bar reaches the source after its close, so an early one means the run's clock was behind the venue's. The
+    Sandbox matches a bar at its ts_init, so Paper sees a GTD order expire at that close one bar late (probe
+    2026-11-14)."""
     live: dict[str, dict[int, dict]] = {}
     for line in run_bars:
         if line.get("bar_type", f"{line['instrument_id']}-{MINUTE_BAR}") != f"{line['instrument_id']}-{MINUTE_BAR}":
@@ -367,7 +376,9 @@ def bars(run_bars: list[dict], archive: Mapping[str, list[list]], start: int, en
                     differing[close] = fields
         late = sorted(close for close, bar in mine.items()
                       if isinstance(bar.get("wall_ns"), int) and bar["wall_ns"] - (close + MILLISECOND_NS) > LATE_NS)
-        result[symbol] = {"archive": len(stored), "live": len(mine), "late": late,
+        early = {close: close - bar["ts_init"] for close, bar in sorted(mine.items())
+                 if isinstance(bar.get("ts_init"), int) and bar["ts_init"] < close}
+        result[symbol] = {"archive": len(stored), "live": len(mine), "late": late, "early": early,
                           "missing": sorted(set(stored) - set(mine)), "live_only": sorted(set(mine) - set(stored)),
                           "differing": differing}
     return result
@@ -513,7 +524,7 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
     look-ahead suspect, or the earlier difference it follows."""
     agreed: dict[str, int] = {}  # the decision of the contract's latest agreeing group
     parted: dict[str, int] = {}  # the contract's first difference since its previous agreeing group
-    empty: dict = {"missing": [], "late": [], "differing": {}}
+    empty: dict = {"missing": [], "late": [], "early": {}, "differing": {}}
     for group in compared:
         symbol = symbol_of(group["instrument"])
         first, last = _span(group)
@@ -544,6 +555,8 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
                  "contract_terms": bool(evidence["terms"]),
                  "window_end": _alone(group, ("run_only", "replay_only")) and last >= end - MINUTE_NS, "entry_gate": _gated(group, gate or {})}
         cause = next((name for name in CAUSES if known[name]), "unexplained")
+        early = [inputs["early"][close] for close in _within(inputs["early"], since, last)]
+        evidence |= {"early_bars": len(early), "early_lead_ms": text(Decimal(max(early)) / MILLISECOND_NS) if early else None}
         group |= {"cause": cause, "evidence": evidence,
                   "look_ahead_suspect": cause == "unexplained" and _alone(group, ("replay_only",))}
     return compared
@@ -620,9 +633,11 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
     inputs = {symbol: {"bars": {**{key: item[key] for key in ("archive", "live")},
                                 # The lists stop at LISTED; the counts are complete.
                                 "missing_bars": len(item["missing"]), "late_bars": len(item["late"]),
-                                "differing_bars": len(item["differing"]),
+                                "early_bars": len(item["early"]), "differing_bars": len(item["differing"]),
                                 "missing": [utc_text(close) for close in item["missing"][:LISTED]],
                                 "late": [utc_text(close) for close in item["late"][:LISTED]],
+                                "early": [{"close": utc_text(close), "lead_ms": text(Decimal(lead) / MILLISECOND_NS)}
+                                          for close, lead in list(item["early"].items())[:LISTED]],
                                 "live_only": [utc_text(close) for close in item["live_only"][:LISTED]],
                                 "differing": [{"close": utc_text(close), "fields": fields}
                                               for close, fields in list(item["differing"].items())[:LISTED]]},
@@ -632,6 +647,7 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
     summary: dict = {"run_orders": len(run_orders), "run_fills": sum(bool(item["filled"]) for item in run_orders),
                "missing_bars": sum(len(item["missing"]) for item in found.values()),
                "late_bars": sum(len(item["late"]) for item in found.values()),
+               "early_bars": sum(len(item["early"]) for item in found.values()),
                "differing_bars": sum(len(item["differing"]) for item in found.values()),
                "warmup_differs": sum(not item["same"] for item in warmed.values()),
                "terms_differ": sum(bool(item["differs"] or item["fees"]) for item in contract.values())}

@@ -75,6 +75,7 @@ function Row({ g, row, i, only, p }: { g: Group; row: OrderRow; i: number; only:
           {row.class === "quantity" && <span className="text-fg-muted"> {fixed(row.run?.fill?.qty ?? row.run?.qty, p.size) ?? MISSING} vs {fixed(row.replay?.fill?.qty ?? row.replay?.qty, p.size) ?? MISSING}</span>}
           {g.cause && <span className="text-fg-muted"> · {suspect ? "look-ahead suspect"
             : g.cause === "consequence" ? `after the difference at ${g.follows ? dateTime(utcInstant(g.follows), zone) : MISSING}` : CAUSE[g.cause]}</span>}
+          {!!g.evidence?.early_bars && <span className="text-fg-muted"> · {plural(g.evidence.early_bars, "bar")} early, up to {Number(g.evidence.early_lead_ms).toFixed(1)} ms: the run's clock was behind</span>}
         </>}
       </td>
     </tr>
@@ -112,8 +113,9 @@ export function Compare({ r, paperId, only, digits }: {
   const { groups, inputs, replay } = r.result;
   const barsOf = (only ? [inputs[only]].filter(Boolean) : Object.values(inputs)).map((c) => c!.bars);
   const missing = barsOf.reduce((n, b) => n + b.missing_bars, 0), late = barsOf.reduce((n, b) => n + b.late_bars, 0);
+  const early = barsOf.reduce((n, b) => n + b.early_bars, 0);
   const unlike = barsOf.reduce((n, b) => n + b.differing_bars, 0);
-  const barCounts = <span className="text-fg-faint">{plural(missing, "live bar")} missing, {late} late, {unlike} unlike the archive</span>;
+  const barCounts = <span className="text-fg-faint">{plural(missing, "live bar")} missing, {late} late, {early} early, {unlike} unlike the archive</span>;
   const invalid = replay.status === "invalid" && <p className="px-3 pb-2 text-dense text-fail-fg">The replay is invalid: {replay.problems.map((p) => p.code ?? p.message).join(", ")}</p>;
   if (!groups) return (
     <div className="flex flex-col">
