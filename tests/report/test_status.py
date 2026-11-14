@@ -22,7 +22,6 @@ from registration import reproduction
 from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
 from report import measures, runs, seams, status
-from runtime import image
 from tests.ledger.dolt import MARKET_DAYS, BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, market, pinned, reviewed, source
 from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture, config
 from tests.replay.world import ReplayWorld, registered_grid
@@ -381,38 +380,6 @@ class ComparisonTableTests(unittest.TestCase):
             self.assertEqual(item["dominated_by"], [other["trial_id"]] if dominated else [])
             complete = all(item["measures"][name]["value"] is not None for name in table["measures"])
             self.assertEqual(item["non_dominated"], (not dominated) if complete else None)
-
-    def test_x_a_line_whose_candidates_are_on_a_contract_without_layout_is_gated(self):
-        first, second = self.refs
-        self.world.judge("priority", subjects=[{"role": "parent", "candidate": first},
-                                               {"role": "control", "candidate": second}])
-        self.assertNotIn("RUNTIME_UNSUPPORTED", [gate["code"] for gate in status.research_state(self.world.profile)["gates"]])
-        with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
-            gate = status.research_state(self.world.profile)["gates"][-1]
-        self.assertEqual((gate["code"], gate["missing"]), ("RUNTIME_UNSUPPORTED", sorted(self.refs)))
-        self.assertIn(strategies.RUNTIME_CONTRACT, gate["message"])
-        self.assertIn("replay-contract@v99", gate["message"])
-
-    def test_x_a_candidate_whose_run_reached_a_newer_image_is_not_gated(self):
-        first, second = self.refs
-        self.world.judge("priority", subjects=[{"role": "parent", "candidate": first},
-                                               {"role": "control", "candidate": second}])
-        def reproduce_all(contract: str) -> None:
-            digest = "sha256:" + "8" * 64
-            runtime = {**RUNTIME, "image_ref": "ghcr.io/x/y@" + digest, "image_digest": digest,
-                       "runtime_contract": contract, "inspection": {**RUNTIME["inspection"], "runtime_contract": contract}}
-            for tag in ("first", "second"):
-                self.world.open_precheck(source(tag), runtime=runtime, purpose="explore")
-
-        def gates() -> list[str]:
-            with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True), \
-                    mock.patch.object(reproduction, "matches", return_value=True):
-                return [gate["code"] for gate in status.research_state(self.world.profile)["gates"]]
-
-        reproduce_all(strategies.RUNTIME_CONTRACT)
-        self.assertIn("RUNTIME_UNSUPPORTED", gates(), "a reproduction under the old contract moved nothing")
-        reproduce_all("replay-contract@v99")
-        self.assertNotIn("RUNTIME_UNSUPPORTED", gates())
 
     def test_x_the_state_lists_the_runs_behind_the_current_image(self):
         trials = sorted(run["trial_id"] for run in self.runs.values())

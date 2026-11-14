@@ -47,14 +47,14 @@ select`); its development period follows from the date and the start's contracts
   profiles are in `$TRADE_DATA/ledgers`, so set `TRADE_LEDGER_HOME` to that directory; if none is
   there yet, the user finishes its first start on the IDE page. Offer no line until a read succeeds.
 - Only a gate no research step can lift stops a line; any other is research-round's next step. Tell
-  the user plainly what a stop blocks and what lifts it. `RUNTIME_UNSUPPORTED`: follow the gate's
-  message (research-round's [changes.md](../research-round/references/changes.md)). `MARKET_DAY_UNRESOLVED`: the
+  the user plainly what a stop blocks and what lifts it. `MARKET_DAY_UNRESOLVED`: the
   market does not reach the line's pinned market day: import its missing months yourself
   (readiness.md); only when the archive lacks them or the import is refused does it stop. Never
   continue a stopped line, after an interruption included, or establish a Goal for it, and never
   offer keeping it open or leaving it as it is until the stop lifts.
 - A non-empty `runs_behind_image` (a new replay image) stops nothing and needs no choice from the
-  user: a run moves before a comparison or recommendation reads it (changes.md).
+  user: a run moves before a comparison or recommendation reads it (research-round's
+  [changes.md](../research-round/references/changes.md)).
 - A line stays open until it is closed; selecting another line leaves it open, and several open
   lines are normal. Close a line only when the user ends it, and never propose closing one; a
   stopped line stays open. First run its closing history

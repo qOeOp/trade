@@ -404,7 +404,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
             tuple(wanted))} if wanted else {}
         trial_counts = status.trial_counts(conn, line, status.counted_trials(conn)["counted"]) if counts else None
         # the line-record gates the next registration would meet (register.require_line_records) only;
-        # `research state` also gives RUNTIME_UNSUPPORTED and MARKET_DAY_UNRESOLVED
+        # `research state` also gives MARKET_DAY_UNRESOLVED
         try:
             register.require_line_records(conn, record["line_id"])
             gates: list[dict] = []

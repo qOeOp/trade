@@ -19,7 +19,6 @@ from market.sources import MarketError
 from registration import availability, duties, precheck, register
 from replay import entry, reproduce
 from report import candidates, comparison, graph, measures, runs, seams, status
-from runtime import image
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP
 from tests.registration.world import OUTCOMES, RUNNER_ARGV
 from tests.replay.world import ReplayWorld, registered_grid
@@ -224,11 +223,6 @@ class ReportTests(unittest.TestCase):
         self.assertIn(f"replay reproduce --trial-id {self.control['trial_id']}", found["null_reasons"]["exposures"],
                       "a null native table names the step that fills it")
         self.assertTrue(found["null_reasons"]["exposures"].startswith("REPRODUCTION_REQUIRED"))
-        with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
-            retired = runs.tables(self.control["trial_id"], self.profile, exposures=True)["null_reasons"]["exposures"]
-        self.assertTrue(retired.startswith("RUNTIME_UNSUPPORTED"), retired)
-        self.assertNotIn("replay reproduce", retired, "a run of a retired contract is never told to run a step "
-                                                      "the product always refuses")
         self.assertEqual(refused(runs.tables, self.bad["trial_id"], self.profile).code, "RUN_NOT_PASSED")
         self.assertEqual(refused(runs.tables, self.bare["trial_id"], self.profile).code, "ECONOMIC_EVIDENCE_UNAVAILABLE")
         done = reproduce.reproduce(self.control["trial_id"], self.world.output("drill"), ledger=self.profile,
@@ -528,10 +522,6 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(found["review_every"], register.REVIEW_EVERY)
         self.assertEqual(found["facts"]["counts"]["research_attempts"], 4)
         self.assertEqual(refused(status.research_state, self.profile, "no-such-line").code, "LINE_UNKNOWN")
-        with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
-            gate = status.research_state(self.profile)["gates"][-1]
-        self.assertEqual((gate["code"], gate["missing"]), ("RUNTIME_UNSUPPORTED", ["rsi@1"]),
-                         "without a recommendation or priority the line's start")
 
 
 class DirectoryTests(unittest.TestCase):

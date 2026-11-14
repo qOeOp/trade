@@ -26,6 +26,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   names a runtime built before the replay/execution image split (its combined `sha-<commit>` index); an admitted
   runtime is always read at `exec-sha-<commit>`. Going back to an earlier version's images is no longer supported:
   `--revision` stays only to name the admitted revision the host routes, as Live on the host does.
+- Research state (breaking): no `RUNTIME_UNSUPPORTED` gate for a line whose candidates were published under a
+  runtime contract this product no longer has a layout for, and `replay report --tables` no longer names a run on such a
+  contract. During 0.x a runtime contract change starts a new ledger generation instead of moving old lines
+  across contracts (user decision 2026-11-14: no compatibility with earlier versions); records of an earlier
+  generation stay where they are. Image moves within the current contract (`runs_behind_image`, `replay reproduce
+  --image`) are unchanged, and an image or layout of an unknown contract is still refused `RUNTIME_UNSUPPORTED`.
 - Ledger (breaking): no compatibility with services or runs of earlier ledger generations (0.x keeps none). A
   service start no longer checks for a commit verification group left by a pre-gen-1 product, and `ledger init`
   no longer clears one; a service that still has one fails its first commit. The single-run report reads

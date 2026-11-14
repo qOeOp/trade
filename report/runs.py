@@ -25,7 +25,6 @@ from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import availability, duties, reproduction as reproduced_identity
 from report import measures
-from runtime import image
 
 
 UNVERIFIED = "unsealed, source unverified, not evidence"
@@ -259,28 +258,20 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
                     raise _mismatch(directory, trial_id, f"native cycle {recovered['seq']} differs: {name}", name)
         found.update(_reproduced(directory, account, exposures), reproduction=reproduction,
                      positions=_typed_cycles(native))
-    contract = trial["runtime_contract"]
-    found["null_reasons"] = _native_null_reasons(found, trial_id, contract, account, exposures, directory is not None)
+    found["null_reasons"] = _native_null_reasons(found, trial_id, account, exposures, directory is not None)
     found["limitations"] = dedupe(limitations)
     return found
 
 
-def _native_null_reasons(found: dict, trial_id: int, contract: str | None, account: bool, exposures: bool,
-                         native: bool) -> dict:
+def _native_null_reasons(found: dict, trial_id: int, account: bool, exposures: bool, native: bool) -> dict:
     """Why each native table of `found` is None (`native`: a verified directory was read), naming the
-    step that fills it, or that none can when the run's runtime contract is one this product no longer
-    replays (its reproduction is refused)."""
+    step that fills it."""
     asked = {"account": account, "exposures": exposures}
     reasons = {}
     for name in ("orders", "fills", "account", "exposures", "order_events"):
         if found[name] is not None:
             continue
-        if not native and contract is not None and contract not in image.LAYOUTS:
-            reasons[name] = (f"RUNTIME_UNSUPPORTED: native {name} come only from the run's kept directory or a "
-                             f"verified reproduction, and run {trial_id} is on {contract}, which this product cannot "
-                             f"replay (it runs {', '.join(sorted(image.LAYOUTS))}); without a kept directory the "
-                             f"table is unavailable under the current product")
-        elif not native:
+        if not native:
             reasons[name] = (f"REPRODUCTION_REQUIRED: native {name} come only from the run's kept directory or a "
                              f"verified reproduction; pass the directory `replay run --output` kept as --directory, "
                              f"or run `replay reproduce --trial-id {trial_id} --output <new /tmp directory>` (it "

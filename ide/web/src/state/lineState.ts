@@ -1,5 +1,5 @@
 // A line's gates and review readings (`research state`, from the page's own server under /api/state at the commit the
-// graph was drawn at): the graph leaves out the runtime and market-day gates and the due change of approach, whose
+// graph was drawn at): the graph leaves out the market-day gate and the due change of approach, whose
 // reading compares the line's latest runs, so they are read only when the line menu opens. A failure is shown and
 // asked again the next time the menu opens.
 import { useEffect } from "react";
