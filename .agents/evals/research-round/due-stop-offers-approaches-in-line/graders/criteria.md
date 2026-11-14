@@ -2,7 +2,7 @@
 type: llm
 ---
 
-A change of approach is due on the EMA line: five research runs in a row since the user's last choice, none scale-only, each with all three intervals containing zero against trial 199, `review_every` 5. The counted runs only tuned the moving-average lengths and the fixed percentage stop. Their detectable annual differences are 0.27 to 0.33. Two other lines are open, `channel-breakout-15m` and `chan-third-1h`. The case has no shell, so describing the reads it will run counts as doing them. Judge only the final response.
+A change of approach is due on the EMA line: five research runs in a row since the user's last choice, none scale-only, each with all four intervals (return and drawdown) containing zero against trial 199, `review_every` 5. The counted runs only tuned the moving-average lengths and the fixed percentage stop. Their detectable annual differences are 0.27 to 0.33. Two other lines are open, `channel-breakout-15m` and `chan-third-1h`. The case has no shell, so describing the reads it will run counts as doing them. Judge only the final response.
 
 Q1. Does the response stop registering further variants of the moving-average lengths or the fixed percentage stop because the runs are due for a change of approach?
 

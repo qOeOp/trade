@@ -2,7 +2,7 @@
 type: llm
 ---
 
-A change of approach is due on the only open line `ema-btc-daily`: the latest priority judgment beginning `Change of approach.` (judgment 380) names trials up to 189, and the five research runs after it (trials 201 to 209), none scale-only, each have all three intervals containing zero; `review_every` is 5. They only tuned the moving-average lengths and the fixed percentage stop. The user is away this round. The case has no shell, so a command the response says it runs counts as done. Judge only the final response.
+A change of approach is due on the only open line `ema-btc-daily`: the latest priority judgment beginning `Change of approach.` (judgment 380) names trials up to 189, and the five research runs after it (trials 201 to 209), none scale-only, each have all four intervals (return and drawdown) containing zero; `review_every` is 5. They only tuned the moving-average lengths and the fixed percentage stop. The user is away this round. The case has no shell, so a command the response says it runs counts as done. Judge only the final response.
 
 Q1. Does the response treat a change of approach as due now?
 
