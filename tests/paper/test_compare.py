@@ -1,7 +1,7 @@
-"""If this fails, a paper reconciliation misreports a run: a trade the replay also made shows as a difference, a
+"""If this fails, a paper comparison misreports a run: a trade the replay also made shows as a difference, a
 live gap or a live bar that differs from the archive is not named as the cause, the journal's warm-up is not the
 run's, the replay is not the run's own (interval, warm-up start, leverage, starting balance), or the replay's equity
-is read at another moment than the paper snapshot it is set against. The comparison itself is replay.reconcile's
+is read at another moment than the paper snapshot it is set against. The comparison itself is replay.comparison's
 (tests/replay)."""
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from paper import reconcile
-from replay import reconcile as shared
+from paper import compare
+from replay import comparison as shared
 from tests.helpers import refused
 
 
@@ -54,10 +54,10 @@ def journal(events: list[dict], minutes: int, skip: tuple[int, ...] = (), closes
 
 
 def compared(lines: list[dict], replay: list[dict], archive: dict, end: int) -> dict:
-    return shared.compare(reconcile.run_record(lines, []), replay, archive, None, START, end)
+    return shared.compare(compare.run_record(lines, []), replay, archive, None, START, end)
 
 
-class Reconcile(unittest.TestCase):
+class Compare(unittest.TestCase):
     def test_the_same_trade_a_bar_later_on_live_data_is_the_same(self):
         paper = [initialized("P1", "ENTRY"), filled("P1", close_of(2) + 25 * 10**6, "100.0", "1")]
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(2), "100.0", "1")]
@@ -94,15 +94,15 @@ class Reconcile(unittest.TestCase):
     def test_the_journals_warm_up_is_the_runs(self):
         lines = journal([], 2) + [{"kind": "warmup", "instrument_id": BTC, "period": "1-HOUR", "fetched_ns": 1,
                                    "bars": 4, "first_ts_event": 1, "last_ts_event": 2, "sha256": "h"}]
-        self.assertEqual(reconcile.run_record(lines, [])["warmup"],
+        self.assertEqual(compare.run_record(lines, [])["warmup"],
                          {BTC: {"1-HOUR": {"bars": 4, "first_ts_event": 1, "last_ts_event": 2, "sha256": "h"}}})
 
     def test_the_interval_runs_from_the_input_start_to_the_minute_the_run_stopped(self):
         lines = journal([], 0)
-        self.assertEqual(reconcile.window(lines, {"stopped_ns": START + 3 * MINUTE + 17 * 10**9}),
+        self.assertEqual(compare.window(lines, {"stopped_ns": START + 3 * MINUTE + 17 * 10**9}),
                          (START, START + 3 * MINUTE))
-        self.assertEqual(refused(reconcile.window, lines,
-                                 {"stopped_ns": START + 30 * 10**9}).code, "PAPER_RECONCILE_EMPTY")
+        self.assertEqual(refused(compare.window, lines,
+                                 {"stopped_ns": START + 30 * 10**9}).code, "PAPER_COMPARE_EMPTY")
 
     def test_the_replay_equity_is_read_at_each_snapshot_minutes_close(self):
         with tempfile.TemporaryDirectory() as root:
@@ -126,7 +126,7 @@ class Reconcile(unittest.TestCase):
 class InputTests(unittest.TestCase):
     """The replay is the run's own: its leverage; and what the replay did not write is not read as none."""
 
-    def reconciled(self, events_written: bool) -> tuple[list[str], dict]:
+    def compared_run(self, events_written: bool) -> tuple[list[str], dict]:
         import json
         from unittest import mock
         from replay import entry
@@ -149,26 +149,26 @@ class InputTests(unittest.TestCase):
             return {"path": str(output), "status": "passed", "problems": []}
 
         with tempfile.TemporaryDirectory() as name, \
-                mock.patch.object(reconcile.db, "connect"), \
-                mock.patch.object(reconcile.records, "read_paper_run", return_value=row), \
-                mock.patch.object(reconcile.records, "seal_of", return_value={}), \
-                mock.patch.object(reconcile.records, "read_source", return_value={"source": b"", "entry_class": "E"}), \
-                mock.patch.object(reconcile, "_journal", return_value=lines), \
-                mock.patch.object(reconcile, "window", return_value=(START, START + 3 * MINUTE)), \
+                mock.patch.object(compare.db, "connect"), \
+                mock.patch.object(compare.records, "read_paper_run", return_value=row), \
+                mock.patch.object(compare.records, "seal_of", return_value={}), \
+                mock.patch.object(compare.records, "read_source", return_value={"source": b"", "entry_class": "E"}), \
+                mock.patch.object(compare, "_journal", return_value=lines), \
+                mock.patch.object(compare, "window", return_value=(START, START + 3 * MINUTE)), \
                 mock.patch.object(shared, "archive", return_value=("c" * 32, {"BTCUSDT": archived(3)})), \
                 mock.patch("market.files.open_market"), mock.patch("market.instrument.terms", return_value={}), \
                 mock.patch.object(shared, "archive_warmup", return_value={}), \
-                mock.patch.object(reconcile.records, "published_settlements", return_value={}), \
+                mock.patch.object(compare.records, "published_settlements", return_value={}), \
                 mock.patch.object(entry, "replay_unrecorded", side_effect=replayed), \
                 mock.patch("paper.runs.ledger_key", return_value="k"):
-            found = reconcile.reconcile(object(), {}, None, 7, Path(name) / "out")
+            found = compare.compare(object(), {}, None, 7, Path(name) / "out")
             result = json.loads(Path(found["path"]).read_text(encoding="utf-8"))
         return argv, result
 
     def test_the_replay_runs_at_the_runs_leverage_balance_and_start_on_the_history_it_received(self):
-        argv, result = self.reconciled(True)
+        argv, result = self.compared_run(True)
         self.assertEqual(argv[argv.index("--leverage") + 1], "5")
-        self.assertEqual(argv[argv.index("--starting-balance") + 1], reconcile.ACCOUNT_CONTRACT["starting_balance_usdt"])
+        self.assertEqual(argv[argv.index("--starting-balance") + 1], compare.ACCOUNT_CONTRACT["starting_balance_usdt"])
         self.assertEqual(argv[argv.index("--trade-start") + 1], "2026-10-25T17:26:00Z")
         # The replay builds a history only from its window's minutes: the two hours before 17:00 open at 15:00 (and
         # the five minutes before 17:26 lie inside them); daily bars come from the market's own.
@@ -176,7 +176,7 @@ class InputTests(unittest.TestCase):
         self.assertEqual((result["summary"]["same"], len(result["groups"])), (1, 1))
 
     def test_a_replay_without_order_events_has_no_order_comparison(self):
-        _, result = self.reconciled(False)
+        _, result = self.compared_run(False)
         self.assertIsNone(result["groups"])
         self.assertEqual({key: result["summary"][key] for key in ("run_fills", "replay_fills", "same", "run_only")},
                          {"run_fills": 1, "replay_fills": None, "same": None, "run_only": None})
@@ -190,19 +190,19 @@ class InputTests(unittest.TestCase):
         self.assertEqual(listed["differing_bars"], 0)
 
     def test_the_archive_reads_the_bars_alone(self):
-        """CF-24: the reconciliation compares bars; it does not read the funding settlements beside them."""
+        """CF-24: the comparison compares bars; it does not read the funding settlements beside them."""
         from unittest import mock
         from market import read
         rows = archived(3)
         with mock.patch.object(read, "stored_bars", return_value={"market_day": "c" * 32, "bars": {"rows": rows}}) as stored:
             commit, found = shared.archive({}, None, ["BTCUSDT"], START, START + 3 * MINUTE,
-                                           "PAPER_RECONCILE_UNCOVERED")
+                                           "PAPER_COMPARE_UNCOVERED")
         self.assertEqual((commit, found), ("c" * 32, {"BTCUSDT": rows}))
         self.assertIs(stored.call_args.kwargs.get("funding"), False)
 
 
 class ExportTests(unittest.TestCase):
-    def test_a_reconciliations_market_export_is_fresh_so_it_goes_with_the_replay(self):
+    def test_a_comparisons_market_export_is_fresh_so_it_goes_with_the_replay(self):
         # On the Paper host the temporary directory is a host directory: a reused export there is never evicted.
         from unittest import mock
         from replay import entry

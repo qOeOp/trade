@@ -1,4 +1,4 @@
-// The Trades window's tables (Trades, Cycles, Exceptions, Reconciliation) and its event list: figures right,
+// The Trades window's tables (Trades, Cycles, Exceptions, Comparison) and its event list: figures right,
 // words left, the detail columns giving way first when the page is narrow; the row picked on the chart
 // scrolled into view.
 import { useEffect, useRef } from "react";

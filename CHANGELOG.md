@@ -26,6 +26,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   contracts' directories, the lifecycle evidence and the membership file. A `replay explore` reads a shared cache
   directory that other selections also fill, so its hash no longer depends on which other contracts were cached
   there, and a repeated identical explore counts as a reproduction. Fresh exports hash as before.
+- Paper (breaking): a sealed run's replay comparison is `paper compare` (was `paper reconcile`), the verb Live's
+  `live compare` has; its HTTP path is `/api/paper/runs/<id>/compare`, its refusals `PAPER_COMPARE_EMPTY` and
+  `PAPER_COMPARE_UNCOVERED`, and Paper's and Live's result file `comparison.json`. "Reconcile" now names only Live's
+  account reconciliation. A comparison made before the release is replayed again when asked for.
 - Deploy (breaking): during 0.x a version keeps no compatibility with earlier ones. `deploy.images` no longer
   names a runtime built before the replay/execution image split (its combined `sha-<commit>` index); an admitted
   runtime is always read at `exec-sha-<commit>`. Going back to an earlier version's images is no longer supported:

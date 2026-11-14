@@ -1,5 +1,5 @@
 """Live comparison (`live compare`): a Live run's evidence pack against a replay of its source on the archive
-(replay.reconcile, the tool Paper and Live share; docs/plans/live-evidence-pack-20261110.zh.md).
+(replay.comparison, the tool Paper and Live share; docs/plans/live-evidence-pack-20261110.zh.md).
 
 The run is read from its private directory: the source and manifest it was prepared with (inputs/), its journal
 (out/events.jsonl: the warm-up's T, the account observation it started from, its position events and each minute's
@@ -38,7 +38,7 @@ import secrets
 from engine.config import instrument_id, utc_text
 from ledger import paper as records
 from live import state
-from replay import reconcile as shared
+from replay import comparison as shared
 from shared.refusals import refuse
 
 
@@ -211,7 +211,7 @@ GATE_REASONS = frozenset({"disconnected", "unverified", "unknown_orders", "accou
 
 
 def gate(events: list[dict]) -> dict:
-    """The entries Live's entry gate changed (engine.live_connection), as replay.reconcile attributes them: those sent
+    """The entries Live's entry gate changed (engine.live_connection), as replay.comparison attributes them: those sent
     after a hold, those withdrawn when the gate closed, those it denied natively, and the decision times of those
     refused after a hold."""
     return {"released": [row["client_order_id"] for row in events if row.get("event") == "entry_released"],
@@ -223,7 +223,7 @@ def gate(events: list[dict]) -> dict:
 
 
 def run_record(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dict]) -> dict:
-    """The pack as replay.reconcile.compare reads a run."""
+    """The pack as replay.comparison.compare reads a run."""
     equity, _ = records.with_funding(sorted(
         ((row["minute_ns"], Decimal(balance) + Decimal(row["result"])) for row in pack["events"]
          if row.get("event") == "minute_result" and isinstance(row.get("minute_ns"), int)
@@ -286,9 +286,9 @@ def measures(compared: Mapping, events: list[dict], since: int | None = None, un
 def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path, timeout: float | None = None,
             number: int | None = None, since: int | None = None, until: int | None = None) -> dict:
     """live compare: replay one trading start of a Live run (the latest by default) up to `until` (its last minute by
-    default) on the archive and write reconcile.json, with its measures over [since, until). Its result also lists
+    default) on the archive and write comparison.json, with its measures over [since, until). Its result also lists
     the decisions the comparison could not explain (cause unexplained, at the decision stage), so a caller never
-    reads reconcile.json. The replay runs on the run's runtime image."""
+    reads comparison.json. The replay runs on the run's runtime image."""
     pack, numbered = segment(read_pack(state.directory(root, run_id)), number)
     if until is not None:
         pack = cut(pack, until)
@@ -300,7 +300,7 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     market_day, archived = shared.archive(market, at, symbols, start, end, "LIVE_COMPARE_UNCOVERED")
     lines = journal(pack, start)
     run = run_record(pack, balance, snapshot, records.settlements(lines, records.published_settlements(lines, end)))
-    output, replayed, compared = shared.reconcile(
+    output, replayed, compared = shared.replay_and_compare(
         run, market, market_day, archived, pack["source"], manifest["source"]["entry_class"], image_ref, symbols,
         start, end, manifest["config"]["leverage"], balance, output,
         f"trade-live-compare-{run_id}-{secrets.token_hex(4)}", timeout)
@@ -311,10 +311,10 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
               "measures": {"from": utc_text(since) if since is not None else None,
                            "to": utc_text(until) if until is not None else None,
                            **measures(compared, pack["events"], since, until)}}
-    (output / "reconcile.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
+    (output / "comparison.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
     unexplained = [{"at": group.get("at"), "at_ns": group["at_ns"], "class": group["class"]}
                    for group in compared["groups"] or []
                    if group.get("cause") == "unexplained" and group.get("stage") == "decision"]
-    return {"path": str(output / "reconcile.json"), "segment": numbered, "window": result["window"],
+    return {"path": str(output / "comparison.json"), "segment": numbered, "window": result["window"],
             "market_day": market_day, "summary": result["summary"], "measures": result["measures"],
             "replay": result["replay"], "unexplained": unexplained}

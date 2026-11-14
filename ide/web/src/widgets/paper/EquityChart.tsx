@@ -32,7 +32,7 @@ const at = (t: number) => t as UTCTimestamp, views = new Map<string, { step: num
  *  a chain of runs was offline over all of them; on the line the drawdown limit's floor and the shown stretch's deepest drawdowns (equityNotes) and an arrow at each of its closes (equityCloses), whose click
  *  picks the trade; the balance, the costs' band, a buy and hold as a fading area (shown as the viewer last chose for
  *  a backtest or a paper run, offered when the shown stretch has one), and the exposure (equityExtras); a
- *  reconciled run's replay dotted. Each stretch is named at its start (stretchCaptions), a click on the
+ *  compared run's replay dotted. Each stretch is named at its start (stretchCaptions), a click on the
  *  name shows it and fits the view to it.
  *  The line is drawn at the finest step that keeps the points in view at least a pixel and a half apart
  *  (equityResolution, counting the points, as the time between stretches takes no room), changed once a

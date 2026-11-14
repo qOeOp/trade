@@ -11,7 +11,7 @@ written only through it. Explicit ends are sealed. An interrupted runner resumes
 run only from a verified native checkpoint; an unavailable recovery point remains stopped, with its
 account and originals retained. A recovery never silently starts another account.
 
-A reconciliation (`paper reconcile`) runs the command line in the background into the temporary
+A comparison (`paper compare`) runs the command line in the background into the temporary
 directory and is read back from there; it writes nothing to either database. Only a run's latest output is kept.
 
 A request's Host must be an allowed one; a browser request from another origin is refused, and a POST
@@ -39,7 +39,7 @@ from ledger import db, paper as records, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
 from paper import runs
-from replay import reconcile
+from replay import comparison
 from runtime import container
 
 
@@ -51,7 +51,7 @@ ORPHAN_SECONDS = 600  # a declared run with no containers this long after its st
 STREAM_SECONDS = 1.0
 HEARTBEAT_SECONDS = 15.0
 CLI_SECONDS = 900
-RECONCILE_SECONDS = 3600  # an uncalibrated example value: a reconciliation's replay is stopped after this long
+COMPARE_SECONDS = 3600  # an uncalibrated example value: a comparison's replay is stopped after this long
 # What a command line child gets of this process's environment: the docker client's and the product's own.
 CHILD_ENV = (*container.DOCKER_ENV, runs.BUDGET_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH", db.DOLT_HOST)
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
@@ -60,7 +60,7 @@ CONTAINER_MARK = Path("/.dockerenv")
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}\Z")
 START_ID = re.compile(r"paper-web:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 FAILURES = "runtime_failures.jsonl"
-STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop|resume|logs|reconcile|delete)\Z")
+STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop|resume|logs|compare|delete)\Z")
 
 
 class Failure(Exception):
@@ -251,7 +251,7 @@ class Daemon:
         self.stopping: set[int] = set()
         self.journals: dict[int, Journal] = {}
         self.listed: tuple[float, dict] | None = None
-        self.reconciling: dict[int, dict] = {}
+        self.comparing: dict[int, dict] = {}
         self.recovery_failures: dict[int, dict] = {}
         self.month_failures: dict[int, str] = {}
         self.release_route, self.release_name = release_route, release_name
@@ -352,8 +352,8 @@ class Daemon:
                 raise Failure(409, "PAPER_RUN_ACTIVE", f"paper run {paper_id} is being stopped")
         found = self.cli("delete", "--paper-id", str(paper_id))
         with self.lock:
-            self.reconciling.pop(paper_id, None)
-        for path in self.reconcile_outputs(paper_id):
+            self.comparing.pop(paper_id, None)
+        for path in self.compare_outputs(paper_id):
             shutil.rmtree(path, ignore_errors=True)
         self.journals.pop(paper_id, None)
         return found
@@ -382,57 +382,57 @@ class Daemon:
         text = b"\n".join(data.splitlines()[-tail:])[-262144:].decode("utf-8", errors="replace")
         return {"paper_id": paper_id, "source": source, "text": text, "sealed": bool(sealed)}
 
-    def reconcile_root(self) -> Path:
-        return Path(tempfile.gettempdir()) / f"trade-paper-reconcile-{runs.ledger_key(self.profile)}"
+    def compare_root(self) -> Path:
+        return Path(tempfile.gettempdir()) / f"trade-paper-compare-{runs.ledger_key(self.profile)}"
 
-    def reconcile_outputs(self, paper_id: int) -> list[Path]:
-        """A run's reconciliation outputs, oldest first. The temporary directory outlives this process."""
-        return sorted(self.reconcile_root().glob(f"{paper_id}-*"))
+    def compare_outputs(self, paper_id: int) -> list[Path]:
+        """A run's comparison outputs, oldest first. The temporary directory outlives this process."""
+        return sorted(self.compare_root().glob(f"{paper_id}-*"))
 
-    def reconcile(self, paper_id: int) -> dict:
-        """Start `paper reconcile` of a sealed run in the background; its result is read with reconciliation()."""
+    def compare(self, paper_id: int) -> dict:
+        """Start `paper compare` of a sealed run in the background; its result is read with compared()."""
         with db.connect(self.profile, "reader") as conn:
             records.read_paper_run(conn, paper_id)
             if records.seal_of(conn, paper_id) is None:
                 raise Failure(409, "PAPER_RUN_ACTIVE", f"paper run {paper_id} is not sealed")
         with self.lock:
-            if (self.reconciling.get(paper_id) or {}).get("state") == "reconciling":
-                return {"paper_id": paper_id, "state": "reconciling"}
-            self.reconciling[paper_id] = {"state": "reconciling", "started": time.time()}
-        root = self.reconcile_root()
+            if (self.comparing.get(paper_id) or {}).get("state") == "comparing":
+                return {"paper_id": paper_id, "state": "comparing"}
+            self.comparing[paper_id] = {"state": "comparing", "started": time.time()}
+        root = self.compare_root()
         root.mkdir(mode=0o700, exist_ok=True)
         output = root / f"{paper_id}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
 
         def run() -> None:
             try:
                 market = ["--market", self.market] if self.market else []
-                self.cli("reconcile", "--paper-id", str(paper_id), "--output", str(output), *market,
-                         "--timeout-seconds", str(RECONCILE_SECONDS - 60), timeout=RECONCILE_SECONDS)
+                self.cli("compare", "--paper-id", str(paper_id), "--output", str(output), *market,
+                         "--timeout-seconds", str(COMPARE_SECONDS - 60), timeout=COMPARE_SECONDS)
                 found: dict[str, object] = {"state": "done"}
-                # Only the latest is read (reconciliation()); a failed one leaves nothing to read.
-                stale = [path for path in self.reconcile_outputs(paper_id) if path != output]
+                # Only the latest is read (compared()); a failed one leaves nothing to read.
+                stale = [path for path in self.compare_outputs(paper_id) if path != output]
             except Failure as exc:
                 found, stale = {"state": "failed", "error": exc.body}, [output]
             except subprocess.TimeoutExpired:
-                found = {"state": "failed", "error": {"code": "PAPER_FAILED", "message": "the reconciliation timed out"}}
+                found = {"state": "failed", "error": {"code": "PAPER_FAILED", "message": "the comparison timed out"}}
                 stale = [output]
             for path in stale:
                 shutil.rmtree(path, ignore_errors=True)
             with self.lock:
-                self.reconciling[paper_id] = found
+                self.comparing[paper_id] = found
 
         threading.Thread(target=run, daemon=True).start()
-        return {"paper_id": paper_id, "state": "reconciling"}
+        return {"paper_id": paper_id, "state": "comparing"}
 
-    def reconciliation(self, paper_id: int) -> dict:
-        """A run's latest reconciliation: {state: none, reconciling, failed (with error) or done (with result)}."""
+    def compared(self, paper_id: int) -> dict:
+        """A run's latest comparison: {state: none, comparing, failed (with error) or done (with result)}."""
         with self.lock:
-            found = dict(self.reconciling.get(paper_id) or {})
-        if found.get("state") in ("reconciling", "failed"):
+            found = dict(self.comparing.get(paper_id) or {})
+        if found.get("state") in ("comparing", "failed"):
             return {"paper_id": paper_id, **found}
-        done = sorted(self.reconcile_root().glob(f"{paper_id}-*/reconcile.json"))
+        done = sorted(self.compare_root().glob(f"{paper_id}-*/comparison.json"))
         result = json.loads(done[-1].read_text(encoding="utf-8")) if done else None
-        if result is None or result.get("format") != reconcile.FORMAT:  # one of an older format is replayed again
+        if result is None or result.get("format") != comparison.FORMAT:  # one of an older format is replayed again
             return {"paper_id": paper_id, "state": "none"}
         return {"paper_id": paper_id, "state": "done", "result": result}
 
@@ -614,8 +614,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     if symbol is not None and not SYMBOL.fullmatch(symbol):
                         raise Failure(400, "USAGE_ERROR", "symbol is a Binance symbol such as BTCUSDT")
                     self.stream(int(found[1]), instrument_id(symbol) if symbol else None, resume_of(query))
-                elif found and found[2] == "reconcile":
-                    self.json(200, daemon.reconciliation(int(found[1])))
+                elif found and found[2] == "compare":
+                    self.json(200, daemon.compared(int(found[1])))
                 elif found and found[2] == "logs":
                     try:
                         tail = int(query.get("tail", "200"))
@@ -646,8 +646,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     self.json(202, daemon.stop(int(found[1])))
                 elif found and found[2] == "resume":
                     self.json(200, daemon.resume_run(int(found[1])))
-                elif found and found[2] == "reconcile":
-                    self.json(202, daemon.reconcile(int(found[1])))
+                elif found and found[2] == "compare":
+                    self.json(202, daemon.compare(int(found[1])))
                 elif found and found[2] == "delete":
                     self.json(200, daemon.delete(int(found[1])))
                 else:
@@ -780,7 +780,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
 
 def shared_tmpdir() -> None:
     """In a container, the run and replay containers it starts are created by the host's Docker, which
-    mounts their inputs (a reconciliation's market export among them) by host path; so the temporary
+    mounts their inputs (a comparison's market export among them) by host path; so the temporary
     directory must be a host directory mounted at its own path, named by TMPDIR. Python falls back to
     /tmp, a path only the container has, when TMPDIR is unset or unusable, so that is refused here."""
     given = os.environ.get("TMPDIR")

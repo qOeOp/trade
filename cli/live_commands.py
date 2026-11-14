@@ -65,7 +65,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the market at --market-day (default the newest day), exported into a reused cache under the temporary directory; Binance's "
         "published funding rates; the run's own runtime image",
         "nothing in any database and nothing in the private root; the new --output directory (replay/ with the "
-        "native reports and audit, reconcile.json); never a credential, order or venue connection",
+        "native reports and audit, comparison.json); never a credential, order or venue connection",
         "path, segment {number, of}, window {start, end}, market_day, unexplained [{at, at_ns, class}], "
         "summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, "
         "differs, run_only, replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, differing_bars, "
@@ -127,7 +127,7 @@ def register(verbs, verb, runner) -> None:
     command = verb(live, "compare", "replay a Live run's minutes on the archive and compare it group by group")
     command.epilog = ("The replay takes the run's source, runtime image, contract, leverage, starting wallet and the "
                       "minutes its source received, warmed at the same start; only the market day is chosen here. "
-                      "Nothing reaches a ledger (live.compare, replay.reconcile).")
+                      "Nothing reaches a ledger (live.compare, replay.comparison).")
     command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
     command.add_argument("--run-id", required=True, help="the run ID the Live page prepared")
     _market_option(command)

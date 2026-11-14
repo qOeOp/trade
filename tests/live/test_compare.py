@@ -20,7 +20,7 @@ from unittest import mock
 from engine.live_errors import LiveRefusal
 from shared.errors import Refusal
 from live import compare
-from replay import reconcile as shared
+from replay import comparison as shared
 from tests.helpers import refused
 
 
@@ -165,7 +165,7 @@ class Compare(unittest.TestCase):
         self.root = Path(temp.name)
 
     def compared(self, pack: Pack, replay_events: list[dict] | None = None, until: int | None = None) -> tuple[dict, dict]:
-        """(the arguments the replay ran with, reconcile.json)."""
+        """(the arguments the replay ran with, comparison.json)."""
         given: dict = {}
 
         def replayed(market, market_day, source, entry_class, image_ref, symbols, start, end, leverage, balance,

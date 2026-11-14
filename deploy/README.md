@@ -37,7 +37,7 @@ Five services on one Docker engine:
   their last replays from the research ledger with the reader account. Its accounts and profiles are what ledger
   writes at every start into the `trade-paper-controller` volume (`--controllers`): the Paper database's writer
   and reader and the research reader, never the root password, the research writer or the DoltHub key. Its market profile
-  is the compose config `market`: membership, stored bars and a reconciliation's replay inputs from
+  is the compose config `market`: membership, stored bars and a comparison's replay inputs from
   the market directory, mounted read-only.
 - **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes, and of containers
   only those `runtime/container.py` builds ([`docker-api/`](docker-api/), image `ghcr.io/qoeop/trade-docker-api`).
@@ -191,9 +191,9 @@ Each restart takes seconds; what it interrupts decides when to make it:
   operation. A replay holds no connection while its containers run, so only one that opens or seals its
   trial within the restart's seconds fails; `docker ps --filter network=none` lists running replay
   stages.
-- **paper**: its runs are containers of their own and keep running; a reconciliation runs inside the
-  daemon and is lost. `docker top trade-ide-paper-1` shows a running `paper reconcile`.
-- **docker-api**: a reconciliation's replay attaches through it for up to an hour; the same check.
+- **paper**: its runs are containers of their own and keep running; a comparison runs inside the
+  daemon and is lost. `docker top trade-ide-paper-1` shows a running `paper compare`.
+- **docker-api**: a comparison's replay attaches through it for up to an hour; the same check.
 - **market-import**: an import under way stops; the next round imports it again, since a file takes its place only
   once it is whole, and an abandoned temporary file is removed at the next import.
 - **ide**: the page reconnects by itself; a chat answer being written is cut off.

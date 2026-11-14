@@ -413,10 +413,10 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "PAPER_RUN_ACTIVE": ("Stop it with `paper stop --paper-id N`, which also seals it.",),
     "PAPER_MEMORY_FULL": ("Stop a running one with `paper stop --paper-id N`, then start again.",),
     "PAPER_START_FAILED": ("Read the error, repair the runtime or Docker, then start a new run.",),
-    # Paper reconciliation (paper/reconcile.py)
-    "PAPER_RECONCILE_EMPTY": ("Reconcile a run that received at least one bar.",),
-    "PAPER_RECONCILE_UNCOVERED": ("Import the run's month with `market import --month YYYY-MM` over the market's "
-                                  "contract scope once its days are archived, then reconcile at the new market day.",),
+    # Paper comparison (paper/compare.py)
+    "PAPER_COMPARE_EMPTY": ("Compare a run that received at least one bar.",),
+    "PAPER_COMPARE_UNCOVERED": ("Import the run's month with `market import --month YYYY-MM` over the market's "
+                                "contract scope once its days are archived, then compare at the new market day.",),
     # Live comparison (live/compare.py)
     "LIVE_COMPARE_EMPTY": ("Compare a run whose source started and received at least one minute.",),
     "LIVE_COMPARE_UNCOVERED": ("Import the run's month with `market import --month YYYY-MM` over the market's "

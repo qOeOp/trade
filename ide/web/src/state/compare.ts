@@ -1,4 +1,4 @@
-// A sealed run's reconciliation against its replay (python -m cli.main paper reconcile, run by the paper
+// A sealed run's comparison with its replay (python -m cli.main paper compare, run by the paper
 // daemon): the latest one of the run the Runs page shows, read when the run is picked and every few
 // seconds while one is running.
 import { ApiError } from "../lib/transport";
@@ -7,7 +7,7 @@ import { atom, useAtom } from "./atom";
 
 const POLL_MS = 3000;
 
-/** An order pair's first difference: its stage and class (replay/reconcile.py _row). */
+/** An order pair's first difference: its stage and class (replay/comparison.py _row). */
 export type Stage = "decision" | "fill" | "fee" | "funding";
 export type RowClass = "same" | "time" | "type" | "quantity" | "price" | "amount" | "run_only" | "replay_only";
 export type Cause = "missing_bar" | "late_bar" | "bar_mismatch" | "warmup" | "contract_terms" | "window_end" | "unexplained" | "consequence";
@@ -17,7 +17,7 @@ export type OrderRow = {
   role: string; side: "BUY" | "SELL"; stage: Stage | null; class: RowClass; run: OrderSide | null; replay: OrderSide | null;
   decision_delay_ms?: number; delay_ms?: number; price_bps?: number;
 };
-/** An entry order with its position's exits on either side (replay/reconcile.py compare_group); `first` is the
+/** An entry order with its position's exits on either side (replay/comparison.py compare_group); `first` is the
  *  order row of its first difference (null for funding). */
 export type Group = {
   instrument: string; side: "BUY" | "SELL"; at: string; at_ns: number; orders: OrderRow[];
@@ -37,7 +37,7 @@ type Summary = {
 type ContractBars = { archive: number; live: number; missing_bars: number; late_bars: number; differing_bars: number;
                       missing: string[]; late: string[]; live_only: string[];
                       differing: { close: string; fields: Record<string, [string, string]> }[] };
-/** reconcile.json (run-reconcile@2026-11-12); `groups` is null when the replay wrote no order events. */
+/** comparison.json (run-comparison@2026-11-12); `groups` is null when the replay wrote no order events. */
 type Result = {
   kind: "paper" | "live"; paper_id?: number; window: { start: string; end: string }; market_day: string; image_ref: string;
   replay: { status: "passed" | "invalid"; problems: { code?: string; message?: string }[] };
@@ -45,45 +45,45 @@ type Result = {
   inputs: Record<string, { bars: ContractBars; warmup: { same: boolean } | null; terms: { differs: string[]; fees: string[] } | null }>;
   equity: { run: [number, string][]; replay: [number, string][] };
 };
-export type Reconciliation = {
-  paper_id: number; state: "none" | "reconciling" | "failed" | "done";
+export type Comparison = {
+  paper_id: number; state: "none" | "comparing" | "failed" | "done";
   error?: { code: string; message: string }; result?: Result;
 };
 
-const reconciliation = atom<Reconciliation | null>(null);
-export const useReconciliation = () => useAtom(reconciliation);
+const comparison = atom<Comparison | null>(null);
+export const useComparison = () => useAtom(comparison);
 
 let timer = 0, followed: number | null = null;
 
 async function read(paperId: number): Promise<void> {
   window.clearTimeout(timer);
   try {
-    const found = await paperApi<Reconciliation>(`/runs/${paperId}/reconcile`);
+    const found = await paperApi<Comparison>(`/runs/${paperId}/compare`);
     if (followed !== paperId) return;
-    reconciliation.set(found);
-    if (found.state === "reconciling") timer = window.setTimeout(() => void read(paperId), POLL_MS);
+    comparison.set(found);
+    if (found.state === "comparing") timer = window.setTimeout(() => void read(paperId), POLL_MS);
   } catch (error) {
     if (followed !== paperId) return;
-    reconciliation.set({ paper_id: paperId, state: "failed", error: error instanceof ApiError ? { code: error.code, message: error.message } : { code: "PAPER_FAILED", message: String(error) } });
+    comparison.set({ paper_id: paperId, state: "failed", error: error instanceof ApiError ? { code: error.code, message: error.message } : { code: "PAPER_FAILED", message: String(error) } });
   }
 }
 
-/** Follows the latest reconciliation of `paperId` (null, or a run not sealed yet: none). */
-export function followReconciliation(paperId: number | null): void {
+/** Follows the latest comparison of `paperId` (null, or a run not sealed yet: none). */
+export function followComparison(paperId: number | null): void {
   if (followed === paperId) return;
   followed = paperId;
   window.clearTimeout(timer);
-  reconciliation.set(null);
+  comparison.set(null);
   if (paperId !== null) void read(paperId);
 }
 
 /** Replays a sealed run on the archive and compares it; the result is read back as it lands. */
-export async function reconcile(paperId: number): Promise<void> {
-  reconciliation.set({ paper_id: paperId, state: "reconciling" });
+export async function compare(paperId: number): Promise<void> {
+  comparison.set({ paper_id: paperId, state: "comparing" });
   try {
-    await paperApi(`/runs/${paperId}/reconcile`, { method: "POST", body: {} });
+    await paperApi(`/runs/${paperId}/compare`, { method: "POST", body: {} });
   } catch (error) {
-    reconciliation.set({ paper_id: paperId, state: "failed", error: error instanceof ApiError ? { code: error.code, message: error.message } : { code: "PAPER_FAILED", message: String(error) } });
+    comparison.set({ paper_id: paperId, state: "failed", error: error instanceof ApiError ? { code: error.code, message: error.message } : { code: "PAPER_FAILED", message: String(error) } });
     return;
   }
   await read(paperId);

@@ -2,7 +2,7 @@
 // daemon and the commands it runs. It allows exactly the calls they make, and of the containers only the
 // kind runtime/container.py builds (check.go). Everything else gets 403 and a line in its log.
 //
-// A reconcile replay attaches for up to 3600 s (paper/serve.py), so nothing here times out a request once
+// A comparison's replay attaches for up to 3600 s (paper/serve.py), so nothing here times out a request once
 // its headers have arrived.
 package main
 

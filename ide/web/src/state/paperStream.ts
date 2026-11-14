@@ -23,7 +23,7 @@ export const pickedTrade = atom<string | null>(null);
 /** A UTC day (YYYY-MM-DD) the chart and the events are limited to, or null. */
 export const pickedDay = atom<string | null>(null);
 /** The tab the Trades window shows; a click on a chart marker turns it to the events. */
-export const tradesTab = atom<"trades" | "events" | "logs" | "exceptions" | "reconcile">("trades");
+export const tradesTab = atom<"trades" | "events" | "logs" | "exceptions" | "compare">("trades");
 /** Whether the equity chart draws its buy and hold over a backtest and over a paper run, kept for the viewer. */
 export const holdShown = persistedAtom<{ backtest: boolean; paper: boolean }>("rg-equity-hold@1", { backtest: true, paper: false },
   (v): v is { backtest: boolean; paper: boolean } => typeof (v as { backtest?: unknown })?.backtest === "boolean" && typeof (v as { paper?: unknown }).paper === "boolean");
