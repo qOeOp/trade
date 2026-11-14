@@ -95,7 +95,7 @@ def _is_ancestor(conn: db.LedgerConnection, ancestor: str, descendant: str) -> b
     return base == ancestor
 
 
-def add_judgment(profile: db.LedgerProfile, kind: str, line: str, based_on_commit: str, body: str,
+def add_judgment(profile: db.LedgerProfile, kind: str, line: str | int, based_on_commit: str, body: str,
                  subjects: list[dict] | None = None, supersedes: int | None = None, op_id: str | None = None, *,
                  compared: Callable[[str, str], list[str]] | None = None) -> dict:
     """Append one judgment and its subjects in one write; the same payload again is a replay.
@@ -115,10 +115,9 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line: str, based_on_commi
         except Refusal as exc:
             raise refuse("COMMIT_NOT_ANCESTOR", f"{based_on_commit!r} is no commit of this ledger",
                          missing=(str(based_on_commit),)) from exc
-        line_id = lines.read_line(conn, line)["line_id"] if isinstance(line, str) else None
-        if line_id is None:
-            raise refuse("LINE_UNKNOWN", f"no research line {line!r}", missing=(str(line),))
-        payload = {"kind": kind, "line": line, "based_on_commit": commit, "body": body,
+        record = lines.read_line(conn, line)  # its name or its line_id
+        line_id, name = record["line_id"], record["name"]
+        payload = {"kind": kind, "line": name, "based_on_commit": commit, "body": body,
                    "subjects": normalized, "supersedes": supersedes}
 
         def checked_subjects(c):
@@ -127,7 +126,7 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line: str, based_on_commi
             line_commit = c.rows("SELECT to_commit FROM dolt_diff_research_line WHERE to_line_id = %s "
                                  "AND diff_type = 'added' LIMIT 1", (line_id,))[0][0]
             if not _is_ancestor(c, line_commit, commit):
-                raise refuse("COMMIT_BEFORE_LINE", f"{commit} is older than line {line} ({line_commit})")
+                raise refuse("COMMIT_BEFORE_LINE", f"{commit} is older than line {name} ({line_commit})")
             return [_check_subject(c, subject) for subject in normalized]
 
         # The table is a function of the fixed commit and takes minutes: inside the transaction any other
@@ -137,7 +136,7 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line: str, based_on_commi
         if kind == "recommendation" and not conn.rows("SELECT 1 FROM judgment WHERE op_id = %s", (op_id,)):
             assert compared is not None
             checked_subjects(conn)  # a bad line, commit or subject is refused as itself, not by the table's read
-            candidates = compared(line, commit)
+            candidates = compared(name, commit)
 
         def insert(c, op):
             rows = checked_subjects(c)

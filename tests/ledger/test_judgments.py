@@ -66,7 +66,11 @@ class JudgmentTests(unittest.TestCase):
 
     def test_basis_and_line_refusals(self):
         self.assertEqual(self.code(line="none"), "LINE_UNKNOWN")
-        self.assertEqual(self.code(line=self.line_id), "LINE_UNKNOWN")
+        self.assertEqual(self.code(line=999_999), "LINE_UNKNOWN")
+        by_id = self.add(line=self.line_id, body="named by its line_id")
+        self.assertEqual(self.service.sql(self.profile, "SELECT line_id FROM judgment WHERE judgment_id = %s",
+                                          (by_id["judgment_id"],)), [(self.line_id,)])
+        self.assertTrue(self.add(line=self.line, body="named by its line_id")["replayed"])
         self.assertEqual(self.code(based_on_commit=self.before_line), "COMMIT_BEFORE_LINE")
         self.assertEqual(self.code(based_on_commit="0" * 32), "COMMIT_NOT_ANCESTOR")
         self.service.sql(self.profile, "CALL DOLT_BRANCH('aside', 'main')")
