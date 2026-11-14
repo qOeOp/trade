@@ -216,6 +216,16 @@ class DockerHost:
     def exists(self, name: str) -> bool:
         return name in self.docker("ps", "-a", "--format", "{{.Names}}").splitlines()
 
+    def discard_failed(self, name: str, prefix: str) -> None:
+        """Remove what an earlier attempt at this revision left, before creating it again: the operator deleted
+        the failed marker to retry. Only a stopped container of exactly this revision goes; any other refuses."""
+        if not self.exists(name):
+            return
+        found = self.inspect(name)
+        if found["revision"] != revision(name, prefix) or found["running"]:
+            raise RuntimeError(f"release identity is already retained: {name}")
+        self.docker("rm", name)
+
     def managed(self, prefix: str, running_only: bool = False) -> list[str]:
         return [
             name
@@ -322,8 +332,7 @@ class DockerHost:
         revision(name, AGENT if agent else WEB)
         if agent and live_socket is not None:
             raise RuntimeError("Agent containers cannot mount the Live control socket")
-        if self.exists(name):
-            raise RuntimeError(f"release identity is already retained: {name}")
+        self.discard_failed(name, AGENT if agent else WEB)
         # One old and one candidate Web process.
         args = [
             "create",
