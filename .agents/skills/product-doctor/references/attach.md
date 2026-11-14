@@ -41,8 +41,8 @@ queries), attribution or remaining uncertainty, the remedy (SKILL.md step 5), an
 verified. Never rewrite an entry; a later reading adds one that names it.
 
 Fix a verified diagnosis then, so that later sessions can verify the fix, when its remedy is `fix`,
-`remove` or `skill` and AGENTS.md makes it no authority item: a PR as AGENTS.md's doctor fixes
-require, carrying a row in `docs/plans/doctor/index.zh.md` (source `attach`,
+`remove` or `skill` and AGENTS.md makes it no authority item: a PR as the header of
+`docs/plans/doctor/index.zh.md` requires for doctor fixes, carrying a row in `docs/plans/doctor/index.zh.md` (source `attach`,
 status `in PR` with that PR), and a diagnoses entry naming the PR. Leave an unverified diagnosis
 unfixed.
 

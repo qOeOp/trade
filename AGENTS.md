@@ -35,19 +35,19 @@ Stop and ask before any of these:
 - Reading any credential (browser cookies included) other than the research data keys
   `research-sources` names. Those sit in the main checkout's `.env` beside exchange credentials:
   read one named value inside the command that uses it, never source or print the file, never
-  echo, log or store a value. `product-doctor` reads none.
+  echo, log or store a value. Never read `dolt/service.json` under a data directory (passwords) or
+  fetch a running IDE's home page (paper token).
+- Adding a stored field (a ledger or record column, table or stored value): ask for each field after
+  the review and record that Code or Agent requires.
+- Tagging a release (`vX.Y.Z`): only a tag on a checked `main` commit reaches the remote host, and
+  each one is the user's call (`CHANGELOG.md`).
 
 Ask in plain terms: name the kind of change (product code and its PR, ledger records, a stored
 field, configuration), what is refused now and what the change will allow, and any way to reach
 the goal without it.
 
-Position size, per-plan risk and notional limits are the Agent's design variables, set in strategy
-source. Changing them needs no authority and never turns them into user constraints.
-
-Tests, demos and engineering trials of product code write only to an isolated Dolt database, never
-the active ledger: publication is append-only. Explore trials (`replay explore`, `replay
-reproduce`) go to the active ledger: an explore records exposure to data; a reproduction whose
-result matches is no new exposure.
+Tests, demos and engineering trials of product code write only to an isolated Dolt database
+(`ledger temp`), never the active ledger: publication is append-only.
 
 ## Code or Agent
 
@@ -65,61 +65,39 @@ result matches is no new exposure.
 
 - Persistent research data lives only in the Dolt ledger (with its `dolt_backup` copy and its public
   DoltHub copy) and, for market data, the market directory (no copy: it is recomputed from Binance's
-  public archives when lost). The ledger is public, and both hold only
-  what a replay cannot give back: decisions and declarations (registrations, judgments, source
-  reviews, research lines, out-of-sample registrations); observations that cannot recur (failure
-  logs, source originals (of a third-party video, only hashes and excerpts), timestamp tokens, market data); the minimal identity to reproduce the
-  rest (complete strategy source, one UTF-8 file per independent strategy; runtime image digest;
-  market day; configuration and input identity); and readings computed at sealing (audit
-  and eligibility verdicts, metrics, report measures, cycles, daily returns) with fingerprints of the
-  native reports, which only the product's seal command replaces, from a replay matching those
-  fingerprints. Store each fact once and never what stored data derives. Native reports and
-  other replay outputs are cache: regenerate them into `/tmp` and check them against the
-  fingerprints with the semantic report comparison. Everything else (drafts, exploratory
-  scripts, replay outputs, media, derived reports) is a working copy in `/tmp`.
+  public archives when lost). The ledger is public, and both hold only what a replay cannot give
+  back (`docs/rd/design-ledger.mdx` lists the kinds); of a third-party video, only its identity,
+  hashes and quoted excerpts. Store each fact once and never what stored data derives. Everything
+  else (drafts, exploratory scripts, replay outputs and native reports, media, derived reports) is a
+  working copy in `/tmp`.
 - Execution records are not research data: the remote host's `paper` database and Live's private
   root never reach the ledger, DoltHub or Git.
 - Write to the ledger only through the command line `python -m cli.main` (its `replay` commands
   included), never with direct SQL or another account. No strategy bodies or experiment receipts
   in Git.
 - Product and workbench findings: `docs/plans/`. Skills: `.agents/skills/` only (`.claude/skills` is
-  a symlink to it), holding runtime content only; their eval suites live beside them in
-  `.agents/evals/<skill>/` (`claude plugin eval .agents` from the repository root; the runner needs the
-  suites physically under the plugin root `.agents/`, whose manifest is `.agents/.claude-plugin/plugin.json`).
+  a symlink to it), holding runtime content only; evals and how to change a skill: `.agents/README.md`.
 
 ## Nautilus and parity
 
 - Check Nautilus APIs against the version pinned in `uv.lock` and the code in `engine/`; probe
-  uncertain behavior natively. Every replay executes a CI-built image, so an `engine/` edit reaches
-  it only through a new image digest.
-- When a change should preserve behavior (strategy refactor, data adapter, dependency or Nautilus
-  version), run the paired native replay in `engine/README.md` before claiming parity. Inspect
-  causal clocks, order protection and integrity, fees, funding and account economics; a clean exit
-  or green tests is not parity. A research change to a strategy follows `research-round` instead.
+  uncertain behavior natively.
+- A change that should preserve behavior is accepted only by the paired native replays in
+  `engine/README.md` (Paired acceptance); a clean exit or green tests is not parity.
 
 ## Checks and PRs
 
 - Code changes: `uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'` (Dolt
-  integration tests start their own throwaway service and skip without a Dolt 2.7.2 binary in
-  `RESEARCH_DOLT_BINARY` or on PATH; see `README.md`).
-- Skill text is product code and loads into every session. A skill change restates or deletes what
-  it supersedes, states its net words, checks that what it names exists and is not said elsewhere, and
-  runs the eval cases it adds or changes; cases it makes wrong are fixed in their own PR. Runner
-  votes are a coarse read; to keep or delete a rule or case, re-judge stored answers per question,
-  on stdin, with `claude -p --model {sonnet,haiku} --setting-sources '' --tools ''`.
-- PR titles are lowercase `type(scope): description` (`type(scope)!:` when breaking); check with
-  `bash .github/scripts/validate-pr-title.sh "<title>"`. The body follows
-  `.github/pull_request_template.md` and reports only checks actually run.
+  integration tests: `README.md`).
+- Skill text is product code: a skill change follows `.agents/README.md`.
+- A PR's title and body follow `.github/pull_request_template.md`; the body reports only checks
+  actually run.
 - Base every PR on `main`; never stack one PR on another, since the quality checks run only for
   PRs into `main`.
-- A merge is not a release: only a version tag (`vX.Y.Z`) on a checked `main` commit reaches the
-  remote host, and tagging one is the user's call each time (`CHANGELOG.md`). `deploy/remote/README.md` says
-  what switches and what stays.
+- A merge is not a release; `deploy/remote/README.md` says what a release switches and what stays.
 - Until 1.0, a version keeps no compatibility with earlier ones. A breaking change says in `CHANGELOG.md` what
   the upgrade drops. No code reads, migrates or special-cases an earlier format of runs, profiles, graphs or
-  ledgers; old research restarts on a new ledger. A release never swaps a running Live run's runtime image: the
-  control switch waits until Live is idle.
-- A fix for a doctor finding starts from the diagnosis record and the index, never from the
-  auditing session, except an attach session fixing its own verified diagnosis (product-doctor
-  `attach.md`); one root cause per PR, the finding id in the body. The PR adds or changes only
-  its own finding's eval case and leaves every other grader alone; a grader change is its own PR.
+  ledgers; old research restarts on a new ledger.
+- A fix for a doctor finding follows the header of `docs/plans/doctor/index.zh.md`. It adds or
+  changes only its own finding's eval case and leaves every other grader alone; a grader change is
+  its own PR.
