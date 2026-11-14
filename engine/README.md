@@ -510,10 +510,10 @@ declared aggregation and before an unobserved funding settlement. No downtime tr
 invented. Native Redis readback checks orders, positions, balances, margins and account events before the
 atomic cut is published.
 
-A new-protocol seal stores the exact journal bytes as `events/native.jsonl.gz` (instead of per-day
-re-encoding), including any interrupted final line, plus current and actually-used recovery originals.
-Verification hashes the decompressed byte prefix; parsed UI events are not recovery originals. Details,
-storage review and bounded native evidence are in `docs/plans/paper-native-recovery.zh.md`.
+A seal stores the exact journal bytes as `events/native.jsonl.gz`, including any interrupted final line, plus
+current and actually-used recovery originals. Verification hashes the decompressed byte prefix; parsed UI
+events are not recovery originals. Details, storage review and bounded native evidence are in
+`docs/plans/paper-native-recovery.zh.md`.
 
 ## Live execution
 
@@ -790,13 +790,7 @@ not evidence of a flat account. See [the implementation and storage decision](..
 ## History
 
 `runtime.image.LAYOUTS` knows only `replay-contract@v8`; no image or seal of an earlier contract is read
-or executed. The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
-file, Dolt/OCI) are kept at
-[`5700ceb`](https://github.com/qOeOp/trade/tree/5700ceb80e502084a9798f63871fa508cb6e6b95/backtest/r1/receipts);
-they accept their own historical implementations, not later execution paths. The H23a–H27a paired
-reports are [fixed historical
-evidence](https://github.com/qOeOp/trade/tree/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results).
-Exposed-year implementation acceptance is not independent strategy qualification.
+or executed.
 
 ## Recovery boundaries
 

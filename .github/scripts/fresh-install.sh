@@ -100,14 +100,14 @@ step "A research line, as research-start opens one: the candidate template publi
 cli candidate new --output "$work/candidate" --strategy-id fresh-install >/dev/null
 cli candidate publish --file "$work/candidate/strategy.py" --strategy-id fresh-install --entry-class Strategy1 \
   --description "the fresh install's candidate template" >/dev/null
-cli replay precheck --at "$market_day" --candidate fresh-install@1 --runtime "$runtime" --output "$work/precheck" -- "${window[@]}" \
+cli replay precheck --market-day "$market_day" --candidate fresh-install@1 --runtime "$runtime" --output "$work/precheck" -- "${window[@]}" \
   > "$work/precheck.json"
 jq -e '.status == "passed"' "$work/precheck.json" >/dev/null
 jq -n '["api", "causal", "activity", "readiness"] | map({(.): {status: "passed", note: "the fresh install'"'"'s precheck"}})
   | add' > "$work/items.json"
-cli source review --candidate fresh-install@1 --runtime "$runtime" --precheck-trial "$(jq -r .trial_id "$work/precheck.json")" \
+cli source review --candidate fresh-install@1 --runtime "$runtime" --trial-id "$(jq -r .trial_id "$work/precheck.json")" \
   --verdict passed --items "$work/items.json" --reviewer fresh-install >/dev/null
-cli line select --start fresh-install@1 --slug fresh-install --market-at "$market_day" | jq -c '{line, window, market_day}'
+cli line select --start fresh-install@1 --slug fresh-install --market-day "$market_day" | jq -c '{line, window, market_day}'
 done_
 
 step "One replay: replay explore of the candidate template on $runtime, on that line"

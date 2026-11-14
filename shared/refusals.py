@@ -91,7 +91,7 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "START_REVIEW_REQUIRED": ("Run `replay precheck` on the start revision and record its `source review`, then "
                               "select the line again; after a failed review, fix the source, publish it and start "
                               "from the new revision.",),
-    "MARKET_DAY_UNRESOLVED": ("Pass a market day of the active market; `market coverage` without --at prints "
+    "MARKET_DAY_UNRESOLVED": ("Pass a market day of the active market; `market coverage` without --market-day prints "
                               "its latest as market_day.",
                               "A market that is still empty (MARKET_EMPTY in the message) has no market day: import "
                               "two months with `market import` first (the first has no members).",
@@ -244,7 +244,7 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "LIFECYCLE_INPUT": ("Write the lifecycle bundle for this market day again with the market command.",),
     # Prechecks and source reviews (registration/precheck.py)
     "REVIEW_INVALID": ("Write only the four items api, causal, activity and readiness to the --items file, each "
-                       "{status, note}; pass trial_id as --precheck-trial and verdict as --verdict.",),
+                       "{status, note}; pass trial_id as --trial-id and verdict as --verdict.",),
     "PRECHECK_CAPTURE_MISSING": ("Run `replay precheck` for the source and review that trial.",),
     # Validation (registration/validation.py)
     "CANDIDATE_UNKNOWN": ("Pass a candidate shown by `candidate list` as strategy_id@revision.",),
@@ -346,8 +346,8 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "JUDGMENT_BODY_UNREADABLE": ("Write the judgment text to a UTF-8 file and pass it with --body.",),
     # The market directory (market/)
     "MARKET_UNREACHABLE": ("Pass the market profile with --market; create a market directory with `market init`.",),
-    "MARKET_DAY_UNKNOWN": ("Pass head or a market day (YYYY-MM-DD) of the market; `market coverage` without --at "
-                           "prints the newest as market_day.",
+    "MARKET_DAY_UNKNOWN": ("Pass head or a market day (YYYY-MM-DD) of the market; `market coverage` without "
+                           "--market-day prints the newest as market_day.",
                            "A line pinned to a later day cannot be read here until the market reaches it."),
     "MONTH_INVALID": ("Import the month after the latest or the month before the earliest, one `market import "
                       "--month YYYY-MM` each.",),

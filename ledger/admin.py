@@ -223,8 +223,7 @@ def _run_record(conn: db.LedgerConnection, trial_id: int) -> dict:
                                 "validation_registration": trial["validation_registration_id"]}}
 
 
-def export_history(profile: db.LedgerProfile, destination: Path, at: str | None = None,
-                   trial_ids: list | None = None) -> dict:
+def export_history(profile: db.LedgerProfile, destination: Path, at: str | None = None) -> dict:
     """Export the ledger at one exact version through the reader account: the full-history backup
     and the reproduction manifest with candidate sources, run rows, sealed results,
     daily series, position cycles, registrations and judgments, and every run's replay identity."""
@@ -232,15 +231,9 @@ def export_history(profile: db.LedgerProfile, destination: Path, at: str | None 
     with db.read_as_of(profile, at) as conn:
         require_reader(conn)
         commit = db.head_commit(conn)
-        sealed = [trial_id for (trial_id,) in conn.rows("SELECT trial_id FROM run ORDER BY trial_id")]
-        wanted = sealed if trial_ids is None else [int(item) for item in trial_ids]
-        absent = [str(item) for item in wanted if item not in sealed]
-        if absent:
-            raise refuse("UNKNOWN_RUN", "no sealed run " + ", ".join(absent) + f" at {commit}", missing=tuple(absent))
-        records = {trial_id: _run_record(conn, trial_id) for trial_id in wanted}
-        sources = {record["trial"]["source_sha256"] for record in records.values()}
-        candidates = [row for row in conn.dicts("SELECT strategy_id, revision, source_sha256 FROM candidate ORDER BY "
-                                                "strategy_id, revision") if trial_ids is None or row["source_sha256"] in sources]
+        records = {trial_id: _run_record(conn, trial_id)
+                   for (trial_id,) in conn.rows("SELECT trial_id FROM run ORDER BY trial_id")}
+        candidates = conn.dicts("SELECT strategy_id, revision, source_sha256 FROM candidate ORDER BY strategy_id, revision")
         files: dict[str, bytes] = {}
         listed = []
         for row in candidates:

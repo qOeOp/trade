@@ -13,7 +13,7 @@ import tempfile
 import textwrap
 
 from cli.common import (CANDIDATE_HELP, RUNNER_EPILOG, RUNTIME_DEFAULT_HELP, RUNTIME_HELP, _at, _count,
-                        _json_file, _ledger_option, _market_option, _new_temporary, _op_id,
+                        _json_file, _ledger_option, _market_day, _market_option, _new_temporary, _op_id,
                         _regular_file, _utc_time, refusal_json)
 from cli.ledger_commands import ledger_export
 from ledger import db, evidence, execution, judgments, lines, strategies, targets
@@ -305,7 +305,7 @@ def line_close(profile: db.LedgerProfile, line: str, summary: bytes, market: dic
     if profile.backup_root is None:
         return {**closed, "backup": None}
     try:
-        synced = ledger_export(profile, "backup", None, None, None)
+        synced = ledger_export(profile, "backup", None, None)
     except Refusal as exc:
         return {**closed, "backup": None, "backup_failed": refusal_json(exc)}
     return {**closed, "backup": {"ledger_commit": synced["ledger_commit"], "backup_path": synced["backup_path"]}}
@@ -352,7 +352,7 @@ def research_status(profile: db.LedgerProfile, at: str | None, line: str | None)
     return status.research_status(profile, at, line)
 
 
-def research_state(conn: db.LedgerConnection, line: str | None, at: str | None, *,
+def research_state(profile: db.LedgerProfile, line: str | None, at: str | None, *,
                    history: bool = False, history_before: int | None = None, full: bool = False,
                    image: bool = True) -> dict:
     from registration import seams
@@ -363,7 +363,7 @@ def research_state(conn: db.LedgerConnection, line: str | None, at: str | None, 
             current = seams.current.resolve_runtime(None)["image_ref"]
         except Refusal:
             pass
-    return status.research_state(conn, line, at, history=history, history_before=history_before, full=full,
+    return status.research_state(profile, line, at, history=history, history_before=history_before, full=full,
                                  current_image=current)
 
 
@@ -496,7 +496,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "SEARCH_EXPOSURE_VARIANTS_MISSING (a search_exposure body whose first line is not `Evaluated variants: K`); "
         "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"),
     ("line", "select"): (
-        "the market at --market-at (reader): market day, universe rule, latest complete day; the start "
+        "the market at --market-day (reader): market day, universe rule, latest complete day; the start "
         "candidate, its source reviews, the open lines and targets (writer, head)",
         "one research_line row named <slug> and, when given, the line's targets in the same commit; the same "
         "choice under that name again writes no line (created false)",
@@ -515,7 +515,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); LINE_ENDED "
         "(--line is closed); LINE_UNKNOWN; TARGETS_INVALID (needs 0 < max-drawdown < 1 and 0 < annual-return < 1000)"),
     ("line", "history"): (
-        "the open line, its passed research runs and history trials (writer, head); the market at --market-at "
+        "the open line, its passed research runs and history trials (writer, head); the market at --market-day "
         "(default: the newest day): its first day and latest complete day; each run's runtime image, probed",
         "one history trial and its run per segment left (each calendar year before the development period as a "
         "veto segment, the period again as the control, the two-year holdout after it as one segment, the forward "
@@ -702,7 +702,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "item failed or is unresolved); RUNTIME_UNRESOLVED; UNKNOWN_CANDIDATE, BAD_REF; "
         "PRECHECK_CAPTURE_MISSING"),
     ("validation", "registration"): (
-        "--design (JSON); the candidate (writer, head); --market-at in the market (reader)",
+        "--design (JSON); the candidate (writer, head); --market-day in the market (reader)",
         "one validation_registration row; then sends the commit hash's SHA-256 to the RFC 3161 authority and "
         "records a verified token as a second commit (a failed witness keeps the registration and reports "
         "witness.status failed)",
@@ -728,7 +728,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 def register(verbs, verb, runner) -> None:
     """Add the research record nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
-    candidate = verbs("candidate", "candidates: publish, show, export, new, list")
+    candidate = verbs("candidate", "candidates")
     command = verb(candidate, "publish", "publish one single-file source as a candidate")
     _ledger_option(command)
     command.add_argument("--file", required=True, help="the UTF-8 strategy source file")
@@ -757,7 +757,7 @@ def register(verbs, verb, runner) -> None:
     _ledger_option(command)
     _at(command)
 
-    evidence_noun = verbs("evidence", "Agent evidence bundles: add, export")
+    evidence_noun = verbs("evidence", "Agent evidence bundles")
     command = verb(evidence_noun, "add", "append an evidence bundle")
     _ledger_option(command)
     command.add_argument("--bundle", required=True, help="new bundle name")
@@ -770,14 +770,14 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     _at(command)
 
-    execution_noun = verbs("execution", "execution captures: recover")
+    execution_noun = verbs("execution", "execution captures")
     command = verb(execution_noun, "recover", "append recovered bytes of a kept precheck directory")
     _ledger_option(command)
     command.add_argument("--trial-id", required=True, type=int, help="the precheck trial whose capture was refused")
     command.add_argument("--workdir", required=True, help="the kept precheck directory")
     command.add_argument("--failure-receipt", required=True, help="the failure receipt the refusal wrote")
 
-    judgment = verbs("judgment", "Agent judgments: add")
+    judgment = verbs("judgment", "Agent judgments")
     command = verb(judgment, "add", "append one judgment")
     command.epilog = ("A judgment binds to a line, its subjects and the --based-on commit and is never edited. "
                       "--supersedes corrects the same conclusion; an independent conclusion is a new judgment, "
@@ -793,7 +793,7 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
     _op_id(command)
 
-    line = verbs("line", "research lines: list, select, targets, history, close")
+    line = verbs("line", "research lines")
     command = verb(line, "list", "list the open research lines")
     _ledger_option(command)
     command.add_argument("--all", action="store_true", help="list the closed lines too")
@@ -812,7 +812,7 @@ def register(verbs, verb, runner) -> None:
     _market_option(command)
     command.add_argument("--start", required=True,
                          help="start candidate as ID@N; a revision whose source review passed")
-    command.add_argument("--market-at", help="market day to pin, YYYY-MM-DD (default: the newest day)")
+    _market_day(command)
     _targets_options(command, "the line reads the ledger default when both are omitted")
     command.add_argument("--slug", required=True,
                          help="the line's direction as lowercase words joined by hyphens")
@@ -835,7 +835,7 @@ def register(verbs, verb, runner) -> None:
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--line", required=True, help="an open research line")
-    command.add_argument("--market-at", help="market day, YYYY-MM-DD (default: the newest day)")
+    _market_day(command)
     command.add_argument("--limit", type=_count, help="run at most this many segments")
     command = verb(line, "close", "end a line with its summary")
     _ledger_option(command)
@@ -846,7 +846,7 @@ def register(verbs, verb, runner) -> None:
                               "what was tried, results with their run IDs, failures and why, lessons and advice; "
                               "numbers stay in the reports")
 
-    registration = verbs("registration", "registrations: add")
+    registration = verbs("registration", "registrations")
     command = runner(registration, "add", "lock a registration")
     command.epilog = textwrap.fill(
         "Locks the body and its runtime and input identity as an immutable registration; the runner arguments "
@@ -862,14 +862,14 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--line", help="the open research line to register on (default: the only open line)")
     command.add_argument("--source", action="append", default=[], help="a source original file (repeatable)")
 
-    hypothesis = verbs("hypothesis", "registered hypotheses: compare")
+    hypothesis = verbs("hypothesis", "registered hypotheses")
     command = verb(hypothesis, "compare", "a grid run against its registered control")
     _ledger_option(command)
     command.add_argument("--registration", required=True, type=int, help="research registration ID")
     command.add_argument("--trial-id", required=True, type=int, help="a grid run of that registration")
     _at(command)
 
-    research = verbs("research", "research facts: status, state, runs, history, graph")
+    research = verbs("research", "research facts")
     command = verb(research, "status", "research fact counts and the line's comparison table")
     _ledger_option(command)
     command.add_argument("--line", help="research line name of the comparison table (default: the only open "
@@ -936,7 +936,7 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--trial-id", type=int, required=True, help="the registered run")
     _at(command)
 
-    source = verbs("source", "independent source reviews: review")
+    source = verbs("source", "independent source reviews")
     command = verb(source, "review", "record an independent source review of a precheck")
     command.epilog = ("Records the review in the ledger. A failed review removes economic evidence from every run "
                       "of the same source and image, including runs sealed before it; their reports then give "
@@ -944,12 +944,12 @@ def register(verbs, verb, runner) -> None:
     _ledger_option(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--runtime", required=True, help=RUNTIME_HELP + "; the precheck's image")
-    command.add_argument("--precheck-trial", required=True, type=int, help="the precheck trial reviewed")
+    command.add_argument("--trial-id", required=True, type=int, help="the precheck trial reviewed")
     command.add_argument("--verdict", required=True, choices=("passed", "failed"), help="passed or failed")
     command.add_argument("--items", required=True, help="JSON file with api, causal, activity and readiness")
     command.add_argument("--reviewer", required=True, help="the reviewer's name, not the author's")
 
-    validation = verbs("validation", "out-of-sample validations: registration, report")
+    validation = verbs("validation", "out-of-sample validations")
     command = verb(validation, "registration", "register one out-of-sample validation")
     command.epilog = ("Records the user's candidate, window and universe rule and requests an RFC 3161 timestamp; "
                       "ledger witness retries a missing one. replay run --validation runs it once. "
@@ -961,7 +961,7 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--window-start", required=True, help="UTC time, YYYY-MM-DDTHH:MM:SSZ")
     command.add_argument("--window-end", required=True, help="UTC time, YYYY-MM-DDTHH:MM:SSZ")
     command.add_argument("--universe-rule", required=True, help="the market day's universe rule")
-    command.add_argument("--market-at", help="market day, YYYY-MM-DD (default: the newest day)")
+    _market_day(command)
     command.add_argument("--design", required=True, help="JSON file of the validation design")
     command.add_argument("--retry-of", type=int,
                          help="a bound interrupted, invalid or economically unavailable registration; keep its "
@@ -973,7 +973,7 @@ def register(verbs, verb, runner) -> None:
     command.epilog = ("The same measures and masking as development reports, with intervals, p and the Holm "
                       "correction over the window's registrations; no verdict.")
     _ledger_option(command)
-    command.add_argument("--registration-id", required=True, type=int, help="validation registration ID")
+    command.add_argument("--validation", required=True, type=int, help="validation registration ID")
     _at(command)
 
 
@@ -1008,7 +1008,7 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("line", "select"):
         market = profiles.market(args.market)
         with db.connect(profile, "writer") as conn:
-            return line_select(conn, market, args.start, args.market_at,
+            return line_select(conn, market, args.start, args.market_day,
                                args.slug, _targets(args)), 0
     if key == ("line", "targets"):
         with db.connect(profile, "writer") as conn:
@@ -1016,7 +1016,7 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             return targets.set_targets(conn, line_id, args.max_drawdown, args.annual_return), 0
     if key == ("line", "history"):
         from replay import history
-        return history.run_history(profile, profiles.market(args.market), args.market_at, args.line, args.limit), 0
+        return history.run_history(profile, profiles.market(args.market), args.market_day, args.line, args.limit), 0
     if key == ("line", "close"):
         return line_close(profile, args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID"),
                           profiles.market(args.market)), 0
@@ -1028,9 +1028,8 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("research", "status"):
         return research_status(profile, args.at, args.line), 0
     if key == ("research", "state"):
-        with db.connect(profile, "reader") as conn:
-            return research_state(conn, args.line, args.at, history=args.history,
-                                  history_before=args.history_before, full=args.full, image=not args.without_image), 0
+        return research_state(profile, args.line, args.at, history=args.history, history_before=args.history_before,
+                              full=args.full, image=not args.without_image), 0
     if key == ("research", "history"):
         from report import history as report_history
         return report_history.research_history(profile, args.at, args.line), 0
@@ -1051,12 +1050,12 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         from report import graph
         return graph.version_comparison(profile, args.registration, args.trial_id, args.at), 0
     if key == ("source", "review"):
-        return source_review(profile, args.candidate, args.runtime, args.precheck_trial, args.verdict, args.items,
+        return source_review(profile, args.candidate, args.runtime, args.trial_id, args.verdict, args.items,
                              args.reviewer), 0
     if key == ("validation", "registration"):
         return validation_registration(profile, args.candidate, args.window_start, args.window_end, args.universe_rule,
-                                       args.market_at, profiles.market(args.market), args.design, args.retry_of,
+                                       args.market_day, profiles.market(args.market), args.design, args.retry_of,
                                        args.op_id, args.tsa_url), 0
     if key == ("validation", "report"):
-        return validation_report(profile, args.registration_id, args.at), 0
+        return validation_report(profile, args.validation, args.at), 0
     raise refuse("USAGE_ERROR", f"unknown command {args.noun} {args.verb}")
