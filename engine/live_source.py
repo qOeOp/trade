@@ -73,7 +73,7 @@ class _LiveConfigured(history.Warming):
         if order.is_reduce_only:
             commands.require_order_identity(self._live, order, strategy_ids(self._live.manifest)[symbol])
             position = self.owned_position(position_id)
-            return super().submit_order(order, position_id=position.id, client_id=client_id)
+            return super().submit_order(order, position_id=position.id, client_id=client_id, params=params)
         pending = PendingEntry(order, super().submit_order, client_id, self._live.deciding)
         try:
             if self._live.denying:  # not a new decision, even with entries open (engine.live_connection.deny)
