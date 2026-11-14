@@ -329,8 +329,7 @@ What a rollback does not undo: ledger records and the market directory only grow
 keep the runtime image and controller they started with. A schema or protocol change therefore has to stay readable
 by the revision before it; a revert that needs the ledger rewound is a destructive write for the user to decide.
 A target that failed stays in `/var/lib/trade-release/failed/`, and the three newest good Web, Agent and controller
-containers stay on the host for inspection. A workstation without the release plane goes back with
-`deploy.images --revision` ([Image versions](../README.md#image-versions)).
+containers stay on the host for inspection.
 
 ## Live on this host
 

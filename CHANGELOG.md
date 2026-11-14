@@ -22,6 +22,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Deploy (breaking): during 0.x a version keeps no compatibility with earlier ones. `deploy.images` no longer
+  names a runtime built before the replay/execution image split (its combined `sha-<commit>` index); an admitted
+  runtime is always read at `exec-sha-<commit>`. Going back to an earlier version's images is no longer supported:
+  `--revision` stays only to name the admitted revision the host routes, as Live on the host does.
 - Paper (breaking): the run listing (`GET /api/paper/runs`) names a run's readings so far `readings` instead of
   `live`, the name its stream's `readings` event already has. The release gate's probe reads the new name, so
   reinstall the host's control code with the release (`sh deploy/remote/install-release.sh`), as every release does.
