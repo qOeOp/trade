@@ -277,15 +277,10 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
     def comparer():
         # Its own thread and its own container (live.daily): a day's comparison never delays maintenance or a
         # request, and its memory is never the control's.
+        # A host where no run needs a comparison (daily.needed) starts none.
         last = None
         while not done.is_set():
-            now = time.time_ns()
-            if daily.due(now, last):
-                last = now
-                try:
-                    daily.launch(config.root, config.market_root, now)
-                except Exception:
-                    pass  # the run's record says what the comparison found; the next hour tries again
+            last = daily.tick(config.root, config.market_root, time.time_ns(), last)
             done.wait(60)
 
     previous = {}
