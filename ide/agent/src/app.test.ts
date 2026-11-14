@@ -9,7 +9,7 @@ import { productTools } from "./tools.ts";
 
 const HOST = "127.0.0.1:8766";
 const product = { root: "/opt/trade", ledger: "research", market: null };
-const state = { line: { bundle: "ema-cross" }, ledger_commit: "abc" };
+const state = { line: { name: "ema-cross" }, ledger_commit: "abc" };
 
 function setup(model = streaming("research_state", {}, "The line is ema-cross.")) {
   const dir = dataDir();

@@ -22,7 +22,7 @@ export function LineWidget() {
   const status = useAtom(viewStatus);
   // Before its first graph comes, the line the address names shows as on its way, not as no line.
   const asked = new URLSearchParams(window.location.search).get("line");
-  if (!line.bundle && asked && status.busy) return (
+  if (!line.name && asked && status.busy) return (
     <Dropdown label="Research line" trigger={<>
       <span className="truncate font-mono font-semibold text-fg-muted">{asked}</span>
       <Icon name="loading" size={12} className="shrink-0 text-icon motion-safe:animate-spin" />
@@ -32,10 +32,10 @@ export function LineWidget() {
       <ResearchLines index={index} />
     </Dropdown>
   );
-  if (!line.bundle) return <Dropdown label="Research line" trigger={<span className="text-fg-muted">No line</span>}><ResearchLines index={index} /></Dropdown>;
+  if (!line.name) return <Dropdown label="Research line" trigger={<span className="text-fg-muted">No line</span>}><ResearchLines index={index} /></Dropdown>;
   return (
     <Dropdown label="Research line" trigger={<>
-      <span className="truncate font-mono font-semibold">{line.bundle}</span>
+      <span className="truncate font-mono font-semibold">{line.name}</span>
       {gates.length > 0 && <i role="img" aria-label={`${gates.length} ${gates.length === 1 ? "gate" : "gates"} before the next registration`} className="size-1.5 shrink-0 rounded-full bg-misses" />}
     </>}>
       {gates.length > 0 && <>
@@ -63,14 +63,14 @@ export function LineWidget() {
       <ResearchLines index={index} />
       <DropdownSeparator />
       <DropdownFacts items={[
-        ["Research line", line.bundle],
+        ["Research line", line.name],
         ["Start", line.start ?? "-"],
         ["Development window", line.window?.join(" → ") ?? "-"],
         day ? ["Market data through", `${day} UTC`] : ["Market day", line.market_day ?? "-"],
         ["Scope from", scope?.start ?? "All"],
       ]} />
       <DropdownSeparator />
-      <DropdownItem icon="copy" onSelect={() => void copyText(line.bundle)}>Copy line name</DropdownItem>
+      <DropdownItem icon="copy" onSelect={() => void copyText(line.name)}>Copy line name</DropdownItem>
     </Dropdown>
   );
 }

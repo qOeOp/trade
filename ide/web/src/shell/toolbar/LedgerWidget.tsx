@@ -12,7 +12,7 @@ export function LedgerWidget() {
   const { source, scope, line } = useView();
   const sync = useResearchSync();
   const commit = scope?.ledger_commit ?? null;
-  if (!line.bundle && !sync) return null;
+  if (!line.name && !sync) return null;
   const icon = sync?.busy ? <Icon name="sync" className="motion-safe:animate-spin" /> : <Icon name="ledger" tone={sync?.failure ? "fail" : undefined} />;
   return (
     <Dropdown label="Ledger commit" trigger={<span className="inline-flex items-center gap-1.5 text-fg-muted">{icon}

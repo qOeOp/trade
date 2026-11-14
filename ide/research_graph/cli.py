@@ -14,7 +14,7 @@ from . import compare, contract
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ide.py", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    command = sub.add_parser("check", help="check a graph against research-graph@3")
+    command = sub.add_parser("check", help="check a graph against research-graph@4")
     command.add_argument("graph")
     command = sub.add_parser("compare", help="compare two graphs of one line; Markdown on stdout")
     command.add_argument("a", help="normally the ledger graph")

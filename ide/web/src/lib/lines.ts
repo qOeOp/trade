@@ -1,16 +1,16 @@
 /** A line change retains a pinned ledger snapshot, but drops the previous graph's scope and selection. */
-export function lineHref(href: string, bundle: string): string {
+export function lineHref(href: string, line: string): string {
   const url = new URL(href);
-  url.searchParams.set("line", bundle);
+  url.searchParams.set("line", line);
   url.searchParams.delete("since");
   url.hash = "";
   return `${url.pathname}${url.search}`;
 }
 
-/** The page on line `bundle` with `version` selected and, on the Runs page, paper run `run` picked
+/** The page on line `line` with `version` selected and, on the Runs page, paper run `run` picked
  *  (`run=`, which the page drops once it has picked it), and `stage` shown of it (`stage=`, the same). */
-export function runHref(href: string, bundle: string, version: string, run: number, stage?: string): string {
-  const url = new URL(lineHref(href, bundle), href);
+export function runHref(href: string, line: string, version: string, run: number, stage?: string): string {
+  const url = new URL(lineHref(href, line), href);
   url.searchParams.set("run", String(run));
   if (stage) url.searchParams.set("stage", stage);
   return `${url.pathname}${url.search}#${encodeURI(version)}`;

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "research-graph@3",
+  "$id": "research-graph@4",
   "title": "Research graph",
   "description": "One research line rebuilt from one source. Every field is one the research ledger records or derives; conversation and host state are not part of a graph. Unknown values are null, never guessed.",
   "type": "object",
@@ -14,7 +14,7 @@
   ],
   "properties": {
     "format": {
-      "const": "research-graph@3"
+      "const": "research-graph@4"
     },
     "source": {
       "enum": [
@@ -49,10 +49,10 @@
     "line": {
       "type": "object",
       "required": [
-        "bundle"
+        "name"
       ],
       "properties": {
-        "bundle": {
+        "name": {
           "type": "string"
         },
         "start": {
@@ -364,9 +364,9 @@
             "items": {
               "type": "object",
               "properties": {
-                "bundle": {
+                "review_id": {
                   "type": [
-                    "string",
+                    "integer",
                     "null"
                   ]
                 },

@@ -64,8 +64,8 @@ export function chooseRun(run: PaperRun): void {
 }
 
 /** The Runs stage tabs, for a paper run whose version the drawn line does not hold: the backtest of `run`'s
- *  version (on `bundle`), on that version's page. */
-export const openBacktest = (bundle: string, version: string, run: number) => window.location.assign(runHref(window.location.href, bundle, version, run, "backtest"));
+ *  version (on `line`), on that version's page. */
+export const openBacktest = (line: string, version: string, run: number) => window.location.assign(runHref(window.location.href, line, version, run, "backtest"));
 
 /** The run the address names (`run=`, left by chooseRun opening its line) and the stage (`stage=`, left by openBacktest). */
 const address = new URLSearchParams(window.location.search);

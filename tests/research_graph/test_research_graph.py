@@ -15,9 +15,9 @@ from research_graph import compare, contract, layout  # noqa: E402
 from research_graph import render as render_web  # noqa: E402
 
 GRAPH = {
-    "format": "research-graph@3", "source": "ledger",
+    "format": "research-graph@4", "source": "ledger",
     "scope": {"start": "2026-01-01T10:00:00Z"},
-    "line": {"bundle": "research-line-20260101-x", "start": "root@1", "window": ["2025-01-01", "2026-01-01"],
+    "line": {"name": "research-line-20260101-x", "start": "root@1", "window": ["2025-01-01", "2026-01-01"],
              "targets": {"max_drawdown": 0.15, "annual_return": 0.2}},
     "candidates": [
         {"id": "root@1", "parent": None, "created_at": "2026-01-01T09:00:00", "source": "class Root:\n    pass\n",

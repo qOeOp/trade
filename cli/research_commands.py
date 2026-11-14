@@ -665,7 +665,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "
         "returns inside the comparisons",
         "nothing",
-        "format (research-graph@3), source, scope {ledger_commit, start, end}, line (with gates [{code, message}], "
+        "format (research-graph@4), source, scope {ledger_commit, start, end}, line (with gates [{code, message}], "
         "the gates `research state` reads before the next registration), candidates [{id, parent, "
         "source, trials, comparison, reviews, status, ...}], events, gaps; large (every candidate's source)",
         "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); "
@@ -893,7 +893,7 @@ def register(verbs, verb, runner) -> None:
     _ledger_option(command)
     command.add_argument("--line", required=True, help="research line name")
     _at(command)
-    command = verb(research, "graph", "the line as a research-graph@3 document, read from the ledger only")
+    command = verb(research, "graph", "the line as a research-graph@4 document, read from the ledger only")
     command.epilog = ("Composes the product's readers and adds no rule, so one ledger commit gives one graph. The "
                       "targets are the ones in force for the line at that commit (`line targets`); --since marks "
                       "where the scope under study starts. Check, render and compare it with "

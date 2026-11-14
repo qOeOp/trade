@@ -73,7 +73,7 @@ export function AgentRuntime({ children }: { children: ReactNode }) {
     body: () => {
       const choice = currentChoice(agents.get(), chosen.get());
       return { agent: choice?.agent, model: choice?.model, context: {
-        version: selection.get(), line: page.current.line.bundle, ledger_commit: page.current.scope?.ledger_commit ?? null } };
+        version: selection.get(), line: page.current.line.name, ledger_commit: page.current.scope?.ledger_commit ?? null } };
     },
   }), []);
   const runtime = useRemoteThreadListRuntime({ runtimeHook: () => useChatRuntime({ transport }), adapter: threads });

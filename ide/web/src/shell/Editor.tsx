@@ -25,7 +25,7 @@ export function Editor() {
   const files = left === "sources", runs = left === "runs", market = left === "market", history = left === "history";
   const Lineage = RENDERERS.lineage.Component;
   const code = files && id ? { id, diff, widget: sources } : null;
-  const none = !useView().line.bundle, status = useAtom(viewStatus);
+  const none = !useView().line.name, status = useAtom(viewStatus);
   return (
     <Island id="editor" header={code && <SourceBar {...code} />}>
       {lineage && <div className={files || runs || market || history ? "hidden" : "h-full"}><Lineage widget={lineage} /></div>}

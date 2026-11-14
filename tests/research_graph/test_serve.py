@@ -120,7 +120,7 @@ class FakeProduct:
         graph = copy.deepcopy(GRAPH)
         graph["scope"] = {**graph["scope"], "ledger_commit": commit}
         if line is not None:
-            graph["line"]["bundle"] = line
+            graph["line"]["name"] = line
         return graph
 
 
@@ -209,7 +209,7 @@ class HubTests(unittest.TestCase):
         status, view = self.hub.view("line-a", None, None)
         self.assertEqual(status, 200, "new pages can show the completed graph instead of waiting for a moving head")
         self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
-        self.assertEqual(view["line"]["bundle"], "line-a")
+        self.assertEqual(view["line"]["name"], "line-a")
         self.assertEqual(client.sent, {"state": "computing", "ledger_commit": "b" * 32,
                                        "available_commit": "a" * 32})
         latest.set()
