@@ -69,7 +69,8 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                         "name your own evidence otherwise, for example correction-*.",),
     "INVALID_EVIDENCE_PATH": ("Copy the files into a plain directory without links or duplicate names.",),
     "EMPTY_EVIDENCE": ("Remove empty files and pass at least one nonempty file.",),
-    "MEDIA_NOT_KEPT": ("Store the transcript, frames and receipts derived from the media instead.",),
+    "MEDIA_NOT_KEPT": ("Store derived evidence instead; of a third-party video, only its identity, hashes and "
+                       "quoted excerpts, never the complete transcript.",),
     "EVIDENCE_TOO_LARGE": ("Store a derived, smaller file instead of the original.",),
     "BUNDLE_EXISTS": ("Use a new bundle name; to correct a bundle, add a correction-* bundle naming it.",),
     "UNKNOWN_BUNDLE": ("List bundles with `ledger sql \"SELECT DISTINCT bundle FROM v_evidence\"`.",),

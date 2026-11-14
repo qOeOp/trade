@@ -26,7 +26,7 @@ hash it into `sha256/` the same way, list it as `source.<ext>`, use `bundle "loc
 SHA-256>"` and write `probe/identity.json` as `{"_type": "video", "id": "<16 hex>", "extractor_key": "local",
 "webpage_url": "<origin the user gave, or unknown>"}`; only a local file has no receipt.
 
-Backup (whenever `VIDEO_EVIDENCE_BACKUP` is set; a research round stores the bundle in its ledger instead) after
+Backup (whenever `VIDEO_EVIDENCE_BACKUP` is set) after
 the last stage and after every change to `claims.json`; the loop must print nothing:
 
     BK=${VIDEO_EVIDENCE_BACKUP:?set VIDEO_EVIDENCE_BACKUP to a second directory}; mkdir -p "$BK/sha256"
@@ -37,7 +37,7 @@ Cookies: only a file the user supplied for this, only for Bilibili, passed as a 
 (`--cookies .cookies.tmp`; yt-dlp rewrites it); never record its path. The custody block above refuses a stage
 that holds one of its values (values under 8 characters are too common to test).
 
-Retained subset (what `--restored` checks and research retains), copied from `B` into an empty directory `R`;
+Retained subset (what `--restored` checks; research keeps less: research-round hypothesis.md), copied from `B` into an empty directory `R`;
 then run the checker on `R` with `--restored` and the backup's `sha256/`:
 
     cd "$B"; mkdir -p "$W"; jq -r '.claims[].evidence.frames // [] | .[] | "\(.pts)\t\(.decoded_sha256)"' claims.json > "$W/keys"
