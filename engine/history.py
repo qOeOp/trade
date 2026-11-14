@@ -5,12 +5,15 @@ on_start and on_historical_bars aside. At T the runner:
 
 1. (Paper and Live) waits SETTLE_NS, while Binance can still revise the kline that closed at T (2026-11-11 probe:
    close, volume and trade count changed until 5 to 10 s after T, never later), then reads every bar its requests
-   cover from Binance's public klines (engine.klines) into the run's temporary Catalog, off the node's thread;
+   cover from Binance's public klines (engine.klines) into the run's temporary Catalog, and the declared funding
+   settlements from Binance's public funding-rate history (engine.klines.settlements), off the node's thread, until
+   the settlement the latest ones' spacing makes due at or before T is published (FundingPending);
 2. has WarmupActor warm each declared aggregation with the one-minute bars of the bucket T falls in,
    [floor(T, P), T), so that the first aggregated bar the source sees is complete; these responses go to the actor;
 3. requests each declared history for the source (engine.warmup.history_range);
 4. checks every response: the requested bars, ascending and adjacent, and (Paper and Live) exactly the bars written;
-5. hands each history to the source's on_historical_bars once, then runs its on_start (`_warming_begin`).
+5. hands each history to the source's on_historical_bars once and the funding settlements (a replay's from its export,
+   engine.warmup.funding_history) to its on_historical_funding_rates once, then runs its on_start (`_warming_begin`).
 
 Until then the source's orders are refused (engine.order_rules.WARMING). A failure goes to `_warming_failed`: replay
 and Paper record it and refuse the run, Live stops. Paper and Live refuse a start whose warm-up has not completed by
@@ -43,6 +46,7 @@ BUILD_DELAY_US = 5_000_000
 DEADLINE_NS = 45 * SECOND_NS  # the first live minute closes 60 s after T; its subscription must be in place by then
 START_MARGIN_NS = 30 * SECOND_NS  # a Paper or Live T leaves the node this long to start
 RETRY_NS = 2 * SECOND_NS
+HOUR_NS = 3600 * SECOND_NS
 WAIT = timedelta(milliseconds=200)
 
 # Per strategy ID: an instance's warm-up, out of the source's reach.
@@ -73,11 +77,41 @@ def requests(at: int, declared) -> list[tuple[str, str, int, int]]:
     return found
 
 
+class FundingPending(OSError):
+    """A settlement due at or before T is not in Binance's funding-rate history yet: fetched again until the
+    deadline, as a network failure is."""
+
+
+def _slot(ns: int) -> int:
+    """The settlement hour of a funding time (market.store.funding_slot): Binance stamps a settlement up to some
+    milliseconds after its hour."""
+    return (ns + HOUR_NS // 2) // HOUR_NS * HOUR_NS
+
+
+def settlements(instrument_id, at: int, count: int, proxy_url: str | None, get=klines.get_json) -> list:
+    """The last `count` settlements at or before `at` (engine.klines.settlements). FundingPending while the settlement
+    due next after the latest two known ones, by their spacing, is due at or before `at` but not yet published, so a
+    start at a settlement's hour gets it as a replay does; WARMUP_INSUFFICIENT when Binance holds fewer."""
+    seen = klines.settlements(instrument_id, at + MINUTE_NS, count + 1, proxy_url, get)
+    known = [update for update in seen if update.ts_event <= at]
+    if len(known) >= 2:
+        last = _slot(known[-1].ts_event)
+        due = 2 * last - _slot(known[-2].ts_event)
+        if due <= at and not any(_slot(update.ts_event) == due for update in seen):
+            raise FundingPending(f"{instrument_id}: the settlement of {utc(due)} is not in Binance's funding-rate "
+                                 "history yet")
+    if len(known) < count:
+        raise Refusal("WARMUP_INSUFFICIENT", f"{instrument_id}: Binance holds {len(known)} of the {count} funding "
+                                             f"settlements at or before {utc(at)}")
+    return known[-count:]
+
+
 def fetch(instrument_id, at: int, declared, precisions: tuple[int, int], catalog: Path, proxy_url: str | None,
-          get=klines.get_json) -> list[list]:
+          get=klines.get_json, funding: int = 0) -> tuple[list[list], list]:
     """Read the bars of every request at `at` from Binance's klines into `catalog`, each bar type once over the
-    span its requests cover; returns each request's bars. WARMUP_INSUFFICIENT when Binance lacks a declared history
-    or the minutes of a bucket."""
+    span its requests cover, and the last `funding` settlements at or before `at`; returns each request's bars and the
+    settlements. WARMUP_INSUFFICIENT when Binance lacks a declared history or the minutes of a bucket."""
+    settled = settlements(instrument_id, at, funding, proxy_url, get) if funding else []
     planned = requests(at, declared)
     spans: dict[str, tuple[int, int]] = {}
     for role, period, first, last in planned:
@@ -101,7 +135,7 @@ def fetch(instrument_id, at: int, declared, precisions: tuple[int, int], catalog
             raise Refusal("WARMUP_INSUFFICIENT", f"{instrument_id}: Binance holds {len(found)} of the {count} adjacent "
                                                  f"{period} bars that end at {utc(last)}")
         answers.append(found)
-    return answers
+    return answers, settled
 
 
 def _same(found, expected) -> bool:
@@ -113,16 +147,19 @@ class Warming:
 
     _source_on_start: Any
     _source_on_historical_bars: Any
+    _source_on_historical_funding_rates: Any
 
-    def _warming_setup(self, strategy_id, instrument_id, at: int, declared,
-                       fetch: Callable[[Any, int, Any, tuple[int, int]], list[list]] | None = None) -> None:
-        """`fetch(instrument_id, at, declared, precisions)` fills the run's Catalog (Paper and Live; see fetch)."""
+    def _warming_setup(self, strategy_id, instrument_id, at: int, declared, funding: int = 0,
+                       fetch: Callable[..., tuple[list[list], list]] | None = None,
+                       settlements: list | None = None) -> None:
+        """`fetch(instrument_id, at, declared, precisions, funding=funding)` fills the run's Catalog and reads the `funding`
+        settlements (Paper and Live; see fetch); a replay gives the `settlements` of its export instead."""
         order_rules.WARMING.add(str(strategy_id))
         order_rules.CONTRACTS[str(strategy_id)] = instrument_id
         STATES[str(strategy_id)] = {
-            "at": at, "instrument_id": instrument_id, "declared": declared, "fetch": fetch, "pending": set(),
-            "received": {}, "expected": {}, "delivered": {}, "result": None, "thread": None, "fetched_ns": None,
-            "requested": False, "done": False}
+            "at": at, "instrument_id": instrument_id, "declared": declared, "funding": funding, "fetch": fetch,
+            "settlements": settlements if fetch is None else None, "pending": set(), "received": {}, "expected": {},
+            "delivered": {}, "result": None, "thread": None, "fetched_ns": None, "requested": False, "done": False}
 
     def _warming_state(self) -> dict:
         return STATES[str(Strategy.strategy_id.__get__(self, type(self)))]
@@ -132,7 +169,8 @@ class Warming:
 
     def on_start(self):
         state = self._warming_state()
-        when = state["at"] + (SETTLE_NS if state["fetch"] and requests(state["at"], state["declared"]) else 0)
+        fetching = state["fetch"] and (requests(state["at"], state["declared"]) or state["funding"])
+        when = state["at"] + (SETTLE_NS if fetching else 0)
         clock = self._warming_clock()
         if clock.timestamp_ns() >= when:
             self._warming_go()
@@ -142,7 +180,7 @@ class Warming:
     def _warming_go(self, _event=None) -> None:
         state = self._warming_state()
         planned = requests(state["at"], state["declared"])
-        if state["fetch"] is None or not planned:
+        if state["fetch"] is None or not planned and not state["funding"]:
             return self._warming_request(planned, None)
         instrument = Strategy.cache.__get__(self, type(self)).instrument(state["instrument_id"])
         if instrument is None:
@@ -153,7 +191,7 @@ class Warming:
             while True:
                 try:
                     state["result"] = state["fetch"](state["instrument_id"], state["at"], state["declared"],
-                                                     precisions)
+                                                     precisions, funding=state["funding"])
                 except OSError as exc:  # the network: try again while the deadline allows
                     state["result"] = exc
                     if time.time_ns() + RETRY_NS < state["at"] + DEADLINE_NS:
@@ -183,9 +221,10 @@ class Warming:
         if isinstance(found, Refusal):
             return self._warming_stop(found.code, str(found))
         if isinstance(found, BaseException):
-            return self._warming_stop("WARMUP_TIMEOUT", f"{state['instrument_id']}: Binance klines could not be read "
+            return self._warming_stop("WARMUP_TIMEOUT", f"{state['instrument_id']}: Binance's history could not be read "
                                                         f"({type(found).__name__}: {found})")
-        return self._warming_request(requests(state["at"], state["declared"]), found)
+        answers, state["settlements"] = found
+        return self._warming_request(requests(state["at"], state["declared"]), answers)
 
     def _warming_request(self, planned, answers) -> None:
         state = self._warming_state()
@@ -242,9 +281,19 @@ class Warming:
 
     def _warming_complete(self) -> None:
         state = self._warming_state()
+        settled = list(state["settlements"] or [])
+        stamps = [update.ts_event for update in settled]
+        if state["funding"] and (len(settled) != state["funding"] or stamps != sorted(set(stamps))
+                                 or stamps[-1] > state["at"]):
+            return self._warming_stop("WARMUP_INSUFFICIENT", f"{Strategy.strategy_id.__get__(self, type(self))}: "
+                                      f"{len(settled)} funding settlements at or before {utc(state['at'])}, not the "
+                                      f"{state['funding']} declared")
         state["done"] = True
         if state["thread"]:
             self._warming_clock().cancel_timer("runner-warmup-wait")
+        if state["funding"]:
+            state["delivered"][warmup.FUNDING] = settled
+            self._source_on_historical_funding_rates(list(settled))
         self._warming_begin()
 
     def _warming_stop(self, code: str, text: str) -> None:

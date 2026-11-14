@@ -79,6 +79,14 @@ source's `on_historical_bars` receives the n adjacent bars once per period, each
 ends, and then its `on_start` runs. It sees no data stamped before T, and until `on_start` its orders are
 `ORDER_RULE`. It cannot request data itself: a `request_*` call is `SUBSCRIPTION_OUTSIDE_CONTRACT`.
 
+`WARMUP` may also hold `"FUNDING": n`. Before `on_start`, the source's `on_historical_funding_rates` then receives
+the last n funding settlements at or before T, each the native update a replay streams for it: the rate, with
+`ts_event`, `ts_init` and `next_funding_ns` at the settlement time. A settlement stamped T itself is in the history,
+since no live update of it reaches a source that starts at T. A replay reads them from the export's settlements of
+the window, so T waits until the window holds n of them. Paper and Live read them from Binance's public
+funding-rate history (`fapi/v1/fundingRate`, no credential), which answers the monthly archives' settlement times,
+millisecond jitter included, and rates; fewer than n is `WARMUP_INSUFFICIENT`.
+
 - Daily bars come from the export and one-minute bars from the window's export.
 - The other periods are derived from the window's minutes by the market's daily rule: open of the first
   traded minute, high and low over the traded minutes, close of the last, volume summed. Their history
@@ -94,7 +102,7 @@ are summary limitations, and a run in which no contract can start is `WARMUP_INS
 Paper and Live warm a source the same way at their own T, the first whole minute at least 30 s after they
 start (`history.py`). From T + 15 s (a just-closed Binance kline was final by then in every probe) they fetch
 the history and the minutes of [floor(T, P), T) from Binance's public klines (`klines.py`, no credential) into a
-temporary Catalog and request them natively as a replay does. The first live minute must close at T + 1 min.
+temporary Catalog and request them natively as a replay does, and read the declared funding settlements. The first live minute must close at T + 1 min.
 Klines that miss or are not adjacent are `WARMUP_INSUFFICIENT` or `WARMUP_NOT_ADJACENT`, and a fetch or
 delivery not done by T + 45 s is `WARMUP_TIMEOUT`; no order can go out before the warm-up ends. Paper
 refuses the run and Live stops it. A live aggregation closes on a timer, but the bucket's last Binance minute

@@ -1,8 +1,11 @@
-"""Binance's public USD-M klines as native bars: the history Paper and Live read at their start (engine.history).
+"""Binance's public USD-M klines as native bars, and its funding-rate history as native settlements: the history Paper
+and Live read at their start (engine.history).
 
-No credential: ``fapi/v1/klines`` is public, as the market's archives are. A kline becomes a
-``{id}-{period}-LAST-EXTERNAL`` bar stamped at its close time (its open plus the period, less 1 ms), as the market
-export and a replay's history are (engine.warmup).
+No credential: ``fapi/v1/klines`` and ``fapi/v1/fundingRate`` are public, as the market's archives are. A kline
+becomes a ``{id}-{period}-LAST-EXTERNAL`` bar stamped at its close time (its open plus the period, less 1 ms), as the
+market export and a replay's history are (engine.warmup). A settlement becomes the update a replay streams for it
+(engine.warmup.funding_update): the endpoint answers the monthly archives' times, jitter included, and rates (probed
+on BTCUSDT 2025-10: all 93 equal), which the market stores.
 """
 from __future__ import annotations
 
@@ -17,6 +20,7 @@ from engine import warmup
 
 REST_BASE = "https://fapi.binance.com"
 LIMIT = 1500  # Binance's most klines per request
+FUNDING_LIMIT = 1000  # Binance's most settlements per request
 INTERVALS = {"1-MINUTE": "1m", "3-MINUTE": "3m", "5-MINUTE": "5m", "15-MINUTE": "15m", "30-MINUTE": "30m",
              "1-HOUR": "1h", "2-HOUR": "2h", "4-HOUR": "4h", "6-HOUR": "6h", "8-HOUR": "8h", "12-HOUR": "12h",
              "1-DAY": "1d"}
@@ -52,4 +56,23 @@ def bars(instrument_id, period: str, first_open_ns: int, last_close_ns: int, pre
         if len(rows) < LIMIT:
             break
         start = int(rows[-1][0]) * NS_PER_MS + warmup.period_ns(period)
+    return found
+
+
+def settlements(instrument_id, at_ns: int, count: int, proxy_url: str | None, get=get_json) -> list:
+    """The last `count` funding settlements of `instrument_id` at or before `at_ns`, ascending, as native updates;
+    fewer when Binance holds fewer. With only an end time, the endpoint answers the latest settlements up to it."""
+    symbol = str(instrument_id).split("-PERP.")[0]
+    found: list = []
+    end_ms = at_ns // NS_PER_MS
+    while len(found) < count:
+        asked = min(FUNDING_LIMIT, count - len(found))
+        query = {"symbol": symbol, "endTime": end_ms, "limit": asked}
+        rows = get(f"{REST_BASE}/fapi/v1/fundingRate?{urllib.parse.urlencode(query)}", proxy_url)
+        page = sorted((int(row["fundingTime"]), str(row["fundingRate"])) for row in rows
+                      if int(row["fundingTime"]) <= end_ms)
+        found[:0] = [warmup.funding_update(instrument_id, at * NS_PER_MS, rate) for at, rate in page[-asked:]]
+        if len(page) < asked:
+            break
+        end_ms = page[0][0] - 1
     return found

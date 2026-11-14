@@ -91,7 +91,7 @@ class LoadRefusalTests(unittest.TestCase):
         export.write_bars(ParquetDataCatalog(str(later["catalog_path"])), f"{later['instrument_id']}-1-DAY-LAST-EXTERNAL",
                           later_daily, DAY, 2, 3)
         never = {**catalog(self.root, np.arange(3), symbol="CCCUSDT"), "episode": None}
-        warm = SimpleNamespace(warmup=(("1-DAY", 200),))
+        warm = SimpleNamespace(warmup=(("1-DAY", 200),), funding=0)
         stamps = run.history_stamps([ready, later, never], window, warm, self.root)
         planned, limitations = run.plan_instances([ready, later, never], window, warm, stamps)
         # 200 adjacent daily bars end at START for AAAUSDT, 20 days later for BBBUSDT; it trades from there
@@ -102,7 +102,7 @@ class LoadRefusalTests(unittest.TestCase):
         self.assertIn("CCCUSDT", limitations[1])
         self.assertEqual(refused(run.plan_instances, [never], window, warm, stamps, error=config.Refusal).code,
                          "WARMUP_INSUFFICIENT")
-        self.assertEqual(run.plan_instances([never], window, SimpleNamespace(warmup=()), stamps)[1], [])
+        self.assertEqual(run.plan_instances([never], window, SimpleNamespace(warmup=(), funding=0), stamps)[1], [])
 
     def test_mark_timestamps_count_distinct_stamps_and_refuse_a_missing_file(self):
         rows = [catalog(self.root, np.arange(0, 30)), catalog(self.root, np.arange(20, 50), symbol="BBBUSDT")]

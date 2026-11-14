@@ -5,13 +5,19 @@ period. Every period other than ``1-MINUTE`` is also one it may subscribe to as 
 (``{id}-{period}-LAST-INTERNAL@1-MINUTE-EXTERNAL``), with 0 bars when it needs no history. At its start T the
 runner requests, per period P with n > 0 bars, ``{id}-{P}-LAST-EXTERNAL`` over [floor(T, P) - n P,
 floor(T, P) - 1 ms]: n adjacent bars, each stamped 1 ms before its bucket ends, the last 1 ms before floor(T, P).
+
+``WARMUP`` may also hold ``FUNDING: n``: the n funding settlements the source needs before its first decision, the
+last n settled at or before T (a settlement stamped T is known at T, and a start at T sees no live update of it).
+Each is the native update a replay streams at its settlement (`funding_update`): rate, and ts_event, ts_init and
+next_funding_ns at the settlement time, so the history is the same in replay (the export's settlements) and in Paper
+and Live (Binance's public funding-rate history, which holds the archive's times and rates).
 """
 from __future__ import annotations
 
 from bisect import bisect_right
 from decimal import Decimal
 
-from nautilus_trader.model import Bar, BarType, Quantity
+from nautilus_trader.model import Bar, BarType, FundingRateUpdate, InstrumentId, Quantity
 
 from engine.config import MINUTE_NS, Refusal
 
@@ -19,17 +25,56 @@ PERIODS = {"1-MINUTE": 1, "3-MINUTE": 3, "5-MINUTE": 5, "15-MINUTE": 15, "30-MIN
            "2-HOUR": 120, "4-HOUR": 240, "6-HOUR": 360, "8-HOUR": 480, "12-HOUR": 720, "1-DAY": 1440}  # minutes
 EXPORTED = frozenset({"1-MINUTE", "1-DAY"})  # the market export holds these; a replay derives the others
 MILLISECOND_NS = 1_000_000
+FUNDING = "FUNDING"  # WARMUP's key for the number of funding settlements
+
+
+def _validated(strategy_class) -> dict:
+    value = getattr(strategy_class, "WARMUP", {})
+    if not isinstance(value, dict) or not all(
+            isinstance(key, str) and (key in PERIODS or key == FUNDING) and type(count) is int and count >= 0
+            for key, count in value.items()):
+        raise Refusal("WARMUP_INVALID", f"WARMUP is {value!r}: a dict from Binance kline periods "
+                                        f"({', '.join(PERIODS)}) to whole numbers of bars, and {FUNDING} to a whole "
+                                        "number of funding settlements")
+    return value
 
 
 def declared(strategy_class) -> tuple[tuple[str, int], ...]:
-    """The validated WARMUP declaration as sorted (period, bars) pairs; WARMUP_INVALID otherwise."""
-    value = getattr(strategy_class, "WARMUP", {})
-    if not isinstance(value, dict) or not all(
-            isinstance(key, str) and key in PERIODS and type(count) is int and count >= 0
-            for key, count in value.items()):
-        raise Refusal("WARMUP_INVALID", f"WARMUP is {value!r}: a dict from Binance kline periods "
-                                        f"({', '.join(PERIODS)}) to whole numbers of bars")
-    return tuple(sorted(value.items(), key=lambda item: PERIODS[item[0]]))
+    """The validated WARMUP declaration's kline periods as sorted (period, bars) pairs; WARMUP_INVALID otherwise."""
+    value = _validated(strategy_class)
+    return tuple(sorted(((key, count) for key, count in value.items() if key in PERIODS),
+                        key=lambda item: PERIODS[item[0]]))
+
+
+def declared_funding(strategy_class) -> int:
+    """The number of funding settlements the validated WARMUP declares (0 without FUNDING)."""
+    return _validated(strategy_class).get(FUNDING, 0)
+
+
+def funding_update(instrument_id, settled_ns: int, rate) -> FundingRateUpdate:
+    """The native update of one settlement as a replay streams it (market.write_funding): the rate as normalized
+    decimal text, every stamp at the settlement."""
+    exact = Decimal(format(Decimal(str(rate)).normalize(), "f"))
+    return FundingRateUpdate(InstrumentId.from_str(str(instrument_id)), exact, settled_ns, settled_ns, None,
+                             settled_ns)
+
+
+def funding_history(updates, at_ns: int, count: int) -> list:
+    """The last `count` of `updates` (ascending ts_event) settled at or before `at_ns`; fewer when fewer exist."""
+    if count == 0:
+        return []
+    known = [update for update in updates if update.ts_event <= at_ns]
+    return known[-count:]
+
+
+def funding_start(stamps: list[int], count: int) -> int | None:
+    """The first whole minute at or after which `count` of the settlements `stamps` (ascending ts_event) are known;
+    None when fewer exist. Every later start holds them too."""
+    if count == 0:
+        return 0
+    if len(stamps) < count:
+        return None
+    return -(-stamps[count - 1] // MINUTE_NS) * MINUTE_NS
 
 
 def period_ns(period: str) -> int:

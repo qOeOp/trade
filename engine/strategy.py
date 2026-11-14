@@ -61,10 +61,11 @@ def declare(source, warmup) -> None:
 
 
 def deferred_start(callbacks: dict) -> dict:
-    """`callbacks` (guarded_callbacks) with the source's on_start and on_historical_bars moved aside to
-    _source_on_start and _source_on_historical_bars, for the runner's own to call once its warm-up holds."""
+    """`callbacks` (guarded_callbacks) with the source's on_start, on_historical_bars and on_historical_funding_rates
+    moved aside to _source_on_start, _source_on_historical_bars and _source_on_historical_funding_rates, for the
+    runner's own to call once its warm-up holds."""
     moved = dict(callbacks)
-    for name in ("on_start", "on_historical_bars"):
+    for name in ("on_start", "on_historical_bars", "on_historical_funding_rates"):
         moved["_source_" + name] = moved.pop(name, getattr(Strategy, name))
     return moved
 
@@ -242,7 +243,8 @@ def clear_failures() -> None:
 
 
 # Data callbacks. An instance gets no data stamped before its start (engine.run.plan_instances: later than the
-# replay's when its listing or declared history is); its history arrives through on_historical_bars.
+# replay's when its listing or declared history is); its history arrives through on_historical_bars and
+# on_historical_funding_rates.
 DATA_CALLBACKS = ("on_bar", "on_mark_price", "on_funding_rate", "on_index_price", "on_quote", "on_trade",
                   "on_instrument_status", "on_instrument_close", "on_data")
 

@@ -87,7 +87,8 @@ from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.live import LiveDataEngineConfig, LiveNode, LiveNodeConfig, LiveRiskEngineConfig
 from nautilus_trader.persistence import DataCatalogConfig
 from nautilus_trader.model import (
-    AccountType, Bar, BarType, BookType, Currency, InstrumentId, Money, OmsType, Price, StrategyId, TraderId, Venue,
+    AccountType, BarType, BookType, Currency, FundingRateUpdate, InstrumentId, Money, OmsType, Price, StrategyId,
+    TraderId, Venue,
 )
 from nautilus_trader.trading import Strategy
 
@@ -129,9 +130,11 @@ def credential_names(environ) -> list[str]:
     return sorted(name for name in environ if CREDENTIAL_NAME.search(name))
 
 
-def warmup_digest(bars: list[Bar]) -> dict:
-    """A history the source received (engine.history), as the journal records it."""
-    text = "\n".join(f"{bar.ts_event},{bar.open},{bar.high},{bar.low},{bar.close},{bar.volume}" for bar in bars)
+def warmup_digest(bars: list) -> dict:
+    """A history the source received (engine.history), as the journal records it: bars, or funding settlements
+    (`bars` then counts the settlements)."""
+    text = "\n".join(f"{item.ts_event},{item.rate}" if isinstance(item, FundingRateUpdate) else
+                     f"{item.ts_event},{item.open},{item.high},{item.low},{item.close},{item.volume}" for item in bars)
     return {"bars": len(bars), "first_ts_event": bars[0].ts_event if bars else None,
             "last_ts_event": bars[-1].ts_event if bars else None,
             "sha256": hashlib.sha256(text.encode()).hexdigest()}
@@ -224,6 +227,7 @@ class _PaperConfigured(history.Warming, OrderRules, strategy_runtime.Subscriptio
 
     _source_constructor_args: tuple[tuple, dict]
     _runner_warmup: tuple[tuple[str, int], ...]
+    _runner_funding: int
 
     def __new__(cls, inputs: PaperInputs):
         iid = InstrumentId.from_str(inputs.instrument_id)
@@ -243,7 +247,8 @@ class _PaperConfigured(history.Warming, OrderRules, strategy_runtime.Subscriptio
         del self._source_constructor_args
         declared = vars(type(self))["_runner_warmup"]
         strategy_runtime.declare(self, declared)
-        self._warming_setup(kwargs["strategy_id"], args[0], inputs.warm_at, declared, FETCH[0] if FETCH else None)
+        self._warming_setup(kwargs["strategy_id"], args[0], inputs.warm_at, declared,
+                            vars(type(self))["_runner_funding"], FETCH[0] if FETCH else None)
         super().__init__(*args, **kwargs)
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
         self._replay_input_start_ns = inputs.input_start_ns
@@ -421,6 +426,7 @@ def paper_class(loaded: LoadedStrategy) -> type:
     if name not in globals():
         globals()[name] = type(name, (_PaperConfigured, loaded.strategy_class),
                                {"__module__": __name__, "_runner_warmup": loaded.warmup,
+                                "_runner_funding": loaded.funding,
                                 **paper_callbacks(loaded.strategy_class)})
     return globals()[name]
 

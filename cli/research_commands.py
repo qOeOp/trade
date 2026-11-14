@@ -109,7 +109,8 @@ class {entry_class}(Strategy):
     """The one entry class. Decide only on closed bars; read trading facts (orders, fills,
     positions, account) from the engine's state, never from counters of your own."""
 
-    WARMUP = {{}}  # {{period: bars}}: the history on_historical_bars receives before on_start, per kline period
+    WARMUP = {{}}  # {{period: bars}}: the history on_historical_bars receives before on_start, per kline period;
+    # "FUNDING": n gives on_historical_funding_rates the last n settlements at or before the start
 
     def __init__(self, instrument_id, bar_type, *, trade_start_ns, execution_bar_minutes, strategy_id,
                  universe_membership):
