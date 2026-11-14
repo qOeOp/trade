@@ -107,7 +107,8 @@ UNRESOLVED = "an active or unresolved execution still requires its credentials"
 
 def _runs(root: Path, *, exclude_run_id: str | None = None) -> list[tuple[str, Path, dict | None, list[dict], str | None]]:
     """Each retained run with its prepared credential reference. A run prepared under an earlier manifest format has
-    no manifest here (None): its lifecycle and outputs are still read, and only they can settle it (``_in_use``)."""
+    no manifest here (None): its lifecycle and outputs are still read, and only they can settle it (``_in_use``).
+    Only such a run may lack a credential reference (an earlier release prepared runs without one)."""
     directory = root / "runs"
     if not os.path.lexists(directory):
         return []
@@ -134,6 +135,8 @@ def _runs(root: Path, *, exclude_run_id: str | None = None) -> list[tuple[str, P
             credential_ref = prepared[0].get("credential_ref")
             if credential_ref is not None:
                 _ref(credential_ref)
+            elif manifest is not None:
+                raise ValueError
             result.append((item.name, run_dir, manifest, events, credential_ref))
     except (OSError, ValueError, KeyError, TypeError, LiveRefusal):
         raise state.fail("LIVE_CREDENTIAL_BUSY", "retained Live execution ownership is unknown") from None
@@ -349,13 +352,12 @@ def run_path_locked(root: Path, run_id: str, mode: str, *, request_id: str | Non
     if mode not in {"run", "preflight", "reconcile"}:
         raise state.fail("LIVE_MODE", "unknown Live operation")
     matches = [item for item in _runs(root) if item[0] == run_id]
-    if len(matches) != 1 or matches[0][4] is None:
+    if len(matches) != 1:
         raise state.fail("LIVE_CREDENTIAL_UNMANAGED", "this run has no managed credential version")
-    if matches[0][2] is None:
+    credential_ref = matches[0][4]
+    if matches[0][2] is None or credential_ref is None:  # _runs binds every current-format run
         raise state.fail("LIVE_RUN_FORMAT", "this run was prepared under an earlier manifest format, which is no "
                                             "longer read")
-    credential_ref = matches[0][4]
-    assert credential_ref is not None
     rows = events_locked(root)
     if mode != "reconcile":
         _require_idle(root, legacy_only=True)
