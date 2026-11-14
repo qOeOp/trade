@@ -500,4 +500,4 @@ class ReleaseDiagnosticTests(unittest.TestCase):
             runpy.run_module("deploy.release", run_name="__main__")
         self.assertEqual(raised.exception.code, 1)
         self.assertNotIn(secret, output.getvalue())
-        self.assertIn("Web release kept or rolled back: unclassified runtime failure", output.getvalue())
+        self.assertIn("Release tick failed: unclassified runtime failure", output.getvalue())
