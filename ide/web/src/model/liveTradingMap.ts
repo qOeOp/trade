@@ -52,7 +52,7 @@ const PROCESS_ENDS = new Set(["interrupted", "rewarming", "resuming"]);
 type Moment = { ns: bigint; kind: "gate" | "restart"; event: string; reasons: readonly string[]; held: boolean | null; status: string | null };
 
 function moments(run: LiveRunDto): Moment[] {
-  return [...(run.gate ?? []).map((row) => ({ ns: BigInt(row.observed_ns), kind: "gate" as const, event: row.event, reasons: row.reasons, held: null, status: row.status ?? null })),
+  return [...(run.gate ?? []).map((row) => ({ ns: BigInt(row.observed_ns), kind: "gate" as const, event: row.event, reasons: row.reasons, held: null, status: row.status })),
     ...(run.restarts ?? []).map((row) => ({ ns: BigInt(row.observed_ns), kind: "restart" as const, event: row.event, reasons: [], held: row.held, status: null }))]
     .sort((a, b) => (a.ns < b.ns ? -1 : a.ns > b.ns ? 1 : 0));
 }
@@ -147,8 +147,8 @@ export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<str
     reason: home.write_enabled ? null : home.write_reason ?? "LIVE_WRITE_DISABLED",
     credentials: home.credentials.map((item) => ({ ref: item.credential_ref, savedAt: item.observed_ns, selected: item.selected, available: item.available, removed: item.removed, runIds: item.referenced_runs })),
     sources: home.sources.map((item) => ({ id: item.source_id, candidate: item.candidate, sourceHash: item.source_sha256, entryClass: item.entry_class, purpose: item.purpose, symbols: item.symbols,
-      ...item.evidence ? { evidence: { state: item.evidence.state, tolerance: item.evidence.tolerance,
-        replays: item.evidence.replays.map((row) => ({ trialId: row.trial_id, balance: row.starting_balance_usdt })) } } : {} })),
+      evidence: { state: item.evidence.state, tolerance: item.evidence.tolerance,
+        replays: item.evidence.replays.map((row) => ({ trialId: row.trial_id, balance: row.starting_balance_usdt })) } })),
     planFields: [
       // Shown and typed as a percentage; the server takes a fraction (state/liveTrading.ts).
       { id: "drawdown_brake", label: "Drawdown brake", value: String(Math.round(Number(home.defaults.drawdown_brake) * 1e6) / 1e4) },
@@ -156,7 +156,7 @@ export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<str
       { id: "leverage", label: "Leverage", value: home.defaults.leverage },
     ],
     runs: home.runs.map((run) => liveRunPresentation(run, home.sources, reviews.get(run.run_id))), requests: [],
-    notify: home.notify ? { configured: home.notify.configured, lastSentNs: home.notify.last_sent_ns,
-      lastError: home.notify.last_error ? { code: home.notify.last_error.code, atNs: home.notify.last_error.at_ns } : null, dropped: home.notify.dropped } : null,
+    notify: { configured: home.notify.configured, lastSentNs: home.notify.last_sent_ns,
+      lastError: home.notify.last_error ? { code: home.notify.last_error.code, atNs: home.notify.last_error.at_ns } : null, dropped: home.notify.dropped },
   };
 }

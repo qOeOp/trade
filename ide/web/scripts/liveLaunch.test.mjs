@@ -11,7 +11,7 @@ const fields = [{ id: "drawdown_brake", label: "Drawdown brake", value: "15" },
 // A prepared run's settings as the server reports them: the brake as a fraction.
 const config = [{ label: "Drawdown brake", value: "0.15" }, { label: "Duration (seconds)", value: "8100" }, { label: "Leverage", value: "3" }];
 const found = { state: "found", replays: [{ trialId: 12, balance: "95" }], tolerance: "0.1" };
-const source = (evidence) => ({ id: "s", candidate: "rsi@4", sourceHash: HASH, entryClass: "Rsi", purpose: "natural", symbols: ["BTCUSDT"], ...evidence === undefined ? {} : { evidence } });
+const source = (evidence) => ({ id: "s", candidate: "rsi@4", sourceHash: HASH, entryClass: "Rsi", purpose: "natural", symbols: ["BTCUSDT"], evidence });
 const key = { ref: "abcdef0123456789", savedAt: null, selected: true, available: true, runIds: [] };
 const view = (over = {}) => ({ availability: "ready", notice: null, reason: null, credentials: [key], sources: [source(found)],
   planFields: fields, runs: [], requests: [], notify: { configured: true, lastSentNs: null, lastError: null, dropped: 0 }, ...over });
@@ -72,13 +72,6 @@ test("missing replay evidence fails its row, says the Agent replays the candidat
   assert.match(model.checkBlocker({ view: v, source: v.sources[0] }, true), /replay evidence/);
   assert.equal(model.ready(cols), false);
   for (const state of ["checking", "unknown"]) assert.equal(row(columns(view({ sources: [source({ state, replays: [], tolerance: "0.1" })] })), "evidence").mark, "wait");
-});
-
-test("an older Live service, reporting no evidence, neither blocks on it nor claims it passes", () => {
-  const cols = columns(view({ sources: [source()] }), checked());
-  for (const id of ["evidence", "near"]) assert.equal(row(cols, id).mark, "shown", id);
-  assert.equal(model.ready(cols), true);
-  assert.equal(model.checkBlocker({ view: view({ sources: [source()] }), source: source() }, true), null);
 });
 
 test("the account rows answer from the check: modes, funds, and a replay that started near the wallet", () => {

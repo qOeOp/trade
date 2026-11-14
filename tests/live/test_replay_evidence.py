@@ -111,7 +111,7 @@ class EvidenceReadAheadTests(unittest.TestCase):
         self.config = install(self, self.root).config
 
     def test_listing_reports_checking_then_the_answer_and_rereads_only_an_unknown_one(self):
-        self.assertNotIn("evidence", control.listing(self.config)["sources"][0])  # no reader: as an older control
+        self.assertNotIn("evidence", control.listing(self.config)["sources"][0])  # no reader: the listing outside the service
         self.assertEqual(control.listing(self.config)["sources"][0]["symbols"], ["BTCUSDT"])
         evidence = control.Evidence()
         self.assertEqual(control.listing(self.config, evidence=evidence)["sources"][0]["evidence"],

@@ -11,8 +11,8 @@ export type LiveSource = {
   purpose: "natural" | "controlled";
   /** The contracts it trades, one strategy instance each. */
   symbols: readonly string[];
-  /** Replay evidence read ahead of preparation; undefined when this Live service does not report it. */
-  evidence?: { state: "checking" | "found" | "missing" | "unknown"; replays: readonly { trialId: number; balance: string }[]; tolerance: string };
+  /** Replay evidence read ahead of preparation. */
+  evidence: { state: "checking" | "found" | "missing" | "unknown"; replays: readonly { trialId: number; balance: string }[]; tolerance: string };
 };
 export type LiveCredential = {
   ref: string; savedAt: string | null; selected: boolean; available: boolean | null; runIds: readonly string[]; removed?: boolean;

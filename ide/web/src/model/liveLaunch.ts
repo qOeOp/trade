@@ -77,9 +77,7 @@ function strategy({ view, source, reading, targets }: LaunchInput, closed: strin
     { id: "leverage", label: "Leverage", value: leverage, unit: leverage === null ? null : "×", source: SETTINGS, editable: false,
       required: true, mark: leverage === null ? "fail" : "shown",
       reason: leverage === null ? closed ?? missing : `Must equal ${source && source.symbols.length > 1 ? "each contract's" : "this contract's"} leverage at Binance, with cross margin; the account check compares them.` },
-    !source || !evidence ? { id: "evidence", label: "Replay evidence", value: source ? "Checked when the account is checked" : null,
-      source: "Research ledger", editable: false, required: !source, mark: source ? "shown" : "fail",
-      reason: source ? "This Live service reads it only when a run is prepared." : missing }
+    !evidence ? { id: "evidence", label: "Replay evidence", value: null, source: "Research ledger", editable: false, required: true, mark: "fail", reason: missing }
       : { id: "evidence", label: "Replay evidence", source: "Research ledger, read by the Live service", editable: false, required: true,
         value: evidence.state === "found" ? `${evidence.replays.length} replay${evidence.replays.length === 1 ? "" : "s"}` : evidence.state === "missing" ? "None" : null,
         unit: evidence.state === "found" ? `at ${replays} USDT` : null,
@@ -104,7 +102,7 @@ function account({ source, checked }: LaunchInput, closed: string | null, creden
   });
   const wallet = venue?.wallet ?? null, available = venue?.available ?? null, budget = wallet === null ? null : cashFloor(wallet);
   const funds = wallet !== null && available !== null ? Math.min(Number(wallet), Number(available)) : null;
-  const evidence = source?.evidence, tolerance = Number(evidence?.tolerance ?? "0.1");
+  const evidence = source?.evidence, tolerance = evidence ? Number(evidence.tolerance) : 0;
   const nearest = wallet !== null && evidence?.replays.length
     ? evidence.replays.reduce((best, row) => Math.abs(Number(row.balance) - Number(wallet)) < Math.abs(Number(best.balance) - Number(wallet)) ? row : best) : null;
   return [
@@ -136,7 +134,7 @@ function account({ source, checked }: LaunchInput, closed: string | null, creden
     { id: "near", label: "Replay at wallet", source: "Replay evidence and the wallet", editable: false, required: Boolean(evidence),
       value: nearest ? nearest.balance : null, unit: nearest ? "USDT" : null,
       mark: !evidence ? "shown" : wallet === null ? "wait" : nearest && Math.abs(Number(nearest.balance) - Number(wallet)) <= tolerance * Number(wallet) ? "pass" : "fail",
-      reason: !evidence ? "This Live service compares them when it starts."
+      reason: !evidence ? closed ?? "Shown once Live names a candidate."
         : wallet === null ? `A replay must start within ${percent(tolerance)} of the wallet; compared after the account check.`
         : nearest && Math.abs(Number(nearest.balance) - Number(wallet)) <= tolerance * Number(wallet) ? `Within ${percent(tolerance)} of the wallet.`
         : `No replay started within ${percent(tolerance)} of the ${wallet} USDT wallet. The Agent replays the candidate at the wallet.` },
@@ -161,7 +159,7 @@ function limits({ view, edits, checked }: LaunchInput, closed: string | null): L
       reason: duration === null ? closed : seconds < 1 ? "Empty: runs until you stop it." : null },
     { id: "notify", label: "Notifications", source: "Settings", editable: false, required: false, mark: "shown",
       value: notify ? notify.configured ? "Telegram on" : "Off" : null,
-      reason: notify ? notify.configured ? null : "Set up Telegram in Settings to hear about fills and stops." : closed ?? "This Live service does not report them." },
+      reason: notify ? notify.configured ? null : "Set up Telegram in Settings to hear about fills and stops." : closed },
     { id: "alone", label: "No other run on the account", source: "Live runs on this server", editable: false, required: true,
       value: view.availability === "ready" ? others.length ? `${others.length} holding it` : "None" : null,
       mark: view.availability !== "ready" ? "fail" : others.length ? "fail" : "pass",
@@ -193,7 +191,7 @@ export function checkBlocker(input: LaunchInput, canPrepare: boolean): string | 
   if (!canPrepare) return "Live takes no new runs right now.";
   if (!input.source) return "No candidate is named in the Live settings on the server.";
   if (!input.view.credentials.some((item) => item.selected && !item.removed)) return "Save an API key in Settings first.";
-  if (input.source.evidence?.state === "missing") return "Needs replay evidence first (Strategy).";
-  if (input.source.evidence && input.source.evidence.state !== "found") return "Waiting for the replay evidence.";
+  if (input.source.evidence.state === "missing") return "Needs replay evidence first (Strategy).";
+  if (input.source.evidence.state !== "found") return "Waiting for the replay evidence.";
   return null;
 }

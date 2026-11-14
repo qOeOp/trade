@@ -18,7 +18,7 @@ export function LiveNotifications({ notify, actions }: { notify: LiveNotify | nu
   };
   const save = () => { const value = token.trim(); setToken(""); void run(actions.saveNotify && (() => actions.saveNotify!(value)), "Saved. Notifications go to the chat that messaged your bot."); };
   const at = (ns: string | null) => dateTime(nsMilliseconds(ns), zone, "second");
-  const status = !notify ? "Unavailable from this Live service" : notify.configured ? "On · bound to your private chat" : "Off";
+  const status = !notify ? "Unavailable while Live does not answer" : notify.configured ? "On · bound to your private chat" : "Off";
   return <section aria-label="Notifications" className="space-y-3 border-t border-line pt-4">
     <p className="font-semibold">Notifications</p>
     <KeyValues items={[["Telegram", status], ...notify?.configured ? [["Last sent", notify.lastSentNs ? at(notify.lastSentNs) : "Nothing yet"] as const] : [],
