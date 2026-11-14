@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我是候选 `breakout-floor@4` 的独立源码审查者，正在做 causal 项。预检 trial 318 已通过，封存执行包 `trial-318-execution` 的开始回执写着市场提交 `2025-06-08`，窗口 `2025-06-01T00:00:00Z` 到 `2025-06-08T00:00:00Z`，合约 SOLUSDT。
+我是候选 `breakout-floor@4` 的独立源码审查者，正在做 causal 项。预检 trial 318 已通过，封存执行包 `trial-318-execution` 的开始回执写着市场日 `2025-06-08`，窗口 `2025-06-01T00:00:00Z` 到 `2025-06-08T00:00:00Z`，合约 SOLUSDT。
 
 源码用 `order_quantity(quantity, price)` 把入场数量向下取整到数量步长，并在名义金额低于最小名义时不下单。我要核对这次回放实际用的价格步长、数量步长和最小名义金额，才能判断取整和门槛检查用到的输入是什么。
 
