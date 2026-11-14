@@ -10,6 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261114-20 | Live 不随发布可用：靠操作员手写主机声明，候选、合约、杠杆只能在服务器文件里定，Paper 在页面上选 | authority（用户 2026-11-14 批准） | user（Product contracts and delivery） | hours | open [诊断](2026-11-14-live-not-installed.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261114-16 | 发布版本 N 的永远是主机上已装的 N-1 控制代码，它依赖 N 镜像的 CLI、字段与格式，0.x 下每个改接口的版本都在主机上失败（v0.3.0 Paper 控制器） | authority（控制代码随准入版本交接，用户 2026-11-14 批准） | user（Product contracts and delivery） | wrong output | fixed a2625c9f9 [#2994](https://github.com/qOeOp/trade/pull/2994) | 2026-11-14 | 2026-11-14 |
 | 20261114-17 | 控制代码造成的失败永久封锁该版本：保留的失败候选容器让删除标记后的重试也被拒绝 | authority（放宽拒绝，用户 2026-11-14 批准） | doctor | minutes | fixed 951066ef9 [#2992](https://github.com/qOeOp/trade/pull/2992) | 2026-11-14 | 2026-11-14 |
 | 20261114-18 | tick 级失败打印“Web release kept or rolled back”，通知说 Web 不变，而 Web 已切换 | fix | doctor | wrong output | fixed e53a220be [#2990](https://github.com/qOeOp/trade/pull/2990) | 2026-11-14 | 2026-11-14 |
