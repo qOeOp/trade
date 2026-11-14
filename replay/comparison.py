@@ -1,10 +1,10 @@
 """An execution run against a replay of its own source on the archive, one tool for Paper and Live
 (docs/plans/execution-paths-replan-20261110.zh.md, R3.2; docs/plans/run-reconcile-20261112.zh.md).
 
-Paper (paper.reconcile) and Live (live.compare) read their run into one record: the one-minute bars its source
+Paper (paper.compare) and Live (live.compare) read their run into one record: the one-minute bars its source
 received, the warm-up it received, its native order events, its funding settlements, its equity path and the
 contract terms and fee rates it traded at. Each reads the archive's minutes for the run's window (`archive`, with its
-own refusal) and passes them with that record to `reconcile`, then writes reconcile.json with its own keys. The
+own refusal) and passes them with that record to `replay_and_compare`, then writes comparison.json with its own keys. The
 replay runs the run's source on its image over the same window, with
 the same instruments, leverage and starting balance and the same warm-up (the source's WARMUP, requested at the
 window's start); it is no trial and writes nothing to a ledger.
@@ -46,7 +46,7 @@ from shared import paths
 from shared.refusals import refuse
 
 
-FORMAT = "run-reconcile@2026-11-12"
+FORMAT = "run-comparison@2026-11-12"
 MINUTE_NS = 60 * 10**9
 MILLISECOND_NS = 10**6
 ON_TIME_NS = MINUTE_NS  # a decision or fill within one bar of its counterpart is on time
@@ -720,9 +720,10 @@ def replay(market: dict, market_day: str, source: bytes, entry_class: str, image
             reports if (reports / "account.csv").is_file() else None)
 
 
-def reconcile(run: Mapping, market: dict, market_day: str, archived: Mapping[str, list[list]], source: bytes,
-              entry_class: str, image_ref: str, symbols: list[str], start: int, end: int, leverage: str,
-              starting_balance: str, output: Path, name: str, timeout: float | None) -> tuple[Path, dict, dict]:
+def replay_and_compare(run: Mapping, market: dict, market_day: str, archived: Mapping[str, list[list]], source: bytes,
+                       entry_class: str, image_ref: str, symbols: list[str], start: int, end: int, leverage: str,
+                       starting_balance: str, output: Path, name: str,
+                       timeout: float | None) -> tuple[Path, dict, dict]:
     """(the new temporary directory, the replay's status, the comparison): the run's source replayed into
     `output`/replay on the warm-up the run received, and `run` compared with it against the `archived` minutes, the
     contract terms at `market_day`, the warm-up the archive gives and the fees the market assumes."""

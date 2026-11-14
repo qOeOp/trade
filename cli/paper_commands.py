@@ -78,16 +78,16 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "USAGE_ERROR (a --host that is not loopback outside a container; inside one, no usable TMPDIR); over HTTP: "
         "FORBIDDEN (a Host or origin not allowed), NOT_FOUND, USAGE_ERROR (a bad body), NO_LAST_REPLAY, and the "
         "start, stop and seal refusals"),
-    ("paper", "reconcile"): (
+    ("paper", "compare"): (
         "the sealed paper run, its source and its files (reader); the market at --at (default main), exported "
         "into a reused cache under the temporary directory; the run's own runtime image",
         "nothing in any database (no trial, no exposure); the new --output directory (replay/ with the native "
-        "reports and audit, reconcile.json)",
+        "reports and audit, comparison.json)",
         "path, summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, differs, run_only, "
         "replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, differing_bars, warmup_differs, "
         "terms_differ, equity_max_difference}, replay {status, problems, path}",
-        "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (not sealed); PAPER_RECONCILE_EMPTY (no interval); "
-        "PAPER_RECONCILE_UNCOVERED (the market lacks the interval's minutes); NOT_TEMPORARY_PATH, PATH_EXISTS "
+        "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (not sealed); PAPER_COMPARE_EMPTY (no interval); "
+        "PAPER_COMPARE_UNCOVERED (the market lacks the interval's minutes); NOT_TEMPORARY_PATH, PATH_EXISTS "
         "(--output); RUNTIME_UNAVAILABLE; REPLAY_TIMEOUT (--timeout-seconds)"),
 }
 
@@ -95,7 +95,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 def register(verbs, verb, runner) -> None:
     """Add the paper nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
     paper = verbs("paper", "paper runs on live public market data with simulated fills: start, stop, seal, delete, list, "
-                           "reconcile, serve")
+                           "compare, serve")
     command = verb(paper, "start", "declare a paper run of a candidate and start its containers")
     command.epilog = textwrap.fill(
         "Binance public market data and Nautilus Sandbox fills only, no credential (engine.paper); the runner "
@@ -139,11 +139,11 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command = verb(paper, "list", "every paper run with its state and seal readings")
     _paper_option(command)
-    command = verb(paper, "reconcile", "replay a sealed paper run on the archive and compare it group by group")
+    command = verb(paper, "compare", "replay a sealed paper run on the archive and compare it group by group")
     command.epilog = textwrap.fill(
         "The replay takes the run's source, runtime image, contracts, leverage and the interval its runner received "
         "bars for, warmed at the same start; only the market day is chosen here. It is no trial and adds no "
-        "exposure; nothing reaches the ledger (paper.reconcile, replay.reconcile).", 100)
+        "exposure; nothing reaches the ledger (paper.compare, replay.comparison).", 100)
     _paper_option(command)
     _market_option(command)
     _market_at(command)
@@ -194,10 +194,10 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return paper_runs.delete(profile, args.paper_id), 0
     if args.verb == "list":
         return paper_runs.listing(profile), 0
-    if args.verb == "reconcile":
-        from paper import reconcile
-        return reconcile.reconcile(profile, profiles.market(args.market), args.at, args.paper_id, Path(args.output),
-                                   args.timeout_seconds), 0
+    if args.verb == "compare":
+        from paper import compare
+        return compare.compare(profile, profiles.market(args.market), args.at, args.paper_id, Path(args.output),
+                               args.timeout_seconds), 0
     if args.verb == "serve":
         from paper import serve
         serve.serve(args.ledger, args.market, args.host, args.port, args.hosts, Path(__file__).resolve().parents[1],

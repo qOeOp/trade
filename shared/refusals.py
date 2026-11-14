@@ -600,7 +600,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            "a trial's capture is sealed as a host failure naming this code.",
                            ("Reduce what the run holds in memory (a shorter window, fewer contracts or orders), or "
                             "report the stage and its measured peak so the limit can be retuned.",)),
-    "REPLAY_TIMEOUT": ("An unrecorded replay (paper reconcile, live compare) passed its --timeout-seconds; the "
+    "REPLAY_TIMEOUT": ("An unrecorded replay (paper compare, live compare) passed its --timeout-seconds; the "
                        "running stage's container was stopped; nothing reached a ledger.",
                        ("Rerun with a longer --timeout-seconds or a shorter interval.",)),
     # Runtime (runtime/image.py)
@@ -821,13 +821,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PAPER_START_FAILED": ("The run was declared but its containers did not start; it is sealed with START_FAILED "
                            "and the error in runner.log.",
                            ("Read the error, repair the runtime or Docker, then start a new run.",)),
-    # Paper reconciliation (paper/reconcile.py)
-    "PAPER_RECONCILE_EMPTY": ("The sealed run's capture names no input start or stop, or it stopped before its first "
+    # Paper comparison (paper/compare.py)
+    "PAPER_COMPARE_EMPTY": ("The sealed run's capture names no input start or stop, or it stopped before its first "
                               "bar closed: there is no interval to replay.",
-                              ("Reconcile a run that received at least one bar.",)),
-    "PAPER_RECONCILE_UNCOVERED": ("The market day does not hold every minute of the run's interval yet.",
+                              ("Compare a run that received at least one bar.",)),
+    "PAPER_COMPARE_UNCOVERED": ("The market day does not hold every minute of the run's interval yet.",
                                   ("Import the run's month with `market import --month YYYY-MM` over the market's "
-                                   "contract scope once its days are archived, then reconcile at the new market day.",)),
+                                   "contract scope once its days are archived, then compare at the new market day.",)),
     # Live comparison (live/compare.py)
     "LIVE_COMPARE_EMPTY": ("The Live run's journal names no warm-up start or no account observation it started from, "
                            "or its source received no whole minute: there is no window or balance to replay.",

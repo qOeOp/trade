@@ -15,7 +15,7 @@ import { TextButton } from "../../components/TextButton";
 import { Typing } from "../../components/Typing";
 import { tradesTab, type Stream } from "../../state/paperStream";
 import { useAtom } from "../../state/atom";
-import { useReconciliation } from "../../state/reconcile";
+import { useComparison } from "../../state/compare";
 import { CandleChart } from "./CandleChart";
 import { ChartSwitches } from "./ChartSwitches";
 import { EquityChart } from "./EquityChart";
@@ -82,9 +82,9 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   const startedNs = run?.seal?.started_ns ?? run?.readings?.started_ns ?? null;
   // While an unsealed run waits for its warm-up (before it writes any state), the empty charts say when it starts.
   const warmup = useMemo(() => { const at = !testing && s && !s.seal ? warmupAt(s.lines) : null; return at !== null && at > Date.now() ? at : null; }, [testing, s?.seal, s?.lines]);
-  // The replay's equity shows while the Trades window shows the reconciliation it belongs to.
-  const r = useReconciliation(), reconciling = useAtom(tradesTab) === "reconcile";
-  const replay = useMemo(() => (!testing && reconciling && run && r?.paper_id === run.paper_id && r.result ? r.result.equity.replay.map(([ns, v]) => [ns, Number(v)] as [number, number]) : null), [testing, r, run?.paper_id, reconciling]);
+  // The replay's equity shows while the Trades window shows the comparison it belongs to.
+  const r = useComparison(), comparing = useAtom(tradesTab) === "compare";
+  const replay = useMemo(() => (!testing && comparing && run && r?.paper_id === run.paper_id && r.result ? r.result.equity.replay.map(([ns, v]) => [ns, Number(v)] as [number, number]) : null), [testing, r, run?.paper_id, comparing]);
   const openFrom = spans.find(([, to]) => to === null)?.[0] ?? null;
   // The equity chart's closes and the stretches any contract held a position and which way, in seconds: the shown
   // stretch's, the backtest's cycles or the paper run's fills.

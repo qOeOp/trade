@@ -85,7 +85,7 @@ def _write(root: Path, run_id: str, value: dict) -> None:
 def combine(found: list[dict]) -> dict:
     """The measures (live.compare.measures) of several trading starts in one window as one."""
     from live import compare
-    from replay import reconcile as shared
+    from replay import comparison as shared
     def total(get) -> Decimal | None:
         values = [get(item) for item in found if get(item) is not None]
         return sum((Decimal(value) for value in values), Decimal(0)) if values else None
@@ -196,7 +196,7 @@ def pair_run(root: Path, market: dict, run_id: str, offered: str, output: Path) 
 def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path) -> dict | None:
     """Compare one run's day Y and return its new record, or None when it has nothing new to compare."""
     from live import compare
-    from replay import reconcile as shared
+    from replay import comparison as shared
     try:
         status = runs.observe(root, run_id)
     except LiveRefusal:

@@ -339,7 +339,7 @@ def replay_unrecorded(market, at: str | None, source: bytes, entry_class: str, r
                       output: Path, name: str, timeout: float | None = None) -> dict:
     """Replay a source into `output` (a new temporary directory) as every replay does (pinned image, exported
     inputs, probed configuration, coverage receipt, runner and auditor), but as no trial: nothing reaches a
-    ledger. Only replay.reconcile calls it (`paper reconcile`, `live compare` and Live's daily comparison), whose
+    ledger. Only replay.comparison calls it (`paper compare`, `live compare` and Live's daily comparison), whose
     source, image, contracts and window come from a Paper or Live run's declaration (user decision 2026-10-26).
     `name` prefixes the stage containers."""
     output = paths.temporary_path(output)

@@ -248,14 +248,14 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(kept, lines)
         self.assertEqual(paper.sealed_journal(first), lines, "CF-24: the one decoder gives the captured journal back")
         self.assertEqual(json.loads(first["seal.json"])["unreadable_journal_lines"], 1)
-        import paper.reconcile as reconciliation
+        import paper.compare as comparison
         import paper.serve as daemon
         with mock.patch.object(paper, "sealed_journal", wraps=paper.sealed_journal) as decoded, \
                 mock.patch.object(paper, "paper_files", return_value=first) as read:
             streamed = daemon.Daemon.sealed_lines(mock.Mock(), 1, first)
-            reconciled = reconciliation._journal(mock.Mock(), 1)
-        self.assertEqual((streamed, reconciled, decoded.call_count), (lines, lines, 2),
-                         "the stream and the reconciliation read the journal through the one decoder")
+            compared = comparison._journal(mock.Mock(), 1)
+        self.assertEqual((streamed, compared, decoded.call_count), (lines, lines, 2),
+                         "the stream and the comparison read the journal through the one decoder")
         self.assertEqual(read.call_args.args[1:], (1, "events/"))
 
 

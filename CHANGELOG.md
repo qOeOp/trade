@@ -22,6 +22,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper (breaking): a sealed run's replay comparison is `paper compare` (was `paper reconcile`), the verb Live's
+  `live compare` has; its HTTP path is `/api/paper/runs/<id>/compare`, its refusals `PAPER_COMPARE_EMPTY` and
+  `PAPER_COMPARE_UNCOVERED`, and Paper's and Live's result file `comparison.json`. "Reconcile" now names only Live's
+  account reconciliation. A comparison made before the release is replayed again when asked for.
 - Paper (breaking): the run listing (`GET /api/paper/runs`) names a run's readings so far `readings` instead of
   `live`, the name its stream's `readings` event already has. The release gate's probe reads the new name, so
   reinstall the host's control code with the release (`sh deploy/remote/install-release.sh`), as every release does.

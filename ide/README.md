@@ -220,7 +220,7 @@ Versions (the versions as a tree by lineage) and Sources (one `<version>.py` fil
 revisions a folder of them) on the left, Details (the selected version as cards in groups: long text in paragraphs and
 lists, folded to its first paragraph or sentence with the rest behind Show more, a registration as a chip cut in the middle that copies on click) on the right, and
 Progress (research-run returns as bars from zero on the canvas's x), Return vs drawdown (the scatter with the non-dominated
-frontier), Version table, Data gaps and Trades (`⌥9`, the paper run's trades, events, exceptions and reconciliation) at the bottom, switched by the stripe as on the sides; each island has the same header with its actions (locate, expand
+frontier), Version table, Data gaps and Trades (`⌥9`, the paper run's trades, events, exceptions and comparison) at the bottom, switched by the stripe as on the sides; each island has the same header with its actions (locate, expand
 all, collapse all, hide). Served with a chat service, the right side also has Agent (`⌥0`): the open
 thread with answers written as they stream, each under the model that wrote it, product commands as
 foldable cards with their JSON and known versions as links; the saved chats; and the agents with

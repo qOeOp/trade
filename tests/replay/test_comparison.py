@@ -1,4 +1,4 @@
-"""If this fails, a run reconciled against its replay (Paper or Live) is misjudged: an order filled in pieces counts
+"""If this fails, a run compared with its replay (Paper or Live) is misjudged: an order filled in pieces counts
 as several, an exit lands in another position's group, concurrent positions or a scale-out's exits are paired across
 each other and read as differences or a look-ahead suspect, a difference is called unexplained while a known product
 cause (a missing, late or differing live bar, the warm-up, the contract terms or fee rates, the window's end, Live's entry gate) applies,
@@ -14,10 +14,10 @@ import tempfile
 import unittest
 from unittest import mock
 
-from replay import reconcile
+from replay import comparison
 
 
-MINUTE = reconcile.MINUTE_NS
+MINUTE = comparison.MINUTE_NS
 START = 1_792_949_160 * 10**9  # 2026-10-25T17:26:00Z
 BTC = "BTCUSDT-PERP.BINANCE"
 
@@ -54,7 +54,7 @@ def compared(run_events: list[dict], replay_events: list[dict], minutes: int = 4
             for i in range(minutes) if i not in skip]
     run = {"bars": bars, "events": run_events, **{key: context.pop(key) for key in ("warmup", "terms", "fees",
                                                                                    "settlements", "gate") if key in context}}
-    return reconcile.compare(run, replay_events, {"BTCUSDT": archived(minutes)}, None, START, START + minutes * MINUTE,
+    return comparison.compare(run, replay_events, {"BTCUSDT": archived(minutes)}, None, START, START + minutes * MINUTE,
                              **context)
 
 
@@ -69,7 +69,7 @@ def bracket(prefix: str, at: int, filled_at: int, position: str, *, qty: str = "
 
 class Groups(unittest.TestCase):
     def test_an_order_filled_in_pieces_is_one_order_at_its_weighted_price(self):
-        [found] = reconcile.orders([order("A", "ENTRY", "BUY", START, "4"), fill("A", close_of(2), "100.0", "1", "BUY", "P"),
+        [found] = comparison.orders([order("A", "ENTRY", "BUY", START, "4"), fill("A", close_of(2), "100.0", "1", "BUY", "P"),
                                     fill("A", close_of(2), "100.4", "3", "BUY", "P")])
         self.assertEqual((found["filled"]["qty"], found["filled"]["px"], found["role"], found["position"]),
                          (4, Decimal("100.3"), "entry", "P"))
@@ -80,14 +80,14 @@ class Groups(unittest.TestCase):
                   order("A-T1", "TAKE_PROFIT", "SELL", close_of(1), "0.5", price="102.0"),
                   order("A-T2", "TAKE_PROFIT", "SELL", close_of(1), "0.5", price="103.0"),
                   fill("A-T1", close_of(5), "102.0", "0.5", "SELL", "PA")]
-        found = reconcile.groups(reconcile.orders(events))
+        found = comparison.groups(comparison.orders(events))
         self.assertEqual([(g["entry"]["order"], [o["order"] for o in g["exits"]]) for g in found],
                          [("A-E", ["A-S", "A-T1", "A-T2"]), ("B-E", ["B-S"])])
 
     def test_an_unfilled_exit_goes_to_the_latest_position_that_still_held_its_quantity(self):
         events = [*bracket("A", close_of(1), close_of(1), "PA", qty="1"), *bracket("B", close_of(3), close_of(3), "PB", qty="2"),
                   order("X", "TAKE_PROFIT", "SELL", close_of(4), "2", price="103.0")]
-        found = reconcile.groups(reconcile.orders(events))
+        found = comparison.groups(comparison.orders(events))
         self.assertEqual([o["order"] for o in found[1]["exits"]], ["B-S", "X"])
 
 
@@ -148,7 +148,7 @@ class Pairing(unittest.TestCase):
 
     def test_entries_further_apart_than_pair_ns_are_different_trades(self):
         run = bracket("p", close_of(1), close_of(1), "P")
-        replay = bracket("r", close_of(1) + reconcile.PAIR_NS + MINUTE, close_of(1) + reconcile.PAIR_NS + MINUTE, "R")
+        replay = bracket("r", close_of(1) + comparison.PAIR_NS + MINUTE, close_of(1) + comparison.PAIR_NS + MINUTE, "R")
         found = compared(run, replay)
         self.assertEqual([g["class"] for g in found["groups"]], ["run_only", "replay_only"])
 
@@ -186,15 +186,15 @@ class Attribution(unittest.TestCase):
         self.assertEqual((group["class"], group["cause"], group["look_ahead_suspect"]), ("replay_only", "missing_bar", False))
 
     def test_a_late_bar_reaches_the_source_more_than_two_seconds_after_its_close(self):
-        found = reconcile.bars([bar(0, wall_ns=close_of(0) + 10**6 + reconcile.LATE_NS),
-                                bar(1, wall_ns=close_of(1) + 10**6 + reconcile.LATE_NS + 1)],
+        found = comparison.bars([bar(0, wall_ns=close_of(0) + 10**6 + comparison.LATE_NS),
+                                bar(1, wall_ns=close_of(1) + 10**6 + comparison.LATE_NS + 1)],
                                {"BTCUSDT": archived(2)}, START, START + 2 * MINUTE)
         self.assertEqual(found["BTCUSDT"]["late"], [close_of(1)])
 
     def test_a_live_aggregation_is_not_a_minute(self):
         hour = {**bar(0), "bar_type": f"{BTC}-1-HOUR-LAST-INTERNAL@1-MINUTE-EXTERNAL", "close": "1"}
         minute = {**bar(0), "bar_type": f"{BTC}-1-MINUTE-LAST-EXTERNAL"}
-        found = reconcile.bars([hour, minute], {"BTCUSDT": archived(1)}, START, START + MINUTE)["BTCUSDT"]
+        found = comparison.bars([hour, minute], {"BTCUSDT": archived(1)}, START, START + MINUTE)["BTCUSDT"]
         self.assertEqual((found["live"], found["differing"]), (1, {}))
 
     def test_a_warm_up_unlike_the_archives_explains_a_difference_within_its_reach(self):
@@ -226,7 +226,7 @@ class Attribution(unittest.TestCase):
             run = bracket("p", close_of(1), close_of(1), "P", px="100.1")
             replay = bracket("r", close_of(1), close_of(1), "R", px="100.13")
             bars = [bar(i, "100.0") for i in range(40)]
-            group = reconcile.compare({"bars": bars, "events": run, "terms": {"BTCUSDT": tick}}, replay,
+            group = comparison.compare({"bars": bars, "events": run, "terms": {"BTCUSDT": tick}}, replay,
                                       {"BTCUSDT": archived(40)}, reports, START, START + 40 * MINUTE,
                                       replay_terms={"BTCUSDT": tick})["groups"][0]
         self.assertEqual((group["stage"], group["cause"], group["evidence"]["terms"]),
@@ -279,7 +279,7 @@ class Attribution(unittest.TestCase):
         first, later = found["groups"]
         self.assertEqual((first["stage"], first["orders"][first["first"]]["class"], first["look_ahead_suspect"]),
                          ("fill", "replay_only", True))
-        self.assertEqual((later["cause"], later["follows"]), ("consequence", reconcile.utc(close_of(1))))
+        self.assertEqual((later["cause"], later["follows"]), ("consequence", comparison.utc(close_of(1))))
 
     def test_differences_follow_the_first_until_a_group_agrees_again(self):
         run = bracket("a", close_of(1), close_of(1), "A") + bracket("b", close_of(10), close_of(10), "B")
@@ -293,7 +293,7 @@ class Attribution(unittest.TestCase):
     def test_funding_unlike_the_replays_is_the_groups_last_stage(self):
         settlements = [{"instrument_id": BTC, "settlement_ns": close_of(5), "rate": Decimal("0.0001"),
                         "mark": Decimal("100"), "positions": {"P": Decimal(1)}}]
-        with mock.patch.object(reconcile, "replay_funding", return_value={"R": Decimal("-0.02")}):
+        with mock.patch.object(comparison, "replay_funding", return_value={"R": Decimal("-0.02")}):
             group = compared(bracket("p", close_of(1), close_of(1), "P"), bracket("r", close_of(1), close_of(1), "R"),
                              settlements=settlements)["groups"][0]
         self.assertEqual((group["stage"], group["funding"]), ("funding", {"run": "-0.01", "replay": "-0.02"}))
@@ -307,20 +307,20 @@ class Warmup(unittest.TestCase):
                     "100.1", str(100 + i / 100), "99.9", "100.2", "0.5"] for i in range(120)]
         rows = [(at - hour - 10**6, "100.10", "100.59", "99.90", "100.20", "30.000"),
                 (at - 10**6, "100.10", "101.19", "99.90", "100.20", "30.000")]
-        received = {"1-HOUR": reconcile.digest(rows)}
+        received = {"1-HOUR": comparison.digest(rows)}
         with mock.patch("market.read.stored_bars", return_value={"bars": {"rows": minutes}}):
-            found = reconcile.archive_warmup({}, "2026-11-11", "BTCUSDT", at + 7, received,
+            found = comparison.archive_warmup({}, "2026-11-11", "BTCUSDT", at + 7, received,
                                              {"price_increment": "0.10", "size_increment": "0.001"})
-        compared_ = reconcile.warmup({BTC: received}, {"BTCUSDT": found})["BTCUSDT"]
+        compared_ = comparison.warmup({BTC: received}, {"BTCUSDT": found})["BTCUSDT"]
         self.assertTrue(compared_["same"])
         self.assertEqual(compared_["reach_ns"], 2 * hour)
-        received = {"1-HOUR": reconcile.digest([rows[0], (*rows[1][:5], "30.001")])}
-        self.assertFalse(reconcile.warmup({BTC: received}, {"BTCUSDT": found})["BTCUSDT"]["same"])
+        received = {"1-HOUR": comparison.digest([rows[0], (*rows[1][:5], "30.001")])}
+        self.assertFalse(comparison.warmup({BTC: received}, {"BTCUSDT": found})["BTCUSDT"]["same"])
 
     def test_a_live_packs_historical_bars_are_digested_as_paper_journals_them(self):
         rows = [{"instrument_id": BTC, "bar_type": f"{BTC}-1-MINUTE-LAST-EXTERNAL", "ts_event": close_of(i),
                  "open": "1.0", "high": "2.0", "low": "0.5", "close": "1.5", "volume": "3.000"} for i in (1, 0)]
-        found = reconcile.received_warmup(rows)[BTC]["1-MINUTE"]
+        found = comparison.received_warmup(rows)[BTC]["1-MINUTE"]
         from nautilus_trader.model import Bar, BarType, Price, Quantity
         from engine.paper import warmup_digest
         journaled = warmup_digest([Bar(BarType.from_str(f"{BTC}-1-MINUTE-LAST-EXTERNAL"), Price.from_str("1.0"),

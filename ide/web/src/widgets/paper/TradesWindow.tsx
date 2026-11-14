@@ -6,25 +6,25 @@ import { useAtom } from "../../state/atom";
 import { backtestNote, useBacktest } from "../../state/backtest";
 import { usePaperService } from "../../state/paper";
 import { tradesTab, type Stream } from "../../state/paperStream";
-import { useReconciliation } from "../../state/reconcile";
+import { useComparison } from "../../state/compare";
 import { useRunData } from "../../state/runData";
 import { useShown } from "../../state/shown";
 import { paperTab } from "../../state/stage";
 import { Cycles } from "./Cycles";
 import { Events, EventsTools } from "./Events";
 import { Exceptions, exceptionsText, raised, scoped } from "./Exceptions";
-import { Reconcile, ReconcileTools } from "./Reconcile";
+import { Compare, CompareTools } from "./Compare";
 import { Trades, useTradeRows } from "./Trades";
 import { Logs } from "./Logs";
 import { LiveTrades, LiveTradesTools } from "../live/LiveTrades";
 
 /** The paper run's stream while the stage shown is paper, and the tab open: Exceptions only once the
- *  strategy raised, Reconciliation only once the run is sealed. */
+ *  strategy raised, Comparison only once the run is sealed. */
 function useScope() {
   const { stage } = useShown(), data = useRunData(), chosen = useAtom(tradesTab);
   const s: Stream | null = stage === "paper" ? data?.s ?? null : null;
   const failures = s?.failures ?? [], sealed = !!s?.seal;
-  const tab = (chosen === "reconcile" && !sealed) || (chosen === "exceptions" && !failures.length) ? "trades" : chosen;
+  const tab = (chosen === "compare" && !sealed) || (chosen === "exceptions" && !failures.length) ? "trades" : chosen;
   return { stage, s, only: data && data.view !== "equity" ? data.view : null, tab, failures, sealed, candidate: data?.run.candidate ?? null };
 }
 
@@ -32,7 +32,7 @@ function useScope() {
  *  shown has no paper run), then what they list (the stage, the contract the chart shows or all of them,
  *  and how many) with "Show all" to go back to every contract. */
 export function TradesTools() {
-  const { stage, s, only, tab, failures, sealed } = useScope(), r = useReconciliation(), backtest = useBacktest();
+  const { stage, s, only, tab, failures, sealed } = useScope(), r = useComparison(), backtest = useBacktest();
   const cycles = stage === "backtest" && backtest?.kind === "ready" ? backtest.b.cycles.filter((c) => !only || c.symbol === only).length : null;
   if (stage === "live") return <LiveTradesTools />;
   if (!s) {
@@ -43,12 +43,12 @@ export function TradesTools() {
       {/* pulled left by a tab's own padding, so its text sits on the island's inset as a title's does */}
       <div className="-ml-2 min-w-0"><Tabs label="Trades and events" value={tab} onChange={tradesTab.set} items={[{ id: "trades", label: "Trades" }, { id: "events", label: "Events" }, { id: "logs", label: "Logs" },
         ...(failures.length ? [{ id: "exceptions" as const, label: "Exceptions", dot: "fail" as const }] : []),
-        ...(sealed ? [{ id: "reconcile" as const, label: "Reconciliation", dot: r?.result?.summary.look_ahead_suspects ? "fail" as const : undefined }] : [])]} /></div>
+        ...(sealed ? [{ id: "compare" as const, label: "Comparison", dot: r?.result?.summary.look_ahead_suspects ? "fail" as const : undefined }] : [])]} /></div>
       <span className="ml-auto flex min-w-0 items-center gap-3 text-dense text-fg-faint">
         {tab === "events" && <EventsTools s={s} only={only} />}
         {tab === "trades" && <TradeCount s={s} only={only} />}
         {tab === "exceptions" && <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {exceptionsText(raised(scoped(failures, only)), sealed)}</span>}
-        {tab === "reconcile" && <ReconcileTools r={r} paperId={s.paperId} />}
+        {tab === "compare" && <CompareTools r={r} paperId={s.paperId} />}
         {only && <TextButton onClick={() => paperTab.set("equity")}>Show all</TextButton>}
       </span>
     </>
@@ -64,10 +64,10 @@ const Note = ({ children }: { children: string }) => <p className="grid h-full p
 
 /** The bottom Trades window (⌥9): what the stage the Runs page shows traded. For the backtest its cycles;
  *  for a paper run its trades,
- *  its events, its exceptions once the strategy raised and its reconciliation against a replay once
+ *  its events, its exceptions once the strategy raised and its comparison with a replay once
  *  sealed, of the contract the chart shows or of all on Equity. */
 export function TradesWindow() {
-  const { stage, s, only, tab, failures, sealed, candidate } = useScope(), r = useReconciliation(), service = usePaperService();
+  const { stage, s, only, tab, failures, sealed, candidate } = useScope(), r = useComparison(), service = usePaperService();
   const { trial } = useShown(), backtest = useBacktest();
   const digits = useMemo(() => precisions(s?.lines ?? []), [s?.lines]);
   if (stage === "live") return <LiveTrades />;
@@ -83,7 +83,7 @@ export function TradesWindow() {
       {tab === "trades" ? <Trades s={s} only={only} /> : tab === "events" ? <Events s={s} only={only} />
         : tab === "logs" ? <Logs key={s.paperId} paperId={s.paperId} />
         : tab === "exceptions" ? <Exceptions failures={failures} sealed={sealed} only={only} candidate={candidate} />
-        : <Reconcile r={r} paperId={s.paperId} only={only} digits={digits} />}
+        : <Compare r={r} paperId={s.paperId} only={only} digits={digits} />}
     </div>
   );
 }

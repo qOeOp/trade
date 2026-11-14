@@ -24,7 +24,7 @@ from unittest import mock
 from ledger import db, paper as records, strategies
 from shared.errors import Refusal
 from paper import runs, serve
-from replay import reconcile
+from replay import comparison
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 from tests.ledger.test_paper import ROW, journal, line, snapshot, START, MINUTE
 from tests.helpers import refused
@@ -109,14 +109,14 @@ class GateTests(unittest.TestCase):
         for query in ("lines=3", "lines=3&last=1&bars=x", "lines=-1&last=1&bars=0"):
             self.assertEqual(request(self.port, "GET", f"/api/paper/runs/1/stream?{query}"), (400, mock.ANY))
 
-    def test_a_reconciliation_starts_and_is_read_through_the_daemon(self):
-        self.daemon.reconcile.return_value = {"paper_id": 3, "state": "reconciling"}
-        self.daemon.reconciliation.return_value = {"paper_id": 3, "state": "none"}
+    def test_a_comparison_starts_and_is_read_through_the_daemon(self):
+        self.daemon.compare.return_value = {"paper_id": 3, "state": "comparing"}
+        self.daemon.compared.return_value = {"paper_id": 3, "state": "none"}
         json_body = {"Content-Type": "application/json"}
-        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/reconcile", b"{}", **json_body),
-                         (202, {"paper_id": 3, "state": "reconciling"}))
-        self.daemon.reconcile.assert_called_once_with(3)
-        self.assertEqual(request(self.port, "GET", "/api/paper/runs/3/reconcile"), (200, {"paper_id": 3, "state": "none"}))
+        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/compare", b"{}", **json_body),
+                         (202, {"paper_id": 3, "state": "comparing"}))
+        self.daemon.compare.assert_called_once_with(3)
+        self.assertEqual(request(self.port, "GET", "/api/paper/runs/3/compare"), (200, {"paper_id": 3, "state": "none"}))
 
     def test_a_delete_reaches_the_daemon(self):
         self.daemon.delete.return_value = {"paper_id": 3, "write_status": "written"}
@@ -309,46 +309,46 @@ def events(response) -> tuple[str, object]:
             return kind, data
 
 
-class ReconcileOutputTests(unittest.TestCase):
+class CompareOutputTests(unittest.TestCase):
     """The temporary directory is a host directory that outlives the daemon: only the output read is kept."""
 
     def daemon(self, root):
         daemon = serve.Daemon.__new__(serve.Daemon)
         daemon.profile, daemon.market = SimpleNamespace(database="paper"), None
-        daemon.lock, daemon.reconciling, daemon.journals, daemon.stopping = threading.Lock(), {}, {}, set()
-        daemon.reconcile_root = lambda: root
+        daemon.lock, daemon.comparing, daemon.journals, daemon.stopping = threading.Lock(), {}, {}, set()
+        daemon.compare_root = lambda: root
         return daemon
 
-    def reconcile(self, daemon, stamp, fails=None):
+    def compare(self, daemon, stamp, fails=None):
         def cli(*args, **kwargs):
             output = Path(args[args.index("--output") + 1])
             output.mkdir()
             (output / "replay").mkdir()
             if fails:
                 raise fails
-            (output / "reconcile.json").write_text(json.dumps({"format": reconcile.FORMAT, "output": output.name}))
+            (output / "comparison.json").write_text(json.dumps({"format": comparison.FORMAT, "output": output.name}))
         daemon.cli = mock.Mock(side_effect=cli)
         thread = mock.Mock(side_effect=lambda target, daemon: SimpleNamespace(start=target))
         with mock.patch.object(db, "connect"), mock.patch.object(records, "read_paper_run"), \
                 mock.patch.object(records, "seal_of", return_value={"status": "valid"}), \
                 mock.patch.object(serve.threading, "Thread", thread), \
                 mock.patch.object(serve.time, "strftime", return_value=stamp):
-            daemon.reconcile(3)
+            daemon.compare(3)
 
-    def test_a_reconciliation_keeps_only_the_latest_output_and_a_delete_removes_it(self):
+    def test_a_comparison_keeps_only_the_latest_output_and_a_delete_removes_it(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             daemon = self.daemon(root)
             (root / "3-20261108T000000Z").mkdir()  # left by an interrupted daemon
             (root / "31-20261108T000000Z").mkdir()  # another run's
-            self.reconcile(daemon, "20261109T000001Z")
+            self.compare(daemon, "20261109T000001Z")
             self.assertEqual(sorted(path.name for path in root.iterdir()), ["3-20261109T000001Z", "31-20261108T000000Z"])
-            self.assertEqual(daemon.reconciliation(3)["result"], {"format": reconcile.FORMAT, "output": "3-20261109T000001Z"})
-            (root / "3-20261109T000001Z" / "reconcile.json").write_text(json.dumps({"format": "paper-reconcile@2026-10-26"}))
-            self.assertEqual(daemon.reconciliation(3)["state"], "none", "an older format is replayed again")
-            (root / "3-20261109T000001Z" / "reconcile.json").write_text(json.dumps({"format": reconcile.FORMAT}))
+            self.assertEqual(daemon.compared(3)["result"], {"format": comparison.FORMAT, "output": "3-20261109T000001Z"})
+            (root / "3-20261109T000001Z" / "comparison.json").write_text(json.dumps({"format": "run-reconcile@2026-11-12"}))
+            self.assertEqual(daemon.compared(3)["state"], "none", "an older format is replayed again")
+            (root / "3-20261109T000001Z" / "comparison.json").write_text(json.dumps({"format": comparison.FORMAT}))
 
-            self.reconcile(daemon, "20261109T000002Z", fails=subprocess.TimeoutExpired("paper reconcile", 1))
+            self.compare(daemon, "20261109T000002Z", fails=subprocess.TimeoutExpired("paper compare", 1))
             self.assertEqual(sorted(path.name for path in root.iterdir()), ["3-20261109T000001Z", "31-20261108T000000Z"])
 
             daemon.cli = mock.Mock(return_value={"paper_id": 3})

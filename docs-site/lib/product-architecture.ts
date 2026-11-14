@@ -324,8 +324,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "paper",
     "kind": "component",
     "description": {
-      "zh": "paper/serve.py、paper/runs.py、paper/reconcile.py 是 compose 的 paper 服务控制面，负责启停、封存与对账，经 CLI 写活动研究库；它不是策略 runner。ledger 与 paper 服务共用 trade-service 镜像。",
-      "en": "paper/serve.py, paper/runs.py and paper/reconcile.py form the compose paper service control plane for start/stop, sealing and reconciliation. It writes the active research database through CLI and is distinct from the strategy runner. ledger and paper share the trade-service image."
+      "zh": "paper/serve.py、paper/runs.py、paper/compare.py 是 compose 的 paper 服务控制面，负责启停、封存与重放对比，经 CLI 写活动研究库；它不是策略 runner。ledger 与 paper 服务共用 trade-service 镜像。",
+      "en": "paper/serve.py, paper/runs.py and paper/compare.py form the compose paper service control plane for start/stop, sealing and replay comparison. It writes the active research database through CLI and is distinct from the strategy runner. ledger and paper share the trade-service image."
     },
     "docsRoute": "platform-architecture/#paper"
   },

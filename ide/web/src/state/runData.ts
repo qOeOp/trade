@@ -15,7 +15,7 @@ import { atom, useAtom } from "./atom";
 import { useBacktest } from "./backtest";
 import { useEarlier } from "./paperChain";
 import { follow, pickedDay, useStream, type Stream } from "./paperStream";
-import { followReconciliation } from "./reconcile";
+import { followComparison } from "./compare";
 import { useShown } from "./shown";
 import type { Stretch } from "../model/stretches";
 import { useStretches } from "./stretches";
@@ -43,7 +43,7 @@ export function useRunDriver(): void {
   const symbol = view !== "equity" && run?.symbols.includes(view) ? view : null;
   useEffect(() => { follow(run?.paper_id ?? null, symbol); }, [run?.paper_id, symbol]);
   useEffect(() => { pickedDay.set(null); }, [run?.paper_id]);
-  useEffect(() => { followReconciliation(run?.state === "sealed" ? run.paper_id : null); }, [run?.paper_id, run?.state]);
+  useEffect(() => { followComparison(run?.state === "sealed" ? run.paper_id : null); }, [run?.paper_id, run?.state]);
   const stream = useStream();
   const before = chain.slice(0, -1), ids = before.map((r) => r.paper_id).join(), verdicts = before.map((r) => r.status).join();
   const earlier = useEarlier(useMemo(() => before, [ids]), symbol);
