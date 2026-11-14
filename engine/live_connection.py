@@ -39,9 +39,9 @@ from nautilus_trader.trading import Strategy
 
 from engine.live_errors import LiveRefusal as Refusal
 from engine.config import symbol_of
-from engine.live_records import contract as contract_id, owned, strategy_ids, write_json
-from engine.live_venue import require_account_mode, require_clock, require_own_symbol
-from engine.order_rules import GTD_MINIMUM_NS
+from engine.live_records import contract as contract_id, keep, owned, strategy_ids
+from engine.live_venue import require_account_mode, require_clock, require_flat, require_own_symbol
+from engine.order_rules import GTD_MINIMUM_NS, native_cache
 
 COMPARE_SPACING_SECONDS = 31  # one native position check (30 s) and open-order check (10 s) between the two reads
 COMPARE_RETRY_SECONDS = 10
@@ -130,12 +130,6 @@ def open_entries(session) -> None:
         commands.start_observation(session, "entry")  # the held entries, in order, as any queued entry
 
 
-def refuse(session, reason: str) -> None:
-    """An entry while the gate is closed: refused, and the run ends (engine.live_source's admission path)."""
-    raise Refusal("LIVE_CONNECTION_UNVERIFIED", f"entries are closed ({reason}) until the venue and the native cache "
-                                                "agree again")
-
-
 def holdable(session, symbol: str | None = None) -> bool:
     """The gate is closed only for reasons a check can clear: an entry may wait for it."""
     closed = reasons(session, symbol)
@@ -159,7 +153,7 @@ def deny(session, order, detail: str, held_ns: int | None = None, reason: str | 
                                                     "entry cannot be denied natively")
     cid = str(order.client_order_id)
     source = session.any_source()
-    if source is not None and Strategy.cache.__get__(source, type(source)).order(order.client_order_id) is not None:
+    if source is not None and native_cache(source).order(order.client_order_id) is not None:
         raise Refusal("LIVE_ORDER_UNSUPPORTED", "an order the native cache already holds is not a new entry")
     session.denied.add(cid)  # before the call: its callbacks run at once
     session.denying = True
@@ -208,9 +202,8 @@ def deny_staged(session, reason: str, symbol: str | None = None) -> None:
             observation.result.cancel()
     for pending in chosen:
         session.pending_entries.remove(pending)
-        held = time.time_ns() - pending.order.ts_init if pending.deadline_ns is not None else None
         try:
-            deny(session, pending.order, reason, held)
+            deny(session, pending.order, reason, pending.held_ns())
         except Exception as exc:
             # Not denied: this one and the rest are refused like any entry, and the run ends.
             refused(session, pending, getattr(exc, "code", type(exc).__name__), str(exc)[:1000])
@@ -270,9 +263,8 @@ def require_send_time(pending) -> None:
 
 
 def refused(session, pending, code: str, detail: str | None) -> None:
-    held = time.time_ns() - pending.order.ts_init if pending.deadline_ns is not None else None
     session.event("entry_refused", strict=False, code=code, detail=detail,
-                  reasons=sorted(reasons(session, symbol_of(pending.order.instrument_id))), held_ns=held,
+                  reasons=sorted(reasons(session, symbol_of(pending.order.instrument_id))), held_ns=pending.held_ns(),
                   **entry_fields(pending.order))
 
 
@@ -456,8 +448,7 @@ def tick(session, observer, now: float) -> None:
         if checking or state.suspect else CONTRACT_SECONDS if state.halted else PERIODIC_SECONDS
     if now - state.last_compare >= interval:
         state.last_compare = now
-        state.observation = commands.observe_account(session.account_reader, tuple(session.manifest["symbols"]),
-                                                     "compare")
+        state.observation = commands.observe_account(session, "compare")
     elif not state.closed:
         renew(session, observer, now)
 
@@ -498,8 +489,7 @@ def judge(session, cache, snapshot: dict) -> None:
     observation = None
     if found or checking:
         # Kept when it disagrees or decides a check; a periodic agreement adds nothing to keep.
-        observation = "compare-account-" + str(snapshot["observed_ns"]) + ".json"
-        write_json(session.output / observation, snapshot)
+        observation = keep(session.output, "compare-account", snapshot)
     session.event("comparison", strict=False, agreed=not found, found=found, observation=observation,
                   entries=gate_reason(session))
     if not found:
@@ -559,13 +549,11 @@ def held_tick(session, now: float) -> None:
     """A resumed run holding around an open position reads the account until it is flat (its exchange stops, or the
     user at Binance); then it ends this start so the next one trades again (engine.live, design §3.4)."""
     from engine import live_commands as commands
-    from engine.live_venue import require_flat
     state = session.connection
     if state.observation is None:
         if state.last_compare is None or now - state.last_compare >= HELD_READ_SECONDS:
             state.last_compare = now
-            state.observation = commands.observe_account(session.account_reader, tuple(session.manifest["symbols"]),
-                                                         "held")
+            state.observation = commands.observe_account(session, "held")
         return
     try:
         snapshot = commands.observed_account(session, "held", state.observation)
@@ -579,8 +567,7 @@ def held_tick(session, now: float) -> None:
         require_flat(snapshot)
     except Refusal:
         return
-    observation = "held-account-" + str(snapshot["observed_ns"]) + ".json"
-    write_json(session.output / observation, snapshot)
+    observation = keep(session.output, "held-account", snapshot)
     session.held_flat = True
     session.event("venue_flat_while_held", strict=False, observation=observation)
     session.begin_stop("held_flat")

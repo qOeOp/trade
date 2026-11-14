@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from nautilus_trader.model import InstrumentId, StrategyId
 from engine.config import instrument_id
-from engine.load import strategy_id
+from engine.load import read_regular_file, strategy_id
 
 def write_json(path: Path, value: dict) -> None:
     temporary = path.with_name("." + path.name + ".partial")
@@ -17,6 +17,22 @@ def write_json(path: Path, value: dict) -> None:
         os.fsync(stream.fileno())
     os.chmod(temporary, 0o600)
     os.replace(temporary, path)
+
+
+def keep(output: Path, prefix: str, snapshot: dict) -> str:
+    """Keep an account read in the run's directory as <prefix>-<observed_ns>.json; returns that name."""
+    name = f"{prefix}-{snapshot['observed_ns']}.json"
+    write_json(output / name, snapshot)
+    return name
+
+
+def journal(output: Path) -> list[dict]:
+    """The run's events.jsonl (engine.live_session.Session.event), row by row. An unreadable file, or a line that is
+    not a JSON object, raises: each caller decides what a damaged journal means for it."""
+    rows = [json.loads(line) for line in read_regular_file(output / "events.jsonl").decode().splitlines() if line]
+    if any(not isinstance(row, dict) for row in rows):
+        raise ValueError("a journal line is not a JSON object")
+    return rows
 
 
 def strategy_ids(manifest: dict) -> dict[str, StrategyId]:

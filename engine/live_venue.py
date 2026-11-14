@@ -1,7 +1,8 @@
 """Private, GET-only Binance USD-M admission observations.
 
-Orders, balances and positions remain owned by Binance and Nautilus. This client only
-checks the account before arming; it cannot place orders or change account settings.
+Orders, balances and positions remain owned by Binance and Nautilus. This client reads the account at
+admission, for each entry, for the venue comparisons and a held start's reads (engine.live_connection) and for the
+drawdown brake (engine.live_brake); it cannot place orders or change account settings.
 """
 
 from __future__ import annotations

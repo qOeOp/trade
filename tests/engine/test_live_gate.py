@@ -43,11 +43,6 @@ def order(venue_id, status=OrderStatus.ACCEPTED, strategy=None, closed=False):
                            strategy_id=strategy)
 
 
-def native(cache):
-    """Strategy as live_source reads a source's native cache through it."""
-    return SimpleNamespace(cache=SimpleNamespace(__get__=lambda *_: cache))
-
-
 class GateTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -137,9 +132,7 @@ class GateTests(unittest.TestCase):
         self.assertEqual((refused["code"], refused["detail"]), ("LIVE_CONNECTION_UNVERIFIED", "unknown_orders"))
         self.assertIsNotNone(refused["held_ns"])
         # A new entry at a gate closed for such a reason is refused at once (engine.live_source).
-        self.assertFalse(live_connection.holdable(session))
-        with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
-            live_connection.refuse(session, live_connection.gate_reason(session))
+        self.assertFalse(live_connection.holdable(session) or live_connection.deniable(session))
 
     def test_a_held_entry_ends_the_run_at_its_deadline_or_at_the_next_bar_of_its_type(self):
         self.socket(SocketState.DISCONNECTED)
@@ -281,7 +274,7 @@ class GateTests(unittest.TestCase):
         flat = [LiveRefusal("LIVE_ACCOUNT_NOT_FLAT", "open"), None]
         with mock.patch.object(commands, "observe_account", return_value=object()) as observe, \
                 mock.patch.object(commands, "observed_account", return_value=dict(self.snapshot)), \
-                mock.patch("engine.live_venue.require_flat", side_effect=flat):
+                mock.patch.object(live_connection, "require_flat", side_effect=flat):
             for now in (0, 1, 10, 30, 31):
                 live_connection.held_tick(self.session, now)
         self.assertEqual(observe.call_count, 2)  # at 0 and at 30; each read is judged on the next tick
@@ -372,12 +365,12 @@ class GateTests(unittest.TestCase):
         self.session.evidence = mock.Mock()
         self.gap()
         bar = SimpleNamespace(bar_type=BAR, ts_event=5 * 60_000_000_000)
-        with mock.patch.object(live_source, "Strategy", native(Cache())):
+        with mock.patch.object(live_source, "native_cache", return_value=Cache()):
             on_bar(source, bar)
         self.assertEqual(seen, [])
         self.session.evidence.bar.assert_called_once_with(bar)  # still in the evidence pack
         held = Cache(positions=[SimpleNamespace(strategy_id=self.strategy, is_open=True)])
-        with mock.patch.object(live_source, "Strategy", native(held)):
+        with mock.patch.object(live_source, "native_cache", return_value=held):
             on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=6 * 60_000_000_000))
         self.assertEqual(len(seen), 1)  # its exits are managed as before
 
@@ -484,7 +477,7 @@ class GateTests(unittest.TestCase):
         self.session.evidence, self.session.cancel_entries = mock.Mock(), mock.Mock()
         self.session.entry_gate = gate = mock.Mock()
         minute = 60_000_000_000
-        with mock.patch.object(live_source, "Strategy", native(Cache())):
+        with mock.patch.object(live_source, "native_cache", return_value=Cache()):
             on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=minute))
             self.socket(SocketState.DISCONNECTED)
             self.socket(SocketState.CONNECTED)

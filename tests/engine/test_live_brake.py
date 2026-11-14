@@ -5,6 +5,7 @@ from decimal import Decimal
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -55,6 +56,22 @@ class BrakeTests(unittest.TestCase):
         live_brake.observe(resumed, self.read("110.50"), 0.0)  # 15% below 130
         self.assertTrue(resumed.stopping)
 
+    def test_a_damaged_journal_neither_restarts_the_run_nor_sets_its_peak(self):
+        (self.output / "preflight-1.json").write_text(json.dumps(self.read("100")))
+        (self.output / "armed.json").write_text(json.dumps({"run_id": "gate", "observed_ns": 1,
+                                                            "observation": "preflight-1.json"}))
+        self.session.event("preflight", mode="run")
+        self.session.event("equity_peak", equity="130", observed_ns=2)
+        self.assertTrue(live.resumable(self.output))
+        intact = (self.output / "events.jsonl").read_text()
+        for damage in ("{not json\n", "[]\n"):
+            with self.subTest(damage=damage):
+                (self.output / "events.jsonl").write_text(intact + damage)
+                self.assertFalse(live.resumable(self.output))
+                self.assertFalse(live.warmup_retry(self.output))
+                with self.assertRaises(ValueError):
+                    live_brake.resume(live.Session(self.session.manifest, self.output, "run"), self.output)
+
     def test_a_tighter_brake_stops_sooner(self):
         live_brake.arm(self.session, self.read("100"))
         self.session.manifest["config"]["drawdown_brake"] = "0.05"
@@ -95,6 +112,7 @@ class ClockTests(unittest.TestCase):
         for purpose, clocked in (("entry", True), ("compare", True), ("brake", False), ("connected", False)):
             with self.subTest(purpose):
                 reader.clock.reset_mock()
-                result = commands.observe_account(reader, ("BTCUSDT",), purpose).result.result(timeout=2)
+                session = SimpleNamespace(account_reader=reader, manifest={"symbols": ["BTCUSDT"]})
+                result = commands.observe_account(session, purpose).result.result(timeout=2)
                 self.assertEqual(reader.clock.called, clocked)
                 self.assertEqual("clock" in result, clocked)

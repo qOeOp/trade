@@ -16,8 +16,9 @@ from decimal import ROUND_DOWN, Decimal
 import json
 from pathlib import Path
 
+from engine import live_commands as commands
 from engine.live_errors import LiveRefusal as Refusal
-from engine.live_records import write_json
+from engine.live_records import journal, keep
 from engine.load import read_regular_file
 
 BUDGET_SHARE = Decimal("0.85")
@@ -69,10 +70,6 @@ def budget(snapshot: dict) -> Decimal:
     return (wallet * BUDGET_SHARE).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
 
 
-def share(manifest: dict) -> Decimal:
-    return Decimal(manifest["config"]["drawdown_brake"])
-
-
 def arm(session, snapshot: dict) -> None:
     """The run's first arming: its budget and its first highest equity."""
     session.brake.budget, session.brake.peak = budget(snapshot), equity(snapshot)
@@ -83,8 +80,7 @@ def resume(session, output: Path) -> None:
     armed = json.loads(read_regular_file(output / "armed.json"))
     first = json.loads(read_regular_file(output / armed["observation"]))
     arm(session, first)
-    for line in read_regular_file(output / "events.jsonl").decode().splitlines():
-        row = json.loads(line) if line else {}
+    for row in journal(output):  # a damaged journal raises: the peak is never read from part of it
         if row.get("event") == "equity_peak":
             session.brake.peak = max(session.brake.peak, Decimal(row["equity"]))
 
@@ -97,10 +93,10 @@ def observe(session, snapshot: dict, now: float) -> None:
     if value > brake.peak:
         brake.peak = value
         session.event("equity_peak", strict=False, equity=str(value), observed_ns=snapshot["observed_ns"])
-    if value <= brake.peak * (1 - share(session.manifest)) and not session.stopping:
-        observation: str | None = "brake-account-" + str(snapshot["observed_ns"]) + ".json"
+    if value <= brake.peak * (1 - Decimal(session.manifest["config"]["drawdown_brake"])) and not session.stopping:
+        observation: str | None
         try:
-            write_json(session.output / observation, snapshot)
+            observation = keep(session.output, "brake-account", snapshot)
         except OSError:
             observation = None  # the stop never waits on its record
         session.event("drawdown_brake", strict=False, equity=str(value), peak=str(brake.peak),
@@ -111,15 +107,13 @@ def observe(session, snapshot: dict, now: float) -> None:
 def tick(session, exposed: bool, now: float) -> None:
     """Read the account every READ_SECONDS. With a position open and no equity for UNREAD_SECONDS the brake cannot be
     applied, which counts as reaching it and fails the run."""
-    from engine import live_commands as commands
     brake = session.brake
     if brake.last_seen is None:
         brake.last_seen = now
     if brake.observation is None:
         if brake.last_read is None or now - brake.last_read >= READ_SECONDS:
             brake.last_read = now
-            brake.observation = commands.observe_account(session.account_reader, tuple(session.manifest["symbols"]),
-                                                         "brake")
+            brake.observation = commands.observe_account(session, "brake")
     else:
         try:
             snapshot = commands.observed_account(session, "brake", brake.observation)
