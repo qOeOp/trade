@@ -34,7 +34,6 @@ from shared.refusals import refuse
 SOURCE = "strategy.py"
 WORKDIR_MARKER = "trial.json"  # {trial_id, op_id} of the start write; outside every container mount
 CAPTURED_SOURCE = "source/strategy.py"
-FILE_STATUSES = ("captured", "captured_empty", "hashed", "missing", "not_started")
 IMAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}\Z")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
@@ -472,8 +471,8 @@ def _capture_rows(trial_id: int, listed: Mapping[str, Mapping]) -> list[tuple]:
              entry.get("length") if entry["status"] == "hashed" else None) for path, entry in sorted(listed.items())]
 
 
-def seal_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, stages: Mapping, outcome: Mapping,
-                 conn: db.LedgerConnection | None = None, *, table_hashes: bool = False) -> dict:
+def seal_capture(conn: db.LedgerConnection, trial_id: int, workdir: Path, stages: Mapping, outcome: Mapping, *,
+                 table_hashes: bool = False) -> dict:
     """Seal the stages, outcome and files the working directory holds, in one write.
 
     `stages` {native: {state, exit_code}, audit and fingerprint: same or None (did not run)}, as the
@@ -483,9 +482,6 @@ def seal_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, stages:
     (a reproduction on another image) keeps each table's semantic hash: the capture otherwise holds only
     the fingerprint file's hash, which cannot agree across images.
     """
-    if conn is None:
-        with db.connect(ledger, "writer") as own:
-            return seal_capture(ledger, trial_id, workdir, stages, outcome, own, table_hashes=table_hashes)
     trial, coverage = _start_of(conn, trial_id)
     if not _stages_valid(stages) or not isinstance(outcome, Mapping) or outcome.get("kind") not in OUTCOMES:
         raise refuse("EXECUTION_IDENTITY", "the stages or outcome of the capture are malformed",

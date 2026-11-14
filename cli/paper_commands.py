@@ -64,8 +64,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("paper", "list"): (
         "every paper run and its seal (reader); this Paper database's containers on Docker",
         "nothing",
-        "runs [{paper_id, candidate, source_sha256, symbols, state (running, ended, unsealed or sealed), "
-        "created_at, image_ref, status, reasons, total_return, max_drawdown}], running, limit",
+        "runs [{paper_id, op_id, candidate, source_sha256, symbols, state (running, ended, unsealed or sealed), "
+        "containers, created_at, image_ref, market_day, config, status, reasons, total_return, max_drawdown, seal}], "
+        "running, memory {budget, reserved, host_available, free, smallest}",
         "RUNTIME_UNAVAILABLE (docker did not answer)"),
     ("paper", "serve"): (
         "the paper runs, their seals and files (reader); a candidate's last research replay in the research ledger "
@@ -183,8 +184,7 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             return paper_runs.request_stop(profile, args.paper_id), 0
         return paper_runs.stop(profile, args.paper_id), 0
     if args.verb == "resume":
-        from paper import recovery
-        return recovery.resume(profile, profiles.market(args.market), args.paper_id), 0
+        return paper_runs.resume(profile, profiles.market(args.market), args.paper_id), 0
     if args.verb == "seal":
         return paper_runs.seal(profile, args.paper_id), 0
     if args.verb == "delete":

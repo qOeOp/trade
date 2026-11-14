@@ -81,7 +81,7 @@ class LedgerCase(unittest.TestCase):
 
     def seal(self, trial_id: int, workdir: Path, stages: dict = EXITED, outcome: dict = DONE) -> dict:
         process(workdir, trial_id, stages)
-        return execution.seal_capture(self.profile, trial_id, workdir, stages, outcome, self.conn)
+        return execution.seal_capture(self.conn, trial_id, workdir, stages, outcome)
 
     def refused(self, call) -> str:
         seq = self.seq()
@@ -104,12 +104,12 @@ class CaptureTests(LedgerCase):
                          ("captured", "captured_empty", "missing", "not_started"))
         self.assertEqual((read["files"]["native.stdout.txt"], read["stages"], read["outcome"]),
                          (b"ran\n", {**EXITED, "fingerprint": None}, DONE))
-        again = execution.seal_capture(self.profile, trial_id, workdir, EXITED, DONE, self.conn)
+        again = execution.seal_capture(self.conn, trial_id, workdir, EXITED, DONE)
         self.assertEqual((again["replayed"], again["files"]), (True, sealed["files"]))
         self.assertEqual(sealed["files"], {"native.stdout.txt": sha(b"ran\n")})
         (workdir / "native.stdout.txt").write_bytes(b"rewritten later\n")
-        self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, EXITED, DONE,
-                                                                     self.conn)), "BUNDLE_EXISTS")
+        self.assertEqual(self.refused(lambda: execution.seal_capture(self.conn, trial_id, workdir, EXITED, DONE)),
+                         "BUNDLE_EXISTS")
 
     def test_a_batched_read_refuses_only_the_trial_whose_stored_bytes_fail_their_hash(self):
         kept, broken = (self.workdir({"native.stdout.txt": text}) for text in (b"kept\n", b"broken\n"))
@@ -185,28 +185,28 @@ class CaptureTests(LedgerCase):
 
     def test_a_capture_needs_a_start_receipt_and_well_formed_stages(self):
         workdir = self.workdir({})
-        self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, 9999, workdir, EXITED, DONE,
-                                                                     self.conn)), "EXECUTION_START_MISSING")
+        self.assertEqual(self.refused(lambda: execution.seal_capture(self.conn, 9999, workdir, EXITED, DONE)),
+                         "EXECUTION_START_MISSING")
         trial_id = self.trial(workdir)
         for stages, outcome in (({"native": {"state": "started", "exit_code": 0}, "audit": None}, DONE),
                                 ({"native": {"state": "exited", "exit_code": None}, "audit": None}, DONE),
                                 ({**EXITED, "fingerprint": {"state": "not_available", "exit_code": None}}, DONE),
                                 (EXITED, {"kind": "crashed"})):
             with self.subTest(stages=stages, outcome=outcome):
-                self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, stages,
-                                                                             outcome, self.conn)), "EXECUTION_IDENTITY")
+                self.assertEqual(self.refused(lambda: execution.seal_capture(self.conn, trial_id, workdir, stages,
+                                                                             outcome)), "EXECUTION_IDENTITY")
 
     def test_a_capture_is_sealed_only_from_the_directory_its_trial_started_in(self):
         started = self.workdir({"native.stdout.txt": b"ran\n"})
         trial_id = self.trial(started)
         other = self.workdir({"native.stdout.txt": b"ran\n"})
         process(other, trial_id, EXITED)
-        self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, other, EXITED, DONE,
-                                                                     self.conn)), "EXECUTION_IDENTITY")
+        self.assertEqual(self.refused(lambda: execution.seal_capture(self.conn, trial_id, other, EXITED, DONE)),
+                         "EXECUTION_IDENTITY")
         marker = json.loads((started / execution.WORKDIR_MARKER).read_bytes())
         (other / execution.WORKDIR_MARKER).write_text(json.dumps({**marker, "op_id": "trial:another-start"}))
-        self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, other, EXITED, DONE,
-                                                                     self.conn)), "EXECUTION_IDENTITY")
+        self.assertEqual(self.refused(lambda: execution.seal_capture(self.conn, trial_id, other, EXITED, DONE)),
+                         "EXECUTION_IDENTITY")
         self.assertEqual(execution.read_capture(self.conn, trial_id)["status"], "missing")
         self.seal(trial_id, started)
         self.assertEqual(execution.read_capture(self.conn, trial_id)["status"], "captured")
@@ -217,13 +217,13 @@ class CaptureTests(LedgerCase):
         failed = {"native": {"state": "exited", "exit_code": 1}, "audit": None}
         process(workdir, trial_id, failed)
         chosen = {"native": {"state": "exited", "exit_code": 0}, "audit": None}
-        self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, chosen, DONE,
-                                                                     self.conn)), "EXECUTION_IDENTITY")
+        self.assertEqual(self.refused(lambda: execution.seal_capture(self.conn, trial_id, workdir, chosen, DONE)),
+                         "EXECUTION_IDENTITY")
         record = json.loads((workdir / execution.PROCESS).read_text())
         record["commands"]["native"] = ["docker", "run", "image", "-m", "native", "--start", "2025-01-01"]
         (workdir / execution.PROCESS).write_text(json.dumps(record))
-        self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, failed, DONE,
-                                                                     self.conn)), "EXECUTION_IDENTITY")
+        self.assertEqual(self.refused(lambda: execution.seal_capture(self.conn, trial_id, workdir, failed, DONE)),
+                         "EXECUTION_IDENTITY")
         self.assertEqual(execution.read_capture(self.conn, trial_id)["status"], "missing")
 
     def test_the_sealed_coverage_receipt_is_the_start_receipts(self):
@@ -234,8 +234,8 @@ class CaptureTests(LedgerCase):
             (workdir / problems.COVERAGE).write_bytes(receipt)
             process(workdir, trial_id, EXITED)
             with self.subTest(receipt=receipt[:40]):
-                self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, EXITED,
-                                                                             DONE, self.conn)), "COVERAGE_MISMATCH")
+                self.assertEqual(self.refused(lambda: execution.seal_capture(self.conn, trial_id, workdir, EXITED,
+                                                                             DONE)), "COVERAGE_MISMATCH")
 
     def test_an_interrupted_replay_is_sealed_as_interrupted_with_what_it_left(self):
         workdir = self.workdir({"native.stdout.txt": b"half\n"})
@@ -264,8 +264,8 @@ class CaptureTests(LedgerCase):
         oversized_id = self.trial(oversized)
         process(oversized, oversized_id, EXITED)
         with patch.object(execution, "CAPTURE_LIMIT", 32):
-            self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, oversized_id, oversized, EXITED,
-                                                                         DONE, self.conn)), "EXECUTION_CAPTURE_LIMIT")
+            self.assertEqual(self.refused(lambda: execution.seal_capture(self.conn, oversized_id, oversized, EXITED,
+                                                                         DONE)), "EXECUTION_CAPTURE_LIMIT")
         self.assertEqual(execution.read_capture(self.conn, oversized_id)["status"], "missing")
 
     def recovery_case(self, native_exit: int = 1, reports: dict | None = None) -> tuple[int, Path, Path]:
@@ -274,7 +274,7 @@ class CaptureTests(LedgerCase):
         trial_id = self.trial(workdir, "precheck")
         process(workdir, trial_id, stages)
         with patch.object(execution, "PRECHECK_CAPTURE_LIMIT", 32), self.assertRaises(Refusal) as caught:
-            execution.seal_capture(self.profile, trial_id, workdir, stages, DONE, self.conn)
+            execution.seal_capture(self.conn, trial_id, workdir, stages, DONE)
         receipt = workdir / execution.HOST_ERROR
         receipt.write_text(json.dumps(caught.exception.as_dict()))
         return trial_id, workdir, receipt
@@ -294,8 +294,8 @@ class CaptureTests(LedgerCase):
         (workdir / "native.stdout.txt").unlink()
         chosen = {"native": {"state": "exited", "exit_code": 0}, "audit": None}
         process(workdir, trial_id, chosen)
-        self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, chosen, DONE,
-                                                                     self.conn)), "BUNDLE_EXISTS")
+        self.assertEqual(self.refused(lambda: execution.seal_capture(self.conn, trial_id, workdir, chosen, DONE)),
+                         "BUNDLE_EXISTS")
         self.assertEqual(execution.read_capture(self.conn, trial_id)["status"], "missing")
 
     def test_recovery_applies_only_to_a_refused_precheck_with_its_originals(self):

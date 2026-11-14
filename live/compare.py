@@ -39,7 +39,6 @@ from engine.config import instrument_id
 from ledger import paper as records
 from live import state
 from replay import reconcile as shared
-from shared import paths
 from shared.refusals import refuse
 
 
@@ -134,7 +133,7 @@ def segment(pack: Mapping, number: int | None) -> tuple[dict, dict]:
                       if row.get("event") == "minute_result" and row.get("result") is not None), Decimal(0))
     for row in lines:
         if row.get("event") == "minute_result" and row.get("result") is not None:
-            row["result"] = shared._text(Decimal(row["result"]) - inherited)
+            row["result"] = shared.text(Decimal(row["result"]) - inherited)
     initialized = {event["client_order_id"] for event in pack["orders"] if event.get("type") == "OrderInitialized"
                    and item["start"] <= (event.get("ts_init") or 0) and (until is None or event["ts_init"] < until)}
     return ({**pack, "events": lines, "market": [row for row in pack["market"] if inside(row.get("wall_ns"))],
@@ -261,7 +260,7 @@ def measures(compared: Mapping, events: list[dict], since: int | None = None, un
     adverse = [row["price_bps"] * (1 if row["side"] == "BUY" else -1) for row in filled]
     fees = {side: sum((Decimal(row[side]["fill"]["commission"] or 0) for row in rows
                        if row[side] and row[side]["fill"]), Decimal(0)) for side in ("run", "replay")}
-    text = shared._text
+    text = shared.text
     run, replay = (_change(compared["equity"][side], since, until) for side in ("run", "replay"))
     held = [row for row in events if row.get("event") == "entry_held" and inside(row.get("ts_init"))]
     ended = [row["held_ns"] for row in events if row.get("event") in ("entry_released", "entry_refused", "entry_denied")
@@ -290,7 +289,6 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     default) on the archive and write reconcile.json, with its measures over [since, until). Its result also lists
     the decisions the comparison could not explain (cause unexplained, at the decision stage), so a caller never
     reads reconcile.json. The replay runs on the run's runtime image."""
-    from market import files, instrument
     pack, numbered = segment(read_pack(state.directory(root, run_id)), number)
     if until is not None:
         pack = cut(pack, until)
@@ -299,31 +297,19 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     symbols = list(manifest["symbols"])
     start, end = window(pack)
     balance, snapshot = wallet(pack)
-    market_day, archive = shared.archive(market, at, symbols, start, end, "LIVE_COMPARE_UNCOVERED")
-    opened = files.open_market(market, "reader")
-    replay_terms = {symbol: instrument.terms(opened, market_day, symbol) for symbol in symbols}
+    market_day, archived = shared.archive(market, at, symbols, start, end, "LIVE_COMPARE_UNCOVERED")
     lines = journal(pack, start)
-    settled = records.settlements(lines, records.published_settlements(lines, end))
-    run = run_record(pack, balance, snapshot, settled)
-    archived = {symbol: shared.archive_warmup(market, market_day, symbol, start,
-                                              run["warmup"].get(instrument_id(symbol), {}), replay_terms[symbol])
-                for symbol in symbols}
-    output = paths.temporary_path(output)
-    output.mkdir(mode=0o700, parents=True)
-    replayed, events, reports = shared.replay(
-        market, market_day, pack["source"], manifest["source"]["entry_class"], image_ref,
-        symbols, start, end, manifest["config"]["leverage"], balance, output / "replay",
-        f"trade-live-compare-{run_id}-{secrets.token_hex(4)}", timeout, run["warmup"])
-    compared = shared.compare(run, events, archive, reports, start, end, archived_warmup=archived,
-                              replay_terms=replay_terms,
-                              replay_fees={"maker": instrument.ASSUMED["maker_fee"],
-                                           "taker": instrument.ASSUMED["taker_fee"]})
+    run = run_record(pack, balance, snapshot, records.settlements(lines, records.published_settlements(lines, end)))
+    output, replayed, compared = shared.reconcile(
+        run, market, market_day, archived, pack["source"], manifest["source"]["entry_class"], image_ref, symbols,
+        start, end, manifest["config"]["leverage"], balance, output,
+        f"trade-live-compare-{run_id}-{secrets.token_hex(4)}", timeout)
     result = {"format": shared.FORMAT, "kind": "live", "run_id": run_id, "candidate": manifest["candidate"],
               "source_sha256": manifest["source"]["source_sha256"], "image_ref": image_ref,
-              "market_day": market_day, "window": {"start": shared._utc(start), "end": shared._utc(end)},
+              "market_day": market_day, "window": {"start": shared.utc(start), "end": shared.utc(end)},
               "segment": numbered, "starting_balance_usdt": balance, "replay": replayed, **compared,
-              "measures": {"from": shared._utc(since) if since is not None else None,
-                           "to": shared._utc(until) if until is not None else None,
+              "measures": {"from": shared.utc(since) if since is not None else None,
+                           "to": shared.utc(until) if until is not None else None,
                            **measures(compared, pack["events"], since, until)}}
     (output / "reconcile.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
     unexplained = [{"at": group.get("at"), "at_ns": group["at_ns"], "class": group["class"]}

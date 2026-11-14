@@ -94,7 +94,7 @@ def combine(found: list[dict]) -> dict:
     slipped = [(item["adverse_slippage_bps"], item["fills_paired"]) for item in found
                if item["adverse_slippage_bps"] is not None]
     held = sorted(ns for item in found for ns in item["holds"]["held_ns"])
-    text = shared._text
+    text = shared.text
 
     def difference(side: str) -> str | None:
         return text(total(lambda item: item[side]["difference"]))
@@ -184,7 +184,7 @@ def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path)
     since = target - (WEEK - 1) * DAY_NS
     fresh = max(_ns(done_day) + DAY_NS, since) if done_day else since  # decisions not reported before
     base = {"day": day, "attempted_ns": time.time_ns(), "done": done_day,
-            "window": {"from": shared._utc(since), "to": shared._utc(bound)}}
+            "window": {"from": shared.utc(since), "to": shared.utc(bound)}}
     _write(root, run_id, {**base, "state": "running", "failures": streak})
     try:
         segments, unexplained, market_day, week = _week(root, market, run_id, pack, since, bound, fresh, output)

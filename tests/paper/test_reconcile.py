@@ -17,7 +17,7 @@ from replay import reconcile as shared
 from tests.helpers import refused
 
 
-MINUTE = reconcile.MINUTE_NS
+MINUTE = shared.MINUTE_NS
 START = 1_792_949_160 * 10**9  # 2026-10-25T17:26:00Z
 BTC = "BTCUSDT-PERP.BINANCE"
 
@@ -53,11 +53,15 @@ def journal(events: list[dict], minutes: int, skip: tuple[int, ...] = (), closes
     return lines + [{"kind": "order", "wall_ns": event["ts_event"], **event} for event in events]
 
 
+def compared(lines: list[dict], replay: list[dict], archive: dict, end: int) -> dict:
+    return shared.compare(reconcile.run_record(lines, []), replay, archive, None, START, end)
+
+
 class Reconcile(unittest.TestCase):
     def test_the_same_trade_a_bar_later_on_live_data_is_the_same(self):
         paper = [initialized("P1", "ENTRY"), filled("P1", close_of(2) + 25 * 10**6, "100.0", "1")]
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(2), "100.0", "1")]
-        found = reconcile.compare(journal(paper, 5), replay, {"BTCUSDT": archived(5)}, None, START, START + 5 * MINUTE)
+        found = compared(journal(paper, 5), replay, {"BTCUSDT": archived(5)}, START + 5 * MINUTE)
         self.assertEqual(found["summary"]["same"], 1)
         self.assertEqual(found["groups"][0]["orders"][0]["delay_ms"], 25)
         self.assertNotIn("cause", found["groups"][0])
@@ -68,14 +72,13 @@ class Reconcile(unittest.TestCase):
         paper = [{**initialized("P1", "ENTRY"), "ts_event": decided}, filled("P1", decided, "100.0", "1")]
         replay = [{**initialized("R1", "ENTRY"), "ts_event": close_of(2), "ts_init": close_of(2)},
                   filled("R1", close_of(2), "100.0", "1")]
-        found = reconcile.compare(journal(paper, 5), replay, {"BTCUSDT": archived(5)}, None, START, START + 5 * MINUTE)
+        found = compared(journal(paper, 5), replay, {"BTCUSDT": archived(5)}, START + 5 * MINUTE)
         self.assertEqual(found["summary"]["same"], 1)
         self.assertEqual(found["groups"][0]["orders"][0]["run"]["init_ns"], decided)
 
     def test_a_missing_live_bar_before_a_difference_is_its_cause(self):
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(3), "100.0", "1")]
-        found = reconcile.compare(journal([], 5, skip=(2,)), replay, {"BTCUSDT": archived(5)}, None, START,
-                                  START + 5 * MINUTE)
+        found = compared(journal([], 5, skip=(2,)), replay, {"BTCUSDT": archived(5)}, START + 5 * MINUTE)
         group = found["groups"][0]
         self.assertEqual((group["cause"], group["look_ahead_suspect"]), ("missing_bar", False))
         self.assertEqual(found["summary"]["missing_bars"], 1)
@@ -83,8 +86,7 @@ class Reconcile(unittest.TestCase):
     def test_a_live_bar_unlike_the_archive_explains_a_price_difference(self):
         paper = [initialized("P1", "ENTRY"), filled("P1", close_of(2), "100.5", "1")]
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(2), "100.0", "1")]
-        found = reconcile.compare(journal(paper, 5, closes={2: "100.5"}), replay, {"BTCUSDT": archived(5)}, None,
-                                  START, START + 5 * MINUTE)
+        found = compared(journal(paper, 5, closes={2: "100.5"}), replay, {"BTCUSDT": archived(5)}, START + 5 * MINUTE)
         group = found["groups"][0]
         self.assertEqual((group["stage"], group["orders"][0]["class"], group["cause"]), ("fill", "price", "bar_mismatch"))
         self.assertEqual(found["inputs"]["BTCUSDT"]["bars"]["differing"][0]["fields"], {"close": ["100.5", "100.0"]})
@@ -153,8 +155,9 @@ class InputTests(unittest.TestCase):
                 mock.patch.object(reconcile.records, "read_source", return_value={"source": b"", "entry_class": "E"}), \
                 mock.patch.object(reconcile, "_journal", return_value=lines), \
                 mock.patch.object(reconcile, "window", return_value=(START, START + 3 * MINUTE)), \
-                mock.patch.object(reconcile, "_archive", return_value=("c" * 32, {"BTCUSDT": archived(3)})), \
-                mock.patch.object(reconcile, "_context", return_value=({}, {})), \
+                mock.patch.object(shared, "archive", return_value=("c" * 32, {"BTCUSDT": archived(3)})), \
+                mock.patch("market.files.open_market"), mock.patch("market.instrument.terms", return_value={}), \
+                mock.patch.object(shared, "archive_warmup", return_value={}), \
                 mock.patch.object(reconcile.records, "published_settlements", return_value={}), \
                 mock.patch.object(entry, "replay_unrecorded", side_effect=replayed), \
                 mock.patch("paper.runs.ledger_key", return_value="k"):
@@ -180,8 +183,8 @@ class InputTests(unittest.TestCase):
 
     def test_each_contract_counts_every_bar_its_list_leaves_out(self):
         minutes = shared.LISTED + 10
-        found = reconcile.compare(journal([], minutes, skip=tuple(range(minutes))), [],
-                                  {"BTCUSDT": archived(minutes, {0: "99.0"})}, None, START, START + minutes * MINUTE)
+        found = compared(journal([], minutes, skip=tuple(range(minutes))), [],
+                         {"BTCUSDT": archived(minutes, {0: "99.0"})}, START + minutes * MINUTE)
         listed = found["inputs"]["BTCUSDT"]["bars"]
         self.assertEqual((len(listed["missing"]), listed["missing_bars"]), (shared.LISTED, minutes))
         self.assertEqual(listed["differing_bars"], 0)
@@ -192,7 +195,8 @@ class InputTests(unittest.TestCase):
         from market import read
         rows = archived(3)
         with mock.patch.object(read, "stored_bars", return_value={"market_day": "c" * 32, "bars": {"rows": rows}}) as stored:
-            commit, found = reconcile._archive({}, None, ["BTCUSDT"], START, START + 3 * MINUTE)
+            commit, found = shared.archive({}, None, ["BTCUSDT"], START, START + 3 * MINUTE,
+                                           "PAPER_RECONCILE_UNCOVERED")
         self.assertEqual((commit, found), ("c" * 32, {"BTCUSDT": rows}))
         self.assertIs(stored.call_args.kwargs.get("funding"), False)
 

@@ -62,7 +62,7 @@ class ResumePolicyTests(unittest.TestCase):
 
     def resume(self):
         # Policy tests isolate the lifecycle body. A separate real-Dolt test verifies the decorator lock.
-        return recovery.resume.__wrapped__(self.profile, {"name": "market"}, 8)
+        return runs.resume.__wrapped__(self.profile, {"name": "market"}, 8)
 
     def refused(self):
         self.assertEqual(refused(self.resume).code, "PAPER_RECOVERY_UNAVAILABLE")
@@ -74,7 +74,7 @@ class ResumePolicyTests(unittest.TestCase):
         self.assertEqual([call.args for call in self.docker.call_args_list],
                          [("start", runs.names(self.profile, 8)["egress"]),
                           ("start", runs.names(self.profile, 8)["runner"])])
-        self.assertEqual([item["action"] for item in recovery.launches(self.root / "out/launches.jsonl")], ["resume"])
+        self.assertEqual([item["action"] for item in runs.launches(self.root / "out/launches.jsonl")], ["resume"])
 
     def test_already_running_is_idempotent(self):
         self.started[5].return_value = True
@@ -121,12 +121,12 @@ class ResumePolicyTests(unittest.TestCase):
 
     def test_failed_docker_starts_consume_attempts_before_any_runner_journal(self):
         self.docker.side_effect = RuntimeError("fixture Docker failure")
-        for _ in range(recovery.CRASH_RESTARTS):
+        for _ in range(runs.CRASH_RESTARTS):
             with self.assertRaisesRegex(RuntimeError, "fixture Docker"):
                 self.resume()
         self.docker.reset_mock()
         self.refused()
-        self.assertEqual(len(recovery.launches(self.root / "out/launches.jsonl")), recovery.CRASH_RESTARTS)
+        self.assertEqual(len(runs.launches(self.root / "out/launches.jsonl")), runs.CRASH_RESTARTS)
 
     def test_a_resume_takes_back_its_memory_or_is_refused_before_docker(self):
         with mock.patch.dict("os.environ", {runs.BUDGET_ENV: "512m"}):
@@ -141,7 +141,7 @@ class ResumePolicyTests(unittest.TestCase):
         path.write_bytes(b'{"action":"res')
         self.resume()
         self.assertTrue(path.read_bytes().startswith(b'{"action":"res\n'))
-        self.assertEqual(len(recovery.launches(path)), 1)
+        self.assertEqual(len(runs.launches(path)), 1)
 
 
 @unittest.skipUnless(BINARY, SKIP)

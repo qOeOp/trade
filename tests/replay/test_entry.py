@@ -520,9 +520,10 @@ class SealedReplayTests(unittest.TestCase):
         (workdir / "native.stdout.txt").unlink()
         (workdir / "audit" / "audit.json").write_text(json.dumps({"passed": True, "findings": []}))
         recorded = json.loads((workdir / execution.PROCESS).read_text())
-        self.assertEqual(refused(lambda: execution.seal_capture(
-       self.world.profile, trial_id, workdir, recorded["stages"], {"kind": "completed", "detail": None})).code,
-            "BUNDLE_EXISTS")
+        with db.connect(self.world.profile, "writer") as conn:
+            self.assertEqual(refused(lambda: execution.seal_capture(
+                conn, trial_id, workdir, recorded["stages"], {"kind": "completed", "detail": None})).code,
+                "BUNDLE_EXISTS")
         self.assertEqual(refused(lambda: self.ingest(trial_id)).code, "RUN_ALREADY_INGESTED")
         self.assertEqual(refused(lambda: self.run_ref(self.refs[7])).code, "GRID_ALREADY_ATTEMPTED")
         shutil.rmtree(workdir)

@@ -7,8 +7,10 @@ declared once, before its container starts (`paper_run`): the source, the runtim
 contracts, the market day its membership was read at and the effective configuration. It is sealed
 once, after it ends (`paper_seal` with its `paper_file` rows): the runner's journal split by UTC day,
 its summary, the egress and runner logs, and ``seal.json``, the readings computed here once
-(docs/plans/paper-run-storage-decision.zh.md). A run that crashed or lost its files still seals, as
-``invalid`` with reasons, so every declared run has an outcome.
+(docs/plans/paper-run-storage-decision.zh.md). Every declared run seals with its reasons, however it ended
+(it crashed, ran out of memory or never started), so every declared run has an outcome; it is ``invalid`` only
+when its evidence cannot be trusted (`verdict`: other code than declared, a denied host, or no journal from a
+runner that started).
 
 The user may delete a sealed run (`ledger.delete_paper_run`, user decision 2026-10-29): the Paper
 database's writer removes its declaration, seal and files in one commit.
@@ -27,7 +29,7 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from engine.config import instrument_id, symbol_of
+from engine.config import ACCOUNT_CONTRACT, instrument_id, symbol_of
 from ledger import db, strategies
 from shared.refusals import refuse
 
@@ -215,8 +217,8 @@ def journal_lines(data: bytes) -> tuple[list[dict], int]:
 
 
 CENT = Decimal("0.00000001")  # USDT's precision, to which Nautilus rounds a notional and a funding amount
-MARK_LOOKBACK_MS = 10 * 60_000
-SIDES = {"LONG": 1, "SHORT": -1, "FLAT": 0}  # how far before a settlement its MARK minute is looked for
+MARK_LOOKBACK_MS = 10 * 60_000  # how far before a settlement its MARK minute is looked for
+SIDES = {"LONG": 1, "SHORT": -1, "FLAT": 0}  # a position side's sign
 
 
 def _money(value: Decimal) -> Decimal:
@@ -491,7 +493,8 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
     if denied:
         reasons.append("EGRESS_DENIED")
 
-    starting = _decimal(((summary or {}).get("account") or {}).get("starting_balance_usdt")) or Decimal(100000)
+    starting = _decimal(((summary or {}).get("account") or {}).get("starting_balance_usdt")) or Decimal(
+        ACCOUNT_CONTRACT["starting_balance_usdt"])
     path, funding_by_ns = equity_path(lines) if path_and_funding is None else path_and_funding
     funding_total = sum((flow for _, flow in funding_by_ns), Decimal(0))
     final = None

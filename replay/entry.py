@@ -327,7 +327,8 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
         raise
     finally:
         try:
-            execution.seal_capture(ledger, trial_id, workdir, stages, outcome, table_hashes=table_hashes)
+            with db.connect(ledger, "writer") as conn:
+                execution.seal_capture(conn, trial_id, workdir, stages, outcome, table_hashes=table_hashes)
         except Refusal as refusal:
             if refusal.code == "EXECUTION_CAPTURE_LIMIT":
                 _write_json(workdir / execution.HOST_ERROR, refusal.as_dict())

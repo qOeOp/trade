@@ -3,7 +3,9 @@
 
 Paper (paper.reconcile) and Live (live.compare) read their run into one record: the one-minute bars its source
 received, the warm-up it received, its native order events, its funding settlements, its equity path and the
-contract terms and fee rates it traded at. The replay runs the run's source on its image over the same window, with
+contract terms and fee rates it traded at. Each reads the archive's minutes for the run's window (`archive`, with its
+own refusal) and passes them with that record to `reconcile`, then writes reconcile.json with its own keys. The
+replay runs the run's source on its image over the same window, with
 the same instruments, leverage and starting balance and the same warm-up (the source's WARMUP, requested at the
 window's start); it is no trial and writes nothing to a ledger.
 
@@ -39,7 +41,8 @@ import itertools
 import json
 from pathlib import Path
 
-from engine.config import symbol_of
+from engine.config import instrument_id, symbol_of
+from shared import paths
 from shared.refusals import refuse
 
 
@@ -54,8 +57,6 @@ LISTED = 50  # bars listed per contract and kind; the counts are complete
 ROLES = {"ENTRY": "entry", "STOP_LOSS": "stop", "TAKE_PROFIT": "target"}
 BAR_FIELDS = ("open", "high", "low", "close", "volume")
 MINUTE_BAR = "1-MINUTE-LAST-EXTERNAL"
-PERIODS = {"1-MINUTE": 1, "3-MINUTE": 3, "5-MINUTE": 5, "15-MINUTE": 15, "30-MINUTE": 30, "1-HOUR": 60,
-           "2-HOUR": 120, "4-HOUR": 240, "6-HOUR": 360, "8-HOUR": 480, "12-HOUR": 720, "1-DAY": 1440}  # engine.warmup
 CAUSES = ("missing_bar", "late_bar", "bar_mismatch", "warmup", "contract_terms", "window_end",
           "entry_gate")  # in this order
 STAGES = ("decision", "fill", "fee", "funding")  # a group's first difference is looked for in this order
@@ -63,7 +64,7 @@ FINAL = {"OrderFilled": "filled", "OrderCanceled": "canceled", "OrderExpired": "
          "OrderRejected": "rejected", "OrderDenied": "denied"}
 
 
-def _utc(ns: int) -> str:
+def utc(ns: int) -> str:
     return datetime.fromtimestamp(ns / 1e9, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -74,7 +75,7 @@ def _amount(value) -> Decimal | None:
     return Decimal(str(value).split()[0])
 
 
-def _text(value: Decimal | None) -> str | None:
+def text(value: Decimal | None) -> str | None:
     return None if value is None else format(value.normalize(), "f")
 
 
@@ -234,12 +235,12 @@ def _view(order: Mapping | None) -> dict | None:
     if order is None:
         return None
     filled = order["filled"]
-    return {"order": order["order"], "type": order["type"], "init": _utc(order["init_ns"] or 0),
-            "init_ns": order["init_ns"], "qty": _text(order["qty"]), "price": _text(order["price"]),
-            "trigger": _text(order["trigger"]), "status": order["status"],
-            "fill": None if not filled else {"ts": _utc(filled["ts_ns"]), "ts_ns": filled["ts_ns"],
-                                             "qty": _text(filled["qty"]), "px": _text(filled["px"]),
-                                             "commission": _text(filled["commission"])}}
+    return {"order": order["order"], "type": order["type"], "init": utc(order["init_ns"] or 0),
+            "init_ns": order["init_ns"], "qty": text(order["qty"]), "price": text(order["price"]),
+            "trigger": text(order["trigger"]), "status": order["status"],
+            "fill": None if not filled else {"ts": utc(filled["ts_ns"]), "ts_ns": filled["ts_ns"],
+                                             "qty": text(filled["qty"]), "px": text(filled["px"]),
+                                             "commission": text(filled["commission"])}}
 
 
 def _order_rows(run: Mapping | None, replay: Mapping | None) -> list[tuple[dict | None, dict | None]]:
@@ -306,10 +307,10 @@ def compare_group(run: dict | None, replay: dict | None, run_funding: Mapping[st
     either = run or replay
     assert either is not None
     rows = [_row(a, b) for a, b in _order_rows(run, replay)]
-    funding = {"run": _text(run_funding.get(run["position"] or "", Decimal(0))) if run else None,
-               "replay": _text(replay_funding.get(replay["position"] or "", Decimal(0))) if replay else None}
+    funding = {"run": text(run_funding.get(run["position"] or "", Decimal(0))) if run else None,
+               "replay": text(replay_funding.get(replay["position"] or "", Decimal(0))) if replay else None}
     result: dict = {"instrument": either["instrument"], "side": either["side"],
-              "at": _utc(min(_start(group) for group in (run, replay) if group)),
+              "at": utc(min(_start(group) for group in (run, replay) if group)),
               "at_ns": min(_start(group) for group in (run, replay) if group),
               "run_position": run["position"] if run else None,
               "replay_position": replay["position"] if replay else None,
@@ -332,19 +333,12 @@ def _span(group: Mapping) -> tuple[int, int]:
     return min(found), max(found)
 
 
-def _lone(group: Mapping) -> bool:
-    """The group's first difference is something only one side did."""
-    if group["class"] in ("run_only", "replay_only"):
+def _alone(group: Mapping, sides: tuple[str, ...]) -> bool:
+    """The group's first difference is something only one of `sides` ("run_only", "replay_only") did."""
+    if group["class"] in sides:
         return True
     first = group["first"]
-    return first is not None and group["orders"][first]["class"] in ("run_only", "replay_only")
-
-
-def _replay_alone(group: Mapping) -> bool:
-    if group["class"] == "replay_only":
-        return True
-    first = group["first"]
-    return first is not None and group["orders"][first]["class"] == "replay_only"
+    return first is not None and group["orders"][first]["class"] in sides
 
 
 # Inputs
@@ -418,6 +412,7 @@ def archive_warmup(market: dict, market_day: str, symbol: str, at: int, received
     period ending 1 ms before floor(at, P) (engine.warmup.history_range), each aggregated from its minutes, as
     digests {bars, first_ts_event, last_ts_event, sha256s}: one per precision the contract's bars may be written at
     (_places), so the text compares as Nautilus wrote it."""
+    from engine.warmup import PERIODS
     from market import read
     found = {}
     for period, got in received.items():
@@ -427,7 +422,7 @@ def archive_warmup(market: dict, market_day: str, symbol: str, at: int, received
         first_open = end - count * step
         rows = []
         if count:
-            stored = read.stored_bars(market, market_day, symbol, "LAST", "1m", _utc(first_open), _utc(end), None,
+            stored = read.stored_bars(market, market_day, symbol, "LAST", "1m", utc(first_open), utc(end), None,
                                       funding=False)["bars"]["rows"]
             buckets: dict[int, list] = {}
             for row in stored:
@@ -448,6 +443,7 @@ def archive_warmup(market: dict, market_day: str, symbol: str, at: int, received
 def warmup(received: Mapping[str, Mapping[str, Mapping]], archived: Mapping[str, Mapping[str, Mapping]]) -> dict:
     """Per contract and period, the warm-up the run received against the archive's: {run, archive, same}, and its
     reach: how long after the start its bars stay in the source's window (bars times the period)."""
+    from engine.warmup import PERIODS
     result = {}
     for iid, periods in received.items():
         symbol = symbol_of(iid)
@@ -530,7 +526,7 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
             parted.pop(symbol, None)
             continue
         if symbol in parted:
-            group |= {"cause": "consequence", "follows": _utc(parted[symbol]), "look_ahead_suspect": False}
+            group |= {"cause": "consequence", "follows": utc(parted[symbol]), "look_ahead_suspect": False}
             continue
         parted[symbol] = first
         # The inputs since the previous agreeing group was decided: that it agreed later, while still open (a
@@ -542,7 +538,7 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
                     "differing_bars": len(_within(inputs["differing"], since, last))}
         listed = (_within(inputs["missing"], since, last) + _within(inputs["late"], since, last)
                   + _within(inputs["differing"], since, last))
-        evidence["first"] = _utc(min(listed)) if listed else None
+        evidence["first"] = utc(min(listed)) if listed else None
         warm = warmed.get(symbol)
         evidence["warmup"] = bool(warm and not warm["same"] and first < start + warm["reach_ns"])
         item = contract.get(symbol) or {"differs": [], "fees": []}
@@ -550,10 +546,10 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
         known = {"missing_bar": evidence["missing_bars"] > 0, "late_bar": evidence["late_bars"] > 0,
                  "bar_mismatch": evidence["differing_bars"] > 0, "warmup": evidence["warmup"],
                  "contract_terms": bool(evidence["terms"]),
-                 "window_end": _lone(group) and last >= end - MINUTE_NS, "entry_gate": _gated(group, gate or {})}
+                 "window_end": _alone(group, ("run_only", "replay_only")) and last >= end - MINUTE_NS, "entry_gate": _gated(group, gate or {})}
         cause = next((name for name in CAUSES if known[name]), "unexplained")
         group |= {"cause": cause, "evidence": evidence,
-                  "look_ahead_suspect": cause == "unexplained" and _replay_alone(group)}
+                  "look_ahead_suspect": cause == "unexplained" and _alone(group, ("replay_only",))}
     return compared
 
 
@@ -629,10 +625,10 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
                                 # The lists stop at LISTED; the counts are complete.
                                 "missing_bars": len(item["missing"]), "late_bars": len(item["late"]),
                                 "differing_bars": len(item["differing"]),
-                                "missing": [_utc(close) for close in item["missing"][:LISTED]],
-                                "late": [_utc(close) for close in item["late"][:LISTED]],
-                                "live_only": [_utc(close) for close in item["live_only"][:LISTED]],
-                                "differing": [{"close": _utc(close), "fields": fields}
+                                "missing": [utc(close) for close in item["missing"][:LISTED]],
+                                "late": [utc(close) for close in item["late"][:LISTED]],
+                                "live_only": [utc(close) for close in item["live_only"][:LISTED]],
+                                "differing": [{"close": utc(close), "fields": fields}
                                               for close, fields in list(item["differing"].items())[:LISTED]]},
                        "warmup": warmed.get(symbol), "terms": contract.get(symbol)}
               for symbol, item in found.items()}
@@ -678,15 +674,15 @@ def archive(market: dict, at: str | None, symbols: list[str], start: int, end: i
     from market import read
     market_day, found = None, {}
     for symbol in symbols:
-        stored = read.stored_bars(market, market_day or at, symbol, "LAST", "1m", _utc(start), _utc(end), None,
+        stored = read.stored_bars(market, market_day or at, symbol, "LAST", "1m", utc(start), utc(end), None,
                                   funding=False)
         market_day = stored["market_day"]
         found[symbol] = stored["bars"]["rows"]
         if not found[symbol] or found[symbol][-1][1] * MILLISECOND_NS < end - MILLISECOND_NS:
-            month = _utc(end - 1)[:7]
+            month = utc(end - 1)[:7]
             raise refuse(code, f"market day {market_day} holds {symbol}'s minutes only to "
-                               f"{_utc(found[symbol][-1][1] * MILLISECOND_NS) if found[symbol] else 'nothing'} of "
-                               f"the run's [{_utc(start)}, {_utc(end)})", missing=(f"market import --month {month}",))
+                               f"{utc(found[symbol][-1][1] * MILLISECOND_NS) if found[symbol] else 'nothing'} of "
+                               f"the run's [{utc(start)}, {utc(end)})", missing=(f"market import --month {month}",))
     return market_day, found  # type: ignore[return-value]
 
 
@@ -695,6 +691,7 @@ def history_start(start: int, received: Mapping[str, Mapping[str, Mapping]]) -> 
     {period: digest}}) lie in it: the opening of the first of each period's bars (engine.warmup.history_range), as the
     replay builds a history only from the window's one-minute bars (engine.run.history_stamps); daily bars come from
     the market's own."""
+    from engine.warmup import PERIODS
     first = start
     for periods in received.values():
         for period, got in periods.items():
@@ -712,8 +709,8 @@ def replay(market: dict, market_day: str, source: bytes, entry_class: str, image
     account report): the run's source on its image trading [start, end), warmed at `start` on the bars before it that
     the run `received` (history_start), in the bars environment at the run's leverage and starting balance."""
     from replay import entry
-    argv = ["--symbols", *symbols, "--start", _utc(history_start(start, received)), "--trade-start", _utc(start),
-            "--end", _utc(end),
+    argv = ["--symbols", *symbols, "--start", utc(history_start(start, received)), "--trade-start", utc(start),
+            "--end", utc(end),
             "--execution", "bars", "--leverage", str(leverage), "--starting-balance", str(starting_balance)]
     replayed = entry.replay_unrecorded(market, market_day, source, entry_class, image_ref, argv, output, name, timeout)
     reports = Path(replayed["path"]) / entry.REPORTS
@@ -721,3 +718,25 @@ def replay(market: dict, market_day: str, source: bytes, entry_class: str, image
     events = [json.loads(raw) for raw in gzip.open(events_file)] if events_file.is_file() else None
     return (replayed, events,
             reports if (reports / "account.csv").is_file() else None)
+
+
+def reconcile(run: Mapping, market: dict, market_day: str, archived: Mapping[str, list[list]], source: bytes,
+              entry_class: str, image_ref: str, symbols: list[str], start: int, end: int, leverage: str,
+              starting_balance: str, output: Path, name: str, timeout: float | None) -> tuple[Path, dict, dict]:
+    """(the new temporary directory, the replay's status, the comparison): the run's source replayed into
+    `output`/replay on the warm-up the run received, and `run` compared with it against the `archived` minutes, the
+    contract terms at `market_day`, the warm-up the archive gives and the fees the market assumes."""
+    from market import files, instrument
+    opened = files.open_market(market, "reader")
+    replay_terms = {symbol: instrument.terms(opened, market_day, symbol) for symbol in symbols}
+    received = run.get("warmup") or {}
+    archived_warmup = {symbol: archive_warmup(market, market_day, symbol, start,
+                                              received.get(instrument_id(symbol), {}), replay_terms[symbol])
+                       for symbol in symbols}
+    output = paths.temporary_path(output)
+    output.mkdir(mode=0o700, parents=True)
+    replayed, events, reports = replay(market, market_day, source, entry_class, image_ref, symbols, start, end,
+                                       leverage, starting_balance, output / "replay", name, timeout, received)
+    return output, replayed, compare(run, events, archived, reports, start, end, archived_warmup=archived_warmup,
+                                     replay_terms=replay_terms, replay_fees={"maker": instrument.ASSUMED["maker_fee"],
+                                                                            "taker": instrument.ASSUMED["taker_fee"]})
