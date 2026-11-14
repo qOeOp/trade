@@ -38,11 +38,12 @@ header template, the entry class, the two hooks and a sizing helper.
   Binance kline period (`1-MINUTE` and the periods below); a period it only aggregates to has 0
   bars. Each instance starts once every declared history holds. `on_historical_bars` then receives
   each history once, every bar stamped 1 ms before its bucket ends, and only after that `on_start`
-  runs, where the file subscribes; it sees nothing earlier and cannot order before. Seed indicators
-  there and never call `request_*`. Histories other than `1-DAY` are derived from the window's
-  minutes, so they hold only once `--start` is that far back; `--start` is part of the input
-  identity, so a baseline that later comparisons build on declares and starts early enough for a
-  variant with a longer indicator.
+  runs, where the file subscribes; it sees nothing earlier and cannot order before. `"FUNDING": n`
+  gives `on_historical_funding_rates` the last n settlements at or before the start, each stamped
+  at its settlement. Seed indicators there and never call `request_*`. Funding and histories other
+  than `1-DAY` come from the window, so they hold only once `--start` is that far back; `--start`
+  is part of the input identity, so a baseline that later comparisons build on declares and starts
+  early enough for a variant with a longer indicator.
 - `universe_membership` is a sequence of `(start_ns, end_ns)` UTC intervals in which the instrument is
   in the monthly universe (empty when the replay names contracts the universe never held), cut at
   its listing and at its first PRE_CLOSE or termination when a lifecycle bundle is given. In Paper

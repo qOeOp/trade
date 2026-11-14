@@ -352,3 +352,26 @@ class Warmup(unittest.TestCase):
                                        Price.from_str("2.0"), Price.from_str("0.5"), Price.from_str("1.5"),
                                        Quantity.from_str("3.000"), close_of(i), close_of(i)) for i in (0, 1)])
         self.assertEqual(found, journaled)
+
+    def test_a_funding_history_is_digested_alike_in_paper_live_and_the_archive_and_reaches_back(self):
+        from engine.paper import warmup_digest
+        from engine.warmup import FUNDING, funding_update
+        hour = 3_600_000
+        at = START // (hour * 10**6) * hour * 10**6
+        stored = [((at // 10**6) - k * 8 * hour + (13 if k == 2 else 0), Decimal(rate))
+                  for k, rate in ((3, "0.0000100000"), (2, "-0.0000250000"), (1, "0E-10"), (0, "0.0001000000"))]
+        journaled = warmup_digest([funding_update(BTC, ms * 10**6, rate) for ms, rate in stored])
+        live = comparison.received_warmup({"kind": "historical_funding", "instrument_id": BTC, "ts_event": ms * 10**6,
+                                           "rate": str(funding_update(BTC, ms * 10**6, rate).rate)}
+                                          for ms, rate in stored)[BTC][FUNDING]
+        self.assertEqual(live, journaled)
+        with mock.patch("market.files.open_market"), mock.patch("market.coverage.read_funding",
+                                                                return_value=stored) as read:
+            archived = comparison.archive_funding({}, "2026-11-11", "BTCUSDT", at, 3)
+            whole = comparison.archive_funding({}, "2026-11-11", "BTCUSDT", at, 4)
+        self.assertLessEqual(read.call_args_list[0].args[3], stored[1][0])
+        self.assertEqual((archived["bars"], archived["first_ts_event"]), (3, stored[1][0] * 10**6))
+        self.assertTrue(comparison.warmup({BTC: {FUNDING: journaled}}, {"BTCUSDT": {FUNDING: whole}})["BTCUSDT"]["same"])
+        self.assertFalse(comparison.warmup({BTC: {FUNDING: journaled}}, {"BTCUSDT": {FUNDING: archived}})["BTCUSDT"]["same"])
+        self.assertEqual(comparison.history_start(at, {BTC: {FUNDING: journaled}}),
+                         stored[0][0] * 10**6 // MINUTE * MINUTE)

@@ -393,10 +393,15 @@ def digest(rows: Iterable[tuple]) -> dict:
 
 
 def received_warmup(historical: Iterable[Mapping]) -> dict[str, dict[str, dict]]:
-    """The digest of each history (`historical_bar` rows of a Live evidence pack) per contract and period."""
+    """The digest of each history (`historical_bar` and `historical_funding` rows of a Live evidence pack) per
+    contract and period, the funding settlements under FUNDING."""
+    from engine.warmup import FUNDING
     found: dict[str, dict[str, list[tuple]]] = {}
     for line in historical:
         iid = line["instrument_id"]
+        if line.get("kind") == "historical_funding":
+            found.setdefault(iid, {}).setdefault(FUNDING, []).append((line["ts_event"], line["rate"]))
+            continue
         found.setdefault(iid, {}).setdefault(_period(line["bar_type"], iid), []).append(
             (line["ts_event"], *(line[name] for name in BAR_FIELDS)))
     return {iid: {period: digest(sorted(rows)) for period, rows in periods.items()} for iid, periods in found.items()}
@@ -419,10 +424,13 @@ def archive_warmup(market: dict, market_day: str, symbol: str, at: int, received
     period ending 1 ms before floor(at, P) (engine.warmup.history_range), each aggregated from its minutes, as
     digests {bars, first_ts_event, last_ts_event, sha256s}: one per precision the contract's bars may be written at
     (_places), so the text compares as Nautilus wrote it."""
-    from engine.warmup import PERIODS
+    from engine.warmup import FUNDING, PERIODS
     from market import read
     found = {}
     for period, got in received.items():
+        if period == FUNDING:
+            found[period] = archive_funding(market, market_day, symbol, at, got.get("bars") or 0)
+            continue
         step = PERIODS[period] * MINUTE_NS
         count = got.get("bars") or 0
         end = at // step * step
@@ -447,6 +455,25 @@ def archive_warmup(market: dict, market_day: str, symbol: str, at: int, received
     return found
 
 
+FUNDING_INTERVAL_NS = 8 * 60 * MINUTE_NS  # Binance's longest funding interval
+
+
+def archive_funding(market: dict, market_day: str, symbol: str, at: int, count: int) -> dict:
+    """The last `count` settlements the market stores at or before `at`, each as engine.warmup.funding_update gives it, as
+    a digest {bars, first_ts_event, last_ts_event, sha256s}."""
+    from engine.warmup import funding_update
+    from market import coverage, files
+    stored: list = []
+    if count:
+        opened = files.open_market(market, "reader")
+        start_ms = max(at - (count + 1) * FUNDING_INTERVAL_NS, 0) // MILLISECOND_NS
+        stored = [row for row in coverage.read_funding(opened, market_day, symbol, start_ms, at // MILLISECOND_NS + 1)
+                  if row[0] * MILLISECOND_NS <= at][-count:]
+    written = digest((update.ts_event, update.rate) for update in
+                     (funding_update(instrument_id(symbol), at_ms * MILLISECOND_NS, rate) for at_ms, rate in stored))
+    return {key: written[key] for key in ("bars", "first_ts_event", "last_ts_event")} | {"sha256s": [written["sha256"]]}
+
+
 def warmup(received: Mapping[str, Mapping[str, Mapping]], archived: Mapping[str, Mapping[str, Mapping]]) -> dict:
     """Per contract and period, the warm-up the run received against the archive's: {run, archive, same}, and its
     reach: how long after the start its bars stay in the source's window (bars times the period)."""
@@ -460,7 +487,9 @@ def warmup(received: Mapping[str, Mapping[str, Mapping]], archived: Mapping[str,
             found[period] = {"run": dict(got), "archive": expected, "same": expected is not None and all(
                 got.get(key) == expected.get(key) for key in ("bars", "first_ts_event", "last_ts_event"))
                 and got.get("sha256") in expected.get("sha256s", ())}
-        reach = max(((got.get("bars") or 0) * PERIODS[period] * MINUTE_NS for period, got in periods.items()), default=0)
+        reach = max(((got.get("bars") or 0) * PERIODS[period] * MINUTE_NS if period in PERIODS else
+                     (got.get("last_ts_event") or 0) - (got.get("first_ts_event") or 0) + FUNDING_INTERVAL_NS
+                     for period, got in periods.items()), default=0)
         result[symbol] = {"periods": found, "reach_ns": reach, "same": all(item["same"] for item in found.values())}
     return result
 
@@ -701,14 +730,17 @@ def archive(market: dict, at: str | None, symbols: list[str], start: int, end: i
 def history_start(start: int, received: Mapping[str, Mapping[str, Mapping]]) -> int:
     """The first minute a replay warmed at `start` must export so the histories the run `received` ({instrument:
     {period: digest}}) lie in it: the opening of the first of each period's bars (engine.warmup.history_range), as the
-    replay builds a history only from the window's one-minute bars (engine.run.history_stamps); daily bars come from
-    the market's own."""
-    from engine.warmup import PERIODS
+    replay builds a history only from the window's one-minute bars (engine.run.history_stamps), and the minute of the
+    first funding settlement, as the replay reads settlements from its window (engine.run.funding_settlements); daily
+    bars come from the market's own."""
+    from engine.warmup import FUNDING, PERIODS
     first = start
     for periods in received.values():
         for period, got in periods.items():
             count = int((got or {}).get("bars") or 0)
-            if count and period != "1-DAY":
+            if count and period == FUNDING and isinstance((got or {}).get("first_ts_event"), int):
+                first = min(first, got["first_ts_event"] // MINUTE_NS * MINUTE_NS)
+            elif count and period not in (FUNDING, "1-DAY"):
                 step = PERIODS[period] * MINUTE_NS
                 first = min(first, start // step * step - count * step)
     return first

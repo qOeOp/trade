@@ -22,6 +22,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Engine: a source may declare `"FUNDING": n` in `WARMUP`. Before `on_start`, `on_historical_funding_rates` receives
+  the last n funding settlements at or before its start, the updates a replay streams for them: from the export in a
+  replay, from Binance's public funding-rate history in Paper and Live. A source that reads funding no longer waits
+  for n settlements (72 hours for nine) at every replay, Paper or Live start. Paper and Live comparisons check the
+  received settlements against the market's.
+
 ## 0.4.0 (2026-11-14)
 
 A breaking release: Live works from the web IDE on every host after a release, as Paper does

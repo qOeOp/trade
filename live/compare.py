@@ -229,7 +229,8 @@ def run_record(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dic
          if row.get("event") == "minute_result" and isinstance(row.get("minute_ns"), int)
          and row.get("result") is not None), key=lambda point: point[0]), settled)
     return {"bars": [row for row in pack["market"] if row.get("kind") == "bar"], "gate": gate(pack["events"]),
-            "warmup": shared.received_warmup(row for row in pack["market"] if row.get("kind") == "historical_bar"),
+            "warmup": shared.received_warmup(row for row in pack["market"]
+                                             if row.get("kind") in ("historical_bar", "historical_funding")),
             "events": pack["orders"], "settlements": settled, "equity": equity,
             "terms": dict((pack["manifest"].get("market") or {}).get("terms") or {}), "fees": _fees(snapshot, list(pack["manifest"]["symbols"]))}
 

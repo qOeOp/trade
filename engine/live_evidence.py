@@ -52,6 +52,16 @@ class Evidence:
             return
         self._append(kind, **fields)
 
+    def settlement(self, update) -> None:
+        """A funding settlement the source received from its history (warm-up): ``historical_funding``."""
+        try:
+            fields = dict(instrument_id=str(update.instrument_id), ts_event=update.ts_event, ts_init=update.ts_init,
+                          rate=str(update.rate))
+        except Exception as exc:
+            self._fail("market", exc)
+            return
+        self._append("historical_funding", **fields)
+
     def reports(self, cache, venue) -> None:
         """Every order, fill, position and account state in the native cache as a replay writes them, into
         ``reports-<observed_ns>/``. A reconciliation resumes the run's cache, so its reports hold the whole run; the

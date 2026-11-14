@@ -1,18 +1,23 @@
 """The WARMUP declaration and the replay's warm-up (docs/plans/r1-runtime-contract-20261110.zh.md, 3 and 5): each
 declared history arrives once, adjacent, before on_start; no order goes out before it; the first aggregated bar is
-complete; an instance waits for its history or, without one, the replay is refused."""
+complete; an instance waits for its history or, without one, the replay is refused. A declared funding history is the
+last settlements before T, the same native updates in replay (the export) and in Paper and Live (Binance's REST)."""
 
 import hashlib
+import json
 import tempfile
 import unittest
 import urllib.parse
 from pathlib import Path
 
 import numpy as np
-from nautilus_trader.model import Bar, BarType, Price, Quantity
+from nautilus_trader.model import Bar, BarType, NautilusDataType, Price, Quantity
 from nautilus_trader.persistence import ParquetDataCatalog
 
+from decimal import Decimal
+
 from engine import history, klines, run, warmup
+from market import export
 from engine.config import Refusal, parse_window, utc_text
 from engine.load import load_strategy, read_market
 from tests.engine.test_stream import DAY, DAYS, END, MIN, START, contract
@@ -41,9 +46,17 @@ class Warmed(Strategy):
             self.submit_order(self.order_factory.limit(self.iid, OrderSide.BUY, instrument.make_qty(Decimal("0.001")),
                                                        bars[-1].close))
 
+    def on_historical_funding_rates(self, updates):
+        self.seen.append(("funding history", [update.to_dict() for update in updates], self.clock.timestamp_ns()))
+
+    def on_funding_rate(self, update):
+        self.seen.append(("funding", update.to_dict()))
+
     def on_start(self):
         self.seen.append(("start", self.clock.timestamp_ns()))
-        for period in self.WARMUP:
+        if "FUNDING" in self.WARMUP:
+            self.subscribe_funding_rates(self.iid)
+        for period in (period for period in self.WARMUP if period != "FUNDING"):
             self.subscribe_bars(BarType.from_str(f"{self.iid}-1-MINUTE-LAST-EXTERNAL" if period == "1-MINUTE" else
                                                  f"{self.iid}-{period}-LAST-INTERNAL@1-MINUTE-EXTERNAL"))
         ON_START
@@ -77,10 +90,15 @@ class DeclarationTests(unittest.TestCase):
         class Valid:
             WARMUP = {"1-DAY": 3, "15-MINUTE": 0, "1-MINUTE": 60}
 
+        class Funded:
+            WARMUP = {"FUNDING": 9, "1-DAY": 3}
+
         self.assertEqual(warmup.declared(Valid), (("1-MINUTE", 60), ("15-MINUTE", 0), ("1-DAY", 3)))
         self.assertEqual(warmup.declared(object), ())
+        self.assertEqual((warmup.declared(Funded), warmup.declared_funding(Funded), warmup.declared_funding(Valid)),
+                         ((("1-DAY", 3),), 9, 0))
         for value in ({"2-DAY": 1}, {"1-WEEK": 1}, {"15-MINUTE": -1}, {"15-MINUTE": 1.0}, {"15-MINUTE": True},
-                      {"1-DAY": "3"}, ["1-DAY"], True):
+                      {"1-DAY": "3"}, ["1-DAY"], True, {"FUNDING": -1}, {"FUNDING": "9"}, {"funding": 9}):
             with self.subTest(value=value):
                 self.assertEqual(refused(warmup.declared, type("Invalid", (), {"WARMUP": value}),
                                          error=Refusal).code, "WARMUP_INVALID")
@@ -117,6 +135,81 @@ class DeclarationTests(unittest.TestCase):
         self.assertIsNone(warmup.first_start(stamps, (("15-MINUTE", 3),), 4 * quarter, 10 * quarter))
         self.assertEqual(warmup.first_start(stamps, (("15-MINUTE", 0),), quarter + 1, 10 * quarter),
                          quarter + 60_000 * NS)
+
+
+class FundingTests(unittest.TestCase):
+    """Settlement times carry Binance's millisecond jitter (2025-10-02T08:00:00.013Z in the archive and REST)."""
+    ROWS = [(1_759_363_200_000, "0.00007784"), (1_759_392_000_013, "0.00010000"), (1_759_420_800_000, "-0.00002100"),
+            (1_759_449_600_000, "0E-10")]
+
+    def test_the_history_is_the_updates_the_replay_streams(self):
+        with tempfile.TemporaryDirectory() as root:
+            export.write_funding(Path(root), IID, [(at, Decimal(rate)) for at, rate in self.ROWS])
+            streamed = ParquetDataCatalog(root).query(NautilusDataType.FundingRateUpdate, identifiers=[IID])
+        built = [warmup.funding_update(IID, at * NS, rate) for at, rate in self.ROWS]
+        self.assertEqual([update.to_dict() for update in built], [update.to_dict() for update in streamed])
+        self.assertEqual([str(update.rate) for update in built], ["0.00007784", "0.0001", "-0.000021", "0"])
+
+    def test_the_history_is_the_last_settlements_before_t_and_a_start_waits_for_them(self):
+        updates = [warmup.funding_update(IID, at * NS, rate) for at, rate in self.ROWS]
+        at = 1_759_392_000_000 * NS  # the hour of the jittered settlement, which is after it
+        self.assertEqual([update.ts_event for update in warmup.funding_history(updates, at, 2)],
+                         [1_759_363_200_000 * NS])
+        self.assertEqual(warmup.funding_history(updates, at + 60_000 * NS, 2), updates[:2])
+        self.assertEqual(warmup.funding_history(updates, 1_759_363_200_000 * NS, 2), updates[:1])  # known at T
+        stamps = [update.ts_event for update in updates]
+        self.assertEqual(warmup.funding_start(stamps, 2), 1_759_392_060_000 * NS)
+        self.assertEqual(warmup.funding_start(stamps, 1), 1_759_363_200_000 * NS)
+        self.assertEqual(warmup.funding_start(stamps, 0), 0)
+        self.assertIsNone(warmup.funding_start(stamps, 5))
+
+    def test_binance_answers_the_last_settlements_before_t_page_by_page(self):
+        hour = 3_600_000
+        times = [1_759_276_800_000 + index * 8 * hour + (13 if index % 5 == 0 else 0) for index in range(2500)]
+        asked = []
+
+        def get(url, proxy_url):
+            asked.append(url)
+            query = dict(urllib.parse.parse_qsl(url.split("?")[1], strict_parsing=True))
+            held = [at for at in times if at <= int(query["endTime"])][-int(query["limit"]):]
+            return [{"symbol": "AAAUSDT", "fundingTime": at, "fundingRate": "0.00010000", "markPrice": "1"}
+                    for at in held]
+        hour = (times[2400] - 13) * NS  # its settlement is 13 ms later: known only at the next minute
+        found = klines.settlements(IID, hour, 1500, None, get)
+        self.assertEqual([update.ts_event for update in found], [stamp * NS for stamp in times[900:2400]])
+        self.assertIn("endTime=" + str(hour // NS), asked[0])
+        at = hour + 60_000 * NS
+        found = klines.settlements(IID, at, 1500, None, get)
+        self.assertEqual([update.ts_event for update in found], [stamp * NS for stamp in times[901:2401]])
+        self.assertEqual(len(asked), 4)
+        self.assertEqual(len(klines.settlements(IID, times[3] * NS, 10, None, get)), 4)
+        with tempfile.TemporaryDirectory() as root:
+            answers, settled = history.fetch(IID, at, (), (2, 3), Path(root), None, get, funding=9)
+            self.assertEqual((answers, settled), ([], found[-9:]))
+            self.assertEqual(refused(history.fetch, IID, times[3] * NS, (), (2, 3), Path(root), None, get,
+                                     funding=9, error=Refusal).code, "WARMUP_INSUFFICIENT")
+
+
+    def test_a_start_at_a_settlement_hour_waits_until_binance_publishes_it(self):
+        hour = 3_600_000
+
+        def binance_funding(times):
+            def get(url, proxy_url):
+                query = dict(urllib.parse.parse_qsl(url.split("?")[1], strict_parsing=True))
+                held = [at for at in times if at <= int(query["endTime"])][-int(query["limit"]):]
+                return [{"fundingTime": at, "fundingRate": "0.0001"} for at in held]
+            return get
+        base = 1_759_276_800_000
+        published = [base + index * 8 * hour for index in range(4)]
+        at = (base + 4 * 8 * hour) * NS  # the fifth settlement's hour
+        with self.assertRaises(history.FundingPending):
+            history.settlements(IID, at, 3, None, binance_funding(published))
+        found = history.settlements(IID, at, 3, None, binance_funding([*published, base + 32 * hour]))
+        self.assertEqual([update.ts_event for update in found], [stamp * NS for stamp in [*published, base + 32 * hour][-3:]])
+        # Stamped 13 ms after its hour, it is published but not yet known at T.
+        found = history.settlements(IID, at, 3, None, binance_funding([*published, base + 32 * hour + 13]))
+        self.assertEqual([update.ts_event for update in found], [stamp * NS for stamp in published[-3:]])
+        self.assertEqual(len(history.settlements(IID, at - 60_000 * NS, 3, None, binance_funding(published))), 3)
 
 
 class ReplayWarmupTests(unittest.TestCase):
@@ -177,6 +270,35 @@ class ReplayWarmupTests(unittest.TestCase):
         self.assertEqual(next(event for event in seen if event[0] == "start"), ("start", (START + 2 * 3_600_000) * NS))
         self.assertEqual(refused(self.replay, source(self.root, {"1-DAY": 2}), START + 3_600_000,
                                  error=Refusal).code, "WARMUP_INSUFFICIENT")
+
+    def test_the_funding_history_arrives_before_on_start_and_the_start_waits_for_it(self):
+        settlements = [START + hour * 3_600_000 for hour in range(0, 48, 8)]
+        contract(self.root / "funded", "BBBUSDT", np.arange(DAYS * 1440), settlements, seed=2)
+        self.rows = read_market(self.root / "funded", ["BBBUSDT"], "c" * 32, START * NS, END * NS)
+        loaded = source(self.root, {"FUNDING": 2, "15-MINUTE": 0})
+
+        def replayed(trade_start_ms):
+            window = parse_window(utc_text(START * NS), utc_text(trade_start_ms * NS), utc_text(END * NS))
+            output = self.root / f"funded-{trade_start_ms}"
+            output.mkdir()
+            finished, strategies, limitations = run.replay(self.rows, window, loaded, {"BBBUSDT": ((0, 10**20),)},
+                                                           output)
+            finished.engine.dispose()
+            return strategies["BBB"].seen, limitations
+        streamed = [update.to_dict() for update in run._small_events(self.rows[0], "FundingRateUpdate")]
+        at = (START + 16 * 3_600_000) * NS  # the third settlement is at T: known then, so in the history
+        seen, _ = replayed(at // NS)
+        self.assertEqual(seen[:2], [("funding history", streamed[1:3], at), ("start", at)])
+        self.assertEqual([event[1] for event in seen if event[0] == "funding"], streamed[3:])
+        seen, _ = replayed(at // NS + MIN)
+        self.assertEqual(seen[:2], [("funding history", streamed[1:3], at + MIN * NS), ("start", at + MIN * NS)])
+        self.assertEqual([event[1] for event in seen if event[0] == "funding"], streamed[3:])
+        # Two settlements are first known at the second (8 hours in).
+        seen, limitations = replayed(START)
+        self.assertEqual(seen[:2], [("funding history", streamed[:2], (START + 8 * 3_600_000) * NS),
+                                    ("start", (START + 8 * 3_600_000) * NS)])
+        self.assertTrue(any("warm-up first holds at 2026-01-01T08:00" in item for item in limitations), limitations)
+        self.assertEqual(json.loads(json.dumps(streamed))[0]["rate"], "0.0001")
 
     def test_no_order_before_on_start_no_request_and_no_undeclared_aggregation(self):
         cases = (
@@ -250,7 +372,7 @@ class FetchTests(unittest.TestCase):
         at = 1_767_225_600_000 * NS + 7 * 60_000 * NS  # seven minutes into a quarter and a day
         with tempfile.TemporaryDirectory() as root:
             get, _ = binance()
-            answers = history.fetch(IID, at, self.DECLARED, (2, 3), Path(root), None, get)
+            answers, settled = history.fetch(IID, at, self.DECLARED, (2, 3), Path(root), None, get)
             planned = history.requests(at, self.DECLARED)
             self.assertEqual([(role, period) for role, period, _, _ in planned],
                              [("warm", "15-MINUTE"), ("warm", "1-DAY"), ("history", "1-MINUTE"),

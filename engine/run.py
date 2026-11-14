@@ -16,7 +16,7 @@ import os
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -133,6 +133,7 @@ class StrategyInputs:
     trade_start_ns: int  # T: the instance's warm-up and first decision (engine.plan_instances)
     strategy_id: str
     universe_membership: list
+    funding_history: list = field(default_factory=list)  # [settled_ns, rate text]: the declared settlements by T
 
 
 class _Configured(history.Warming, OrderRules, strategy_runtime.Subscriptions):
@@ -141,6 +142,7 @@ class _Configured(history.Warming, OrderRules, strategy_runtime.Subscriptions):
 
     _source_constructor_args: tuple[tuple, dict]
     _runner_warmup: tuple[tuple[str, int], ...]
+    _runner_funding: int
 
     def __new__(cls, config: StrategyInputs):
         instrument_id = InstrumentId.from_str(config.instrument_id)
@@ -159,7 +161,9 @@ class _Configured(history.Warming, OrderRules, strategy_runtime.Subscriptions):
         del self._source_constructor_args
         declared = vars(type(self))["_runner_warmup"]
         strategy_runtime.declare(self, declared)
-        self._warming_setup(kwargs["strategy_id"], args[0], config.trade_start_ns, declared)
+        self._warming_setup(kwargs["strategy_id"], args[0], config.trade_start_ns, declared,
+                            vars(type(self))["_runner_funding"], settlements=[
+                                warmup.funding_update(args[0], int(at), rate) for at, rate in config.funding_history])
         super().__init__(*args, **kwargs)
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
         self._replay_input_start_ns = config.trade_start_ns
@@ -176,7 +180,7 @@ def _runner_class(loaded: LoadedStrategy) -> type:
     name = f"NodeExternal_{loaded.content_hash}_{loaded.entry_class}"
     if name not in globals():
         globals()[name] = type(name, (_Configured, loaded.strategy_class), {
-            "__module__": __name__, "_runner_warmup": loaded.warmup,
+            "__module__": __name__, "_runner_warmup": loaded.warmup, "_runner_funding": loaded.funding,
             **strategy_runtime.deferred_start(strategy_runtime.guarded_callbacks(loaded.strategy_class))})
     return globals()[name]
 
@@ -685,6 +689,14 @@ def stream(engine: BacktestEngine, events, chunk_size: int) -> int:
     return consumed
 
 
+def funding_settlements(rows: list[dict], strategy: LoadedStrategy) -> dict[str, list]:
+    """Per contract, the export's funding updates a declared funding history can come from (engine.warmup): every
+    settlement of the window, as the replay streams them; none without one."""
+    if not strategy.funding:
+        return {}
+    return {str(row["instrument_id"]): _small_events(row, "FundingRateUpdate") for row in rows}
+
+
 def history_stamps(rows: list[dict], window: Window, strategy: LoadedStrategy, directory: Path) -> dict[str, dict]:
     """Per contract, the ts_event of each period's bars a declared history can come from (engine.warmup): the
     export's one-minute bars of the window and daily bars, and the other periods derived from those minutes into the
@@ -713,25 +725,29 @@ def history_stamps(rows: list[dict], window: Window, strategy: LoadedStrategy, d
 
 
 def plan_instances(rows: list[dict], window: Window, strategy: LoadedStrategy,
-                   stamps: dict[str, dict]) -> tuple[list[tuple], list[str]]:
+                   stamps: dict[str, dict], settled: dict[str, list] | None = None) -> tuple[list[tuple], list[str]]:
     """[(row, T)] of the contracts that get an instance, and the limitations.
 
     A contract gets an instance when its lifecycle intersects the window. Its T is the first whole minute at or
     after the later of the trade start and its listing at which every history its WARMUP declares is adjacent
-    (engine.warmup, from `stamps`); a contract where none is before its window ends gets none.
+    (engine.warmup, from `stamps`) and its declared funding settlements are known (from `settled`, the export's
+    updates); a contract where none is before its window ends gets none.
     """
     planned, limitations, waiting = [], [], 0
-    needed = any(count for _, count in strategy.warmup)
+    needed = any(count for _, count in strategy.warmup) or strategy.funding > 0
     for row in rows:
         episode = row["episode"]
         if not episode_active(episode, window.trade_start_ns, window.end_ns):
             continue
         earliest = max(window.trade_start_ns, (episode or {}).get("start_ns") or 0)
         end = trading_end(episode, window.end_ns)
-        found = warmup.first_start(stamps.get(str(row["instrument_id"]), {}), strategy.warmup, earliest, end)
+        ready = warmup.funding_start([update.ts_event for update in (settled or {}).get(str(row["instrument_id"]), [])],
+                                     strategy.funding)
+        found = None if ready is None else warmup.first_start(
+            stamps.get(str(row["instrument_id"]), {}), strategy.warmup, max(earliest, ready), end)
         if found is None:
             waiting += needed
-            limitations.append(f"{row['symbol']}: its declared warm-up {dict(strategy.warmup)} never holds in the "
+            limitations.append(f"{row['symbol']}: its declared warm-up {declared_text(strategy)} never holds in the "
                                "window; it has no strategy instance" if needed else
                                f"{row['symbol']}: no whole minute of its trading window; it has no strategy instance")
             continue
@@ -741,10 +757,15 @@ def plan_instances(rows: list[dict], window: Window, strategy: LoadedStrategy,
         planned.append((row, found))
     if not planned:
         if waiting:
-            raise Refusal("WARMUP_INSUFFICIENT", f"no contract's declared warm-up {dict(strategy.warmup)} holds in "
+            raise Refusal("WARMUP_INSUFFICIENT", f"no contract's declared warm-up {declared_text(strategy)} holds in "
                                                  "the window")
         raise Refusal("NO_ACTIVE_INSTRUMENT", "no contract's lifecycle intersects the trading window")
     return planned, limitations
+
+
+def declared_text(strategy: LoadedStrategy) -> dict:
+    """The source's WARMUP as it declared it."""
+    return dict(strategy.warmup) | ({warmup.FUNDING: strategy.funding} if strategy.funding else {})
 
 
 def fee_model(rows: list[dict]) -> MakerTakerFeeModel:
@@ -801,7 +822,8 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
 
 def _replay(rows, window, strategy, pool, output_dir, account, metrics, derived: Path):
     stamps = history_stamps(rows, window, strategy, derived)
-    planned, limitations = plan_instances(rows, window, strategy, stamps)
+    settled = funding_settlements(rows, strategy)
+    planned, limitations = plan_instances(rows, window, strategy, stamps, settled)
     # Keep the trusted plan outside source instances: their attributes and diagnostics are mutable.
     trade_start_by_strategy = {row["strategy_id"]: start for row, start in planned}
     limitations += terms_approximations(rows, window.end_ns)
@@ -857,6 +879,8 @@ def _replay(rows, window, strategy, pool, output_dir, account, metrics, derived:
             strategy_id=row["strategy_id"],
             universe_membership=[[max(low, trade_start), high] for low, high in
                                  episode_membership(pool[row["symbol"]], row["episode"]) if high > trade_start],
+            funding_history=[[update.ts_event, str(update.rate)] for update in warmup.funding_history(
+                settled.get(str(row["instrument_id"]), []), trade_start, strategy.funding)],
         )))
     observer = capital_observer(tuple(str(row["instrument_id"]) for row in rows), output_dir / report.EXPOSURES,
                                 tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None))

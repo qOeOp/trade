@@ -224,7 +224,7 @@ REFUSALS: dict[str, str] = {
     "ENTRY_CLASS_INVALID": "The entry class is not one identifier declared in the source as a native Strategy.",
     "HOOK_MISSING": "replay_diagnostics or replay_integrity_findings is not callable.",
     "WARMUP_INVALID": "WARMUP is not a dict from Binance kline periods (1, 3, 5, 15, 30 minutes; 1, 2, 4, 6, 8, 12 "
-                      "hours; 1 day) to whole numbers of bars.",
+                      "hours; 1 day) to whole numbers of bars, and FUNDING to a whole number of settlements.",
     "STOP_LOSS_REQUIRED": "The source declares USES_STOP_LOSS other than True; every source protects its positions "
                           "with a stop.",
     "ON_STOP_DEFINED": "A source class defines on_stop; the runner ends every run itself.",
@@ -239,7 +239,7 @@ REFUSALS: dict[str, str] = {
     "WARMUP_NOT_ADJACENT": "A declared WARMUP history is not its number of adjacent bars, the last 1 ms before the "
                            "start's bucket of its period, or Paper's or Live's first minute does not follow the start.",
     "WARMUP_INSUFFICIENT": "No contract's declared WARMUP history is adjacent at any start in the window, or Binance's "
-                           "klines hold none for a Paper or Live start.",
+                           "klines or funding-rate history hold too little of it for a Paper or Live start.",
     "WARMUP_TIMEOUT": "Paper or Live could not fetch or deliver the declared WARMUP history within 45 seconds of the "
                       "start.",
     "EXPORT_MARKS_UNREADABLE": "An exported MARK file is missing, damaged or has no ts_event column.",

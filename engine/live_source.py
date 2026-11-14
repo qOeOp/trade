@@ -54,8 +54,9 @@ class _LiveConfigured(history.Warming):
         del self._source_constructor_args
         self._live_membership = kwargs["universe_membership"]
         strategy_runtime.declare(self, loaded.warmup)
-        self._warming_setup(kwargs["strategy_id"], args[0], kwargs["trade_start_ns"], loaded.warmup, functools.partial(
-            history.fetch, catalog=session.catalog(), proxy_url=session.manifest["config"].get("proxy_url")))
+        self._warming_setup(kwargs["strategy_id"], args[0], kwargs["trade_start_ns"], loaded.warmup, loaded.funding,
+                            functools.partial(history.fetch, catalog=session.catalog(),
+                                              proxy_url=session.manifest["config"].get("proxy_url")))
         super().__init__(*args, **kwargs)
         self._replay_input_start_ns = kwargs["trade_start_ns"]
         self._live_cadence = Cadence()
@@ -180,7 +181,8 @@ class _LiveConfigured(history.Warming):
 
     def _warming_begin(self) -> None:
         state = self._warming_state()
-        # The bars themselves went to the evidence pack as the source received them (historical_bar).
+        # The bars and settlements themselves went to the evidence pack as the source received them (historical_bar,
+        # historical_funding).
         self._live.event("warmup", strict=False, at_ns=state["at"], fetched_ns=state["fetched_ns"],
                          bars={period: len(bars) for period, bars in state["delivered"].items()})
         history.Warming._warming_begin(self)
@@ -199,8 +201,10 @@ def native_event(event) -> dict:
         for name in fields if (value := getattr(event, name, None)) is not None}}
 
 
-# The bars the source receives go to the evidence pack (engine.live_evidence), whether or not it handles them.
-RECORDED_BARS = {"on_bar": "bar", "on_historical_bars": "historical_bar"}
+# The bars and funding history the source receives go to the evidence pack (engine.live_evidence), whether or not it
+# handles them.
+RECORDED_BARS = {"on_bar": "bar", "on_historical_bars": "historical_bar",
+                 "on_historical_funding_rates": "historical_funding"}
 
 
 def _gated(name: str, method):
@@ -225,6 +229,9 @@ def _gated(name: str, method):
                 return method(self, *args, **kwargs)
             finally:
                 self._live.deciding = None
+        elif kind == "historical_funding":
+            for update in args[0]:
+                self._live.evidence.settlement(update)
         elif kind is not None:
             for bar in args[0]:
                 self._live.evidence.bar(bar, kind)
@@ -257,7 +264,8 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     for name in ("on_mark_price", "on_funding_rate"):
         if callbacks.get(name):
             callbacks[name] = _at_cadence(name, callbacks[name])
-    for name in (*strategy_runtime.DATA_CALLBACKS, "on_start", "on_historical_data", "on_historical_bars"):
+    for name in (*strategy_runtime.DATA_CALLBACKS, "on_start", "on_historical_data", "on_historical_bars",
+                 "on_historical_funding_rates"):
         original = callbacks.get(name)
         if original or name in RECORDED_BARS:
             callbacks[name] = _gated(name, original)

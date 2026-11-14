@@ -23,7 +23,7 @@ from nautilus_trader.model import InstrumentId
 from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.trading import Strategy
 
-from engine.warmup import declared as declared_warmup
+from engine.warmup import declared as declared_warmup, declared_funding
 from engine.config import EXECUTION_BAR_MINUTES, MINUTE_NS, RUNTIME_CONTRACT, Refusal, parse_window, utc_text
 
 
@@ -168,6 +168,7 @@ class LoadedStrategy:
     entry_class: str
     strategy_class: type[Strategy]
     warmup: tuple[tuple[str, int], ...] = ()  # engine.warmup.declared
+    funding: int = 0  # engine.warmup.declared_funding
 
 
 def read_regular_file(path: Path) -> bytes:
@@ -258,7 +259,8 @@ def load_strategy(
     if declared:
         raise Refusal("ENVIRONMENT_DECLARED", "the execution environment is the runner's --execution and margin rates, "
                                               "not the source's " + ", ".join(declared))
-    return LoadedStrategy(source_path, actual_sha256, entry_class, strategy_class, warmup)
+    return LoadedStrategy(source_path, actual_sha256, entry_class, strategy_class, warmup,
+                          declared_funding(strategy_class))
 
 
 def strategy_metadata(loaded: LoadedStrategy) -> dict:
