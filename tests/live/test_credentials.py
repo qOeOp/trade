@@ -495,8 +495,9 @@ class CredentialStoreTests(unittest.TestCase):
                 self.assertEqual(self.files(), before)
                 self.assertEqual(credentials.listing_locked(self.root)[0]["referenced_runs"], [directory.name])
 
-    def test_resolved_archived_legacy_history_does_not_need_secret_migration(self):
-        directory = self.prepared()
+    def test_ended_unbound_old_format_run_does_not_need_secret_migration(self):
+        """v0.2.0's operator CLI prepared runs without a credential version."""
+        directory = self.prepared(manifest_format="live-run")
         self.launch(directory)
         state.append(self.root / "account.jsonl", "released", directory.name, reason="native_and_venue_flat")
         state.append(directory / "lifecycle.jsonl", "recycled", directory.name, state="clean_stopped", exit_code=0)
@@ -505,6 +506,24 @@ class CredentialStoreTests(unittest.TestCase):
             self.save()
         with state.serialized(self.root), self.assertRaises(LiveRefusal) as caught:
             credentials.run_path_locked(self.root, directory.name, "reconcile")
+        self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
+
+    def test_current_format_run_without_a_credential_version_is_unknown_ownership(self):
+        self.save()
+        self.prepared()
+        before = self.files()
+        self.assertEqual(refused(self.save, self.other, error=LiveRefusal).code, "LIVE_CREDENTIAL_BUSY")
+        self.assertEqual(refused(credentials.listing_locked, self.root, error=LiveRefusal).code, "LIVE_CREDENTIAL_BUSY")
+        with state.serialized(self.root):
+            self.assertEqual(refused(credentials.prepare_path_locked, self.root, self.ref, error=LiveRefusal).code,
+                             "LIVE_CREDENTIAL_BUSY")
+        self.assertEqual(self.files(), before)
+
+    def test_an_unknown_run_has_no_managed_credential_version(self):
+        self.save()
+        self.prepared(ref=self.ref)
+        with state.serialized(self.root), self.assertRaises(LiveRefusal) as caught:
+            credentials.run_path_locked(self.root, "never-prepared", "reconcile")
         self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_UNMANAGED")
 
     def test_new_start_uses_current_version_but_reconcile_keeps_original(self):
