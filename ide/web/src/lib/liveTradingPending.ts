@@ -4,8 +4,7 @@ import type { LiveRequest } from "./liveTradingDto";
 export type LivePending = Pick<LiveRequest, "request_id" | "action" | "target">;
 const KEY = "trade.live.pending@1";
 const memory = new Map<string, LivePending>();
-const ACTIONS = new Set(["prepare", "preflight", "start", "stop", "reconcile", "maintain", "credential_save", "credential_remove",
-  "runtime_switch", "runtime_switch_cancel"]);
+const ACTIONS = new Set(["prepare", "preflight", "start", "stop", "reconcile", "maintain", "credential_save", "credential_remove"]);
 const clean = (value: unknown): LivePending | null => {
   const p = value as LivePending | null;
   if (!p || typeof p.request_id !== "string" || typeof p.action !== "string" || !ACTIONS.has(p.action) || !p.target || typeof p.target !== "object") return null;

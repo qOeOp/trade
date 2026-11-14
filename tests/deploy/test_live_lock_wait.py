@@ -71,8 +71,8 @@ class LiveLockWaitTests(unittest.TestCase):
     def durable_routes(self, name):
         # The production writer has no extra lock assertion. Exercise its actual replace/fsync,
         # rather than letting PairHost.persist_route detect the defect before metadata is written.
-        def persist(route, owner=None):
-            DockerHost.persist_route(self.host, route, owner)
+        def persist(route):
+            DockerHost.persist_route(self.host, route)
             self.host.disk = route
 
         self.host.persist_route = persist
@@ -80,7 +80,6 @@ class LiveLockWaitTests(unittest.TestCase):
         self.host.write_route = lambda file, config: DockerHost.write_route(self.host, file, config)
         self.host.disk_config = lambda: DockerHost.disk_config(self.host)
         self.host.disk_route = lambda: DockerHost.disk_route(self.host)
-        self.host.disk_owner = lambda: DockerHost.disk_owner(self.host)
         persist(name)
 
     def replace_lock(self):

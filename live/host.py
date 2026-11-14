@@ -85,13 +85,12 @@ def runner_args(mode: str) -> list[str]:
 
 def container_identity(root: Path, run_id: str, directory: Path, manifest: dict, name: str, role: str, *,
                mode: str | None = None, credentials_path: str | None = None,
-               container_id: str | None = None, runtime: dict | None = None) -> dict | None:
-    """Verify the full retained resource before reading it or issuing a lifecycle action. `runtime` is the image the
-    runner was launched on (live.runs.launch_runtime); the egress always runs on the manifest's."""
+               container_id: str | None = None) -> dict | None:
+    """Verify the full retained resource before reading it or issuing a lifecycle action."""
     found = inspect("container", name)
     if found is None:
         return None
-    runtime = manifest["runtime"] if runtime is None or role == "egress" else runtime
+    runtime = manifest["runtime"]
     names = resource_names(root, run_id)
     pinned = inspect("image", runtime["image_ref"])
     network_created = next((row for row in reversed(state.events(directory / "lifecycle.jsonl"))
@@ -180,9 +179,9 @@ def egress_command(manifest: dict, directory: Path, run_id: str, names: dict[str
 
 
 def runner_command(manifest: dict, directory: Path, run_id: str, credentials: Path, mode: str, runner: str,
-                   names: dict[str, str], runtime: dict | None = None) -> list[str]:
+                   names: dict[str, str]) -> list[str]:
     return container.live_command(
-        runtime or manifest["runtime"], [(directory / "inputs", "/inputs", True), (directory / "out", "/reports", False),
+        manifest["runtime"], [(directory / "inputs", "/inputs", True), (directory / "out", "/reports", False),
                               (credentials.absolute(), "/run/secrets/binance.json", True)],
         "engine.live", runner_args(mode),
         name=runner, network=names["network"], memory=manifest["config"]["memory"],
