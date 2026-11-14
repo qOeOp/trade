@@ -315,15 +315,31 @@ def _bound_credential(root: Path, run_id: str, directory: Path, path: Path, mode
     return prepared
 
 
+# The refusals of ledger.strategies.read_runnable that say the reference names no candidate a run can load.
+NOT_RUNNABLE = frozenset({"BAD_REF", "UNKNOWN_CANDIDATE", "SOURCE_SIZE", "ENTRY_CLASS_INVALID", "SOURCE_SYNTAX",
+                          "ENTRY_CLASS_NOT_UNIQUE"})
+
+
+def runnable(reader: db.LedgerConnection, candidate: str) -> dict:
+    """The candidate on the reader's commit whose source loads (ledger.strategies.read_runnable), as Paper takes it;
+    LIVE_SOURCE_MISSING when it is absent there or its source does not load."""
+    try:
+        return strategies.read_runnable(reader, candidate)
+    except Refusal as exc:
+        if exc.code in NOT_RUNNABLE:
+            raise state.fail("LIVE_SOURCE_MISSING", f"{candidate} is no runnable candidate here ({exc.code})") from None
+        raise
+
+
 def _candidate(research: db.LedgerProfile, research_at: str, candidate: str, source_sha256: str | None) -> dict:
     """The candidate at research_at; Live runs its own source and nothing else (no adapted file)."""
     with db.read_as_of(research, research_at) as reader:
-        found = strategies.read_candidate(reader, candidate)
+        found = runnable(reader, candidate)
     if hashlib.sha256(found["source"]).hexdigest() != found["source_sha256"]:
         raise state.fail("LIVE_IDENTITY_CHANGED", "the candidate's stored source does not hash to its source_sha256")
     if source_sha256 is not None and found["source_sha256"] != source_sha256:
         raise state.fail("LIVE_IDENTITY_CHANGED", f"{candidate} at research_at is source {found['source_sha256']}, "
-                                                  f"not the declared {source_sha256}")
+                                                  f"not the prepared {source_sha256}")
     return found
 
 
@@ -409,16 +425,14 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
                     market_root: Path, credential_ref: str, source_sha256: str | None = None,
                     request_id: str | None = None, recover_partial: bool = False) -> dict:
     """Capture immutable source inputs using the reader, before any account effect. The source is the candidate's
-    own, read from the ledger; `source_sha256`, when the declaration names it, must be that candidate's."""
+    own, read from the ledger; `source_sha256`, when the request froze it, must be that candidate's."""
     requests.require_clear(root, request_id)
     directory = state.directory(root, run_id)
     bound_prepared = _bound_credential(root, run_id, directory, credentials, "preflight", request_id)
     binding = _credentials(credentials)
     if not db.COMMIT_HASH.fullmatch(research_at):
         raise state.fail("LIVE_RESEARCH_COMMIT", "Live requires the exact full research commit")
-    if (not symbols or len(set(symbols)) != len(symbols)
-            or any(not configuration.SYMBOL.fullmatch(symbol) for symbol in symbols)):
-        raise state.fail("LIVE_SYMBOLS", "Live requires distinct explicit USD-M symbols")
+    configuration.symbols(symbols)
     if duration_seconds is not None and (isinstance(duration_seconds, bool) or not isinstance(duration_seconds, int)
                                          or duration_seconds < 1):
         raise state.fail("LIVE_CONFIG", "duration-seconds must be a positive integer, or absent to run until stopped")

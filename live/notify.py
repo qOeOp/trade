@@ -204,12 +204,9 @@ def execute(config: configuration.Configuration, action: str, body: dict, *, cal
 
 # Messages. Each has a stable key; a key in `done` is never sent again.
 
-def _source_name(config: configuration.Configuration, run: dict) -> str:
-    """The candidate version the page shows for this run's source; a controlled test says so."""
+def _source_name(run: dict) -> str:
+    """The candidate version the run's manifest names, as the page shows it."""
     candidate = run.get("candidate") or {}
-    found = configuration.source_of(config.sources, run.get("source") or {})
-    if found is not None:
-        return found.candidate + (", controlled test" if found.purpose == "controlled" else "")
     return f"{candidate.get('strategy_id') or 'unknown'}@{candidate.get('revision') or '?'}"
 
 
@@ -229,7 +226,7 @@ def collect(config: configuration.Configuration, skip: set[str]) -> list[dict]:
             reason = runs.stop_reason(path)
         except Exception:
             continue  # unknown this tick; never a reason to stop the others
-        run["source_name"] = _source_name(config, run)
+        run["source_name"] = _source_name(run)
         run["stop_reason"] = reason if isinstance(reason, str) and REASON.fullmatch(reason) else (
             None if reason is None else "other")
         result.append(run)

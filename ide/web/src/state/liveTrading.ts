@@ -36,7 +36,7 @@ const writes: LiveTradingActions = {
   prepare: (input) => {
     const id = newLiveRunId(), credential = home?.credentials.find((item) => item.selected);
     return client.invoke("prepare", "/runs", { run_id: id }, () => ({
-      run_id: id, source_id: input.sourceId, credential_ref: credential?.credential_ref ?? "",
+      run_id: id, candidate: input.candidate, symbols: [...input.symbols], credential_ref: credential?.credential_ref ?? "",
       config: { drawdown_brake: String(Math.round(Number(input.values.drawdown_brake) * 1e4) / 1e6),
         duration_seconds: input.values.duration_seconds ? Number(input.values.duration_seconds) : null,
         leverage: input.values.leverage },

@@ -36,6 +36,7 @@ from ledger import db, paper as records
 from shared.refusals import refuse
 from runtime import container, image
 from engine import paper_checkpoint as checkpoint
+from market.universe import selection
 from paper.recovery import bind, identity as recovery_identity, launched, serialized
 
 
@@ -179,26 +180,6 @@ def _source_running(present: list[dict], source_sha256: str) -> bool:
                if item["role"] == "runner" and item["running"])
 
 
-def _membership(market: dict, at: str | None, symbols: list[str] | None, now_ns: int) -> tuple[str, dict, list[str]]:
-    """The market day, its membership object for the chosen contracts and the contracts: the given ones,
-    or (symbols None) every member of the current month."""
-    from market import files, universe
-    opened = files.open_market(market, "reader")
-    market_day = files.resolve_day(opened, at)
-    found = universe.membership_path(opened, market_day, now_ns)
-    members = found["membership"]
-    if symbols is None:
-        symbols = sorted(symbol for symbol, intervals in members.items()
-                         if any(low <= now_ns < high for low, high in intervals))
-        if not symbols:
-            raise refuse("UNIVERSE_EMPTY", f"market day {market_day} has no member for the current month",
-                         missing=("symbols",))
-    if not symbols or len(set(symbols)) != len(symbols):
-        raise refuse("EMPTY_SYMBOLS", "the contract list is empty or repeats a contract", missing=("symbols",))
-    return market_day, {"universe_rule": found["universe_rule"],
-                    "membership": {symbol: members.get(symbol, []) for symbol in symbols}}, list(symbols)
-
-
 def write_months(market: dict, directory: Path, symbols: list[str], after: str) -> list[str]:
     """inputs/membership/<YYYY-MM>.json for each month after `after` (YYYY-MM) that the market's latest market day holds
     (market.universe.month_files). The running runner reads a month's file once the month has begun
@@ -322,7 +303,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         raise refuse("PAPER_RUN_ACTIVE", f"{candidate} already has a running paper run", missing=(candidate,))
     if duration_seconds is not None and duration_seconds < 1:
         raise refuse("USAGE_ERROR", "--duration-seconds must be positive")
-    market_day, membership, chosen = _membership(market, at, symbols, time.time_ns())
+    market_day, membership, chosen = selection(market, at, symbols, time.time_ns())
     terms = _terms(market, market_day, chosen)
     memory = runner_memory(len(chosen))
     admit(mib(memory) + mib(EGRESS_MEMORY), present)

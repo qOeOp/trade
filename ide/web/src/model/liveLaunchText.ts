@@ -7,7 +7,7 @@ export function unavailableReason(view: LiveTradingView): string | null {
   const code = view.reason ?? (view.availability === "unavailable" ? "LIVE_UNAVAILABLE" : null);
   if (code === null) return null;
   return {
-    LIVE_UNAVAILABLE: "Live is not set up for this IDE, or not answering. You set it up on the server (deploy/remote/README.md).",
+    LIVE_UNAVAILABLE: "Live is not answering for this IDE. Refresh in a moment; if it stays away, check the Live service on the server.",
     AUTH_REQUIRED: "Your sign-in has expired. Sign in again; runs on the server continue.",
     LIVE_RELEASE_UNAVAILABLE: "Live is switching to a new release and takes no new runs for now. Wait, then refresh.",
     LIVE_RESPONSE_UNKNOWN: "Live did not answer clearly. Refresh in a moment.",
@@ -31,8 +31,19 @@ export function refusalText(code: string | undefined): string {
     LIVE_KEY_IP_UNRESTRICTED: "A Live run needs an API key restricted to this server's IP. Set one at Binance.",
     LIVE_BUDGET: "The first Live trial takes a cash floor of at most 100 USDT, a wallet up to about 117 USDT.",
     LIVE_RELEASE_UNAVAILABLE: "Live is switching to a new release. Wait, then try again.",
-    LIVE_CONFIG: "Live did not take these settings. The brake must be above 0 and at most 15 %; the duration whole seconds or empty.",
+    LIVE_CONFIG: "Live did not take these settings. The brake must be above 0 and at most 15 %; the duration whole seconds or empty; the leverage a whole number from 1 to 125.",
+    LIVE_SOURCE_MISSING: "This version is no candidate Live can run: the research ledger does not hold it, or its source does not load. Select another version.",
+    LIVE_SYMBOLS: "Live did not take these contracts. Name Binance USDT perpetuals such as BTCUSDT, each once.",
+    LIVE_UNIVERSE: "The market directory gives these contracts no membership this month. Choose others, or wait for the market to update.",
+    LIVE_IDENTITY_CHANGED: "The candidate, its runtime or the confirmation no longer matches what was prepared. Check the account again.",
   }[code]) || "Live refused this step. Requests shows what it recorded.";
+}
+
+/** Contracts typed as words ("btcusdt, ETHUSDT"): distinct Binance USDT perpetuals in the order typed, upper-cased; null
+ *  when the text names none, repeats one or names something else (live/configuration.py symbols). */
+export function contractsOf(text: string | null): string[] | null {
+  const symbols = (text ?? "").toUpperCase().split(/[\s,]+/).filter(Boolean);
+  return symbols.length && new Set(symbols).size === symbols.length && symbols.every((symbol) => /^[A-Z0-9]+USDT$/.test(symbol)) ? symbols : null;
 }
 
 /** The units a duration is typed in, largest first: a month is 30 days and a year 365; `max` is the largest the part

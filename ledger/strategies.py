@@ -62,6 +62,14 @@ def read_candidate(conn: db.LedgerConnection, ref: str) -> dict:
     return _checked(row, ref)
 
 
+def read_runnable(conn: db.LedgerConnection, ref: str) -> dict:
+    """The candidate row of `ref` (read_candidate) whose source a run can load (check_source): what Paper and Live
+    start from."""
+    found = read_candidate(conn, ref)
+    check_source(found["source"], found["entry_class"])
+    return found
+
+
 def candidate_by_sha(conn: db.LedgerConnection, sha: str) -> dict:
     """The candidate row whose content hash is `sha`, its source hash recomputed."""
     row = conn.one("SELECT * FROM candidate WHERE source_sha256 = %s", (sha,))

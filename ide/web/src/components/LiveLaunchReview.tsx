@@ -1,4 +1,4 @@
-import { labelUnit, livePurposeLabel, type LiveCredential, type LiveRun, type LiveTradingActions } from "../model/liveTrading";
+import { labelUnit, type LiveCredential, type LiveRun, type LiveTradingActions } from "../model/liveTrading";
 import { dateTime, nsMilliseconds } from "../lib/time";
 import { useTimeZone } from "../state/timeZone";
 import { KeyValues } from "./KeyValues";
@@ -19,7 +19,7 @@ export function LiveFrozenPlan({ run, credentials }: { run: LiveRun; credentials
     return [name, value !== null && unit ? <>{value} <span className="text-fg-faint">{unit}</span></> : value] as const;
   });
   return <div className="space-y-3 [&_dd]:wrap-anywhere">
-    <KeyValues stackNarrow labels="fixed" items={[["Strategy", run.candidate], ["Purpose", livePurposeLabel(run.purpose)], ["Entry class", run.entryClass],
+    <KeyValues stackNarrow labels="fixed" items={[["Strategy", run.candidate], ["Entry class", run.entryClass],
       ["Contracts", run.symbols?.join(", ") ?? null], ...limits]} />
     <KeyValues stackNarrow labels="fixed" items={[["Bound credential", bound?.ref.slice(0, 8) ?? "Unknown"],
       ...bound ? [["Saved", saved], ["Local copy", bound.available === null ? "Unknown" : bound.available ? "Available" : "Unavailable"]] as const : []]} />

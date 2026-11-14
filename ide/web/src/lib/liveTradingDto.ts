@@ -9,17 +9,16 @@ export type LiveWriteReply = { request: LiveRequest; run_id?: string; credential
 type LiveCredentialDto = {
   credential_ref: string; observed_ns: string; selected: boolean; removed: boolean; available: boolean; referenced_runs: string[];
 };
-/** A source's replay evidence as the serving control reads it ahead of preparation (live/control.py Evidence).
- *  Preparation checks it again. */
+/** A candidate's replay evidence on chosen contracts at the research head, as the serving control reads it ahead of
+ *  preparation (live/control.py Evidence, GET /candidates/<id>/<rev>/evidence/<SYM,SYM>). Preparation checks it again. */
 export type LiveEvidenceReadDto = {
   state: "checking" | "found" | "missing" | "unknown";
-  replays: { trial_id: number; starting_balance_usdt: string }[]; tolerance: string;
+  replays: { trial_id: number; starting_balance_usdt: string }[]; tolerance: string; research_at: string;
 };
-export type LiveSourceDto = {
-  source_id: string; candidate: string; source_sha256: string; entry_class: string; purpose: "natural" | "controlled";
-  /** The contracts it trades, one strategy instance each. */
-  symbols: string[];
-  evidence: LiveEvidenceReadDto;
+/** The candidate at the research head as a run of it would be prepared now (live/control.py candidate,
+ *  GET /candidates/<id>/<rev>), and the contracts of its last research replay, which the page offers. */
+export type LiveCandidateDto = {
+  candidate: string; research_at: string; source_sha256: string; entry_class: string; last_symbols: string[] | null;
 };
 type LiveEvidenceDto = {
   source: string; cursor: string | null; observed_ns: string | null; read_ns: string; complete: boolean;
@@ -57,7 +56,6 @@ export type LiveRunDto = {
   brake: { start: string | null; peak: string | null; fired: { equity: string | null; peak: string | null; drawdown: string | null; observed_ns: string | null } | null } | null;
   /** The run's result at each minute's first mark and when it stopped, [minute_ns, result] (live/views.py). */
   minute_results: [string, string | null][] | null;
-  purpose: "natural" | "controlled" | null;
   /** Interruptions and starts again of the same run (live/views.py _restarts). */
   restarts: { event: string; observed_ns: string; held: boolean | null }[] | null;
   /** The entry gate's events (live/views.py _gate): when entries closed, why, and when they reopened. */
@@ -74,8 +72,9 @@ export type LiveCompareDto = {
 };
 export type LiveHomeDto = {
   availability: "ready"; write_enabled: boolean; maintenance_enabled: boolean; write_reason: string | null;
-  sources: LiveSourceDto[]; credentials: LiveCredentialDto[]; runs: LiveRunDto[];
-  /** A run's settings as the page starts them: no duration runs until stopped; the brake can only be tighter. */
+  credentials: LiveCredentialDto[]; runs: LiveRunDto[];
+  /** A run's settings as the page starts them: no duration runs until stopped; the brake can only be tighter; the
+   *  leverage is the user's to change, and must equal each contract's at Binance. */
   defaults: { drawdown_brake: string; duration_seconds: number | null; leverage: string };
   /** Telegram notification status; never the bot token or chat. */
   notify: LiveNotifyDto;

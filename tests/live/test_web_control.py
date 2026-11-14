@@ -1,6 +1,5 @@
 """Private HTTP -> fixed CLI integration with fake credentials and no venue or Docker calls."""
 
-import copy
 from contextlib import ExitStack
 from datetime import datetime
 import hashlib
@@ -16,7 +15,8 @@ from unittest.mock import patch
 from engine.config import RUNTIME_CONTRACT
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
-from live import authority, control, runs, serve, state
+from live import authority, configuration, control, requests, runs, serve, state
+from shared.refusals import refuse
 from tests.live.authority_fixture import install, inject_cli
 from tests.live.test_runs import EVIDENCE
 
@@ -150,11 +150,19 @@ class LiveWebControlTests(unittest.TestCase):
         self.assertFalse((self.root / "credentials").exists())
         self.assertEqual(before, {str(path): path.read_bytes() for path in self.root.rglob("*") if path.is_file()})
 
+    HEAD = "a" * 32
+    MEMBERSHIP = {"universe_rule": "fixed", "membership": {"BTCUSDT": [[1, 2]], "ETHUSDT": [[1, 2]]}}
+
     def fake_research(self, stack, origin, identity):
-        """Research reader, image and market terms are fake; returns the market-terms mock."""
+        """Research reader (its head HEAD), market membership, image and market terms are fake; returns the
+        market-terms mock."""
         stack.enter_context(patch.object(control, "_profile", return_value=object()))
-        stack.enter_context(patch.object(runs.db, "read_as_of"))
-        stack.enter_context(patch.object(runs.strategies, "read_candidate", return_value=origin))
+        read = stack.enter_context(patch.object(runs.db, "read_as_of"))
+        type(read.return_value.__enter__.return_value).resolved_commit = property(lambda _: self.HEAD)
+        self.read_candidate = stack.enter_context(patch.object(runs.strategies, "read_candidate", return_value=origin))
+        stack.enter_context(patch("market.universe.selection", side_effect=lambda market, at, symbols, now: (
+            "c", {**self.MEMBERSHIP, "membership": {symbol: self.MEMBERSHIP["membership"].get(symbol, [])
+                                                    for symbol in symbols}}, symbols)))
         stack.enter_context(patch("registration.validation.candidate_registrations", return_value=[]))
         stack.enter_context(patch("engine.load.load_strategy"))
         stack.enter_context(patch("engine.load.read_universe"))
@@ -169,14 +177,15 @@ class LiveWebControlTests(unittest.TestCase):
         _, saved = self.execute( "credential_save", None, {
             "request_id": "save-lifecycle-one", "api_key": "fake-key", "api_secret": "fake-secret"})
         ref = saved["data"]["credential_ref"]
-        source_hash = self.raw["sources"][0]["source_sha256"]
+        source_hash = hashlib.sha256(self.source.read_bytes()).hexdigest()
         origin = {"strategy_id": "example", "revision": 1, "entry_class": "Example",
                   "source": self.source.read_bytes(), "source_sha256": source_hash,
                   "runtime_contract": RUNTIME_CONTRACT}
         identity = {"image_ref": self.config.runtime, "image_digest": "sha256:" + "b" * 64,
                     "platform": "linux/amd64", "runtime_contract": RUNTIME_CONTRACT}
-        body = {"request_id": "prepare-lifecycle-one", "run_id": "lifecycle", "source_id": "example",
-                "credential_ref": ref, "config": {**self.config.defaults, "drawdown_brake": "0.15"}}
+        body = {"request_id": "prepare-lifecycle-one", "run_id": "lifecycle", "candidate": "example@1",
+                "symbols": ["BTCUSDT"], "credential_ref": ref,
+                "config": {**configuration.DEFAULTS, "duration_seconds": 8100}}
         with ExitStack() as stack:
             terms = self.fake_research(stack, origin, identity)
             stack.enter_context(patch.object(runs, "_network", return_value={"network": "fake-network"}))
@@ -189,11 +198,11 @@ class LiveWebControlTests(unittest.TestCase):
             status, prepared = self.execute( "prepare", None, body)
             self.assertEqual(status, 200, prepared)
             self.assertEqual(prepared["data"]["request"]["outcome"], "effect_recorded")
-            terms.assert_called_once_with(Path("/unused-market"), ["BTCUSDT"])  # the declaration's market
+            terms.assert_called_once_with(Path("/unused-market"), ["BTCUSDT"])  # the installed market
             directory = state.directory(self.root, "lifecycle")
             manifest = (directory / "inputs" / "manifest.json").read_bytes()
-            # Today's catalog file cannot replace the already frozen source for preflight.
-            self.source.write_text("class Changed: pass\n")
+            # A later research head cannot replace the frozen commit for preflight: it reads the candidate there.
+            self.HEAD = "e" * 32
             status, preflight = self.execute( "preflight", "lifecycle", {
                 "request_id": "preflight-lifecycle-one"})
             self.assertEqual(status, 202, preflight)
@@ -218,18 +227,18 @@ class LiveWebControlTests(unittest.TestCase):
             self.assertTrue(all(row["credentials_path"] == str((self.root / "credentials" / f"{ref}.json").resolve())
                                 for row in launches))
 
-    def test_resolve_completes_an_interrupted_prepare_with_the_declared_market(self):
+    def test_resolve_completes_an_interrupted_prepare_with_the_installed_market(self):
         _, saved = self.execute("credential_save", None, {
             "request_id": "save-resolve-one", "api_key": "fake-key", "api_secret": "fake-secret"})
         ref = saved["data"]["credential_ref"]
-        source_hash = self.raw["sources"][0]["source_sha256"]
+        source_hash = hashlib.sha256(self.source.read_bytes()).hexdigest()
         origin = {"strategy_id": "example", "revision": 1, "entry_class": "Example",
                   "source": self.source.read_bytes(), "source_sha256": source_hash,
                   "runtime_contract": "replay-contract@v7"}
         identity = {"image_ref": self.config.runtime, "image_digest": "sha256:" + "b" * 64,
                     "platform": "linux/amd64", "runtime_contract": "replay-contract@v7"}
-        body = {"request_id": "prepare-resolve-one", "run_id": "resolved", "source_id": "example",
-                "credential_ref": ref, "config": {**self.config.defaults, "drawdown_brake": "0.15"}}
+        body = {"request_id": "prepare-resolve-one", "run_id": "resolved", "candidate": "example@1",
+                "symbols": ["BTCUSDT"], "credential_ref": ref, "config": dict(configuration.DEFAULTS)}
         original = state.write_new
 
         def interrupted(path, data):
@@ -307,26 +316,138 @@ class LiveWebControlTests(unittest.TestCase):
             self.config_file.write_bytes(state.encode(invalid))
             with self.assertRaises(ValueError):
                 authority.from_file(self.config_file, self.binding)
-        duplicate = copy.deepcopy(self.raw)
-        duplicate["sources"].append(duplicate["sources"][0])
-        self.config_file.write_bytes(state.encode(duplicate))
-        with self.assertRaises(ValueError):
-            authority.from_file(self.config_file, self.binding)
 
-    def test_each_source_names_its_own_distinct_contracts_and_the_declaration_none(self):
-        two = copy.deepcopy(self.raw)
-        two["sources"][0]["symbols"] = ["BTCUSDT", "ETHUSDT"]
-        self.config_file.write_bytes(state.encode(two))
-        self.assertEqual(authority.from_file(self.config_file, self.binding).config.sources["example"].symbols, ("BTCUSDT", "ETHUSDT"))
-        for symbols in ([], ["BTCUSDT", "BTCUSDT"], ["btcusdt"], "BTCUSDT"):
-            wrong = copy.deepcopy(self.raw)
-            wrong["sources"][0]["symbols"] = symbols
-            self.config_file.write_bytes(state.encode(wrong))
-            with self.subTest(symbols=symbols), self.assertRaises(ValueError):
-                authority.from_file(self.config_file, self.binding)
-        self.config_file.write_bytes(state.encode({**self.raw, "symbols": ["BTCUSDT"]}))
-        with self.assertRaises(ValueError):
-            authority.from_file(self.config_file, self.binding)
+    def prepared(self, body):
+        """Save a key, then prepare `body` (its request ID, run ID and choices) through the control."""
+        _, saved = self.execute("credential_save", None, {
+            "request_id": "save-" + body["request_id"], "api_key": "fake-key", "api_secret": "fake-secret"})
+        body = {**body, "credential_ref": saved["data"]["credential_ref"]}
+        return body, self.execute("prepare", None, body)
+
+    def origin(self):
+        data = self.source.read_bytes()
+        return {"strategy_id": "example", "revision": 2, "entry_class": "Example", "source": data,
+                "source_sha256": hashlib.sha256(data).hexdigest(), "runtime_contract": RUNTIME_CONTRACT}
+
+    def test_a_prepare_freezes_the_head_the_source_the_contracts_and_a_content_addressed_universe(self):
+        identity = {"image_ref": self.config.runtime, "image_digest": "sha256:" + "b" * 64,
+                    "platform": "linux/amd64", "runtime_contract": RUNTIME_CONTRACT}
+        body = {"request_id": "prepare-choices-one", "run_id": "choices", "candidate": "example@2",
+                "symbols": ["ETHUSDT", "BTCUSDT"], "config": {**configuration.DEFAULTS, "leverage": "5"}}
+        with ExitStack() as stack:
+            self.fake_research(stack, self.origin(), identity)
+            body, (status, prepared) = self.prepared(body)
+            self.assertEqual(status, 200, prepared)
+            self.assertEqual(self.read_candidate.call_args.args[1], "example@2")
+            with state.serialized(self.root) as root:
+                inputs = requests.read_locked(root, "prepare-choices-one")["command"]["inputs"]
+            data = state.encode({"universe_rule": "fixed", "membership": {"ETHUSDT": [[1, 2]], "BTCUSDT": [[1, 2]]}})
+            digest = hashlib.sha256(data).hexdigest()
+            self.assertEqual({name: inputs[name] for name in ("research_at", "candidate", "symbols", "source_sha256",
+                                                               "entry_class", "universe_file", "universe_sha256")},
+                             {"research_at": self.HEAD, "candidate": "example@2", "symbols": ["ETHUSDT", "BTCUSDT"],
+                              "source_sha256": self.origin()["source_sha256"], "entry_class": "Example",
+                              "universe_file": str(self.root.resolve() / "universes" / f"{digest}.json"),
+                              "universe_sha256": digest})
+            self.assertEqual(inputs["config"], {"drawdown_brake": "0.15", "duration_seconds": None, "leverage": "5",
+                                                "memory": configuration.RUNNER_MEMORY})
+            self.assertEqual(Path(inputs["universe_file"]).read_bytes(), data)
+            self.assertEqual(Path(inputs["universe_file"]).stat().st_mode & 0o777, 0o600)
+            directory = state.directory(self.root, "choices")
+            self.assertEqual((directory / "inputs" / "universe.json").read_bytes(), data)
+            manifest = json.loads((directory / "inputs" / "manifest.json").read_bytes())
+            self.assertEqual((manifest["symbols"], manifest["config"]["leverage"]), (["ETHUSDT", "BTCUSDT"], "5"))
+            view = control.run_view(self.config, "choices", review=False)
+            self.assertEqual((view["candidate"], view["symbols"]), ({"strategy_id": "example", "revision": "2"},
+                                                                    ["ETHUSDT", "BTCUSDT"]))
+            self.assertNotIn("purpose", view)  # a run's name is its manifest's candidate
+
+            # The same request ID with other contracts or another candidate is another operation.
+            status, conflict = self.execute("prepare", None, {**body, "symbols": ["BTCUSDT"]})
+            self.assertEqual((status, conflict["error"]["code"]), (409, "LIVE_REQUEST_CONFLICT"), conflict)
+            status, conflict = self.execute("prepare", None, {**body, "candidate": "example@1"})
+            self.assertEqual((status, conflict["error"]["code"]), (409, "LIVE_REQUEST_CONFLICT"), conflict)
+            # Repeated as it was, it is the original request, never read again at a new head.
+            self.HEAD = "e" * 32
+            status, repeated = self.execute("prepare", None, body)
+            self.assertEqual((status, repeated["data"]["request"]["outcome"]), (200, "effect_recorded"), repeated)
+            with state.serialized(self.root) as root:
+                self.assertEqual(requests.read_locked(root, "prepare-choices-one")["command"]["inputs"], inputs)
+
+    def test_an_unknown_or_unloadable_candidate_is_refused_before_any_request_or_file(self):
+        with ExitStack() as stack:
+            self.fake_research(stack, self.origin(), {"image_ref": self.config.runtime})
+            self.read_candidate.side_effect = refuse("UNKNOWN_CANDIDATE", "no candidate example@9")
+            body, (status, refused) = self.prepared({
+                "request_id": "prepare-unknown-one", "run_id": "unknown", "candidate": "example@9",
+                "symbols": ["BTCUSDT"], "config": dict(configuration.DEFAULTS)})
+            self.assertEqual((status, refused["error"]["code"]), (400, "LIVE_SOURCE_MISSING"), refused)
+            self.read_candidate.side_effect = None
+            self.read_candidate.return_value = {**self.origin(), "source": b"not python ("}
+            status, refused = self.execute("prepare", None, {**body, "request_id": "prepare-unknown-two"})
+            self.assertEqual((status, refused["error"]["code"]), (400, "LIVE_SOURCE_MISSING"), refused)
+            self.read_candidate.return_value = self.origin()
+            with patch("market.universe.selection", side_effect=refuse("UNIVERSE_EMPTY", "no member")):
+                status, refused = self.execute("prepare", None, {**body, "request_id": "prepare-unknown-three"})
+            self.assertEqual((status, refused["error"]["code"]), (400, "LIVE_UNIVERSE"), refused)
+        with state.serialized(self.root) as root:
+            for request_id in ("prepare-unknown-one", "prepare-unknown-two", "prepare-unknown-three"):
+                self.assertIsNone(requests.read_locked(root, request_id))
+        self.assertFalse((self.root / "universes").exists())
+        self.assertFalse(state.directory(self.root, "unknown").exists())
+
+    def test_a_browser_names_a_candidate_and_contracts_never_a_path(self):
+        base = {"request_id": "prepare-path-one", "run_id": "paths", "candidate": "example@1", "symbols": ["BTCUSDT"],
+                "credential_ref": "a" * 32, "config": dict(configuration.DEFAULTS)}
+        cases = (({**base, "universe_file": "/etc/passwd"}, "LIVE_CONFIG"),
+                 ({**base, "research_at": "a" * 32}, "LIVE_CONFIG"),
+                 ({**base, "source_id": "example"}, "LIVE_CONFIG"),
+                 ({**base, "candidate": "../example@1"}, "LIVE_CONFIG"),
+                 ({**base, "candidate": "/etc/passwd"}, "LIVE_CONFIG"),
+                 ({**base, "symbols": ["../../etc/BTCUSDT"]}, "LIVE_SYMBOLS"),
+                 ({**base, "symbols": ["BTCUSDT", "BTCUSDT"]}, "LIVE_SYMBOLS"),
+                 ({**base, "symbols": []}, "LIVE_SYMBOLS"),
+                 ({**base, "symbols": "BTCUSDT"}, "LIVE_SYMBOLS"))
+        with patch.object(control, "_fixed_prepare", side_effect=AssertionError("malformed body prepared")):
+            for body, code in cases:
+                with self.subTest(body=body):
+                    status, refused = self.execute("prepare", None, body)
+                    self.assertEqual((status, refused["error"]["code"]), (400, code), refused)
+        for path in ("/api/live/candidates/../1", "/api/live/candidates/example/0",
+                     "/api/live/candidates/example/1/evidence/btcusdt", "/api/live/candidates/example/1/evidence/../x"):
+            with self.subTest(path=path), self.assertRaises(LiveRefusal):
+                serve.read(self.config, path, evidence=control.Evidence())
+        self.assertEqual(list(self.root.iterdir()), [self.root / "account.lock"])
+
+    def test_the_page_reads_a_candidate_and_its_evidence_on_chosen_contracts(self):
+        with ExitStack() as stack:
+            self.fake_research(stack, self.origin(), {})
+            last = stack.enter_context(patch.object(control.paper_records, "last_research_symbols",
+                                                    return_value={"trial_id": 4, "symbols": ["ETHUSDT"]}))
+            status, body = self.call("GET", "/api/live/candidates/example/2")
+            self.assertEqual(status, 200, body)
+            self.assertEqual(body["data"], {"candidate": "example@2", "research_at": self.HEAD,
+                                            "source_sha256": self.origin()["source_sha256"],
+                                            "entry_class": "Example", "last_symbols": ["ETHUSDT"]})
+            self.assertEqual(last.call_args.args[1], self.origin()["source_sha256"])
+            last.return_value = None
+            self.assertIsNone(self.call("GET", "/api/live/candidates/example/2")[1]["data"]["last_symbols"])
+            self.read_candidate.side_effect = refuse("UNKNOWN_CANDIDATE", "no candidate example@9")
+            status, body = self.call("GET", "/api/live/candidates/example/9")
+            self.assertEqual((status, body["error"]["code"]), (404, "LIVE_SOURCE_MISSING"), body)
+            self.read_candidate.side_effect = None
+            status, body = self.call("GET", "/api/live/candidates/example/2/evidence/BTCUSDT")
+            self.assertEqual(status, 503, "only the serving control reads evidence")
+            evidence = control.Evidence()
+            with patch.object(evidence, "request", wraps=evidence.request) as asked, \
+                    patch.object(control.threading, "Thread") as thread:
+                found = serve.read(self.config, "/api/live/candidates/example/2/evidence/ETHUSDT,BTCUSDT",
+                                   evidence=evidence)
+            self.assertEqual(found, {"state": "checking", "replays": [], "tolerance": found["tolerance"],
+                                     "research_at": self.HEAD})
+            self.assertEqual(asked.call_args.args[1], (self.HEAD, self.origin()["source_sha256"],
+                                                       ("ETHUSDT", "BTCUSDT")))
+            thread.assert_called_once()  # a new key starts its read now, not at the next background pass
 
     def test_maintenance_inspects_existing_runs_without_relaunch_or_credentials(self):
         with state.serialized(self.root):

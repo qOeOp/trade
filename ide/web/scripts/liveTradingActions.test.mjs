@@ -62,7 +62,7 @@ test("copy sends the complete selected identity to the clipboard helper", async 
 test("Review run… of a run that executes is the observation review, and a prepared one offers no start", async () => {
   const render = await component("LiveRunReview");
   const run = { id: "run-review", sourceHash: "frozen-source", hostState: "prepared", host: [{ label: "Mode", value: null }] };
-  const props = { runId: run.id, open: true, close() {}, requests() {}, view: { sources: [], runs: [run], credentials: [] }, actions: { start() {}, preflight() {} } };
+  const props = { runId: run.id, open: true, close() {}, requests() {}, view: { runs: [run], credentials: [] }, actions: { start() {}, preflight() {} } };
   const prepared = render(props);
   assert.equal(control(prepared, "Start live…"), undefined);
   assert.equal(control(prepared, "Start live trading"), undefined);

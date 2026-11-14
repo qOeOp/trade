@@ -63,7 +63,7 @@ class Base(unittest.TestCase):
         self.root = Path(temporary.name).resolve() / "custody"
         with state.serialized(self.root):
             pass
-        self.config = SimpleNamespace(root=self.root, sources={})
+        self.config = SimpleNamespace(root=self.root)
 
     def refused(self, code, action, body, call):
         with self.assertRaises(LiveRefusal) as caught:
@@ -359,19 +359,16 @@ class Sending(Base):
 
 
 class Collecting(LiveViewFixture):
-    def test_collect_reads_the_browser_safe_view_with_a_safe_stop_reason_and_the_configured_source(self):
+    def test_collect_reads_the_browser_safe_view_with_a_safe_stop_reason_and_the_manifest_candidate(self):
         self.native("order", native={"type": "OrderFilled", "client_order_id": "cid-1", "trade_id": "t1",
                                      "instrument_id": "BTCUSDT-PERP.BINANCE", "ts_event": 1794000000000000001,
                                      "order_side": "BUY", "last_qty": "0.001", "last_px": "75000"})
         self.native("stopping", reason="SECRET reason with spaces")
-        source = SimpleNamespace(source_id="deployed", candidate="example-live@2", purpose="natural",
-                                 source_sha256=self.manifest["source"]["source_sha256"], entry_class="Example")
-        facts = notify.collect(SimpleNamespace(root=self.root, sources={"deployed": source},
-                                               runtime=self.manifest["runtime"]["image_ref"]), set())
-        self.assertEqual([fact["source_name"] for fact in facts], ["example-live@2"])
+        facts = notify.collect(SimpleNamespace(root=self.root, runtime=self.manifest["runtime"]["image_ref"]), set())
+        self.assertEqual([fact["source_name"] for fact in facts], ["example@1"])
         self.assertEqual(facts[0]["stop_reason"], "other")
         texts = [text for _, text in notify.messages(facts[0])]
-        self.assertEqual(texts, ["Live run probe-one (example-live@2) fill: BUY 0.001 BTCUSDT-PERP.BINANCE at 75000."])
+        self.assertEqual(texts, ["Live run probe-one (example@1) fill: BUY 0.001 BTCUSDT-PERP.BINANCE at 75000."])
         # The release names the IDE's page; each notice then ends with the run's page there, under the same key.
         with patch.dict(os.environ, {"TRADE_PAGE": "https://trade.example.com"}):
             linked = notify.messages(facts[0])
@@ -380,6 +377,6 @@ class Collecting(LiveViewFixture):
         for page in ("http://trade.example.com", "https://trade.example.com/x", "https://evil.test\n"):
             with patch.dict(os.environ, {"TRADE_PAGE": page}):
                 self.assertEqual([text for _, text in notify.messages(facts[0])], texts, page)
-        self.assertEqual(notify.collect(SimpleNamespace(root=self.root, sources={},
+        self.assertEqual(notify.collect(SimpleNamespace(root=self.root,
                                                         runtime=self.manifest["runtime"]["image_ref"]), {"probe-one"}),
                          [])

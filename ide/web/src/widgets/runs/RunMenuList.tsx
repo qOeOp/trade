@@ -5,7 +5,7 @@ import { Segmented } from "../../components/Segmented";
 import { TextButton } from "../../components/TextButton";
 import { Icon } from "../../icons/Icon";
 import { ACTIVE } from "../../model/chain";
-import { livePurposeLabel, type LiveRun } from "../../model/liveTrading";
+import type { LiveRun } from "../../model/liveTrading";
 import { useLiveTrading } from "../../state/liveTrading";
 import { showLiveRun } from "../../state/liveWorkspace";
 import { usePaperRuns, usePaperService } from "../../state/paper";
@@ -46,7 +46,7 @@ export function RunMenuList({ close }: { close: () => void }) {
         {items.map((item) => <TextButton key={item.id} role="option" aria-selected={stage === "live" && item.id === liveRun?.id}
           onClick={() => { showLiveRun(item.id); close(); }} className="w-full flex-col items-stretch rounded-control px-3 py-2 text-left text-fg! outline-none hover:bg-hover focus:bg-selection aria-selected:bg-selection">
           <span className="flex items-center justify-between gap-3"><span className="truncate font-mono text-small">{item.id}</span><span className="shrink-0 text-small text-fg-muted">{item.hostState?.replaceAll("_", " ") ?? "Unknown"}</span></span>
-          <span className="mt-0.5 block text-small text-fg-faint">{livePurposeLabel(item.purpose)}</span>
+          <span className="mt-0.5 block truncate text-small text-fg-faint">{item.symbols?.join(", ")}</span>
         </TextButton>)}
       </div>)}
       {!live.length && <p className="px-3 py-2 text-small text-fg-faint">{view.runs.length ? "No live run matches" : "No live runs available"}</p>}

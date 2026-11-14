@@ -19,7 +19,6 @@ import pyarrow.parquet as pq
 
 from market import coverage, export, files, follow, instrument, lifecycle, read, series, sources, store, universe
 from market.sources import MarketError
-from paper import runs
 from registration import inputs
 from tests.market.directory import directory, forged, read as rows
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
@@ -546,12 +545,12 @@ class LaterImportTests(unittest.TestCase):
         noon = ns(MAR) + 12 * 3_600_000_000_000
         eve = date(2025, 2, 28).isoformat()
         # Before the members: the newest day is the one before the eve, and paper refuses as it always has.
-        self.assertEqual(refused(runs._membership, profile, None, None, noon,
+        self.assertEqual(refused(universe.selection, profile, None, None, noon,
                                  error=MarketError).code, "UNIVERSE_NOT_COVERING_WINDOW")
         self.refused("MARKET_DAY_UNKNOWN", files.resolve_day, files.open_market(profile, "reader"), eve)
         self.follow_round(profile, found, MAR)
         self.assertEqual(rows(profile, "bar", ["BTCUSDT"], day_ms(MAR)).num_rows, 0)
-        market_day, membership, chosen = runs._membership(profile, None, None, noon)
+        market_day, membership, chosen = universe.selection(profile, None, None, noon)
         self.assertEqual((market_day, chosen), (eve, ["BTCUSDT"]))
         self.assertEqual(membership["membership"]["BTCUSDT"], [[ns(FEB), ns(APR)]])
         # The next round brings March's first day and new terms; the eve's export stays the same.

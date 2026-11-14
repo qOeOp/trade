@@ -22,6 +22,17 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Live (breaking): the Live page chooses the run as Paper does. The candidate is the version selected in the
+  research graph, read at the research ledger's head with Paper's check that its source loads; the contracts
+  (default: its last research replay's) and the leverage (default 3) are typed on the page, and their membership is
+  derived from the market directory. The upgrade drops the operator source catalog and its `purpose` label:
+  `/api/live` no longer returns `sources`, a prepare request takes `candidate` and `symbols` instead of `source_id`,
+  and a run's view has no `purpose`. Two read-only reads are new, `/api/live/candidates/<id>/<rev>` and
+  `.../evidence/<SYM,SYM>`. Live's real-money checks are unchanged (finding 20261114-20,
+  `docs/plans/live-run-choices-20261114.zh.md`).
+- Paper: the default contracts of a version (its last research replay's) are read again; the query named a column
+  the ledger does not have.
+
 ## 0.3.1 (2026-11-14)
 
 Fixes the release process that failed the 0.3.0 host upgrade (`docs/plans/doctor/2026-11-14-release-control-skew.zh.md`).

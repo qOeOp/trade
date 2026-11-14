@@ -120,7 +120,7 @@ class StartFailureTests(unittest.TestCase):
                                   return_value={"source_sha256": "s" * 64, "source": b"class E: pass\n", "entry_class": "E"}), \
                 mock.patch.object(runs.image, "resolve", return_value={"image_ref": "image@sha256:" + "a" * 64}), \
                 mock.patch.object(runs, "containers", return_value=[]), \
-                mock.patch.object(runs, "_membership", return_value=("c" * 32, {"universe_rule": "fixed"}, ["BTCUSDT"])), \
+                mock.patch.object(runs, "selection", return_value=("c" * 32, {"universe_rule": "fixed"}, ["BTCUSDT"])), \
                 mock.patch.object(runs, "_terms", return_value={}), mock.patch.object(runs, "admit"), \
                 mock.patch.object(runs.records, "open_paper_run", return_value=row), \
                 mock.patch.object(runs, "run_dir", return_value=root), \

@@ -65,7 +65,7 @@ class CredentialStoreTests(unittest.TestCase):
                 for path in self.root.rglob("*") if path.is_file()}
 
     def partial_prepare(self, *, inputs_change=None):
-        inputs = {"source_id": "example", "research_at": "a" * 32, "candidate": "example@1",
+        inputs = {"research_at": "a" * 32, "candidate": "example@1",
                   "symbols": ["BTCUSDT"], "source_sha256": hashlib.sha256(b"source").hexdigest(),
                   "entry_class": "Example", "universe_sha256": hashlib.sha256(b"{}").hexdigest(),
                   "runtime": IDENTITY["image_ref"],
