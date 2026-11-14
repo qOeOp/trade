@@ -330,7 +330,7 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     replayed, events, reports = shared.replay(
         market, market_day, pack["source"], manifest["source"]["entry_class"], image_ref,
         symbols, start, end, manifest["config"]["leverage"], balance, output / "replay",
-        f"trade-live-compare-{run_id}-{secrets.token_hex(4)}", timeout)
+        f"trade-live-compare-{run_id}-{secrets.token_hex(4)}", timeout, run["warmup"])
     compared = shared.compare(run, events, archive, reports, start, end, archived_warmup=archived,
                               replay_terms=replay_terms,
                               replay_fees={"maker": instrument.ASSUMED["maker_fee"],
