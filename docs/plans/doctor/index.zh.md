@@ -10,6 +10,10 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261114-12 | 整年否决回放无效或开发期对照缺失时，History 可显示留出单判达标 | authority（读时判定） | doctor | wrong output（夹具） | open [诊断](2026-11-14-external-research-workflow.zh.md) | 2026-11-14 | 2026-11-14 |
+| 20261114-13 | 失去源码审查资格的运行仍进 History 并显示经济读数 | authority（复用源码资格） | doctor | wrong output（隔离账本） | open [诊断](2026-11-14-external-research-workflow.zh.md) | 2026-11-14 | 2026-11-14 |
+| 20261114-14 | 技术预检默认向登记作者披露年化收益与最大回撤 | fix（技术输出） | doctor | unknown | open [诊断](2026-11-14-external-research-workflow.zh.md) | 2026-11-14 | 2026-11-14 |
+| 20261114-15 | History 页的留出判定和 DSR 未显示 API 已返回的重叠试验计数 | fix（呈现既有数据） | doctor | wrong output（信息遗漏） | open [诊断](2026-11-14-external-research-workflow.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261113-100 | 聊天 Agent 的 `line` 输入只收 `research-line-…`，账本线名是 slug，聊天点不了任何线（[瘦身审计](2026-11-13-whole-product-slimming-audit.zh.md)） | fix | doctor | wrong output | fixed 537c6c27f [#2884](https://github.com/qOeOp/trade/pull/2884) | 2026-11-13 | 2026-11-13 |
 | 20261113-101 | fresh-install 不用 `replay-changed.py` 选回放镜像，每个 release PR 失败；镜像路径过滤漏了执行的测试代码（[瘦身审计](2026-11-13-whole-product-slimming-audit.zh.md)） | fix | doctor | wrong output | fixed a530fdc5f [#2890](https://github.com/qOeOp/trade/pull/2890) | 2026-11-13 | 2026-11-13 |
 | 20261113-102 | `remote-paper-auth` 逐个列 deploy 模块，漏了 `deploy/telegram.py`（同类见已结 20261107-46）（[瘦身审计](2026-11-13-whole-product-slimming-audit.zh.md)） | fix | doctor | none（预期风险） | fixed dcec0df40 [#2888](https://github.com/qOeOp/trade/pull/2888) | 2026-11-13 | 2026-11-13 |
