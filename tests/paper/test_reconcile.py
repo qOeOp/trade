@@ -99,6 +99,8 @@ class Reconcile(unittest.TestCase):
                 writer = csv.writer(handle)
                 writer.writerow(["ts_event", "total"])
                 writer.writerow(["2026-10-25 17:26:00+00:00", "100000.00"])
+                # Nautilus writes a balance per account event: a fill's, at its bar's close, follows the one before it.
+                writer.writerow(["2026-10-25 17:27:59.999000+00:00", "100010.00"])
                 writer.writerow(["2026-10-25 17:27:59.999000+00:00", "99999.50"])
             with gzip.open(reports / "exposures.csv.gz", "wt", newline="") as handle:
                 writer = csv.writer(handle)

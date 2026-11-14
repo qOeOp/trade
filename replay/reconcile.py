@@ -577,8 +577,9 @@ def replay_equity(reports: Path, minutes: list[int]) -> list[list]:
     """The replay's equity at each run snapshot minute: its account balance after the minute's bar plus the open
     profit of its positions at that bar's close."""
     with (reports / "account.csv").open(newline="", encoding="utf-8") as handle:
-        balances = sorted((round(datetime.fromisoformat(row["ts_event"]).timestamp() * 1000) * MILLISECOND_NS,
-                           Decimal(row["total"])) for row in csv.DictReader(handle))
+        # By time alone: rows of one instant keep the order Nautilus wrote them in, the last being the latest.
+        balances = sorted(((round(datetime.fromisoformat(row["ts_event"]).timestamp() * 1000) * MILLISECOND_NS,
+                            Decimal(row["total"])) for row in csv.DictReader(handle)), key=lambda item: item[0])
     open_profit: dict[int, Decimal] = {}
     exposures = reports / "exposures.csv.gz"
     if exposures.is_file():
