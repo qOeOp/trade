@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我们在研究路线 `kc-eth-4h` 上（ETH 永续 4 小时线，开发窗口 2023-01-01 到 2025-06-30，市场提交已固定）。这条谱系上已发布的候选：
+我们在研究路线 `kc-eth-4h` 上（ETH 永续 4 小时线，开发窗口 2023-01-01 到 2025-06-30，市场日已固定）。这条谱系上已发布的候选：
 
 - `kc-root@1`：根，Keltner 通道突破，反向突破出场。首份报告运行 101，净收益 -4.1%。
 - `kc-root@2`：父为 @1，加了 ATR 追踪止损。`hypothesis compare --registration 2 --trial-id 201` 相对 @1 改善，配对检验达到登记水平；`research state` 的 recommendation 现在指向它。
