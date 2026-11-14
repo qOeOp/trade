@@ -22,6 +22,15 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+## 0.4.0 (2026-11-14)
+
+A breaking release: Live works from the web IDE on every host after a release, as Paper does
+(`docs/plans/doctor/2026-11-14-live-not-installed.zh.md`). The research ledger keeps schema generation 1. To upgrade
+a host, nothing is done by hand: the next release tick hands control to this version, which installs Live. An
+operator declaration from an earlier version is not read and can be deleted.
+
+- Live: the daily comparison container starts only while some run has a day to compare; a host that never traded
+  starts none (doctor 20261114-20).
 - Live (breaking): the Live page chooses the run as Paper does. The candidate is the version selected in the
   research graph, read at the research ledger's head with Paper's check that its source loads; the contracts
   (default: its last research replay's) and the leverage (default 3) are typed on the page, and their membership is
