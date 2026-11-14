@@ -490,7 +490,7 @@ class Hub:
                 view = None if pinned else self._reused(key)
                 if view is None:
                     graph = self.product.graph(*key)
-                    graph["line"]["trial_counts"] = self.counts.get((graph["line"]["bundle"], key.commit))["trial_counts"]
+                    graph["line"]["trial_counts"] = self.counts.get((graph["line"]["name"], key.commit))["trial_counts"]
                     view = layout.build_view(graph)
                     view["scope"] = {**(view["scope"] or {}), "build": self.build}  # what a page's kept view and answers are good for
             except ProductError as exc:

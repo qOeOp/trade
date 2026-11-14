@@ -138,7 +138,7 @@ The IDE runs in the product's compose deployment: [`deploy/`](../deploy/README.m
 
 Stages hand over only through these documents, so each can be replaced alone.
 
-## Graph (`research-graph@3`)
+## Graph (`research-graph@4`)
 
 One research line from one source: the line and its targets, candidate versions with parent,
 change, complete strategy source, duties, hypothesis, predictions and outcomes, registration, control, trials with

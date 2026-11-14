@@ -14,7 +14,7 @@
 | 阶段 | 输入 → 输出 | 负责 |
 |---|---|---|
 | 抽取 | 账本 → graph.json | 一条研究线在账本里的全部记录：版本、本线自己的研究运行（同一窗口与市场日）、审阅与判断（产品命令 `research graph`） |
-| 格式 | graph.json（research-graph@3）→ 问题清单 | 图的形状（schema/graph.schema.json） |
+| 格式 | graph.json（research-graph@4）→ 问题清单 | 图的形状（schema/graph.schema.json） |
 | 布局 | graph.json → view.json（research-graph-view） | 画什么、放在哪，以行和本线自己的试验为单位（本线第 n 个试验在 n，标签是它的试验编号），不含像素；按 widget 分块，每种类型一块（summary、lineage、progress、scatter、table、notes、candidate-detail、sources） |
 | 渲染 | view.json → 页面 | 像素、颜色、文字与交互；web 渲染器是自包含的单个 HTML 页面，源码一变就重建 |
 | 对比 | 两份 graph.json → 差异 | 哪些事实不同，不做归类（供 product-doctor 的反向测试） |

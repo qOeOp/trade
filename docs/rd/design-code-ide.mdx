@@ -14,7 +14,7 @@ A page onto the research, opened locally or through the [remote host](/en/docs/p
 | Stage | Input → output | Owns |
 |---|---|---|
 | Extract | ledger → graph.json | everything the ledger holds about one line: its versions, its own research runs (its window and market day), reviews and judgments (the product command `research graph`) |
-| Contract | graph.json (research-graph@3) → problems | the shape of a graph (schema/graph.schema.json) |
+| Contract | graph.json (research-graph@4) → problems | the shape of a graph (schema/graph.schema.json) |
 | Layout | graph.json → view.json (research-graph-view) | what to draw and where, in rows and the line's own trials (its n-th trial at n, labelled with its trial number), no pixels; split into widgets, one per type (summary, lineage, progress, scatter, table, notes, candidate-detail, sources) |
 | Render | view.json → page | pixels, colours, labels and interaction; the web renderer is one self-contained HTML page, rebuilt whenever its sources change |
 | Compare | two graph.json → differences | which facts differ, without classing them (for product-doctor's fidelity test) |

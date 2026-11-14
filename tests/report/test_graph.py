@@ -1,5 +1,5 @@
 """If this fails, `research graph` no longer rebuilds a line from the ledger alone as a valid,
-repeatable research-graph@3 document: versions with their source, runs and measures, the recommendation
+repeatable research-graph@4 document: versions with their source, runs and measures, the recommendation
 (a version the recommendation only names as `about` is not marked kept),
 a failed review that masks a run and one availability ignores for a run, the judgments as events, the targets in force for the line and
 only the line's own runs and versions, which `line list` names for every line; or a graph is drawn while the ledger service is unreachable, whose missing
@@ -122,7 +122,7 @@ class ResearchGraphTests(unittest.TestCase):
         found = self.graph()
         self.assertEqual(contract.check_graph(found), [])
         self.assertEqual(found, self.graph(), "one ledger commit gives one graph")
-        reading = status.research_status(self.world.profile, None, found["line"]["bundle"])["multiple_testing"]
+        reading = status.research_status(self.world.profile, None, found["line"]["name"])["multiple_testing"]
         self.assertEqual(found["line"]["trial_counts"], {name: reading[name] for name in ("research_trials", "all_purpose_trials", "sweep_variants",
                                                                           "undeclared_sweeps", "trials_with_sweeps")},
                          "the graph's counts are the multiple-testing reading's")
@@ -151,7 +151,7 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertNotIn("recommendation", graph.line_list(self.world.profile)["lines"][0], "only with --readings")
         self.assertEqual(found["line"]["targets"], {"max_drawdown": 0.15, "annual_return": 0.2})
         with db.connect(self.world.profile, "reader") as conn:
-            gates = [{"code": g["code"], "message": g["message"]} for g in status.research_state(conn, found["line"]["bundle"])["gates"]
+            gates = [{"code": g["code"], "message": g["message"]} for g in status.research_state(conn, found["line"]["name"])["gates"]
                      if g["code"] in ("INTERPRETATION_REQUIRED", "REVIEW_DUE")]
         self.assertEqual(found["line"]["gates"], gates, "the line carries the registration gates `research state` reads")
 

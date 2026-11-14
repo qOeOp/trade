@@ -1,4 +1,4 @@
-"""A research line as a research-graph@3 document, read from the ledger only (`research graph`).
+"""A research line as a research-graph@4 document, read from the ledger only (`research graph`).
 
 It composes the product's own readers (candidates, the line record, run measures and availability,
 registration plans, the comparison, source reviews and judgments) and adds no rule of its own, so
@@ -21,7 +21,7 @@ from registration import availability, precheck, register
 from report import candidates as report_candidates
 from report import comparison, measures, seams, status
 
-FORMAT = "research-graph@3"
+FORMAT = "research-graph@4"
 MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_drawdown", "sharpe_365": "sharpe",
                 "plan_win_rate": "plan_win_rate"}
 EVENT_KINDS = {"recommendation": "recommendation", "priority": "priority", "interpretation": "interpretation",
@@ -266,7 +266,7 @@ def _comparisons(profile, jobs: list[tuple[int, int]], at: str, checker: Mapping
 
 def research_graph(profile, line: str | None = None, at: str | None = None, *, since: str | None = None,
                    workers: int = 1, comparisons: bool = True, counts: bool = True) -> dict:
-    """The research-graph@3 document of a line at a ledger version, with the user's targets in force for
+    """The research-graph@4 document of a line at a ledger version, with the user's targets in force for
     the line at that version (ledger.targets); `since` marks where the scope under study starts. When the
     ledger or market service cannot be read as this code expects it refuses rather than drawing a graph
     whose missing comparisons and measures would look like research facts. With `workers` above one the
@@ -469,8 +469,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
                 continue
             checks = [{"name": name, "status": rec[name].get("status"), "note": rec[name].get("note")}
                       for name in precheck.ITEMS if isinstance(rec.get(name), Mapping)]
-            # research-graph@3 names a review by `bundle`; it now holds the review's ID.
-            reviews.append({"bundle": str(rec["review_id"]), "verdict": rec["verdict"], "at": _iso(rec["created_at"]),
+            reviews.append({"review_id": rec["review_id"], "verdict": rec["verdict"], "at": _iso(rec["created_at"]),
                             "checks": checks})
             if rec["verdict"] == "failed":
                 # The consequence is availability's, not re-derived here: the runs it counts this review against,
@@ -539,8 +538,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
     return {
         "format": FORMAT, "source": "ledger",
         "scope": {"ledger_commit": commit, "start": _iso(since_at["date"]) if since_at else None, "end": None},
-        # research-graph@3 names the line by `bundle`; it now holds the line's name.
-        "line": {"bundle": line, "start": record["start"], "window": [record["dev_start"], record["dev_end"]],
+        "line": {"name": line, "start": record["start"], "window": [record["dev_start"], record["dev_end"]],
                  "market_day": record["market_day"], "targets": targets, "trial_counts": trial_counts,
                  "gates": gates},
         "candidates": candidates, "events": events,

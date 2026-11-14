@@ -70,10 +70,10 @@ export function StatusBar() {
   const gapped = (usePaperRuns()?.runs ?? []).filter((r) => ACTIVE.has(r.state) && (r.readings?.missing_bars ?? 0) + (r.readings?.protection_gaps ?? 0) > 0).length;
   return (
     <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">
-      {!live && !line.bundle && !status.busy && (runs || market) && <span role="status" className="min-w-0 truncate text-fg-muted">{status.text}</span>}
+      {!live && !line.name && !status.busy && (runs || market) && <span role="status" className="min-w-0 truncate text-fg-muted">{status.text}</span>}
       {live && <span className="min-w-0 truncate">Execution runs independently of this page</span>}
-      {!live && line.bundle && <Breadcrumbs items={[
-        { id: "line", label: line.bundle, onSelect: () => requestFocus("") },
+      {!live && line.name && <Breadcrumbs items={[
+        { id: "line", label: line.name, onSelect: () => requestFocus("") },
         ...path.map((v) => ({ id: v, label: v, onSelect: () => select(v, { reveal: true }) })),
       ]} />}
       {runs && <StageSource className="min-w-0 truncate text-fg-muted" />}
