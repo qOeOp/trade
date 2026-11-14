@@ -431,7 +431,8 @@ class Release:
         print(f"Restored previous Web release {previous}", flush=True)
 
     def cleared(self, previous: str) -> None:
-        """Stop stale Webs and check headroom, inside the release's account admission."""
+        """Stop stale Webs and check headroom, inside the release's account admission and before its journal: a
+        transient refusal journals nothing, so it never marks the version failed."""
         for name in self.host.managed(WEB, running_only=True):
             if name != previous:
                 self.host.stop(name)
@@ -482,13 +483,13 @@ class Release:
             with self.live.barrier(candidate, target["service"], idle=True) as held:
                 held()
                 self.github.ensure(target)
+                self.cleared(previous)
                 transaction = self.journal(candidate, previous, agent_before)
         except LiveBusy as busy:
             print(f"{busy}; the next tick asks again", flush=True)  # it became busy since the owner was asked
             return
         print(f"Preparing main Web release {sha}", flush=True)
         try:
-            self.cleared(previous)
             self.live.create(candidate, target["service"])
             self.live.start(candidate)
             self.live.warm(candidate)

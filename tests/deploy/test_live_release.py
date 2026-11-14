@@ -190,6 +190,26 @@ class PairedReleaseTests(unittest.TestCase):
         self.release.apply(PAIR)
         self.assertEqual(self.host.disk, WEB + B)
 
+    def test_low_memory_refuses_before_the_journal_and_marks_nothing_failed(self):
+        for first_pairing in (False, True):
+            with self.subTest(first_pairing=first_pairing):
+                self.setUp()
+                if first_pairing:
+                    shutil.rmtree(self.live.root)
+                    self.host.live_web.clear()
+                    del self.host.containers[LIVE + A], self.live.configs[WEB + A]
+                self.host.memory_available = lambda: False
+                before = dict(self.host.containers)
+                with self.assertRaisesRegex(RuntimeError, "memory headroom"):
+                    self.release.apply(PAIR)
+                self.assertEqual((self.host.disk, self.host.live, self.host.containers), (WEB + A, WEB + A, before))
+                self.assertFalse(self.release.transaction.exists())
+                self.release.recover()
+                self.assertFalse(self.release.failed.exists())
+                del self.host.memory_available
+                self.release.apply(PAIR)  # the next tick, once there is headroom
+                self.assertEqual(self.host.disk, WEB + B)
+
     def test_late_independent_cli_or_unknown_state_rolls_back_without_requiring_idle(self):
         self.host.on_observe = lambda: setattr(self.host, "idle", "busy")
         with self.assertRaises(LiveBusy):

@@ -88,7 +88,8 @@ and `live/<revision>/socket/`. Web mounts only that socket directory read-only a
 Agent, Paper and the browser never mount the custody root. The control mounts the custody root at the same path
 and the release state read-only. It runs as root with every capability dropped but `DAC_READ_SEARCH`, which reads
 the root-only (0700) release state and the private reader metadata: Docker gives a non-root `--user` none of the
-capabilities it adds. It is a privileged Docker controller, with the host Docker socket, not a hostile-code sandbox.
+capabilities it adds. A run's runner and egress containers and the daily comparison run as the same user. The
+runner and egress have no capabilities at all and write only their own root-owned run directories. It is a privileged Docker controller, with the host Docker socket, not a hostile-code sandbox.
 It has no TCP listener or frontend-network membership, and a 768 MiB memory cap.
 
 The custody root is `/var/lib/trade-release/live-root` (`LIVE_ROOT` below). The first release that pairs a control
