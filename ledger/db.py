@@ -208,15 +208,23 @@ def _binary(given: Path | str | None) -> str:
     return str(binary)
 
 
-def server_pid(root: Path) -> int | None:
-    pid_file = root / "server.pid"
-    if not pid_file.exists():
+def _server_here(root: Path) -> int | None:
+    """The process server.pid names when it runs here, as the sql-server of `root`'s config; the file stays."""
+    try:
+        pid = int((root / "server.pid").read_text())
+    except (OSError, ValueError):
         return None
-    pid = int(pid_file.read_text())
     owner = subprocess.run(["ps", "-ww", "-p", str(pid), "-o", "args="], capture_output=True, text=True, check=False)
     if owner.returncode or "sql-server" not in owner.stdout or str(root / "config.yaml") not in owner.stdout:
-        pid_file.unlink()
         return None
+    return pid
+
+
+def server_pid(root: Path) -> int | None:
+    """The running server of `root`, removing a server.pid that names none."""
+    pid = _server_here(root)
+    if pid is None:
+        (root / "server.pid").unlink(missing_ok=True)
     return pid
 
 
@@ -238,8 +246,10 @@ class NoAnswer(pymysql.err.OperationalError):
 
 def service_connection(config: dict, **options) -> pymysql.Connection:
     """`pymysql.connect` to the service `config` describes: with `TRADE_DOLT_HOST` set over TCP to that
-    host on the service's own port (a container beside the service); else over its Unix socket; a
-    service compose runs (no socket) over TCP on this host's loopback, where compose publishes it.
+    host on the service's own port (a container beside the service), unless the service's server is a
+    process of this host (one this container started, as `ledger temp` does: the variable names where
+    the other services run, not this one); else over its Unix socket; a service compose runs (no
+    socket) over TCP on this host's loopback, where compose publishes it.
     pymysql 1.1.2 leaks its socket when the Unix connect itself fails (a stopped service), so the
     socket is reached first by one that is closed either way, and an unreachable one raises the same
     OperationalError pymysql would.
@@ -250,7 +260,8 @@ def service_connection(config: dict, **options) -> pymysql.Connection:
     `read_timeout` then applies to its statements."""
     read_timeout = options.pop("read_timeout", None)
     options["read_timeout"] = HANDSHAKE_TIMEOUT
-    if os.environ.get(DOLT_HOST):
+    # A socket service's root holds its socket (_create_service).
+    if os.environ.get(DOLT_HOST) and (managed(config) or _server_here(Path(config["socket"]).parent) is None):
         endpoint = f"{os.environ[DOLT_HOST]}:{config['port']}"
         target: dict = {"host": os.environ[DOLT_HOST], "port": int(config["port"])}
     elif managed(config):
