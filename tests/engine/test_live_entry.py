@@ -1290,6 +1290,27 @@ class NativeEntryTests(unittest.TestCase):
                     order, position_id=position.id))
         self.assertEqual(self.engine.cache.position(position.id).quantity, Quantity.from_str("0.500"))
 
+    def test_an_exit_with_parameters_is_refused_by_the_shared_order_rules(self):
+        """engine.order_rules sees an exit's params, as in replay and Paper: it is refused as ORDER_RULE and not sent,
+        and the position's stop stays working. As every refused exit in Live, it raises to the source's call and the
+        run goes on: no stop, no failure."""
+        position = self.owned_position()
+        stop = self.stop()
+        self.assertEqual(stop.status, OrderStatus.ACCEPTED)
+        reduction = self.reduction()
+        self.assert_refused_unchanged("ORDER_RULE", lambda: self.source.submit_order(
+            reduction, position_id=position.id, params={"price_match": "OPPONENT"}))
+        self.assertIsNone(self.engine.cache.order(reduction.client_order_id))
+        self.assertEqual(self.engine.cache.order(stop.client_order_id).status, OrderStatus.ACCEPTED)
+        self.assertEqual(self.engine.cache.position(position.id).quantity, Quantity.from_str("0.500"))
+        self.assertFalse(self.session.stopping)
+        self.assertFalse(self.session.failed)
+        self.assertTrue(self.source.is_running())
+        self.source.submit_order(reduction, position_id=position.id)  # the same exit without params goes through
+        self.advance()
+        self.assertEqual(self.engine.cache.order(reduction.client_order_id).status, OrderStatus.FILLED)
+        self.assertEqual(self.engine.cache.position(position.id).quantity, Quantity.from_str("0.300"))
+
     def test_close_position_cannot_disable_reduce_only(self):
         position = self.owned_position()
         self.assert_refused_unchanged("ORDER_RULE", lambda: self.source.close_position(position, reduce_only=False))

@@ -22,6 +22,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Live: an exit (reduce-only order) submitted with order parameters is now refused as `ORDER_RULE` and not sent,
+  as in replay and Paper; before, Live sent it without the parameters. The run goes on and the position's stops
+  stay (doctor 20261114-09).
 - Replay: an export's content hash (`export_content_sha256`, a trial's `export_sha256`) covers only the selected
   contracts' directories, the lifecycle evidence and the membership file. A `replay explore` reads a shared cache
   directory that other selections also fill, so its hash no longer depends on which other contracts were cached
