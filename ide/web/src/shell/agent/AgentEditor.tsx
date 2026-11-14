@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Checklist, FieldLabel, FormButton, TextField } from "../../components/chat/Field";
 import { Segmented } from "../../components/Segmented";
-import { agentApi, errorText, PROVIDER_LABEL, PROVIDERS, type Agent, type Provider } from "../../lib/agentApi";
+import { agentApi, PROVIDER_LABEL, PROVIDERS, type Agent, type Provider } from "../../lib/agentApi";
+import { errorText } from "../../lib/transport";
 import { replaceAgent } from "../../state/agent";
 import { BRAND_TONE } from "../../icons/brands";
 import { BrandMark } from "../../icons/Icon";

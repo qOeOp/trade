@@ -1,6 +1,7 @@
 // A sealed trial's report with its drill-down tables (`replay report --tables`), from the page's own
 // server under /api/trial at a full ledger commit (ide/research_graph/serve.py). Only what the Runs page's
 // backtest reads is typed; the product's refusal comes back as its { code, message }.
+import { getJson, type Unread } from "./transport";
 
 /** A measure as the report gives it: its value (a number, or a decimal or time as text) or none. */
 type Measure = { value: number | string | null } | undefined;
@@ -24,20 +25,8 @@ export type TrialReport = {
   slices: { id: string; measures: Record<string, Measure | null> }[] | null;
   tables: { positions: Cycle[] | null; daily_returns: DailyReturn[] | null } | null;
 };
-/** The report; the product's refusal; or no report served here (no such route, or the product did not answer). */
-export type Fetched = { kind: "report"; report: TrialReport } | { kind: "refused"; code: string; message: string } | { kind: "absent"; message: string };
-
-// The page's server's own failures, as against the product's refusals.
-const SERVED = new Set(["PRODUCT_UNAVAILABLE", "PRODUCT_FAILED", "BAD_REQUEST", "NOT_FOUND"]);
-
-export async function fetchTrial(trialId: number, at: string): Promise<Fetched> {
-  try {
-    const response = await fetch(`/api/trial?trial_id=${trialId}&at=${encodeURIComponent(at)}`, { cache: "no-store" });
-    const body = await response.json().catch(() => null) as { code?: string; message?: string } | null;
-    if (response.ok && body) return { kind: "report", report: body as TrialReport };
-    if (body?.code && !SERVED.has(body.code)) return { kind: "refused", code: body.code, message: body.message ?? "" };
-    return { kind: "absent", message: body?.message ?? `HTTP ${response.status}` };
-  } catch (error) {
-    return { kind: "absent", message: String(error) };
-  }
+/** The report; the product's refusal; or no report served here. */
+export async function fetchTrial(trialId: number, at: string): Promise<{ kind: "report"; report: TrialReport } | Unread> {
+  const read = await getJson<TrialReport>(`/api/trial?trial_id=${trialId}&at=${encodeURIComponent(at)}`);
+  return read.kind === "ready" ? { kind: "report", report: read.body } : read;
 }

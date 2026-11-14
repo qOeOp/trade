@@ -1,7 +1,7 @@
 import type { LineageWidget, SourcesWidget } from "../model/types";
 import { useView, useWidget } from "../model/view";
 import { useAtom } from "../state/atom";
-import { viewStatus } from "../state/phone";
+import { viewStatus } from "../state/update";
 import { useOpenFile } from "../state/editors";
 import { useShell } from "../state/shell";
 import { Waiting } from "../components/Waiting";

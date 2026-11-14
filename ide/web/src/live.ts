@@ -2,13 +2,11 @@
 // changes in place when the ledger does.
 import type { SummaryWidget, View } from "./model/types";
 import { keep, readKept } from "./lib/storage";
-import { update } from "./state/update";
+import { update, type Choice } from "./state/update";
 import { lineHref } from "./lib/lines";
 import { readResearchLines, researchLines } from "./state/researchLines";
 
 type Failure = { code?: string; message?: string; missing?: string[]; next_actions?: string[] };
-/** A way out of a failure: a link with a label. */
-export type Choice = { label: string; href: string };
 type State = { state: "fetching" | "checking" | "queued" | "computing" | "ready" | "unchanged" | "error"; trial_counts?: SummaryWidget["trial_counts"]; ledger_commit?: string | null; available_commit?: string; error?: Failure };
 
 const WAITING: Record<string, string> = {

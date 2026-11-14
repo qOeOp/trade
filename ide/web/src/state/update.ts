@@ -1,5 +1,12 @@
 import { atom, useAtom } from "./atom";
 
+/** A way out of a failure: a link with a label. */
+export type Choice = { label: string; href: string };
+
+/** What the page says before its first view (live.ts follow's `status`): a line, whether one is on its way, and the
+ *  lines to choose from or what the product says to do next. */
+export const viewStatus = atom<{ text: string; busy: boolean; choices?: Choice[]; next?: string[] }>({ text: "", busy: true });
+
 // A live page's update to a newer ledger head while it keeps showing the graph it has: the service
 // checking whether that graph still holds, its graph queued or drawn, or a refresh that failed (the graph stays).
 type UpdateStage = "checking" | "queued" | "computing" | "failed";

@@ -1,7 +1,7 @@
 // A sealed run's reconciliation against its replay (python -m cli.main paper reconcile, run by the paper
 // daemon): the latest one of the run the Runs page shows, read when the run is picked and every few
 // seconds while one is running.
-import { ApiError } from "../lib/agentApi";
+import { ApiError } from "../lib/transport";
 import { paperApi } from "../lib/paperApi";
 import { atom, useAtom } from "./atom";
 

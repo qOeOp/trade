@@ -7,7 +7,7 @@
 // jumps back to the starting balance; the return compounds, the deepest drawdown is the joined path's from
 // the first starting balance, counts add up and the start is the first run's.
 import { brief, clockSpan } from "../lib/format";
-import { amount, type JournalLine, type Live, type PaperRun, type RuntimeFailure, type Seal } from "../lib/paperApi";
+import { amount, type JournalLine, type Readings, type PaperRun, type RuntimeFailure, type Seal } from "../lib/paperApi";
 import { START } from "./chain";
 import { ending } from "./ending";
 
@@ -15,7 +15,7 @@ import { ending } from "./ending";
  *  carries the listing's verdict on it (`status`) as well. */
 export type Piece = {
   paperId: number; lines: JournalLine[]; bars: JournalLine[]; closes: Record<string, [number, number][]>;
-  readings: Live | null; seal: Seal | null; failures: RuntimeFailure[]; status?: PaperRun["status"];
+  readings: Readings | null; seal: Seal | null; failures: RuntimeFailure[]; status?: PaperRun["status"];
 };
 
 const IDS = ["position_id", "client_order_id", "venue_order_id", "trade_id", "opening_order_id", "closing_order_id", "parent_order_id", "order_list_id"] as const;
@@ -86,7 +86,7 @@ export function joined<T extends Piece>(earlier: readonly Piece[], current: T): 
   const total = final === null ? null : final / first - 1, drawdown = deepestDrawdown(equity, first);
   const sum = (pick: (p: Piece) => number) => all.reduce((n, p) => n + pick(p), 0);
   const started = startedNs(all[0]!);
-  const readings: Live | null = current.readings && {
+  const readings: Readings | null = current.readings && {
     ...current.readings, ...Object.fromEntries(COUNTS.map((key) => [key, sum((p) => p.readings?.[key] ?? 0)])),
     last_bar_ns: Math.max(...all.map((p) => p.readings?.last_bar_ns ?? 0)) || null,
     equity, starting_balance_usdt: all[0]!.readings?.starting_balance_usdt ?? String(first), final_equity_usdt: finalText,

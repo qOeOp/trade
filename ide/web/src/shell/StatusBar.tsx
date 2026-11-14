@@ -10,7 +10,7 @@ import { requestFocus, useHovered } from "../state/linking";
 import { notice, usePaperRuns } from "../state/paper";
 import { select, useSelection } from "../state/selection";
 import { useRunData } from "../state/runData";
-import { viewStatus } from "../state/phone";
+import { viewStatus } from "../state/update";
 import { useOnMarketPage, useOnRunsPage } from "../state/shell";
 import { paperTab } from "../state/stage";
 import { useShown } from "../state/shown";

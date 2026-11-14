@@ -24,8 +24,8 @@ async function reload(sessionStorage, accepted, health = async () => ({})) {
     return { paper_id: 7, symbols: ["BTCUSDT"] };
   };
   const context = createContext({ window: { sessionStorage, setTimeout: () => 0 }, crypto: { randomUUID: () => `${Math.random()}` } });
-  const graph = loader({ context, sources: ["state/paper", "lib/pendingStarts"], packages: [], stubs: {
-    "lib/agentApi": { ApiError, errorText: String }, "state/atom": { atom, useAtom: (a) => a.get() },
+  const graph = loader({ context, sources: ["state/paper", "lib/pendingStarts", "lib/storage"], packages: [], stubs: {
+    "lib/transport": { ApiError, errorText: String }, "state/atom": { atom, useAtom: (a) => a.get() },
     "lib/paperApi": { paperApi }, "lib/shared": { shared: (_, next) => next },
     "lib/whileVisible": { whileVisible: () => {} }, "model/chain": { ACTIVE: new Set() },
     "model/paperMemory": { full: () => null }, "state/phone": { phoneNow: () => false },
