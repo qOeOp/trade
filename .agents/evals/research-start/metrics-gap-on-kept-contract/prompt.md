@@ -9,7 +9,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 首次回放前的就绪检查：
 
-- `research state` 没有 RUNTIME_UNSUPPORTED；运行时引用解析到唯一镜像；检出在 origin/main 上且干净。
+- `research state` 没有 gate；运行时引用解析到唯一镜像；检出在 origin/main 上且干净。
 - 2026-11-02 里两个合约 2023-12 至 2026-10 每个月的 K 线、MARK 和资金费都在，没有缺口。
 - `deploy/compose.yaml` 的 `market-import` 服务是 `market follow --symbols BTCUSDT ETHUSDT SOLUSDT`。
 - `market coverage` 的 `coverage[].metrics`：BTCUSDT 2024-01 至 2026-10 每个月都有导入，最后一行 create_time 是 2026-10-28 23:55，10-29 至 10-31 没有行；`count_long_short_ratio` 空行 0。DOGEUSDT 没有任何 metrics 导入。
