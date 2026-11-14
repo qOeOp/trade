@@ -142,7 +142,6 @@ export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
   };
   const nodeLabel = (id: string) => items.get(id)?.title ?? id;
   const related = selectedItem ? productArchitectureEdges.filter(e => e.source === selectedItem.id || e.target === selectedItem.id) : [];
-  const description = selectedItem?.description?.[locale] ?? selectedRelation?.description[locale];
   // Relations are explained on the platform architecture page.
   const docsRoute = selectedItem?.docsRoute ?? (selectedRelation ? 'platform-architecture' : undefined);
 
@@ -231,12 +230,11 @@ export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
       {selection ? <aside className="docs-map-detail" aria-live="polite" aria-label={locale === 'zh' ? '架构详情' : 'Architecture details'}>
         <button type="button" className="docs-map-detail-close" aria-label={locale === 'zh' ? '关闭详情' : 'Close details'} onClick={() => setSelection(null)}>×</button>
         <strong>{selectedItem?.title ?? (selectedRelation ? `${nodeLabel(selectedRelation.source)} → ${nodeLabel(selectedRelation.target)}` : '')}</strong>
-        {description ? <p>{description}</p> : null}
         {docsRoute ? <Link href={`/${locale}/docs/${docsRoute}`}>{locale === 'zh' ? '查看文档 →' : 'Read docs →'}</Link> : null}
         {related.length ? <details><summary>{locale === 'zh' ? `相关架构关系（${related.length}）` : `Architecture relations (${related.length})`}</summary>
           <ul>{related.map(edge => <li key={edge.id}><button type="button" onClick={() => selectRelation(edge.id)}>
             {nodeLabel(edge.source)} → {nodeLabel(edge.target)}
-          </button><p>{edge.description[locale]}</p></li>)}</ul>
+          </button></li>)}</ul>
         </details> : null}
       </aside> : null}
     </div>

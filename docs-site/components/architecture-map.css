@@ -88,14 +88,14 @@
   border: 1px solid var(--map-boundary-line); border-radius: 7px;
   box-shadow: 0 4px 18px rgb(0 0 0 / 7%); font-size: 13px; line-height: 1.6;
 }
-.docs-map-detail p { margin: 6px 0; }
+.docs-map-detail > a { display: block; margin-top: 6px; }
 .docs-map-detail a, .docs-map-detail li button { color: var(--map-primary); text-decoration: none; }
 .docs-map-detail strong { font-weight: 600; }
 .docs-map-detail-close { position: absolute; top: 5px; right: 7px; width: 26px; height: 26px; background: transparent; border: 0; color: var(--map-muted); cursor: pointer; font-size: 22px; }
 .docs-map-detail details { margin-top: 8px; }
 .docs-map-detail summary { color: var(--map-muted); cursor: pointer; }
 .docs-map-detail ul { list-style: none; padding: 0; margin: 10px 0 0; }
-.docs-map-detail li + li { margin-top: 12px; }
+.docs-map-detail li + li { margin-top: 6px; }
 .docs-map-detail li button { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-align: left; }
 @media (max-width: 800px) {
   .docs-home-container { padding: 4px 0 12px; }

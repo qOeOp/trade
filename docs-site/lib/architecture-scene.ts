@@ -2,7 +2,7 @@ import type { MapDecoration, MapRoute, MapRule, MapSurface, MapText, Rect } from
 
 // Approved homepage composition. Architecture facts remain in product-architecture.ts.
 // Fit the section headings with a 64-unit top gutter.
-export const mapBounds: Rect = { x: 0, y: 112, width: 2400, height: 1328 };
+export const mapBounds: Rect = { x: 0, y: 112, width: 2400, height: 1510 };
 export const mapTexts: readonly MapText[] = [
   {"id": "01", "text": "01", "x": 64.0, "y": 176.0, "size": 13.0, "weight": 500, "tone": "primary", "anchor": "start", "relations": []},
   {"id": "declare-prepare", "text": "Declare & prepare", "x": 100.0, "y": 176.0, "size": 25.0, "weight": 500, "tone": "ink", "anchor": "start", "relations": []},
@@ -102,12 +102,26 @@ export const mapTexts: readonly MapText[] = [
   {"id": "cli-publish", "text": "CLI publish", "x": 1792.0, "y": 1184.0, "size": 11.0, "weight": 400, "tone": "muted", "anchor": "start", "relations": []},
   {"id": "full-history-outside-service-checkout", "text": "Full history · outside service / checkout", "x": 2199.0, "y": 1319.0, "size": 11.0, "weight": 400, "tone": "muted", "anchor": "middle", "relations": []},
   {"id": "active-dolt-ide-reader-accounts-only", "text": "Active Dolt → IDE · reader accounts only", "x": 1010.0, "y": 1341.0, "size": 12.0, "weight": 400, "tone": "muted", "anchor": "middle", "relations": ["dolt-readers"]},
-  {"id": "primary-path", "text": "Primary path", "x": 132.0, "y": 1398.0, "size": 12.0, "weight": 400, "tone": "muted", "anchor": "start", "relations": []},
-  {"id": "supporting-relation", "text": "Supporting relation", "x": 422.0, "y": 1398.0, "size": 12.0, "weight": 400, "tone": "muted", "anchor": "start", "relations": []},
-  {"id": "a-3", "text": "A", "x": 731.0, "y": 1398.0, "size": 12.0, "weight": 500, "tone": "primary", "anchor": "middle", "relations": []},
-  {"id": "matching-letters-continue-the-same-relation", "text": "Matching letters continue the same relation", "x": 756.0, "y": 1398.0, "size": 12.0, "weight": 400, "tone": "muted", "anchor": "start", "relations": []},
+  {"id": "primary-path", "text": "Primary path", "x": 132.0, "y": 1580.0, "size": 12.0, "weight": 400, "tone": "muted", "anchor": "start", "relations": []},
+  {"id": "supporting-relation", "text": "Supporting relation", "x": 422.0, "y": 1580.0, "size": 12.0, "weight": 400, "tone": "muted", "anchor": "start", "relations": []},
+  {"id": "a-3", "text": "A", "x": 731.0, "y": 1580.0, "size": 12.0, "weight": 500, "tone": "primary", "anchor": "middle", "relations": []},
+  {"id": "matching-letters-continue-the-same-relation", "text": "Matching letters continue the same relation", "x": 756.0, "y": 1580.0, "size": 12.0, "weight": 400, "tone": "muted", "anchor": "start", "relations": []},
   {"id": "catalog-read-only-note", "text": "read only", "x": 602, "y": 460, "size": 11, "weight": 400, "tone": "muted", "anchor": "middle", "relations": ["catalog-runner"]},
   {"id": "paper-control-execution", "text": "Control & execution", "x": 682, "y": 952, "size": 17, "weight": 500, "tone": "ink", "anchor": "start", "relations": []},
+  {"id": "live-api", "text": "Live API", "x": 222.0, "y": 1276.0, "size": 19.0, "weight": 500, "tone": "accent", "anchor": "middle", "relations": []},
+  {"id": "live-2", "text": "Live", "x": 1728.0, "y": 800.0, "size": 12.0, "weight": 400, "tone": "muted", "anchor": "end", "relations": []},
+  {"id": "c-2", "text": "C", "x": 1753.0, "y": 800.0, "size": 12.0, "weight": 500, "tone": "primary", "anchor": "middle", "relations": ["research-live"]},
+  {"id": "06", "text": "06", "x": 682.0, "y": 1416.0, "size": 13.0, "weight": 500, "tone": "primary", "anchor": "start", "relations": []},
+  {"id": "live", "text": "Live", "x": 718.0, "y": 1416.0, "size": 25.0, "weight": 500, "tone": "ink", "anchor": "start", "relations": []},
+  {"id": "real-account-started-on-the-live-page", "text": "Real account · started on the Live page", "x": 800.0, "y": 1416.0, "size": 14.0, "weight": 400, "tone": "muted", "anchor": "start", "relations": []},
+  {"id": "binance-account", "text": "↗ Binance · account", "x": 1502.0, "y": 1416.0, "size": 12.0, "weight": 400, "tone": "muted", "anchor": "middle", "relations": []},
+  {"id": "live-control", "text": "Live control", "x": 807.0, "y": 1466.0, "size": 20.0, "weight": 500, "tone": "ink", "anchor": "middle", "relations": ["research-live"]},
+  {"id": "reads-research-db", "text": "Reads Research DB ", "x": 725.1298828125, "y": 1495.0, "size": 13.0, "weight": 400, "tone": "muted", "anchor": "start", "relations": []},
+  {"id": "c", "text": "[C]", "x": 865.4912109375, "y": 1495.0, "size": 13.0, "weight": 400, "tone": "muted", "anchor": "start", "relations": ["research-live"]},
+  {"id": "live-runner", "text": "Live runner", "x": 1190.0, "y": 1466.0, "size": 20.0, "weight": 500, "tone": "accent", "anchor": "middle", "relations": []},
+  {"id": "engine-live-per-run-egress", "text": "engine.live · per-run egress", "x": 1190.0, "y": 1495.0, "size": 13.0, "weight": 400, "tone": "muted", "anchor": "middle", "relations": []},
+  {"id": "private-root", "text": "Private root", "x": 1518.0, "y": 1466.0, "size": 20.0, "weight": 500, "tone": "ink", "anchor": "middle", "relations": []},
+  {"id": "run-records", "text": "Run records", "x": 1518.0, "y": 1495.0, "size": 13.0, "weight": 400, "tone": "muted", "anchor": "middle", "relations": []},
 ];
 export const mapSurfaces: readonly MapSurface[] = [
   {"id": "product", "x": 64.0, "y": 258.0, "width": 480.0, "height": 458.0, "radius": 10.0, "node": "product", "tier": "region"},
@@ -134,6 +148,7 @@ export const mapSurfaces: readonly MapSurface[] = [
   {"id": "ide-web", "x": 92.0, "y": 1014.0, "width": 240.0, "height": 62.0, "radius": 7.0, "node": "ide-web", "tier": "component"},
   {"id": "chat", "x": 356.0, "y": 1014.0, "width": 160.0, "height": 62.0, "radius": 7.0, "node": "chat", "tier": "component"},
   {"id": "paper-api", "x": 332.0, "y": 1254.0, "width": 184.0, "height": 44.0, "radius": 7.0, "node": "ide", "tier": "component", "accent": true},
+  {"id": "live-api", "x": 156.0, "y": 1254.0, "width": 132.0, "height": 44.0, "radius": 7.0, "node": "ide", "tier": "component", "accent": true},
   {"id": "readers", "x": 92.0, "y": 1170.0, "width": 424.0, "height": 76.0, "radius": 7.0, "node": "readers", "tier": "component"},
   {"id": "paper", "x": 654.0, "y": 920, "width": 980.0, "height": 388, "radius": 10.0, "node": "paper", "tier": "region"},
   {"id": "badge-Binance · public data", "x": 1398, "y": 936, "width": 208, "height": 32.0, "radius": 5.0, "node": "binance", "tier": "external"},
@@ -143,6 +158,11 @@ export const mapSurfaces: readonly MapSurface[] = [
   {"id": "sandbox", "x": 1034.0, "y": 1074.0, "width": 312.0, "height": 66.0, "radius": 7.0, "node": "sandbox", "tier": "component", "accent": true},
   {"id": "egress", "x": 1034.0, "y": 1180.0, "width": 312.0, "height": 66.0, "radius": 7.0, "node": "egress", "tier": "component"},
   {"id": "journal", "x": 1430.0, "y": 1074.0, "width": 176.0, "height": 66.0, "radius": 7.0, "node": "journal", "tier": "component"},
+  {"id": "live", "x": 654.0, "y": 1384.0, "width": 980.0, "height": 150.0, "radius": 10.0, "node": "live", "tier": "region"},
+  {"id": "badge-Binance · account", "x": 1398.0, "y": 1400.0, "width": 208.0, "height": 32.0, "radius": 5.0, "node": "binance-account", "tier": "external"},
+  {"id": "live-control", "x": 682.0, "y": 1444.0, "width": 250.0, "height": 66.0, "radius": 7.0, "node": "live-control", "tier": "component"},
+  {"id": "live-runner", "x": 1034.0, "y": 1444.0, "width": 312.0, "height": 66.0, "radius": 7.0, "node": "live-runner", "tier": "component", "accent": true},
+  {"id": "live-root", "x": 1430.0, "y": 1444.0, "width": 176.0, "height": 66.0, "radius": 7.0, "node": "live-root", "tier": "component"},
   {"id": "dolthub", "x": 1764.0, "y": 1198.0, "width": 274.0, "height": 92.0, "radius": 7.0, "node": "dolthub", "tier": "copy"},
   {"id": "backup", "x": 2062.0, "y": 1198.0, "width": 274.0, "height": 92.0, "radius": 7.0, "node": "backup", "tier": "copy"},
 ];
@@ -173,9 +193,14 @@ export const mapRoutes: readonly MapRoute[] = [
   {"id": "daemon-research", "relations": ["daemon-research"], "points": [[[1766, 871], [1792, 871]]], "primary": false, "arrow": true},
   {"id": "dolt-hub", "relations": ["dolt-hub"], "points": [[[1764, 905], [1740, 905], [1740, 1172], [1901, 1172], [1901, 1198]]], "primary": false, "arrow": true},
   {"id": "dolt-backup", "relations": ["dolt-backup"], "points": [[[2336, 880], [2360, 880], [2360, 1172], [2199, 1172], [2199, 1198]]], "primary": false, "arrow": true},
-  {"id": "dolt-readers", "relations": ["dolt-readers"], "points": [[[1764, 920], [1706, 920], [1706, 1360], [304, 1360], [304, 1246]]], "primary": false, "arrow": true},
-  {"id": "", "relations": [], "points": [[[64, 1398], [116, 1398]]], "primary": true, "arrow": true},
-  {"id": "", "relations": [], "points": [[[354, 1398], [406, 1398]]], "primary": false, "arrow": true},
+  {"id": "dolt-readers", "relations": ["dolt-readers"], "points": [[[1764, 920], [1706, 920], [1706, 1360], [310, 1360], [310, 1246]]], "primary": false, "arrow": true},
+  {"id": "ide-live", "relations": ["ide-live"], "points": [[[222, 1298], [222, 1477], [682, 1477]]], "primary": true, "arrow": true},
+  {"id": "research-live", "relations": ["research-live"], "points": [[[1792, 800], [1766, 800]]], "primary": false, "arrow": true},
+  {"id": "live-control-runner", "relations": ["live-control-runner"], "points": [[[932, 1477], [1034, 1477]]], "primary": true, "arrow": true},
+  {"id": "live-runner-binance", "relations": ["live-runner-binance"], "points": [[[1190, 1444], [1190, 1416], [1398, 1416]]], "primary": true, "arrow": true},
+  {"id": "live-runner-root", "relations": ["live-runner-root"], "points": [[[1346, 1477], [1430, 1477]]], "primary": false, "arrow": true},
+  {"id": "", "relations": [], "points": [[[64, 1580], [116, 1580]]], "primary": true, "arrow": true},
+  {"id": "", "relations": [], "points": [[[354, 1580], [406, 1580]]], "primary": false, "arrow": true},
 ];
 export const mapRules: readonly MapRule[] = [
   {"id": "rule-1", "d": "M229 451v28 M371 451v28"},
@@ -185,7 +210,8 @@ export const mapRules: readonly MapRule[] = [
 export const mapDecorations: readonly MapDecoration[] = [
   {"id": "continuation-A-2248", "x": 2248.0, "y": 970.0, "width": 26.0, "height": 24.0, "radius": 4.0},
   {"id": "continuation-B-1740", "x": 1740.0, "y": 859.0, "width": 26.0, "height": 24.0, "radius": 4.0},
-  {"id": "continuation-A-718", "x": 718.0, "y": 1386.0, "width": 26.0, "height": 24.0, "radius": 4.0},
+  {"id": "continuation-C-1740", "x": 1740.0, "y": 788.0, "width": 26.0, "height": 24.0, "radius": 4.0},
+  {"id": "continuation-A-718", "x": 718.0, "y": 1568.0, "width": 26.0, "height": 24.0, "radius": 4.0},
 ];
 export const textTargets = [
   {"node": "candidate", "texts": ["publish"]},
@@ -206,4 +232,6 @@ export const referenceTargets = [
   {"relation": "market-inputs", "texts": ["a-2"]},
   {"relation": "daemon-research", "texts": ["b"]},
   {"relation": "daemon-research", "texts": ["b-2"]},
+  {"relation": "research-live", "texts": ["c"]},
+  {"relation": "research-live", "texts": ["c-2"]},
 ];
