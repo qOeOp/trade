@@ -62,6 +62,16 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(found["groups"][0]["orders"][0]["delay_ms"], 25)
         self.assertNotIn("cause", found["groups"][0])
 
+    def test_a_journal_decision_is_stamped_by_its_ts_event_as_engine_paper_writes_it(self):
+        # engine.paper journals an event's ts_event, never its ts_init; the replay's native events carry both.
+        decided = close_of(2) + 25 * 10**6
+        paper = [{**initialized("P1", "ENTRY"), "ts_event": decided}, filled("P1", decided, "100.0", "1")]
+        replay = [{**initialized("R1", "ENTRY"), "ts_event": close_of(2), "ts_init": close_of(2)},
+                  filled("R1", close_of(2), "100.0", "1")]
+        found = reconcile.compare(journal(paper, 5), replay, {"BTCUSDT": archived(5)}, None, START, START + 5 * MINUTE)
+        self.assertEqual(found["summary"]["same"], 1)
+        self.assertEqual(found["groups"][0]["orders"][0]["run"]["init_ns"], decided)
+
     def test_a_missing_live_bar_before_a_difference_is_its_cause(self):
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(3), "100.0", "1")]
         found = reconcile.compare(journal([], 5, skip=(2,)), replay, {"BTCUSDT": archived(5)}, None, START,
