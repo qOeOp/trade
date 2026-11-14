@@ -20,7 +20,7 @@ documentation site is not part of a release) and third-party checks, downloads
 the native tested digest artifact for that run/attempt, and appends `{revision,image,service,runtime}`, the
 exact tested IDE, service and runtime digests, to two operational branches: `main-ready` for every `main`
 build (staging; no host reads it), and `deploy-ready`, which this host reads, only for the commit of the highest
-version tag from `v0.2.0` on that `main` contains. `deploy-ready` never moves back to an older version, and a newer
+version tag that `main` contains. `deploy-ready` never moves back to an older version, and a newer
 untagged `main` build never touches it; each admission also records a GitHub deployment to `production`, which
 says only that the version was admitted, since the host does not report back. A
 runtime carries forward only when its complete build inputs match the service source and its source
@@ -37,8 +37,9 @@ active Paper runs (the newest line when none matches; nothing while the ledger h
 The [Paper release](../../docs/plans/paper-continuous-delivery.zh.md) publishes the admitted service and
 runtime digests once the Web of the same revision is routed. It warms a read-only controller, pauses new writes while draining the existing lifecycle lock, then
 switches the API. During observation only new starts wait; commit enables the new fixed runtime default.
-Existing runner/egress containers, checkpoint originals and image_ref stay unchanged. Schema or protocol
-changes must remain compatible with existing runs; incompatible candidates keep the previous service.
+Existing runner/egress containers, checkpoint originals and image_ref stay unchanged. 0.x keeps no compatibility
+between versions (the user's decision of 2026-11-14): a new controller does not read or migrate a run an earlier
+version left in another format; it stays on disk.
 
 The release plane reads these host paths; the install steps below make the first two:
 
@@ -50,8 +51,7 @@ The release plane reads these host paths; the install steps below make the first
 | `/var/lib/trade-release` | release state, including `router/active.json` | `install-release.sh` |
 
 The host control program is installed from reviewed source and does not update itself by executing the
-fetched checkout ([Updating the installed control code](#updating-the-installed-control-code)). Agent-format
-changes must retain backward compatibility for rollback. Release handoffs can renew only a positively
+fetched checkout ([Updating the installed control code](#updating-the-installed-control-code)). Release handoffs can renew only a positively
 identified pre-forward same-origin nonce rejection, preserving the original operation ID.
 
 Use `systemctl list-timers trade-release.timer` and `journalctl -u trade-release.service` for publication
@@ -61,7 +61,7 @@ any new selection. Paper has a separate recovery journal and `paper-failed/` mar
 kept paused until commit so rollback never replaces a newly started account. Unknown independent routing/Agent changes stop automatic operations and preserve
 the journal for the operator. After a settled tick the three newest good containers of each kind (Web, Agent, Paper controller,
 Live controller) and the newest failed one stay, older stopped ones are removed, and so are IDE and service images no container
-uses (and old docker-api images), since they can be pulled again by digest. A Live controller also stays while it is the account's owner or its Web
+uses (and old docker-api images), since they can be pulled again by digest. A Live controller also stays while its Web
 remains, and its `live/<revision>/` directory goes with it. A runtime image goes when no container uses it, neither a
 Paper controller nor a kept Live directory names it, and the registry still serves its digest: a run that needs it
 again pulls it by digest. Running containers, the active routes, runs, ledger records and market inputs are never pruned.
@@ -88,12 +88,8 @@ Removing a source row retires it once the next paired control reads the declarat
 its own copy of the inputs, and past runs of that source show no declared purpose.
 
 A control is created with the same service revision as its Web image and the same qualified runtime pair as
-the release record. The routed Web's control is the route's owner: the route's `@id` (`live-<revision>`) when
-present, otherwise the Web's own revision. A candidate whose change from the owner's revision touches only
-paths the control never loads (`ide/web/`, `ide/overview/`, `ide/agent/`, `docs/`, `tests/`, `.agents/`,
-`.github/`, `deploy/remote/`, `deploy/README.md`, `deploy/compose.yaml` and top-level Markdown) is released as a
-Web alone: it mounts the owner's socket, the route records that owner, and the account is neither inspected
-nor locked. Any other change pairs a new control. Each revision gets `live/<revision>/configuration.json` and `live/<revision>/socket/`.
+the release record, and the routed Web uses the control of its own revision: with Live installed every release
+pairs a new control, one that changes only Web paths included. Each revision gets `live/<revision>/configuration.json` and `live/<revision>/socket/`.
 Web mounts only that socket directory read-only and keeps `--live-router=ide-router`; Agent, Paper and
 the browser never mount the custody root. Control retains its existing operator UID/GID, mounts that
 root at the same path, and uses read-only research/source inputs. It is a privileged Docker controller,
@@ -108,7 +104,7 @@ the release timer and let any release service finish. Stage a new universe or re
 inputs (regular, root-owned, read-only) and keep the old ones while an old control is retained, since it mounts
 them. Then replace the declaration atomically (0600, written beside it and renamed over it) and resume
 the timer. From the swap on, the old control serves only reads and STOP. The next release pairs a
-new control from the declaration, even if it touches only Web paths; nothing changes until one lands.
+new control from the declaration; nothing changes until one lands.
 A release is a version whose commit builds the service image (the paths in `.github/workflows/ide-image.yml`);
 a version on a commit of docs, skills or host-side files outside the image (`deploy/remote/`, `deploy/compose.yaml`,
 `deploy/README.md`) alone builds none and leaves the swap waiting; those reach the host through its
@@ -126,24 +122,13 @@ the timer, let any release service finish, write the declaration (0600, in a 070
 `/var/lib/trade-release/live/`) and resume the timer. The next release pairs
 the first control. Do not save a credential or start a run as part of installing.
 
-When Live is busy, a candidate that changes the control still pairs and **takes over the running runners**
-when the declaration is unchanged, its `live/release.py` declares `ADOPT_INSPECT`, and every busy run's runtime
-build revision declares the candidate's `engine/live.py` `RUNNER_CONTRACT`. The candidate's own inspection lists
-those revisions inside the account lock, again at commit, and the journal logs `with a control that can take over
-running Live runners`. No runner, egress or image is touched: from the commit on, the new control restarts an
-interrupted run, checks its key and finishes it, and the old one is retired as below
-([design](../../docs/plans/live-continuous-step6-adopt-20261113.zh.md)). A changed declaration still needs Live idle
-(above): while a swapped declaration waits for its pair, the old control does no maintenance either, so an
-interrupted run is not started again and no key is checked until Live is idle and the new control pairs.
-
-When Live is busy or unresolved and its runners cannot pass, the timer still releases a Web-only candidate
-beside the owner control (memory headroom permitting). A candidate that changes the control goes **Web first** when its
-`live/protocol.py` `PROTOCOL` equals the owner's: its Web, named `trade-release-web-<revision>-pre`, serves
-beside the owner control exactly as a Web-only one does, and the journal logs `ahead of Live control
-<owner>`; once Live is idle the same revision pairs its own control under the plain name. An undeclared, malformed or
-different protocol keeps the current Web/control pair, and so does a held account lock, which is a
-read in progress rather than a busy account; an inspection that fails to run counts as unavailable
-([design](../../docs/plans/live-web-first-release-20261108.zh.md)). During a paired update,
+With Live installed, a release waits until Live is idle: no run holds account custody and no request is
+unresolved. The current control inspects the account inside the account lock (`live release-inspect`) before
+anything is prepared, and the candidate's control again before the journal and at commit. While Live is busy or unresolved, or a read in progress holds the lock, the
+current Web/control pair stays, Web-only changes included, and the next tick asks again; an inspection that fails
+to run counts as unavailable. 0.x keeps no compatibility between versions (the user's decision of 2026-11-14): a
+new control does not take over, read or migrate a run an earlier version prepared. Such a run stays on disk under
+`runs/`, and while its runner container still runs the account counts as unavailable. During a paired update,
 new effect-producing Live requests wait for a committed owner; reads and STOP remain available. Existing
 runners are never restarted for publication. Once the new pair is committed, the host verifies each
 retired control's exact Id, disables only its restart policy and sends cooperative SIGTERM. It observes
@@ -268,10 +253,9 @@ not a tested capacity result; do not change an existing deployment's cap without
    compose --profile local-research-import up -d --no-deps market-import
    ```
 
-6. Wait until `deploy-ready` admits a version, `v0.2.0` or later: its newest record has a non-null image and names
-   that tag's commit (`git log -p origin/deploy-ready -- release.json`, `git tag --points-at <revision>`). Records
-   before it are main builds from before versions gated releases; if step 3 named images before the version was
-   admitted, run its `deploy.images` again. Then run `sh deploy/remote/install-release.sh`
+6. Wait until `deploy-ready` admits a version: its newest record has a non-null image and names
+   that tag's commit (`git log -p origin/deploy-ready -- release.json`, `git tag --points-at <revision>`). If step 3
+   named images before the version was admitted, run its `deploy.images` again. Then run `sh deploy/remote/install-release.sh`
    as root from `/opt/trade-app`. It stops at the first failure; remove the `trade-release-*` containers and
    the `router` and `paper-router` directories under `/var/lib/trade-release` it left, then run it again.
 
@@ -326,11 +310,10 @@ is a new commit and a new version, not a reselection:
 4. Check the About dialog names the new commit, and `journalctl -u trade-release.service` shows it routed.
 
 What a rollback does not undo: ledger records and the market directory only grow, and running Paper and Live runs
-keep the runtime image and controller they started with. A schema or protocol change therefore has to stay readable
-by the revision before it; a revert that needs the ledger rewound is a destructive write for the user to decide.
+keep the runtime image and controller they started with. 0.x keeps no compatibility between versions, so a revision
+may not read what a later one wrote; a revert that needs the ledger rewound is a destructive write for the user to decide.
 A target that failed stays in `/var/lib/trade-release/failed/`, and the three newest good Web, Agent and controller
-containers stay on the host for inspection. A workstation without the release plane goes back with
-`deploy.images --revision` ([Image versions](../README.md#image-versions)).
+containers stay on the host for inspection.
 
 ## Live on this host
 
@@ -430,5 +413,4 @@ Before the next version releases, verify that the installed systemd service can 
 original private `account.lock` read-only, that it sees the same regular-file inode as control, and that
 the filesystem supports local read-only-fd exclusive flock. The release host itself holds that fd over
 the read-only service-image `live release-inspect` call and transaction/route writes. It never creates a
-missing account.lock or changes its permissions. Install this integration before the next version
-releases: an already active revision is not recreated in place under its retained container identity.
+missing account.lock or changes its permissions. Install new control code while Live is idle.

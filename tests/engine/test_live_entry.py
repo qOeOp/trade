@@ -466,28 +466,6 @@ class NativeEntryTests(unittest.TestCase):
         self.session.node.handle().stop.assert_called_once()  # nothing to close: this start ends as it is
         self.assertFalse(self.session.native_flat or self.session.failed)
 
-    def test_a_confirmed_runtime_switch_waits_for_a_working_entry_and_a_flat_start_ends_without_closing(self):
-        # Design §3.8: on the native cache, SWITCH ends a start only once this strategy holds nothing.
-        entry = self.admit(self.limit(price="95.00"))
-        self.assertEqual(entry.status, OrderStatus.ACCEPTED)
-        self.session.node = Mock()
-        (self.session.output / live_connection.SWITCH).write_text("")
-        self.assertFalse(live_connection.rewarm_pending(self.session, self.engine.cache))  # a working entry stays
-        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.ACCEPTED)
-        self.assertEqual(self.read_events("entry_cancel_requested"), [])
-        self.source.cancel_order(entry.client_order_id)  # the strategy withdraws it
-        self.advance()
-        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.CANCELED)
-        self.assertTrue(live_connection.rewarm_pending(self.session, self.engine.cache))
-        with patch.object(live_connection, "compare", return_value={}):
-            for observed in (10**12, 10**12 + 31 * 10**9):
-                live_connection.judge(self.session, self.engine.cache, {"observed_ns": observed})
-        self.assertTrue(self.session.rewarming and self.session.switching)
-        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
-        live_lifecycle.Observer.observe(observer)
-        self.session.node.handle().stop.assert_called_once()
-        self.assertFalse(self.session.native_flat or self.session.failed)
-
     def bars_missing(self):
         live_connection.close_entries(self.session, "bars_missing", bar_type="BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL",
                                       after_ns=0, received_ns=1)

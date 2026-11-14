@@ -183,7 +183,7 @@ def _membership(market: dict, at: str | None, symbols: list[str] | None, now_ns:
         symbols = sorted(symbol for symbol, intervals in members.items()
                          if any(low <= now_ns < high for low, high in intervals))
         if not symbols:
-            raise refuse("EMPTY_SYMBOLS", f"market day {market_day} has no member for the current month",
+            raise refuse("UNIVERSE_EMPTY", f"market day {market_day} has no member for the current month",
                          missing=("symbols",))
     if not symbols or len(set(symbols)) != len(symbols):
         raise refuse("EMPTY_SYMBOLS", "the contract list is empty or repeats a contract", missing=("symbols",))
@@ -299,7 +299,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
     with db.connect(profile, "reader") as conn:
         prior = records.paper_start_of(conn, op_id) if op_id else None
         if prior is not None:
-            if (prior["config"].get("candidate") != candidate or prior["config"].get("leverage") != leverage
+            if (prior["config"].get("candidate") != candidate or prior["config"]["leverage"] != leverage
                     or (symbols is not None and symbols != prior["symbols"])):
                 raise refuse("OP_ID_CONFLICT",
                              "this start operation already names another candidate, leverage or contracts")

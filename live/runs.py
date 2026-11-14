@@ -14,8 +14,6 @@ from datetime import UTC, datetime
 import os
 from pathlib import Path
 import re
-import secrets
-import time
 
 from engine.config import Refusal as EngineRefusal, is_leverage
 from engine.live_errors import LiveRefusal
@@ -50,18 +48,25 @@ def inspect_runner(root: Path, run_id: str, directory: Path, manifest: dict, lau
                     if row["event"] == "container_started" and row.get("container") == launch["container"]), None)
     return host_runtime.container_identity(root, run_id, directory, manifest, launch["container"], "runner", mode=launch["mode"],
                       credentials_path=launch.get("credentials_path"),
-                      container_id=started.get("container_id") if started else None,
-                      runtime=launch_runtime(directory, manifest, launch))
+                      container_id=started.get("container_id") if started else None)
+
+
+def earlier(directory: Path) -> bool:
+    """A run an earlier version prepared: its manifest names another format. 0.x keeps no compatibility between
+    versions (the user, 2026-11-14): such a run stays on disk, and no listing, release check or operation reads it."""
+    try:
+        return state.read(directory / "inputs" / "manifest.json").get("format") != MANIFEST_FORMAT
+    except LiveRefusal:
+        return False  # no manifest yet: a preparation of this version, read and refused as it is
 
 
 def read_manifest(root: Path, run_id: str) -> tuple[Path, dict]:
     directory = state.directory(root, run_id)
     manifest = state.read(directory / "inputs" / "manifest.json")
+    if manifest.get("format") != MANIFEST_FORMAT:  # earlier(): to this version no such run exists
+        raise state.fail("LIVE_RECORD_UNAVAILABLE", "the private Live record is absent or malformed")
     if manifest.get("run_id") != run_id:
         raise state.fail("LIVE_IDENTITY_CHANGED", "the private manifest does not identify this run")
-    if manifest.get("format") != MANIFEST_FORMAT:
-        raise state.fail("LIVE_RUN_FORMAT", "this run was prepared under an earlier manifest format, which is no "
-                                            "longer read")
     for filename, digest in (("strategy.py", manifest["source"]["source_sha256"]),
                              ("universe.json", manifest["universe_sha256"])):
         path = directory / "inputs" / filename
@@ -96,69 +101,9 @@ def _interrupted(directory: Path, launch: dict | None) -> bool:
     return not any(row.get("event") in RUN_ENDED for row in _since(directory, launch))
 
 
-# A confirmed new runtime image (design §3.8, the user 2026-11-13: the same run takes it at its next flat moment). The
-# runner reads SWITCH beside STOP (engine.live_connection.SWITCH, RUNNER_CONTRACT 2); lifecycle.jsonl holds the rest.
-SWITCH = "SWITCH"
-SWITCH_EVENTS = frozenset({"runtime_switch_requested", "runtime_switched", "runtime_switch_canceled",
-                           "runtime_switch_failed"})
-SWITCH_STARTS = frozenset({"rewarming", "held_flat"})  # a start that ended flat without ending the run
-
-
-def pending_switch(directory: Path) -> dict | None:
-    """The confirmed switch the run has not taken yet, canceled or failed."""
-    rows = [row for row in host_events(directory) if row["event"] in SWITCH_EVENTS]
-    return rows[-1] if rows and rows[-1]["event"] == "runtime_switch_requested" else None
-
-
-def launch_runtime(directory: Path, manifest: dict, launch: dict | None) -> dict:
-    """The image a launch ran on: the manifest's, or the confirmed switch's it names (`image_ref`)."""
-    ref = launch.get("image_ref") if launch else None
-    if ref is None or ref == manifest["runtime"]["image_ref"]:
-        return manifest["runtime"]
-    found = next((row["runtime"] for row in reversed(host_events(directory))
-                  if row["event"] == "runtime_switch_requested" and row["runtime"]["image_ref"] == ref), None)
-    if found is None:
-        raise state.fail("LIVE_IDENTITY_CHANGED", "a launch names a runtime image no switch confirmed")
-    return found
-
-
 def _since(directory: Path, launch: dict) -> list[dict]:
     return [row for row in state.events(directory / "out" / "events.jsonl")
             if row.get("observed_ns", 0) >= launch["observed_ns"]]
-
-
-def _launch_runtime_locked(directory: Path, manifest: dict, latest: dict | None,
-                           mode: str) -> tuple[dict, str | None, list[tuple[str, dict]]]:
-    """The image this launch runs on, the switch request it takes, if any, and the lifecycle rows that say so, which
-    the caller appends only after `launch_requested` (a launch cut short before it changes no image).
-
-    - A switch's first start that ended before its warm-up (the new image did not start: a refusal, a native cache it
-      cannot read) falls back once to the image before it (the user, 2026-11-13), for a run start or a
-      reconciliation.
-    - A run start after one that ended flat without ending the run (SWITCH_STARTS) takes a pending switch, if its
-      image is still on this host.
-    """
-    current = launch_runtime(directory, manifest, latest)
-    if mode == "preflight" or latest is None or latest["mode"] != "run":
-        return current, None, []
-    rows = _since(directory, latest)
-    if latest.get("switch_request_id") and not any(row.get("event") == "warmup" for row in rows):
-        before = [row for row in host_events(directory) if row["event"] == "launch_requested"
-                  and row["observed_ns"] < latest["observed_ns"]]
-        return launch_runtime(directory, manifest, before[-1] if before else None), None, [(
-            "runtime_switch_failed", {"request_id": latest["switch_request_id"], "code": "LIVE_RUNTIME_START",
-                                      "image_ref": current["image_ref"]})]
-    pending = pending_switch(directory)
-    if mode != "run" or pending is None or not any(row.get("event") in SWITCH_STARTS for row in rows):
-        return current, None, []
-    target = pending["runtime"]
-    if host_runtime.inspect("image", target["image_ref"]) is None:
-        return current, None, [("runtime_switch_failed", {"request_id": pending["request_id"],
-                                                          "code": "RUNTIME_UNAVAILABLE",
-                                                          "image_ref": target["image_ref"]})]
-    return target, pending["request_id"], [("runtime_switched", {"request_id": pending["request_id"],
-                                                                 "image_ref": target["image_ref"],
-                                                                 "previous": current["image_ref"]})]
 
 
 def write_months_locked(root: Path, run_id: str, market_root: Path, now_ns: int) -> list[str]:
@@ -189,80 +134,6 @@ def write_months_locked(root: Path, run_id: str, market_root: Path, now_ns: int)
         os.replace(partial, path)  # whole, as the runner reads it
         found.append(name)
     return found
-
-
-def sync_switch_locked(root: Path, run_id: str, now_ns: int) -> None:
-    """SWITCH follows lifecycle.jsonl: present while a confirmed switch is pending, no stop was asked for, and the run
-    may start twice more within the hour (restarts_due): on the new image, and once more on the old one should the new
-    one not start. The runner never ends a start it cannot start again."""
-    directory = state.directory(root, run_id)
-    target = directory / "out" / SWITCH
-    wanted = pending_switch(directory) is not None and _run_launches(directory, now_ns) < RESTARTS_PER_HOUR \
-        and not os.path.lexists(directory / "out" / "STOP")
-    if wanted and not os.path.lexists(target):
-        state.write_new(target, b"runtime switch\n")
-    elif not wanted and os.path.lexists(target):
-        target.unlink()
-        state.fsync_parent(target)
-
-
-def _cancel_switch(run_id: str, directory: Path, reason: str, request_id: str | None = None) -> None:
-    pending = pending_switch(directory)
-    if pending is not None:
-        state.append(directory / "lifecycle.jsonl", "runtime_switch_canceled", run_id,
-                     request_id=pending["request_id"], reason=reason,
-                     **({"cancel_request_id": request_id} if request_id else {}))
-    if os.path.lexists(directory / "out" / SWITCH):
-        (directory / "out" / SWITCH).unlink()
-        state.fsync_parent(directory / "out" / SWITCH)
-
-
-def request_switch_locked(root: Path, run_id: str, runtime: str, research: db.LedgerProfile, research_at: str,
-                          request_id: str | None = None) -> dict:
-    """Confirm the release's runtime image for a running run (design §3.8). The same checks as a start on that image:
-    a main CI build of the manifest's runtime contract, on whose replay code the replay that backed this run's first
-    arming still passes (the same trial, so no other balance). The runner takes it at its next flat moment."""
-    directory, manifest = read_manifest(root, run_id)
-    launch = latest_launch(directory)
-    result, _ = _outcome(root, run_id, directory, manifest, launch, release=False)
-    if launch is None or launch["mode"] != "run" or result != "running" \
-            or os.path.lexists(directory / "out" / "STOP"):
-        raise state.fail("LIVE_SWITCH", "only a running Live run with no stop asked for takes a new runtime image")
-    if pending_switch(directory) is not None:
-        raise state.fail("LIVE_SWITCH", "this run already waits for a new runtime image; cancel that first")
-    try:  # the image's and the ledger's own refusals, named in the message
-        identity = image.resolve(runtime)
-        if identity["image_ref"] == launch_runtime(directory, manifest, launch)["image_ref"]:
-            raise state.fail("LIVE_SWITCH", "this run already runs on the release's runtime image")
-        describe = _describe(manifest["symbols"])
-        inspection = image.inspect_runtime(identity, describe)
-        revision = image.require_main_build(identity, inspection)
-        if identity["runtime_contract"] != manifest["runtime"]["runtime_contract"]:
-            raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
-        evidence = _evidence(research, research_at, manifest["source"]["source_sha256"], manifest["symbols"],
-                             inspection, describe)
-    except Refusal as exc:
-        raise state.fail("LIVE_SWITCH_CHECK", f"{exc.code}: {exc.message}") from exc
-    armed = next((row for row in state.events(directory / "out" / "events.jsonl")
-                  if row.get("event") == "replay_evidence"), None)
-    if armed is None or armed.get("trial_id") not in {row["trial_id"] for row in evidence}:
-        raise state.fail("LIVE_EVIDENCE_MISSING", "the replay that backed this run's first arming does not run the "
-                                                  "replay code of the new runtime image; replay it on a matching "
-                                                  "replay image (engine/README.md)")
-    state.append(directory / "lifecycle.jsonl", "runtime_switch_requested", run_id,
-                 runtime={**identity, "build_revision": revision}, research_at=research_at,
-                 trial_id=armed["trial_id"], request_id=request_id or secrets.token_hex(16))
-    sync_switch_locked(root, run_id, time.time_ns())
-    return {"run_id": run_id, "state": "switch_requested", "write_status": "written",
-            "image_ref": identity["image_ref"]}
-
-
-def cancel_switch_locked(root: Path, run_id: str, request_id: str | None = None) -> dict:
-    directory, _ = read_manifest(root, run_id)
-    if pending_switch(directory) is None:
-        raise state.fail("LIVE_SWITCH", "this run waits for no new runtime image")
-    _cancel_switch(run_id, directory, "user", request_id)
-    return {"run_id": run_id, "state": "switch_canceled", "write_status": "written"}
 
 
 def restarts_due(directory: Path, now_ns: int) -> bool:
@@ -776,26 +647,19 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, requ
     if mode != "preflight" and active_run(root) is None:
         state.append(root / "account.jsonl", "reserved", run_id)
     names = _network(root, run_id, directory, manifest)
-    runtime, switch_request, switch_rows = _launch_runtime_locked(directory, manifest, latest, mode)
     attempt = sum(row["event"] == "launch_requested" for row in host_events(directory)) + 1
     runner = names["network"] + f"-{mode}-{attempt}"
-    command = host_runtime.runner_command(manifest, directory, run_id, credentials, mode, runner, names, runtime)
+    command = host_runtime.runner_command(manifest, directory, run_id, credentials, mode, runner, names)
     credentials_path = str(credentials.resolve())
     state.append(directory / "lifecycle.jsonl", "launch_requested", run_id, mode=mode, container=runner,
-                 credentials_path=credentials_path, image_ref=runtime["image_ref"],
-                 **({"switch_request_id": switch_request} if switch_request is not None else {}),
+                 credentials_path=credentials_path,
                  **({"request_id": request_id} if request_id is not None else {}))
-    for event, fields in switch_rows:
-        state.append(directory / "lifecycle.jsonl", event, run_id, **fields)
-    # After the launch is counted and a switch taken or failed here is recorded: no SWITCH the restart budget or the
-    # journal no longer allows reaches the runner.
-    sync_switch_locked(root, run_id, time.time_ns())
     try:
         identifier = host_runtime.checked(*command[1:])
         if not re.fullmatch(r"[0-9a-f]{64}", identifier):
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "Docker did not return the launched runner identity")
         if host_runtime.container_identity(root, run_id, directory, manifest, runner, "runner", mode=mode,
-                      credentials_path=credentials_path, container_id=identifier, runtime=runtime) is None:
+                      credentials_path=credentials_path, container_id=identifier) is None:
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the launched runner cannot be verified")
     except Exception:
         state.append(directory / "lifecycle.jsonl", "launch_unresolved", run_id, mode=mode)
@@ -866,14 +730,12 @@ def _status_view(root: Path, run_id: str, *, maintain: bool) -> dict:
         result, exit_code = _outcome(root, run_id, directory, manifest, launch)
     else:
         result, exit_code = _outcome(root, run_id, directory, manifest, launch, release=False)
-    if maintain and result not in {"running", "interrupted"}:
-        _cancel_switch(run_id, directory, "ended")  # a run that will not start again takes no new image
     if maintain and launch and result in ENDED and active_run(root) != run_id:
         _recycle(root, run_id, directory, result, launch)
     return {"run_id": run_id, "state": result, "mode": launch["mode"] if launch else None,
             "account_owned": active_run(root) == run_id, "container": launch["container"] if launch else None,
             "candidate": manifest["candidate"], "source": manifest["source"],
-            "image_ref": launch_runtime(directory, manifest, launch)["image_ref"], "symbols": manifest["symbols"],
+            "image_ref": manifest["runtime"]["image_ref"], "symbols": manifest["symbols"],
             "exit_code": exit_code,
             "stop_reason": stop_reason(directory),
             **({"note": UNRESOLVED_NOTE} if result == "unresolved" else {})}
@@ -890,7 +752,6 @@ def stop_locked(root: Path, run_id: str) -> dict:
     if not target.exists():
         state.write_new(target, b"operator stop\n")
         state.append(directory / "lifecycle.jsonl", "stop_requested", run_id)
-    _cancel_switch(run_id, directory, "stopped")
     return {"run_id": run_id, "state": "stop_requested", "write_status": "written",
             "note": "The runner must confirm flat; no process is killed and no external order is canceled."}
 

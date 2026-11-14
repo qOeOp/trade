@@ -400,9 +400,9 @@ test('a rerun of the version commit withholds it on both channels and records no
   assert.deepEqual(f.records, [withheld]); assert.deepEqual(f.deployed, [withheld]); assert.deepEqual(f.deployments, []);
 });
 
-test('only v0.2.0 or later versions on main count: v0.1.0, other names and tags off main are ignored', async () => {
+test('only vX.Y.Z versions on main count: other names and tags off main are ignored', async () => {
   const f = fixture(); f.context.payload = {};
-  f.tags = [tag('v0.1.0', B), tag('v0.2', B), tag('v0.2.0-rc1', B), tag('0.2.0', B), tag('archive/metrics', B),
+  f.tags = [tag('v0.2', B), tag('v0.2.0-rc1', B), tag('0.2.0', B), tag('archive/metrics', B),
     tag('v9.0.0', 'd'.repeat(40))];
   await f.go();
   assert.deepEqual(f.records, [admitted]); assert.deepEqual(f.deployed, []); assert.deepEqual(f.deployments, []);

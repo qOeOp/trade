@@ -9,11 +9,9 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from deploy.release import (ADOPT, ADOPT_FILE, PROTOCOL, PROTOCOL_FILE, RUNNER_CONTRACT, RUNNER_CONTRACT_FILE, GitSource,
-                            Release)
+from deploy.release import GitSource, Release
 from deploy.paper_host import PAPER, PaperHost
-from deploy.release_host import (AGENT, AHEAD, KEPT_RELEASES, WEB, Config, DockerHost, ahead, revision,
-                                 route_config, route_name, route_owner)
+from deploy.release_host import AGENT, KEPT_RELEASES, WEB, Config, DockerHost, revision, route_config, route_name
 
 # The keys of a `line list` entry DockerHost.lines reads besides `versions` (graph.line_list), written out: the
 # release controller's tests run on the host's system Python, which cannot import the ledger.
@@ -41,7 +39,6 @@ class Host:
         self.fail = None
         self.rollback_fails = False
         self.protected_identity = {"paper-worker": {"id": "original", "started": "original"}}
-        self.owners = {}  # an owner written with a route; none means the Web's own control
 
     def checked(self, name, prefix=WEB):
         revision(name, prefix)
@@ -50,7 +47,7 @@ class Host:
     def inspect(self, name):
         return {
             "running": self.containers[name],
-            "revision": name.removesuffix(AHEAD).rsplit("-", 1)[-1],
+            "revision": name.rsplit("-", 1)[-1],
             "image": TARGET["image"],
         }
 
@@ -128,24 +125,16 @@ class Host:
     def auth_denied(self):
         pass
 
-    def disk_owner(self):
-        return self.owners.get("disk") or revision(self.disk)
-
-    def live_owner(self):
-        return self.owners.get("live") or revision(self.live)
-
-    def switch(self, name, owner):
+    def switch(self, name):
         self.calls.append(("route", name))
-        self.owners["live"] = owner
         if self.rollback_fails and name == WEB + A:
             raise RuntimeError("router unavailable")
         self.live = name
         if self.fail == "crash" and name == WEB + B:
             raise Crash()
 
-    def persist_route(self, name, owner):
+    def persist_route(self, name):
         self.disk = name
-        self.owners["disk"] = owner
 
     def observe(self, name, lines, protected):
         if getattr(self, "on_observe", None):
@@ -294,7 +283,7 @@ class InstallTests(unittest.TestCase):
         self.paper.create.assert_called_once_with(PAPER + B, TARGET["service"], TARGET["runtime"])
         self.github.require_runtime.assert_called_once_with(B, B)
         self.assertEqual(self.host.containers, {WEB + B: True, AGENT + B: True})
-        self.assertEqual((self.host.disk, self.host.owners["disk"]), (WEB + B, None))
+        self.assertEqual(self.host.disk, WEB + B)
 
     def test_install_refuses_an_installed_host_live_or_an_unadmitted_build(self):
         (self.host.state / "router").mkdir()
@@ -438,7 +427,7 @@ class PruneTests(unittest.TestCase):
             Release(host, Mock()).prune()
             paper.return_value.host.runtime.assert_called_once_with(PAPER + A)
             self.assertEqual(host.prune.call_args.args[:2], ((WEB, AGENT, PAPER), {WEB + A, PAPER + A}))
-            self.assertEqual(host.prune.call_args.args[2], {WEB + B, WEB + B + AHEAD, AGENT + B, PAPER + C})
+            self.assertEqual(host.prune.call_args.args[2], {WEB + B, AGENT + B, PAPER + C})
             self.assertEqual(host.prune.call_args.args[3], {runtime}, "the Paper controller's runtime stays")
 
     def test_settled_tick_prunes_and_a_failure_changes_nothing(self):
@@ -469,7 +458,7 @@ class PruneTests(unittest.TestCase):
                 Release(host, github).tick()
             host.prune.assert_not_called()
 
-    def test_retired_live_controllers_go_except_the_owners_and_those_of_remaining_webs(self):
+    def test_retired_live_controllers_go_except_those_of_remaining_webs(self):
         from deploy.live_host import LIVE
 
         with tempfile.TemporaryDirectory() as directory, patch.object(Release, "paper") as paper:
@@ -479,27 +468,16 @@ class PruneTests(unittest.TestCase):
             host = Mock(state=root)
             host.disk_route.return_value = WEB + B
             paper.return_value.host.disk_route.return_value = PAPER + A
-            host.disk_owner.return_value, host.live_owner.return_value = A, A  # Web-only beside A's control
-            host.managed.side_effect = lambda prefix: [WEB + B, WEB + C + AHEAD] if prefix == WEB else []
-            host.mounted_sockets.return_value = {root / "live" / A / "socket"}
+            host.managed.side_effect = lambda prefix: [WEB + B, WEB + C] if prefix == WEB else []
             live = Mock()
             live.runtimes.return_value = {"ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64}
             Release(host, Mock(), live=live).prune()
             prefixes, active, failed, runtimes = host.prune.call_args.args
             self.assertEqual(runtimes, live.runtimes.return_value)
             self.assertEqual(prefixes, (WEB, AGENT, PAPER, LIVE))
-            self.assertEqual(active, {WEB + B, PAPER + A, LIVE + A, LIVE + B, LIVE + C})
+            self.assertEqual(active, {WEB + B, PAPER + A, LIVE + B, LIVE + C})
             self.assertIn(LIVE + D, failed)
-            live.prune.assert_called_once_with({A, B, C})
-
-            host.reset_mock()
-            live.reset_mock()
-            host.live_owner.side_effect = RuntimeError("router unavailable")
-            with patch("deploy.release.report_failure") as reported:
-                Release(host, Mock(), live=live).prune()
-            reported.assert_called_once()
-            self.assertEqual(host.prune.call_args.args[0], (WEB, AGENT, PAPER))  # the rest is still pruned
-            live.prune.assert_not_called()
+            live.prune.assert_called_once_with({B, C})
 
     def test_live_directories_go_with_their_controllers(self):
         from deploy.live_host import LIVE, LiveHost
@@ -519,12 +497,6 @@ class PruneTests(unittest.TestCase):
             live = LiveHost(web, Mock())
             with patch.object(LiveHost, "declaration_value", return_value={"root": str(custody)}):
                 self.assertEqual(live.runtimes(), {"r-a", "r-b", "r-c", "r-d", "r-run"}, "a Live run never pulls again")
-                # A confirmed switch's image and each image a launch ran on stay too (design §3.8); a partial last
-                # line names nothing yet.
-                (custody / "runs" / "live-1" / "lifecycle.jsonl").write_text(
-                    json.dumps({"event": "runtime_switch_requested", "runtime": {"image_ref": "r-new"}}) + "\n"
-                    + json.dumps({"event": "launch_requested", "image_ref": "r-launched"}) + "\n" + '{"event": "lau')
-                self.assertEqual(live.runtimes(), {"r-a", "r-b", "r-c", "r-d", "r-run", "r-new", "r-launched"})
             LiveHost(web, Mock()).prune({A})
             web.managed.assert_called_once_with(LIVE)
             self.assertEqual(sorted(path.name for path in root.iterdir()),
@@ -563,71 +535,6 @@ class SelectionTests(unittest.TestCase):
             source.ancestor.side_effect = None
             self.assertIsNone(source.choose(A, failed))
 
-    def test_a_web_ahead_of_its_control_selects_its_own_revision_again(self):
-        with tempfile.TemporaryDirectory() as root:
-            source = self.source(root, TARGET)
-            failed = Path(root) / "failed"
-            self.assertEqual(source.choose(B, failed, again=True), TARGET)
-            failed.mkdir()
-            (failed / B).write_text("uncommitted")
-            self.assertIsNone(source.choose(B, failed, again=True))
-
-    def test_the_protocol_is_one_declared_line_none_when_absent_and_never_a_guess(self):
-        with tempfile.TemporaryDirectory() as root:
-            source = GitSource(Path(root))
-
-            def tree(text, listed="live/protocol.py\n"):
-                return lambda *args, **kwargs: listed if args[0] == "ls-tree" else text
-
-            source.git = Mock(side_effect=tree('"""Doc."""\n\nPROTOCOL = 3\n'))
-            self.assertEqual(source.protocol(B), 3)
-            self.assertEqual([call.args for call in source.git.call_args_list],
-                             [("ls-tree", "--name-only", B, "--", "live/protocol.py"), ("show", f"{B}:live/protocol.py")])
-            source.git = Mock(side_effect=tree("", listed=""))
-            self.assertIsNone(source.protocol(B), "a revision without the file declares none")
-            for text in ("", "PROTOCOL = 0\n", "PROTOCOL = 2  # x\n"):
-                source.git = Mock(side_effect=tree(text))
-                self.assertIsNone(source.protocol(B), text)
-            source.git = Mock(side_effect=tree("PROTOCOL = 1\nPROTOCOL = 2\n"))
-            with self.assertRaises(ValueError):
-                source.protocol(B)
-            source.git = Mock(side_effect=RuntimeError("git failed"))
-            with self.assertRaisesRegex(RuntimeError, "git failed"):
-                source.protocol(B)  # a failed read is not an undeclared protocol
-            with self.assertRaisesRegex(RuntimeError, "invalid"):
-                source.protocol("main")
-
-    def test_adoption_and_runner_contract_are_declared_lines_and_none_before_their_declaration(self):
-        with tempfile.TemporaryDirectory() as root:
-            source = GitSource(Path(root))
-
-            def tree(text, listed=True):
-                return lambda *args, **kwargs: (args[-1] + "\n" if listed else "") if args[0] == "ls-tree" else text
-
-            source.git = Mock(side_effect=tree('"""Doc."""\nRUNNER_CONTRACT = 2\nADOPT_INSPECT = 1\n'))
-            self.assertEqual((source.runner_contract(B), source.adopts(B)), (2, True))
-            self.assertEqual([call.args for call in source.git.call_args_list],
-                             [("ls-tree", "--name-only", B, "--", "engine/live.py"), ("show", f"{B}:engine/live.py"),
-                              ("ls-tree", "--name-only", B, "--", "live/release.py"), ("show", f"{B}:live/release.py")])
-            for text, listed in (("INTERRUPTED = 3\n", True), ("", False), ("RUNNER_CONTRACT = 0\n", True)):
-                source.git = Mock(side_effect=tree(text, listed))
-                self.assertEqual((source.runner_contract(B), source.adopts(B)), (None, False), text)
-            source.git = Mock(side_effect=tree("RUNNER_CONTRACT = 1\nRUNNER_CONTRACT = 2\n"))
-            with self.assertRaises(ValueError):
-                source.runner_contract(B)
-            source.git = Mock(side_effect=RuntimeError("git failed"))
-            with self.assertRaisesRegex(RuntimeError, "git failed"):
-                source.runner_contract(B)
-
-    def test_the_declarations_the_release_host_reads_are_in_this_revision(self):
-        for path, pattern, value in ((PROTOCOL_FILE, PROTOCOL, None), (ADOPT_FILE, ADOPT, 1),
-                                     (RUNNER_CONTRACT_FILE, RUNNER_CONTRACT, None)):
-            with self.subTest(path=path):
-                found = pattern.findall((Path(__file__).resolve().parents[2] / path).read_text())
-                self.assertEqual(len(found), 1)
-                if value is not None:
-                    self.assertEqual(int(found[0]), value)
-
     def test_withdrawn_malformed_or_stale_channel_cannot_use_a_cached_approval(self):
         with tempfile.TemporaryDirectory() as root:
             for record in ({**TARGET, "image": "mutable:main"}, {**TARGET, "extra": True},
@@ -656,55 +563,6 @@ class SelectionTests(unittest.TestCase):
         for changed in ("deploy/Dockerfile", "ide/agent/src/chat.ts", "ledger/db.py", "uv.lock"):
             source.git.return_value = changed
             self.assertTrue(source.agent_changed(A, B))
-
-    def test_control_is_unchanged_only_by_paths_it_never_loads(self):
-        source = GitSource(Path("/unused"))
-        source.ancestor = Mock(return_value=True)
-        for paths in ("ide/web/src/App.tsx\nide/web/package.json", "docs/plans/x.zh.md", "tests/live/test_x.py",
-                      ".github/workflows/ide-image.yml", ".agents/skills/x/SKILL.md", "deploy/remote/README.md",
-                      "deploy/README.md", "deploy/compose.yaml", "AGENTS.md", "ide/overview/src/main.ts",
-                      "ide/agent/src/chat.ts", ""):
-            source.git = Mock(return_value=paths)
-            self.assertFalse(source.control_changed(A, B), paths)
-        for changed in ("ide/research_graph/live_proxy.py", "ide/ide.py", "ide/README.md", "live/release.py",
-                        "deploy/release.py", "deploy/Dockerfile", "deploy/entrypoint.sh", "uv.lock", "pyproject.toml",
-                        ".dockerignore", "engine/x.py", "new-top-level/x", "ide/web/src/a.ts\ncli/main.py"):
-            source.git = Mock(return_value=changed)
-            self.assertTrue(source.control_changed(A, B), changed)
-        source.ancestor.return_value = False
-        with self.assertRaisesRegex(RuntimeError, "not an ancestor"):
-            source.control_changed(A, B)
-
-    def test_route_carries_only_an_owner_other_than_its_own_web(self):
-        own = route_config(WEB + B, B)
-        self.assertEqual(own, route_config(WEB + B, None))
-        self.assertNotIn("@id", own["apps"]["http"]["servers"]["ide"]["routes"][0])
-        self.assertEqual(route_owner(own), B)
-        moved = route_config(WEB + B, A)
-        self.assertEqual(moved["apps"]["http"]["servers"]["ide"]["routes"][0]["@id"], "live-" + A)
-        self.assertEqual((route_name(moved), route_owner(moved)), (WEB + B, A))
-        moved["apps"]["http"]["servers"]["ide"]["routes"][0]["@id"] = "live-unknown"
-        with self.assertRaisesRegex(RuntimeError, "Live owner"):
-            route_owner(moved)
-        with self.assertRaisesRegex(RuntimeError, "owner revision"):
-            route_config(WEB + B, "not-a-revision")
-
-    def test_a_web_ahead_of_its_control_keeps_its_revision_and_routes_with_its_owner(self):
-        name = WEB + B + AHEAD
-        self.assertLessEqual(len(name), 63, "Caddy dials the container name as one DNS label")
-        self.assertEqual(revision(name), B)
-        self.assertTrue(ahead(name))
-        self.assertFalse(ahead(WEB + B))
-        for wrong in (WEB + B + "-post", WEB + "x" + AHEAD, AGENT + B + AHEAD):
-            self.assertFalse(ahead(wrong))
-        with self.assertRaises(RuntimeError):
-            revision(AGENT + B + AHEAD, AGENT)
-        config = route_config(name, A)
-        self.assertEqual((route_name(config), route_owner(config)), (name, A))
-        host = DockerHost(Config())
-        host.docker = Mock(return_value="\n".join([WEB + A, name, WEB + B + "-post", AGENT + B + AHEAD]))
-        self.assertEqual(host.managed(WEB), [WEB + A, name])
-        self.assertEqual(host.managed(AGENT), [])
 
     def test_the_host_domain_and_data_root_come_from_the_installed_env_file(self):
         def compose(stdout, code=0):
@@ -756,7 +614,7 @@ class SelectionTests(unittest.TestCase):
                                  memory)
 
     def test_router_state_and_docker_lifecycle_reject_non_web_or_non_agent_names(self):
-        self.assertEqual(route_name(route_config(WEB + A, None)), WEB + A)
+        self.assertEqual(route_name(route_config(WEB + A)), WEB + A)
         host = DockerHost(Config())
         host.docker = Mock()
         for name in ("trade-ide-paper-1", "trade-paper-runner", "trade-ide-ledger-1", WEB + "invalid"):

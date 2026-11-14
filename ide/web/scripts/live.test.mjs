@@ -230,7 +230,7 @@ test("a refusal shows over the kept graph, from the answer and from the events",
 });
 
 test("a graph drawn without the market is shown but never named as one that holds", async () => {
-  const p = await page({ ...kept("old"), scope: { ...kept("old").scope, market_unread: "UNKNOWN_REF: x" } });
+  const p = await page({ ...kept("old"), scope: { ...kept("old").scope, market_unread: "MARKET_DAY_UNKNOWN: x" } });
   assert.deepEqual(p.shown, ["old"]);
   assert.equal(p.requests[0].url, "/api/view?line=line-a");
   await p.answer(0, 202, { state: "fetching" });

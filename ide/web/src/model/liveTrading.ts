@@ -39,9 +39,6 @@ export type LiveRun = {
   compared?: { day: string; text: string; attention: boolean } | null;
   /** How the run has kept running: since when it trades, its warm-up, entries, last reconnect, latest comparison. */
   continuity?: readonly LiveFact[];
-  /** A runtime image the release offers this running run, or the switch it waits for (model/liveRuntimeMap.ts
-   *  runtimeOf); null when there is neither. */
-  runtime?: LiveRuntime | null;
   /** When the account was observed and the run's native terminal event, as ns; whether it executes now. */
   observedNs: { account: string | null; terminal: string | null }; running: boolean;
   /** The host reports the run ended, so Request stop has nothing to stop. */
@@ -51,13 +48,6 @@ export type LiveRun = {
    *  (null: unknown), by time in seconds; null when the budget or the results are unknown. */
   equity?: { budget: number; minutes: readonly (readonly [number, number | null])[] } | null;
   review?: LiveReviewDto | null; reviewError?: string | null;
-};
-/** The images by their build (the first 12 characters of the revision, else of the digest). */
-export type LiveRuntime = {
-  current: string | null;
-  offered: { build: string | null; facts: readonly LiveFact[]; ready: boolean } | null;
-  /** The confirmed switch waits for a flat moment since this time, ns. */
-  pending: { build: string | null; sinceNs: string } | null;
 };
 export type LiveTradingView = {
   availability: "unavailable" | "ready"; notice: string | null;
@@ -79,9 +69,6 @@ export type LiveTradingActions = {
   stop?: (runId: string) => void | Promise<void>;
   reconcile?: (runId: string) => void | Promise<void>;
   maintain?: (runId: string) => void | Promise<void>;
-  /** Confirm the release's runtime image for a running run, taken at its next flat moment, and cancel that. */
-  switchRuntime?: (runId: string) => Promise<LiveRequest | null>;
-  cancelSwitch?: (runId: string) => Promise<LiveRequest | null>;
   resolveRequest?: (requestId: string) => void | Promise<void>;
   /** Telegram settings; each resolves to the refusal text, or null when it succeeded. */
   saveNotify?: (botToken: string) => Promise<string | null>;

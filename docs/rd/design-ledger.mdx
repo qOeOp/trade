@@ -1,6 +1,6 @@
 # Database
 
-The research ledger is a Dolt database at schema generation 1 (`ledger/schema.sql`, `SCHEMA_VERSION` in code). The user backed up and deleted the old ledger on 2026-11-10; generation 1 starts from an empty ledger and migrates no old data. Later schema changes take two paths: the readings tier (`run_reading`) is recomputed by resealing with the new code; the commitment tier only gains columns and never changes or drops one (the head of `ledger/schema.sql`, P5).
+The research ledger is a Dolt database at schema generation 1 (`ledger/schema.sql`, `SCHEMA_VERSION` in code). The user backed up and deleted the old ledger on 2026-11-10; generation 1 starts from an empty ledger and migrates no old data. Until 1.0 a schema change starts a new ledger and migrates no data (AGENTS.md); within a generation, a changed reading (`run_reading`) is recomputed by resealing with the new code.
 
 Tables fall into three tiers:
 

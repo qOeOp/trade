@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from market import aggtrades, files, follow, metrics, sources, store, universe
+from market import aggtrades, files, follow, metrics, quotes, sources, store, universe
 from tests.market.directory import directory, read, seed
 from tests.market.exchange import Exchange, day_ms, serving, two_sided_trades
 from tests.market.test_aggtrades import archive
@@ -75,11 +75,11 @@ class MonthlyTests(unittest.TestCase):
         self.months: dict[tuple, set[date]] = {}
         self.cleared: list[tuple] = []
         self.broken: set[tuple] = set()
-        for name, side in (("_published", lambda cache, symbol, month: (symbol, month) not in self.unpublished),
+        for name, side in (("_published", lambda cache, symbol, month, earlier: (symbol, month) not in self.unpublished),
                            ("_import", self.importing), ("_held", self.listed),
                            ("_clear", lambda cache, symbol, month: self.cleared.append((symbol, month))),
-                           ("_republished", lambda cache, symbol, month: True),
-                           ("_sound", lambda cache, symbol, month: (symbol, month) not in self.broken)):
+                           ("_republished", lambda cache, symbol, month, earlier: True),
+                           ("_sound", lambda cache, symbol, month, earlier: (symbol, month) not in self.broken)):
             stand_in = patch.object(follow, name, side_effect=side)
             stand_in.start()
             self.addCleanup(stand_in.stop)
@@ -127,6 +127,10 @@ class MonthlyTests(unittest.TestCase):
     def test_a_contract_new_to_the_scope_starts_at_the_first_month(self):
         self.run_kind("trades", FEB, symbols=("BTCUSDT",))
         self.assertEqual(self.calls, [("trades", JAN, ("BTCUSDT",))])
+
+    def test_the_eve_is_waited_for_only_once_the_contract_holds_an_earlier_month(self):
+        self.run_kind("trades", date(2025, 3, 2), symbols=("BTCUSDT",))  # as the importer requires it
+        self.assertEqual([call.args[2:] for call in follow._published.call_args_list], [(JAN, False), (FEB, True)])
 
     def test_a_month_not_fully_published_waits_and_one_long_closed_is_passed_over(self):
         self.holding("trades", JAN)
@@ -406,7 +410,7 @@ class LoopTests(unittest.TestCase):
     def test_an_empty_bar_list_is_refused_at_start(self):
         with self.assertRaises(sources.MarketError) as caught:
             follow.follow({}, scope(bar_symbols=[]), Path("."), Path("status.json"), rounds=1)
-        self.assertEqual(caught.exception.code, "IMPORT_SCOPE")
+        self.assertEqual(caught.exception.code, "EMPTY_SYMBOLS")
 
 class RoundTests(unittest.TestCase):
     def setUp(self):
@@ -562,7 +566,7 @@ class MonthlyImportTests(unittest.TestCase):
                 rows = rows[:3] + rows[4:]
             archive(cache, day.isoformat(), rows)
         aggtrades.import_month(profile, JAN, cache, ["BTCUSDT"], log=lambda _: None)
-        store.import_quotes(profile, JAN, cache, symbols=["BTCUSDT"], log=lambda _: None)
+        quotes.import_quotes(profile, JAN, cache, symbols=["BTCUSDT"], log=lambda _: None)
         return profile, cache
 
     def test_each_closed_month_after_the_latest_is_imported_once_by_the_real_importers(self):
@@ -591,4 +595,5 @@ class MonthlyImportTests(unittest.TestCase):
         self.assertEqual(held, {JAN, MAR})
         self.assertEqual(follow.holes(held, JAN), [FEB])
         # Read through outside the lock, the gap month is unsound and the month after it sound.
-        self.assertEqual((follow._sound(cache, "BTCUSDT", FEB), follow._sound(cache, "BTCUSDT", MAR)), (False, True))
+        self.assertEqual((follow._sound(cache, "BTCUSDT", FEB, True), follow._sound(cache, "BTCUSDT", MAR, True)),
+                         (False, True))

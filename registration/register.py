@@ -263,7 +263,7 @@ def _parent_failed(conn: db.LedgerConnection, source_sha256: str) -> bool:
 
 
 def _check_lineage(conn: db.LedgerConnection, plan: Mapping, parent: dict | None, execution: Mapping,
-                   before_replay: bool) -> None:
+                   binding: bool) -> None:
     control = plan["control_trial_id"]
     if parent is None:
         if control is not None:
@@ -271,7 +271,7 @@ def _check_lineage(conn: db.LedgerConnection, plan: Mapping, parent: dict | None
         return
     if control is None:
         # Checked when registering only: a stored registration is not judged again at binding.
-        if not before_replay and not _parent_failed(conn, parent["source_sha256"]):
+        if not binding and not _parent_failed(conn, parent["source_sha256"]):
             raise _invalid(f"a derived registration without a control run needs the research runs of "
                            f"{strategies.name(parent)} to show its fault or zero activity (each run invalid or without "
                            "fills); otherwise name a comparable control run, or register a restart (as on a new "
@@ -440,7 +440,7 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                                                    f"{trial_id} ({detail})", missing=(point["candidate"],))
 
 
-def validate(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, before_replay: bool, line: Mapping,
+def validate(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, binding: bool, line: Mapping,
              exclude: int | None = None) -> list[dict]:
     """Every check of a registration `plan` {body, control_trial_id, comparison, retry_of, grid (references),
     prechecks (review_id by reference)} against its execution identity and its line's record; the grid points
@@ -456,7 +456,7 @@ def validate(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, befor
     points, parent = _check_grid(conn, plan["grid"], execution)
     _check_duties(body, parent is None)
     _check_prediction(body, parent is None)
-    _check_lineage(conn, plan, parent, execution, before_replay)
+    _check_lineage(conn, plan, parent, execution, binding)
     _check_window(execution, line)
     for point in points:
         review = plan["prechecks"].get(point["candidate"])
@@ -518,8 +518,6 @@ def require_line_records(conn: db.LedgerConnection, line_id: int, retry_of: int 
         if status.get(trial_id) == "invalid":
             if retried is None:
                 retried = _retried(conn, line_id) | {item["registration_id"] for item in _retry_chain(conn, retry_of)}
-                if retry_of is not None:
-                    retried.add(retry_of)
             if registered.get(trial_id) in retried:
                 continue
         uncovered.append(trial_id)
@@ -619,7 +617,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
             lines.open_line(c, held["line_id"])
             lines.require_not_closing(c, held["line_id"])
             require_line_records(c, held["line_id"], plan["retry_of"])
-            points = validate(c, plan, execution, before_replay=False, line=held)
+            points = validate(c, plan, execution, binding=False, line=held)
             design_id = write_design(c, plan["comparison"])
             c.rows("INSERT INTO research_registration (line_id, retry_of, control_trial_id, comparison_design_id, "
                    "image_ref, market_day, universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256, "
@@ -721,7 +719,7 @@ def bind(conn: db.LedgerConnection, registration_id: int, source_sha256: str, ro
             "comparison": registration["comparison"], "retry_of": registration["retry_of"],
             "grid": [point["candidate"] for point in registration["grid"]],
             "prechecks": {point["candidate"]: point["source_review_id"] for point in registration["grid"]}}
-    validate(conn, plan, {**row, "symbols": list(row["instruments"])}, before_replay=True, line=line,
+    validate(conn, plan, {**row, "symbols": list(row["instruments"])}, binding=True, line=line,
              exclude=registration_id)
     return {"line_id": registration["line_id"], "research_registration_id": registration_id}
 

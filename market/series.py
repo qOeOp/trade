@@ -55,6 +55,12 @@ def _months(start_ms: int, end_ms: int) -> list[str]:
     return [month.strftime("%Y-%m") for month in universe.months(first, last)]
 
 
+def _bounds(period: str) -> tuple[int, int]:
+    """[start, end) UTC milliseconds of an archive period, 'YYYY-MM' or 'YYYY-MM-DD'."""
+    day = date.fromisoformat(period + "-01" if len(period) == 7 else period)
+    return _day_ms(day), _day_ms(universe.next_month(day) if len(period) == 7 else day + timedelta(days=1))
+
+
 def _days(start_ms: int, end_ms: int, month: str | None = None) -> list[str]:
     found, day = [], _ms_day(start_ms)
     while _day_ms(day) < end_ms:
@@ -159,7 +165,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
     kind = sources.KIND_OF[price_type]
     months = _months(start_ms, end_ms)
     monthly = sources.monthly_archives(archive_cache, kind, symbol, "1m", months)
-    parts = [_tagged(sources.archive_table(path, period), 0) for period, path in monthly.items()]
+    parts = [_tagged(sources.archive_table(path, period, *_bounds(period)), 0) for period, path in monthly.items()]
     fetched: set[str] = set()
 
     def add_days(days: list[str]) -> None:
@@ -167,7 +173,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         fetched.update(wanted)
         if wanted:
             found = sources.daily_archives(archive_cache, kind, symbol, wanted)
-            parts.extend(_tagged(sources.archive_table(path, day), 1) for day, path in found.items())
+            parts.extend(_tagged(sources.archive_table(path, day, *_bounds(day)), 1) for day, path in found.items())
 
     add_days([day for month in months if month not in monthly for day in _days(start_ms, end_ms, month)])
     table = _merge(parts, start_ms, end_ms, label)
@@ -260,8 +266,7 @@ def _rounded(values: np.ndarray, scale: int, precision: int) -> np.ndarray:
     return (values + divisor // 2) // divisor
 
 
-def check_derived(derived: dict, native: dict, price_precision: int, size_precision: int, *,
-                  price_scale: int = 8, volume_scale: int = 4) -> list[dict]:
+def check_derived(derived: dict, native: dict, price_precision: int, size_precision: int) -> list[dict]:
     """market.check_derived: findings where derived daily bars and the exchange's native daily bars
     differ at the contract's precision; an empty list means they agree. Nothing is changed."""
     for side in (derived, native):
@@ -279,7 +284,7 @@ def check_derived(derived: dict, native: dict, price_precision: int, size_precis
             continue
         seen.add(ts)
         for name in COLUMNS[1:]:
-            scale, precision = (volume_scale, size_precision) if name == "volume" else (price_scale, price_precision)
+            scale, precision = (VOLUME_SCALE, size_precision) if name == "volume" else (PRICE_SCALE, price_precision)
             a = int(_rounded(np.asarray([derived[name][i]], np.int64), scale, precision)[0])
             b = int(_rounded(np.asarray([native[name][j]], np.int64), scale, precision)[0])
             if a != b:

@@ -125,12 +125,12 @@ class Service:
 
 def market(market_day: str = MARKET_DAY, latest_complete_day=None, universe_rule: str | None = "pool-v1",
            first_day=date(2019, 9, 1)):
-    """A stand-in for the market's resolve_day and freshness, covered from `first_day`."""
+    """A stand-in for the market facts line select reads, covered from `first_day`."""
 
     def facts(market_at: str) -> dict:
         return {"market_day": market_day, "universe_rule": universe_rule,
                 "latest_complete_day": latest_complete_day or date(2026, 3, 31),
-                "first_day": first_day, "first_months": {"BTCUSDT": first_day}}
+                "members": [(f"{first_day:%Y-%m}", "BTCUSDT")]}
     return facts
 
 

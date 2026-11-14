@@ -42,7 +42,6 @@ class Daily(unittest.TestCase):
         restart(self.pack)
         self.status = {"state": "running", "mode": "run"}
         self.calls: list[tuple] = []
-        self.images: list[str | None] = []
         self.results: dict = {}
         observe = mock.patch.object(daily.runs, "observe", side_effect=lambda root, run_id: dict(self.status))
         observe.start()
@@ -51,9 +50,8 @@ class Daily(unittest.TestCase):
         compared.start()
         self.addCleanup(compared.stop)
 
-    def compare(self, root, run_id, market, at, output, timeout, number, since, until, image_ref=None):
+    def compare(self, root, run_id, market, at, output, timeout, number, since, until):
         self.calls.append((number, since, until, timeout))
-        self.images.append(image_ref)
         found = self.results.get(number, {})
         if isinstance(found, Exception):
             raise found
@@ -133,48 +131,6 @@ class Daily(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
-    def pair(self, offered="ghcr.io/x@sha256:new"):
-        record = daily.pair_run(self.root, {}, self.pack.run_id, offered, self.root / "out")
-        if record is not None:
-            daily._write(self.root, self.pack.run_id, record)
-        return record
-
-    def test_a_running_run_on_another_image_has_its_latest_compared_day_replayed_on_the_offered_one(self):
-        # Design §3.8 rule 10: shown beside the day's own comparison, never a reason to refuse a switch.
-        self.status["image_ref"] = "ghcr.io/x@sha256:old"
-        self.assertIsNone(self.pair())  # no comparison yet: nothing to pair
-        self.day()
-        self.calls.clear()
-        self.images.clear()
-        record = self.pair()
-        bound = daily._ns(TODAY)
-        self.assertEqual(self.calls, [(1, bound - 7 * DAY, bound, 3600), (2, bound - 7 * DAY, bound, 3600)])
-        self.assertEqual(self.images, ["ghcr.io/x@sha256:new"] * 2)
-        paired = record["paired"]
-        self.assertEqual((paired["image_ref"], paired["day"], paired["state"], paired["measures"]["groups"]),
-                         ("ghcr.io/x@sha256:new", "2026-11-11", "done", 2))
-        self.assertEqual((record["state"], record["day"]), ("done", "2026-11-11"))  # its own comparison stays
-        self.assertIsNone(self.pair())  # once per image and day
-        self.assertEqual(len(self.calls), 2)
-        self.assertIsNotNone(self.pair("ghcr.io/x@sha256:newer"))  # another offered image is paired again
-
-    def test_no_pair_for_a_run_on_the_offered_image_or_not_running_and_a_killed_one_is_not_retried(self):
-        self.day()
-        self.calls.clear()
-        self.status["image_ref"] = "ghcr.io/x@sha256:new"
-        self.assertIsNone(self.pair())
-        self.status.update(image_ref="ghcr.io/x@sha256:old", state="interrupted")
-        self.assertIsNone(self.pair())
-        self.assertEqual(self.calls, [])
-        self.status["state"] = "running"
-        record = daily.read_record(state.directory(self.root, self.pack.run_id))
-        daily._write(self.root, self.pack.run_id, {**record, "paired": {"image_ref": "ghcr.io/x@sha256:new",
-                                                                       "day": "2026-11-11", "state": "running"}})
-        self.assertEqual((self.pair()["paired"]["state"], self.pair()), ("failed", None))
-        self.assertEqual(self.calls, [])
-        self.results = {1: refuse("LIVE_COMPARE_UNCOVERED", "not yet")}
-        self.assertEqual(self.pair("ghcr.io/x@sha256:newer")["paired"]["code"], "LIVE_COMPARE_UNCOVERED")
-
 class Pass(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -244,8 +200,6 @@ class Container(unittest.TestCase):
         self.assertEqual(argv[argv.index("--entrypoint"):], [
             "--entrypoint", "python", "sha256:" + "a" * 64, "-m", "cli.main", "live", "compare-daily",
             "--root", "/srv/live", "--market-root", "/srv/market", "--today", TODAY])
-        offered = daily.launch_argv(self.INSPECTED, Path("/srv/live"), Path("/srv/market"), TODAY, "ghcr.io/x@sha256:new")
-        self.assertEqual(offered[len(argv):], ["--offered-runtime", "ghcr.io/x@sha256:new"])  # the paired replay's image
 
     def test_it_starts_from_half_past_midnight_at_most_once_an_hour(self):
         midnight = daily._ns(TODAY)

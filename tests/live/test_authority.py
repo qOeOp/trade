@@ -115,7 +115,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.refused(lambda: scope.admit_locked(self.root))
         scope.admit_locked(self.root, maintenance=True)
         (self.fixture.state / "transaction.json").unlink()
-        durable_json(self.fixture.state / "router/active.json", route_config(OTHER, None))
+        durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
         self.refused(lambda: scope.admit_locked(self.root))
         self.refused(lambda: scope.admit_locked(self.root, maintenance=True))
 
@@ -147,7 +147,7 @@ class InstalledAuthorityTests(unittest.TestCase):
                     value = {key: self.fixture.raw[key] for key in OPERATOR_FIELDS}
                     durable_json(self.declaration, {"format": "live-deployment-v1", **value, "root": str(other)})
                 else:
-                    durable_json(self.fixture.state / "router/active.json", route_config(OTHER, None))
+                    durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
                 status, response = serve.command(self.fixture.file, "stop", "original", {"request_id": f"stop-{kind}-request"},
                                                   binding=self.fixture.binding)
                 self.assertEqual(status, 200, response)

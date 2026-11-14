@@ -16,7 +16,7 @@ from pathlib import Path
 import tempfile
 import time
 
-from market import aggtrades, files, metrics, series, sources, store, universe
+from market import aggtrades, files, metrics, quotes, series, sources, store, universe
 
 
 KINDS = ("bars", "metrics", "trades", "quotes")
@@ -116,14 +116,10 @@ def _fetched(cache: Path, symbol: str, days: list[date], today: date, memory: Me
     longer ago than metrics.SETTLE_DAYS with no archive is not asked for again until the process restarts."""
     published = False
     for day in days:
-        try:
-            sources.fetch_archive(cache, sources.metrics_key(symbol, day.isoformat()))
+        if sources.published(cache, sources.metrics_key(symbol, day.isoformat())) is not None:
             published = True
-        except sources.MarketError as exc:
-            if exc.code != "ARCHIVE_NOT_PUBLISHED":
-                raise
-            if (today - day).days > metrics.SETTLE_DAYS:
-                memory.unpublished.add((symbol, day))
+        elif (today - day).days > metrics.SETTLE_DAYS:
+            memory.unpublished.add((symbol, day))
     return published
 
 
@@ -205,68 +201,51 @@ def holes(held: set[date], first: date) -> list[date]:
     return [month for month in universe.months(first, max(held)) if month not in held] if held else []
 
 
-def _keys(symbol: str, month: date) -> list[str]:
-    """The daily archives an import of `month` reads: the eve (the carried state) and every day."""
-    days = [month - timedelta(days=1)] + _days(month, universe.next_month(month))
+def _keys(symbol: str, month: date, eve: bool = True) -> list[str]:
+    """The daily archives an import of `month` reads: the eve (the carried state), with `eve`, and every day."""
+    days = ([month - timedelta(days=1)] if eve else []) + _days(month, universe.next_month(month))
     return [sources.aggtrades_key(symbol, day.isoformat()) for day in days]
 
 
-def _published(cache: Path, symbol: str, month: date) -> bool:
-    """Download a month's aggTrades archives (and the eve's: a followed contract holds the month before) into the
-    cache, streamed and outside the import lock. Whether all are out."""
-    for key in _keys(symbol, month):
-        try:
-            sources.fetch_archive(cache, key)
-        except sources.MarketError as exc:
-            if exc.code != "ARCHIVE_NOT_PUBLISHED":
-                raise
-            return False
-    return True
+def _published(cache: Path, symbol: str, month: date, earlier: bool) -> bool:
+    """Download a month's aggTrades archives into the cache, streamed and outside the import lock, with the eve's when
+    the contract holds an `earlier` month (the import requires it then, aggtrades.month_rows). Whether all are out."""
+    return all(sources.published(cache, key) is not None for key in _keys(symbol, month, earlier))
 
 
-def _overtaken(cache: Path, symbol: str, month: date, today: date) -> bool:
+def _overtaken(cache: Path, symbol: str, month: date, today: date, earlier: bool) -> bool:
     """Whether a month whose archives are not all out stops being waited for: it closed GIVE_UP_DAYS ago, or the whole
     of the closed month after it is out. A day published later still comes in as a hole."""
     after = universe.next_month(month)
     return (today - after).days >= GIVE_UP_DAYS or (universe.next_month(after) <= today
-                                                    and _published(cache, symbol, after))
+                                                    and _published(cache, symbol, after, earlier))
 
 
 def _clear(cache: Path, symbol: str, month: date) -> None:
     for key in _keys(symbol, month):
-        for path in (Path(cache) / key, Path(cache) / (key + ".CHECKSUM")):
-            path.unlink(missing_ok=True)
+        sources.forget(cache, key)
 
 
-def _republished(cache: Path, symbol: str, month: date) -> bool:
+def _republished(cache: Path, symbol: str, month: date, earlier: bool) -> bool:
     """Whether a hole month is worth importing again: its archives were never cached here, or Binance has
     published another checksum for one of them since (the stale copy is dropped). One small request a day."""
     changed = False
-    for key in _keys(symbol, month):
-        cached = Path(cache) / (key + ".CHECKSUM")
-        if not cached.is_file():
+    for key in _keys(symbol, month, earlier):
+        found = sources.republished(cache, key)
+        if found is None:
             return True
-        try:
-            remote = sources._get(sources.ARCHIVE + key + ".CHECKSUM").split()
-        except sources._NotPublished:
-            continue
-        if remote and remote[0].decode("ascii", errors="replace").lower() != cached.read_text().split()[0].lower():
-            (Path(cache) / key).unlink(missing_ok=True)
-            cached.unlink(missing_ok=True)
-            changed = True
+        changed = found or changed
     return changed
 
 
-def _sound(cache: Path, symbol: str, month: date) -> bool:
-    """A cached month (with its eve) read through outside the import lock as the import reads it: False at a
+def _sound(cache: Path, symbol: str, month: date, earlier: bool) -> bool:
+    """A cached month read through outside the import lock as the import reads it (aggtrades.month_rows): False at a
     broken aggTrade sequence or any other refusal of an archive's content, so a hole whose gap is still there
     never takes the lock to write the days before the gap and roll them back."""
-    state = aggtrades.State()
     try:
-        for key in _keys(symbol, month):
-            day = key.removesuffix(".zip").rsplit("-aggTrades-", 1)[1]
-            for _ in aggtrades.batches(Path(cache) / key, symbol, day, state, {}):
-                pass
+        for _ in aggtrades.month_rows(cache, symbol, series._day_ms(month), series._day_ms(universe.next_month(month)),
+                                      earlier):
+            pass
     except sources.MarketError:
         return False
     return True
@@ -275,7 +254,7 @@ def _sound(cache: Path, symbol: str, month: date) -> bool:
 def _import(kind: str, profile: dict, month: date, cache: Path, symbols: list[str], log) -> list[dict]:
     """One month of `symbols` by the kind's importer: [{symbol, rows}]."""
     if kind == "quotes":
-        found = store.import_quotes(profile, month, cache, symbols=symbols, log=log)
+        found = quotes.import_quotes(profile, month, cache, symbols=symbols, log=log)
         return [{"symbol": symbol, "rows": found["per_symbol"][symbol]["quotes"]} for symbol in symbols]
     found = aggtrades.import_month(profile, month, cache, symbols, log=log)
     return [{"symbol": item["symbols"][0], "rows": item["trade_rows"]} for item in found["imports"]]
@@ -321,9 +300,10 @@ def _monthly(kind: str, profile: dict, first: date, symbols: list[str], cache: P
                 else:
                     del pending[symbol]  # waits for the month's aggTrades
                 continue
+            earlier = any(held_month < month for held_month in held[symbol])
             try:
-                published = _published(cache, symbol, month)
-                overtaken = not published and _overtaken(cache, symbol, month, today)
+                published = _published(cache, symbol, month, earlier)
+                overtaken = not published and _overtaken(cache, symbol, month, today, earlier)
             except Exception as exc:  # every failure of a round is reported, never raised
                 if not _stop(kind, symbol, exc, memory):
                     entries[symbol]["retry"] = _refusal(exc)
@@ -341,6 +321,7 @@ def _monthly(kind: str, profile: dict, first: date, symbols: list[str], cache: P
             try:
                 for item in _import(kind, profile, month, cache, group, log):
                     entries[item["symbol"]]["rows"] += item["rows"]
+                    held[item["symbol"]].add(month)
                     pending[item["symbol"]] = _after(month, memory.skipped.get((kind, item["symbol"]), ()))
             except Exception as exc:
                 if len(group) > 1:
@@ -348,6 +329,7 @@ def _monthly(kind: str, profile: dict, first: date, symbols: list[str], cache: P
                     found = _held(profile, kind, group)
                     for symbol in group:
                         if month in found[symbol]:
+                            held[symbol].add(month)
                             pending[symbol] = _after(month, memory.skipped.get((kind, symbol), ()))
                         else:
                             groups.append([symbol])
@@ -402,9 +384,11 @@ def _holes(kind: str, profile: dict, first: date, symbols: list[str], cache: Pat
                 if trades is not None:
                     if month not in trades[symbol]:
                         continue
-                elif not (_republished(cache, symbol, month) and _published(cache, symbol, month)
-                          and _sound(cache, symbol, month)):
-                    continue
+                else:
+                    earlier = any(held_month < month for held_month in held[symbol])
+                    if not (_republished(cache, symbol, month, earlier) and _published(cache, symbol, month, earlier)
+                            and _sound(cache, symbol, month, earlier)):
+                        continue
                 for item in _import(kind, profile, month, cache, [symbol], log):
                     entries[symbol]["rows"] += item["rows"]
                     entries[symbol].setdefault("filled", []).append(f"{month:%Y-%m}")
@@ -547,7 +531,7 @@ def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=p
            clock=lambda: datetime.now(UTC), sleep=time.sleep, rounds: int | None = None) -> dict:
     """market.follow: after START_DELAY seconds, run rounds for ever (or `rounds` of them), each reported as one JSON
     line and written to `status_path`, sleeping in short naps until the round's next_round. Each round first
-    marks the last status running, so a long round reads as healthy. Stops last until the process restarts."""
+    marks the last status running (running_since), which the IDE shows. Stops last until the process restarts."""
     store._scope(scope.bar_symbols)
     if scope.symbols:
         store._scope(scope.symbols)
@@ -568,8 +552,8 @@ def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=p
 
 
 def check(path: Path | None = None, now: datetime | None = None) -> int:
-    """The healthcheck: 0 when the latest status is fresh (or a round is running since it), nothing is stopped,
-    lagging or unknown (skipped months are not)."""
+    """The healthcheck: 0 when the latest status is fresh, nothing is stopped, lagging or unknown (skipped months are
+    not)."""
     try:
         status = json.loads((path or default_status()).read_text(encoding="utf-8"))
         now = now or datetime.now(UTC)

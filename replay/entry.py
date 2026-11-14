@@ -16,7 +16,6 @@ run's native reports (kept, and printed, when anything fails after a container s
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
 import hashlib
 import json
 import os
@@ -200,6 +199,16 @@ def audit_problems(workdir: Path, native_exit: int | None, audit_exit: int | Non
                                    metrics.read_regular(workdir / problems.RUNTIME_ERRORS))
 
 
+def _resolve_runtime(revision: Mapping, runtime: str | None) -> dict:
+    """The runtime image's identity, refused (RUNTIME_CONTRACT_MISMATCH) unless it is of the candidate's contract."""
+    identity = registration_seams.current.resolve_runtime(runtime)
+    if revision["runtime_contract"] != identity["runtime_contract"]:
+        raise refuse("RUNTIME_CONTRACT_MISMATCH", f"the candidate needs contract {revision['runtime_contract']}, the "
+                                                  f"image is {identity['runtime_contract']}",
+                     expected=revision["runtime_contract"])
+    return identity
+
+
 def _directory_report(directory: Path) -> dict:
     """report.directory_report: the sealed-run functions and criterion on an unsealed directory, marked
     unverified; a directory whose reports cannot be read reports why instead of refusing the replay."""
@@ -378,13 +387,9 @@ def _check_window(ledger: db.LedgerProfile, market, at: str | None, line: str | 
     inputs = registration_seams.runner_inputs(list(runner_argv))
     source = registration_seams.current.market(market)
     market_day = source.resolve_day(at)
-    first_day, latest = source.days(market_day)
-    covered = None
-    if line is None:
-        first_months: dict = {}
-        for month, symbol in source.universe_month(market_day):
-            first_months.setdefault(symbol, date.fromisoformat(f"{month}-01"))
-        covered = lines.covered_from(inputs["selection"].get("symbols"), first_day, first_months)
+    _, latest = source.days(market_day)
+    covered = None if line is not None else lines.covered_from(inputs["selection"].get("symbols"),
+                                                               source.universe_month(market_day))
     with db.connect(ledger, "reader") as conn:
         lines.check_replay_window(conn, line, inputs["window"]["trade_start"], inputs["window"]["end"], latest,
                                   covered)
@@ -433,11 +438,7 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
         raise refuse("PRECHECK_WINDOW_TOO_LONG", f"the trading window is {trading_days:g} days; a precheck trades at "
                                                  f"most {source_precheck.PRECHECK_MAX_DAYS}",
                      missing=("--end",), expected=f"at most {source_precheck.PRECHECK_MAX_DAYS} trading days")
-    identity = registration_seams.current.resolve_runtime(runtime)
-    if revision["runtime_contract"] != identity["runtime_contract"]:
-        raise refuse("RUNTIME_CONTRACT_MISMATCH", f"{candidate} needs contract {revision['runtime_contract']}, the "
-                                                  f"image is {identity['runtime_contract']}",
-                     expected=revision["runtime_contract"])
+    identity = _resolve_runtime(revision, runtime)
     exported = None
     try:
         runner, exported = _export(market, at, runner_argv, True, ledger)
@@ -507,11 +508,7 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
                      expected="registration xor validation xor history")
     checkout = registration_seams.current.checkout()
     metrics.product_commit(checkout)  # a passed run records it; outside a checkout this raises before any trial
-    identity = registration_seams.current.resolve_runtime(runtime)
-    if revision["runtime_contract"] != identity["runtime_contract"]:
-        raise refuse("RUNTIME_CONTRACT_MISMATCH", f"the candidate needs contract {revision['runtime_contract']}, the "
-                                                  f"image is {identity['runtime_contract']}",
-                     expected=revision["runtime_contract"])
+    identity = _resolve_runtime(revision, runtime)
     inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), inputs)
     found_config = trials.comparable_config_sha256(inspection.get("effective_config"))  # malformed: refused here
     if comparable_config is not None and found_config != comparable_config:
