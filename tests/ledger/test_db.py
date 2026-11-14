@@ -485,6 +485,15 @@ class OverTcpTests(unittest.TestCase):
                 self.assertEqual(writer.raw.unix_socket, db.service_config(service.service_root)["socket"])
 
 
+class ServerPidTests(unittest.TestCase):
+    def test_a_root_without_a_pid_file_has_no_server_and_is_never_written(self):
+        # The IDE reads the ledger through a read-only mount of its reader-only service file, where any unlink,
+        # even of a missing file, fails with EROFS on Linux.
+        with tempfile.TemporaryDirectory() as name, \
+                patch.object(Path, "unlink", side_effect=OSError(30, "Read-only file system")):
+            self.assertIsNone(db.server_pid(Path(name)))
+
+
 class UnansweredServiceTests(unittest.TestCase):
     """A service that accepts connections but never sends its greeting (stalled by a long write, or a hung
     process, container or Docker host): every connection fails within the handshake timeout, not the 600 s

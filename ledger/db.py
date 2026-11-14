@@ -221,10 +221,11 @@ def _server_here(root: Path) -> int | None:
 
 
 def server_pid(root: Path) -> int | None:
-    """The running server of `root`, removing a server.pid that names none."""
+    """The running server of `root`, removing a server.pid that names none (a root without one, such as a
+    read-only reader mount, is left untouched)."""
     pid = _server_here(root)
-    if pid is None:
-        (root / "server.pid").unlink(missing_ok=True)
+    if pid is None and (root / "server.pid").exists():
+        (root / "server.pid").unlink()
     return pid
 
 
