@@ -480,9 +480,6 @@ def _secure(cursor, config: dict) -> None:
         cursor.execute("INSERT IGNORE INTO dolt_branch_control VALUES ('%', '%', 'root', 'localhost', 'admin')")
         cursor.execute("DELETE FROM dolt_branch_control WHERE `database` = '%' AND branch = '%' "
                        "AND user = '%' AND host = '%'")
-    # The ledger keeps no commit verification tests; a service secured by an earlier product version runs
-    # its persisted group on every commit, and a database without tests in it cannot commit.
-    cursor.execute("SET PERSIST dolt_commit_verification_groups = ''")
 
 
 def _account_name(database: str, role: str) -> str:
