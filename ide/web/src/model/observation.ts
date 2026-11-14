@@ -7,8 +7,8 @@ import { warmupAt } from "./paper";
 export const LAG_MS = 2 * 60_000;
 /** An unsealed runner before its first bar: its declared input boundary, never an older run's. */
 export function waitingUntil(run: PaperRun, lines: readonly JournalLine[] = []): number | null {
-  if (run.state !== "running" || run.live?.last_bar_ns != null) return null;
-  return run.live?.input_start_ns != null ? run.live.input_start_ns / 1e6 : warmupAt(lines);
+  if (run.state !== "running" || run.readings?.last_bar_ns != null) return null;
+  return run.readings?.input_start_ns != null ? run.readings.input_start_ns / 1e6 : warmupAt(lines);
 }
 export const utcMinute = (ms: number, zone: TimeZone = "UTC") => dateTime(ms, zone, "minute");
 export const waitingText = (until: number, now: number, zone: TimeZone = "UTC") => now < until

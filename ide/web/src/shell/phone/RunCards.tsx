@@ -80,7 +80,7 @@ export function LiveCard({ run, now }: { run: LiveRun; now: number }) {
 /** A paper run on the Runs tab: its state, equity and return, what it holds and what needs a look. */
 export function PaperCard({ run, now }: { run: PaperRun; now: number }) {
   const zone = useTimeZone(), h = health(run, now, zone), money = paperEquity(run), held = paperHeld(run), issues = paperIssues(run);
-  const bar = run.live?.last_bar_ns != null ? run.live.last_bar_ns / 1e6 : null;
+  const bar = run.readings?.last_bar_ns != null ? run.readings.last_bar_ns / 1e6 : null;
   return (
     <PhoneCard label={`Paper run ${run.paper_id}`} onClick={() => openRun({ kind: "paper", id: run.paper_id })}>
       <div className="space-y-1 px-3 pb-3 pt-2 pr-6">

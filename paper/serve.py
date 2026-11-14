@@ -4,7 +4,7 @@ Candidates and their last research replay are read on the research ledger (defau
 It listens on loopback only, or inside a container on the container's own address, which only the
 compose network reaches (docs/plans/paper-compose-deployment.zh.md); the IDE service in front proxies
 ``/api/paper/`` to it and adds the page's
-token (ide/research_graph/serve.py). Reads happen here: the runs with their live readings, a
+token (ide/research_graph/serve.py). Reads happen here: the runs with their readings so far, a
 run's journal as it grows, a version's last research replay. Every write (start, stop, seal, delete) is the
 command line ``python -m cli.main paper …`` run with an allowlisted environment, so the Paper database is
 written only through it. Explicit ends are sealed. An interrupted runner resumes the same unsealed
@@ -117,7 +117,7 @@ class Journal:
                 self.lines.append(line)
 
 
-def live_readings(row: dict, journal: Journal) -> dict:
+def readings(row: dict, journal: Journal) -> dict:
     """The readings a seal would compute from the journal so far, with the equity path behind them."""
     path, funding = records.equity_path(journal.lines)
     found = records.readings(row, journal.lines, journal.unreadable, None, None, None, path_and_funding=(path, funding))
@@ -144,9 +144,9 @@ def outline(path: list[list]) -> list[list]:
 def listing(found: dict) -> dict:
     """The runs as the page polls them: a run's equity path, which only grows, is left to its stream; the
     listing has its outline."""
-    return found | {"runs": [run | {"live": {key: value for key, value in run["live"].items() if key != "equity"}
-                                    | {"outline": outline(run["live"]["equity"])}}
-                             if "live" in run else run for run in found["runs"]]}
+    return found | {"runs": [run | {"readings": {key: value for key, value in run["readings"].items() if key != "equity"}
+                                        | {"outline": outline(run["readings"]["equity"])}}
+                             if "readings" in run else run for run in found["runs"]]}
 
 
 def held(directory: Path) -> dict | None:
@@ -537,12 +537,12 @@ class Daemon:
             if run["state"] == "sealed":
                 self.journals.pop(run["paper_id"], None)
             else:
-                run["live"] = live_readings(run, self.journal(run["paper_id"]))
+                run["readings"] = readings(run, self.journal(run["paper_id"]))
                 directory = runs.run_dir(self.profile, run["paper_id"]) / "out"
                 failures = _read_bytes(directory / FAILURES)
-                run["live"]["held"] = held(directory)
+                run["readings"]["held"] = held(directory)
                 # How often the strategy raised so far; the runner rewrites the file at each power of two.
-                run["live"]["exceptions"] = sum(item["count"] for item in failure_records(failures))
+                run["readings"]["exceptions"] = sum(item["count"] for item in failure_records(failures))
         found["starting"] = sorted(self.starting)
         self.listed = (time.monotonic(), found)
         return found
@@ -685,7 +685,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                 self.send_event("closes", closes(rest))
             failures = failure_records(files.get(FAILURES))
             self.send_event("failures", failures)
-            self.send_event("readings", live_readings(row, journal) | {
+            self.send_event("readings", readings(row, journal) | {
                 "exceptions": sum(item["count"] for item in failures)})
             self.send_event("end", seal)
 
@@ -694,7 +694,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             of other contracts), `closes` (for a stream of no contract, the Account view's: every contract's
             bar closes (closes()), all of them and then what is appended), `state` (state.json as it is
             replaced), `failures` (the strategy's runtime failure records as the runner rewrites them, or the
-            sealed capture's), `readings` (live_readings, as they change) and `end` (the seal) once the run
+            sealed capture's), `readings` (readings(), as they change) and `end` (the seal) once the run
             is sealed. With `resume` the first `lines` and `closes` leave out what the page holds (resumed()),
             announced by `resumed` (the resume's `lines` and `bars`); a journal the page's does not match
             streams whole, unannounced."""
@@ -753,10 +753,10 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                         whole = daemon.sealed_lines(paper_id, files)
                         self.sealed(row, instrument, files, whole, whole[seen:], listed["seal"])
                         return
-                    live = (listed or {}).get("live")
-                    if live is not None and _changed(live) != shown:  # a new minute, bar or fill
-                        shown = _changed(live)
-                        self.send_event("readings", live)
+                    current = (listed or {}).get("readings")
+                    if current is not None and _changed(current) != shown:  # a new minute, bar or fill
+                        shown = _changed(current)
+                        self.send_event("readings", current)
                     time.sleep(STREAM_SECONDS)
             except OSError:
                 pass  # the page went away

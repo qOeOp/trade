@@ -6,7 +6,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { namespace } from "./load.mjs";
 
-const run = { paper_id: 777, live: { final_equity_usdt: "9876.54" } };
+const run = { paper_id: 777, readings: { final_equity_usdt: "9876.54" } };
 let shown, stream, moved = true;
 const empty = () => null;
 const fixtures = {

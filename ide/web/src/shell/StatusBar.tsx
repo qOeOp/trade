@@ -67,7 +67,7 @@ export function StatusBar() {
   const path = selected && tree ? [...ancestors(tree, selected), selected] : [];
   const said = useAtom(notice), status = useAtom(viewStatus);
   const runs = useOnRunsPage(), market = useOnMarketPage(), live = useShown().stage === "live" && runs;
-  const gapped = (usePaperRuns()?.runs ?? []).filter((r) => ACTIVE.has(r.state) && (r.live?.missing_bars ?? 0) + (r.live?.protection_gaps ?? 0) > 0).length;
+  const gapped = (usePaperRuns()?.runs ?? []).filter((r) => ACTIVE.has(r.state) && (r.readings?.missing_bars ?? 0) + (r.readings?.protection_gaps ?? 0) > 0).length;
   return (
     <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">
       {!live && !line.bundle && !status.busy && (runs || market) && <span role="status" className="min-w-0 truncate text-fg-muted">{status.text}</span>}
