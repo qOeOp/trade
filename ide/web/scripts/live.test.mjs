@@ -179,13 +179,13 @@ test("the service says the kept graph holds at the head: stamped and kept, with 
 
 test("the kept graph that holds takes the counts the service read at the new commit, and null is a count", async () => {
   const shown = [];
-  const p = await page(kept("old", [{ id: "summary", type: "summary", trial_counts: { research_trials: 1, all_purpose_trials: 2 } }, { id: "notes", type: "notes" }]), shown);
+  const p = await page(kept("old", [{ type: "summary", trial_counts: { research_trials: 1, all_purpose_trials: 2 } }, { type: "notes" }]), shown);
   await p.answer(0, 202, { state: "fetching" });
   p.event({ state: "checking", ledger_commit: "new" });
   assert.deepEqual(plain(p.updates.at(-1)), { stage: "checking", commit: "new", shown: "old" });
   const counts = { research_trials: 5, all_purpose_trials: 9 };
   p.event({ state: "unchanged", ledger_commit: "new", trial_counts: counts });
-  assert.deepEqual(plain(shown.at(-1).widgets), [{ id: "summary", type: "summary", trial_counts: counts }, { id: "notes", type: "notes" }]);
+  assert.deepEqual(plain(shown.at(-1).widgets), [{ type: "summary", trial_counts: counts }, { type: "notes" }]);
   assert.equal(p.updates.at(-1), null);
   p.event({ state: "unchanged", ledger_commit: "newer", trial_counts: null });
   assert.equal(shown.at(-1).widgets[0].trial_counts, null);

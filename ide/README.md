@@ -19,7 +19,7 @@ node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
 `ide.py serve` serves one ledger's graph as a page that follows the ledger
 (`research_graph/serve.py`, standard library only). It runs the product's command line (`ledger
 sql` for the head, `research graph --at=<hash> --without-comparisons --without-counts` for a graph, `research counts` for its summary's
-trial counts at each commit it is served at, `research comparison` for the one version a page opens, under `/api/comparison?bundle=&trial_id=&at=`) and imports no product package. The page keeps a
+trial counts at each commit it is served at, `research comparison` for the one version a page opens, under `/api/comparison?registration=&trial_id=&at=`) and imports no product package. The page keeps a
 comparison's answer in the browser, by build and commit. The
 page is the web renderer's page: it reads `/api/view?line=&since=&at=` (200 a view,
 202 a state, 503 the failure while no head can be read; a refused graph reaches the page as an
@@ -149,20 +149,19 @@ Unknown values are null. The schema is authoritative.
 
 ## View model (`research-graph-view`)
 
-Served by `/api/view`: a manifest (`line`, `targets`, `counts`) and
-`widgets`. Each widget is self-contained, with an `id`, a `type`, a `slot` (`top`, `main` or
-`side`) and an optional `title`, so each can be drawn, cached or sent on its own. Positions are in
-research units, never pixels.
+Served by `/api/view`: a manifest (`line`, `targets`) and `widgets`, one per `type`. Each widget is
+self-contained, so each can be drawn, cached or sent on its own; where it goes and its title are the page's.
+Positions are in research units, never pixels.
 
 | Type | Content |
 |---|---|
 | `summary` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
-| `lineage` | `targets`, `axis` (positions: the line's n-th trial at n, other lines' trials taking no room; `min`, `max`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first research run or else the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `revisions` (a version drawn without its parent, from the latest earlier revision of its strategy ID), `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `decisions` (the graph's `approach_change` and `line_decision` events, priority judgments opening `Change of approach.` or `Line decision.`, each at the gap after the trial before it, with its kind, time, ref and text), `trials` (each trial with its number, `x`, version and purpose) |
-| `progress` | `targets`, `axis` (the lineage's `min`, `max`, `scope_start`), `points` (research runs' returns with their trial number and `x`) and `recommended` (the versions the trail passed through) |
+| `lineage` | `targets`, `axis` (positions: the line's n-th trial at n, other lines' trials taking no room; `max`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first research run or else the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `revisions` (a version drawn without its parent, from the latest earlier revision of its strategy ID), `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `decisions` (the graph's `approach_change` and `line_decision` events, priority judgments opening `Change of approach.` or `Line decision.`, each at the gap after the trial before it, with its kind, time, ref and text), `trials` (each trial with its number, `x`, version and purpose) |
+| `progress` | `targets`, `axis` (the lineage's `scope_start`), `points` (research runs' returns with their trial number and `x`) and `recommended` (the versions the trail passed through) |
 | `scatter` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
 | `table` | `targets` and `rows`: one per version with its role, status, prediction, first trial, research-run count and the last run's readings |
 | `notes` | `items`: plain notes (the graph's `gaps`) |
-| `candidate-detail` | `default` and `items`: the graph's candidate records (without their source) with `status_class` and `prediction_class` |
+| `candidate-detail` | `default` and `items`: the graph's candidate records (without their source) with `prediction_class` |
 | `sources` | `items`: each version's `id`, `parent` (null when it is not in the graph) and `source` (null when the graph holds none), by id |
 
 `status` is one of `recommended`, `meets_targets`, `below_targets`, `masked`, `precheck_failed`,

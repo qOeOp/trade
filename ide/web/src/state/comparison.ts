@@ -17,27 +17,27 @@ const NONE: Compared = { kind: "ready", comparison: null };
 const reads = atom<ReadonlyMap<string, Compared>>(new Map());
 const put = (key: string, value: Compared) => reads.set(new Map(reads.get()).set(key, value));
 
-async function read(key: string, bundle: string, trial: number, at: string): Promise<void> {
+async function read(key: string, registration: string, trial: number, at: string): Promise<void> {
   const had = reads.get().get(key);
   if (had && had.kind !== "failed") return;
   put(key, { kind: "reading" });
   const kept = await readKept<{ comparison: Comparison | null }>(KIND, key);
   if (kept) { put(key, { kind: "ready", comparison: kept.comparison }); return; }
-  const found = await fetchComparison<Comparison>(bundle, trial, at);
+  const found = await fetchComparison<Comparison>(registration, trial, at);
   put(key, found);
   if (found.kind === "ready") void keep(KIND, key, { comparison: found.comparison }, KEPT);
 }
 
 /** What the graph would have compared for this version: its registration and last research run, if that passed. */
-function job(c: Candidate): { bundle: string; trial: number } | null {
+function job(c: Candidate): { registration: string; trial: number } | null {
   const research = (c.trials ?? []).filter((t) => t.purpose === "research");
   const last = research[research.length - 1];
-  return c.registration && last?.status === "passed" ? { bundle: c.registration, trial: last.trial_id } : null;
+  return c.registration && last?.status === "passed" ? { registration: c.registration, trial: last.trial_id } : null;
 }
 
 export function useComparison(c: Candidate): Compared {
   const scope = useView().scope, at = scope?.drawn_commit ?? scope?.ledger_commit ?? null, all = useAtom(reads), wanted = job(c);
-  const key = wanted && at ? `${scope?.build ?? ""} ${wanted.bundle} ${wanted.trial} ${at}` : null;
-  useEffect(() => { if (wanted && at && key) void read(key, wanted.bundle, wanted.trial, at); }, [key]);
+  const key = wanted && at ? `${scope?.build ?? ""} ${wanted.registration} ${wanted.trial} ${at}` : null;
+  useEffect(() => { if (wanted && at && key) void read(key, wanted.registration, wanted.trial, at); }, [key]);
   return key ? all.get(key) ?? { kind: "reading" } : NONE;
 }

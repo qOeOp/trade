@@ -4,7 +4,7 @@ import type { Side } from "../state/shell";
 import { Island } from "./Island";
 import type { ToolWindow } from "./toolWindows";
 
-type Shown = ToolWindow & { widget: { id: string; type: string } };
+type Shown = ToolWindow & { widget: { type: string } };
 const STILL = atom<unknown>(null);
 
 /** The island of one side, showing its open tool window under a header: its title, controls and

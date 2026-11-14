@@ -55,7 +55,7 @@ class FakeProduct:
         self.read_bars: list[tuple[str, str, str, str]] = []
         self.same = False  # `research unchanged`: its answer, or a refusal to raise
         self.asked: list[tuple[str, str, str]] = []
-        self.compared: list[tuple[str, int, str]] = []
+        self.compared: list[tuple[int, int, str]] = []
         self.trial_counts: dict | None = {"research_trials": 3, "all_purpose_trials": 9}
         self.counted: list[tuple[str, str]] = []
         self.counts_failure: dict | None = None  # `research counts` refuses with this
@@ -91,8 +91,8 @@ class FakeProduct:
             raise serve.ProductError({"code": "RUN_NOT_PASSED", "message": "run 7 is failed"})
         return {"trial_id": trial_id, "ledger_commit": commit, "tables": {"daily_returns": []}}
 
-    def comparison(self, bundle, trial_id, commit):
-        self.compared.append((bundle, trial_id, commit))
+    def comparison(self, registration, trial_id, commit):
+        self.compared.append((registration, trial_id, commit))
         if trial_id == 7:
             raise serve.ProductError({"code": "MARKET_UNREACHABLE", "message": "no market"})
         return {"comparison": {"vs_trial": 1}}
@@ -159,9 +159,9 @@ class HubTests(unittest.TestCase):
                                {"name": "followed", "closed": False}]
         self.hub.join(serve.Client("followed", None, None, have="0" * 32))
         self.hub.refresh(wait=True)
-        until(lambda: self.hub.key("a" * 32, "current", None) in self.hub.views and self.hub.running is None)
+        until(lambda: serve.ViewKey("a" * 32, "current", None) in self.hub.views and self.hub.running is None)
         self.assertEqual(self.hub.view("current", None, None)[0], 200, "choosing the open line finds its graph ready")
-        drawn = {key[3] for key in self.hub.views}
+        drawn = {key.line for key in self.hub.views}
         self.assertNotIn("historical", drawn, "a closed line is drawn only when a page asks")
         self.assertNotIn("followed", drawn, "a followed line keeps its page's kept-graph check")
 
@@ -170,7 +170,7 @@ class HubTests(unittest.TestCase):
         self.hub.join(serve.Client("asked", None, None))
         self.hub.refresh(wait=True)
         until(lambda: len(self.product.drawn) == 2)
-        self.assertEqual([key[3] for key in self.hub.views], ["asked", "current"])
+        self.assertEqual([key.line for key in self.hub.views], ["asked", "current"])
 
     def test_a_slow_head_read_does_not_hold_a_page(self):
         until(lambda: self.hub.view(None, None, None)[0] == 200)
@@ -201,11 +201,11 @@ class HubTests(unittest.TestCase):
         self.hub.refresh(wait=True)
         client = serve.Client("line-a", None, None)
         self.hub.join(client)
-        until(lambda: self.hub.running == self.hub.key("a" * 32, "line-a", None))
+        until(lambda: self.hub.running == serve.ViewKey("a" * 32, "line-a", None))
         self.product.head = "b" * 32
         self.hub.refresh(wait=True)
         first.set()
-        until(lambda: self.hub.running == self.hub.key("b" * 32, "line-a", None))
+        until(lambda: self.hub.running == serve.ViewKey("b" * 32, "line-a", None))
         status, view = self.hub.view("line-a", None, None)
         self.assertEqual(status, 200, "new pages can show the completed graph instead of waiting for a moving head")
         self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
@@ -383,7 +383,7 @@ class HubTests(unittest.TestCase):
         self.assertEqual(self.product.asked, [])
 
     def summary(self):
-        return next(w for w in self.hub.view("line", None, None)[1]["widgets"] if w["id"] == "summary")
+        return next(w for w in self.hub.view("line", None, None)[1]["widgets"] if w["type"] == "summary")
 
     def test_counts_that_refuse_refuse_the_graph_they_would_be_shown_on(self):
         refusal = {"code": "LEDGER_CORRUPT", "message": "a capture fails its hash"}
@@ -484,6 +484,12 @@ class HubTests(unittest.TestCase):
         self.assertEqual(client.sent["ledger_commit"], "e" * 32)
         with self.assertRaises(serve.ProductError):
             self.hub.resolve("nowhere", None)
+
+    def test_the_head_a_live_page_names_is_its_own_hash_and_any_other_is_still_read(self):
+        self.hub.refresh(wait=True)
+        self.assertEqual(self.hub.resolve("a" * 32, "a" * 32), ("a" * 32, "a" * 32), "no `ledger sql` for the head")
+        with self.assertRaises(serve.ProductError):
+            self.hub.resolve(None, "b" * 32)
 
 
 class HttpTests(unittest.TestCase):
@@ -671,12 +677,13 @@ class HttpTests(unittest.TestCase):
     def test_a_comparison_is_read_once_per_commit_and_its_refusal_reaches_the_page(self):
         at = "c" * 32
         for _ in range(2):
-            response = self.get(f"/api/comparison?bundle=registration-a&trial_id=3&at={at}")
+            response = self.get(f"/api/comparison?registration=12&trial_id=3&at={at}")
             self.assertEqual((response.status, json.loads(response.read())), (200, {"comparison": {"vs_trial": 1}}))
-        self.assertEqual(self.hub.product.compared, [("registration-a", 3, at)])
-        response = self.get(f"/api/comparison?bundle=registration-a&trial_id=7&at={at}")
+        self.assertEqual(self.hub.product.compared, [(12, 3, at)])
+        response = self.get(f"/api/comparison?registration=12&trial_id=7&at={at}")
         self.assertEqual((response.status, json.loads(response.read())["code"]), (400, "MARKET_UNREACHABLE"))
-        for query in ("bundle=a&trial_id=3", f"trial_id=3&at={at}", f"bundle=a%20b&trial_id=3&at={at}", f"bundle=a&trial_id=x&at={at}"):
+        for query in ("registration=12&trial_id=3", f"trial_id=3&at={at}", f"registration=registration-a&trial_id=3&at={at}",
+                      f"registration=12&trial_id=x&at={at}"):
             self.assertEqual(self.get(f"/api/comparison?{query}").status, 400, query)
 
     def test_daily_bars_at_a_market_day_are_read_once_per_contract_and_days_and_their_refusal_reaches_the_page(self):

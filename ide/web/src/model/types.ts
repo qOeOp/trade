@@ -38,7 +38,6 @@ export type Candidate = {
   reviews?: { verdict?: string | null; at?: string | null; checks?: { name: string; status?: string | null; note?: string | null }[] }[] | null;
   interpretation?: string | null;
   status?: Role | null;
-  status_class: Status;
   prediction_class: Prediction;
 };
 
@@ -55,7 +54,7 @@ export type LineageNode = {
 };
 
 
-export type Widget = { id: string; type: string; slot?: string; title?: string } & Record<string, unknown>;
+export type Widget = { type: string } & Record<string, unknown>;
 
 export type SummaryWidget = Widget & {
   targets: Targets | null;
@@ -77,12 +76,12 @@ export type SummaryWidget = Widget & {
 
 export type LineageWidget = Widget & {
   targets: Targets | null;
-  axis: { min: number; max: number; scope_start: number | null };
+  axis: { max: number; scope_start: number | null };
   rows: { id: string; row: number }[];
   nodes: LineageNode[];
   edges: { from: string; to: string }[];
   revisions: { from: string; to: string }[];
-  trail: { candidate: string; row: number; x0: number | null; x1: number | null; judgments: (number | null)[] }[];
+  trail: { candidate: string; x0: number | null; judgments: (number | null)[] }[];
   /** Priority judgments recording a decision the Agent made for the user: a change of approach, a delegated line decision. */
   decisions: { x: number; kind: "approach_change" | "line_decision"; at: string; ref: string | null; text: string | null }[];
   trials: { trial_id: number; x: number; candidate: string; purpose: string }[];
@@ -90,8 +89,8 @@ export type LineageWidget = Widget & {
 
 export type ProgressWidget = Widget & {
   targets: Targets | null;
-  axis: { min: number; max: number; scope_start: number | null };
-  points: { id: string; trial_id: number; x: number; annual_return: number; max_drawdown?: number | null; eligible: boolean | null }[];
+  axis: { scope_start: number | null };
+  points: { id: string; trial_id: number; x: number; annual_return: number; max_drawdown?: number | null }[];
   recommended: string[];
 };
 
@@ -121,6 +120,5 @@ export type View = {
           /** The gates the next registration of the line would meet: its line-record gates only; `research state` gives the runtime and market-day gates. */
           gates?: { code: string; message: string }[] };
   targets: Targets | null;
-  counts: { candidates: number; research_runs: number };
   widgets: Widget[];
 };
