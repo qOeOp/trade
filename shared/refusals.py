@@ -36,8 +36,11 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "SCHEMA_MISMATCH": ("Use the product version that matches the ledger's schema generation (README); never "
                         "rebuild or rewrite a ledger to pass this check.",),
     "INVALID_NAME": ("Use letters, digits, hyphens and underscores, and kind active, isolated or temporary.",),
-    "LEDGER_EXISTS": ("Choose another profile and database name; existing ledgers are never replaced.",),
-    "MARKET_EXISTS": ("Choose another profile name or an empty directory; existing markets are never replaced.",),
+    "PROFILE_EXISTS": ("Choose another profile name; an existing profile file is never replaced.",),
+    "LEDGER_EXISTS": ("Choose another database name, or kind isolated or temporary when the active ledger exists; "
+                      "existing ledgers are never replaced.",),
+    "MARKET_EXISTS": ("Choose an empty directory, or kind isolated or temporary when the active market exists; "
+                      "existing markets are never replaced.",),
     "ISOLATION_BREACH": ("Give an isolated ledger its own database name; keep the active service and backup "
                          "outside Git and temporary directories.",),
     "DOLT_BINARY": ("Set RESEARCH_DOLT_BINARY to a Dolt 2.7.2 executable "

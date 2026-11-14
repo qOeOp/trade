@@ -245,7 +245,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the database (--name with - as _), its writer and reader accounts and the schema commit; the Dolt "
         "service under --service-root, started and left running when new; the profile file",
         "profile, name, database, kind, holds, service_root, accounts, branch_grant, schema_version, ledger_commit",
-        "LEDGER_EXISTS (profile, active ledger or database exists); ISOLATION_BREACH (--kind active without "
+        "PROFILE_EXISTS (a profile file of that name exists); LEDGER_EXISTS (active ledger or database exists); "
+        "ISOLATION_BREACH (--kind active without "
         "--backup-root, or its service or backup in the checkout or a temporary root); LEDGER_KIND (--kind active "
         "with --holds paper); INVALID_NAME; DOLT_BINARY; LEDGER_START"),
     ("ledger", "service"): (

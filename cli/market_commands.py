@@ -180,7 +180,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the market directory at --root with its lock alone (the first import writes the first file) and the profile "
         "file {name, holds: market, kind, root}",
         "name, holds, kind, root, profile",
-        "MARKET_EXISTS (the profile or an active market exists, or --root is not an empty directory); "
+        "PROFILE_EXISTS (a profile file of that name exists); MARKET_EXISTS (an active market exists, or --root is "
+        "not an empty directory); "
         "ISOLATION_BREACH (an active market in the checkout or a temporary root, or another market in the active "
         "one's directory); INVALID_NAME"),
     ("market", "import"): (

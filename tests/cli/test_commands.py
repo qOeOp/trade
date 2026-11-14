@@ -404,8 +404,18 @@ class CommandTests(unittest.TestCase):
                          ("probe_init", "main", db.SCHEMA_VERSION))
         self.assertEqual(created["accounts"], {role: db._account_name("probe_init", role) for role in ("writer", "reader")})
         self.assertNotIn("password", json.dumps(created))
-        self.refused("LEDGER_EXISTS", "ledger", "init", "--name", "probe-init", "--kind", "isolated", "--service-root",
+        self.refused("PROFILE_EXISTS", "ledger", "init", "--name", "probe-init", "--kind", "isolated", "--service-root",
                      str(self.tmp / "init-service"), env=env)
+        # One profile file per name, whatever it holds: neither init replaces the other's profile.
+        self.refused("PROFILE_EXISTS", "market", "init", "--name", "probe-init", "--kind", "isolated", "--root",
+                     str(self.tmp / "init-market"), env=env)
+        self.assertFalse((self.tmp / "init-market").exists())
+        market = self.ok("market", "init", "--name", "probe-market", "--kind", "isolated", "--root",
+                         str(self.tmp / "init-market"), env=env)
+        kept = Path(market["profile"]).read_bytes()
+        self.refused("PROFILE_EXISTS", "ledger", "init", "--name", "probe-market", "--kind", "isolated",
+                     "--service-root", str(self.tmp / "init-service"), env=env)
+        self.assertEqual(Path(market["profile"]).read_bytes(), kept)
         self.assertFalse(self.ok("ledger", "service", "stop", "--ledger", "probe-init", env=env)["running"])
         self.assertFalse(self.ok("ledger", "service", "status", "--ledger", "probe-init", env=env)["running"])
         self.refused("LEDGER_UNAVAILABLE", "candidate", "list", "--ledger", "probe-init", env=env)
@@ -426,8 +436,10 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(json.loads(Path(created["profile"]).read_text()),
                          {"name": "market-kept", "holds": "market", "kind": "isolated", "root": str(root)})
         self.assertEqual(sorted(path.name for path in root.iterdir()), ["lock"])
-        self.refused("MARKET_EXISTS", "market", "init", "--name", "market-kept", "--kind", "isolated", "--root",
+        self.refused("PROFILE_EXISTS", "market", "init", "--name", "market-kept", "--kind", "isolated", "--root",
                      str(self.tmp / "market-other"))
+        self.refused("MARKET_EXISTS", "market", "init", "--name", "market-other", "--kind", "isolated", "--root",
+                     str(root))
         self.refused("MARKET_EMPTY", "market", "bars", "--market", created["profile"], "--symbol", "BTCUSDT",
                      "--start", "2026-01-01T00:00:00Z", "--end", "2026-01-02T00:00:00Z")
 
