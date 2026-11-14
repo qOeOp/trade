@@ -8,7 +8,7 @@ import type { Stream } from "../../state/paperStream";
  *  above them, or split (`part`) into its short facts ending a row and its sentences above. */
 export function Observation({ run, s, part }: { run: PaperRun; s: Stream; part?: "facts" | "sentences" }) {
   const zone = useTimeZone();
-  const now = useNow(), until = waitingUntil(run, s.lines), through = observedThrough(s.bars, s.closes);
+  const now = useNow(), until = waitingUntil(run), through = observedThrough(s.bars, s.closes);
   const stale = through !== null && now - through > LAG_MS;
   const restarted = s.lines.some((l) => l.kind === "restart");
   const facts = part !== "sentences", sentences = part !== "facts";

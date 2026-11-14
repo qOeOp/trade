@@ -9,17 +9,17 @@ export type LiveWriteReply = { request: LiveRequest; run_id?: string; credential
 type LiveCredentialDto = {
   credential_ref: string; observed_ns: string; selected: boolean; removed: boolean; available: boolean; referenced_runs: string[];
 };
-/** A source's replay evidence as the serving control reads it ahead of preparation (live/control.py Evidence);
- *  absent from an older control or one not serving. Preparation checks it again. */
+/** A source's replay evidence as the serving control reads it ahead of preparation (live/control.py Evidence).
+ *  Preparation checks it again. */
 export type LiveEvidenceReadDto = {
   state: "checking" | "found" | "missing" | "unknown";
   replays: { trial_id: number; starting_balance_usdt: string }[]; tolerance: string;
 };
 export type LiveSourceDto = {
   source_id: string; candidate: string; source_sha256: string; entry_class: string; purpose: "natural" | "controlled";
-  /** The contracts it trades, one strategy instance each (protocol 7). */
+  /** The contracts it trades, one strategy instance each. */
   symbols: string[];
-  evidence?: LiveEvidenceReadDto;
+  evidence: LiveEvidenceReadDto;
 };
 type LiveEvidenceDto = {
   source: string; cursor: string | null; observed_ns: string | null; read_ns: string; complete: boolean;
@@ -61,7 +61,7 @@ export type LiveRunDto = {
   /** Interruptions and starts again of the same run (live/views.py _restarts). */
   restarts: { event: string; observed_ns: string; held: boolean | null }[] | null;
   /** The entry gate's events (live/views.py _gate): when entries closed, why, and when they reopened. */
-  gate: { event: string; observed_ns: string; reasons: string[]; socket: string | null; status?: string | null }[] | null;
+  gate: { event: string; observed_ns: string; reasons: string[]; socket: string | null; status: string | null }[] | null;
   /** The control's hourly checks of the run's key that failed, and a pass after one (live/views.py _key_checks). */
   key_checks: { event: "key_check_failed" | "key_check_passed"; code: string | null; observed_ns: string }[] | null;
   /** The control's latest daily comparison with a replay (live/daily.py). */
@@ -77,7 +77,7 @@ export type LiveHomeDto = {
   sources: LiveSourceDto[]; credentials: LiveCredentialDto[]; runs: LiveRunDto[];
   /** A run's settings as the page starts them: no duration runs until stopped; the brake can only be tighter. */
   defaults: { drawdown_brake: string; duration_seconds: number | null; leverage: string };
-  /** Telegram notification status (protocol 2); never the bot token or chat. */
-  notify?: LiveNotifyDto;
+  /** Telegram notification status; never the bot token or chat. */
+  notify: LiveNotifyDto;
 };
 type LiveNotifyDto = { configured: boolean; last_sent_ns: string | null; last_error: { code: string; at_ns: string | null } | null; dropped: number };

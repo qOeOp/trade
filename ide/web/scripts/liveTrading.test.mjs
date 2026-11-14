@@ -83,7 +83,7 @@ test("the notifications panel shows status, never a token, and offers test and r
   assert.match(on, /2 messages/);
   for (const label of ["Send test", "Remove"]) assert.match(on, new RegExp(`<button(?![^>]* disabled="")[^>]*>${label}</button>`));
   const unknown = render("LiveCredentialsDialog", { view: blank, actions: {}, close: noOp, requests: noOp });
-  assert.match(unknown, /Unavailable from this Live service/);
+  assert.match(unknown, /Unavailable while Live does not answer/);
 });
 
 test("a recorded request effect remains distinct from a fill, a flat account or native execution", () => {
@@ -207,7 +207,8 @@ test("run review preserves action availability and names phases without inventin
 });
 
 test("with no live run selected the Live canvas is the three-column launch page, kept while it holds a draft", () => {
-  const source = { id: "source-fixture", candidate: "fixture-strategy@1", sourceHash: "c".repeat(64), entryClass: "FixtureStrategy", purpose: "natural", symbols: ["BTCUSDT"] };
+  const source = { id: "source-fixture", candidate: "fixture-strategy@1", sourceHash: "c".repeat(64), entryClass: "FixtureStrategy", purpose: "natural", symbols: ["BTCUSDT"],
+    evidence: { state: "checking", replays: [], tolerance: "0.1" } };
   const ready = { ...blank, availability: "ready", notice: null, reason: null, sources: [source] };
   canvasRun = null;
   try {

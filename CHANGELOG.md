@@ -35,6 +35,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   installed every release pairs a new control and waits until Live is idle, Web-only ones included; a new control
   no longer takes over running runners, and no Web is served ahead of its control. Live runs under
   `LIVE_ROOT/runs` and Paper runs in an earlier format are no longer read; they stay on disk.
+- IDE (breaking): the Live page reads only the control released with it. A source's replay evidence, a gate
+  event's contract status and the notification status are required in its answers; the page no longer shows a
+  start without evidence as allowed or a missing notification status as unreported. The Paper page takes a running
+  run's warm-up end only from its readings' `input_start_ns`, no longer from its journal.
 - Paper (breaking): a Paper controller release no longer checks that the candidate can read the checkpoint format
   and journal of unsealed runs an earlier version left; such runs are no longer read and stay on disk, and the
   checkpoint's own format check still refuses to recover them. `paper reconcile` and a replayed `paper start` read
