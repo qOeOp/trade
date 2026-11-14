@@ -288,9 +288,7 @@ class LedgerBaseTests(unittest.TestCase):
                 return db.write(writer, "probe", {"market_day": market_day}, "trial",
                                 lambda conn, op: {"trial_id": trial_insert(conn, op, market_day=market_day)})
 
-            for legacy in ("m" * 32, "2026-02-30"):  # a pre-day market hash, or no day at all
-                with self.subTest(legacy=legacy):
-                    self.assertEqual(refused(lambda: trial(legacy)).code, "DOLT_SQL_ERROR")
+            self.assertEqual(refused(lambda: trial("2026-02-30")).code, "DOLT_SQL_ERROR")  # no such day
             trial_id = trial("2026-03-01")["record"]["trial_id"]
             statement = "SELECT market_day FROM trial WHERE trial_id = %s"
             self.assertEqual((writer.rows(statement, (trial_id,)), writer.one(statement, (trial_id,))),

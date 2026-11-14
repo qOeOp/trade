@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   names a runtime built before the replay/execution image split (its combined `sha-<commit>` index); an admitted
   runtime is always read at `exec-sha-<commit>`. Going back to an earlier version's images is no longer supported:
   `--revision` stays only to name the admitted revision the host routes, as Live on the host does.
+- Ledger (breaking): no compatibility with services or runs of earlier ledger generations (0.x keeps none). A
+  service start no longer checks for a commit verification group left by a pre-gen-1 product, and `ledger init`
+  no longer clears one; a service that still has one fails its first commit. The single-run report reads
+  `fill_volumes.csv` as a required report: a run without it gets a `FILL_VOLUME_MISSING` limitation instead of an
+  empty participation reading. Nothing on disk is deleted or moved.
 - Paper (breaking): the run listing (`GET /api/paper/runs`) names a run's readings so far `readings` instead of
   `live`, the name its stream's `readings` event already has. The release gate's probe reads the new name, so
   reinstall the host's control code with the release (`sh deploy/remote/install-release.sh`), as every release does.
