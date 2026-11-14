@@ -64,7 +64,7 @@ test("credential metadata and a failed research review do not become successful 
   const native = run(), home = {
     availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], runs: [native],
     credentials: [{ credential_ref: "ref", observed_ns: "1000000000000000001", selected: false, removed: true, available: false, referenced_runs: [native.run_id] }],
-    defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" },
+    defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 },
   };
   const mapped = liveHomePresentation(home, new Map([[native.run_id, { ...native, review_error: { code: "LIVE_REVIEW_UNAVAILABLE" } }]]));
   assert.equal(mapped.credentials[0].removed, true);
@@ -105,15 +105,14 @@ test("minute results become the account on the equity the run armed with, unknow
   assert.equal(liveRunPresentation(run(), []).equity, null, "no minute results, no chart");
   assert.equal(liveRunPresentation({ ...run(), brake: { ...brake, start: null }, minute_results: results }, []).equity, null);
   assert.deepEqual(liveHomePresentation({ availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [],
-    credentials: [], runs: [], defaults: { drawdown_brake: "0.15", duration_seconds: null, leverage: "3" } }, new Map()).planFields.slice(0, 2),
+    credentials: [], runs: [], defaults: { drawdown_brake: "0.15", duration_seconds: null, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } }, new Map()).planFields.slice(0, 2),
     [{ id: "drawdown_brake", label: "Drawdown brake", value: "15" }, { id: "duration_seconds", label: "Duration (seconds)", value: "" }],
     "the brake is typed as a percentage; no duration is an empty field");
 });
 
-test("notification status maps without any secret and is null from a control that does not report it", () => {
+test("notification status maps without any secret", () => {
   const home = { availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], credentials: [], runs: [],
-    defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" } };
-  assert.equal(liveHomePresentation(home, new Map()).notify, null);
+    defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } };
   const notify = { configured: true, last_sent_ns: "1794000000000000000", last_error: { code: "http_4xx", at_ns: "1794000060000000000" }, dropped: 1 };
   assert.deepEqual(liveHomePresentation({ ...home, notify }, new Map()).notify,
     { configured: true, lastSentNs: "1794000000000000000", lastError: { code: "http_4xx", atNs: "1794000060000000000" }, dropped: 1 });
@@ -134,13 +133,11 @@ test("a start holding around an inherited position says so until a later start o
 test("a running run's entries are closed until its latest start warms up, then for each reason the gate gave since", () => {
   const entries = (restarts, gate = [], state = "running") => liveRunPresentation({ ...run(), host: { ...run().host, state }, restarts, gate }, []).entries;
   const restart = (ns, event, held = null) => ({ event, observed_ns: ns, held });
-  const gate = (ns, event, reasons) => ({ event, observed_ns: ns, reasons, socket: null });
+  const gate = (ns, event, reasons) => ({ event, observed_ns: ns, reasons, socket: null, status: null });
   assert.deepEqual(entries([]), { open: false, text: "Closed · warming up" });
   assert.deepEqual(entries([restart("1", "warmup")]), { open: true, text: "Open" });
   assert.deepEqual(entries([restart("1", "warmup")], [gate("2", "entries_closed", ["disconnected"]), gate("3", "entries_closed", ["bars_missing"])]),
     { open: false, text: "Closed · connection lost, a bar is missing" });
-  assert.deepEqual(entries([restart("1", "warmup")], [gate("2", "entries_closed", ["contract_status"])]),
-    { open: false, text: "Closed · contract not trading" }, "an older control sends no status");
   assert.deepEqual(entries([restart("1", "warmup")], [{ ...gate("2", "entries_closed", ["contract_status"]), status: "SETTLING" }]),
     { open: false, text: "Closed · contract not trading (SETTLING)" });
   assert.deepEqual(entries([restart("1", "warmup")], [{ ...gate("2", "entries_closed", ["disconnected"]), status: "SETTLING" }]),

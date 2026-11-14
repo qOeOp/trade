@@ -66,7 +66,7 @@ function publish(): void {
   // own owner; the server rechecks these derived permissions under the custody lock.
   const retained = home ? { stop: writes.stop, maintain: home.maintenance_enabled ? writes.maintain : undefined,
     resolveRequest: home.write_enabled ? writes.resolveRequest : undefined } : {};
-  liveTrading.set({ view, actions: { ...(home?.write_enabled && !readError ? writes : {}), ...retained, ...(home?.notify && !readError ? notifyWrites : {}),
+  liveTrading.set({ view, actions: { ...(home?.write_enabled && !readError ? writes : {}), ...retained, ...(home && !readError ? notifyWrites : {}),
     refresh: refreshLiveTrading, inspect: inspectLiveRun } });
 }
 
