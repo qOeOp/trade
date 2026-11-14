@@ -9,6 +9,8 @@
 
 - Live 控制（`live serve`）新开一个线程 `comparer`。它每个 UTC 小时最多启动一次**对照容器**，从 00:30 起
   （市场导入每天 00:30 UTC 跑一轮，`market/follow.py WAKE`）。对照容器跑 `python -m cli.main live compare-daily`。
+  只有某个已启动（有 `launch_requested`）的本版本运行还有一天的 compare.json 不是终态时才启动（`daily.needed`，
+  诊断 20261114-20）；从未交易的主机不起对照容器。
 - 对照容器是控制的兄弟容器，不是控制里的子进程，因为控制容器只有 768 MB。这 768 MB 由 `live serve`、STOP 等
   `web-command` 子进程和证据探针共用。对照要读整段证据，还要起一个 spawn 的导出进程（pyarrow 和 Nautilus），
   不能在里面跑，否则内存不够时可能杀掉 STOP。

@@ -1,7 +1,7 @@
 """The Live control's daily comparison (docs/plans/live-continuous-step7b-daily-compare-20261113.zh.md).
 
-Once an hour from 00:30 UTC the control starts a comparison container of its own image (`launch`), with its own
-memory limit, that runs `live compare-daily` (`run`): under the root's compare.lock it compares each launched run's
+Once an hour from 00:30 UTC, while some run has a day its record does not hold as final (`needed`), the control
+starts a comparison container of its own image (`launch`), with its own memory limit, that runs `live compare-daily` (`run`): under the root's compare.lock it compares each launched run's
 latest whole day, Y = min(the day it ended, yesterday), with a replay of every trading start that reaches into the
 week to Y (live.compare, the replay cut at the end of Y), and keeps one summary per run in runs/<run>/compare.json.
 The views show it and Telegram reports decisions the replay does not explain, the weekly measures and repeated
@@ -10,6 +10,7 @@ failures (live.notify). An execution record: nothing reaches a ledger, and the c
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -113,7 +114,7 @@ def combine(found: list[dict]) -> dict:
 
 # One run
 
-def _target(pack: dict, status: dict, today: int) -> int | None:
+def _target(pack: Mapping, status: dict, today: int) -> int | None:
     """Y (as its day's start) for a run: yesterday while it runs, the day it ended once it has."""
     yesterday = today - DAY_NS
     if status.get("state") not in runs.ENDED:
@@ -149,17 +150,9 @@ def _week(root: Path, market: dict, run_id: str, pack: dict, since: int, bound: 
     return segments, unexplained, market_day, week
 
 
-def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path) -> dict | None:
-    """Compare one run's day Y and return its new record, or None when it has nothing new to compare."""
+def _pending(directory: Path, pack: Mapping, status: dict, today: int) -> tuple[int, dict] | None:
+    """(Y as its day's start, the run's record) when a run has a day to compare; None when it has nothing new."""
     from live import compare
-    try:
-        status = runs.observe(root, run_id)
-    except LiveRefusal:
-        return None
-    if status.get("mode") != "run":
-        return None
-    directory = state.directory(root, run_id)
-    pack = compare.read_pack(directory)
     if not compare.segments(pack):
         return None  # never warmed: it never traded
     target = _target(pack, status, today)
@@ -171,6 +164,25 @@ def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path)
         return None
     if target < today - WEEK * DAY_NS:
         return None  # ended over a week ago: nothing to report any more
+    return target, previous
+
+
+def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path) -> dict | None:
+    """Compare one run's day Y and return its new record, or None when it has nothing new to compare."""
+    from live import compare
+    try:
+        status = runs.observe(root, run_id)
+    except LiveRefusal:
+        return None
+    if status.get("mode") != "run":
+        return None
+    directory = state.directory(root, run_id)
+    pack = compare.read_pack(directory)
+    found = _pending(directory, pack, status, today)
+    if found is None:
+        return None
+    target, previous = found
+    day = metrics.utc_day(target)
     streak = previous.get("failures", 0) if previous.get("state") in ("failed", "running") else 0
     if previous.get("state") == "running":  # the last attempt died: its container was stopped or out of memory
         streak += 1
@@ -245,15 +257,50 @@ def _scratch(root: Path) -> Path:
     return scratch
 
 
+def _listed(root: Path) -> list[str]:
+    """The account's runs of this version (runs.earlier), under the caller's hold of the root."""
+    directory = root / "runs"
+    if not directory.is_dir() or directory.is_symlink():
+        return []
+    return sorted(path.name for path in directory.iterdir()
+                  if state.RUN_ID.fullmatch(path.name) and path.is_dir() and not path.is_symlink()
+                  and not runs.earlier(path))
+
+
+def needed(root: Path, today: int) -> bool:
+    """Whether a comparison container would have anything to do (`today` the day's start): some run of this version
+    that was started (a `launch_requested`) has a day its compare.json does not hold as final. A host that never
+    traded starts none; a run that cannot be read is left to the container, which says so."""
+    from live import compare
+    try:
+        with state.reading(Path(root)) as root:
+            listed = _listed(root)
+    except LiveRefusal:
+        return False  # no initialized root: no run
+    for run_id in listed:
+        directory = state.directory(root, run_id)
+        try:
+            if runs.latest_launch(directory) is None:
+                continue  # prepared, never started
+            try:
+                status = runs.observe(root, run_id)
+            except LiveRefusal:
+                continue  # compare_run leaves it alone
+            if status.get("mode") != "run":
+                continue
+            events = compare._lines(directory / "out" / "events.jsonl")
+            if _pending(directory, {"events": events}, status, today) is not None:
+                return True
+        except Exception:
+            return True
+    return False
+
+
 def run(root: Path, market_root: Path, today: str) -> dict:
     """live compare-daily: one pass over the account's runs; {state, runs: {run_id: record state}}."""
     root = Path(root).expanduser().absolute()
     with state.reading(root) as root:
-        directory = root / "runs"
-        listed = sorted(path.name for path in directory.iterdir()
-                        if state.RUN_ID.fullmatch(path.name) and path.is_dir() and not path.is_symlink()
-                        and not runs.earlier(path)) \
-            if directory.is_dir() and not directory.is_symlink() else []
+        listed = _listed(root)
     with _exclusive(root) as held:
         if not held:
             return {"state": "busy", "runs": {}}
@@ -309,6 +356,19 @@ def due(now: int, last: int | None) -> bool:
     """Whether the control starts a comparison container now: from 00:30 UTC, at most once each wall-clock hour."""
     hour = now // (3600 * 10**9)
     return now % DAY_NS >= WAKE_NS and (last is None or last // (3600 * 10**9) != hour)
+
+
+def tick(root: Path, market_root: Path, now: int, last: int | None) -> int | None:
+    """One look of the control's comparer (live.serve): when a comparison is `due` and `needed`, start its container
+    and wait for it. Returns the time of the last look that was due."""
+    if not due(now, last):
+        return last
+    try:
+        if needed(root, now - now % DAY_NS):
+            launch(root, market_root, now)
+    except Exception:
+        pass  # the run's record says what the comparison found; the next hour tries again
+    return now
 
 
 def launch(root: Path, market_root: Path, now: int) -> str:

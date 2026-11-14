@@ -1,7 +1,8 @@
 """If this fails, the Live control's daily comparison (live.daily) compares the wrong day or trading starts, keeps a
 record that loses a failure, a killed attempt or a reported decision, reports the same decision again, runs two
-comparisons at once, leaves another comparison's leftovers, runs outside its own temporary directory, or starts its
-container without the control's image, user, mounts and its own memory limit."""
+comparisons at once, leaves another comparison's leftovers, runs outside its own temporary directory, starts its
+container without the control's image, user, mounts and its own memory limit, or starts one on a host where no run
+needs it."""
 
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from engine.live_venue import MANIFEST_FORMAT
 from live import compare, daily, state
 from shared.refusals import refuse
 from tests.live.test_compare import MINUTE, RESTART, START, Pack, restart
@@ -215,3 +217,63 @@ class Container(unittest.TestCase):
                 mock.patch.object(daily.subprocess, "run") as docker:
             self.assertEqual(daily.launch(Path("/r"), Path("/m"), 0), "outside")
         docker.assert_not_called()
+
+
+class Needed(unittest.TestCase):
+    """The control's comparer (daily.tick, every minute from live.serve) over three hours of TODAY."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name) / "account"
+        self.root.mkdir(mode=0o700)
+        (self.root / "account.lock").touch(mode=0o600)
+        self.status = {"state": "running", "mode": "run"}
+        self.started: list[list[str]] = []
+        for patch in (mock.patch.object(daily, "CONTAINER_MARK", self.root),
+                      mock.patch.dict(os.environ, {"HOSTNAME": "control"}),
+                      mock.patch.object(daily.subprocess, "run", side_effect=self.docker),
+                      mock.patch.object(daily.runs, "observe", side_effect=lambda root, run_id: dict(self.status))):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def docker(self, argv, **_):
+        if argv[:2] == ["docker", "run"]:
+            self.started.append(argv)
+        return mock.Mock(stdout=json.dumps([Container.INSPECTED]) if argv[:2] == ["docker", "inspect"] else "")
+
+    def hours(self) -> int:
+        """`docker run`s of the comparer looking once a minute from midnight to 03:00."""
+        last, midnight = None, daily._ns(TODAY)
+        for minute in range(3 * 60):
+            last = daily.tick(self.root, Path("/market"), midnight + minute * 60 * 10**9, last)
+        return len(self.started)
+
+    def launched(self) -> Path:
+        pack = Pack(self.root)
+        restart(pack)
+        directory = self.root / "runs" / pack.run_id
+        manifest = directory / "inputs" / "manifest.json"
+        manifest.write_text(json.dumps({**json.loads(manifest.read_text()), "format": MANIFEST_FORMAT}))
+        state.append(directory / "lifecycle.jsonl", "launch_requested", pack.run_id, mode="run", container="runner")
+        return directory
+
+    def test_a_host_without_a_started_run_starts_no_comparison(self):
+        self.assertEqual(self.hours(), 0)  # no runs
+        Pack(self.root)  # prepared, never started
+        self.assertEqual(self.hours(), 0)
+        os.remove(self.root / "account.lock")  # no initialized root
+        self.assertEqual(self.hours(), 0)
+
+    def test_a_started_run_gets_one_comparison_an_hour_as_before(self):
+        self.launched()
+        self.assertEqual(self.hours(), 3)  # 00:30, 01:00, 02:00
+        self.assertEqual(self.started[0][-6:], ["--root", str(self.root), "--market-root", "/market", "--today", TODAY])
+
+    def test_a_record_final_for_the_day_starts_none_and_one_waiting_still_does(self):
+        directory = self.launched()
+        (directory / daily.RECORD).write_text(json.dumps({"format": daily.FORMAT, "day": "2026-11-11", "state": "done"}))
+        self.assertEqual(self.hours(), 0)
+        (directory / daily.RECORD).write_text(json.dumps({"format": daily.FORMAT, "day": "2026-11-11",
+                                                          "state": "waiting"}))
+        self.assertEqual(self.hours(), 3)
