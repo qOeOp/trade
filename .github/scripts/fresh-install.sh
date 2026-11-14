@@ -87,7 +87,9 @@ profile = json.load(open(sys.argv[1]))
 _fill_market(profile)
 _fill_history(profile)
 ' "$D/ledgers/market.json"
-cli market coverage --symbols BTCUSDT --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z
+cli market coverage --symbols BTCUSDT --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z > "$work/coverage.json"
+jq -c . "$work/coverage.json"
+market_day="$(jq -er .market_day "$work/coverage.json")"
 done_
 
 # The development period lies before a two-year holdout ending at the last quarter end the market covers
@@ -98,14 +100,14 @@ step "A research line, as research-start opens one: the candidate template publi
 cli candidate new --output "$work/candidate" --strategy-id fresh-install >/dev/null
 cli candidate publish --file "$work/candidate/strategy.py" --strategy-id fresh-install --entry-class Strategy1 \
   --description "the fresh install's candidate template" >/dev/null
-cli replay precheck --candidate fresh-install@1 --runtime "$runtime" --output "$work/precheck" -- "${window[@]}" \
+cli replay precheck --at "$market_day" --candidate fresh-install@1 --runtime "$runtime" --output "$work/precheck" -- "${window[@]}" \
   > "$work/precheck.json"
 jq -e '.status == "passed"' "$work/precheck.json" >/dev/null
 jq -n '["api", "causal", "activity", "readiness"] | map({(.): {status: "passed", note: "the fresh install'"'"'s precheck"}})
   | add' > "$work/items.json"
 cli source review --candidate fresh-install@1 --runtime "$runtime" --precheck-trial "$(jq -r .trial_id "$work/precheck.json")" \
   --verdict passed --items "$work/items.json" --reviewer fresh-install >/dev/null
-cli line select --start fresh-install@1 --slug fresh-install | jq -c '{line, window, market_day}'
+cli line select --start fresh-install@1 --slug fresh-install --market-at "$market_day" | jq -c '{line, window, market_day}'
 done_
 
 step "One replay: replay explore of the candidate template on $runtime, on that line"
