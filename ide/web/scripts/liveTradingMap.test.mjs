@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { namespace } from "./load.mjs";
 
-const { liveRunPresentation, liveHomePresentation, HELD_NOTICE } = await namespace("model/liveTradingMap.ts", { sources: ["model/liveLaunchText"], packages: [] });
+const { liveRunPresentation, liveHomePresentation, liveSourcePresentation, liveEvidencePresentation, HELD_NOTICE } = await namespace("model/liveTradingMap.ts", { sources: ["model/liveLaunchText"], packages: [] });
 const run = () => ({
   run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, candidate: { strategy_id: "retest", revision: "1" },
   runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: null,
@@ -13,16 +13,20 @@ const run = () => ({
   orders: null, positions: [], event_limit: 200, evidence: [{ source: "native", cursor: "n", observed_ns: null, read_ns: "1000000000000000002", complete: false, state: "invalid" }], complete: false,
 });
 
-test("Live purpose requires exact catalog hash and entry class; a legacy source remains unknown", () => {
-  const source = { source_id: "s", source_sha256: "actual", entry_class: "Actual", purpose: "controlled", candidate: "retest@1" };
-  assert.equal(liveRunPresentation(run(), [source]).purpose, "controlled");
-  assert.equal(liveRunPresentation(run(), [{ ...source, source_sha256: "other" }]).purpose, "unknown");
-  assert.equal(liveRunPresentation(run(), [{ ...source, entry_class: "Other" }]).purpose, "unknown");
-  assert.equal(liveRunPresentation(run(), []).purpose, "unknown");
+test("the launch page's candidate keeps Live's read, or why there is none, and its evidence exactly", () => {
+  const read = { candidate: "retest@1", research_at: "head", source_sha256: "actual", entry_class: "Actual", last_symbols: ["BTCUSDT"] };
+  const evidence = liveEvidencePresentation({ state: "found", tolerance: "0.1", research_at: "head",
+    replays: [{ trial_id: 7, starting_balance_usdt: "95.000000000000000001" }] });
+  assert.deepEqual(evidence, { state: "found", tolerance: "0.1", replays: [{ trialId: 7, balance: "95.000000000000000001" }] });
+  assert.deepEqual(liveSourcePresentation("retest@1", read, evidence),
+    { candidate: "retest@1", read: "found", sourceHash: "actual", entryClass: "Actual", lastSymbols: ["BTCUSDT"], evidence });
+  for (const state of ["reading", "absent", "unknown"]) assert.deepEqual(liveSourcePresentation("retest@1", state, evidence),
+    { candidate: "retest@1", read: state, sourceHash: null, entryClass: null, lastSymbols: null, evidence: null });
+  assert.equal("purpose" in liveRunPresentation(run()), false, "a run has no purpose: the operator source catalog is gone");
 });
 
 test("native terminal, unknown account, released custody and decimal declarations remain independent", () => {
-  const mapped = liveRunPresentation(run(), []);
+  const mapped = liveRunPresentation(run());
   assert.equal(mapped.account.length, 0);
   assert.equal(mapped.symbols, null);
   assert.equal(mapped.orders, null);
@@ -40,7 +44,7 @@ test("venue-flat terminal and custody retain their identity without inventing na
   native.host = { state: "venue_flat", mode: "reconcile", account_owned: false, exit_code: 0 };
   native.terminal = { ...native.terminal, event: "venue_flat", source_failed: null };
   native.custody = { released: true, release_reason: "venue_flat", archived: true };
-  const mapped = liveRunPresentation(native, []);
+  const mapped = liveRunPresentation(native);
   assert.equal(mapped.host.find((v) => v.label === "State").value, "venue_flat");
   assert.equal(mapped.execution.find((v) => v.label === "Native terminal").value, "venue_flat");
   assert.equal(mapped.execution.find((v) => v.label === "Source failed").value, null);
@@ -53,7 +57,7 @@ test("venue-flat terminal and custody retain their identity without inventing na
 test("fill events stay events and never become total fill status or aggregated positions", () => {
   const native = run();
   native.orders = [{ event_type: "OrderFilled", last_qty: "0.001000000000000001", last_px: "72000.1", event_ref: { source: "native", cursor: "n:2" }, observed_ns: null }];
-  const mapped = liveRunPresentation(native, []);
+  const mapped = liveRunPresentation(native);
   assert.equal(mapped.orders, native.orders);
   assert.equal(mapped.orders[0].event_type, "OrderFilled");
   assert.equal(mapped.orders[0].status, undefined);
@@ -62,7 +66,7 @@ test("fill events stay events and never become total fill status or aggregated p
 
 test("credential metadata and a failed research review do not become successful validation", () => {
   const native = run(), home = {
-    availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], runs: [native],
+    availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, runs: [native],
     credentials: [{ credential_ref: "ref", observed_ns: "1000000000000000001", selected: false, removed: true, available: false, referenced_runs: [native.run_id] }],
     defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 },
   };
@@ -84,7 +88,7 @@ test("an account check is derived only from the preflight process exit, never an
     ["preflight", "preflight_failed", 1, "failed"], ["run", "preflight_complete", 0, null],
   ]) {
     native.host = { ...native.host, mode, state, exit_code };
-    assert.equal(liveRunPresentation(native, []).accountCheck?.state ?? null, expected);
+    assert.equal(liveRunPresentation(native).accountCheck?.state ?? null, expected);
   }
 });
 
@@ -93,25 +97,25 @@ test("a run is ended only in the host's ended states; an unresolved or unreporte
   for (const [state, ended] of [["clean_stopped", true], ["reconciled_flat", true], ["venue_flat", true], ["not_armed", true],
     ["preflight_complete", true], ["preflight_failed", true], ["running", false], ["prepared", false], ["unresolved", false], [null, false]]) {
     native.host = { ...native.host, state };
-    assert.equal(liveRunPresentation(native, []).ended, ended, String(state));
+    assert.equal(liveRunPresentation(native).ended, ended, String(state));
   }
 });
 
 test("minute results become the account on the equity the run armed with, unknowns kept, and nothing without them", () => {
   const results = [["60000000000", "-2.5"], ["120000000000", null], ["180000000000", "1.25"]];
   const brake = { start: "100", peak: "104", fired: null };
-  assert.deepEqual(liveRunPresentation({ ...run(), brake, minute_results: results }, []).equity,
+  assert.deepEqual(liveRunPresentation({ ...run(), brake, minute_results: results }).equity,
     { budget: 100, minutes: [[60, 97.5], [120, null], [180, 101.25]] });
-  assert.equal(liveRunPresentation(run(), []).equity, null, "no minute results, no chart");
-  assert.equal(liveRunPresentation({ ...run(), brake: { ...brake, start: null }, minute_results: results }, []).equity, null);
-  assert.deepEqual(liveHomePresentation({ availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [],
+  assert.equal(liveRunPresentation(run()).equity, null, "no minute results, no chart");
+  assert.equal(liveRunPresentation({ ...run(), brake: { ...brake, start: null }, minute_results: results }).equity, null);
+  assert.deepEqual(liveHomePresentation({ availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null,
     credentials: [], runs: [], defaults: { drawdown_brake: "0.15", duration_seconds: null, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } }, new Map()).planFields.slice(0, 2),
     [{ id: "drawdown_brake", label: "Drawdown brake", value: "15" }, { id: "duration_seconds", label: "Duration (seconds)", value: "" }],
     "the brake is typed as a percentage; no duration is an empty field");
 });
 
 test("notification status maps without any secret", () => {
-  const home = { availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], credentials: [], runs: [],
+  const home = { availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, credentials: [], runs: [],
     defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } };
   const notify = { configured: true, last_sent_ns: "1794000000000000000", last_error: { code: "http_4xx", at_ns: "1794000060000000000" }, dropped: 1 };
   assert.deepEqual(liveHomePresentation({ ...home, notify }, new Map()).notify,
@@ -119,7 +123,7 @@ test("notification status maps without any secret", () => {
 });
 
 test("a start holding around an inherited position says so until a later start or the account flat", () => {
-  const held = (restarts, state = "running") => liveRunPresentation({ ...run(), host: { ...run().host, state }, restarts }, []).heldNotice;
+  const held = (restarts, state = "running") => liveRunPresentation({ ...run(), host: { ...run().host, state }, restarts }).heldNotice;
   const resuming = (ns, isHeld) => ({ event: "resuming", observed_ns: ns, held: isHeld });
   assert.equal(held([resuming("1", true)]), HELD_NOTICE);
   assert.match(HELD_NOTICE, /protected only by its stop at Binance: the strategy no longer manages its exits/);
@@ -131,7 +135,7 @@ test("a start holding around an inherited position says so until a later start o
 });
 
 test("a running run's entries are closed until its latest start warms up, then for each reason the gate gave since", () => {
-  const entries = (restarts, gate = [], state = "running") => liveRunPresentation({ ...run(), host: { ...run().host, state }, restarts, gate }, []).entries;
+  const entries = (restarts, gate = [], state = "running") => liveRunPresentation({ ...run(), host: { ...run().host, state }, restarts, gate }).entries;
   const restart = (ns, event, held = null) => ({ event, observed_ns: ns, held });
   const gate = (ns, event, reasons) => ({ event, observed_ns: ns, reasons, socket: null, status: null });
   assert.deepEqual(entries([]), { open: false, text: "Closed · warming up" });
@@ -154,7 +158,7 @@ test("a running run's entries are closed until its latest start warms up, then f
 });
 
 test("the latest comparison and the continuous facts read the control's records as they are", () => {
-  const mapped = (compare, extra = {}) => liveRunPresentation({ ...run(), compare, ...extra }, []);
+  const mapped = (compare, extra = {}) => liveRunPresentation({ ...run(), compare, ...extra });
   assert.deepEqual(mapped({ day: "2026-11-12", state: "done", unexplained_count: 0, measures: { groups: 9 } }).compared,
     { day: "2026-11-12", text: "0 of 9 unexplained", attention: false });
   assert.deepEqual(mapped({ day: "2026-11-12", state: "done", unexplained_count: 2, measures: { groups: 9 } }).compared,
@@ -176,5 +180,5 @@ test("the latest comparison and the continuous facts read the control's records 
     value: "This API key allows withdrawals. Turn that off at Binance, or save a key without it.", attention: true });
   assert.equal(key([check("key_check_failed", "1", "LIVE_KEY_WITHDRAWAL"), check("key_check_passed", "2")]), undefined, "a later pass clears it");
   assert.equal(key(null), undefined);
-  assert.deepEqual(liveRunPresentation({ ...run(), host: { ...run().host, mode: "preflight" } }, []).continuity, []);
+  assert.deepEqual(liveRunPresentation({ ...run(), host: { ...run().host, mode: "preflight" } }).continuity, []);
 });

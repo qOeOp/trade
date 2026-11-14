@@ -584,7 +584,7 @@ class LiveCustodyTests(LiveFixture):
         universe = self.root / "universe-input.json"
         universe.write_text('{}')
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
-                  "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
+                  "source": b"class Original: pass\n", "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(),
                   "runtime_contract": RUNTIME_CONTRACT}
         with patch.object(runs.db, "read_as_of") as read, \
                 patch.object(runs.strategies, "read_candidate", return_value=origin), \
@@ -601,19 +601,36 @@ class LiveCustodyTests(LiveFixture):
         self.assertEqual(manifest["candidate"], {"strategy_id": "original", "revision": 2})
         self.assertEqual(manifest["source"], {"source_sha256": origin["source_sha256"], "entry_class": "Original"})
         captured = state.directory(self.root, "candidate-run") / "inputs"
-        self.assertEqual((captured / "strategy.py").read_bytes(), b"original bytes")
+        self.assertEqual((captured / "strategy.py").read_bytes(), b"class Original: pass\n")
         for path in captured.iterdir():
             content = path.read_bytes()
             self.assertNotIn(b"example-key", content)
             self.assertNotIn(b"example-secret", content)
 
-    def test_only_the_declared_source_hash_of_the_candidate_is_prepared(self):
+    def test_a_candidate_whose_source_does_not_load_is_no_source_to_prepare(self):
+        universe = self.root / "universe-input.json"
+        universe.write_text('{}')
+        for source, entry_class in ((b"not python (", "Original"), (b"class Other: pass\n", "Original")):
+            found = {"strategy_id": "original", "revision": 2, "entry_class": entry_class, "source": source,
+                     "source_sha256": hashlib.sha256(source).hexdigest(), "runtime_contract": RUNTIME_CONTRACT}
+            with self.subTest(source=source), patch.object(runs.db, "read_as_of"), \
+                    patch.object(runs.strategies, "read_candidate", return_value=found), \
+                    patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
+                    self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
+                runs.prepare_locked(root, "unloadable", object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
+                                    self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
+                                    duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
+                                    credential_ref="a" * 32)
+            self.assertEqual(caught.exception.code, "LIVE_SOURCE_MISSING")
+            self.assertFalse(state.directory(self.root, "unloadable").exists())
+
+    def test_only_the_frozen_source_hash_of_the_candidate_is_prepared(self):
         universe = self.root / "universe-input.json"
         universe.write_text('{}')
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
-                  "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
+                  "source": b"class Original: pass\n", "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(),
                   "runtime_contract": RUNTIME_CONTRACT}
-        for found, declared in ((origin, "f" * 64), ({**origin, "source": b"other bytes"}, origin["source_sha256"])):
+        for found, declared in ((origin, "f" * 64), ({**origin, "source": b"class Original: pass  # other\n"}, origin["source_sha256"])):
             with self.subTest(declared=declared), patch.object(runs.db, "read_as_of"), \
                     patch.object(runs.strategies, "read_candidate", return_value=found), \
                     patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
@@ -637,7 +654,7 @@ class LiveCustodyTests(LiveFixture):
                 "credentials": self.credentials, "runtime": IDENTITY["image_ref"], "drawdown_brake": "0.15", "duration_seconds": 60, "memory": "2g", "leverage": "3",
                 "market_root": Path("unused"), "credential_ref": "a" * 32}
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
-                  "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
+                  "source": b"class Original: pass\n", "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(),
                   "runtime_contract": RUNTIME_CONTRACT}
 
         def again(**changes):

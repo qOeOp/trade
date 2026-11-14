@@ -17,12 +17,12 @@ export const closeLiveCredentials = () => workspace.set({ ...workspace.get(), cr
 export const openLiveRequests = () => workspace.set({ ...workspace.get(), requests: true, credentials: false });
 export const closeLiveRequests = () => workspace.set({ ...workspace.get(), requests: false });
 
-/** The Live launch page's own choices (widgets/live/LiveLaunch.tsx): the version it was begun on, the candidate and
+/** The Live launch page's own choices (widgets/live/LiveLaunch.tsx): the version it was begun on, the contracts and
  *  settings changed, and the run it prepared to check the account, kept across stage and page changes until a run
  *  starts, another run is chosen or it is discarded. Null until the user touches the page. No credential or command
  *  payload is held. */
-export type LiveDraft = { version: string | null; chosen: string | null; edits: Readonly<Record<string, string>>; preparedId: string | null };
-export const FRESH_DRAFT: LiveDraft = { version: null, chosen: null, edits: {}, preparedId: null };
+export type LiveDraft = { version: string | null; edits: Readonly<Record<string, string>>; preparedId: string | null };
+export const FRESH_DRAFT: LiveDraft = { version: null, edits: {}, preparedId: null };
 export const liveDraft = atom<LiveDraft | null>(null);
 export const useLiveDraft = () => useAtom(liveDraft);
 

@@ -4,19 +4,24 @@ from __future__ import annotations
 
 import hashlib
 from datetime import date, datetime
+import os
 from pathlib import Path
 import threading
 import time
 
 from engine.live_errors import REFUSALS, LiveRefusal
 from engine.live_venue import EVIDENCE_TOLERANCE
-from ledger import db
+from ledger import db, paper as paper_records
+from shared.errors import Refusal
 from live import authority, configuration, credentials, key, notify, release, requests, runs, state, views
 
 
 MESSAGES = {
     "LIVE_RELEASE_UNAVAILABLE": "This Live control is not accepting new operations during release handover.",
-    "LIVE_CONFIG": "Check the selected source and the supported run settings.",
+    "LIVE_CONFIG": "Check the candidate and the supported run settings.",
+    "LIVE_SOURCE_MISSING": "This version is no candidate Live can run: it is absent at the research head or its source does not load.",
+    "LIVE_SYMBOLS": "Name distinct Binance USDT perpetuals such as BTCUSDT.",
+    "LIVE_UNIVERSE": "The market directory gives these contracts no membership this month.",
     "LIVE_REQUEST_CONFLICT": "This request ID already belongs to a different operation.",
     "LIVE_REQUEST_UNRESOLVED": "A previous operation has an unknown outcome. Check that original request.",
     "LIVE_REQUEST_MISSING": "This request has not been recorded by Live.",
@@ -85,8 +90,6 @@ def _review(config: configuration.Configuration, root: Path, run_id: str) -> dic
 
 def run_view(config: configuration.Configuration, run_id: str, *, review: bool = True) -> dict:
     result = views.run_view(config.root, run_id)
-    source = configuration.source_of(config.sources, result["source"])
-    result["purpose"] = source.purpose if source is not None else None
     if review:
         try:
             with state.reading(config.root) as root:
@@ -98,48 +101,104 @@ def run_view(config: configuration.Configuration, run_id: str, *, review: bool =
     return result
 
 
+# What replay evidence is read for: a research commit, a source hash and the contracts, in the run's order.
+EvidenceKey = tuple[str, str, tuple[str, ...]]
+
+
 class Evidence:
-    """Each source's replay evidence (runs.replay_evidence), read in the background so the page shows it before a run
-    is prepared. Display only: preparation reads it again and refuses as before. At a fixed research commit and
-    execution image a found or missing answer stays; an unknown one (an image or ledger unreadable) is read again."""
+    """The replay evidence (runs.replay_evidence) of each (research commit, source, contracts) the page asked about,
+    read in the background so the page shows it before a run is prepared. Display only: preparation reads it again
+    and refuses as before. At a fixed research commit and execution image a found or missing answer stays; an unknown
+    one (an image or ledger unreadable) is read again after RETRY_NS. The LIMIT most recently asked keys are kept."""
 
     RETRY_NS = 300 * 1_000_000_000
+    LIMIT = 32
 
     def __init__(self) -> None:
-        self._found: dict[str, dict] = {}
+        self._found: dict[EvidenceKey, dict | None] = {}  # None: asked, not read yet
         self._lock = threading.Lock()
+        self._reading = False
 
-    def view(self, source_id: str) -> dict:
+    def view(self, key: EvidenceKey) -> dict:
+        """The answer for `key`; a key not asked before is asked now and is "checking" until check() reads it."""
         with self._lock:
-            found = self._found.get(source_id)
+            found = self._found.pop(key, None)
+            self._found[key] = found  # the most recently asked last
+            while len(self._found) > self.LIMIT:
+                del self._found[next(iter(self._found))]
         state_, replays = (found["state"], found["replays"]) if found else ("checking", [])
         return {"state": state_, "replays": replays, "tolerance": str(EVIDENCE_TOLERANCE)}
 
+    def request(self, config: configuration.Configuration, key: EvidenceKey) -> dict:
+        """view(), and a read of the asked keys started now unless one is under way (check() takes later keys too)."""
+        result = self.view(key)
+        with self._lock:
+            idle = not self._reading
+        if result["state"] == "checking" and idle:
+            threading.Thread(target=self.check, args=(config,), daemon=True).start()
+        return result
+
+    def _due(self, done: set) -> EvidenceKey | None:
+        now = time.monotonic_ns()
+        return next((key for key, found in self._found.items() if key not in done and (
+            found is None or (found["state"] == "unknown" and now - found["at"] >= self.RETRY_NS))), None)
+
     def check(self, config: configuration.Configuration) -> None:
-        for source in config.sources.values():
+        """Read each asked key not answered yet, and an unknown answer RETRY_NS old, once; one reader at a time."""
+        with self._lock:
+            if self._reading:
+                return
+            self._reading = True
+        done: set = set()
+        try:
+            while True:
+                with self._lock:
+                    key = self._due(done)
+                    if key is None:
+                        self._reading = False  # under the lock: a key asked after this starts its own read
+                        return
+                done.add(key)
+                research_at, source_sha256, symbols = key
+                try:
+                    rows = runs.replay_evidence(_profile(config), research_at, source_sha256, list(symbols),
+                                                config.runtime)
+                    found = {"state": "found" if rows else "missing", "replays": [
+                        {"trial_id": row["trial_id"], "starting_balance_usdt": row["starting_balance_usdt"]}
+                        for row in rows]}
+                except Exception:
+                    found = {"state": "unknown", "replays": []}
+                with self._lock:
+                    if key in self._found:
+                        self._found[key] = {**found, "at": time.monotonic_ns()}
+        except BaseException:
             with self._lock:
-                found = self._found.get(source.source_id)
-            if found and (found["state"] != "unknown" or time.monotonic_ns() - found["at"] < self.RETRY_NS):
-                continue
-            try:
-                rows = runs.replay_evidence(_profile(config), config.research_at, source.source_sha256,
-                                            list(source.symbols), config.runtime)
-                found = {"state": "found" if rows else "missing", "replays": [
-                    {"trial_id": row["trial_id"], "starting_balance_usdt": row["starting_balance_usdt"]} for row in rows]}
-            except Exception:
-                found = {"state": "unknown", "replays": []}
-            with self._lock:
-                self._found[source.source_id] = {**found, "at": time.monotonic_ns()}
+                self._reading = False
+            raise
 
 
-def listing(config: configuration.Configuration, *, binding: release.Binding | None = None,
-            evidence: Evidence | None = None) -> dict:
-    """Each source's `symbols` and `evidence` let the page show a run's contracts and replay evidence before it is
-    prepared; `evidence` only from the serving control, which reads it in the background."""
+def candidate(config: configuration.Configuration, ref: str) -> dict:
+    """The candidate `ref` at the research head, as a run of it would be prepared now (_fixed_prepare reads it again),
+    and the contracts of its last research replay (ledger.paper.last_research_symbols), which the page offers."""
+    with db.read_as_of(_profile(config)) as reader:
+        found = runs.runnable(reader, ref)
+        last = paper_records.last_research_symbols(reader, found["source_sha256"])
+        research_at = reader.resolved_commit
+    return {"candidate": ref, "research_at": research_at, "source_sha256": found["source_sha256"],
+            "entry_class": found["entry_class"], "last_symbols": last["symbols"] if last else None}
+
+
+def evidence_view(config: configuration.Configuration, evidence: Evidence, ref: str, symbols: list[str]) -> dict:
+    """The replay evidence of `ref` at the research head on `symbols`, read in the background (Evidence)."""
+    head = candidate(config, ref)
+    return {**evidence.request(config, (head["research_at"], head["source_sha256"], tuple(symbols))),
+            "research_at": head["research_at"]}
+
+
+def listing(config: configuration.Configuration, *, binding: release.Binding | None = None) -> dict:
+    """What the page shows before a run: availability, keys, retained runs, notifications and the run settings'
+    defaults. The candidate and its contracts are the page's choice (candidate, evidence_view)."""
     result = {"availability": "ready", "write_enabled": True, "write_reason": None, "maintenance_enabled": True,
-              "sources": [{**source.view(), **({"evidence": evidence.view(source.source_id)} if evidence else {})}
-                          for source in config.sources.values()],
-              "defaults": {**config.defaults, "drawdown_brake": configuration.BRAKE_DEFAULT}, "credentials": [], "runs": [], "notify": notify.view(config.root)}
+              "defaults": dict(configuration.DEFAULTS), "credentials": [], "runs": [], "notify": notify.view(config.root)}
     def availability() -> None:
         try:
             authority.retained(config, binding).admit_locked(config.root)
@@ -167,11 +226,34 @@ def listing(config: configuration.Configuration, *, binding: release.Binding | N
     return result
 
 
+def _universe(config: configuration.Configuration, symbols: list[str]) -> bytes:
+    """The membership file of `symbols` at the market's latest market day (market.universe.selection, as Paper
+    derives it): what engine.load.read_universe reads."""
+    from market.sources import MarketError
+    from market.universe import selection
+    try:
+        _, membership, _ = selection({"root": str(config.market_root)}, None, symbols, time.time_ns())
+    except (MarketError, Refusal) as exc:
+        raise state.fail("LIVE_UNIVERSE", f"the market gives these contracts no membership: {exc}") from None
+    return state.encode(membership)
+
+
+def _write_universe(root: Path, data: bytes) -> Path:
+    """universes/<sha256>.json under the custody root, written once: a prepare request names it (inputs.universe_file)
+    and preparation copies it into the run's inputs."""
+    path = state.private_directory(root / "universes") / f"{hashlib.sha256(data).hexdigest()}.json"
+    if not os.path.lexists(path):
+        state.write_new(path, data)
+    elif path.is_symlink() or not path.is_file() or path.read_bytes() != data:
+        raise state.fail("LIVE_UNIVERSE", "a retained universe file differs from its content address")
+    return path
+
+
 def _fixed_prepare(config: configuration.Configuration, body: dict, scope: authority.Authority) -> dict:
+    """The prepare request's inputs, frozen once: the candidate at the research head, the chosen contracts, their
+    membership file and the run settings. A repeated request ID returns its original inputs, never today's head."""
     target = {"run_id": body["run_id"], "credential_ref": body["credential_ref"]}
     parameters = configuration.run_config(body["config"])
-    # Read a previous declaration before consulting today's catalog. Deployment updates
-    # must not reinterpret the source or research snapshot of an accepted request.
     with scope.serialized(config.root) as root:
         prior = requests.read_locked(root, body["request_id"])
         if prior:
@@ -180,21 +262,22 @@ def _fixed_prepare(config: configuration.Configuration, body: dict, scope: autho
             command = prior["command"]
             original = command["inputs"]
             if (command["action"] != "prepare" or command["target"] != target
-                    or original.get("source_id") != body["source_id"]
+                    or original.get("candidate") != body["candidate"] or original.get("symbols") != body["symbols"]
                     or any(original.get("config", {}).get(name) != value for name, value in parameters.items())):
                 raise state.fail("LIVE_REQUEST_CONFLICT", "request-id already binds different preparation inputs")
             return command
-    source = config.sources.get(body["source_id"])
-    if source is None:
-        raise state.fail("LIVE_SOURCE_MISSING", "the configured source is unavailable")
-    from engine.load import read_regular_file
-    universe = read_regular_file(config.universe_file)
+    with db.read_as_of(_profile(config)) as reader:
+        found = runs.runnable(reader, body["candidate"])
+        research_at = reader.resolved_commit
+    data = _universe(config, body["symbols"])
+    with scope.serialized(config.root) as root:
+        scope.admit_locked(root, inventory=False)  # no write in custody while Live takes no new operation
+        universe = _write_universe(root, data)
     return {"action": "prepare", "target": target, "inputs": {
-        "source_id": source.source_id, "research_at": config.research_at, "candidate": source.candidate,
-        "symbols": list(source.symbols), "source_sha256": source.source_sha256, "entry_class": source.entry_class,
-        "universe_file": str(config.universe_file),
-        "universe_sha256": hashlib.sha256(universe).hexdigest(), "runtime": config.runtime,
-        "config": {**parameters, "memory": config.memory}}}
+        "research_at": research_at, "candidate": body["candidate"], "symbols": list(body["symbols"]),
+        "source_sha256": found["source_sha256"], "entry_class": found["entry_class"],
+        "universe_file": str(universe), "universe_sha256": hashlib.sha256(data).hexdigest(),
+        "runtime": config.runtime, "config": {**parameters, "memory": configuration.RUNNER_MEMORY}}}
 
 
 def _prepare(config, root, run_id, credential_ref, inputs, request_id, *, existing=False):
@@ -324,9 +407,10 @@ def execute(config: configuration.Configuration, action: str, target: str | None
             view = resolve(config, request_id, binding=binding)
             return 200, {"ok": True, "data": {"request": view, **view["target"]}}
         if action == "prepare":
-            configuration.fields(body, {"request_id", "run_id", "source_id", "credential_ref", "config"})
+            configuration.fields(body, {"request_id", "run_id", "candidate", "symbols", "credential_ref", "config"})
             configuration.text(body["run_id"], state.RUN_ID)
-            configuration.text(body["source_id"], configuration.SOURCE_ID)
+            configuration.text(body["candidate"], configuration.CANDIDATE)
+            configuration.symbols(body["symbols"])
             command = _fixed_prepare(config, body, authority.retained(config, binding))
         elif action == "credential_save":
             configuration.fields(body, {"request_id", "api_key", "api_secret"})

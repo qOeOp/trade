@@ -39,9 +39,9 @@ function Row({ row, closed, edit, busy }: { row: LaunchRow; closed: boolean; edi
             <span className="sr-only">{row.label}</span>
             {/* No box: the value sits in the row like the greyed ones, on a blue underline that thickens while editing,
                 as wide as its digits (two at least, as the duration's fields). */}
-            <input value={row.value ?? ""} inputMode="numeric" spellCheck={false} aria-invalid={invalid} onChange={(event) => edit(row.id, event.target.value)}
-              style={{ width: `${Math.max(2, (row.value ?? "").length)}ch` }}
-              className="border-0 border-b border-link bg-transparent px-0 pb-px text-right tabular-nums text-fg outline-none hover:bg-hover focus:border-b-2 focus:pb-0 aria-invalid:border-fail" />
+            <input value={row.value ?? ""} inputMode={row.text ? "text" : "numeric"} autoCapitalize={row.text ? "characters" : undefined} spellCheck={false}
+              aria-invalid={invalid} onChange={(event) => edit(row.id, event.target.value)} style={{ width: `${Math.max(2, (row.value ?? "").length)}ch` }}
+              className={`max-w-full border-0 border-b border-link bg-transparent px-0 pb-px text-right text-fg outline-none hover:bg-hover focus:border-b-2 focus:pb-0 aria-invalid:border-fail ${row.text ? "" : "tabular-nums"}`} />
             {row.unit && <span className="text-fg-faint"> {row.unit}</span>}
           </label>
           : <span className={`min-w-0 text-right tabular-nums wrap-anywhere ${tone} ${row.mono ? "font-mono" : ""}`}>

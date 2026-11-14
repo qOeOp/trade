@@ -65,8 +65,7 @@ def _row(row: dict) -> dict:
 def copy_source(profile: db.LedgerProfile, research: db.LedgerConnection, candidate: str) -> dict:
     """The research candidate `candidate` (read on `research`), its source copied into the Paper database
     `profile` once; a later copy of the same source writes nothing."""
-    found = strategies.read_candidate(research, candidate)
-    strategies.check_source(found["source"], found["entry_class"])
+    found = strategies.read_runnable(research, candidate)
 
     def same(conn, prior):
         if prior["entry_class"] != found["entry_class"]:
@@ -158,12 +157,13 @@ def paper_runs(conn: db.LedgerConnection) -> list[dict]:
 def last_research_symbols(conn: db.LedgerConnection, source_sha256: str) -> dict | None:
     """The contracts of the source's latest research replay that ran ({trial_id, symbols}), read on the research
     ledger, or None: what a paper run of the version's last configuration trades."""
-    found = conn.one("SELECT t.trial_id, t.instruments FROM trial t JOIN run r ON r.trial_id = t.trial_id "
+    found = conn.one("SELECT t.trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id "
                      "WHERE t.source_sha256 = %s AND t.purpose = 'research' ORDER BY t.trial_id DESC LIMIT 1",
                      (source_sha256,))
     if found is None:
         return None
-    symbols = json.loads(found["instruments"]) if isinstance(found["instruments"], str) else found["instruments"]
+    symbols = [symbol for (symbol,) in conn.rows("SELECT instrument_id FROM trial_instrument WHERE trial_id = %s "
+                                                 "ORDER BY instrument_id", (found["trial_id"],))]
     return {"trial_id": found["trial_id"], "symbols": symbols}
 
 

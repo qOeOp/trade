@@ -29,6 +29,9 @@ MAX_BODY = 64 * 1024
 RUN, REQUEST, REF = ("(" + pattern.pattern.removesuffix(r"\Z") + ")"
                      for pattern in (state.RUN_ID, requests.REQUEST_ID, credentials.REF))
 ACTION = "(" + "|".join(sorted(requests.RUN_ACTIONS)) + ")"
+# A candidate strategy_id/revision (configuration.CANDIDATE), and contracts as SYMBOL,SYMBOL…
+CANDIDATE = r"/api/live/candidates/([A-Za-z0-9][A-Za-z0-9_.-]{0,99})/([1-9][0-9]{0,8})"
+SYMBOLS = r"[A-Z0-9]+USDT(?:,[A-Z0-9]+USDT){0,99}"
 NOTIFY = {"/api/live/notify/telegram": "notify_save", "/api/live/notify/test": "notify_test",
           "/api/live/notify/remove": "notify_remove"}
 
@@ -100,7 +103,15 @@ def write_route(path: str) -> tuple[str, str | None]:
 def read(config: configuration.Configuration, path: str, *, binding: release.Binding | None = None,
          evidence: control.Evidence | None = None) -> dict:
     if path == "/api/live":
-        return control.listing(config, binding=binding, evidence=evidence)
+        return control.listing(config, binding=binding)
+    match = re.fullmatch(CANDIDATE + r"(?:/evidence/(" + SYMBOLS + "))?", path)
+    if match:
+        ref = f"{match[1]}@{match[2]}"
+        if match[3] is None:
+            return control.candidate(config, ref)
+        if evidence is None:  # read only by the serving control, in the background
+            raise state.fail("LIVE_RECORD_UNAVAILABLE", "replay evidence is read by the serving Live control")
+        return control.evidence_view(config, evidence, ref, configuration.symbols(match[3].split(",")))
     match = re.fullmatch(r"/api/live/requests/" + REQUEST, path)
     if match:
         return requests.view(config.root, match[1])
@@ -140,7 +151,7 @@ def handler(config_file: Path, config: configuration.Configuration, *, binding: 
                 self.answer(200, {"ok": True, "data": result})
             except Exception as exc:
                 code = exc.code if isinstance(exc, LiveRefusal) else "LIVE_RECORD_UNAVAILABLE"
-                self.answer(404 if code == "LIVE_REQUEST_MISSING" else 503, control.error(code))
+                self.answer(404 if code in ("LIVE_REQUEST_MISSING", "LIVE_SOURCE_MISSING") else 503, control.error(code))
 
         def do_POST(self):
             try:

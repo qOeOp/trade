@@ -1,6 +1,6 @@
-import type { LiveHomeDto, LiveRunDto, LiveSourceDto } from "../lib/liveTradingDto";
+import type { LiveCandidateDto, LiveEvidenceReadDto, LiveHomeDto, LiveRunDto } from "../lib/liveTradingDto";
 import { refusalText } from "./liveLaunchText";
-import type { LiveAccountCheck, LiveFact, LiveRun, LiveTradingView } from "./liveTrading";
+import type { LiveAccountCheck, LiveEvidenceRead, LiveFact, LiveRun, LiveSource, LiveTradingView } from "./liveTrading";
 
 const yesNo = (value: boolean | null | undefined) => value == null ? null : value ? "Yes" : "No";
 const fact = (label: string, value: string | null, format?: LiveFact["format"]): LiveFact => ({ label, value, ...format ? { format } : {} });
@@ -112,12 +112,11 @@ function continuityOf(run: LiveRunDto, entries: LiveRun["entries"], compared: Li
 }
 
 /** Preserve source distinctions and unknowns; no fill aggregation or account-state inference. */
-export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourceDto[], review?: LiveRunDto): LiveRun {
-  const source = sources.find((item) => item.source_sha256 === run.source.source_sha256 && item.entry_class === run.source.entry_class);
+export function liveRunPresentation(run: LiveRunDto, review?: LiveRunDto): LiveRun {
   const candidate = run.candidate, account = run.account, entries = entriesOf(run), compared = comparedOf(run);
   return {
     id: run.run_id, candidate: candidate.strategy_id ? `${candidate.strategy_id}${candidate.revision === null ? "" : `@${candidate.revision}`}` : "Candidate unknown",
-    purpose: source?.purpose ?? "unknown", sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
+    sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
     runtimeDigest: run.runtime.digest, symbols: run.symbols, accountCheck: accountCheck(run),
     observedNs: { account: account?.observed_ns ?? null, terminal: run.terminal?.observed_ns ?? null }, running: run.host.state === "running", ended: ENDED.has(run.host.state ?? ""),
     config: [fact("Drawdown brake", run.config.drawdown_brake), fact("Equity at start (USDT)", run.brake?.start ?? null),
@@ -146,17 +145,25 @@ export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<str
     availability: "ready", notice: home.write_enabled ? null : unavailable,
     reason: home.write_enabled ? null : home.write_reason ?? "LIVE_WRITE_DISABLED",
     credentials: home.credentials.map((item) => ({ ref: item.credential_ref, savedAt: item.observed_ns, selected: item.selected, available: item.available, removed: item.removed, runIds: item.referenced_runs })),
-    sources: home.sources.map((item) => ({ id: item.source_id, candidate: item.candidate, sourceHash: item.source_sha256, entryClass: item.entry_class, purpose: item.purpose, symbols: item.symbols,
-      evidence: { state: item.evidence.state, tolerance: item.evidence.tolerance,
-        replays: item.evidence.replays.map((row) => ({ trialId: row.trial_id, balance: row.starting_balance_usdt })) } })),
     planFields: [
       // Shown and typed as a percentage; the server takes a fraction (state/liveTrading.ts).
       { id: "drawdown_brake", label: "Drawdown brake", value: String(Math.round(Number(home.defaults.drawdown_brake) * 1e6) / 1e4) },
       { id: "duration_seconds", label: "Duration (seconds)", value: home.defaults.duration_seconds === null ? "" : String(home.defaults.duration_seconds) },
       { id: "leverage", label: "Leverage", value: home.defaults.leverage },
     ],
-    runs: home.runs.map((run) => liveRunPresentation(run, home.sources, reviews.get(run.run_id))), requests: [],
+    runs: home.runs.map((run) => liveRunPresentation(run, reviews.get(run.run_id))), requests: [],
     notify: { configured: home.notify.configured, lastSentNs: home.notify.last_sent_ns,
       lastError: home.notify.last_error ? { code: home.notify.last_error.code, atNs: home.notify.last_error.at_ns } : null, dropped: home.notify.dropped },
   };
 }
+
+/** The launch page's candidate as Live read it (live/control.py candidate): the read, or why there is none (absent: the
+ *  control refused it as no runnable candidate), with its evidence on the chosen contracts once asked. */
+export function liveSourcePresentation(candidate: string, read: LiveCandidateDto | "reading" | "absent" | "unknown",
+  evidence: LiveEvidenceRead | null): LiveSource {
+  return typeof read === "string" ? { candidate, read, sourceHash: null, entryClass: null, lastSymbols: null, evidence: null }
+    : { candidate, read: "found", sourceHash: read.source_sha256, entryClass: read.entry_class, lastSymbols: read.last_symbols, evidence };
+}
+
+export const liveEvidencePresentation = (found: LiveEvidenceReadDto): LiveEvidenceRead => ({ state: found.state, tolerance: found.tolerance,
+  replays: found.replays.map((row) => ({ trialId: row.trial_id, balance: row.starting_balance_usdt })) });

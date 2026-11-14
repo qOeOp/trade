@@ -527,11 +527,16 @@ Missing installation metadata does not enable standalone execution. `python -m c
 the canonical `--root` and a run ID: `status` and `logs` only observe, `stop` only requests STOP; the paired
 controller performs host cleanup. Native account/order/position ownership is unchanged.
 
-`preflight` captures immutable source inputs from an explicit research reader and commit, pins a main-CI
+As for Paper, the Live page chooses the run: the candidate is the version selected in the research graph, and the
+contracts (default: its last research replay's) and leverage are typed there. Preparation reads the candidate at the
+research ledger's head, which becomes the run's `research_at`; a candidate absent there or whose source does not load
+is refused (`LIVE_SOURCE_MISSING`). The contracts' membership comes from the market directory (`LIVE_UNIVERSE` when it
+cannot), written once to `universes/<sha256>.json` under the Live root and frozen by hash in the request.
+`preflight` captures immutable source inputs from the research reader at that commit, pins a main-CI
 runtime digest, queries the account and applies the account and source checks `start` will repeat, so `status`
 says `preflight_failed` and `logs` gives the refusal before any account slot is taken. Live runs only the
-candidate's own source, read from the ledger at that commit; there is no adapted file, and a declared source hash
-that is not the candidate's is refused (`LIVE_IDENTITY_CHANGED`). The result shows the candidate and its
+candidate's own source, read from the ledger at that commit; there is no adapted file, and a source hash that is no
+longer the prepared one is refused (`LIVE_IDENTITY_CHANGED`). The result shows the candidate and its
 out-of-sample registrations at that commit. They inform the operator and no validation is required.
 Preparation also needs replay evidence at research_at: a passed sealed run, or a completed `replay explore` whose
 audit passed and whose trading window lies inside a research trial's window of the same source (a window it already

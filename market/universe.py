@@ -1,5 +1,5 @@
 """The common tradable range (`market.classify_contract`, `market.monthly_universe`,
-`market.membership_path`).
+`market.membership_path`, `market.selection`).
 
 A versioned rule, fixed before the data: at the start of each UTC month the members are every
 eligible contract that traded on the day before and whose unbroken run of trading days up to it is
@@ -134,6 +134,28 @@ def membership_path(market, market_day: str, window_end: int) -> dict:
         raise _refuse(f"the universe at {market_day} ends with {last:%Y-%m}, before the window end", "UNIVERSE_NOT_COVERING_WINDOW",
                       missing=(next_month(last).strftime("%Y-%m"),))
     return {"universe_rule": rule_of(market, market_day), "membership": merge_months(rows)}
+
+
+def selection(market: dict, at: str | None, symbols: list[str] | None, now_ns: int) -> tuple[str, dict, list[str]]:
+    """The market day `at` (None: the latest), its membership object for the chosen contracts and the contracts: the
+    given ones, or (symbols None, Paper's pool) every member of the current month. A Paper or Live run's universe
+    file; Live always names its contracts."""
+    from market import files
+    from shared.refusals import refuse
+    opened = files.open_market(market, "reader")
+    market_day = files.resolve_day(opened, at)
+    found = membership_path(opened, market_day, now_ns)
+    members = found["membership"]
+    if symbols is None:
+        symbols = sorted(symbol for symbol, intervals in members.items()
+                         if any(low <= now_ns < high for low, high in intervals))
+        if not symbols:
+            raise refuse("UNIVERSE_EMPTY", f"market day {market_day} has no member for the current month",
+                         missing=("symbols",))
+    if not symbols or len(set(symbols)) != len(symbols):
+        raise refuse("EMPTY_SYMBOLS", "the contract list is empty or repeats a contract", missing=("symbols",))
+    return market_day, {"universe_rule": found["universe_rule"],
+                        "membership": {symbol: members.get(symbol, []) for symbol in symbols}}, list(symbols)
 
 
 def months_of(market, market_day: str | None) -> list[tuple[date, str]]:

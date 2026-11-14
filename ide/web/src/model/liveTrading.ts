@@ -6,13 +6,16 @@ export type { LiveRequest } from "../lib/liveTradingDto";
 /** `since`: a time in ns shown as how long ago and when; `attention`: shown in the misses colour. */
 export type LiveFact = { label: string; value: string | null; format?: "nanoseconds" | "since"; attention?: boolean };
 export type LiveEvidence = { source: string; cursor: string | null; observedNs: string | null; complete: boolean | null; readNs?: string; state?: string };
+/** Replay evidence of a candidate on chosen contracts, read ahead of preparation. */
+export type LiveEvidenceRead = { state: "checking" | "found" | "missing" | "unknown"; replays: readonly { trialId: number; balance: string }[]; tolerance: string };
+/** The version selected in the research graph as Live reads it at the research head, for the launch page; preparation
+ *  reads it again. `read`: reading (no answer yet), found, absent (no candidate Live can run) or unknown (no answer). */
 export type LiveSource = {
-  id: string; candidate: string; sourceHash: string; entryClass: string;
-  purpose: "natural" | "controlled";
-  /** The contracts it trades, one strategy instance each. */
-  symbols: readonly string[];
-  /** Replay evidence read ahead of preparation. */
-  evidence: { state: "checking" | "found" | "missing" | "unknown"; replays: readonly { trialId: number; balance: string }[]; tolerance: string };
+  candidate: string; read: "reading" | "found" | "absent" | "unknown"; sourceHash: string | null; entryClass: string | null;
+  /** The contracts of its last research replay, which the page offers; null when it has none. */
+  lastSymbols: readonly string[] | null;
+  /** Its replay evidence on the chosen contracts; null until they are valid and asked about. */
+  evidence: LiveEvidenceRead | null;
 };
 export type LiveCredential = {
   ref: string; savedAt: string | null; selected: boolean; available: boolean | null; runIds: readonly string[]; removed?: boolean;
@@ -22,7 +25,7 @@ export type LiveNotify = { configured: boolean; lastSentNs: string | null; lastE
 export type LivePlanField = { id: string; label: string; value: string };
 export type LiveAccountCheck = { state: "running" | "passed" | "failed" | "unknown"; readAt: string | null };
 export type LiveRun = {
-  id: string; candidate: string; purpose: "natural" | "controlled" | "unknown"; sourceHash: string | null; entryClass: string | null;
+  id: string; candidate: string; sourceHash: string | null; entryClass: string | null;
   runtimeDigest: string | null; symbols: readonly string[] | null; config: readonly LiveFact[];
   host: readonly LiveFact[]; execution: readonly LiveFact[]; account: readonly LiveFact[];
   ending: readonly LiveFact[]; evidence: readonly LiveEvidence[];
@@ -54,7 +57,7 @@ export type LiveTradingView = {
   /** Why new actions are refused now, as a code (a failed read, or the service's write reason); null when they are
    *  accepted. The launch page words it plainly. */
   reason?: string | null;
-  credentials: readonly LiveCredential[]; sources: readonly LiveSource[]; planFields: readonly LivePlanField[];
+  credentials: readonly LiveCredential[]; planFields: readonly LivePlanField[];
   runs: readonly LiveRun[]; requests: readonly LiveRequest[];
   notify?: LiveNotify | null;
 };
@@ -62,7 +65,7 @@ export type LiveTradingView = {
 export type LiveTradingActions = {
   saveCredentials?: (input: { api_key: string; api_secret: string }) => void | Promise<void>;
   removeCredential?: (ref: string) => void | Promise<void>;
-  prepare?: (input: { sourceId: string; values: Readonly<Record<string, string>> }) => Promise<LiveRequest | null>;
+  prepare?: (input: { candidate: string; symbols: readonly string[]; values: Readonly<Record<string, string>> }) => Promise<LiveRequest | null>;
   /** Each resolves to the request's receipt (null: none received), so a refusal can be said where it was asked. */
   preflight?: (runId: string) => void | Promise<LiveRequest | null | void>;
   start?: (runId: string, confirmRealOrders: string) => void | Promise<LiveRequest | null | void>;
@@ -78,7 +81,6 @@ export type LiveTradingActions = {
   inspect?: (runId: string) => void | Promise<void>;
 };
 
-export const livePurposeLabel = (purpose: LiveRun["purpose"]) => purpose === "controlled" ? "Controlled execution test" : purpose === "natural" ? "Natural signal" : "Purpose not declared";
 /** A plan label's name and its unit ("Budget (USDT)" → "Budget", "USDT"), so the unit can follow the value. */
 export const labelUnit = (label: string): readonly [string, string | null] => {
   const match = /^(.*\S)\s*\(([^()]+)\)$/.exec(label);
@@ -88,5 +90,14 @@ export const labelUnit = (label: string): readonly [string, string | null] => {
 export const LIVE_UNAVAILABLE: LiveTradingView = {
   availability: "unavailable", reason: "LIVE_UNAVAILABLE",
   notice: "The Live service is not connected to this IDE. No request will be sent.",
-  credentials: [], sources: [], planFields: [], runs: [], requests: [],
+  credentials: [], planFields: [], runs: [], requests: [],
 };
+
+/** Whether `run` was prepared with exactly this candidate, these contracts and settings, so it can be started as it is. */
+export function preparedWith(run: LiveRun, candidate: string, symbols: readonly string[], values: Readonly<Record<string, string>>): boolean {
+  const config = Object.fromEntries(run.config.map((fact) => [fact.label, fact.value]));
+  const brake = config["Drawdown brake"], seconds = Number(values.duration_seconds || 0);
+  return run.candidate === candidate && (run.symbols ?? []).join(",") === symbols.join(",")
+    && brake != null && Math.abs(Number(brake) * 100 - Number(values.drawdown_brake)) < 1e-9
+    && (config["Duration (seconds)"] ?? null) === (seconds >= 1 ? String(seconds) : null) && config["Leverage"] === values.leverage;
+}

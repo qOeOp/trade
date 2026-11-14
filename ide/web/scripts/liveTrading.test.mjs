@@ -20,7 +20,7 @@ await components.link(loader({ stubs: {
   "state/shown": { useShown: () => ({ liveRun: canvasRun, version: null, trial: null }) },
   "state/liveTrading": { useLiveTrading: () => ({ view: canvasView ?? blank, actions: {} }) },
   "state/liveWorkspace": { openLiveRequests: () => {}, openLiveCredentials: () => {}, showLiveRun: () => {},
-    FRESH_DRAFT: { version: null, chosen: null, edits: {}, preparedId: null },
+    FRESH_DRAFT: { version: null, edits: {}, preparedId: null },
     liveDraft: { get: () => draft, set: (next) => { draft = next; } }, useLiveDraft: () => draft },
   "state/paper": { usePaperRuns: () => null },
   "state/atom": { useAtom: () => ({}) },
@@ -46,10 +46,10 @@ const render = (name, props) => renderToStaticMarkup(createElement(Tooltip.Provi
 const noOp = () => {};
 const blank = {
   availability: "unavailable", notice: "The Live service is not connected. No request will be sent.",
-  credentials: [], sources: [], planFields: [], runs: [], requests: [],
+  credentials: [], planFields: [], runs: [], requests: [],
 };
 const run = {
-  id: "run-fixture", candidate: "fixture-strategy@1", purpose: "controlled", sourceHash: "a".repeat(64), entryClass: "FixtureStrategy",
+  id: "run-fixture", candidate: "fixture-strategy@1", sourceHash: "a".repeat(64), entryClass: "FixtureStrategy",
   runtimeDigest: `sha256:${"b".repeat(64)}`, symbols: ["BTCUSDT"], config: [{ label: "Entry quantity", value: "0.001000000000000001" }],
   host: [{ label: "Container", value: "Running" }], execution: [{ label: "Admission", value: null }],
   account: [], ending: [{ label: "Venue flat", value: null }], evidence: [], accountCheck: null,
@@ -113,11 +113,12 @@ test("a durable unclaimed closure describes acceptance without inferring HTTP de
   assert.doesNotMatch(unknown, /Request closed before acceptance/);
 });
 
-test("review uses the run-bound credential relation, exact decimal text and declared purpose", () => {
+test("review uses the run-bound credential relation, exact decimal text and the frozen contracts", () => {
   const selected = { ref: "selected-but-unbound", savedAt: null, selected: true, available: true, runIds: [] };
   const bound = { ref: "original-bound-version", savedAt: "1000000000", selected: false, available: false, runIds: [run.id] };
   const html = render("LiveFrozenPlan", { run, credentials: [selected, bound] });
-  assert.match(html, /Controlled execution test/);
+  assert.match(html, /Contracts<\/dt><dd[^>]*>BTCUSDT/);
+  assert.doesNotMatch(html, /Purpose/);
   assert.match(html, /0\.001000000000000001/);
   assert.match(html, /Bound credential<\/dt><dd[^>]*>original/);
   assert.match(html, /1970-01-01 00:00:01\.000 UTC/);
@@ -172,12 +173,11 @@ test("executed and reconciled runs show observation review instead of preparatio
   }
 });
 
-test("controlled purpose stays in the review header while the frozen plan is collapsed", () => {
-  const observed = { ...run, purpose: "controlled", hostState: "running", host: [{ label: "Mode", value: "run" }] };
+test("the candidate stays in the review header while the frozen plan is collapsed", () => {
+  const observed = { ...run, hostState: "running", host: [{ label: "Mode", value: "run" }] };
   const html = wizard({ ...blank, runs: [observed] });
   const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0];
   assert.ok(header);
-  assert.match(header, /<p[^>]*>Controlled execution test<\/p>/);
   assert.match(header, /fixture-strategy@1/);
   assert.doesNotMatch(header, /\bhidden\b|aria-hidden="true"|<details\b/);
   assert.match(html, /<button[^>]*aria-expanded="false"[^>]*>[\s\S]*?Frozen plan[\s\S]*?<\/button>/);
@@ -207,9 +207,7 @@ test("run review preserves action availability and names phases without inventin
 });
 
 test("with no live run selected the Live canvas is the three-column launch page, kept while it holds a draft", () => {
-  const source = { id: "source-fixture", candidate: "fixture-strategy@1", sourceHash: "c".repeat(64), entryClass: "FixtureStrategy", purpose: "natural", symbols: ["BTCUSDT"],
-    evidence: { state: "checking", replays: [], tolerance: "0.1" } };
-  const ready = { ...blank, availability: "ready", notice: null, reason: null, sources: [source] };
+  const ready = { ...blank, availability: "ready", notice: null, reason: null };
   canvasRun = null;
   try {
     canvasView = ready;
@@ -218,6 +216,7 @@ test("with no live run selected the Live canvas is the three-column launch page,
     for (const title of ["Strategy", "Account", "Limits &amp; start"]) assert.match(first, new RegExp(`<section aria-label="${title}"`));
     assert.match(first, /<button[^>]* disabled=""[^>]*>Start live run<\/button>/, "start waits for every row");
     assert.match(first, /Waiting on Strategy, Account and Limits &amp; start</, "the line names the columns still waiting");
+    assert.match(first, /Select a version in the research graph/, "with no version selected there is no candidate");
     canvasView = { ...ready, runs: [run] };
     assert.match(render("LiveRunCanvas", {}), /aria-label="New live run"/, "retained runs, none selected, still show the page");
     canvasRun = run;
@@ -226,7 +225,7 @@ test("with no live run selected the Live canvas is the three-column launch page,
     assert.match(shown, /\[switch coins\].*\[chart of run-fixture\]/s, "a run with no minute results opens on its contract");
     canvasRun = { ...run, equity: { budget: 100, minutes: [[60, 99.5]] } };
     assert.match(render("LiveRunCanvas", {}), /\[switch equity\].*\[equity of run-fixture\]/s, "one with them opens on its account");
-    draft = { version: null, chosen: source.id, edits: {}, preparedId: run.id };
+    draft = { version: null, edits: {}, preparedId: run.id };
     canvasRun = run;
     assert.match(render("LiveRunCanvas", {}), /aria-label="New live run"/, "the run it prepared, once shown, does not take the page away");
     draft = { ...draft, version: "another-version@1" };
@@ -234,7 +233,7 @@ test("with no live run selected the Live canvas is the three-column launch page,
     canvasView = blank; canvasRun = null; draft = null;
     const closed = render("LiveRunCanvas", {});
     assert.match(closed, /aria-label="New live run"/, "where Live cannot take a run the page is still drawn");
-    assert.match(closed, /Live is not set up for this IDE/);
+    assert.match(closed, /Live is not answering for this IDE/);
     assert.doesNotMatch(closed, /LIVE_[A-Z_]+/, "no refusal code on the page");
   } finally { canvasView = undefined; canvasRun = undefined; draft = null; }
 });
