@@ -11,7 +11,7 @@ from nautilus_trader.trading import Strategy
 from engine import live_connection
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import require_admission, require_account_mode, require_clock
-from engine.order_rules import ENTRY_EQUITY_MULTIPLE, ENTRY_TYPES, exposure, native_cache
+from engine.order_rules import ENTRY_EQUITY_MULTIPLE, exposure, native_cache
 from engine.config import symbol_of
 from engine.live_records import keep, strategy_ids
 if TYPE_CHECKING:
@@ -140,9 +140,11 @@ def require_order_identity(session: Session, order, strategy_id) -> None:
 
 
 def require_entry(session: Session, order) -> None:
-    """The entry's shape; its size is checked at dispatch (require_entry_size), against the equity of the account
-    observation taken for it. Entries may join the run's open positions and orders (user, 2026-11-11). The entry gate
-    (engine.live_connection) is checked before this, by the caller."""
+    """The entry's custody: its running source and identity, an unsent order, the native instrument. Its shape is
+    engine.order_rules' (checked before this at submit, and again when it is sent); its size is checked at dispatch
+    (require_entry_size), against the equity of the account observation taken for it. Entries may join the run's open
+    positions and orders (user, 2026-11-11). The entry gate (engine.live_connection) is checked before this, by the
+    caller."""
     require_connection(session)
     strategy = strategy_ids(session.manifest).get(symbol_of(order.instrument_id))
     source = session.owner(strategy) if strategy is not None else None
@@ -151,9 +153,8 @@ def require_entry(session: Session, order) -> None:
     require_order_identity(session, order, strategy)
     if session.observe_stop_intent() or not session.check_storage():
         raise Refusal("LIVE_ENTRY_STOPPED", "new entries require an active run and healthy persistence")
-    if (order.order_type not in ENTRY_TYPES or order.is_reduce_only or order.is_quote_quantity
-            or order.exec_algorithm_id is not None or order.status != OrderStatus.INITIALIZED):
-        raise Refusal("LIVE_ORDER_UNSUPPORTED", "the trial accepts one independent base-quantity LIMIT or STOP_MARKET entry")
+    if order.status != OrderStatus.INITIALIZED:
+        raise Refusal("LIVE_ORDER_UNSUPPORTED", "an entry is dispatched once, before the venue has seen it")
     if order.time_in_force == TimeInForce.GTD and order.expire_time_ns <= time.time_ns():
         raise Refusal("LIVE_ENTRY_STOPPED", "an expired entry cannot be dispatched after an account observation")
     cache = native_cache(source)
