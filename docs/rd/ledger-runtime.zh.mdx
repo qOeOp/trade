@@ -867,23 +867,23 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 ### 有意变更或证明不了时 [#J-5-4]
 
-旧身份下的记录在同一账本里能读回；同一契约内的变更由 <Ref id="V.2" /> 恢复可比资格，契约升级后研究状态直接说明这条路线只能关闭、在新契约上新开。
+旧身份下的记录在同一账本里能读回；同一契约内的变更由 <Ref id="V.2" /> 恢复可比资格；契约升级开新一代账本，研究在新账本上重新开始（用户 2026-11-14 定：0.x 期间版本之间不保持兼容）。
 
 <a id="J-5-4-1" />
 
 **有意变更或配对不一致时，旧运行原样保留、在同一账本里能读回**
 
-适用于有意改变引擎行为，或者配对重放不一致、做不了的时候。旧运行、绩效指标和比较证据原样保留，作为旧身份下的历史证据。不另存标记：一条路线接续的推荐、父本与对照候选停在本产品没有镜像布局的契约上时，`report.research_state` 在 gates 里读时给出 RUNTIME_UNSUPPORTED 并列出这些候选；研究入口据此告诉用户这条线只能关闭、在新契约上新开，不提议续线，也不为它建 Goal。
+适用于有意改变引擎行为，或者配对重放不一致、做不了的时候。旧运行、绩效指标和比较证据原样保留，作为旧身份下的历史证据。运行契约升级不在这里迁移：它开新一代账本，旧账本的路线和候选不搬过去，研究在新账本上从根重新开始。
 
 环境变了不代表旧结果错了，它在旧环境下仍然成立。旧运行环境按摘要保留，读回时还能核对；删除它要用户授权。
 
 <div className="rd-example">
 
-比如把引擎升级到新版本，资金费的算法有意改了。旧环境下的运行都还在、都能读回。契约没变时由 <Ref id="V.2" /> 恢复可比资格；契约随之升级时，研究状态列出 RUNTIME_UNSUPPORTED 与推荐、对照候选，用户关闭这条线，在新契约上新开。
+比如把引擎升级到新版本，资金费的算法有意改了。旧环境下的运行都还在、都能读回。契约没变时由 <Ref id="V.2" /> 恢复可比资格；契约随之升级时，开新一代账本，研究在新契约上重新开始。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `report.research_state` `runtime.validate_identity` `runtime.resolve`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `runtime.validate_identity` `runtime.resolve`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 13.6　回放身份与复现：每次回放留下什么、怎么重跑 [#J-6]
 

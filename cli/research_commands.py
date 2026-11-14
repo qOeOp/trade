@@ -618,7 +618,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the Agent discounts runs a recorded change of approach answers (a priority judgment, research-round) and scale-only "
         "runs, which this list does not tell), interpretations, search_exposures, unreviewed_trials (of the line's execution identity), "
         "trials_on_line (a count: the line's trials of every identity), gates [{code, message, missing}] "
-        "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, MARKET_DAY_UNRESOLVED, "
+        "(INTERPRETATION_REQUIRED, REVIEW_DUE, MARKET_DAY_UNRESOLVED, "
         "RESEARCH_LINE_REQUIRED (no open line), LINE_AMBIGUOUS (several open lines, no --line): reported, not "
         "raised), judgment_history, earlier, facts (candidate list and research status, with --full), next_actions (only without a line: `line select`, or --line); line.ledger_commit is the commit "
         "read, not the "

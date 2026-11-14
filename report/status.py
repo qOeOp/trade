@@ -22,7 +22,6 @@ from ledger import targets as line_targets
 from shared.errors import Refusal
 from registration import availability, comparability, precheck, register, reproduction
 from report import candidates as report_candidates, comparison, measures, seams
-from runtime import image
 
 
 SINGLE_KINDS = ("recommendation", "priority")
@@ -730,45 +729,6 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
     return {"registration_id": subject.get("research_registration_id")}
 
 
-def _unsupported_contract(conn: db.LedgerConnection, record: Mapping, judged: Mapping) -> list[dict]:
-    """A gate when the candidates the line continues from were published for a runtime contract this
-    product has no image layout for: the recommended, parent and control candidates of the current
-    recommendation and priority, else the line's start. Precheck and sealing hold a run to its
-    candidate's contract and a registration to its control's, so the line cannot be replayed or
-    compared on the current runtime, unless its candidate's run was reproduced under a contract it runs."""
-    named = sorted({(subject["strategy_id"], subject["revision"]) for kind in SINGLE_KINDS for item in judged[kind]
-                    for subject in item["subjects"] if subject["role"] in judgments.CANDIDATE_ROLES})
-    if not named:
-        strategy_id, _, revision = record["start"].rpartition("@")
-        named = [(strategy_id, int(revision))]
-    rows = conn.rows("SELECT strategy_id, revision, runtime_contract, source_sha256 FROM candidate WHERE "
-                     + " OR ".join(["(strategy_id = %s AND revision = %s)"] * len(named)),
-                     tuple(value for pair in named for value in pair))
-    old = sorted((contract, f"{strategy_id}@{revision}") for strategy_id, revision, contract, source in rows
-                 if contract not in image.LAYOUTS and not _moved(conn, source))
-    if not old:
-        return []
-    contracts, supported = ", ".join(sorted({contract for contract, _ in old})), ", ".join(sorted(image.LAYOUTS))
-    return [{"code": "RUNTIME_UNSUPPORTED",
-             "message": f"the line's candidates and their runs are on {contracts}, which this product cannot replay "
-                        f"(it runs {supported}); move its runs with `replay reproduce --image`, and when that is refused the line can "
-                        f"only be closed and research restarted on {supported}",
-             "missing": [name for _, name in old]}]
-
-
-def _moved(conn: db.LedgerConnection, source: str) -> bool:
-    """Whether a passed research run of the source was reproduced (reproduction.matches) by an explore trial under
-    a contract this product runs. A reproduction on the run's own image or another old one proves nothing about
-    the current runtime."""
-    passed = [trial_id for (trial_id,) in conn.rows(
-        "SELECT r.trial_id FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE r.status = 'passed' "
-        "AND t.source_sha256 = %s ORDER BY r.trial_id", (source,))]
-    explores = [trial_id for trial_id, contract in conn.rows(
-        "SELECT trial_id, runtime_contract FROM trial WHERE purpose = 'explore' AND source_sha256 = %s "
-        "ORDER BY trial_id", (source,)) if contract in image.LAYOUTS] if passed else []
-    return any(reproduction.matches(conn, later, original) for original in passed for later in explores)
-
-
 def _behind(conn: db.LedgerConnection, trials: list[int], current_image: str | None) -> list[int] | None:
     """The line's passed runs that have not reached the current image (own, or by a reproduction)."""
     if current_image is None:
@@ -846,8 +806,7 @@ def research_state(ledger, line: str | None = None, at: str | None = None, *,
     the line's latest runs read for a due change of approach (`undistinguished_runs`, _undistinguished_runs),
     the trials of the line's execution identity since the last recommendation (`unreviewed_trials`), the trial count of
     the line (every identity: the search on the same data) and the gates the next registration would meet
-    (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs, and
-    MARKET_DAY_UNRESOLVED when the active market does not hold the line's market day). The
+    (with MARKET_DAY_UNRESOLVED when the active market does not hold the line's market day). The
     line is the one named `line`, else the only open line; with no open line `line` is null with
     `line select` as the next step (gate RESEARCH_LINE_REQUIRED), with several the gate is LINE_AMBIGUOUS
     and the next step names one with --line.
@@ -909,7 +868,6 @@ def research_state(ledger, line: str | None = None, at: str | None = None, *,
             gates: list[dict] = []
         except Refusal as exc:
             gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
-        gates += _unsupported_contract(pinned, record, judged)
         gates += _unresolved_market(record)
         behind = _behind(pinned, on_line["trials"], current_image and current_image.rsplit("@", 1)[-1])
         registered = dict(pinned.rows("SELECT trial_id, research_registration_id FROM trial WHERE line_id = %s "

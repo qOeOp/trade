@@ -410,10 +410,6 @@ def month_logs(returns: list[tuple]) -> dict[str, float]:
     return dict(found)
 
 
-def day_of(ts: int) -> str:
-    return datetime.fromtimestamp(ts // 10**9, timezone.utc).date().isoformat()
-
-
 def aligned_market(returns: list[tuple], market: Mapping | None, series: str) -> tuple[list[float] | None, str | None]:
     """The market series aligned to the run's days; None with the reason when a day lacks it."""
     if market is None:
@@ -422,7 +418,7 @@ def aligned_market(returns: list[tuple], market: Mapping | None, series: str) ->
         return None, market["error"]
     # A shorter series leaves its last days missing: MARKET_RETURNS_INCOMPLETE below.
     by_day = dict(zip(market.get("days") or [], market.get(series) or [], strict=False))
-    days = [day_of(ts) for ts, _, _ in returns]
+    days = [metrics.utc_day(ts) for ts, _, _ in returns]
     missing = [day for day in days if by_day.get(day) is None]
     if missing:
         return None, f"MARKET_RETURNS_INCOMPLETE: no {series} return on {', '.join(missing[:3])}"
@@ -435,7 +431,7 @@ def basket_months(returns: list[tuple], market: Mapping | None) -> tuple[dict[st
         return None, reason
     found: defaultdict[str, float] = defaultdict(float)
     for (ts, _, _), value in zip(returns, values, strict=True):
-        found[day_of(ts)[:7]] += math.log1p(value)
+        found[metrics.utc_day(ts)[:7]] += math.log1p(value)
     return dict(found), None
 
 
@@ -527,9 +523,9 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
             found[name].update(flat_days=split["flat_days"], flat_pnl=split["flat_pnl"])
         months, reason = basket_months(returns, market)
         up = [value for (ts, _, _), value in zip(returns, n, strict=True)
-              if months and months.get(day_of(ts)[:7], 0) > 0]
+              if months and months.get(metrics.utc_day(ts)[:7], 0) > 0]
         down = [value for (ts, _, _), value in zip(returns, n, strict=True)
-                if months and months.get(day_of(ts)[:7], 0) <= 0]
+                if months and months.get(metrics.utc_day(ts)[:7], 0) <= 0]
         put("up_month_notional", sum(up) / len(up) if up else None, "basket_up_days", len(up),
             reason or "NO_UP_MONTH: the basket rose in no month")
         put("down_month_notional", sum(down) / len(down) if down else None, "basket_down_days", len(down),
@@ -592,11 +588,11 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         series_reason or "NO_DAY: no daily return")
 
     # by_regime
-    labels, reason = regime_labels(market, [day_of(ts) for ts, _, _ in returns])
+    labels, reason = regime_labels(market, [metrics.utc_day(ts) for ts, _, _ in returns])
     reason = series_reason or reason
     unlabelled = None if labels is None else sum(1 for value in labels.values() if value is None)
     for regime in ("high", "low"):
-        logs_in = [math.log1p(value) for ts, value, _ in returns if labels and labels.get(day_of(ts)) == regime]
+        logs_in = [math.log1p(value) for ts, value, _ in returns if labels and labels.get(metrics.utc_day(ts)) == regime]
         empty = reason or (f"NO_{regime.upper()}_VOL_DAY: no labelled day of the window is in this regime "
                            f"({unlabelled} days unlabelled)")
         put(f"{regime}_vol_days", len(logs_in) if reason is None else None, "account_days", days, reason)

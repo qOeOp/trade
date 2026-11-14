@@ -38,7 +38,7 @@ from shared.refusals import refuse
 
 TOLERANCE = Decimal("0.000001")
 EQUITY_TOLERANCE = Decimal("0.01")  # compounding to final equity; an uncalibrated example value
-MONEY = Decimal("0.00000001")  # DECIMAL(24,8), the ledger's money scale
+MONEY = Decimal("0.00000001")  # DECIMAL(24,8), the ledger's money scale; USDT's precision, to which Nautilus rounds
 PLAN_TAG = "plan:"
 # A trial row with its image digest (load_runs).
 TRIAL_COLUMNS = f"*, {db.IMAGE_DIGEST}"
@@ -97,6 +97,11 @@ def utc_ns(text: str) -> int:
     day, hour, minute, second, fraction, _ = found.groups()
     base = datetime.fromisoformat(f"{day}T{hour}:{minute}:{second}+00:00")
     return int((base - EPOCH).total_seconds()) * 10**9 + int((fraction or "").ljust(9, "0"))
+
+
+def utc_day(ns: int) -> str:
+    """The UTC day (YYYY-MM-DD) of a time in nanoseconds."""
+    return datetime.fromtimestamp(ns // 10**9, UTC).date().isoformat()
 
 
 def iso_minute(ns: int | None) -> str | None:

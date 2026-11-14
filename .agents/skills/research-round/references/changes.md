@@ -16,8 +16,7 @@ registrations below concern development research, not another validation opportu
   the run has the same fills, positions, exposures and daily returns and also holds the new image,
   configuration and inputs: it stays a control, its p values and the recommendation stand, and the
   replay is no exposure and no new test. Report `tables_differing` (account and order tables) to
-  the user as what changed; they decide nothing. A contract change takes the same path while the
-  old source still runs.
+  the user as what changed; they decide nothing.
 - A `REPRODUCTION_MISMATCH` saying no semantic fingerprint was recorded or computed compared
   nothing: report its reproduction trial and native and audit exits and diagnose that trial, not a
   changed result or the run as history. Any other means the result changed: list each run and its

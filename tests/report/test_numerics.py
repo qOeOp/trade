@@ -11,6 +11,7 @@ import unittest
 
 import numpy as np
 
+from ledger import metrics
 from report import attribution, comparison, measures
 from tests.helpers import refused
 from tests.ledger.dolt import DAY, JAN
@@ -501,7 +502,7 @@ class PairwiseTests(unittest.TestCase):
     def test_a_short_window_leaves_the_pairwise_regression_empty_with_its_reason(self):
         four = [(JAN + k * DAY, 0.001 * k, None) for k in range(4)]
         facts = {"cycles": [], "returns": four}
-        market = {"days": [measures.day_of(ts) for ts, _, _ in four], "basket": [0.01, 0.02, -0.01, 0.0],
+        market = {"days": [metrics.utc_day(ts) for ts, _, _ in four], "basket": [0.01, 0.02, -0.01, 0.0],
                   "btc": [0.0, 0.01, 0.0, 0.02]}
         found = attribution._pairwise(facts, facts, {}, {}, market, {"scalars": {}})
         for name in ("beta_basket", "alpha_basket", "beta_btc", "alpha_btc"):
@@ -512,7 +513,7 @@ class PairwiseTests(unittest.TestCase):
 
     def test_a_singular_market_series_leaves_the_regression_empty(self):
         days = [(JAN + k * DAY, 0.001 * (k % 3), None) for k in range(10)]
-        market = {"days": [measures.day_of(ts) for ts, _, _ in days], "basket": [0.0] * 10, "btc": [0.0] * 10}
+        market = {"days": [metrics.utc_day(ts) for ts, _, _ in days], "basket": [0.0] * 10, "btc": [0.0] * 10}
         found = attribution._pairwise({"cycles": [], "returns": days}, {"cycles": [], "returns": days}, {}, {}, market,
                                       {"scalars": {}})
         self.assertTrue(found["beta_basket"]["null_reason"].startswith("REGRESSION_UNAVAILABLE"))

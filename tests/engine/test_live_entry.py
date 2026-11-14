@@ -25,7 +25,7 @@ from nautilus_trader.common import LoggerConfig, LogLevel, SocketState
 from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.infrastructure import RedisCacheConfig
 from nautilus_trader.model import (
-    AccountType, BookType, CryptoPerpetual, Currency, InstrumentId, MarkPriceUpdate, Money,
+    AccountType, BookType, CryptoPerpetual, Currency, ExecAlgorithmId, InstrumentId, MarkPriceUpdate, Money,
     OmsType, OrderSide, OrderStatus, OrderType, PositionId, PositionSide, Price, Quantity, QuoteTick,
     StrategyId, Symbol, Venue,
 )
@@ -511,7 +511,7 @@ class NativeEntryTests(unittest.TestCase):
         self.owned_position()
         self.bars_missing()
         market = self.source.order_factory.market(self.iid, OrderSide.BUY, Quantity.from_str("100.000"))
-        self.assert_refused_unchanged("LIVE_ORDER_UNSUPPORTED", lambda: self.source.submit_order(market))
+        self.assert_refused_unchanged("ORDER_RULE", lambda: self.source.submit_order(market))
         self.assertTrue(self.session.failed and self.session.stopping)
         self.assertEqual(self.read_events("entry_denied"), [])
 
@@ -1006,7 +1006,7 @@ class NativeEntryTests(unittest.TestCase):
     def test_foreign_factory_entry_cannot_escape_source_history(self):
         order = self.foreign.order_factory.limit(self.iid, OrderSide.BUY,
             Quantity.from_str("0.500"), Price.from_str("100.00"))
-        self.assert_refused_unchanged("LIVE_ORDER_OWNERSHIP", lambda: self.source.submit_order(order))
+        self.assert_refused_unchanged("ORDER_RULE", lambda: self.source.submit_order(order))  # another strategy's
         self.assert_no_orders()
         self.assertEqual(self.reader.calls, [])
         self.assertTrue(self.session.stopping)
@@ -1020,21 +1020,32 @@ class NativeEntryTests(unittest.TestCase):
             self.source.submit_order(order, position_id=position.id))
         self.assertEqual(self.engine.cache.positions_open()[0].quantity, position.quantity)
 
-    def test_entry_for_another_instrument_is_refused_before_account_io(self):
-        for name in ("ETHUSDT-PERP.BINANCE", "BTCUSDT-PERP.BYBIT", "BTCUSDT.BINANCE"):
-            with self.subTest(name):
-                order = self.source.order_factory.limit(InstrumentId.from_str(name), OrderSide.BUY,
-                    Quantity.from_str("0.500"), Price.from_str("100.00"))
-                self.assert_refused_unchanged("LIVE_INSTRUMENT_SCOPE", lambda: self.source.submit_order(order))
+    def assert_entry_order_rule(self, orders):
+        """Each entry breaks engine.order_rules: refused as ORDER_RULE before any account read, and the run stops.
+        Each gets a fresh fixture, since the first refusal stops the run."""
+        for index, make in enumerate(orders):
+            if index:
+                self.doCleanups()
+                self.setUp()
+            order = make(self.source.order_factory)
+            with self.subTest(order=order):
+                self.assert_refused_unchanged("ORDER_RULE", lambda: self.source.submit_order(order))
                 self.assert_no_orders()
                 self.assertEqual(self.reader.calls, [])
                 self.assertEqual(self.session.pending_entries, [])
+                self.assertTrue(self.session.stopping)
+
+    def test_entry_for_another_instrument_is_refused_before_account_io(self):
+        self.assert_entry_order_rule([
+            lambda factory, name=name: factory.limit(InstrumentId.from_str(name), OrderSide.BUY,
+                                                     Quantity.from_str("0.500"), Price.from_str("100.00"))
+            for name in ("ETHUSDT-PERP.BINANCE", "BTCUSDT-PERP.BYBIT", "BTCUSDT.BINANCE")])
 
     def test_reduction_for_another_instrument_cannot_touch_the_owned_position(self):
         position = self.owned_position()
         order = self.source.order_factory.market(InstrumentId.from_str("ETHUSDT-PERP.BINANCE"), OrderSide.SELL,
             position.quantity, reduce_only=True)
-        self.assert_refused_unchanged("LIVE_INSTRUMENT_SCOPE", lambda:
+        self.assert_refused_unchanged("ORDER_RULE", lambda:
             self.source.submit_order(order, position_id=position.id))
         self.assertEqual(self.engine.cache.positions_open()[0].quantity, position.quantity)
 
@@ -1162,10 +1173,13 @@ class NativeEntryTests(unittest.TestCase):
         self.assert_refused_unchanged("LIVE_BUDGET", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
 
-    def test_market_entry_is_not_a_bounded_limit(self):
-        order = self.source.order_factory.market(self.iid, OrderSide.BUY, Quantity.from_str("0.500"))
-        self.assert_refused_unchanged("LIVE_ORDER_UNSUPPORTED", lambda: self.source.submit_order(order))
-        self.assert_no_orders()
+    def test_an_entry_outside_the_order_rules_shape_is_refused_as_in_replay(self):
+        quantity, price = Quantity.from_str("0.500"), Price.from_str("100.00")
+        self.assert_entry_order_rule([
+            lambda factory: factory.market(self.iid, OrderSide.BUY, quantity),
+            lambda factory: factory.limit(self.iid, OrderSide.BUY, quantity, price, quote_quantity=True),
+            lambda factory: factory.limit(self.iid, OrderSide.BUY, quantity, price,
+                                          exec_algorithm_id=ExecAlgorithmId("TWAP"))])
 
     def test_stop_file_during_observation_never_dispatches(self):
         _, observation = self.submit_pending()

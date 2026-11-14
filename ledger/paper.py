@@ -30,7 +30,7 @@ import shutil
 import tempfile
 
 from engine.config import ACCOUNT_CONTRACT, instrument_id, symbol_of
-from ledger import db, strategies
+from ledger import db, metrics, strategies
 from shared.refusals import refuse
 
 
@@ -187,10 +187,6 @@ def _month_end(ns: int) -> int:
     return int(datetime(moment.year + moment.month // 12, moment.month % 12 + 1, 1, tzinfo=UTC).timestamp()) * 10**9
 
 
-def _day(ns: int) -> str:
-    return datetime.fromtimestamp(ns // 10**9, UTC).date().isoformat()
-
-
 def sealed_journal(files: Mapping[str, bytes]) -> list[dict]:
     """A sealed run's journal from its files (paper_files with "events/"): each day's gzip file in path order,
     parsed by journal_lines. The one decoder of the sealed stream and the reconciliation (CF-24)."""
@@ -216,13 +212,12 @@ def journal_lines(data: bytes) -> tuple[list[dict], int]:
     return lines, unreadable
 
 
-CENT = Decimal("0.00000001")  # USDT's precision, to which Nautilus rounds a notional and a funding amount
 MARK_LOOKBACK_MS = 10 * 60_000  # how far before a settlement its MARK minute is looked for
 SIDES = {"LONG": 1, "SHORT": -1, "FLAT": 0}  # a position side's sign
 
 
 def _money(value: Decimal) -> Decimal:
-    return value.quantize(CENT, ROUND_HALF_EVEN)
+    return value.quantize(metrics.MONEY, ROUND_HALF_EVEN)
 
 
 def signed_quantity(event: dict) -> Decimal:
@@ -511,9 +506,9 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         drawdown = max(drawdown, (peak - equity) / peak)
     daily: dict[str, Decimal] = {}
     for minute, equity in path:
-        daily[_day(minute)] = equity
+        daily[metrics.utc_day(minute)] = equity
     if final is not None and summary is not None and summary.get("stopped_ns"):
-        daily[_day(summary["stopped_ns"])] = final
+        daily[metrics.utc_day(summary["stopped_ns"])] = final
     returns, previous = [], starting
     for day, equity in sorted(daily.items()):
         returns.append([day, float(equity / previous - 1)])
@@ -577,7 +572,7 @@ def capture(row: dict, output: Path, egress_log: Path, runner_log: bytes | None,
     else:
         days: dict[str, list[bytes]] = {}
         for line in lines:
-            days.setdefault(_day(line["wall_ns"]), []).append(json.dumps(line, sort_keys=True).encode())
+            days.setdefault(metrics.utc_day(line["wall_ns"]), []).append(json.dumps(line, sort_keys=True).encode())
         for day, found in sorted(days.items()):
             files[f"events/{day}.jsonl.gz"] = gzip.compress(b"\n".join(found) + b"\n", mtime=0)
     if summary_bytes:

@@ -14,7 +14,7 @@ from collections.abc import Mapping
 import json
 from pathlib import Path
 
-from engine.config import ACCOUNT_CONTRACT
+from engine.config import ACCOUNT_CONTRACT, utc_text
 from ledger import db, paper as records
 from replay import comparison as shared
 from shared.refusals import refuse
@@ -30,7 +30,7 @@ def window(lines: list[dict], seal: Mapping) -> tuple[int, int]:
                      missing=("started", "stopped_ns"))
     start, end = started["input_start_ns"], stopped - stopped % shared.MINUTE_NS
     if end <= start:
-        raise refuse("PAPER_COMPARE_EMPTY", f"the run stopped at {shared.utc(stopped)}, before its first bar closed",
+        raise refuse("PAPER_COMPARE_EMPTY", f"the run stopped at {utc_text(stopped)}, before its first bar closed",
                      missing=("bars",))
     return start, end
 
@@ -79,7 +79,7 @@ def compare(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: i
         output, f"trade-paper-compare-{runs.ledger_key(profile)}-{paper_id}", timeout)
     result = {"format": shared.FORMAT, "kind": "paper", "paper_id": paper_id, "candidate": row["config"]["candidate"],
               "source_sha256": row["source_sha256"], "image_ref": row["image_ref"], "market_day": market_day,
-              "window": {"start": shared.utc(start), "end": shared.utc(end)}, "fees": row["config"].get("fees"),
+              "window": {"start": utc_text(start), "end": utc_text(end)}, "fees": row["config"].get("fees"),
               "replay": replayed, **compared}
     (output / "comparison.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
     return {"path": str(output / "comparison.json"), "summary": result["summary"], "replay": result["replay"]}

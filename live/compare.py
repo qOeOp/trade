@@ -35,7 +35,7 @@ import math
 from pathlib import Path
 import secrets
 
-from engine.config import instrument_id
+from engine.config import instrument_id, utc_text
 from ledger import paper as records
 from live import state
 from replay import comparison as shared
@@ -306,10 +306,10 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
         f"trade-live-compare-{run_id}-{secrets.token_hex(4)}", timeout)
     result = {"format": shared.FORMAT, "kind": "live", "run_id": run_id, "candidate": manifest["candidate"],
               "source_sha256": manifest["source"]["source_sha256"], "image_ref": image_ref,
-              "market_day": market_day, "window": {"start": shared.utc(start), "end": shared.utc(end)},
+              "market_day": market_day, "window": {"start": utc_text(start), "end": utc_text(end)},
               "segment": numbered, "starting_balance_usdt": balance, "replay": replayed, **compared,
-              "measures": {"from": shared.utc(since) if since is not None else None,
-                           "to": shared.utc(until) if until is not None else None,
+              "measures": {"from": utc_text(since) if since is not None else None,
+                           "to": utc_text(until) if until is not None else None,
                            **measures(compared, pack["events"], since, until)}}
     (output / "comparison.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
     unexplained = [{"at": group.get("at"), "at_ns": group["at_ns"], "class": group["class"]}

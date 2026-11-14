@@ -68,9 +68,8 @@ class _LiveConfigured(history.Warming):
         if self._live.observe_stop_intent() and not order.is_reduce_only:
             raise Refusal("LIVE_ENTRY_STOPPED", "new entries are disabled while Live is stopping")
         symbol = self._live_symbol
-        if order.instrument_id != contract(symbol):
-            raise Refusal("LIVE_INSTRUMENT_SCOPE", "an order must use its strategy instance's own contract")
-        # Live custody first; engine.order_rules follows (OrderRules comes after this class).
+        # Live custody first; engine.order_rules follows (OrderRules comes after this class) and checks the order's
+        # shape and contract, as in replay and Paper.
         if order.is_reduce_only:
             commands.require_order_identity(self._live, order, strategy_ids(self._live.manifest)[symbol])
             position = self.owned_position(position_id)
@@ -90,8 +89,8 @@ class _LiveConfigured(history.Warming):
                 raise Refusal("LIVE_CONNECTION_UNVERIFIED", f"entries are closed "
                               f"({live_connection.gate_reason(self._live, symbol)}) until the venue and the native "
                               "cache agree again")
-            commands.require_entry(self._live, order)
             self._orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
+            commands.require_entry(self._live, order)
             if not self._live_membership.member_at(self._warming_clock().timestamp_ns()):
                 # Outside its contract's membership at the native clock, where Paper does not send it: denied
                 # natively, the run goes on and the contract only reduces (engine.membership).
