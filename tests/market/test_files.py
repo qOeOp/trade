@@ -153,12 +153,12 @@ class Commits(Directory):
         self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", JAN, 1), ("BTCUSDT", "LAST", JAN + 2 * DAY, 1)])])])
         market = files.open_market(self.profile, "reader")
         newest = date(2025, 1, 3).isoformat()
-        for ref in (None, "", "main", "head", newest):
+        for ref in (None, "", "head", newest):
             self.assertEqual(files.resolve_day(market, ref), newest)
         self.assertEqual(files.resolve_day(market, JAN_1.isoformat()), JAN_1.isoformat())
         for ref in (date(2025, 1, 4).isoformat(), "2025-02-30", "20250103000000000000000000000000", "2025-01-03T00",
-                    "nope", "0" * 32):
-            with self.refusal("UNKNOWN_REF"):
+                    "nope", "main", "0" * 32):
+            with self.refusal("MARKET_DAY_UNKNOWN"):
                 files.resolve_day(market, ref)
 
     def test_the_newest_day_is_the_earlier_of_bars_and_followed_metrics(self):
@@ -181,7 +181,7 @@ class Commits(Directory):
         self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", series._day_ms(last), 1)])])])
         market = files.open_market(self.profile, "reader")
         self.assertEqual(files.latest_day(market), date(2025, 1, 30))
-        with self.refusal("UNKNOWN_REF"):
+        with self.refusal("MARKET_DAY_UNKNOWN"):
             files.resolve_day(market, last.isoformat())
         self.write([("universe_month", FEB_1, None, [members(FEB_1, ["BTCUSDT"])])])
         self.assertEqual(files.latest_day(market), last)
@@ -255,7 +255,7 @@ class Refusals(Directory):
                 pass
             with self.assertRaises(RuntimeError), files.lock(market):
                 pass
-        with self.refusal("ROLE_UNKNOWN"):
+        with self.assertRaises(ValueError):
             files.open_market(self.profile, "writer")
 
     def test_a_killed_import_leaves_nothing_the_next_one_keeps(self):

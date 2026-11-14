@@ -62,7 +62,7 @@
 - <Ref id="X.2.1.1" />　缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。报告列出登记族、凭证且不下裁决有测试（`tests/report/test_review.py`、`tests/report/test_integrity.py`）；有资格的绑定运行读出与开发报告相同的指标、无资格时指标整体留空，这两点没有测试。
 - <Ref id="X.2.1.4" />　缺真实样本外结果立即披露及结论独立复读的完整执行记录；针对性评测不替代这项执行证据。
 - <Ref id="J.2.4.4" />　第 1 代账本的隔离测试覆盖绑定时的两项核对：镜像是 main 的自动构建（`RUNTIME_NOT_MAIN`），执行代码含 main 最新提交（`STALE_CHECKOUT`）（`tests/registration/test_validation.py`、`tests/runtime/test_image.py`，2026-11-11 通过）；探索和预检只认本仓库 CI 的构建（任何分支），别的仓库、缺构建标签、代码与版本不符的拒绝有测试（`tests/runtime/test_image.py`、`tests/replay/test_entry.py`），用的是测试替身镜像；仓库所有者手工推进产品镜像注册表的镜像仍挡不住。真实行情回放、样本外封存、完整报告、公共时间戳服务与真实远端竞态仍缺。
-- <Ref id="J.2.9.1" />　旧账本上的跨入口核验随 SQL 视图一起作废；第 1 代账本上读命令之间的计数与范围一致性尚未重新核验。
+- <Ref id="J.2.9.1" />　第 1 代账本上读命令之间的计数与范围一致性尚未核验。
 - <Ref id="J.2.9.2" />　按 `--at` 读旧提交有测试（`tests/ledger/test_db.py`）；`SCHEMA_MISMATCH` 的测试改的是当前代码的期望版本，连接时就被拒绝，没有走到旧提交 schema 与当前不符的路径（第 1 代账本只有一个 schema 版本）；`ledger sql --at` 没有命令行测试。
 - <Ref id="J.2.9.3" />　只读 SQL 与 `WRITE_VIA_SQL` 拒绝有测试（`tests/cli/test_commands.py`）；完整研究过程中按正式资格和报告引用经济证据的执行证据仍需补齐。
 - <Ref id="J.3.1.3" />　产品提示与 skill 已随 [#1644](https://github.com/qOeOp/trade/pull/1644) 合入，`withdrawn-reading-told` 历史评测为 3/3；v7 会话未发生资格遮罩变化，诊断记为 unobserved。仍缺读数失去资格后及时点名撤回的真实场景验证。

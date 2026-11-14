@@ -217,12 +217,7 @@ def _gated(name: str, method):
                 return None  # the run ends before the source decides again (engine.live_connection.held_bar)
             if live_connection.rewarm_due(self._live) and live_connection.rewarm_pending(
                     self._live, native_cache(self)):
-                # A flat source decides on nothing after a gap, or once a new runtime image waits: the next start warms
-                # it up again. A bar withheld for a switch commits this start to end, so a cancel arriving before the
-                # comparisons never lets the source decide again with a bar it did not see.
-                if "bars_missing" not in self._live.connection.closed:
-                    self._live.switch_withheld = True
-                return None
+                return None  # a flat source decides on nothing after a gap: the next start warms it up again
             if method is None:
                 return None
             self._live.deciding = args[0].bar_type

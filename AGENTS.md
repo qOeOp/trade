@@ -115,6 +115,11 @@ result matches is no new exposure.
 - A merge is not a release: only a version tag (`v0.2.0` or later) on a checked `main` commit reaches the
   remote host, and tagging one is the user's call each time (`CHANGELOG.md`). `deploy/remote/README.md` says
   what switches and what stays.
+- Until 1.0, a version keeps no compatibility with earlier ones. A breaking change says in `CHANGELOG.md` what
+  the upgrade drops. No code reads, migrates or special-cases an earlier format of runs, profiles, graphs or
+  ledgers; old research restarts on a new ledger. A release never swaps a running Live run's runtime image; a new
+  control takes over running runners only when their runner contract matches, otherwise the control switch
+  waits until Live is idle.
 - A fix for a doctor finding starts from the diagnosis record and the index, never from the
   auditing session, except an attach session fixing its own verified diagnosis (product-doctor
   `attach.md`); one root cause per PR, the finding id in the body. The PR adds or changes only

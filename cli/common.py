@@ -4,23 +4,18 @@ and its common options."""
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 import json
 from pathlib import Path
-from typing import Literal
 
 from shared import paths
-from shared.errors import Refusal, refusal
-from shared.refusals import CATALOGUE, MARKET_CATALOGUE, refuse
+from shared.errors import Refusal
+from shared.refusals import CATALOGUE, refuse
 
 
 # Output
-
-class UsageError(Exception):
-    pass
-
 
 def _jsonable(value):
     if isinstance(value, Mapping):
@@ -49,38 +44,12 @@ def _print(stream, value) -> None:
 
 def refusal_json(exc: Refusal) -> dict:
     """The printed form of a refusal: its fields and its catalogue repair commands."""
-    value = exc.as_dict()
-    value["next_actions"] = list(exc.next_actions) or list(CATALOGUE.get(exc.code, ("", ()))[1])
-    return value
+    return {**exc.as_dict(), "next_actions": list(exc.next_actions)}
 
 
 def _market_refusal(exc) -> Refusal:
-    """A market package refusal (market.sources.MarketError) as a ledger refusal, its repair commands
-    from the market's own catalogue entry where the code is shared with the ledger, else the catalogue."""
-    return refusal(exc.code, exc.message, missing=exc.missing, write_status="not_written",
-                   next_actions=tuple(MARKET_CATALOGUE.get(exc.code, CATALOGUE[exc.code])[1]))
-
-
-# Profiles
-
-def _market_facts(profile: dict) -> Callable[[str], dict]:
-    """market.resolve_day and market.freshness for ledger.select_line, with the market's first day and each
-    symbol's first universe month (ledger.lines.covered_from)."""
-    from market import store
-    from market.sources import MarketError
-
-    def facts(market_at: str) -> dict:
-        from market import files, universe
-        try:
-            found = store.freshness(profile, market_at)
-            members = universe.months_of(files.open_market(profile, "reader"), found["market_day"])
-        except MarketError as exc:
-            raise _market_refusal(exc) from exc
-        first_months: dict[str, date] = {}
-        for month, symbol in members:
-            first_months.setdefault(symbol, month)
-        return {**found, "first_day": min(first_months.values()), "first_months": first_months}
-    return facts
+    """A market package refusal (market.sources.MarketError) as a ledger refusal with its catalogue repair commands."""
+    return Refusal(exc.code, exc.message, missing=exc.missing, next_actions=CATALOGUE[exc.code])
 
 
 # Small argument helpers
@@ -120,14 +89,11 @@ def _new_temporary(path: str) -> Path:
     return paths.temporary_path(path, require_new=True)
 
 
-Kind = Literal["active", "isolated", "temporary"]  # db.KINDS, the --kind choices
-
-
 # Parser and common options
 
 class Parser(argparse.ArgumentParser):
     def error(self, message):
-        raise UsageError(message)
+        raise refuse("USAGE_ERROR", message)
 
 
 def _ledger_option(parser) -> None:

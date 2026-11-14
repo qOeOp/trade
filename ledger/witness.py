@@ -29,7 +29,7 @@ from shared.refusals import refuse
 # `tsa-roots.pem` (DigiCert Trusted Root G4, USERTrust RSA).
 TSA_URLS = ("https://timestamp.digicert.com", "https://timestamp.sectigo.com")
 ROOTS = Path(__file__).with_name("tsa-roots.pem")
-ROOTS_SHA256 = "c2dc4afb1860e6f3a219951b3524f9105bcebaf0ee41bcb08708d70f595c1cee"
+ROOTS_SHA256 = "133af3571b9f12e4bd82b95ebbda550f7fbc47705c72bc5265495a270c03997e"
 COMMIT = re.compile(r"[0-9a-v]{32}\Z")
 CLOCK_TOLERANCE = timedelta(seconds=300)  # uncalibrated example value
 _TIME = re.compile(r"Time stamp: (\w{3})\s+(\d+) (\d\d:\d\d:\d\d)(?:\.(\d+))? (\d{4}) GMT")

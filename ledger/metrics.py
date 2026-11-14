@@ -15,7 +15,7 @@ import bisect
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import gzip
@@ -136,7 +136,7 @@ class Reports:
     order_events: list[dict] | None
     lifecycle_events: tuple[dict, ...] = ()
     present: frozenset = frozenset()
-    fill_volumes: list[dict] | None = None
+    fill_volumes: list[dict] = field(default_factory=list)
 
 
 def _csv(data: bytes) -> list[dict]:
@@ -203,7 +203,7 @@ def load_directory(directory: Path) -> Reports:
 def load_files(files) -> Reports:
     """The native reports from their bytes by working-directory path (reports/<name>, audit/audit.json).
 
-    A missing file is empty (None for the summary, audit, exposures, order events and fill volumes); `present`
+    A missing file is empty (None for the summary, audit, exposures and order events); `present`
     names the report files that exist. A file that exists but does not parse is REPORT_UNREADABLE.
     """
     present = set()
@@ -241,7 +241,7 @@ def load_files(files) -> Reports:
     exposure_rows = parsed(REPORT_FILES["exposures"], ExposureRows)
     events = parsed(REPORT_FILES["order_events"], lambda data: [json.loads(line) for line in
                                                                  gzip.decompress(data).splitlines() if line.strip()])
-    volumes = parsed(REPORT_FILES["fill_volumes"], _csv)
+    volumes = parsed(REPORT_FILES["fill_volumes"], _csv) or []
     return Reports(summary=summary, audit=audit, orders=rows["orders"], fills=rows["fills"],
                    positions=rows["positions"], account=account_rows or [], returns=returns or [],
                    exposures=exposure_rows, order_events=events, present=frozenset(present), fill_volumes=volumes)
@@ -791,8 +791,8 @@ def metrics(reports: Reports) -> dict:
         limitations.append(str(exc))
     if capital is not None:
         try:
-            reading = None if reports.fill_volumes is None else participation(
-                fills, reports.fill_volumes, _multipliers(reports.positions), summary.get("execution"))
+            reading = participation(fills, reports.fill_volumes, _multipliers(reports.positions),
+                                    summary.get("execution"))
         except Unreconciled as exc:
             reading = None
             limitations.append(str(exc))

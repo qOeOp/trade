@@ -106,7 +106,7 @@ def read(config: configuration.Configuration, path: str, *, binding: release.Bin
         return requests.view(config.root, match[1])
     match = re.fullmatch(r"/api/live/runs/" + RUN, path)
     if match:
-        return control.run_view(config, match[1], evidence=evidence)
+        return control.run_view(config, match[1])
     raise configuration.fail()
 
 
@@ -227,7 +227,7 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
     if not directory.is_dir() or directory.is_symlink():
         return
     for path in sorted(directory.iterdir()):
-        if not state.RUN_ID.fullmatch(path.name) or not path.is_dir() or path.is_symlink():
+        if not state.RUN_ID.fullmatch(path.name) or not path.is_dir() or path.is_symlink() or runs.earlier(path):
             continue
         try:
             scope = authority.retained(config, binding)
@@ -242,7 +242,6 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
                     control.restart_interrupted_locked(root, path.name, time.time_ns())
                 elif observed["state"] == "running" and observed["mode"] == "run":
                     control.check_key_locked(root, path.name, time.monotonic())
-                    runs.sync_switch_locked(root, path.name, time.time_ns())
                 elif observed["state"] != "running":
                     runs.maintain_locked(root, path.name)
         except Exception:
@@ -284,7 +283,7 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
             if daily.due(now, last):
                 last = now
                 try:
-                    daily.launch(config.root, config.market_root, now, config.runtime)
+                    daily.launch(config.root, config.market_root, now)
                 except Exception:
                     pass  # the run's record says what the comparison found; the next hour tries again
             done.wait(60)

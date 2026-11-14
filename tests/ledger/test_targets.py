@@ -24,7 +24,7 @@ class TargetTests(unittest.TestCase):
 
     def select(self, slug: str, window_end: date, line_targets=None) -> int:
         with pinned(date(2026, 1, 2), window_end):
-            return lines.select_line(self.conn, "main", "start@1", slug=slug, market=market(),
+            return lines.select_line(self.conn, "head", "start@1", slug=slug, market=market(),
                                      reviews=reviewed(source("start")), targets=line_targets)["line_id"]
 
     def commits(self) -> int:

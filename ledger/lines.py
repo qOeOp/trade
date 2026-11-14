@@ -129,14 +129,18 @@ def selection(runner_argv) -> list[str] | None:
     return [item for item in itertools.takewhile(lambda item: not item.startswith("--"), rest)]
 
 
-def covered_from(selection: list[str] | None, first_day: date | None, first_months: dict[str, date]) -> date | None:
-    """The first day every instrument of a replay selection has market coverage: the market's first day for the
-    pool (`selection` None), otherwise the latest first universe month among the symbols (`first_months`); None
-    when one of them is never a universe member."""
-    if selection is None:
-        return first_day
-    found = [first_months[symbol] for symbol in selection if symbol in first_months]
-    return max(found) if found and len(found) == len(selection) else None
+def covered_from(selection: list[str] | None, members: list[tuple[str, str]]) -> date | None:
+    """The first day every instrument of a replay selection has market coverage, from the market day's universe
+    (YYYY-MM, symbol) rows: the first universe month for the pool (`selection` None), otherwise the latest of
+    the symbols' first universe months; None when one of them is never a universe member."""
+    first: dict[str, str] = {}
+    for month, symbol in sorted(members):
+        first.setdefault(symbol, month)
+    found = [min(first.values())] if selection is None and first else [
+        first[symbol] for symbol in selection or () if symbol in first]
+    if not found or (selection is not None and len(found) != len(selection)):
+        return None
+    return date.fromisoformat(max(found) + "-01")
 
 
 def development_period(today: date, latest_complete_day: date, covered: date | None) -> tuple[date, date]:
@@ -192,7 +196,7 @@ def check_replay_window(conn: db.LedgerConnection, line: str | None, trade_start
                                                    f"{end} (exclusive)", expected=f"{first} <= trade window <= {end}")
 
 
-def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: str, market: Callable[[str], dict],
+def select_line(conn: db.LedgerConnection, market_at: str | None, start: str, *, slug: str, market: Callable[[str], dict],
                 reviews: Callable[[db.LedgerConnection, str], list[dict]],
                 targets: tuple[float, float] | None = None, today: date | None = None) -> dict:
     """Append the user's chosen line named `slug`; the same choice as an open line under that name is a replay.
@@ -200,8 +204,8 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
     `targets` (maximum drawdown, minimum annual return) are the user's for this line, written in the same commit;
     without them the line reads the ledger default.
 
-    `market(market_at)` returns {market_day, universe_rule, latest_complete_day, first_day, first_months} (the
-    market's resolve_day and freshness, its first day and each symbol's first universe month); the development
+    `market(market_at)` returns {market_day, universe_rule, latest_complete_day, members} (the market day, its
+    universe rule and latest complete day, and its universe (YYYY-MM, symbol) rows); the development
     period follows from that day, `today` (default the ledger server's UTC date) and the coverage of the
     instruments of the start's latest passed precheck (covered_from; LINE_HISTORY_SHORT when too short). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
     source review of its source hash and none failed, read at the head this connection sees; a review that failed
@@ -220,7 +224,7 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
             raise refuse("START_NOT_FOUND", f"no candidate {start} to start the line from", missing=(start,)) from exc
         raise
     try:
-        facts = market(market_at or "main")
+        facts = market(market_at or "head")
     except Refusal as exc:
         raise refuse("MARKET_DAY_UNRESOLVED", f"market reference {market_at!r} did not resolve ({exc.code})",
                      missing=(str(market_at),)) from exc
@@ -240,8 +244,7 @@ def select_line(conn: db.LedgerConnection, market_at: str, start: str, *, slug: 
                                               "source review", missing=(start,))
     passed = max((record for record in reviewed if record["verdict"] == "passed"), key=lambda record: record["review_id"])
     argv = conn.rows("SELECT runner_argv FROM trial WHERE trial_id = %s", (passed["trial_id"],))
-    covered = covered_from(selection(argv[0][0]) if argv else None, facts.get("first_day"),
-                           facts.get("first_months") or {})
+    covered = covered_from(selection(argv[0][0]) if argv else None, facts.get("members") or [])
     window_start, window_end = development_period(today, latest_day, covered)
     choice = {"name": slug, "start_source_sha256": candidate["source_sha256"], "market_day": facts["market_day"],
               "universe_rule": facts["universe_rule"], "dev_start": window_start.isoformat(),

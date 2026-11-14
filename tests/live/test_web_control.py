@@ -351,7 +351,7 @@ class LiveWebControlTests(unittest.TestCase):
             with self.subTest(observed=observed), \
                     patch.object(serve.runs, "observe_locked", return_value=observed), \
                     patch.object(serve.control, "restart_interrupted_locked") as restart, \
-                    patch.object(serve.control, "check_key_locked"), patch.object(serve.runs, "sync_switch_locked"), \
+                    patch.object(serve.control, "check_key_locked"), \
                     patch.object(serve.runs, "write_months_locked", side_effect=OSError("market unreadable")) as months:
                 serve.maintain_existing(self.config, binding=self.binding)  # a failed write is retried next pass
                 self.assertEqual(months.call_count, calls)

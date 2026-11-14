@@ -156,13 +156,8 @@ A deployment runs images by digest, so a pull cannot change what it runs. A tag 
 - **docker-api**: the digest in `compose.yaml`, moved only by a pull request.
 - **Replays**: `trade-runtime:main` finds the current replay image, and the ledger records the digest it resolved to.
 
-Going back is the same command with an earlier revision of the same channel; `git log -p origin/deploy-ready --
-release.json` (or `origin/main-ready`) lists them:
-
-```bash
-uv run --frozen python -m deploy.images --env deploy/.env --revision <commit>
-uv run --frozen python -m deploy.images --env deploy/.env --channel main --revision <commit>   # staging
-```
+During 0.x a version reads no other version's state, so a deployment never goes back to an earlier version's
+images.
 
 Images of pull requests share the packages and are never deployed.
 

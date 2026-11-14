@@ -39,28 +39,11 @@ MANIFESTS = ", ".join(f"application/vnd.{kind}" for kind in (
 KEPT_RELEASES = 3  # per kind of container: the newest good ones, so an operator can return by hand
 
 
-# A Web released ahead of its Live control (docs/plans/live-web-first-release-20261108.zh.md): it serves
-# its revision beside the account owner's older control, so the paired Web of the same revision, released
-# once Live is idle, can take the plain name. 18 + 40 + 4 characters, within a 63-character DNS label.
-AHEAD = "-pre"
-
-
 def revision(name: str, prefix: str = WEB) -> str:
     value = name.removeprefix(prefix)
-    if prefix == WEB:
-        value = value.removesuffix(AHEAD)
     if not name.startswith(prefix) or not REVISION.fullmatch(value):
         raise RuntimeError(f"not a managed release container: {name}")
     return value
-
-
-def ahead(name: str) -> bool:
-    """A Web serving ahead of the control that owns the account."""
-    return name.startswith(WEB) and name.endswith(AHEAD) and REVISION.fullmatch(
-        name.removeprefix(WEB).removesuffix(AHEAD)) is not None
-
-
-OWNER = re.compile(r"live-([0-9a-f]{40})\Z")
 
 
 def proxy(name: str, port: int, **options) -> dict:
@@ -85,35 +68,13 @@ def upstream(config: dict, server: str, port: int, prefix: str) -> str:
     return name
 
 
-def route_config(name: str, owner: str | None) -> dict:
-    """The committed Web and, with Live installed, the revision of the control that owns the account.
-
-    An owner other than the Web's own revision (after a Web-only release) rides on the route as Caddy's
-    `@id`, so one write commits both; a route without one is owned by its Web's own control.
-    """
-    route: dict = {}
-    if owner is not None:
-        if not REVISION.fullmatch(owner):
-            raise RuntimeError("invalid Live owner revision")
-        if owner != revision(name):
-            route["@id"] = f"live-{owner}"
-    return router("ide", 8765, [{**route, **proxy(name, 8765)}])
+def route_config(name: str) -> dict:
+    """The committed Web; with Live installed its own control owns the account."""
+    return router("ide", 8765, [proxy(name, 8765)])
 
 
 def route_name(config: dict) -> str:
     return upstream(config, "ide", 8765, WEB)
-
-
-def route_owner(config: dict) -> str:
-    """The revision of the control that owns the account: the route's `@id`, otherwise its Web's own."""
-    name = route_name(config)
-    value = config["apps"]["http"]["servers"]["ide"]["routes"][0].get("@id")
-    if value is None:
-        return revision(name)
-    found = OWNER.fullmatch(value) if isinstance(value, str) else None
-    if found is None:
-        raise RuntimeError("unrecognized Live owner on the route")
-    return found.group(1)
 
 
 def limits(memory: str, cpus: str) -> list[str]:
@@ -259,8 +220,7 @@ class DockerHost:
         return [
             name
             for name in self.docker("ps", *([] if running_only else ["-a"]), "--format", "{{.Names}}").splitlines()
-            if name.startswith(prefix) and (REVISION.fullmatch(name.removeprefix(prefix))
-                                            or prefix == WEB and ahead(name))
+            if name.startswith(prefix) and REVISION.fullmatch(name.removeprefix(prefix))
         ]
 
     def agent(self) -> str | None:
@@ -315,29 +275,13 @@ class DockerHost:
     def live_route(self) -> str:
         return route_name(self.live_config())
 
-    def disk_owner(self) -> str:
-        return route_owner(self.disk_config())
-
-    def live_owner(self) -> str:
-        return route_owner(self.live_config())
-
-    def switch(self, name: str, owner: str | None) -> None:
-        self.reload(route_config(name, owner))
-        loaded = self.live_config()
-        if route_name(loaded) != name or (owner is not None and route_owner(loaded) != owner):
+    def switch(self, name: str) -> None:
+        self.reload(route_config(name))
+        if route_name(self.live_config()) != name:
             raise RuntimeError("router did not load the intended upstream")
 
-    def persist_route(self, name: str, owner: str | None) -> None:
-        self.write_route("active.json", route_config(name, owner))
-
-    def mounted_sockets(self, names: set[str]) -> set[Path]:
-        """The Live socket directories these Webs mount, read from the containers rather than the route."""
-        found = set()
-        for name in sorted(names):
-            mounts = json.loads(self.docker("inspect", "--format", "{{json .Mounts}}", name))
-            found.update(Path(row["Source"]) for row in mounts
-                         if row.get("Type") == "bind" and row.get("Destination") == "/run/trade-live")
-        return found
+    def persist_route(self, name: str) -> None:
+        self.write_route("active.json", route_config(name))
 
     def pull(self, reference: str, pattern, sha: str | None = None) -> str:
         """Pull an admitted digest and check what CI built: amd64, this repository and, given `sha`, that revision.

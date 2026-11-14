@@ -59,28 +59,14 @@ export type LiveRunDto = {
   minute_results: [string, string | null][] | null;
   purpose: "natural" | "controlled" | null;
   /** Interruptions and starts again of the same run (live/views.py _restarts). */
-  restarts: { event: string; observed_ns: string; held: boolean | null; switch?: boolean }[] | null;
+  restarts: { event: string; observed_ns: string; held: boolean | null }[] | null;
   /** The entry gate's events (live/views.py _gate): when entries closed, why, and when they reopened. */
   gate: { event: string; observed_ns: string; reasons: string[]; socket: string | null; status?: string | null }[] | null;
   /** The control's hourly checks of the run's key that failed, and a pass after one (live/views.py _key_checks). */
   key_checks: { event: "key_check_failed" | "key_check_passed"; code: string | null; observed_ns: string }[] | null;
   /** The control's latest daily comparison with a replay (live/daily.py). */
   compare: LiveCompareDto | null;
-  /** The runtime image the latest start runs on, a confirmed switch it waits for, how earlier ones ended, and the
-   *  release's image when it differs (live/views.py _switch, live/control.py _offered). */
-  switch: LiveSwitchDto | null;
   review?: LiveReviewDto | null; review_error?: { code: string } | null;
-};
-export type LiveImageDto = { digest: string | null; build_revision: string | null };
-export type LivePairedDto = {
-  image_ref: string; day: string; state: "running" | "done" | "failed" | "empty"; code?: string | null;
-  unexplained_week?: number; measures?: { groups?: number } | null;
-};
-export type LiveSwitchDto = {
-  current: LiveImageDto; pending: (LiveImageDto & { requested_ns: string }) | null;
-  events: { event: "runtime_switch_requested" | "runtime_switched" | "runtime_switch_canceled" | "runtime_switch_failed"; observed_ns: string; code: string | null; reason: "user" | "stopped" | "ended" | null; digest: string | null }[];
-  trial_id: string | null;
-  offered?: (LiveImageDto & { evidence: "found" | "missing" | "checking" | "unknown"; paired: LivePairedDto | null }) | null;
 };
 export type LiveCompareDto = {
   day: string; state: "running" | "done" | "waiting" | "failed" | "empty"; code?: string | null; failures?: number;
