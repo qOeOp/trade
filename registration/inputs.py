@@ -54,21 +54,27 @@ def _read_facts(name: str, data: bytes) -> bytes:
 
 
 def export_fingerprint(inputs: Mapping, semantic: bool) -> dict:
-    """{export_content_sha256} of the export root plus the membership file: with `semantic` what a replay reads
-    (the input identity), without it every byte of every file (a check that nothing changed during a replay)."""
+    """{export_content_sha256} of the selected contracts' directories and the lifecycle evidence under the export
+    root, plus the membership file: with `semantic` what a replay reads (the input identity), without it every byte
+    of every file (a check that nothing changed during a replay). A cached export root is shared with other
+    selections, so other contracts' directories in it are not part of the identity."""
     root, membership = Path(inputs["root"]), Path(inputs["membership_file"])
     if root.is_symlink() or not root.is_dir():
         raise _invalid(f"the export root {root} is a link or not a directory", str(root))
     if membership.is_symlink() or not membership.is_file():
         raise _invalid(f"the membership file {membership} is missing or a link", MEMBERSHIP)
     entries: list[tuple[str, Path]] = []
-    for directory, names, files in os.walk(root, followlinks=False):
-        for name in sorted(names) + sorted(files):
-            path = Path(directory) / name
-            if path.is_symlink():
-                raise _invalid(f"{path.relative_to(root)} in the export root is a link", str(path.relative_to(root)))
-        entries += [((Path(directory) / name).relative_to(root).as_posix(), Path(directory) / name)
-                    for name in files if (Path(directory) / name).is_file()]
+    for top in (*inputs["symbols"], LIFECYCLE_EVIDENCE.rstrip("/")):
+        if (root / top).is_symlink():
+            raise _invalid(f"{top} in the export root is a link", top)
+        for directory, names, files in os.walk(root / top, followlinks=False):
+            for name in sorted(names) + sorted(files):
+                path = Path(directory) / name
+                if path.is_symlink():
+                    raise _invalid(f"{path.relative_to(root)} in the export root is a link",
+                                   str(path.relative_to(root)))
+            entries += [((Path(directory) / name).relative_to(root).as_posix(), Path(directory) / name)
+                        for name in files if (Path(directory) / name).is_file()]
     entries.append((MEMBERSHIP, membership))
     total = hashlib.sha256()
     for name, path in sorted(entries, key=lambda item: item[0]):
@@ -201,7 +207,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
     exported = adapter.export_catalogs(market_day, list(symbols), window["start"], window["end"], episodes,
                                        lifecycle_files, fresh, include_quotes=include_quotes,
                                        include_trades=include_trades, include_metrics=include_metrics)
-    inputs = {"root": Path(exported["root"]), "fresh": fresh}
+    inputs = {"root": Path(exported["root"]), "fresh": fresh, "symbols": list(symbols)}
     try:
         receipts = exported["receipts"]
         for symbol in symbols:
