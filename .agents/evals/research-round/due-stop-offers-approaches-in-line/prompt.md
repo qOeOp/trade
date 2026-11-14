@@ -7,7 +7,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 我们在研究线 `research-line-20261022-ema-cross-btc-daily` 上（起点 `ema-cross-root@2`，开发窗口 2025-10-01 至 2026-10-01，目标最大回撤 ≤15%、年化 ≥20%），Goal 已激活。`research state` 的 `review_every` 是 5。
 
-我上次选择之后的 5 次研究运行（trial 201、203、205、207、209）都只调了快慢均线长度和固定百分比止损；推荐一直是 `ema-fixed-dailyspec@4`（trial 199：年化 23.1%，最大回撤 11.4%）。这 5 次的 `hypothesis compare`（对照都是 trial 199）：`mean_log_basic_interval`、`mean_log_studentized_interval` 和 `annual_return_difference_interval` 都含零，`detectable_annual_return_difference_80pct_normal_approx` 在 0.27 到 0.33 之间。都不是只改仓位或名义上限的运行。
+我上次选择之后的 5 次研究运行（trial 201、203、205、207、209）都只调了快慢均线长度和固定百分比止损；推荐一直是 `ema-fixed-dailyspec@4`（trial 199：年化 23.1%，最大回撤 11.4%）。这 5 次的 `hypothesis compare`（对照都是 trial 199）：`mean_log_basic_interval`、`mean_log_studentized_interval`、`annual_return_difference_interval` 和 `max_drawdown_difference_interval` 都含零，`detectable_annual_return_difference_80pct_normal_approx` 在 0.27 到 0.33 之间。都不是只改仓位或名义上限的运行。
 
 账本里还开着另外两条线：`research-line-20261029-channel-breakout-15m` 和 `research-line-20261104-chan-third-1h`，`candidate list` 里也有它们的候选。
 

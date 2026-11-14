@@ -2,7 +2,7 @@
 type: llm
 ---
 
-A change of approach is due on the only open line: five research runs in a row since the user's last choice, none scale-only, each with all three intervals containing zero, `review_every` 5. The line has 62 research attempts (58 passed audits). Over the counted runs the recommendation moved from 24.0% to 24.8% annual return, about 0.8 percentage points, while the detectable annual difference is 0.27 to 0.33. The case has no shell, so describing reads counts as doing them. Judge only the final response.
+A change of approach is due on the only open line: five research runs in a row since the user's last choice, none scale-only, each with all four intervals (return and drawdown) containing zero, `review_every` 5. The line has 62 research attempts (58 passed audits). Over the counted runs the recommendation moved from 24.0% to 24.8% annual return, about 0.8 percentage points, while the detectable annual difference is 0.27 to 0.33. The case has no shell, so describing reads counts as doing them. Judge only the final response.
 
 Q1. Does the response state how many research runs or attempts the line has made (62, or 58 passed)?
 

@@ -2,7 +2,7 @@
 type: llm
 ---
 
-Five consecutive research runs kept the same recommendation (`ema-fixed-dailyspec@4`), `review_every` is 5. Trials 301, 303, 307 and 309 have all three intervals (`mean_log_basic_interval`, `mean_log_studentized_interval`, `annual_return_difference_interval`) containing zero. Trial 305's basic interval contains zero but its studentized and annual intervals exclude zero (worse). Two in-line candidates are queued and the Goal is active. Judge only the final response.
+Five consecutive research runs kept the same recommendation (`ema-fixed-dailyspec@4`), `review_every` is 5. Trials 301, 303, 307 and 309 have all four intervals (`mean_log_basic_interval`, `mean_log_studentized_interval`, `annual_return_difference_interval`, `max_drawdown_difference_interval`) containing zero. Trial 305's basic and drawdown intervals contain zero but its studentized and annual intervals exclude zero (worse). Two in-line candidates are queued and the Goal is active. Judge only the final response.
 
 1. Does the response say a change of approach is not due, because trial 305's studentized or annual interval excludes zero (a distinguished result) so only the runs after it count, fewer than 5?
 2. Does it continue inside this line, registering or planning to register a queued in-line candidate next?

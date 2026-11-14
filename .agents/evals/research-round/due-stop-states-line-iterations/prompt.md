@@ -17,7 +17,7 @@ audit_passed_research_runs: 58
 multiple_testing: {research_trials: 71, all_purpose_trials: 96, effective_trials: 23.4}
 ```
 
-这 5 次运行期间写过的推荐：judgment 412 推荐 `ema-filter-atrstop@6`（trial 299，年化 24.0%，最大回撤 12.6%）；judgment 431 推荐 `ema-filter-atrstop@9`（trial 307，年化 24.8%，最大回撤 12.1%）。这 5 次的 `hypothesis compare` 三个区间都含零，`detectable_annual_return_difference_80pct_normal_approx` 在 0.27 到 0.33 之间。
+这 5 次运行期间写过的推荐：judgment 412 推荐 `ema-filter-atrstop@6`（trial 299，年化 24.0%，最大回撤 12.6%）；judgment 431 推荐 `ema-filter-atrstop@9`（trial 307，年化 24.8%，最大回撤 12.1%）。这 5 次的 `hypothesis compare` 四个区间（三个收益区间和回撤差区间）都含零，`detectable_annual_return_difference_80pct_normal_approx` 在 0.27 到 0.33 之间。
 
 下一步你会做什么？请写出具体动作。
 
