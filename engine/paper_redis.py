@@ -9,9 +9,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 import json
-import os
 from pathlib import Path
-import socket
 import subprocess
 import sys
 import tempfile
@@ -24,30 +22,12 @@ from nautilus_trader.infrastructure import RedisCacheConfig
 from nautilus_trader.infrastructure import RedisCacheDatabase  # type: ignore[attr-defined]
 from nautilus_trader.model import Currency, TraderId, Venue
 
-from engine import paper_checkpoint as checkpoint
+from engine import paper_checkpoint as checkpoint, redis_child
 from engine.config import ACCOUNT_CONTRACT
 
 
 MARKER = "paper-recovery"
-REDIS = Path("/opt/trade/redis")
 SECONDS = 10.0
-
-
-def command(port: int, *parts: str) -> bytes | int:
-    """One local, unauthenticated Redis command; used only for PING and synchronous SAVE."""
-    payload = b"*" + str(len(parts)).encode() + b"\r\n"
-    for part in parts:
-        data = part.encode()
-        payload += b"$" + str(len(data)).encode() + b"\r\n" + data + b"\r\n"
-    with socket.create_connection(("127.0.0.1", port), timeout=SECONDS) as conn:
-        conn.sendall(payload)
-        with conn.makefile("rb") as stream:
-            response = stream.readline()
-    if response.startswith(b"+"):
-        return response[1:-2]
-    if response.startswith(b":"):
-        return int(response[1:-2])
-    raise checkpoint.fail(f"the local native cache command failed: {response.decode(errors='replace').strip()}")
 
 
 class NativeCache:
@@ -68,37 +48,16 @@ class NativeCache:
                 # Never bootstrap from a mutable cache left behind by the process which crashed.
                 checkpoint.atomic(self.rdb, original.read_bytes())
         if port is None:
-            loaders = list(REDIS.glob("ld-musl-*.so.1"))
-            if not (REDIS / "redis-server").is_file() or len(loaders) != 1:
-                raise checkpoint.fail("the pinned runtime does not carry the native cache service")
-            with socket.socket() as available:
-                available.bind(("127.0.0.1", 0))
-                port = available.getsockname()[1]
-            self.process = subprocess.Popen(
-                # A fresh interpreter clears Paper's inherited blocked signal mask before
-                # exec. preexec_fn would run Python after fork in a multithreaded process.
-                [sys.executable, "-c", "import os,signal,sys; "
-                 "signal.pthread_sigmask(signal.SIG_SETMASK, []); os.execv(sys.argv[1], sys.argv[1:])",
-                 str(loaders[0]), "--library-path", str(REDIS / "lib"),
-                 str(REDIS / "redis-server"), "--bind", "127.0.0.1", "--port", str(port),
-                 "--dir", str(directory), "--dbfilename", "dump.rdb", "--save", "", "--appendonly", "no"],
-                stdin=subprocess.DEVNULL, stdout=sys.stderr, stderr=subprocess.STDOUT,
-                env={"PATH": os.defpath, "LANG": "C"},
-            )
-            deadline = time.monotonic() + SECONDS
-            while True:
-                if self.process.poll() is not None:
-                    self.close()
-                    raise checkpoint.fail("the native cache service failed to load; its log and originals are retained")
-                try:
-                    if command(port, "PING") == b"PONG":
-                        break
-                except OSError:
-                    pass
-                if time.monotonic() >= deadline:
-                    self.close()
-                    raise checkpoint.fail("the native cache service did not become ready")
-                time.sleep(0.02)
+            try:
+                self.process, port = redis_child.start(
+                    directory, ["--dbfilename", "dump.rdb", "--save", "", "--appendonly", "no"], sys.stderr)
+            except FileNotFoundError:
+                raise checkpoint.fail("the pinned runtime does not carry the native cache service") from None
+            if not redis_child.ready(self.process, port):
+                exited = self.process.poll() is not None
+                self.close()
+                raise checkpoint.fail("the native cache service failed to load; its log and originals are retained"
+                                      if exited else "the native cache service did not become ready")
         self.port = port
         self.config = RedisCacheConfig(host="127.0.0.1", port=port)
         try:
@@ -190,7 +149,11 @@ class NativeCache:
         loaded = self.reader.load_all()
         if any(self._native(loaded[key].values()) != values for key, values in expected.items()):
             raise checkpoint.fail("native cache readback differs from the owner; the checkpoint stays dirty")
-        if command(self.port, "SAVE") != b"OK":
+        try:
+            saved = redis_child.command(self.port, "SAVE", timeout=SECONDS)
+        except OSError as exc:
+            raise checkpoint.fail(f"the native cache snapshot failed: {exc}") from exc
+        if saved != b"OK":
             raise checkpoint.fail("the native cache snapshot failed")
         found = checkpoint.publish(self.output, self.identity, self.rdb)
         # Only current and actually-used originals are retained. Unused generations are working cache.

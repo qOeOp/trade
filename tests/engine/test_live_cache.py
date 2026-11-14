@@ -8,7 +8,7 @@ import threading
 import unittest
 from unittest import mock
 
-from engine import live_cache
+from engine import live_cache, redis_child
 from engine.live_errors import LiveRefusal
 
 
@@ -22,7 +22,7 @@ class LiveCacheTests(unittest.TestCase):
         return cache
 
     def test_resume_requires_retained_native_aof_before_starting_process(self):
-        with tempfile.TemporaryDirectory() as directory, mock.patch.object(live_cache.subprocess, "Popen") as start:
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(redis_child.subprocess, "Popen") as start:
             with self.assertRaisesRegex(LiveRefusal, "LIVE_CACHE_MISSING"):
                 live_cache.LiveCache(Path(directory), resume=True)
             start.assert_not_called()
@@ -30,7 +30,7 @@ class LiveCacheTests(unittest.TestCase):
     def test_child_death_is_latched_and_cannot_be_hidden_by_later_health(self):
         cache = self.cache()
         cache.process.poll.return_value = 1
-        with mock.patch.object(live_cache, "redis_command") as command:
+        with mock.patch.object(redis_child, "command") as command:
             with self.assertRaisesRegex(LiveRefusal, "LIVE_CACHE_HEALTH"):
                 cache.health()
             cache.process.poll.return_value = None
@@ -40,7 +40,7 @@ class LiveCacheTests(unittest.TestCase):
 
     def test_aof_write_failure_is_rejected_before_new_write_can_reset_status(self):
         cache = self.cache()
-        with mock.patch.object(live_cache, "redis_command", return_value=
+        with mock.patch.object(redis_child, "command", return_value=
                 b"aof_enabled:1\r\naof_last_write_status:err\r\n") as command:
             with self.assertRaisesRegex(LiveRefusal, "LIVE_CACHE_HEALTH"):
                 cache.health()
@@ -49,7 +49,7 @@ class LiveCacheTests(unittest.TestCase):
     def test_guard_checks_durable_configuration_and_write_barrier(self):
         cache = self.cache()
         good = b"aof_enabled:1\r\naof_last_write_status:ok\r\n"
-        with mock.patch.object(live_cache, "redis_command", side_effect=[
+        with mock.patch.object(redis_child, "command", side_effect=[
                 good, [b"appendfsync", b"always"], b"OK", good]) as command:
             cache.health()
             self.assertEqual(command.call_args_list, [mock.call(cache.port, "INFO", "persistence"),
@@ -63,7 +63,7 @@ class LiveCacheTests(unittest.TestCase):
         received = []
         class Handler(socketserver.StreamRequestHandler):
             def handle(self):
-                command = live_cache._reply(self.rfile)
+                command = redis_child._reply(self.rfile)
                 received.append(command)
                 if command[0] == b"INFO":
                     self.wfile.write(b"$" + str(len(good)).encode() + b"\r\n" + good + b"\r\n")
@@ -100,9 +100,9 @@ class LiveCacheTests(unittest.TestCase):
             (runtime / "ld-musl-x86_64.so.1").touch()
             (runtime / "redis-server").touch()
             good = b"aof_enabled:1\r\naof_last_write_status:ok\r\n"
-            with mock.patch.object(live_cache, "REDIS", runtime), \
-                    mock.patch.object(live_cache.subprocess, "Popen") as start, \
-                    mock.patch.object(live_cache, "redis_command",
+            with mock.patch.object(redis_child, "REDIS", runtime), \
+                    mock.patch.object(redis_child.subprocess, "Popen") as start, \
+                    mock.patch.object(redis_child, "command",
                                       side_effect=[b"PONG", good, [b"appendfsync", b"always"], b"OK", good]):
                 start.return_value.poll.return_value = None
                 cache = live_cache.LiveCache(Path(directory), resume=False)
@@ -116,8 +116,8 @@ class LiveCacheTests(unittest.TestCase):
 
     def test_missing_runtime_cache_does_not_fall_back_to_host_redis(self):
         with tempfile.TemporaryDirectory() as directory, \
-                mock.patch.object(live_cache, "REDIS", Path(directory) / "absent"), \
-                mock.patch.object(live_cache.subprocess, "Popen") as start:
+                mock.patch.object(redis_child, "REDIS", Path(directory) / "absent"), \
+                mock.patch.object(redis_child.subprocess, "Popen") as start:
             with self.assertRaisesRegex(LiveRefusal, "LIVE_CACHE_RUNTIME"):
                 live_cache.LiveCache(Path(directory), resume=False)
             start.assert_not_called()

@@ -34,7 +34,7 @@ from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig
 
 from engine import history, live, live_brake
 from engine import live_commands as commands, live_connection, live_lifecycle, live_node, live_session, live_source as live_source_runtime
-from engine.config import Refusal
+from engine.config import MINUTE_NS, Refusal
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 from engine.membership import month_end_ns
@@ -267,23 +267,23 @@ class NativeEntryTests(unittest.TestCase):
     def test_the_runs_result_is_journalled_at_each_minutes_first_mark_and_at_the_stop(self):
         self.owned_position()  # Long 0.500 at 100.
         observer = SimpleNamespace(session=self.session, cache=self.engine.cache, minute=None, minutes={}, last_marks={},
-                                   clock=SimpleNamespace(timestamp_ns=lambda: 3 * live_session.MINUTE_NS + 5, cancel_timer=Mock()),
+                                   clock=SimpleNamespace(timestamp_ns=lambda: 3 * MINUTE_NS + 5, cancel_timer=Mock()),
                                    unsubscribe_socket_state=Mock())
         mark = lambda price, ns: live_lifecycle.Observer.on_mark_price(observer, SimpleNamespace(
             instrument_id=self.iid, value=Price.from_str(price), ts_event=ns, ts_init=ns))
-        mark("95.00", live_session.MINUTE_NS + 1)
-        mark("90.00", live_session.MINUTE_NS + 30_000_000_000)  # the same minute: no second row
-        mark("96.00", 2 * live_session.MINUTE_NS)
+        mark("95.00", MINUTE_NS + 1)
+        mark("90.00", MINUTE_NS + 30_000_000_000)  # the same minute: no second row
+        mark("96.00", 2 * MINUTE_NS)
         live_lifecycle.Observer.on_stop(observer)
         rows = [(row["minute_ns"], row["result"]) for row in self.read_events("minute_result")]
-        self.assertEqual(rows, [(live_session.MINUTE_NS, "-2.50000000"), (2 * live_session.MINUTE_NS, "-2.00000000"),
-                                (3 * live_session.MINUTE_NS, "-2.00000000")])
+        self.assertEqual(rows, [(MINUTE_NS, "-2.50000000"), (2 * MINUTE_NS, "-2.00000000"),
+                                (3 * MINUTE_NS, "-2.00000000")])
         self.assertFalse(self.session.stopping)
         self.assertFalse(self.session.failed)
 
     def test_an_open_position_without_a_price_has_an_unknown_result(self):
         self.owned_position()
-        self.session.record_minute(self.engine.cache, live_session.MINUTE_NS, {})
+        self.session.record_minute(self.engine.cache, MINUTE_NS, {})
         self.assertIsNone(self.read_events("minute_result")[0]["result"])
         self.assertFalse(self.session.failed)
 
@@ -373,7 +373,7 @@ class NativeEntryTests(unittest.TestCase):
         self.session.check_mark(self.engine.cache, 160.0)
         self.assertTrue(self.session.stopping and self.session.failed)
         self.assertEqual(self.read_events("mark_missing")[0]["symbols"], ["BTCUSDT"])
-        self.session.record_minute(self.engine.cache, live_session.MINUTE_NS, {"ETHUSDT": Price.from_str("2500.00")})
+        self.session.record_minute(self.engine.cache, MINUTE_NS, {"ETHUSDT": Price.from_str("2500.00")})
         self.assertIsNone(self.read_events("minute_result")[0]["result"])  # no price of its own: unknown
 
     def test_no_mark_at_all_counts_from_when_the_position_appeared(self):

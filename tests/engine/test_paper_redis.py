@@ -50,7 +50,7 @@ class NativeReadbackTests(unittest.TestCase):
         backend.reader = SimpleNamespace(read=lambda _: [marker], load_all=lambda: {
             "accounts": {}, "orders": {}, "positions": {}})
         backend.port = 12345
-        with mock.patch("engine.paper_redis.command") as save, \
+        with mock.patch("engine.redis_child.command") as save, \
                 mock.patch.object(checkpoint, "publish") as publish:
             with self.assertRaisesRegex(checkpoint.Refusal, "readback differs"):
                 backend._freeze(marker, {"accounts": ['{"a":"native owner state"}'], "orders": [], "positions": []})

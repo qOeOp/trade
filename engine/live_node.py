@@ -14,9 +14,9 @@ from nautilus_trader.persistence import DataCatalogConfig
 from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy
 from engine import history, strategy as strategy_runtime
 from engine.live_errors import LiveRefusal as Refusal
-from engine.live_venue import BinanceReadOnly, Credentials
+from engine.live_venue import Credentials
 from engine.live_lifecycle import Observer
-from engine.config import instrument_id
+from engine.config import ACCOUNT_CONTRACT, instrument_id
 from engine.live_records import strategy_ids
 from engine.live_session import Session
 from engine.live_source import live_source
@@ -32,10 +32,11 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
     instrument_ids = [instrument_id(symbol) for symbol in manifest["symbols"]]
     provider = BinanceInstrumentProviderConfig(load_all=False, load_ids=instrument_ids)
     proxy = manifest["config"].get("proxy_url")
-    if session.account_reader is None:
-        session.account_reader = BinanceReadOnly(credentials, proxy_url=proxy)
-    data = LiveDataEngineConfig(time_bars_timestamp_on_close=True, time_bars_skip_first_non_full_bar=False,
-                                validate_data_sequence=True, time_bars_build_delay=history.BUILD_DELAY_US)
+    account = ACCOUNT_CONTRACT  # the data engine replay and Paper build (engine.run, engine.paper)
+    data = LiveDataEngineConfig(
+        time_bars_timestamp_on_close=account["time_bars_timestamp_on_close"],
+        time_bars_skip_first_non_full_bar=account["time_bars_skip_first_non_full_bar"],
+        validate_data_sequence=account["validate_data_sequence"], time_bars_build_delay=history.BUILD_DELAY_US)
     builder = LiveNode.builder("live", TraderId(manifest["trader_id"]), Environment.LIVE)
     if session.mode == "run":
         # The warm-up is requested from the run's Catalog, which it fills at T (engine.history).
