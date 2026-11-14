@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我们在路线 `research-line-20261025-ema-rollingref-btc-daily` 上做 BTCUSDT 永续日线研究：起点是根 `ema-rollingref@1`（trial 200，首报），开发窗口 2025-10-01 至 2026-10-01，市场日 `2026-10-02`。之后派生了 `ema-rollingref@2` 到 `@6`（trial 203–211），运行都通过、经济证据可用；最新推荐 judgment 301 推荐 `ema-rollingref@4`（trial 207）。
+我们在路线 `research-line-20261025-ema-rollingref-btc-daily` 上做 BTCUSDT 永续日线研究：起点是根 `ema-rollingref@1`（trial 200，首报），开发窗口 2023-10-01 至 2024-10-01，市场日 `2026-10-02`。之后派生了 `ema-rollingref@2` 到 `@6`（trial 203–211），运行都通过、经济证据可用；最新推荐 judgment 301 推荐 `ema-rollingref@4`（trial 207）。
 
 账本与市场的事实（已读）：
 
