@@ -5,12 +5,9 @@ one), the window and the universe rule. Register it with `validation registratio
 `replay run --validation ID` and read it with `validation report`, as their `--help` describes.
 
 - Keep the original registration when unused window data is completed or corrected and still
-  meets its admission checks; cite the old/new market days and correction evidence. Binding,
-  retries included, keeps the original registration's membership boundary and account baseline:
-  the account of the candidate's latest passed research run at that registration's commit, which
-  later research runs never replace. A retry also keeps its candidate, window, universe rule and
-  complete test design, and is only available for the existing interrupted, invalid or
-  economically unavailable outcomes. A refused binding writes nothing and does not consume the
+  meets its admission checks; cite the old/new market days and correction evidence. A retry keeps
+  the original terms (`validation registration --help`) and is only available for the existing
+  interrupted, invalid or economically unavailable outcomes. A refused binding writes nothing and does not consume the
   registration. An economically available passed result does not become retryable merely for
   corrected data: disclose the original and the correction's impact, without replacing it or
   declaring another independent validation.
