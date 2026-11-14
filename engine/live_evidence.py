@@ -83,18 +83,11 @@ class Evidence:
         cache, so its reports hold the whole run; the account states only the last day once the node ran an hour
         (the native purge, engine.live_node)."""
         try:
-            import pandas as pd
-            from nautilus_trader.analysis import ReportProvider
-            from engine.report import ORDER_EVENTS, write_order_events, write_reports
+            from engine.report import write_cache_reports
             name = f"reports-{time.time_ns()}"
             partial = self.root / f".{name}.partial"
             partial.mkdir(mode=0o700, parents=True)
-            orders, account = cache.orders(), cache.account_for_venue(venue)
-            write_reports(partial, cache, ReportProvider.generate_orders_report(orders),
-                          ReportProvider.generate_fills_report(orders),
-                          ReportProvider.generate_positions_report(cache.positions(), cache.position_snapshots()),
-                          ReportProvider.generate_account_report(account) if account is not None else pd.DataFrame())
-            write_order_events(orders, partial / ORDER_EVENTS)
+            write_cache_reports(partial, cache, venue)
             instruments = {str(value.id): type(value).to_dict(value) for value in cache.instruments()}
             (partial / INSTRUMENTS).write_text(json.dumps(instruments, sort_keys=True, indent=1, default=str) + "\n")
             os.replace(partial, self.root / name)

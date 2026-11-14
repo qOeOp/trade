@@ -26,7 +26,6 @@ CANCEL_RETRY_SECONDS = 5
 # engine.protection's allowance plus its Live detection lag. A false alarm flattens a healthy trade.
 PROTECTION_SECONDS = (protection.ALLOWANCE_NS + protection.LIVE_DETECTION_NS) // 1_000_000_000
 MARK_SECONDS = 60  # With a position open and no mark for this long, the run stops (design §3.2.4).
-MINUTE_NS = 60_000_000_000
 
 
 @dataclass

@@ -810,22 +810,15 @@ REPORTS = "reports"
 
 def write_native_reports(output: Path, cache) -> None:
     """``<output>/reports/``: the native cache's orders, fills, positions and account reports and its order events,
-    as a replay writes them (engine.write_reports, engine.write_order_events), replaced whole: an earlier end's are
+    as a replay writes them (engine.report.write_cache_reports), replaced whole: an earlier end's are
     removed first, so a failed write leaves none. A recovered run's cache holds the whole run, so the latest end's
     reports do."""
-    import pandas as pd
-    from nautilus_trader.analysis import ReportProvider
-    from engine.report import ORDER_EVENTS, write_order_events, write_reports
+    from engine.report import write_cache_reports
     partial = output / f".{REPORTS}.partial"
     shutil.rmtree(output / REPORTS, ignore_errors=True)
     shutil.rmtree(partial, ignore_errors=True)
     partial.mkdir()
-    orders, account = cache.orders(), cache.account_for_venue(Venue(VENUE))
-    write_reports(partial, cache, ReportProvider.generate_orders_report(orders),
-                  ReportProvider.generate_fills_report(orders),
-                  ReportProvider.generate_positions_report(cache.positions(), cache.position_snapshots()),
-                  ReportProvider.generate_account_report(account) if account is not None else pd.DataFrame())
-    write_order_events(orders, partial / ORDER_EVENTS)
+    write_cache_reports(partial, cache, Venue(VENUE))
     os.replace(partial, output / REPORTS)
 
 

@@ -220,7 +220,7 @@ def fixed_limitations(account: Mapping) -> list[str]:
 
 def write_reports(output: Path, cache, orders, fills, positions, account) -> dict:
     """engine.write_reports: Nautilus's orders, fills, positions and account reports as the CSV files a replay
-    seals (engine.compare.TABLES), by file name. A replay and Live both write them through this."""
+    seals (engine.compare.TABLES), by file name. A replay, Paper and Live all write them through this."""
     reports = {
         "orders.csv": orders_with_native_deadlines(cache, readable_empty_report(orders, ("status",))),
         "fills.csv": readable_empty_report(fills, ("client_order_id",)),
@@ -231,6 +231,19 @@ def write_reports(output: Path, cache, orders, fills, positions, account) -> dic
         report.to_csv(output / name, index=True, index_label="ts_event" if name == "account.csv" else None)
     return reports
 
+
+def write_cache_reports(directory: Path, cache, venue) -> None:
+    """A running node's native cache as a replay writes its reports and order events (write_reports,
+    write_order_events), into a directory the caller made: Paper's end (engine.paper) and Live's evidence
+    (engine.live_evidence)."""
+    import pandas as pd
+    from nautilus_trader.analysis import ReportProvider
+    orders, account = cache.orders(), cache.account_for_venue(venue)
+    write_reports(directory, cache, ReportProvider.generate_orders_report(orders),
+                  ReportProvider.generate_fills_report(orders),
+                  ReportProvider.generate_positions_report(cache.positions(), cache.position_snapshots()),
+                  ReportProvider.generate_account_report(account) if account is not None else pd.DataFrame())
+    write_order_events(orders, directory / ORDER_EVENTS)
 
 def write_native_reports(output: Path, replay, strategies: dict, instruments: list[dict], identity: dict,
                          window: Window, account: AccountContract, limitations: list[str],

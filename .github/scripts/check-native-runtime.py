@@ -95,7 +95,8 @@ def _live_cache_failure_child() -> None:
     from nautilus_trader.model import StrategyId, TraderId
     from nautilus_trader.trading import Strategy, StrategyConfig
 
-    from engine.live_cache import LiveCache, NATIVE_CONNECTION, redis_command
+    from engine.live_cache import LiveCache, NATIVE_CONNECTION
+    from engine import redis_child
     from engine.live_errors import LiveRefusal
 
     def must_refuse(operation):
@@ -112,9 +113,9 @@ def _live_cache_failure_child() -> None:
             json.dumps({"encoding": "json", "use_instance_id": False}).encode(),
             json.dumps({"host": "127.0.0.1", "port": cache.port, **NATIVE_CONNECTION}).encode())
         try:
-            assert redis_command(cache.port, "CONFIG", "SET", "maxmemory", "1") == b"OK"
+            assert redis_child.command(cache.port, "CONFIG", "SET", "maxmemory", "1") == b"OK"
             # INFO and PING still work, but the actual durable write is rejected.
-            assert redis_command(cache.port, "PING") == b"PONG"
+            assert redis_child.command(cache.port, "PING") == b"PONG"
             must_refuse(cache.health)
             database.insert("general:rejected-native-write", [b"not durable"])
             started = time.monotonic()
