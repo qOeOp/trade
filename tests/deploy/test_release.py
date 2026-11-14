@@ -678,3 +678,45 @@ class SelectionTests(unittest.TestCase):
             host.observe(WEB + B, [], {})
         host.probe = Mock(side_effect=[before, {"runs": [{"id": 3, "state": "running", "last": 101}]}])
         host.observe(WEB + B, [], {})
+
+
+class RetryTests(unittest.TestCase):
+    """Deleting a failed marker retries the revision: what the earlier attempt left must not refuse it."""
+
+    def host(self, found):
+        host = DockerHost(Config())
+        removed = []
+
+        def docker(*args, **kwargs):
+            if args[:2] == ("ps", "-a"):
+                return "\n".join(found)
+            if args[0] == "rm":
+                removed.append(args[1])
+                return ""
+            raise AssertionError(args)
+
+        host.docker = docker  # type: ignore[method-assign]
+        host.inspect = lambda name: found[name]  # type: ignore[method-assign]
+        return host, removed
+
+    def test_a_stopped_candidate_of_the_same_revision_is_removed_before_it_is_created_again(self):
+        host, removed = self.host({WEB + B: {"revision": B, "running": False}})
+        host.discard_failed(WEB + B, WEB)
+        self.assertEqual(removed, [WEB + B])
+
+    def test_a_paper_controller_left_by_a_failed_attempt_is_removed(self):
+        host, removed = self.host({PAPER + B: {"revision": B, "running": False}})
+        host.discard_failed(PAPER + B, PAPER)
+        self.assertEqual(removed, [PAPER + B])
+
+    def test_a_running_container_or_one_of_another_revision_still_refuses(self):
+        for found in ({"revision": B, "running": True}, {"revision": C, "running": False}):
+            host, removed = self.host({WEB + B: found})
+            with self.assertRaisesRegex(RuntimeError, "already retained"):
+                host.discard_failed(WEB + B, WEB)
+            self.assertEqual(removed, [])
+
+    def test_nothing_to_remove_creates_as_before(self):
+        host, removed = self.host({})
+        host.discard_failed(WEB + B, WEB)
+        self.assertEqual(removed, [])

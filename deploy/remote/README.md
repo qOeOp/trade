@@ -55,8 +55,9 @@ fetched checkout ([Updating the installed control code](#updating-the-installed-
 identified pre-forward same-origin nonce rejection, preserving the original operation ID.
 
 Use `systemctl list-timers trade-release.timer` and `journalctl -u trade-release.service` for publication
-status. A failed/interrupted target stays blocked in `/var/lib/trade-release/failed/`; ship a corrected
-version rather than looping on the same failed target. A pending transaction is recovered before
+status. A failed/interrupted target stays blocked in `/var/lib/trade-release/failed/`, so the
+timer never loops on it; to retry it after fixing the cause, delete its marker, and the next tick removes the
+stopped candidate containers of that revision before creating them again. A pending transaction is recovered before
 any new selection. Paper has a separate recovery journal and `paper-failed/` marker, with starts
 kept paused until commit so rollback never replaces a newly started account. Unknown independent routing/Agent changes stop automatic operations and preserve
 the journal for the operator. After a settled tick the three newest good containers of each kind (Web, Agent, Paper controller,
