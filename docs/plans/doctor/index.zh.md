@@ -10,6 +10,10 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261114-16 | 发布版本 N 的永远是主机上已装的 N-1 控制代码，它依赖 N 镜像的 CLI、字段与格式，0.x 下每个改接口的版本都在主机上失败（v0.3.0 Paper 控制器） | authority（控制代码随准入版本交接） | user（Product contracts and delivery） | wrong output | open [诊断](2026-11-14-release-control-skew.zh.md) | 2026-11-14 | 2026-11-14 |
+| 20261114-17 | 控制代码造成的失败永久封锁该版本：保留的失败候选容器让删除标记后的重试也被拒绝 | authority（放宽拒绝） | doctor | minutes | open [诊断](2026-11-14-release-control-skew.zh.md) | 2026-11-14 | 2026-11-14 |
+| 20261114-18 | tick 级失败打印“Web release kept or rolled back”，通知说 Web 不变，而 Web 已切换 | fix | doctor | wrong output | in PR [#2990](https://github.com/qOeOp/trade/pull/2990) | 2026-11-14 | 2026-11-14 |
+| 20261114-19 | Paper 失败后主机无限期停在 Web N 配 Paper 控制器 N-1，0.x 下两者 API 不兼容 | authority（Web 是否一并回滚） | doctor | unknown | open [诊断](2026-11-14-release-control-skew.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261114-12 | 整年否决回放无效或开发期对照缺失时，History 可显示留出单判达标 | authority（读时判定） | doctor | wrong output（夹具） | open [诊断](2026-11-14-external-research-workflow.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261114-13 | 失去源码审查资格的运行仍进 History 并显示经济读数 | authority（复用源码资格） | doctor | wrong output（隔离账本） | open [诊断](2026-11-14-external-research-workflow.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261114-14 | 技术预检默认向登记作者披露年化收益与最大回撤 | fix（技术输出） | doctor | unknown | open [诊断](2026-11-14-external-research-workflow.zh.md) | 2026-11-14 | 2026-11-14 |
