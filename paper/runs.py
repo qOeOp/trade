@@ -299,7 +299,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
     with db.connect(profile, "reader") as conn:
         prior = records.paper_start_of(conn, op_id) if op_id else None
         if prior is not None:
-            if (prior["config"].get("candidate") != candidate or prior["config"].get("leverage") != leverage
+            if (prior["config"].get("candidate") != candidate or prior["config"]["leverage"] != leverage
                     or (symbols is not None and symbols != prior["symbols"])):
                 raise refuse("OP_ID_CONFLICT",
                              "this start operation already names another candidate, leverage or contracts")
