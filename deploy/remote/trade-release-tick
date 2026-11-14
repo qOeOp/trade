@@ -1,0 +1,27 @@
+#!/bin/sh
+# The fixed entry of trade-release.service, installed once by install-release.sh. One release tick under the
+# admitted version's own control code (/var/lib/trade-release/control/current), or under the bootstrap copy in
+# /opt/trade-release until the first handoff. A tick that hands control over exits 3 (deploy/control.py HANDOFF);
+# the launcher then runs one more tick under the new control, never more than one.
+set -u
+state=/var/lib/trade-release
+bootstrap=/opt/trade-release
+python=/usr/bin/python3
+
+tick() {
+  if [ -L "$state/control/current" ]; then
+    # Resolved once: the control's own revision is the name of the directory it runs from.
+    control=$(readlink -f "$state/control/current") || return 1
+  else
+    control=$bootstrap
+  fi
+  (cd "$control" && exec "$python" -m deploy.release tick)
+}
+
+tick
+status=$?
+[ "$status" -eq 3 ] || exit "$status"
+tick
+status=$?
+[ "$status" -eq 3 ] && exit 0 # handed over again: the timer's next tick runs under it
+exit "$status"

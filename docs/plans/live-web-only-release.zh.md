@@ -98,7 +98,7 @@ control 的命令行参数不变：`--release-web` 仍然指它创建时配对�
 ## 迁移与授权
 
 - **第一次必须成对发布**：改动涉及 `live/release.py` 和 `live/authority.py`，从 owner 比较 diff 时，这两个路径不在白名单里，所以带着这些改动的第一个版本会自动走成对发布，也就是要等一次 Live 空闲。之后才会有只换 Web 的发布。
-- **宿主代码要手动安装**：`deploy/release.py`、`live_host.py`、`release_host.py` 不会自动更新，要 operator 在服务器上重跑 `install-release.sh`。这是一次主机操作，需要单独授权。
+- **宿主代码随版本交接**：当时写的是 operator 重跑 `install-release.sh`，但它在已安装主机上拒绝，主机上的旧控制代码会先发布新版本（doctor 20261114-16）。现在每个版本由自己镜像里的控制代码发布：tick 在结算后把准入版本服务镜像中的 `deploy/*.py` 换成 `control/current` 再发布（`deploy/remote/README.md` 的 Release control code）；2026-11-14 前安装的主机只需一次 `install-release.sh control`。
 - **新旧代码共存**：
   - 旧宿主 + 新 control：兼容。路由没有 `@id` 时 owner 等于 Web。
   - 新宿主 + 旧 control：兼容。成对发布的事务字节不变。

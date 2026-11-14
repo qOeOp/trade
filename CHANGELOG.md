@@ -29,13 +29,26 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   the Paper commit on recovery. Before, Web committed first and Paper followed, so a failed Paper switch left Web N
   with Paper N-1 (doctor 20261114-19). The upgrade drops the separate `paper-failed/` marker directory: one
   `failed/<revision>` now covers the version, and a `paper-failed/` entry left on a host is no longer read.
+- Deployment (breaking): each version is released by its own control code. The host's tick runs through a fixed
+  launcher, `/opt/trade-release/trade-release-tick`, in `/var/lib/trade-release/control/current`; when the admitted
+  version differs from the running control's, the tick copies that version's `deploy/*.py` out of its digest-pinned
+  service image without running it, checks it imports, switches `current` and ticks once more under it, before
+  any release. Before, the control installed by hand released the next version, which failed whenever a version
+  changed an interface the control calls (doctor 20261114-16). The upgrade drops the hand-installed control: on a
+  host installed earlier, stop `trade-release.timer` before this version is tagged, then once it is admitted check
+  out the tag in `/opt/trade-app` and run `sudo sh deploy/remote/install-release.sh control`; the next tick hands
+  over ([Release control code](deploy/remote/README.md#release-control-code)).
 
 ## 0.3.0 (2026-11-14)
 
 A breaking release with no compatibility with 0.2.0: during 0.x a version reads no earlier format (AGENTS.md). The
 research ledger keeps schema generation 1, so research continues on it. Live runs 0.2.0 made (manifest `live-run`)
 are skipped and stay on disk; Paper runs and their comparison carry over. To upgrade: stop Live (a release switches
-only while Live is idle) and reinstall the host's control code (`sh deploy/remote/install-release.sh`). It lands the
+only while Live is idle). The hand-installed 0.2.0 control code cannot release this version, and `install-release.sh`
+refuses an installed host: stop `trade-release.timer` before the version is admitted, replace
+`/opt/trade-release/deploy/*.py` with this version's files as one complete set, then start the timer. If the 0.2.0
+control already failed it, first remove its marker under `/var/lib/trade-release/failed/` or `paper-failed/` and
+rename the retained failed candidate container (doctor 20261114-16 and -17). It lands the
 whole-product slimming audit (`docs/plans/doctor/2026-11-13-whole-product-slimming-audit.zh.md`) and Live trading
 several contracts per run.
 
@@ -80,7 +93,7 @@ several contracts per run.
   the default.
 - Paper (breaking): the run listing (`GET /api/paper/runs`) names a run's readings so far `readings` instead of
   `live`, the name its stream's `readings` event already has. The release gate's probe reads the new name, so
-  reinstall the host's control code with the release (`sh deploy/remote/install-release.sh`), as every release does.
+  the host's control code must be this version's when it releases this version (see the upgrade note above).
 - Command line (breaking): a market day is `--market-day` on every command (was `--at` on `replay explore`,
   `precheck` and `run`, `market`, `paper` and `live compare`, and `--market-at` on `line select`, `line history` and
   `validation registration`); `--at` is only a ledger commit. `source review` takes `--trial-id` (was `--precheck-trial`) and `validation report`
