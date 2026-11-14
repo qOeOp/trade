@@ -33,7 +33,7 @@ class FingerprintTests(unittest.TestCase):
             "pieces": [{"episode": None, "counts": {"last": 1}}], **receipt}, indent=1))
         membership = self.root / name / "membership.json"
         membership.write_text('{"market_day": "c", "universe_rule": "r", "membership": {}}')
-        return {"root": root, "membership_file": membership}
+        return {"root": root, "membership_file": membership, "symbols": ["AAAUSDT"]}
 
     def test_the_semantic_identity_is_what_a_replay_reads(self):
         base = self.export("base", 1.0)
@@ -64,6 +64,28 @@ class FingerprintTests(unittest.TestCase):
         self.assertNotEqual(inputs.export_fingerprint(first, semantic=True),
                             inputs.export_fingerprint({**first, "membership_file": second["membership_file"]},
                                                       semantic=True))
+
+    def test_other_contracts_in_a_shared_cache_root_are_not_part_of_the_identity(self):
+        selected = self.export("selected", 1.0)
+        (selected["root"] / "lifecycle-evidence").mkdir()
+        (selected["root"] / "lifecycle-evidence" / "lifecycle.json").write_text('{"market_day": "c"}')
+        # The values the whole-root walk gave for a root holding exactly the selected contracts.
+        pinned = {True: "34ed3ee27289f79a3fb73efac833e91c476acb7a945a6e210b093f24829e0105",
+                  False: "6ea285768bd9b9d4c73a683b44ed585957b77252e0f943b7baeae71ffcfd098b"}
+        for semantic, value in pinned.items():
+            with self.subTest(semantic=semantic):
+                self.assertEqual(inputs.export_fingerprint(selected, semantic)["export_content_sha256"], value)
+        other = selected["root"] / "BBBUSDT"
+        other.mkdir()
+        (other / "bars.parquet").write_bytes(b"other contract")
+        for semantic, value in pinned.items():
+            with self.subTest(semantic=semantic, shared=True):
+                self.assertEqual(inputs.export_fingerprint(selected, semantic)["export_content_sha256"], value)
+        both = {**selected, "symbols": ["AAAUSDT", "BBBUSDT"]}
+        self.assertNotEqual(inputs.export_fingerprint(both, semantic=True)["export_content_sha256"], pinned[True])
+        os.symlink(other / "bars.parquet", other / "alias.parquet")
+        self.assertEqual(inputs.export_fingerprint(selected, True)["export_content_sha256"], pinned[True])
+        self.assertEqual(refused(inputs.export_fingerprint, both, semantic=True).code, "EXPORT_CONTENT_INVALID")
 
     def test_links_and_a_missing_membership_file_are_refused(self):
         linked = self.export("linked", 1.0)

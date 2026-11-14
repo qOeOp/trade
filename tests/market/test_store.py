@@ -538,7 +538,7 @@ class LaterImportTests(unittest.TestCase):
         market = files.open_market(profile, "reader")
         membership = root / "membership.json"
         membership.write_text(json.dumps(universe.membership_path(market, market_day, ns(MAR)), sort_keys=True))
-        return inputs.export_fingerprint({"root": done["root"], "membership_file": membership},
+        return inputs.export_fingerprint({"root": done["root"], "membership_file": membership, "symbols": ["BTCUSDT"]},
                                          True)["export_content_sha256"]
 
     def test_on_a_months_first_day_paper_covers_now_after_the_members_and_the_market_day_does_not_change(self):

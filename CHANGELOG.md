@@ -22,6 +22,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Replay: an export's content hash (`export_content_sha256`, a trial's `export_sha256`) covers only the selected
+  contracts' directories, the lifecycle evidence and the membership file. A `replay explore` reads a shared cache
+  directory that other selections also fill, so its hash no longer depends on which other contracts were cached
+  there, and a repeated identical explore counts as a reproduction. Fresh exports hash as before.
 - Deploy (breaking): during 0.x a version keeps no compatibility with earlier ones. `deploy.images` no longer
   names a runtime built before the replay/execution image split (its combined `sha-<commit>` index); an admitted
   runtime is always read at `exec-sha-<commit>`. Going back to an earlier version's images is no longer supported:
