@@ -99,7 +99,9 @@ def orders(events: Iterable[Mapping]) -> list[dict]:
                                        "position": None, "parent": None, "filled": None})
         if kind == "OrderInitialized":
             tags = event.get("tags") or []
-            item.update(side=event.get("order_side"), type=event.get("order_type"), init_ns=event.get("ts_init"),
+            # An OrderInitialized's ts_event is its ts_init; Paper's journal (engine.paper) records only ts_event.
+            item.update(side=event.get("order_side"), type=event.get("order_type"),
+                        init_ns=event.get("ts_init", event.get("ts_event")),
                         role=next((ROLES[tag] for tag in tags if tag in ROLES), (tags[0] if tags else "other").lower()),
                         reduce_only=bool(event.get("reduce_only")), qty=_amount(event.get("quantity")),
                         price=_amount(event.get("price")), trigger=_amount(event.get("trigger_price")),
