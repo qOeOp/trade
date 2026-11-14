@@ -48,8 +48,8 @@ select`); its development period follows from the date and the start's contracts
   there yet, the user finishes its first start on the IDE page. Offer no line until a read succeeds.
 - Only a gate no research step can lift stops a line; any other is research-round's next step. Tell
   the user plainly what a stop blocks and what lifts it. `MARKET_DAY_UNRESOLVED`: the
-  market does not reach the line's pinned market day: import its missing months yourself
-  (readiness.md); only when the archive lacks them or the import is refused does it stop. Never
+  market does not reach the line's pinned market day: its missing months come by import
+  (readiness.md says whose); only when the archive lacks them or the import is refused does it stop. Never
   continue a stopped line, after an interruption included, or establish a Goal for it, and never
   offer keeping it open or leaving it as it is until the stop lifts.
 - A non-empty `runs_behind_image` (a new replay image) stops nothing and needs no choice from the
