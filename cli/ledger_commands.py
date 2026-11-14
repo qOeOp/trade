@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+import sys
 import tempfile
 
 import pymysql
@@ -86,6 +87,9 @@ def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
             "address": address, "branch": db.BRANCH, "ledger_commit": commit, **published}
 
 
+LOG_TAIL = 40  # lines of a failed temporary service's log kept on stderr
+
+
 def ledger_temp(root: str | None) -> dict:
     """ledger temp: an isolated temporary ledger under the temporary root, with its own profile file,
     database name, port and service; later commands name it with --ledger <profile>."""
@@ -101,6 +105,11 @@ def ledger_temp(root: str | None) -> dict:
     except BaseException:
         if (root_path / "s" / "service.json").exists():
             db.stop_service(root_path / "s")
+        log = root_path / "s" / "server.log"
+        if log.is_file():  # the log a failed start pointed to goes with the root: its end goes to stderr first
+            tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-LOG_TAIL:]
+            print(f"ledger temp: the end of {log}, removed with its temporary root:", *tail, sep="\n",
+                  file=sys.stderr)
         shutil.rmtree(root_path, ignore_errors=True)
         raise
     finally:
