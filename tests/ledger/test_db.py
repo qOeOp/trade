@@ -451,14 +451,16 @@ class LedgerBaseTests(unittest.TestCase):
 @unittest.skipUnless(BINARY, SKIP)
 class OverTcpTests(unittest.TestCase):
     """TRADE_DOLT_HOST: a container that cannot reach the service's socket connects over TCP, to that host on
-    the service's own port, with every account the paper daemon's commands use."""
+    the service's own port, with every account the paper daemon's commands use; a service the container
+    started itself is reached over its own socket."""
 
     def test_every_account_reaches_the_service_on_its_own_port(self):
         service = Service()
         self.addCleanup(service.close)
         ledger = service.ledger("research")
         config = db.service_config(service.service_root)
-        with patch.dict("os.environ", {db.DOLT_HOST: "127.0.0.1"}):
+        # As from a container: the service's server is no process it can see.
+        with patch.dict("os.environ", {db.DOLT_HOST: "127.0.0.1"}), patch.object(db, "_server_here", return_value=None):
             with db.connect(ledger, "writer") as writer:
                 self.assertEqual((writer.raw.unix_socket, writer.raw.port), (None, config["port"]))
                 db.write(writer, "tcp", {"bundle": "tcp"}, "evidence_bundle", bundle_insert("tcp"))
@@ -470,6 +472,26 @@ class OverTcpTests(unittest.TestCase):
             with root.cursor() as cursor:
                 cursor.execute("SELECT CURRENT_USER()")
                 self.assertEqual(cursor.fetchone()[0], "root@localhost")
+
+
+    def test_a_service_this_host_starts_is_reached_over_its_socket(self):
+        # The paper container sets TRADE_DOLT_HOST to the compose ledger; `ledger temp` there starts its own
+        # service, which listens on no port of that host.
+        service = Service()
+        self.addCleanup(service.close)
+        with patch.dict("os.environ", {db.DOLT_HOST: "ledger.invalid"}):
+            ledger = service.ledger("own")
+            with db.connect(ledger, "writer") as writer:
+                self.assertEqual(writer.raw.unix_socket, db.service_config(service.service_root)["socket"])
+
+
+class ServerPidTests(unittest.TestCase):
+    def test_a_root_without_a_pid_file_has_no_server_and_is_never_written(self):
+        # The IDE reads the ledger through a read-only mount of its reader-only service file, where any unlink,
+        # even of a missing file, fails with EROFS on Linux.
+        with tempfile.TemporaryDirectory() as name, \
+                patch.object(Path, "unlink", side_effect=OSError(30, "Read-only file system")):
+            self.assertIsNone(db.server_pid(Path(name)))
 
 
 class UnansweredServiceTests(unittest.TestCase):
