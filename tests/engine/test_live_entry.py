@@ -266,7 +266,7 @@ class NativeEntryTests(unittest.TestCase):
 
     def test_the_runs_result_is_journalled_at_each_minutes_first_mark_and_at_the_stop(self):
         self.owned_position()  # Long 0.500 at 100.
-        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, minute=None, minutes={}, last_marks={},
+        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, minute=None,
                                    clock=SimpleNamespace(timestamp_ns=lambda: 3 * MINUTE_NS + 5, cancel_timer=Mock()),
                                    unsubscribe_socket_state=Mock())
         mark = lambda price, ns: live_lifecycle.Observer.on_mark_price(observer, SimpleNamespace(

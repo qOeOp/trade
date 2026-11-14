@@ -16,10 +16,10 @@ Live 以前只记生命周期事件、订单和持仓事件、每分钟的结果
 | 内容 | 文件 | 来源 |
 | --- | --- | --- |
 | 源码实际收到的 K 线 | `market.jsonl` 的 `bar`；历史请求（预热）送来的记为 `historical_bar` | 在源码数据回调的停止门之后、源码之前记录，所以停止请求之后的 K 线源码没收到，文件里也没有 |
-| 每分钟第一个 MARK | `market.jsonl` 的 `mark` | Observer 已有的订阅，与回放的估值节奏相同 |
-| 资金费结算 | `market.jsonl` 的 `funding_settlement`，带结算时的持仓 | Observer 新订阅资金费，用 Paper 的同一个 `Cadence` 判定结算 |
+| ~~每分钟第一个 MARK~~ | ~~`market.jsonl` 的 `mark`~~ | 已取消（20261113-120）：对照工具不读，资金费按 Binance 公布的费率结算 |
+| ~~资金费结算~~ | ~~`market.jsonl` 的 `funding_settlement`~~ | 已取消（20261113-120），同上 |
 | 原生订单、成交、持仓、账户报告和订单事件 | `reports-<ns>/` 下的 `orders.csv`、`fills.csv`、`positions.csv`、`account.csv`、`order_events.jsonl.gz` | 节点停止后、销毁前，从原生缓存生成 |
-| 原生合约 | `reports-<ns>/instruments.json` | 同上，场所客户端加载的 Nautilus 合约 |
+| ~~原生合约~~ | ~~`reports-<ns>/instruments.json`~~ | 已取消（20261113-120）：对照工具不读，合约条款见 `preflight-*.json` |
 | 启动时的账户、设置、钱包、Binance 合约条款和手续费 | 已有的 `preflight-*.json`、`connected-account-*.json` | 不重复记录 |
 
 行的形状沿用 Paper 的日志：`wall_ns`、`kind` 加字段，`bar` 与 `funding_settlement` 的字段和 Paper 相同。`bar` 多一个 `bar_type`，因为 Live 源码可以订阅不止一种 K 线。

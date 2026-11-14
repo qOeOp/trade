@@ -6,7 +6,6 @@ from nautilus_trader.common import SocketState
 from nautilus_trader.model import AccountId, ClientId, OrderStatus, OrderType, StrategyId
 from nautilus_trader.trading import Strategy, StrategyConfig
 from engine import live_brake, live_commands as commands, live_connection
-from engine.cadence import Cadence
 from engine.live_commands import pending_orders
 from engine.config import MINUTE_NS, symbol_of
 from engine.live_records import contract, owned
@@ -59,9 +58,6 @@ class Observer(Strategy):
         self.session = session
         self.last_query = 0.0
         self.minute: int | None = None  # the minute of the latest mark price, on the venue's clock
-        self.minutes: dict[str, int] = {}  # contract -> the minute of its latest mark price
-        self.last_marks: dict[str, tuple[int, object]] = {}  # contract -> its latest mark price's time and value
-        self.cadences: dict[str, Cadence] = {}  # contract -> its funding settlements for the evidence pack
 
     def on_start(self):
         self.session.started = time.monotonic()
@@ -72,7 +68,6 @@ class Observer(Strategy):
         if self.session.mode == "run":
             for symbol in self.session.manifest["symbols"]:
                 self.subscribe_mark_prices(contract(symbol))
-                self.subscribe_funding_rates(contract(symbol))
         if not self.session.check_storage():
             self.session.node.handle().stop()
         elif not self.session.account_verified and not self.session.connection_failed and not self.session.stopping:
@@ -102,23 +97,12 @@ class Observer(Strategy):
     def on_mark_price(self, update):
         symbol = symbol_of(update.instrument_id)
         self.session.marks[symbol] = (time.monotonic(), update.value)
-        self.last_marks[symbol] = (update.ts_event, update.value)
         minute = update.ts_event // MINUTE_NS
-        if symbol not in self.minutes or minute > self.minutes[symbol]:
-            self.minutes[symbol] = minute
-            self.session.evidence.mark(update)  # each contract's first mark of a minute, as a replay values it
         if self.minute is None or minute > self.minute:
             # The run's result once a minute, at the first mark of the minute and each other contract's latest.
             self.minute = minute
             self.session.record_minute(self.cache, minute * MINUTE_NS,
                                        {name: value for name, (_, value) in self.session.marks.items()})
-
-    def on_funding_rate(self, update):
-        symbol = symbol_of(update.instrument_id)
-        settled = self.cadences.setdefault(symbol, Cadence()).funding(update)
-        if settled is not None:
-            self.session.evidence.funding(settled, self.last_marks.get(symbol),
-                                          self.cache.positions_open(instrument_id=update.instrument_id))
 
     def tick(self, _event):
         try:

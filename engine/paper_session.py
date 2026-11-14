@@ -46,7 +46,6 @@ class Session:
         # The sources start once warmed: T, its settling and its deadline (engine.history), and some slack.
         self.restore_deadline = (time.monotonic() + max(0, warm_at - time.time_ns()) / history.SECOND_NS
                                  + (history.DEADLINE_NS + history.SETTLE_NS) / history.SECOND_NS)
-        self.lines: list[dict] = []  # only irreproducible settlement/refusal facts needed by the recorder
         self.last_bar: dict[str, int] = {}
         if saved:
             with (backend.output / "events.jsonl").open("rb") as stream:
@@ -54,8 +53,6 @@ class Session:
                     value = json.loads(raw)
                     if value["kind"] == "bar":
                         self.last_bar[value["instrument_id"]] = value["ts_event"]
-                    elif value["kind"] in ("funding_settlement", "refusal"):
-                        self.lines.append(value)
         if saved and saved.get("sources"):
             self._same_bucket()
 
@@ -131,11 +128,6 @@ class Session:
         for iid, following in saved["funding"].items():
             recorder.cadence[iid] = Cadence(next_funding_ns=following)
         recorder.last_bar = dict(self.last_bar)
-        for value in self.lines:
-            if value["kind"] == "funding_settlement":
-                recorder.settlements.append({key: item for key, item in value.items() if key not in ("kind", "wall_ns")})
-            elif value["kind"] == "refusal":
-                recorder.findings.append(value["code"])
 
     def cut(self, cache=None) -> dict:
         if self.pause_error:

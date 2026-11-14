@@ -3,8 +3,8 @@
 
 The run is read from its private directory: the source and manifest it was prepared with (inputs/), its journal
 (out/events.jsonl: the warm-up's T, the account observation it started from, its position events and each minute's
-result) and its evidence pack (out/evidence/: the bars, warm-up bars and funding settlements its source received,
-and the native reports of its last process). The replay runs that source on the run's image over the minutes the
+result) and its evidence pack (out/evidence/: the bars and warm-up bars its source received, and the native
+reports of its last process). The replay runs that source on the run's image over the minutes the
 source received, warmed at the same T, on the run's contracts at its leverage, starting from the USDT wallet the
 run started with. Nothing reaches a ledger: the comparison stays in a new temporary directory, and Live's execution
 records never leave the private root (AGENTS.md).
