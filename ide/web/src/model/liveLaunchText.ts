@@ -21,6 +21,7 @@ export function refusalText(code: string | undefined): string {
     LIVE_EVIDENCE_BALANCE: "No replay started near your wallet's balance. The Agent replays the candidate at the wallet.",
     LIVE_CREDENTIAL_UNAVAILABLE: "The saved API key is no longer on the server. Save it again in Settings.",
     LIVE_CREDENTIAL_CHANGED: "The API key changed since the account was checked. Check the account again.",
+    LIVE_CREDENTIAL_BUSY: "A Live run that has not ended still uses the saved API key. Stop or reconcile it first.",
     LIVE_ACCOUNT_OWNED: "Another Live run still holds the account. Stop or reconcile it first.",
     LIVE_ACCOUNT_NOT_FLAT: "The account holds positions or orders. Close them at Binance first.",
     LIVE_ACCOUNT_MODE: "The account's modes do not match what Live needs. Change them at Binance.",
