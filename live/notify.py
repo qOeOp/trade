@@ -25,6 +25,7 @@ import time
 import urllib.parse
 
 from deploy.telegram import TOKEN, Failure, settings as saved_settings, telegram
+from ledger import metrics
 from live import configuration, daily, runs, state
 
 
@@ -506,7 +507,7 @@ def _wallet(facts: list[dict]) -> tuple[int, str, str] | None:
 
 def _summary(facts: list[dict], day: str) -> str:
     wallet = _wallet(facts)
-    when = datetime.fromtimestamp(wallet[0] / 1e9, timezone.utc).strftime("%Y-%m-%d %H:%M UTC") if wallet else ""
+    when = datetime.fromtimestamp(wallet[0] // 10**9, timezone.utc).strftime("%Y-%m-%d %H:%M UTC") if wallet else ""
     lines = [f"Live daily summary for {day} (UTC)",
              f"Wallet: {wallet[1]} USDT, observed {when} by run {wallet[2]}" if wallet else "Wallet: no account observation"]
     open_rows = []
@@ -521,7 +522,7 @@ def _summary(facts: list[dict], day: str) -> str:
                       f"{row.get('quantity') or '?'}" for row in latest.values() if row.get("event_type") != "PositionClosed"]
     lines.append("Open positions (no recorded close): " + ("; ".join(open_rows) if open_rows else "none"))
     fills = sum(1 for run in facts for row in _fills(run)
-                if (ns := _ns(row.get("ts_event"))) and daily.utc_day(ns) == day)
+                if (ns := _ns(row.get("ts_event"))) and metrics.utc_day(ns) == day)
     lines.append(f"Fills: {fills}")
     return "\n".join(lines)
 
@@ -530,7 +531,7 @@ def _last_day(run: dict) -> str | None:
     """The run's latest day with a fill or its terminal event; it is read until the summary after that day."""
     found = [ns for ns in (_ns((run.get("terminal") or {}).get("observed_ns")),
                            *(_ns(row.get("ts_event")) for row in _fills(run))) if ns is not None]
-    return daily.utc_day(max(found)) if found else None
+    return metrics.utc_day(max(found)) if found else None
 
 
 def step(record: dict, facts: list[dict], now: int, send: Callable[[str], object],
@@ -540,7 +541,7 @@ def step(record: dict, facts: list[dict], now: int, send: Callable[[str], object
     The first pass after enabling (no summary key in `done` yet) records the current facts as history, unsent.
     """
     done = set(record["done"])
-    today = DAILY + daily.utc_day(now)
+    today = DAILY + metrics.utc_day(now)
     candidates = [pair for run in facts for pair in messages(run)]
     if not any(key.startswith(DAILY) for key in done):
         done.update(key for key, _ in candidates)
@@ -554,7 +555,7 @@ def step(record: dict, facts: list[dict], now: int, send: Callable[[str], object
             if (attempt and attempt["next_ns"] > now) or stop() or sent >= MAX_PER_TICK:
                 break  # strict order: nothing overtakes a message still waiting
             if text is None:  # every earlier message is sent, so the previous day's fills are all counted
-                text = _summary(facts, daily.utc_day(now - daily.DAY_NS))
+                text = _summary(facts, metrics.utc_day(now - daily.DAY_NS))
             try:
                 send(text[:4000])
             except Failure as exc:

@@ -14,6 +14,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from engine.config import utc_text
 from replay import reconcile
 
 
@@ -279,7 +280,7 @@ class Attribution(unittest.TestCase):
         first, later = found["groups"]
         self.assertEqual((first["stage"], first["orders"][first["first"]]["class"], first["look_ahead_suspect"]),
                          ("fill", "replay_only", True))
-        self.assertEqual((later["cause"], later["follows"]), ("consequence", reconcile.utc(close_of(1))))
+        self.assertEqual((later["cause"], later["follows"]), ("consequence", utc_text(close_of(1))))
 
     def test_differences_follow_the_first_until_a_group_agrees_again(self):
         run = bracket("a", close_of(1), close_of(1), "A") + bracket("b", close_of(10), close_of(10), "B")

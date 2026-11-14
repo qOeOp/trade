@@ -23,7 +23,9 @@ import subprocess
 import tempfile
 import time
 
+from engine.config import utc_text
 from engine.live_errors import LiveRefusal
+from ledger import metrics
 from live import runs, state
 from shared.errors import Refusal
 
@@ -43,10 +45,6 @@ CPUS = "1"
 LISTED = 20
 STAGE_PREFIX = "trade-live-compare-"
 CONTAINER_MARK = Path("/.dockerenv")
-
-
-def utc_day(ns: int) -> str:
-    return datetime.fromtimestamp(ns // 10**9, timezone.utc).date().isoformat()
 
 
 def _ns(day: str) -> int:
@@ -196,7 +194,6 @@ def pair_run(root: Path, market: dict, run_id: str, offered: str, output: Path) 
 def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path) -> dict | None:
     """Compare one run's day Y and return its new record, or None when it has nothing new to compare."""
     from live import compare
-    from replay import reconcile as shared
     try:
         status = runs.observe(root, run_id)
     except LiveRefusal:
@@ -210,7 +207,7 @@ def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path)
     target = _target(pack, status, today)
     if target is None:
         return None
-    day = utc_day(target)
+    day = metrics.utc_day(target)
     previous = read_record(directory) or {}
     if previous.get("day", "") > day or (previous.get("day") == day and previous.get("state") in FINAL):
         return None
@@ -226,7 +223,7 @@ def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path)
     since = target - (WEEK - 1) * DAY_NS
     fresh = max(_ns(done_day) + DAY_NS, since) if done_day else since  # decisions not reported before
     base = {"day": day, "attempted_ns": time.time_ns(), "done": done_day,
-            "window": {"from": shared.utc(since), "to": shared.utc(bound)}}
+            "window": {"from": utc_text(since), "to": utc_text(bound)}}
     _write(root, run_id, {**base, "state": "running", "failures": streak})
     try:
         segments, unexplained, market_day, week = _week(root, market, run_id, pack, since, bound, fresh, output)
@@ -375,7 +372,7 @@ def launch(root: Path, market_root: Path, now: int, offered: str | None = None) 
     try:
         found = json.loads(subprocess.run(["docker", "inspect", "--type", "container", identity], capture_output=True,
                                           text=True, timeout=60, check=True).stdout)[0]
-        argv = launch_argv(found, root, market_root, utc_day(now), offered)
+        argv = launch_argv(found, root, market_root, metrics.utc_day(now), offered)
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError):
         return "uninspected"
     name = argv[argv.index("--name") + 1]
