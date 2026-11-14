@@ -16,7 +16,7 @@ from live import state
 # A candidate reference, strategy_id@revision (ledger.strategies.parse_ref).
 CANDIDATE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}@[1-9][0-9]{0,8}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
-SYMBOL = re.compile(r"[A-Z0-9]+USDT\Z")
+SYMBOL = re.compile(r"[A-Z0-9]{1,20}USDT\Z")  # bounded: the page sends it
 # A run's choices: its duration (None: until stopped), the account's Binance leverage and its drawdown brake, which
 # defaults to the user's maximum-drawdown target and can only be tighter (engine.live_brake). Its cash floor is a share
 # of the wallet at its first arming, not a choice.
