@@ -9,10 +9,11 @@ and updates it by hand, or forks the repository and changes those names in the f
 The [continuous Web release plane](../../docs/plans/remote-continuous-delivery.zh.md) runs the Web, its
 single Agent writer and the Paper controller, and publishes admitted versions without recreating Paper
 runs, the ledger or strategy containers. A merge to `main` is not a release: only a version tag
-([`CHANGELOG.md`](../../CHANGELOG.md)) moves this host. Install its reviewed control code once on a new host with
-`sh deploy/remote/install-release.sh`, after the whole-project `up` below (step 6). It creates the first
-Paper controller, Web and Agent from the newest admitted version, starts the internal Web and Paper
-routers that OAuth2 Proxy forwards to, waits until the first release is ready behind the OAuth
+([`CHANGELOG.md`](../../CHANGELOG.md)) moves this host, and each version is released by its own control code
+([Release control code](#release-control-code)). Bootstrap the plane once on a new host with
+`sh deploy/remote/install-release.sh`, after the whole-project `up` below (step 6). It hands control to the newest
+admitted version, whose control creates the first Paper controller, Web and Agent, starts the internal Web and
+Paper routers that OAuth2 Proxy forwards to, waits until the first release is ready behind the OAuth
 allowlist, then enables `trade-release.timer`. Web switches reload the internal proxy.
 
 `release-ready` in GitHub Actions checks the same source's push workflows (except `docs-pages`: the
@@ -52,11 +53,11 @@ The release plane reads these host paths; the install steps below make the first
 |---|---|---|
 | `/etc/trade/remote.env` | the deployment settings (`env.example`), read by every compose command | the operator, before installing |
 | `/opt/trade-app` | a checkout holding `deploy/compose.yaml` and `deploy/remote/compose.yaml` | the operator, before installing |
-| `/opt/trade-release` | the installed control code, `cd.compose.yaml` and `paper-cd.compose.yaml` | `install-release.sh` |
-| `/var/lib/trade-release` | release state, including `router/active.json` | `install-release.sh` |
+| `/opt/trade-release` | the launcher `trade-release-tick`, the bootstrap copy of `deploy/*.py`, `cd.compose.yaml` and `paper-cd.compose.yaml` | `install-release.sh` |
+| `/var/lib/trade-release` | release state, including `router/active.json` and the release control code under `control/` | `install-release.sh`, then the release control |
 
-The host control program is installed from reviewed source and does not update itself by executing the
-fetched checkout ([Updating the installed control code](#updating-the-installed-control-code)). Release handoffs can renew only a positively
+The host runs only the release control code inside the service image `deploy-ready` names
+([Release control code](#release-control-code)). Release handoffs can renew only a positively
 identified pre-forward same-origin nonce rejection, preserving the original operation ID.
 
 Use `systemctl list-timers trade-release.timer` and `journalctl -u trade-release.service` for publication
@@ -72,8 +73,8 @@ remains, and its `live/<revision>/` directory goes with it. A runtime image goes
 Paper controller nor a kept Live directory names it, and the registry still serves its digest: a run that needs it
 again pulls it by digest. Running containers, the active routes, runs, ledger records and market inputs are never pruned.
 A whole-project `compose up` starts only the ledger, the Docker API proxy, OAuth2 Proxy and `edge` (its `ide` and `paper`
-services are workstation-only); it never updates the Web or Paper. Control-program updates require reviewing and
-installing the new files; the timer is not a host-code execution channel from main.
+services are workstation-only); it never updates the Web or Paper. The release control code changes only with an
+admitted version ([Release control code](#release-control-code)).
 
 ### Optional Live control pairing
 
@@ -114,7 +115,7 @@ new control from the declaration; nothing changes until one lands.
 A release is a version whose commit builds the service image (the paths in `.github/workflows/ide-image.yml`);
 a version on a commit of docs, skills or host-side files outside the image (`deploy/remote/`, `deploy/compose.yaml`,
 `deploy/README.md`) alone builds none and leaves the swap waiting; those reach the host through its
-`/opt/trade-app` checkout and `install-release.sh`.
+`/opt/trade-app` checkout and `install-release.sh control` ([Release control code](#release-control-code)).
 Restoring the previous declaration undoes a swap that has not paired yet. The custody `root` cannot
 change this way; a release refuses it. Missing or
 malformed configuration cannot silently remove Live from an already paired Web. Without an installed
@@ -177,8 +178,7 @@ and Python 3.14 packages qualify. Live is enabled only by the declaration above.
 Paper runs are admitted by memory, not by count
 ([paper-admission-by-memory](../../docs/plans/paper-admission-by-memory.zh.md)), one per source, within a 3.5 GiB
 budget, or `TRADE_PAPER_MEMORY` (a size such as `4g`) in `/etc/trade/remote.env`. The release plane passes it to each
-Paper controller it creates, so a change applies from the next admitted version's controller (on a host installed
-before this setting, after its control code is updated as below). The example's 2 GiB ledger cap is a candidate deployment budget,
+Paper controller it creates, so a change applies from the next admitted version's controller. The example's 2 GiB ledger cap is a candidate deployment budget,
 not a tested capacity result; do not change an existing deployment's cap without evaluating its load.
 
 1. Choose the server, retain its public IPv4, and point your `TRADE_DOMAIN` to it, and any
@@ -386,37 +386,63 @@ private permissions and the saved credential versions and metadata, then `live s
 root restored elsewhere cannot find an unresolved run's network or runner. A run that was unresolved stays
 unresolved and keeps the slot; settle it as in [Unresolved Live runs](../../engine/README.md#unresolved-live-runs).
 
-## Updating the installed control code
+## Release control code
 
-A new `deploy/` module or a Live pairing on a host whose release plane runs is installed by hand, never by
-the timer or `install-release.sh`. Install only after the concrete host change is authorized. Pause the existing release timer without
-changing its unit or schedule, and let any active release service finish naturally. Confirm that no
-service process or queued job remains before taking the existing `/var/lib/trade-release/lock` and
-Live account lock, then confirm that no Web or Paper transaction needs recovery. The controller imports
-modules before acquiring its lock; holding that lock alone does not prevent an in-flight process from
-importing mixed versions. Do not terminate the release
-service or any strategy to make installation proceed.
+The host executes only the release control code inside the CI-built, digest-pinned service image that
+`deploy-ready` names, which only a version tag moves. That is the trust root that already picks which images run;
+on a Live host the service image already mounts the Docker socket. The host never runs deployment code from a
+fetched checkout or from `main`, and no one installs control code by hand.
 
-Stage the reviewed `deploy/__init__.py`, `release.py`, `release_host.py`, `runtime_inputs.py`,
-`live_host.py`, `live_configuration.py`, `paper_host.py`, `paper_release.py` and `telegram.py` as one complete directory, root-owned with module
-mode 0644. Inventory and preserve the installed `remote/` compose files and every other reviewed asset;
-retain the original directory intact. Use an atomic directory exchange on the same filesystem so an
-interruption cannot leave a mixture of module versions. Do not execute deployment code from a fetched
-checkout. Recheck main/CI eligibility immediately before committing the reviewed installation.
+`trade-release.service` starts the fixed launcher `/opt/trade-release/trade-release-tick`. It runs the tick
+(`python3 -m deploy.release tick`) in `/var/lib/trade-release/control/current`, a symlink to `control/<revision>`,
+the directory whose name is the running control's revision. A tick first recovers a pending Web or Paper
+transaction under the control that wrote it; a tick that recovered ends there. In a settled state, when the admitted
+`deploy-ready` revision differs from the running control's, the control hands over before releasing anything:
 
-Publish the new 0600 Live declaration last, in its 0700 directory. Declaration publication is the commit
-boundary: before it, a verified reverse directory exchange can restore the old installation; after it,
-do not automatically remove the declaration or roll back because a completion receipt is missing.
-Recovery must inspect the actual module hashes and declaration. Restore the previously active timer
-only after the resulting installation is verified. A stopped but enabled timer can resume after a host
-restart; atomic complete directories protect code consistency, not a cross-reboot pause.
+1. it pulls the admitted service image by digest and checks it as for a release (this repository, that revision,
+   amd64, the admitted digest);
+2. it copies `/opt/trade/deploy/*.py` out of a container it creates and never starts, then removes the container;
+3. it stages the files in `control/<revision>.new/deploy/`, syncs them, checks that `deploy.release` and
+   `deploy.control` import with the host's `python3`, renames the directory to `control/<revision>` and atomically
+   repoints `current`;
+4. it removes older control directories, keeping the new one and the one that handed over, prints
+   `Handed release control from … to …` and exits with status 3.
 
-Preserve the Live `root`, its owner, `account.lock`, credentials and execution originals.
-Do not rerun the installer or the whole-project `up`. The systemd service needs no additional
-writable path, and the existing timer schedule remains unchanged.
+The launcher then runs the tick once more under the new control, which releases its own version; it never runs a
+third. A handoff touches no route and no release container. A refused handoff (an image that differs from
+admission, a control that does not import) leaves `current` where it was, fails the tick and is noticed like any
+release failure. A version later marked failed keeps its control, and that control hands the next admitted version
+over. `deploy/control.py` is the handoff every next version passes through: keep it small and its contract stable
+(`deploy.release` and `deploy.control` importable with the host's `python3`, exit status 3).
 
-Before the next version releases, verify that the installed systemd service can open the
-original private `account.lock` read-only, that it sees the same regular-file inode as control, and that
-the filesystem supports local read-only-fd exclusive flock. The release host itself holds that fd over
-the read-only service-image `live release-inspect` call and transaction/route writes. It never creates a
-missing account.lock or changes its permissions. Install new control code while Live is idle.
+`install-release.sh` installs the launcher, the unit and timer, the compose overlays and a bootstrap copy of
+`deploy/*.py` in `/opt/trade-release`. The bootstrap copy has no revision: it recovers nothing, refuses a pending
+transaction (the control that wrote it must recover it) and only hands over to the admitted version. On a new host
+the installer runs that handoff itself (`python3 -m deploy.release handoff`) before the first release.
+
+**A host installed before the handoff** (its unit runs `python3 -m deploy.release tick` in `/opt/trade-release`)
+takes it once. Its installed control would otherwise release the next version itself, so stop its timer before
+that version is tagged:
+
+1. Before the version that brings `deploy/control.py` is tagged, run `sudo systemctl stop trade-release.timer` and
+   wait until `systemctl show -p ActiveState --value trade-release.service` says `inactive` or `failed`. Do not
+   kill a running tick. Check that `/var/lib/trade-release/transaction.json` and `paper-transaction.json` do not
+   exist; if one does, start the timer, let the installed control recover it, and stop it again.
+2. Once `deploy-ready` admits that version (its record names the tag's commit), update `/opt/trade-app` to the
+   tag (`git fetch --tags && git checkout vX.Y.Z`) and run `sudo sh deploy/remote/install-release.sh control`
+   from it. It refuses while the timer or a tick runs; otherwise it installs the launcher, the unit, the overlays
+   and the bootstrap copy, reloads systemd and starts the timer.
+3. The next tick (`journalctl -u trade-release.service`) prints `Handed release control from the bootstrap copy
+   to <revision>`, then the same service run releases that version under its own control.
+
+Run `install-release.sh control` again only for a change to the launcher, the unit, the timer or the compose
+overlays (`deploy/remote/`), the same way. Started before the admitted version contains `deploy/control.py`, the
+bootstrap handoff refuses it (the admitted control does not import) and every tick fails until such a version is
+admitted.
+
+With Live, the release host holds the original private `account.lock` read-only over the service-image
+`live release-inspect` call and the transaction and route writes. The systemd service must open that file
+read-only, see the same regular-file inode as the Live control, and use a filesystem with local read-only-fd
+exclusive flock. The release never creates a missing `account.lock` or changes its permissions. Install the Live
+declaration as [Optional Live control pairing](#optional-live-control-pairing) says; a declaration change never
+needs new control code.

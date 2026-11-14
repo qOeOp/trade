@@ -6,8 +6,8 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade-release
-ExecStart=/usr/bin/python3 -m deploy.release tick
+# The fixed launcher: the tick runs under the admitted version's own control code (control/current).
+ExecStart=/opt/trade-release/trade-release-tick
 TimeoutStartSec=75min
 UMask=0077
 NoNewPrivileges=yes

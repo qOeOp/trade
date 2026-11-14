@@ -557,12 +557,14 @@ class PruneTests(unittest.TestCase):
             host.disk_route.return_value = WEB + A
             host.requires_live.return_value = False
             github = Mock()
+            github.approved.return_value = {"revision": A, "image": TARGET["image"]}  # the running control's
             github.choose.return_value = None
-            Release(host, github).tick()
+            with patch("deploy.release.running", return_value=A):
+                self.assertFalse(Release(host, github).tick())
             host.prune.assert_called_once()
             host.prune.reset_mock()
             github.choose.side_effect = RuntimeError("git failed")
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(RuntimeError), patch("deploy.release.running", return_value=A):
                 Release(host, github).tick()
             host.prune.assert_not_called()
 

@@ -60,11 +60,11 @@ source 保存 tree 与延迟计算的投影，不缓存相对某个目标的“�
 
 ## 安装与验证
 
-新的 bootstrap installers 安装共享 helper。已有主机的控制代码不会随 main 自动更新；
-需要从已审查版本更新 `deploy/runtime_inputs.py`、`deploy/release.py` 和
-`deploy/paper_release.py`。更新期间持有主机原有 release lock，在下一 tick 前完成文件替换；
-不重新运行首次接管的 installer，不重建 Paper/Live 策略或修改交易账户。发布修复合并到
-main 与主机控制代码更新是两个不同的验收点。
+共享 helper 随控制代码到达主机。原文要求已有主机“在下一 tick 前完成文件替换”，但 tag 推送后
+CI 移动 `deploy-ready`，下一 tick（≤2 分钟）就由旧控制代码开始发布，这个时机不存在（doctor
+20261114-16）。现在每个准入版本由自己服务镜像里的控制代码发布：结算后的 tick 先把该镜像的
+`deploy/*.py` 换成 `/var/lib/trade-release/control/current`，再由它发布
+（`deploy/remote/README.md` 的 Release control code）；不重建 Paper/Live 策略或修改交易账户。
 
 独立审查发现并修复了两个输入遗漏：通配符命中目录、Docker parser directive 的合法空格和
 escape 变体。回归包括过时非空 runtime、增加/删除/模式变化、服务专属变更复用、取消/失败

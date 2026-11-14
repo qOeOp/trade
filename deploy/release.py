@@ -1,8 +1,8 @@
 """Pull admitted versions into the isolated Web release plane: the public `deploy-ready` channel, which CI moves
 only for the commit of the newest version tag (`main-ready`, every checked main build, is staging and never read here).
 
-The host service installs a reviewed copy of this module; it never executes deployment code from
-the fetched checkout. Git and Docker use no existing credential configuration.
+The host runs only the control code inside the CI-built, digest-pinned service image `deploy-ready` names: each
+version's own control releases it (deploy/control.py). Git and Docker use no existing credential configuration.
 """
 
 import argparse
@@ -16,6 +16,7 @@ import subprocess
 import sys
 import traceback
 
+from .control import HANDOFF, hand_off, running
 from .paper_host import PAPER, PaperHost
 from .paper_release import PaperRelease
 from .release_host import (
@@ -649,8 +650,36 @@ class Release:
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("cleanup", error)
 
-    def tick(self) -> None:
-        self.recover()
+    def handoff(self, control: str | None) -> bool:
+        """Hand control over to the admitted version's own control code unless it is `control`, the one running;
+        True when it did. A version marked failed keeps its control, which hands the next one over."""
+        target = self.github.approved()
+        sha = target["revision"]
+        if target["image"] is None or sha == control:
+            return False
+        if control is not None and not self.github.ancestor(control, sha):
+            return False
+        hand_off(self.host, target, control)
+        return True
+
+    def tick(self) -> bool:
+        """One release step under the running control; True when it handed control over instead."""
+        control = running(self.state)
+        pending = self.transaction.exists() or (self.state / "paper-transaction.json").exists()
+        if control is None:
+            # The bootstrap copy only hands over: a transaction is recovered by the control that wrote it.
+            if pending:
+                raise RuntimeError("a pending release transaction waits for the control that wrote it")
+        else:
+            self.recover()
+            if pending:
+                print("Recovered a pending release transaction; the next tick goes on from there", flush=True)
+                return False
+        if self.handoff(control):
+            return True
+        if control is None:
+            print("No admitted version to hand release control to", flush=True)
+            return False
         active = self.host.disk_route()
         self.host.checked(active)
         self.require_live_installation(active)
@@ -663,11 +692,12 @@ class Release:
             print(f"No newer successful main image; keeping {active}", flush=True)
         self.retire_live()
         self.prune()
+        return False
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("install", "verify", "tick"))
+    parser.add_argument("action", choices=("handoff", "install", "verify", "tick"))
     args = parser.parse_args()
     config = Config.installed()
     host = DockerHost(config)
@@ -675,22 +705,29 @@ def main() -> None:
     with (config.state / "lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         if args.action == "tick":
-            tick(host, Notices(config.state))
+            if tick(host, Notices(config.state)):
+                raise SystemExit(HANDOFF)
             return
         host.prepare()
         release = Release(host, GitSource(config.state))
-        if args.action == "install":
+        if args.action == "handoff":  # install-release.sh: the first control, from the admitted image
+            if running(config.state) is not None:
+                raise RuntimeError("an installed control hands over only within a tick")
+            if not release.handoff(None):
+                raise RuntimeError("the newest deploy-ready version is not admitted; install after a version is admitted")
+        elif args.action == "install":
             release.install()
         else:
             release.verify()
 
 
-def tick(host: DockerHost, notices: Notices) -> None:
-    """One timer tick, then the failure notices of what it and the routed Web saw."""
+def tick(host: DockerHost, notices: Notices) -> bool:
+    """One timer tick, then the failure notices of what it and the routed Web saw; True when it handed control over."""
     try:
         host.prepare()
-        Release(host, GitSource(host.state)).tick()
+        handed = Release(host, GitSource(host.state)).tick()
         notices.released(None)
+        return handed
     except Exception as error:
         notices.released(error)
         raise
