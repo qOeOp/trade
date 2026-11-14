@@ -56,14 +56,14 @@ test("the Runs dot, desktop and phone alike: red for an unresolved Live run or a
 });
 
 test("a paper run's card reads the listing: its held positions, its issues and its outline in seconds", () => {
-  const paper = { paper_id: 8, symbols: ["BTCUSDT"], total_return: null, live: {
+  const paper = { paper_id: 8, symbols: ["BTCUSDT"], total_return: null, readings: {
     starting_balance_usdt: "100000", final_equity_usdt: "100390.18", total_return: 0.0039, missing_bars: 58, late_bars: 0, exceptions: 1, protection_gaps: 0,
     outline: [[1_700_000_000_000_000_000, 100000], [1_700_000_060_000_000_000, 100390.18]],
     held: { minute_ns: 1, orders: [], positions: [{ position_id: "P", instrument_id: "BTCUSDT-PERP.BINANCE", signed_qty: "-0.400", avg_px_open: "74652.30", mark: "73657.7", unrealized_pnl: "397.84", realized_pnl: "0" }] } } };
   assert.deepEqual(paperHeld(paper).map((h) => [h.long, h.qty, h.pnl, h.mark]), [[false, 0.4, 397.84, 73657.7]]);
   assert.deepEqual(paperIssues(paper).map((i) => i.text), ["58 missing bars", "1 exception"]);
   assert.deepEqual(paperEquity(paper), { starting: 100000, equity: 100390.18, ret: 0.0039, points: [[1_700_000_000, 100000], [1_700_000_060, 100390.18]] });
-  assert.deepEqual(paperHeld({ ...paper, live: { ...paper.live, held: null } }), [], "before the runner's first state");
+  assert.deepEqual(paperHeld({ ...paper, readings: { ...paper.readings, held: null } }), [], "before the runner's first state");
 });
 
 test("a Live position is marked at the overview's price, its stop found on the other side and its distance from the mark", () => {

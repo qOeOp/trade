@@ -23,7 +23,7 @@ import { MISSING } from "../../lib/format";
  *  listing's outline of the path), the return against what the minimum annual return asks for by now, and the annual
  *  return once it has run 30 days. */
 function facts(run: PaperRun, targets: { max_drawdown?: number | null; annual_return?: number | null } | null | undefined, now: number): Facts {
-  const l = run.live, money = paperEquity(run), start = l?.started_ns != null ? l.started_ns / 1e6 : null;
+  const l = run.readings, money = paperEquity(run), start = l?.started_ns != null ? l.started_ns / 1e6 : null;
   const days = start === null ? 0 : (now - start) / DAY_MS, minimum = targets?.annual_return ?? null;
   const needed = minimum === null ? null : neededReturn(minimum, start, now), { ahead, usdt } = pace(money.ret, needed, money.starting);
   return {
@@ -42,7 +42,7 @@ export function PaperPage({ id }: { id: number }) {
   const back = { label: "Runs", onClick: closeRun };
   if (!run || !money) return <><PhoneTop back={back} aside={`Paper ${id}`} /><p className="p-4 text-dense text-fg-faint">{listing ? "This paper run is not listed." : "Reading the paper runs…"}</p></>;
   const h = health(run, now, zone), held = paperHeld(run), issues = paperIssues(run), line = run.candidate ? lineOf(lines, run.candidate) : null;
-  const bar = run.live?.last_bar_ns != null ? run.live.last_bar_ns / 1e6 : null, start = run.live?.started_ns != null ? run.live.started_ns / 1e6 : null;
+  const bar = run.readings?.last_bar_ns != null ? run.readings.last_bar_ns / 1e6 : null, start = run.readings?.started_ns != null ? run.readings.started_ns / 1e6 : null;
   return (
     <>
       <PhoneTop back={back} aside={`Paper ${run.paper_id}`} line={line?.name ?? null} />

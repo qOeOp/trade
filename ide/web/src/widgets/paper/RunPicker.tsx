@@ -32,9 +32,9 @@ function Ago({ ns }: { ns: number }) {
  *  following how it ended, and open the Trades window's Exceptions. */
 export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain: readonly PaperRun[]; now: number; failures: readonly RuntimeFailure[] | null }) {
   const zone = useTimeZone();
-  const state = health(run, now, zone), lastBar = run.live?.last_bar_ns ?? null, started = chainStart(chain) ?? run.live?.started_ns ?? null;
-  const gaps = (run.live?.missing_bars ?? 0) + (run.live?.protection_gaps ?? 0);
-  const sealed = run.state === "sealed", n = failures?.length ? raised(failures) : sealed ? 0 : run.live?.exceptions ?? 0;
+  const state = health(run, now, zone), lastBar = run.readings?.last_bar_ns ?? null, started = chainStart(chain) ?? run.readings?.started_ns ?? null;
+  const gaps = (run.readings?.missing_bars ?? 0) + (run.readings?.protection_gaps ?? 0);
+  const sealed = run.state === "sealed", n = failures?.length ? raised(failures) : sealed ? 0 : run.readings?.exceptions ?? 0;
   const raisedLink = n > 0 && <TextButton className="-mx-1 text-misses-fg! underline underline-offset-3" onClick={() => tradesTab.set("exceptions")}>{exceptionsText(n, sealed)}</TextButton>;
   if (sealed) return <Ended run={run} errors={raisedLink || undefined} />;
   const until = waitingUntil(run);
@@ -43,7 +43,7 @@ export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain:
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
       {raisedLink && <span>{raisedLink} ·</span>}
-      {gaps > 0 && <span className="text-misses-fg">{plural(gaps, run.live?.missing_bars ? "missing bar" : "protection gap")} ·</span>}
+      {gaps > 0 && <span className="text-misses-fg">{plural(gaps, run.readings?.missing_bars ? "missing bar" : "protection gap")} ·</span>}
       {started !== null && !raisedLink && <span>{duration(now - started / 1e6)} ·</span>}
       {lastBar === null ? "waiting for a bar" : <><i className="size-1.5 shrink-0 rounded-full bg-meets" />last bar <Ago ns={lastBar} /> ago</>}
     </span>

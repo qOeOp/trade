@@ -122,7 +122,7 @@ const sealed = (paper_id, { stop = "KILLED", reasons = [], total = 0.01, stopped
 const running = (paper_id, { created = T0 + 2925 * MIN, candidate = "ema@3", symbols = ["BTCUSDT"], total = -0.02 } = {}) => ({
   paper_id, candidate, symbols, state: "running", created_at: at(created), source_sha256: "", image_ref: "", market_day: "", config: {},
   status: null, reasons: null, total_return: null, max_drawdown: null,
-  live: { total_return: total, starting_balance_usdt: "100000", final_equity_usdt: String(100_000 * (1 + total)), started_ns: created, equity: [] },
+  readings: { total_return: total, starting_balance_usdt: "100000", final_equity_usdt: String(100_000 * (1 + total)), started_ns: created, equity: [] },
 });
 
 test("a strategy is listed once, its stops, their lengths and its failed starts in one history", () => {
@@ -303,7 +303,7 @@ test("Equity has moved only once the chain's return is known and not zero", () =
 
 test("a chain's closed trades add up over its runs, unknown until one has a reading", () => {
   const ended = sealed(1); ended.seal.positions_closed = 3;
-  const now = running(2); now.live.positions_closed = 2;
+  const now = running(2); now.readings.positions_closed = 2;
   assert.equal(chain.chainTrades([ended, now]), 5);
   assert.equal(chain.chainTrades([sealed(1)]), 0);
   assert.equal(chain.chainTrades([running(2)]), null);
@@ -653,13 +653,13 @@ test("20261106-01: a waiting restart keeps the previous observed equity and decl
   assert.equal(joinedStream.readings.last_bar_ns, a.readings.last_bar_ns);
   assert.equal(joinedStream.readings.input_start_ns, until);
   assert.equal(joinedStream.readings.equity.length, 2, "no invented live equity point");
-  const run = { ...running(7), live: b.readings };
+  const run = { ...running(7), readings: b.readings };
   assert.equal(waitingUntil(run), until / 1e6);
-  assert.ok(Math.abs(chain.chainEquity([sealed(6, { total: -0.0118516 }), { ...run, live: { ...run.live, total_return: null } }], null) - 98814.84) < 1e-6);
-  assert.equal(chain.chainEquity([{ ...run, live: { ...run.live, total_return: null } }], null), null);
+  assert.ok(Math.abs(chain.chainEquity([sealed(6, { total: -0.0118516 }), { ...run, readings: { ...run.readings, total_return: null } }], null) - 98814.84) < 1e-6);
+  assert.equal(chain.chainEquity([{ ...run, readings: { ...run.readings, total_return: null } }], null), null);
   assert.match(waitingText(until / 1e6, T0 / 1e6), /Waiting for warm-up until/);
   assert.match(waitingText(until / 1e6, until / 1e6 + 1000), /Starting after warm-up/);
-  assert.equal(waitingUntil({ ...run, live: { ...b.readings, last_bar_ns: until + MIN } }), null);
+  assert.equal(waitingUntil({ ...run, readings: { ...b.readings, last_bar_ns: until + MIN } }), null);
   assert.equal(waitingUntil({ ...run, state: "sealed" }), null);
   assert.equal(observedThrough([], { BTCUSDT: [[T0, 77441.7]] }), T0 / 1e6);
   const first = joined([{ ...a, readings: { ...a.readings, equity: [], final_equity_usdt: null }, seal: null }], b);

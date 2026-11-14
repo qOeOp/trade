@@ -15,7 +15,7 @@ export function useEquity(): Equity | null {
   if (stage !== "paper" || !run) return null;
   const own = stream?.paperId === run.paper_id ? stream : null;
   const [whole = "", cents = ""] = (fixed(chainEquity(chain, amount(own?.seal?.final_equity_usdt ?? own?.readings?.final_equity_usdt
-    ?? run.seal?.final_equity_usdt ?? run.live?.final_equity_usdt)), 2) ?? "").split(".");
+    ?? run.seal?.final_equity_usdt ?? run.readings?.final_equity_usdt)), 2) ?? "").split(".");
   return { whole, cents, ret: chainReturn(chain) };
 }
 

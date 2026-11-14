@@ -6,7 +6,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loader } from "./load.mjs";
 
-const paperRun = { paper_id: 777, candidate: "fixture-retest@1", state: "running", live: { final_equity_usdt: "9876.54" } };
+const paperRun = { paper_id: 777, candidate: "fixture-retest@1", state: "running", readings: { final_equity_usdt: "9876.54" } };
 let shown, service, listing, stream, runsPage, liveRuns = [{ id: "fixture-live-run" }];
 const opened = [];
 const empty = () => null;

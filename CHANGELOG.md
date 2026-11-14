@@ -22,6 +22,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper (breaking): the run listing (`GET /api/paper/runs`) names a run's readings so far `readings` instead of
+  `live`, the name its stream's `readings` event already has. The release gate's probe reads the new name, so
+  reinstall the host's control code with the release (`sh deploy/remote/install-release.sh`), as every release does.
 - Live: each contract's membership grows month by month as Paper's. The control writes
   `inputs/membership/<YYYY-MM>.json` once a month after the run's market day has begun and the market holds it, and
   the runner denies an entry on a contract outside its membership natively (`entry_outside_membership`; the run goes

@@ -159,7 +159,7 @@ class ListenTests(unittest.TestCase):
 
 
 class JournalTests(unittest.TestCase):
-    def test_live_readings_are_what_the_seal_computes_from_the_same_journal(self):
+    def test_readings_are_what_the_seal_computes_from_the_same_journal(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root, "events.jsonl")
             write(path, journal(), '{"kind": "snapshot", "wall')
@@ -168,7 +168,7 @@ class JournalTests(unittest.TestCase):
         self.assertEqual((found.bars, found.last_bar_ns), (1, START + MINUTE - 10**6))
         self.assertFalse(any(item["kind"] == "bar" for item in found.lines))
         with mock.patch.object(records, "equity_path", wraps=records.equity_path) as computed:
-            live = serve.live_readings(ROW, found)
+            live = serve.readings(ROW, found)
         self.assertEqual(computed.call_count, 1, "CF-24: the readings and the drawn path share one equity path")
         sealed = records.readings(ROW, journal(), 0, None, None, None)
         self.assertEqual((live["total_return"], live["max_drawdown"], live["fills"]),
@@ -179,13 +179,13 @@ class JournalTests(unittest.TestCase):
     def test_waiting_input_boundary_is_derived_from_the_existing_journal(self):
         found = serve.Journal(lines=[line("started", START, input_start_ns=START + 1440 * MINUTE),
                                      line("waiting", START, until_ns=START + 1440 * MINUTE)])
-        live = serve.live_readings(ROW, found)
+        live = serve.readings(ROW, found)
         self.assertEqual(live["input_start_ns"], START + 1440 * MINUTE)
         self.assertEqual((live["bars"], live["last_bar_ns"], live["equity"]), (0, None, []))
         self.assertIsNone(live["final_equity_usdt"])
-        self.assertIsNone(serve.live_readings(ROW, serve.Journal())["input_start_ns"])
+        self.assertIsNone(serve.readings(ROW, serve.Journal())["input_start_ns"])
         normal = serve.Journal(lines=[line("started", START, input_start_ns=START + MINUTE)])
-        self.assertIsNone(serve.live_readings(ROW, normal)["input_start_ns"], "a minute-boundary start is not a daily warm-up")
+        self.assertIsNone(serve.readings(ROW, normal)["input_start_ns"], "a minute-boundary start is not a daily warm-up")
         before = {**live, "input_start_ns": None, "exceptions": 0}
         self.assertNotEqual(serve._changed(before), serve._changed({**before, "input_start_ns": START}),
                             "the stream announces warm-up even before any bars arrive")
@@ -268,7 +268,7 @@ class RestartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name, \
                 mock.patch.object(runs, "listing", return_value=listed), \
                 mock.patch.object(runs, "run_dir", return_value=Path(name)), \
-                mock.patch.object(serve, "live_readings", side_effect=lambda row, journal: {}):
+                mock.patch.object(serve, "readings", side_effect=lambda row, journal: {}):
             found = {run["paper_id"]: run for run in serve.Daemon._runs(daemon)["runs"]}
         self.assertEqual(found[1]["recovery"], failure)
         self.assertEqual(found[2]["recovery"], failure)
@@ -522,12 +522,12 @@ class StreamTests(unittest.TestCase):
         write(self.out / "events.jsonl", journal())
         status, listed = request(self.port, "GET", "/api/paper/runs")
         self.assertEqual(status, 200)
-        live = listed["runs"][0]["live"]
+        live = listed["runs"][0]["readings"]
         self.assertNotIn("equity", live)
         self.assertEqual(live["fills"], 1)
         self.assertEqual(len(live["outline"]), 3)
         self.assertIsNone(live["held"], "no state.json yet")
-        self.assertEqual(len(self.daemon.runs()["runs"][0]["live"]["equity"]), 3, "the stream still reads it")
+        self.assertEqual(len(self.daemon.runs()["runs"][0]["readings"]["equity"]), 3, "the stream still reads it")
 
     def test_the_listing_carries_the_runners_open_positions(self):
         write(self.out / "events.jsonl", journal())
@@ -536,7 +536,7 @@ class StreamTests(unittest.TestCase):
         (self.out / "state.json").write_text(json.dumps({"minute_ns": START, "positions": [position], "orders": []}),
                                              encoding="utf-8")
         _, listed = request(self.port, "GET", "/api/paper/runs")
-        self.assertEqual(listed["runs"][0]["live"]["held"], {"minute_ns": START, "positions": [position], "orders": []})
+        self.assertEqual(listed["runs"][0]["readings"]["held"], {"minute_ns": START, "positions": [position], "orders": []})
 
     def test_an_outline_keeps_the_ends_and_at_most_its_points(self):
         path = [[minute, float(minute)] for minute in range(1000)]
@@ -547,7 +547,7 @@ class StreamTests(unittest.TestCase):
     def test_the_strategys_exceptions_stream_while_it_runs_and_from_the_seal(self):
         write(self.out / "events.jsonl", journal())
         (self.out / serve.FAILURES).write_text(json.dumps(FAILURE) + "\n", encoding="utf-8")
-        self.assertEqual(self.daemon.runs()["runs"][0]["live"]["exceptions"], 4)
+        self.assertEqual(self.daemon.runs()["runs"][0]["readings"]["exceptions"], 4)
         response = self.stream()
         self.assertEqual(events(response)[0], "lines")
         self.assertEqual(events(response), ("closes", {}))

@@ -115,7 +115,7 @@ export const liveObserved = (run: LiveRun) => {
 
 /** A paper run's open positions as the runner's last state has them. */
 export function paperHeld(run: PaperRun): Held[] {
-  return (run.live?.held?.positions ?? []).flatMap((p) => {
+  return (run.readings?.held?.positions ?? []).flatMap((p) => {
     const signed = amount(p.signed_qty) ?? 0;
     return signed === 0 ? [] : [{ key: p.position_id, symbol: symbolOf(p.instrument_id), long: signed > 0, qty: Math.abs(signed),
                                   entry: amount(p.avg_px_open), mark: amount(p.mark), pnl: amount(p.unrealized_pnl) }];
@@ -124,7 +124,7 @@ export function paperHeld(run: PaperRun): Held[] {
 
 /** What a paper run's listing says needs a look: missing and late bars, exceptions and protection gaps. */
 export function paperIssues(run: PaperRun): { text: string; tone: "misses" | "fail" }[] {
-  const l = run.live, issues: { text: string; tone: "misses" | "fail" }[] = [];
+  const l = run.readings, issues: { text: string; tone: "misses" | "fail" }[] = [];
   if (!l) return issues;
   if (l.protection_gaps) issues.push({ text: plural(l.protection_gaps, "protection gap"), tone: "fail" });
   if (l.missing_bars) issues.push({ text: plural(l.missing_bars, "missing bar"), tone: "misses" });
@@ -135,7 +135,7 @@ export function paperIssues(run: PaperRun): { text: string; tone: "misses" | "fa
 
 /** A paper run's equity now and its outline as [seconds, equity], from the listing. */
 export function paperEquity(run: PaperRun): { starting: number; equity: number | null; ret: number | null; points: [number, number][] } {
-  const l = run.live, starting = amount(l?.starting_balance_usdt) ?? START;
+  const l = run.readings, starting = amount(l?.starting_balance_usdt) ?? START;
   const points = (l?.outline ?? []).map(([ns, v]) => [Math.floor(ns / 1e9), v] as [number, number]);
   return { starting, equity: amount(l?.final_equity_usdt ?? run.seal?.final_equity_usdt), ret: l?.total_return ?? run.total_return ?? null, points };
 }

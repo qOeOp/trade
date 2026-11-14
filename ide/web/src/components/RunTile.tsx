@@ -18,9 +18,9 @@ import { locate, Menu, MenuItem, MenuSeparator } from "./VersionMenu";
  *  in the warning tone when its evidence is untrusted. */
 export function health(run: PaperRun, now: number, zone: TimeZone = "UTC"): { tone: DataRole; text: string; late: boolean } {
   if (run.recovery) return { tone: "fail", text: "Recovery paused · account retained", late: false };
-  const lastBar = run.live?.last_bar_ns != null ? run.live.last_bar_ns / 1e6 : null;
+  const lastBar = run.readings?.last_bar_ns != null ? run.readings.last_bar_ns / 1e6 : null;
   if (run.state === "running") {
-    if (run.live?.exceptions) return { tone: "fail", text: `${run.live.exceptions}+ errors`, late: false };
+    if (run.readings?.exceptions) return { tone: "fail", text: `${run.readings.exceptions}+ errors`, late: false };
     const until = waitingUntil(run);
     if (until !== null) return { tone: "misses", text: waitingText(until, now, zone), late: now - until > LAG_MS };
     if (lastBar !== null && now - lastBar > LAG_MS) return { tone: "misses", text: `No bar for ${Math.round((now - lastBar) / 60_000)} min`, late: true };

@@ -5,7 +5,7 @@ import { MISSING } from "./format";
 import { serviceApi } from "./transport";
 
 type RunState = "running" | "stopping" | "ended" | "unsealed" | "sealed";
-/** What a seal computes, from the journal so far (paper/serve.py live_readings). */
+/** What a seal computes, from the journal so far (paper/serve.py readings). */
 export type Readings = {
   /** The run's start after its warm-up, derived from the waiting event. Absent on older daemons. */
   input_start_ns?: number | null;
@@ -38,7 +38,7 @@ export type PaperRun = {
   status: "complete" | "invalid" | null; reasons: string[] | null; total_return: number | null; max_drawdown: number | null;
   /** The listing leaves the equity path to the run's stream; it has the path's outline (at most 120 points,
    *  [minute ns, equity]) and the runner's last open positions and orders (null before its first state). */
-  live?: Omit<Readings, "equity"> & { outline?: [number, number][]; held?: { minute_ns: number | null; positions: OpenPosition[]; orders: OpenOrder[] } | null };
+  readings?: Omit<Readings, "equity"> & { outline?: [number, number][]; held?: { minute_ns: number | null; positions: OpenPosition[]; orders: OpenOrder[] } | null };
   seal?: Seal;
   recovery?: { code: string; message: string };
 };

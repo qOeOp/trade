@@ -72,9 +72,9 @@ export function latestOf(run: PaperRun, runs: readonly PaperRun[]): PaperRun {
 /** A run's return as the listing reads it: its seal's once sealed (none when it ran on no data or its seal
  *  has no final equity), else its live reading. */
 export const runReturn = (run: PaperRun) =>
-  (run.state === "sealed" ? (hasReturn(run.seal) ? run.seal!.total_return : null) : run.live?.total_return ?? null);
+  (run.state === "sealed" ? (hasReturn(run.seal) ? run.seal!.total_return : null) : run.readings?.total_return ?? null);
 /** A run's starting balance. */
-const startOf = (run: PaperRun) => amount(run.live?.starting_balance_usdt ?? run.seal?.starting_balance_usdt) ?? START;
+const startOf = (run: PaperRun) => amount(run.readings?.starting_balance_usdt ?? run.seal?.starting_balance_usdt) ?? START;
 
 /** The chain's return: each run's compounded, ∏(1 + rₖ) − 1; null while no run has one. */
 export function chainReturn(chain: readonly PaperRun[]): number | null {
@@ -84,7 +84,7 @@ export function chainReturn(chain: readonly PaperRun[]): number | null {
 
 /** The chain's closed trades, every run's added up; null while no run has a reading. */
 export function chainTrades(chain: readonly PaperRun[]): number | null {
-  const found = chain.map((r) => r.seal?.positions_closed ?? r.live?.positions_closed ?? null);
+  const found = chain.map((r) => r.seal?.positions_closed ?? r.readings?.positions_closed ?? null);
   return found.every((n) => n === null) ? null : found.reduce<number>((t, n) => t + (n ?? 0), 0);
 }
 
@@ -92,7 +92,7 @@ export function chainTrades(chain: readonly PaperRun[]): number | null {
 export const equityMoved = (chain: readonly PaperRun[]): boolean => { const r = chainReturn(chain); return r !== null && r !== 0; };
 
 /** When the chain's first run started (ns), once it has. */
-export const chainStart = (chain: readonly PaperRun[]): number | null => chain[0]?.seal?.started_ns ?? chain[0]?.live?.started_ns ?? null;
+export const chainStart = (chain: readonly PaperRun[]): number | null => chain[0]?.seal?.started_ns ?? chain[0]?.readings?.started_ns ?? null;
 
 /** The chain's equity, given its latest run's `equity`: the first run's starting balance grown by each
  *  earlier run's return and the latest run's equity over its own start. */
