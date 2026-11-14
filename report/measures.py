@@ -47,17 +47,6 @@ MEASURE_NOTES = {
                      "high_vol_mean_log", "high_vol_log_sum", "low_vol_days", "low_vol_mean_log", "low_vol_log_sum"),
                     BASKET_NOTE),
 }
-# Every measure the reports give (the catalogue's single-run and pairwise measures and the headline).
-MEASURES = frozenset({
-    "annual_return", "plan_win_rate", "sharpe_365", "mark_max_drawdown", "price", "fee", "funding", "open_mark",
-    "account", "mean_notional", "unit_return", "level_term", "timing_term", "up_month_notional",
-    "down_month_notional", "return_over_drawdown", "breakeven_fee_multiple", "top5_abs_share",
-    "one_side_instruments", "long_net", "short_net", "daily_turnover", "beta_basket", "alpha_basket", "beta_btc",
-    "alpha_btc", "months_won_share", "residual_after_top5_days", "sharpe_lo", "high_vol_days", "high_vol_mean_log",
-    "high_vol_log_sum", "low_vol_days", "low_vol_mean_log", "low_vol_log_sum", "cycles", "win_rate", "avg_win",
-    "avg_loss", "expectancy", "median_holding_hours", "top_exit_share", "matched_share", "matched_net_share",
-    "removed_net", "added_net", "matched_delta_net", "win_to_loss", "loss_to_win", "median_entry_shift_minutes",
-    "max_drawdown", "drawdown_days", "top_instrument_share_in_drawdown"})
 HEADLINE = ("annual_return", "mark_max_drawdown", "plan_win_rate", "sharpe_365", "sharpe_lo")
 COMPARISON_ONLY = frozenset({"trade_pairs"})
 # The drawdown measures are the reading's (ledger.metrics: they need the minute marks a replay gives back).

@@ -323,9 +323,7 @@ def trade_window_series(facts: Mapping, side: str) -> list[tuple[int, float, obj
     limitations: list[str] = []
     if facts["final_equity"] is None:
         raise refuse("COMPARISON_UNAVAILABLE", f"the {side} run stores no daily return", missing=(side,))
-    summary = {"period_start_utc": str(facts["trade_start_ns"]), "period_end_utc": str(facts["trade_end_ns"]),
-               "starting_balance_usdt": str(facts["starting_balance"]),
-               "final_equity_usdt": str(facts["final_equity"])}
+    summary = {"period_start_utc": str(facts["trade_start_ns"]), "period_end_utc": str(facts["trade_end_ns"])}
     series = metrics.daily_returns([(ts, value) for ts, value, _ in facts["returns"]], summary, limitations)
     if series is None:
         raise refuse("COMPARISON_UNAVAILABLE", f"the {side} daily returns are unusable: " + "; ".join(limitations),

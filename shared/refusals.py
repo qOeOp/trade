@@ -272,14 +272,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                             "host error is not the capture-limit refusal.",
                             ("Pass the kept working directory unchanged and the capture-limit refusal it wrote.",)),
     # Coverage at ingest (ledger/coverage.py)
-    "CAPTURE_INCOMPLETE": ("The trial's original capture is missing or lacks its start receipt, stages, coverage "
-                           "receipt or native summary.",
+    "CAPTURE_INCOMPLETE": ("The trial's original capture is missing or lists no hashed coverage receipt.",
                            ("The run cannot be stored from this trial; replay the grid point again under a "
                             "retry registration.",)),
-    "PHASE_FAILED": ("A stage of the original capture (runner or auditor) did not exit 0.",
-                     ("Store the replay as invalid with its reasons; diagnose it from the capture.",)),
-    "INPUT_IDENTITY_MISMATCH": ("The sealed coverage receipt names other inputs than the stored input identity.",
-                                ("Replay through `replay run`, which writes both from one export.",)),
     "COVERAGE_RECEIPT_INVALID": ("The coverage receipt is not execution-input-coverage-v1, lacks the market day "
                                  "or instruments, or an instrument has no export receipt.",
                                  ("Export the market inputs again and replay through the product entry.",)),
@@ -572,8 +567,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "RUN_NOT_IN_GRID": ("The candidate run is not the run of a grid point this registration consumed, or its source "
                         "differs from the consumed point.",
                         ("Compare the run under the registration whose grid point produced it.",)),
-    "COMPARISON_UNAVAILABLE": ("A side's trade-window daily returns are empty, invalid or do not compound to its final "
-                               "equity, the series hold fewer than two whole blocks, or the test inputs are malformed.",
+    "COMPARISON_UNAVAILABLE": ("A side's trade-window daily returns are empty, invalid or miss a UTC day, the series "
+                               "hold fewer than two whole blocks, or the test inputs are malformed.",
                                ("Use runs whose daily series reconcile and a window of at least two blocks; the series "
                                 "are never repaired.",)),
     "CLOCK_MISMATCH": ("The two sides' UTC daily clocks are not the same day by day.",

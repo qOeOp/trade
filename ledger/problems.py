@@ -58,7 +58,6 @@ REASONS: dict[str, str] = {
     "NATIVE_REPORT_UNREADABLE": "A native report exists but does not parse.",
     "METRICS_UNREADABLE": "A native value the sealed report needs cannot be read.",
     "INPUTS_CHANGED": "The exported inputs changed during the replay.",
-    "INPUT_IDENTITY_MISMATCH": "The sealed coverage receipt names other inputs than the stored input identity.",
     "COVERAGE_RECEIPT_INVALID": "The sealed coverage receipt is malformed.",
     "COVERAGE_MISMATCH": "The coverage receipt and the native summary differ.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "The native lifecycle counts are malformed.",

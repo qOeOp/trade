@@ -148,6 +148,6 @@ def reseal(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, ima
                      missing=tuple(done["tables_differing"]), write_status="written")
     with db.connect(ledger, "writer") as conn:
         written = trials.reseal_reading(conn, trial_id, done["reproduction_trial_id"], Path(done["directory"]),
-                                        stored["capture"]["start"]["input_identity"], checkout)
+                                        stored["capture"], checkout)
     return {"trial_id": trial_id, "reproduction_trial_id": done["reproduction_trial_id"],
             "directory": done["directory"], **written}
