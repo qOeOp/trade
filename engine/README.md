@@ -731,7 +731,9 @@ A run whose runners are all proven exited without `armed.json` or a `connecting`
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
 A manifest's format (`live-run-4`) binds the checks to the runner: an older image refuses it before arming,
-and a run prepared under an earlier format is refused for every operation (`LIVE_RUN_FORMAT`).
+and a run prepared under an earlier format is refused for every operation (`LIVE_RUN_FORMAT`). Its credential is
+still released when its own records settle it: never launched with no native output, or ended and recycled with no
+account slot. Any other such run blocks credential changes as an unresolved run does (`LIVE_CREDENTIAL_BUSY`).
 An ended run (`clean_stopped`, `reconciled_flat`, `venue_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network when the paired controller maintains it or another run starts: their logs go to `containers/` in the run directory,
 where `logs` then reads them, and `lifecycle.jsonl` records the result for `status`. An unresolved run, or any runner
