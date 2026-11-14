@@ -3,7 +3,8 @@
 The page is the web renderer's built page: it reads `/api/view` and follows
 `/api/events` (Server-Sent Events). The product is reached only through its command line, `ledger
 sql` for a head, `research graph` for a graph without its comparisons, `research comparison` for the one a page
-opens (`/api/comparison`, at a full ledger commit), `replay report --tables` for a trial's report (the Runs
+opens (`/api/comparison`, at a full ledger commit), `research state --without-image` for the line menu's gates and
+review readings (`/api/state`, at a full ledger commit), `replay report --tables` for a trial's report (the Runs
 page's backtest, `/api/trial`, at a full ledger commit) and `market bars --timeframe 1d` for a contract's
 daily bars (its backtest candles, `/api/bars`, whole UTC days at a market day, YYYY-MM-DD, on the market
 profile given or the active one), so this module imports no product package. While
@@ -15,7 +16,7 @@ older duplicates. A named live page can show that completion while a newer head 
 and when `research unchanged` says the new head gives that line the same graph, it is kept under the new commit
 instead of being drawn. A page may also name the graph its browser kept (`have`, with the `build` that drew it), and
 is then told `unchanged` instead of having one drawn; every other answer goes the same way as without it.
-Up to 16 trials' reports, 64 versions' comparisons and 16 contracts' daily bars stay in memory, keyed by what they were read for,
+Up to 16 trials' reports, 64 versions' comparisons, 8 lines' states and 16 contracts' daily bars stay in memory, keyed by what they were read for,
 and `research history` (`/api/history`, the closing history tests of every line, at the head or `at`) for the last 4 commits,
 and the lines with their recommendations (`line list --readings`, `/api/readings`, the phone's Research tab) for the last 4 commits.
 Nothing is written anywhere.
@@ -86,6 +87,9 @@ TRIALS = 16
 BARS = 16
 COMPARISONS = 64
 COUNTS = 16
+STATES = 8
+# What the line menu reads of `research state`; the judgments and their facts stay with the Agent's tool.
+STATE_KEYS = ("ledger_commit", "gates", "review_every", "undistinguished_runs", "unreviewed_trials")
 HISTORIES = 4
 READINGS = 4
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}")  # a Binance symbol such as BTCUSDT
@@ -199,6 +203,12 @@ class Product:
         return self.run("research", "comparison", f"--ledger={self.ledger}", f"--registration={registration}",
                         f"--trial-id={trial_id}", f"--at={commit}")
 
+    def state(self, line: str, commit: str) -> dict:
+        """A line's gates and review readings, read when the page opens its menu: a due change of approach reads the
+        line's latest comparisons, which the graph above leaves out."""
+        found = self.run("research", "state", f"--ledger={self.ledger}", f"--line={line}", f"--at={commit}", "--without-image")
+        return {key: found.get(key) for key in STATE_KEYS}
+
     def unchanged(self, line: str, since: str, commit: str) -> dict:
         return self.run("research", "unchanged", f"--ledger={self.ledger}", f"--line={line}", f"--since={since}", f"--at={commit}")
 
@@ -261,6 +271,7 @@ class Hub:
         self.bars = Pinned[tuple[str, str, str, str]](lambda key: product.bars(*key), BARS)
         self.comparisons = Pinned[tuple[int, int, str]](lambda key: product.comparison(*key), COMPARISONS)
         self.counts = Pinned[tuple[str, str]](lambda key: product.counts(*key), COUNTS)
+        self.states = Pinned[tuple[str, str]](lambda key: product.state(*key), STATES)
         self.lock = threading.Condition()
         self.refreshing = threading.Lock()
         self.head: str | None = None
@@ -765,6 +776,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             if url.path == "/api/comparison":
                 self.comparison(query)
                 return
+            if url.path == "/api/state":
+                self.state(query)
+                return
             if url.path == "/api/bars":
                 self.bars(query)
                 return
@@ -833,6 +847,14 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.json(400, _failure("BAD_REQUEST", "give registration, trial_id and at, a full ledger commit"))
                 return
             self.pinned(hub.comparisons, (int(registration), int(trial_id), at))
+
+        def state(self, query: dict[str, str]) -> None:
+            """A line's gates and review readings at a full ledger commit (immutable, so kept), or the product's refusal."""
+            line, at = query.get("line", ""), query.get("at", "")
+            if not line or not COMMIT.fullmatch(at):
+                self.json(400, _failure("BAD_REQUEST", "give line and at, a full ledger commit"))
+                return
+            self.pinned(hub.states, (line, at))
 
         def bars(self, query: dict[str, str]) -> None:
             """A contract's daily bars over whole UTC days at a market day (kept), or the product's refusal."""

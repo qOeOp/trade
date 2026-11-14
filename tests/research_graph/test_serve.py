@@ -56,6 +56,7 @@ class FakeProduct:
         self.same = False  # `research unchanged`: its answer, or a refusal to raise
         self.asked: list[tuple[str, str, str]] = []
         self.compared: list[tuple[int, int, str]] = []
+        self.stated: list[tuple[str, str]] = []
         self.trial_counts: dict | None = {"research_trials": 3, "all_purpose_trials": 9}
         self.counted: list[tuple[str, str]] = []
         self.counts_failure: dict | None = None  # `research counts` refuses with this
@@ -96,6 +97,13 @@ class FakeProduct:
         if trial_id == 7:
             raise serve.ProductError({"code": "MARKET_UNREACHABLE", "message": "no market"})
         return {"comparison": {"vs_trial": 1}}
+
+    def state(self, line, commit):
+        self.stated.append((line, commit))
+        if line == "unknown":
+            raise serve.ProductError({"code": "LINE_UNKNOWN", "message": "no research line unknown"})
+        return {"ledger_commit": commit, "gates": [], "review_every": 5, "unreviewed_trials": [3],
+                "undistinguished_runs": {"trials": [3], "uncompared": [], "distinguished": 1}}
 
     def bars(self, symbol, start, end, market_day):
         self.read_bars.append((symbol, start, end, market_day))
@@ -685,6 +693,28 @@ class HttpTests(unittest.TestCase):
         for query in ("registration=12&trial_id=3", f"trial_id=3&at={at}", f"registration=registration-a&trial_id=3&at={at}",
                       f"registration=12&trial_id=x&at={at}"):
             self.assertEqual(self.get(f"/api/comparison?{query}").status, 400, query)
+
+    def test_a_line_state_is_read_once_per_commit_and_its_refusal_reaches_the_page(self):
+        at = "c" * 32
+        for _ in range(2):
+            response = self.get(f"/api/state?line=line-a&at={at}")
+            self.assertEqual((response.status, json.loads(response.read())["unreviewed_trials"]), (200, [3]))
+        self.assertEqual(self.hub.product.stated, [("line-a", at)])
+        response = self.get(f"/api/state?line=unknown&at={at}")
+        self.assertEqual((response.status, json.loads(response.read())["code"]), (400, "LINE_UNKNOWN"))
+        for query in (f"at={at}", "line=line-a", "line=line-a&at=main"):
+            self.assertEqual(self.get(f"/api/state?{query}").status, 400, query)
+
+    def test_the_line_state_reads_research_state_without_an_image_and_keeps_what_the_menu_reads(self):
+        product = serve.Product.__new__(serve.Product)
+        product.ledger = "copy"
+        full = {"ledger_commit": "c", "gates": [], "review_every": 5, "unreviewed_trials": [], "undistinguished_runs": None,
+                "interpretations": [{"body": "long"}], "line": {"name": "line-a"}}
+        with mock.patch.object(serve.Product, "run", return_value=full) as run:
+            found = product.state("line-a", "c" * 32)
+        self.assertEqual(run.call_args.args, ("research", "state", "--ledger=copy", "--line=line-a", f"--at={'c' * 32}",
+                                              "--without-image"))
+        self.assertEqual(set(found), set(serve.STATE_KEYS))
 
     def test_daily_bars_at_a_market_day_are_read_once_per_contract_and_days_and_their_refusal_reaches_the_page(self):
         at, days = "2026-10-15", "start=2026-09-01&end=2026-10-01"  # a line's market_day: a DATE, never a hash
