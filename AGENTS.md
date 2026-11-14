@@ -112,7 +112,7 @@ result matches is no new exposure.
   `.github/pull_request_template.md` and reports only checks actually run.
 - Base every PR on `main`; never stack one PR on another, since the quality checks run only for
   PRs into `main`.
-- A merge is not a release: only a version tag (`v0.2.0` or later) on a checked `main` commit reaches the
+- A merge is not a release: only a version tag (`vX.Y.Z`) on a checked `main` commit reaches the
   remote host, and tagging one is the user's call each time (`CHANGELOG.md`). `deploy/remote/README.md` says
   what switches and what stays.
 - Until 1.0, a version keeps no compatibility with earlier ones. A breaking change says in `CHANGELOG.md` what
