@@ -127,7 +127,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(exit_code, 1, f"{argv}: {out} {err}")
         self.assertIsInstance(err, dict, err)
         self.assertEqual(err["code"], code, err)
-        self.assertEqual(err["next_actions"], list(CATALOGUE[code][1]))
+        self.assertEqual(err["next_actions"], list(CATALOGUE[code]))
         self.assertIn(err["write_status"], ("not_written", "unknown", "written"))
         return err
 
@@ -151,7 +151,7 @@ class CommandTests(unittest.TestCase):
 
     def prechecked(self, ref: str, name: str) -> int:
         """replay precheck and source review of a published candidate; returns the review ID."""
-        found = self.ok("replay", "precheck", "--ledger", self.ledger, "--at", "main", "--candidate", ref,
+        found = self.ok("replay", "precheck", "--ledger", self.ledger, "--at", "head", "--candidate", ref,
                         "--output", str(self.tmp / f"precheck-{name}"), "--", *PRECHECK)  # --runtime: the main tag
         self.assertEqual((found["purpose"], found["status"]), ("precheck", "passed"))
         reviewed = self.ok("source", "review", "--ledger", self.ledger, "--candidate", ref, "--runtime", "stand-in:main",
@@ -271,7 +271,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual([row[:2] for row in daily["bars"]["rows"]], [[jan, jan + DAY - 1], [jan + DAY, jan + 2 * DAY - 1]])
         self.refused("PATH_EXISTS", *bars, "--output", whole["output"])
         self.refused("NOT_TEMPORARY_PATH", *bars, "--output", str(NOT_TEMPORARY / "bars.json"))
-        self.refused("USAGE_ERROR", *bars, "--timeframe", "1d", "--price-type", "MARK")
+        self.refused("INTERVAL_INVALID", *bars, "--timeframe", "1d", "--price-type", "MARK")
         self.refused("MONTH_INVALID", "market", "import", "--month", "2026-13")
         self.refused("MONTH_EXISTS", "market", "import", "--month", "2025-12")  # a backfill into rows already held
 

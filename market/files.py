@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from typing import Literal
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -82,6 +83,8 @@ METRICS = Table(_schema(
     ("count_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
     ("sum_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
     ("count_long_short_ratio", pa.decimal128(38, 16), True)), ("symbol", "create_time"), "create_time", "contract")
+METRICS_VALUES = tuple(METRICS.schema.names[2:])  # sum_open_interest, then the three long/short ratios
+TRADE_SCALE = 8  # agg_trade price and quantity, and the quotes inferred from them: integers x 10^8
 
 # The tables this code reads and writes; a table with no file reads as empty.
 TABLES = {"instrument": INSTRUMENT, "bar": BAR, "funding": FUNDING, "universe_month": UNIVERSE_MONTH, "quote": QUOTE,
@@ -122,8 +125,7 @@ def row_rules(table: str, batch: pa.RecordBatch) -> list[tuple[str, pa.Array]]:
     if table == "metrics":
         times = c("create_time").to_numpy(zero_copy_only=False)
         rules = [("create_time on a 5-minute grid", pa.array(times % 300_000 == 0))]
-        for name in ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
-                     "count_long_short_ratio"):
+        for name in METRICS_VALUES:
             rules.append((f"{name} >= 0", pc.fill_null(pc.greater_equal(c(name), _zero(c(name).type)), True)))
         return rules
     return []
@@ -203,9 +205,9 @@ def file_bytes(market: Market, entry: DataFile) -> pa.Buffer:
 
 # Opening
 
-def open_market(profile: dict, role: str) -> Market:
+def open_market(profile: dict, role: Literal["import", "reader"]) -> Market:
     if role not in ("import", "reader"):
-        raise _refuse(f"role {role!r} is not import or reader", "ROLE_UNKNOWN")
+        raise ValueError(f"role {role!r} is not import or reader")
     if not profile.get("root"):
         raise _refuse("the market profile names no market directory (root)", "MARKET_UNREACHABLE")
     root = Path(profile["root"])
@@ -280,6 +282,13 @@ def parse_day(market_day: str) -> date | None:
         return None
 
 
+def check_day(market_day) -> str:
+    if parse_day(market_day) is None:
+        raise _refuse(f"{market_day!r} is not a resolved market day", "MARKET_DAY_UNKNOWN",
+                      missing=(str(market_day),))
+    return market_day
+
+
 def last_time(market: Market, entry: DataFile) -> int | None:
     """The latest value of the table's time column in a file, from its footer's statistics; None with no rows."""
     reader = pq.ParquetFile(pa.BufferReader(file_bytes(market, entry)))
@@ -345,18 +354,18 @@ def latest_market_day(market: Market) -> str | None:
 
 
 def resolve_day(market: Market, ref: str | None) -> str:
-    if ref is None or ref in ("", "main", "head"):
+    if ref is None or ref in ("", "head"):
         market_day = latest_market_day(market)
         if market_day is None:
             raise _refuse("the market holds no bars yet", "MARKET_EMPTY")
         return market_day
     day = parse_day(ref)
     if day is None:
-        raise _refuse(f"{ref!r} is not main, head or a market day (YYYY-MM-DD)", "UNKNOWN_REF",
-                      missing=(ref,))
+        raise _refuse(f"{ref!r} is not head or a market day (YYYY-MM-DD)", "MARKET_DAY_UNKNOWN", missing=(ref,))
     latest = latest_day(market)
     if latest is None or day > latest:
-        raise _refuse(f"{ref!r} is after the newest day this market holds, {latest}", "UNKNOWN_REF", missing=(ref,))
+        raise _refuse(f"{ref!r} is after the newest day this market holds, {latest}", "MARKET_DAY_UNKNOWN",
+                      missing=(ref,))
     return ref
 
 
@@ -375,7 +384,7 @@ def day_end(table: str, market_day: str) -> int:
     then)."""
     day = parse_day(market_day)
     if day is None:
-        raise _refuse(f"{market_day!r} is not a market day", "UNKNOWN_REF", missing=(str(market_day),))
+        raise _refuse(f"{market_day!r} is not a market day", "MARKET_DAY_UNKNOWN", missing=(str(market_day),))
     if table == "universe_month":
         return series._day_ms(universe.next_month((day + timedelta(days=1)).replace(day=1)))
     return series._day_ms(day) + (2 if table == "instrument" else 1) * DAY
@@ -457,7 +466,7 @@ def lock(market: Market) -> Iterator[None]:
     container of the compose project whose volume holds the market directory, and `place` checks its targets for a
     writer outside it. What a killed import left is removed; what this one leaves unplaced is removed at its end."""
     if market.role != "import":
-        raise _refuse("only the import role takes the import lock", "ROLE_UNKNOWN")
+        raise ValueError("only the import role takes the import lock")
     if market.locked:
         raise RuntimeError("this market already holds its import lock")
     handle = open(market.root / "lock", "a+")
@@ -609,7 +618,7 @@ def data_tests(market: Market) -> list[str]:
     latest = pc.max(months.column("month")).as_py()
     newest = months.filter(pc.equal(months.column("month"), pa.scalar(latest, pa.date32())))
     members = sorted(set(newest.column("symbol").to_pylist()))
-    eve = (latest - date(1970, 1, 1)).days * DAY - DAY
+    eve = series._day_ms(latest) - DAY
     traded = set()
     for batch in read_table(market, None, "bar", members, eve, eve + DAY):
         minute = pa.array(batch.column("ts_open").to_numpy(zero_copy_only=False) % 60_000 == 0)
@@ -633,14 +642,11 @@ def data_tests(market: Market) -> list[str]:
 
 # A new market
 
-NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
-KINDS = ("active", "isolated", "temporary")
-
 
 def init_market(name: str, root: Path, kind: str) -> dict:
     """An empty market directory (its lock alone: the first import writes the first file) and its profile
     {name, holds: market, kind, root} in the profile directory."""
-    if not isinstance(name, str) or not NAME.fullmatch(name) or kind not in KINDS:
+    if not isinstance(name, str) or not profiles.NAME.fullmatch(name) or kind not in profiles.KINDS:
         raise _refuse("the profile name or kind is malformed", "INVALID_NAME", missing=(str(name), str(kind)))
     root = Path(root).expanduser().absolute()
     found = profiles.entries()

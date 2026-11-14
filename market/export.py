@@ -38,7 +38,7 @@ import pyarrow.parquet as pq
 
 from engine.config import EXECUTION_BAR_MINUTES
 from market import coverage, files, instrument, lifecycle, series, universe
-from market.sources import DAY, MINUTE, MarketError, _refuse
+from market.sources import DAY, MINUTE, _refuse
 
 
 NAUTILUS_SCALE = 16  # Nautilus high-precision Catalog decimals: decimal128(38, 16)
@@ -51,9 +51,9 @@ VENUE = "BINANCE"
 
 # market.native_symbol
 
-def native_symbol(symbol: str, episode: int | None = None) -> dict:
-    """market.native_symbol: {instrument_id, strategy_tag, short_name} of a public contract name and an
-    optional episode number; a non-ASCII coin is spelled by its UTF-8 bytes."""
+def native_symbol(symbol: str, episode: int | None = None) -> str:
+    """market.native_symbol: the engine instrument id of a public contract name and an optional episode number; a
+    non-ASCII coin is spelled by its UTF-8 bytes."""
     if not isinstance(symbol, str) or not symbol.endswith("USDT") or symbol == "USDT" or "-" in symbol or "." in symbol:
         raise _refuse(f"{symbol!r} is no USDT perpetual name the engine can identify", "SYMBOL_SHAPE",
                       missing=(str(symbol),))
@@ -62,9 +62,7 @@ def native_symbol(symbol: str, episode: int | None = None) -> dict:
     coin = symbol.removesuffix("USDT")
     ascii_coin = coin if coin.isascii() else "X" + coin.encode().hex().upper()
     suffix = f"-E{episode}" if episode is not None else ""
-    short = coin[4:] if coin.startswith("1000") and coin[4:5].isalpha() else coin
-    return {"instrument_id": f"{ascii_coin}USDT{suffix}-PERP.{VENUE}",
-            "strategy_tag": ascii_coin + (f"_E{episode}" if episode is not None else ""), "short_name": short}
+    return f"{ascii_coin}USDT{suffix}-PERP.{VENUE}"
 
 
 # market.split_episodes
@@ -86,9 +84,7 @@ def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, star
     """market.split_episodes: the pieces of one contract; with lifecycle episodes, one native contract
     per episode holding only its complete minutes and the funding settled inside it."""
     if not episodes:
-        native = native_symbol(symbol)
-        return [{"index": None, "instrument_id": native["instrument_id"], "strategy_tag": native["strategy_tag"],
-                 "episode": None, "low_ns": start_ns, "high_ns": end_ns, "catalog_dir": "", **series_}]
+        return [{"index": None, "instrument_id": native_symbol(symbol), "episode": None, "low_ns": start_ns, "high_ns": end_ns, "catalog_dir": "", **series_}]
     previous_end = None
     pieces: list[dict] = []
     for index, episode in enumerate(episodes, start=1):
@@ -99,9 +95,9 @@ def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, star
             raise _refuse(f"episode {index} of {symbol} lacks start_ns or native events", "EPISODE_SHAPE",
                           missing=(symbol,))
         native = native_symbol(symbol, index)
-        if episode.get("instrument_id") != native["instrument_id"]:
-            raise _refuse(f"episode {index} of {symbol} is {episode.get('instrument_id')}, not "
-                          f"{native['instrument_id']}", "EPISODE_SHAPE", missing=(symbol,))
+        if episode.get("instrument_id") != native:
+            raise _refuse(f"episode {index} of {symbol} is {episode.get('instrument_id')}, not {native}",
+                          "EPISODE_SHAPE", missing=(symbol,))
         if pieces and (episode["start_ns"] <= pieces[-1]["episode"]["start_ns"] or previous_end is None
                        or episode["start_ns"] < previous_end):
             raise _refuse(f"episode {index} of {symbol} does not start after the previous one ended", "EPISODE_ORDER",
@@ -110,8 +106,7 @@ def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, star
         ended = lifecycle.termination(episode)
         high = ended // 1_000_000 if ended is not None else None
         previous_end = ended
-        pieces.append({"index": index, "instrument_id": native["instrument_id"], "strategy_tag": native["strategy_tag"],
-                       "episode": episode, "low_ns": episode["start_ns"], "high_ns": ended,
+        pieces.append({"index": index, "instrument_id": native, "episode": episode, "low_ns": episode["start_ns"], "high_ns": ended,
                        "catalog_dir": f"episode-{index}", "last": _inside(series_["last"], low, high),
                        "mark": _inside(series_["mark"], low, high),
                        "funding": [(at, rate) for at, rate in series_["funding"]
@@ -180,8 +175,10 @@ def nautilus_decimal(values: np.ndarray, scale: int) -> pa.Array:
 
 
 def write_bars(catalog, bar_type: str, bars: dict[str, np.ndarray], step_ms: int, price_precision: int,
-               size_precision: int, price_scale: int, volume_scale: int) -> int:
-    """market.write_bars: integer bars as engine external Bars, each event at its close."""
+               size_precision: int) -> int:
+    """market.write_bars: integer bars (series.PRICE_SCALE, VOLUME_SCALE) as engine external Bars, each event at its
+    close."""
+    price_scale, volume_scale = series.PRICE_SCALE, series.VOLUME_SCALE
     from nautilus_trader.persistence import BarDataWrangler
     ts = (bars["ts_open"].astype(np.int64) + step_ms - 1) * 1_000_000
     if len(ts) > 1 and not np.all(np.diff(ts) > 0):
@@ -212,9 +209,9 @@ def write_bars(catalog, bar_type: str, bars: dict[str, np.ndarray], step_ms: int
     return written
 
 
-def write_marks(catalog, instrument_id, bars: dict[str, np.ndarray], step_ms: int, price_precision: int,
-                price_scale: int) -> int:
-    """market.write_marks: one MarkPriceUpdate per MARK minute's close, at that close."""
+def write_marks(catalog, instrument_id, bars: dict[str, np.ndarray], step_ms: int, price_precision: int) -> int:
+    """market.write_marks: one MarkPriceUpdate per MARK minute's close (series.PRICE_SCALE), at that close."""
+    price_scale = series.PRICE_SCALE
     from nautilus_trader.model import MarkPriceUpdate, Price
     ts = (bars["ts_open"].astype(np.int64) + step_ms - 1) * 1_000_000
     if len(ts) > 1 and not np.all(np.diff(ts) > 0):
@@ -269,13 +266,13 @@ def write_funding(root: Path, instrument_id: str, rows: list[tuple[int, Decimal]
     return len(rows)
 
 
-def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, size_precision: int,
-                 price_scale: int) -> int:
+def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, size_precision: int) -> int:
     """market.write_quotes: one QuoteTick per stored best bid/ask state (`rows` yields (ts_ms, bid, ask) integer
-    batches in time order); both sizes are `size` at the instrument's size precision (its max quantity: no depth
-    is modeled)."""
+    batches in time order, prices at the trade scale they were inferred from); both sizes are `size` at the
+    instrument's size precision (its max quantity: no depth is modeled)."""
     from nautilus_trader.model import Price, Quantity, QuoteTick
-    factor = 10 ** (NAUTILUS_SCALE - price_scale)
+    scale = files.TRADE_SCALE
+    factor = 10 ** (NAUTILUS_SCALE - scale)
     quantity = Quantity.from_str(format(Decimal(size).quantize(Decimal(1).scaleb(-size_precision)), "f"))
     written, last = 0, None
     pending = np.empty((0, 3), dtype=np.int64)
@@ -292,7 +289,7 @@ def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, 
         block = np.array(batch, dtype=np.int64).reshape(-1, 3)
         if not len(block):
             continue
-        if not _exact(block[:, 1], price_scale, price_precision) or not _exact(block[:, 2], price_scale, price_precision):
+        if not _exact(block[:, 1], scale, price_precision) or not _exact(block[:, 2], scale, price_precision):
             raise _refuse(f"{instrument_id}: a quote price is not exact at precision {price_precision}", "QUOTE_INEXACT",
                           missing=(str(instrument_id),))
         if (last is not None and block[0, 0] < last) or np.any(np.diff(block[:, 0]) < 0):
@@ -331,9 +328,6 @@ def quote_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, 
     yield from _rows(market, market_day, "quote", symbol, low_ms, stop, ("ts", "bid", "ask"))
 
 
-TRADE_SCALE = 8  # agg_trade prices and quantities: integers x 1e8 (binance-aggtrades-int64-scale8-v1)
-
-
 def _month_end(ts_ms: int) -> int:
     """The first millisecond of the UTC month after the one holding `ts_ms`."""
     return series._day_ms(universe.next_month(series._ms_day(ts_ms)))
@@ -345,7 +339,7 @@ def write_trades(catalog, instrument_id, rows, price_precision: int, size_precis
     instrument's precisions, the aggressor SELL when the buyer made the market (else BUY), the aggregate trade ID
     as the trade ID. A file never straddles a millisecond or a UTC month."""
     from nautilus_trader.model import AggressorSide, Price, Quantity, TradeId, TradeTick
-    factor = 10 ** (NAUTILUS_SCALE - TRADE_SCALE)
+    factor = 10 ** (NAUTILUS_SCALE - files.TRADE_SCALE)
     written, last = 0, None
     pending = np.empty((0, 5), dtype=np.int64)
 
@@ -363,7 +357,8 @@ def write_trades(catalog, instrument_id, rows, price_precision: int, size_precis
         block = np.array(batch, dtype=np.int64).reshape(-1, 5)
         if not len(block):
             continue
-        if not _exact(block[:, 2], TRADE_SCALE, price_precision) or not _exact(block[:, 3], TRADE_SCALE, size_precision):
+        if not (_exact(block[:, 2], files.TRADE_SCALE, price_precision)
+                and _exact(block[:, 3], files.TRADE_SCALE, size_precision)):
             raise _refuse(f"{instrument_id}: a trade price or quantity is not exact at precisions {price_precision}, "
                           f"{size_precision}", "TRADE_INEXACT", missing=(str(instrument_id),))
         pending = np.concatenate((pending, block))
@@ -405,8 +400,6 @@ def trade_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, 
 METRICS_RULE = "binance-metrics-visible-v1"
 METRICS_DESCRIBES_MS = 5 * MINUTE  # ts_event = create_time + 5 min
 METRICS_VISIBLE_MS = 10 * MINUTE  # ts_init = create_time + 10 min
-METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
-                  "count_long_short_ratio")
 
 
 def metrics_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, high_ms: int | None,
@@ -419,7 +412,8 @@ def metrics_rows(market: files.Market, market_day: str, symbol: str, low_ms: int
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
     return [row for batch in files.read_table(market, market_day, "metrics", [symbol], low_ms - METRICS_DESCRIBES_MS,
                                                  stop - METRICS_VISIBLE_MS)
-            for row in zip(*(batch.column(name).to_pylist() for name in ("create_time", *METRICS_VALUES)), strict=True)]
+            for row in zip(*(batch.column(name).to_pylist() for name in ("create_time", *files.METRICS_VALUES)),
+                           strict=True)]
 
 
 def write_metrics(root: Path, instrument_id: str, rows: list[tuple]) -> int:
@@ -431,7 +425,7 @@ def write_metrics(root: Path, instrument_id: str, rows: list[tuple]) -> int:
     stamps = np.array([row[0] for row in rows], dtype=np.int64)
     columns = {"ts_event": pa.array((stamps + METRICS_DESCRIBES_MS) * 1_000_000, pa.int64()),
                "ts_init": pa.array((stamps + METRICS_VISIBLE_MS) * 1_000_000, pa.int64())}
-    for index, name in enumerate(METRICS_VALUES, start=1):
+    for index, name in enumerate(files.METRICS_VALUES, start=1):
         columns[name] = pa.array([row[index] for row in rows], pa.decimal128(38, 16))
     table = pa.table(columns).replace_schema_metadata({"type_name": "Metrics", "instrument_id": instrument_id,
                                                        "rule": METRICS_RULE})
@@ -508,7 +502,6 @@ def _export_episode(job: dict, path: Path) -> dict:
     from nautilus_trader.persistence import ParquetDataCatalog
     symbol, market_day, start_ns, end_ns = job["symbol"], job["market_day"], job["start_ns"], job["end_ns"]
     start, end = start_ns // 1_000_000, end_ns // 1_000_000
-    price_scale, volume_scale = series.PRICE_SCALE, series.VOLUME_SCALE
     market = files.open_market(job["profile"], "reader")
     terms = instrument.terms(market, market_day, symbol)
     raw: dict[str, Any]
@@ -537,26 +530,24 @@ def _export_episode(job: dict, path: Path) -> dict:
         catalog = ParquetDataCatalog(str(root))
         catalog.write_instruments([made])
         iid = InstrumentId.from_str(piece["instrument_id"])
-        mark_precision = max(precision, needed_decimals(mark["close"], price_scale))
+        mark_precision = max(precision, needed_decimals(mark["close"], series.PRICE_SCALE))
         quote_size = terms.get("max_quantity")  # None for inferred terms: no quotes can be exported
         first_ms = max(start, -(-piece["low_ns"] // 1_000_000))
         piece_end = piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None else None
         quotes = write_quotes(catalog, iid, quote_rows(market, market_day, symbol, first_ms, piece_end, end), precision,
-                              quote_size, size_increment, price_scale) \
+                              quote_size, size_increment) \
             if job["include_quotes"] and quote_size is not None else 0
         trades = write_trades(catalog, iid, trade_rows(market, market_day, symbol, first_ms, piece_end, end), precision,
                               size_increment) if job.get("include_trades") else None
         metrics = write_metrics(root, str(iid), metrics_rows(market, market_day, symbol, first_ms, piece_end, end)) \
             if job.get("include_metrics") else None
         counts = {"last": write_bars(catalog, f"{iid}-1-MINUTE-LAST-EXTERNAL", last, MINUTE, precision,
-                                     max(size_increment, needed_decimals(last["volume"], volume_scale)),
-                                     price_scale, volume_scale),
-                  "mark": write_marks(catalog, iid, mark, MINUTE, mark_precision, price_scale),
+                                     max(size_increment, needed_decimals(last["volume"], series.VOLUME_SCALE))),
+                  "mark": write_marks(catalog, iid, mark, MINUTE, mark_precision),
                   "quote": quotes,
                   "funding": write_funding(root, str(iid), piece["funding"]),
                   "daily": write_bars(catalog, f"{iid}-1-DAY-LAST-EXTERNAL", daily, DAY, precision,
-                                      max(size_increment, needed_decimals(daily["volume"], volume_scale)),
-                                      price_scale, volume_scale),
+                                      max(size_increment, needed_decimals(daily["volume"], series.VOLUME_SCALE))),
                   "instrument_close": 0, "instrument_status": 0}
         if trades is not None:  # only on request, so an export without trades keeps its receipt bytes
             counts["trade"] = trades
@@ -640,16 +631,12 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
     """
     step = MINUTE * 1_000_000
     if type(start_ns) is not int or type(end_ns) is not int or start_ns >= end_ns or start_ns % step or end_ns % step:
-        raise _refuse(f"export window [{start_ns}, {end_ns}) is not a positive one-minute interval", "EXPORT_WINDOW",
+        raise _refuse(f"export window [{start_ns}, {end_ns}) is not a positive one-minute interval", "INTERVAL_INVALID",
                       missing=("start", "end"))
     if not symbols or len(set(symbols)) != len(symbols):
-        raise _refuse("export needs each contract once", "EXPORT_SCOPE", missing=("symbols",))
+        raise _refuse("export needs each contract once", "EMPTY_SYMBOLS", missing=("symbols",))
     market = files.open_market(profile, "reader")
-    try:
-        market_day = files.resolve_day(market, at)
-    except MarketError as exc:
-        raise _refuse(f"market reference {at!r} does not resolve ({exc.code})", "MARKET_DAY_UNKNOWN",
-                      missing=(str(at),)) from exc
+    market_day = files.resolve_day(market, at)
     if fresh:
         if root is not None:
             Path(root).mkdir(parents=True, exist_ok=True)

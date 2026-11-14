@@ -108,7 +108,7 @@ class FakeProduct:
     def bars(self, symbol, start, end, market_day):
         self.read_bars.append((symbol, start, end, market_day))
         if symbol == "NOPEUSDT":
-            raise serve.ProductError({"code": "NO_TERMS", "message": "no NOPEUSDT at the market day"})
+            raise serve.ProductError({"code": "UNKNOWN_SYMBOL", "message": "no NOPEUSDT at the market day"})
         return {"market_day": market_day, "symbol": symbol, "timeframe": "1d", "bars": {"count": 0, "rows": []}}
 
     def readings(self, commit):
@@ -353,7 +353,7 @@ class HubTests(unittest.TestCase):
 
         def degraded(commit, line, since):
             graph = real(commit, line, since)
-            graph["scope"]["market_unread"] = "UNKNOWN_REF: no such market day"
+            graph["scope"]["market_unread"] = "MARKET_DAY_UNKNOWN: no such market day"
             return graph
 
         self.product.graph, self.product.same = degraded, True
@@ -724,7 +724,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(json.loads(response.read())["market_day"], at)
         self.assertEqual(self.hub.product.read_bars, [("BTCUSDT", "2026-09-01", "2026-10-01", at)])
         response = self.get(f"/api/bars?symbol=NOPEUSDT&timeframe=1d&{days}&at={at}")
-        self.assertEqual((response.status, json.loads(response.read())["code"]), (400, "NO_TERMS"))
+        self.assertEqual((response.status, json.loads(response.read())["code"]), (400, "UNKNOWN_SYMBOL"))
         for query in (f"symbol=BTCUSDT&timeframe=1m&{days}&at={at}", f"symbol=BTCUSDT&{days}&at={at}",
                       f"symbol=btc;rm&timeframe=1d&{days}&at={at}", f"symbol=BTCUSDT&timeframe=1d&{days}&at=main",
                       f"symbol=BTCUSDT&timeframe=1d&{days}&at=head", f"symbol=BTCUSDT&timeframe=1d&{days}&at={'d' * 32}",

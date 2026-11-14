@@ -15,7 +15,7 @@ import tempfile
 
 import pymysql
 
-from cli.common import Kind, UsageError, _at, _ledger_option
+from cli.common import _at, _ledger_option
 from ledger import admin, db, witness
 from ledger import publish as publication
 from shared import paths, profiles
@@ -33,7 +33,7 @@ NOUNS = ("ledger",)
 READ_FIRST = ("SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "WITH", "TABLE", "VALUES")
 
 
-def ledger_init(name: str, kind: Kind, service_root: Path, backup_root: Path | None = None,
+def ledger_init(name: str, kind: profiles.Kind, service_root: Path, backup_root: Path | None = None,
                 holds: str = "research") -> dict:
     """ledger init: a new research ledger or Paper database profile (database = the profile name with - as
     _), its accounts and branch grant; administration happens only here."""
@@ -198,7 +198,7 @@ def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: 
     (reproduce), or the incremental backup sync to the profile's backup directory (backup)."""
     if kind == "reproduce":
         if not output:
-            raise UsageError("ledger export --kind reproduce needs --output")
+            raise refuse("USAGE_ERROR", "ledger export --kind reproduce needs --output")
         target = Path(output).expanduser().absolute()
         if os.path.lexists(target):
             raise refuse("PATH_EXISTS", f"{target} already exists", missing=(str(target),))
@@ -330,7 +330,7 @@ def register(verbs, verb, runner) -> None:
                              "publish, mirror, sync")
     command = verb(ledger, "init", "initialize a new research ledger or Paper database profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
-    command.add_argument("--kind", required=True, choices=db.KINDS, help="active, isolated or temporary")
+    command.add_argument("--kind", required=True, choices=profiles.KINDS, help="active, isolated or temporary")
     command.add_argument("--holds", choices=tuple(db.SCHEMAS), default="research",
                          help="research (ledger/schema.sql, the default) or paper (ledger/paper.sql: Paper's execution "
                               "records, never published, never active)")
@@ -445,4 +445,4 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         with db.connect(profile, "reader") as conn:
             found = ledger_review(conn, args.at, args.since)
         return found, 0 if found["ok"] else 1
-    raise UsageError(f"unknown command {args.noun} {args.verb}")
+    raise refuse("USAGE_ERROR", f"unknown command {args.noun} {args.verb}")

@@ -1,851 +1,424 @@
-"""The refusal catalogue (`CATALOGUE`): one meaning and repair per refusal code (and
-`MARKET_CATALOGUE` for a market reference refused under a code the ledger also uses).
+"""The refusal catalogue (`CATALOGUE`): the repair commands of each refusal code, one code per condition.
 
-The repairs are the commands that supply what is missing; none is a way around a check. Every
-code a product package raises is listed here; a test walks every raise site.
+The repairs are the commands that supply what is missing; none is a way around a check; the raise site's
+message says what was refused. Every code a product package raises is listed here; a test walks the literal
+codes of the product packages' raise sites.
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
-from shared.errors import Refusal, refusal
+from shared.errors import Refusal
 
 
 _RERUN = "Rerun the same command; writes are idempotent by operation ID."
 
-CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
-    "REPLICA_REQUIRED": ("The configured service is not a reader-only research replica.",
-                         ("Use the separate research mirror; keep the active research ledger unchanged.",)),
-    "REPLICA_BUSY": ("A research replica sync is already in progress.",
-                     ("Wait for the current sync and read its result.",)),
-    "REPLICA_INVALID": ("The fetched research commit does not pass the product's native checks.",
-                        ("Keep the displayed commit; inspect the published commit with its matching product version.",)),
-    "REPLICA_SYNC_FAILED": ("Fetching or fast-forwarding the configured research replica failed.",
-                            ("Keep the displayed commit, check origin connectivity and retry sync; never reset or force it.",)),
+CATALOGUE: dict[str, tuple[str, ...]] = {
+    "REPLICA_REQUIRED": ("Use the separate research mirror; keep the active research ledger unchanged.",),
+    "REPLICA_BUSY": ("Wait for the current sync and read its result.",),
+    "REPLICA_INVALID": ("Keep the displayed commit; inspect the published commit with its matching product version.",),
+    "REPLICA_SYNC_FAILED": ("Keep the displayed commit, check origin connectivity and retry sync; never reset or force it.",),
     # Connections and service (ledger/db.py)
-    "INVALID_ROLE": ("The connection role is neither writer nor reader.",
-                     ("Connect with role writer to write or reader to read.",)),
-    "LEDGER_UNKNOWN": ("No such ledger profile, or its service has no accounts for its database.",
-                       ("The profiles are the .json files in the profile directory (`~/.local/share/trade/ledgers`, or "
-                        "`TRADE_LEDGER_HOME`). Make a ledger with `ledger init`, or start the compose service "
-                        "(`deploy/README.md`); make a market with `market init`.",)),
-    "LEDGER_KIND": ("The profile is not what the command reads: a market, the research ledger or the Paper "
-                    "database (a profile's `kind` and `holds`).",
-                    ("Pass a profile of the kind the message names. A Paper database is made with `ledger init "
-                     "--name paper --kind isolated --holds paper --service-root DIR`; rewrite a profile in the old "
-                     "market format as the message says.",)),
-    "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
-                           "not answer (a long write such as an import can stall it for minutes; otherwise its process, "
-                           "its container or the Docker host is hung).",
-                           ("When the message says the service did not answer, it is running and starting it again "
-                            "does not help: rerun the same command once after a minute or two, since a stall from a "
-                            "long write clears by itself. If it still does not answer, check the host with `docker "
-                            "ps` (one that does not return means Docker itself is hung) and ask the user to restart "
-                            "the ledger service (`docker compose restart ledger`) or Docker, saying that a restart "
-                            "rolls back a write in progress; then rerun the same command.",
-                            "Otherwise start it with `ledger service start`, then rerun the same command.")),
-    "LEDGER_PERMISSION": ("The ledger account may not run this statement or was refused.",
-                          ("Write only through the declared commands; they use the writer account.",)),
-    "SCHEMA_MISMATCH": ("The ledger schema generation is not the one this code reads.",
-                        ("Use the product version that matches the ledger's schema generation (README); never "
-                         "rebuild or rewrite a ledger to pass this check.",)),
-    "INVALID_NAME": ("A profile, database or branch name is malformed, or the kind is unknown.",
-                     ("Use letters, digits, hyphens and underscores, and kind active, isolated or temporary.",)),
-    "LEDGER_EXISTS": ("A profile of that name, the active research ledger or that database already exists.",
-                      ("Choose another profile and database name; existing ledgers are never replaced.",)),
-    "MARKET_EXISTS": ("A profile of that name or the active market already exists, or the directory `market init` "
-                      "is to make a market of is not empty.",
-                      ("Choose another profile name or an empty directory; existing markets are never replaced.",)),
-    "ISOLATION_BREACH": ("A test ledger reuses the active database name or a test market the active market's "
-                         "directory, or the active ledger or market would live in the source checkout or a "
-                         "temporary root (or the active ledger lacks its backup directory).",
-                         ("Give an isolated ledger its own database name; keep the active service and backup "
-                          "outside Git and temporary directories.",)),
-    "DOLT_BINARY": ("No Dolt executable of the pinned version was found.",
-                    ("Set RESEARCH_DOLT_BINARY to a Dolt 2.7.2 executable "
-                     "(https://github.com/dolthub/dolt/releases/tag/v2.7.2); another version is refused.",)),
-    "LEDGER_START": ("The Dolt service did not start or accept connections in time.",
-                     ("Inspect the service log printed on standard error, then rerun `ledger init`.",)),
-    "INVALID_REF": ("The ledger reference is empty or holds characters outside the Dolt reference set.",
-                    ("Pass a commit hash or branch name.",)),
-    "UNKNOWN_REF": ("The reference names no commit or branch of this ledger.",
-                    ("List commits with `ledger sql \"SELECT * FROM dolt_log\"` and pass one of them.",)),
+    "LEDGER_UNKNOWN": ("The profiles are the .json files in the profile directory (`~/.local/share/trade/ledgers`, or "
+                       "`TRADE_LEDGER_HOME`). Make a ledger with `ledger init`, or start the compose service "
+                       "(`deploy/README.md`); make a market with `market init`.",),
+    "LEDGER_KIND": ("Pass a profile of the kind the message names. A Paper database is made with `ledger init "
+                    "--name paper --kind isolated --holds paper --service-root DIR`.",),
+    "LEDGER_UNAVAILABLE": ("When the message says the service did not answer, it is running and starting it again "
+                           "does not help: rerun the same command once after a minute or two, since a stall from a "
+                           "long write clears by itself. If it still does not answer, check the host with `docker "
+                           "ps` (one that does not return means Docker itself is hung) and ask the user to restart "
+                           "the ledger service (`docker compose restart ledger`) or Docker, saying that a restart "
+                           "rolls back a write in progress; then rerun the same command.",
+                           "Otherwise start it with `ledger service start`, then rerun the same command."),
+    "LEDGER_PERMISSION": ("Write only through the declared commands; they use the writer account.",),
+    "SCHEMA_MISMATCH": ("Use the product version that matches the ledger's schema generation (README); never "
+                        "rebuild or rewrite a ledger to pass this check.",),
+    "INVALID_NAME": ("Use letters, digits, hyphens and underscores, and kind active, isolated or temporary.",),
+    "LEDGER_EXISTS": ("Choose another profile and database name; existing ledgers are never replaced.",),
+    "MARKET_EXISTS": ("Choose another profile name or an empty directory; existing markets are never replaced.",),
+    "ISOLATION_BREACH": ("Give an isolated ledger its own database name; keep the active service and backup "
+                         "outside Git and temporary directories.",),
+    "DOLT_BINARY": ("Set RESEARCH_DOLT_BINARY to a Dolt 2.7.2 executable "
+                    "(https://github.com/dolthub/dolt/releases/tag/v2.7.2); another version is refused.",),
+    "LEDGER_START": ("Inspect the service log printed on standard error, then rerun `ledger init`.",),
+    "INVALID_REF": ("Pass a commit hash or branch name.",),
+    "UNKNOWN_REF": ("List commits with `ledger sql \"SELECT * FROM dolt_log\"` and pass one of them.",),
     # The write protocol
-    "READ_ONLY_CONNECTION": ("Writes need the writer connection on the research branch.",
-                             ("Run the declared write command; it opens the writer connection.",)),
-    "DIRTY_WORKING_SET": ("The research branch holds uncommitted SQL changes from outside the write path.",
-                          ("Have the ledger administrator inspect `dolt_status`; never commit them under another "
-                           "operation.",)),
-    "CONCURRENT_WRITE": ("Another write landed first; this transaction was rolled back.",
-                         ("Reread the ledger, check the record still makes sense, then rerun the same command; it "
-                          "is idempotent. A `replay` command may have left its --output directory: on PATH_EXISTS, "
-                          "rerun with a new path.",)),
-    "DOLT_SQL_ERROR": ("The ledger refused a statement; the transaction was rolled back.",
-                       ("If the message names a value the column refuses (a judgment body holds at most 65,535 "
-                        "bytes), fix the input; `ledger sql \"DESCRIBE <table>\"` lists the columns. Otherwise: "
-                        + _RERUN,)),
-    "SQL_STATEMENT_FAILED": ("The ledger refused a `ledger sql` read statement; the server's error text is in the "
-                             "message.",
-                             ("Fix the statement and rerun; list tables with `ledger sql \"SHOW TABLES\"` and columns "
-                              "with `ledger sql \"DESCRIBE <table>\"`.",)),
+    "READ_ONLY_CONNECTION": ("Run the declared write command; it opens the writer connection.",),
+    "DIRTY_WORKING_SET": ("Have the ledger administrator inspect `dolt_status`; never commit them under another "
+                          "operation.",),
+    "CONCURRENT_WRITE": ("Reread the ledger, check the record still makes sense, then rerun the same command; it "
+                         "is idempotent. A `replay` command may have left its --output directory: on PATH_EXISTS, "
+                         "rerun with a new path.",),
+    "DOLT_SQL_ERROR": ("If the message names a value the column refuses (a judgment body holds at most 65,535 "
+                       "bytes), fix the input; `ledger sql \"DESCRIBE <table>\"` lists the columns. Otherwise: "
+                       + _RERUN,),
+    "SQL_STATEMENT_FAILED": ("Fix the statement and rerun; list tables with `ledger sql \"SHOW TABLES\"` and columns "
+                             "with `ledger sql \"DESCRIBE <table>\"`.",),
     # Paths
-    "NOT_TEMPORARY_PATH": ("The path is not strictly under a temporary root.",
-                           ("Pass a new directory under /tmp (or the platform temporary directory).",)),
-    "PATH_EXISTS": ("The working path already exists; working copies are always new.",
-                    ("Pass a path that does not exist yet.",)),
+    "NOT_TEMPORARY_PATH": ("Pass a new directory under /tmp (or the platform temporary directory).",),
+    "PATH_EXISTS": ("Pass a path that does not exist yet.",),
     # Evidence
-    "INVALID_BUNDLE_NAME": ("The bundle name is not of the form [A-Za-z0-9][A-Za-z0-9_.-]{0,159}.",
-                            ("Rename the bundle within the allowed characters and length.",)),
-    "RESERVED_BUNDLE": ("The bundle name lies in a product namespace (trial-<id>-*, lifecycle-*), written only by "
-                        "its product command.",
-                        ("Write those through their commands (replays, `execution recover`, `market lifecycle`); "
-                         "name your own evidence otherwise, for example correction-*.",)),
-    "INVALID_EVIDENCE_PATH": ("An evidence source is missing or a symbolic link, or a path in the bundle is "
-                              "absolute, contains .., is too long or repeats another (--note is stored as "
-                              "note.md); the message names which.",
-                              ("Copy the files into a plain directory without links or duplicate names.",)),
-    "EMPTY_EVIDENCE": ("An evidence file is empty, or the sources hold no file.",
-                       ("Remove empty files and pass at least one nonempty file.",)),
-    "MEDIA_NOT_KEPT": ("Audio and video media are not kept in the ledger; only derived evidence is.",
-                       ("Store the transcript, frames and receipts derived from the media instead.",)),
-    "EVIDENCE_TOO_LARGE": ("An evidence file exceeds the per-file size limit.",
-                           ("Store a derived, smaller file instead of the original.",)),
-    "BUNDLE_EXISTS": ("A bundle of that name already exists with other content, or a trial with recovery material "
-                      "is sealed again; bundles are never replaced and a trial is sealed once.",
-                      ("Use a new bundle name; to correct a bundle, add a correction-* bundle naming it.",)),
-    "UNKNOWN_BUNDLE": ("The ledger version read holds no bundle of that name.",
-                       ("List bundles with `ledger sql \"SELECT DISTINCT bundle FROM v_evidence\"`.",)),
-    "LEDGER_CORRUPT": ("Stored bytes no longer match their stored content hash; this is a ledger integrity "
-                       "fault.",
-                       ("Report it with the bundle or candidate named; run `ledger review` and restore from the "
-                        "backup with the administrator.",)),
+    "INVALID_BUNDLE_NAME": ("Rename the bundle within the allowed characters and length.",),
+    "RESERVED_BUNDLE": ("Write those through their commands (replays, `execution recover`, `market lifecycle`); "
+                        "name your own evidence otherwise, for example correction-*.",),
+    "INVALID_EVIDENCE_PATH": ("Copy the files into a plain directory without links or duplicate names.",),
+    "EMPTY_EVIDENCE": ("Remove empty files and pass at least one nonempty file.",),
+    "MEDIA_NOT_KEPT": ("Store the transcript, frames and receipts derived from the media instead.",),
+    "EVIDENCE_TOO_LARGE": ("Store a derived, smaller file instead of the original.",),
+    "BUNDLE_EXISTS": ("Use a new bundle name; to correct a bundle, add a correction-* bundle naming it.",),
+    "UNKNOWN_BUNDLE": ("List bundles with `ledger sql \"SELECT DISTINCT bundle FROM v_evidence\"`.",),
+    "LEDGER_CORRUPT": ("Report it with the bundle or candidate named; run `ledger review` and restore from the "
+                       "backup with the administrator.",),
     # Candidates
-    "SOURCE_SIZE": ("The strategy source is not bytes, is empty or exceeds the source size limit.",
-                    ("Publish one complete, nonempty UTF-8 strategy file within the limit.",)),
-    "ENTRY_CLASS_INVALID": ("The entry class is not a valid Python identifier.",
-                            ("Pass the name of the strategy's top-level class.",)),
-    "SOURCE_SYNTAX": ("The source is not valid UTF-8 Python.",
-                      ("Fix the syntax or encoding in the working copy, then publish again.",)),
-    "ENTRY_CLASS_NOT_UNIQUE": ("The source does not define exactly one top-level class of the entry class name.",
-                               ("Define the entry class once at module top level.",)),
-    "INVALID_ID": ("The strategy ID is not a reference name ([A-Za-z0-9][A-Za-z0-9_.-]{0,99}).",
-                   ("Choose a strategy ID within the allowed characters and length.",)),
-    "NOTE_INVALID": ("The description or difference is empty or longer than 2000 characters.",
-                     ("Write a nonempty note of at most 2000 characters.",)),
-    "LINEAGE_INCOMPLETE": ("A parent and its difference were not given together.",
-                           ("Give both --parent and --difference, or neither for a root.",)),
-    "BAD_REF": ("A candidate reference is not strategy_id@revision with a positive revision.",
-                ("Write the reference as strategy_id@N.",)),
-    "UNKNOWN_CANDIDATE": ("The ledger version read holds no candidate of that reference.",
-                          ("List candidates with `candidate list`.",)),
-    "SOURCE_EXISTS": ("These exact source bytes are already a candidate.",
-                      ("Use the existing candidate named in the message, or change the source.",)),
+    "SOURCE_SIZE": ("Publish one complete, nonempty UTF-8 strategy file within the limit.",),
+    "ENTRY_CLASS_INVALID": ("Pass the name of the strategy's top-level class.",),
+    "SOURCE_SYNTAX": ("Fix the syntax or encoding in the working copy, then publish again.",),
+    "ENTRY_CLASS_NOT_UNIQUE": ("Define the entry class once at module top level.",),
+    "INVALID_ID": ("Choose a strategy ID within the allowed characters and length.",),
+    "NOTE_INVALID": ("Write a nonempty note of at most 2000 characters.",),
+    "LINEAGE_INCOMPLETE": ("Give both --parent and --difference, or neither for a root.",),
+    "BAD_REF": ("Write the reference as strategy_id@N.",),
+    "UNKNOWN_CANDIDATE": ("List candidates with `candidate list`.",),
+    "SOURCE_EXISTS": ("Use the existing candidate named in the message, or change the source.",),
     # Research lines
-    "START_NOT_FOUND": ("The start candidate of the research line does not exist.",
-                        ("Publish the start with `candidate publish`, then select the line again.",)),
-    "START_REVIEW_REQUIRED": ("The start revision has no passed source review, or a source review of it failed. "
-                              "A review that failed only on activity, of a precheck that sealed no fill and no "
-                              "position, does not count once a later precheck of the source sealed fills and has a "
-                              "passed review and no failed one.",
-                              ("Run `replay precheck` on the start revision and record its `source review`, then "
-                               "select the line again; after a failed review, fix the source, publish it and start "
-                               "from the new revision.",)),
-    "MARKET_DAY_UNRESOLVED": ("The market reference resolves to no market day with a universe rule.",
-                              ("Pass a market day of the active market; `market coverage` without --at prints "
-                               "its latest as market_day.",
-                               "A market that is still empty (MARKET_EMPTY in the message) has no market day: import "
-                               "two months with `market import` first (the first has no members).",
-                               "A day later than this market holds does not resolve: nothing pinned to it registers "
-                               "or replays against this market.")),
-    "WINDOW_INVALID": ("A window does not start before it ends, or a trial's warm-up start is after its trading "
-                       "start or not on a whole UTC minute.",
-                       ("Pass a window whose start precedes its end (and, for a replay, a whole-minute warm-up "
-                        "start no later than the trading start).",)),
-    "WINDOW_OUTSIDE_DEVELOPMENT": ("An explore or precheck replay trades outside the development period it may use: "
-                                   "its line's, or without a line (a start candidate's precheck) the period a line "
-                                   "opened today on its instruments would get, ending where an open line's holdout "
-                                   "begins.",
-                                   ("Trade inside that period; the holdout, the history before the period and the "
-                                    "forward segment are replayed only when a line closes.",)),
-    "PRECHECK_WINDOW_TOO_LONG": ("A precheck's trading window (--trade-start, or --start, to --end; warm-up excluded) "
-                                 "is longer than the precheck exposure exemption: it would trade the source on "
-                                 "results the researcher could read and expose it before its first registration.",
-                                 ("Precheck on a window of at most 7 trading days on which the change's order path "
-                                  "runs; the full window belongs to the registered replay.",)),
-    "LINE_HISTORY_SHORT": ("The instruments have fewer than 12 complete calendar quarters of market coverage before "
-                           "the last quarter end: too little for a development year and the two-year holdout.",
-                           ("Start the line from instruments the market has covered for at least three years before "
-                            "the last quarter end, or from the pool.",)),
-    "LINE_CONFLICT": ("A research line of that date and slug already exists with another choice.",
-                      ("Name the direction more precisely with another `--slug`, then select again.",)),
-    "LINE_SLUG_INVALID": ("The line slug is not lowercase ASCII words joined by hyphens of at most 48 characters.",
-                          ("Name the line's direction in that form.",)),
-    "LINE_AMBIGUOUS": ("Several research lines are open and the command names none.",
-                       ("Name the line with --line (one of `research state` open_lines).",)),
-    "HISTORY_INCOMPLETE": ("A segment of the line's closing history test has no history run yet; the line closes only "
-                           "after every one has a run, passed or invalid.",
-                           ("Run `line history` for the line (it resumes where it stopped), then close again.",)),
-    "LINE_CLOSED": ("The line is already closed with another summary; a closing is never replaced.",
-                    ("Read its summary (`line list`, or line_close with `ledger sql`); leave it as it is.",)),
-    "LINE_SUMMARY_INVALID": ("The line summary is not UTF-8, is empty or exceeds 32768 bytes.",
-                             ("Shorten the summary to the line's directions, results, failures and lessons, then "
-                              "close again.",)),
-    "LINE_UNKNOWN": ("No research line has that name or line_id.",
-                     ("Name an existing line (`line list`), or omit --line to use the only open line; select a line "
-                      "with `line select`.",)),
-    "LINE_ENDED": ("The research line is closed: its line_close row marks its end. A research registration, and a research "
-                   "run of a grid point registered before, is also refused once the line's closing has begun (its "
-                   "first history trial fixed the candidates of its closing history test).",
-                   ("Work on an open line (`research state` lists open_lines), or select a new one with "
-                    "`line select`; targets without a line go to the ledger default (`line targets --default`).",)),
-    "TARGETS_INVALID": ("A research target is missing or out of range: maximum drawdown is a fraction between 0 "
-                        "and 1, minimum annual return a positive fraction.",
-                        ("Pass both targets as the user stated them, as fractions (0.15 for 15%).",)),
+    "START_NOT_FOUND": ("Publish the start with `candidate publish`, then select the line again.",),
+    "START_REVIEW_REQUIRED": ("Run `replay precheck` on the start revision and record its `source review`, then "
+                              "select the line again; after a failed review, fix the source, publish it and start "
+                              "from the new revision.",),
+    "MARKET_DAY_UNRESOLVED": ("Pass a market day of the active market; `market coverage` without --at prints "
+                              "its latest as market_day.",
+                              "A market that is still empty (MARKET_EMPTY in the message) has no market day: import "
+                              "two months with `market import` first (the first has no members).",
+                              "A day later than this market holds does not resolve: nothing pinned to it registers "
+                              "or replays against this market."),
+    "WINDOW_INVALID": ("Pass a window whose start precedes its end (and, for a replay, a whole-minute warm-up "
+                       "start no later than the trading start).",),
+    "WINDOW_OUTSIDE_DEVELOPMENT": ("Trade inside that period; the holdout, the history before the period and the "
+                                   "forward segment are replayed only when a line closes.",),
+    "PRECHECK_WINDOW_TOO_LONG": ("Precheck on a window of at most 7 trading days on which the change's order path "
+                                 "runs; the full window belongs to the registered replay.",),
+    "LINE_HISTORY_SHORT": ("Start the line from instruments the market has covered for at least three years before "
+                           "the last quarter end, or from the pool.",),
+    "LINE_CONFLICT": ("Name the direction more precisely with another `--slug`, then select again.",),
+    "LINE_SLUG_INVALID": ("Name the line's direction in that form.",),
+    "LINE_AMBIGUOUS": ("Name the line with --line (one of `research state` open_lines).",),
+    "HISTORY_INCOMPLETE": ("Run `line history` for the line (it resumes where it stopped), then close again.",),
+    "LINE_CLOSED": ("Read its summary (`line list`, or line_close with `ledger sql`); leave it as it is.",),
+    "LINE_SUMMARY_INVALID": ("Shorten the summary to the line's directions, results, failures and lessons, then "
+                             "close again.",),
+    "LINE_UNKNOWN": ("Name an existing line (`line list`), or omit --line to use the only open line; select a line "
+                     "with `line select`.",),
+    "LINE_ENDED": ("Work on an open line (`research state` lists open_lines), or select a new one with "
+                   "`line select`; targets without a line go to the ledger default (`line targets --default`).",),
+    "TARGETS_INVALID": ("Pass both targets as the user stated them, as fractions (0.15 for 15%).",),
     # Trials
-    "BINDING_NOT_ALLOWED": ("The binder does not fit the replay's purpose: an exploration or precheck was given "
-                            "a registration binder, or a non-validation trial a validation binder.",
-                            ("Run explorations and prechecks without a registration; bind a validation registration "
-                             "only to a validation replay.",)),
-    "BINDING_REQUIRED": ("A research or validation replay has no registration binder.",
-                         ("Register first (`registration add` or `validation registration`), then replay.",)),
-    "SOURCE_NOT_PUBLISHED": ("The executed source is not a published candidate.",
-                             ("Publish it with `candidate publish`, then replay.",)),
-    "RUNTIME_NOT_PINNED": ("The runtime image is not pinned by digest, disagrees with its digest, or lacks its "
-                           "probe inspection.",
-                           ("Resolve the runtime image by digest and inspect it, then replay.",)),
-    "TRIAL_INPUT_INCOMPLETE": ("The input identity lacks the market day, universe rule, instruments, export "
-                               "content hash or coverage receipt, or the window lacks a bound.",
-                               ("Export the market inputs for the window again, then replay.",)),
-    "OUT_OF_SAMPLE_RESERVED": ("The trial trades inside the window of a validation registration of the same "
-                               "candidate source that is not yet bound.",
-                               ("Run the validation the user registered; other trials of this candidate may not "
-                                "touch its window until it is bound.",)),
-    "TRIAL_NOT_FOUND": ("The trial does not exist on this ledger version.",
-                        ("List trials with `ledger sql` on the `trial` table.",)),
-    "EXECUTION_IDENTITY": ("The execution start receipt disagrees with its trial row (source, runtime identity) "
-                           "or is malformed; or the stages, commands or working directory of a capture differ from "
-                           "the process record, the start receipt or the sealed hashes.",
-                           ("Replay through `replay run`, `replay precheck` or `replay explore`, which write both "
-                            "together.",)),
-    "REGISTRATION_TOO_LATE": ("A validation registration's window does not start after it is recorded, or its time "
-                              "witness is missing or not before its window starts.",
-                              ("Stamp it with `ledger witness` before the window starts, or register a later "
-                               "window.",)),
-    "SOURCE_MISMATCH": ("The executed source is not in the registration's locked grid, or not the source of the "
-                        "registered validation candidate.",
-                        ("Replay a source of the registered grid (or the registered candidate), or register "
-                         "again.",)),
-    "LINEAGE_MISMATCH": ("A grid candidate's parent is not the registration's parent, or it was published with "
-                         "another difference than the first grid candidate.",
-                         ("Register only candidates published from the parent with one and the same "
-                          "--difference.",)),
-    "EXECUTION_MISMATCH": ("What the trial records (runtime image, market day, universe rule, lifecycle bundle, "
-                           "export content, comparable configuration) differs from the registration.",
-                           ("Replay with the registered execution identity, or register again.",)),
-    "SOURCE_PRECHECK_REQUIRED": ("The grid source lacks a matching native precheck or independent review, or the "
-                                 "precheck's capture is malformed.",
-                                 ("Run `replay precheck` and record `source review` for the source.",)),
-    "SOURCE_PRECHECK_FAILED": ("The precheck or independent review of the grid source did not pass, or another "
-                               "review of the same precheck failed it.",
-                               ("Fix the source, publish it and precheck it again.",)),
-    "GRID_ALREADY_ATTEMPTED": ("This grid point (or validation registration) was already consumed.",
-                               ("Register a new grid point; consumed attempts stay counted.",)),
+    "BINDING_NOT_ALLOWED": ("Run explorations and prechecks without a registration; bind a validation registration "
+                            "only to a validation replay.",),
+    "BINDING_REQUIRED": ("Register first (`registration add` or `validation registration`), then replay.",),
+    "SOURCE_NOT_PUBLISHED": ("Publish it with `candidate publish`, then replay.",),
+    "RUNTIME_NOT_PINNED": ("Resolve the runtime image by digest and inspect it, then replay.",),
+    "TRIAL_INPUT_INCOMPLETE": ("Export the market inputs for the window again, then replay.",),
+    "OUT_OF_SAMPLE_RESERVED": ("Run the validation the user registered; other trials of this candidate may not "
+                               "touch its window until it is bound.",),
+    "TRIAL_NOT_FOUND": ("List trials with `ledger sql` on the `trial` table.",),
+    "EXECUTION_IDENTITY": ("Replay through `replay run`, `replay precheck` or `replay explore`, which write both "
+                           "together.",),
+    "REGISTRATION_TOO_LATE": ("Stamp it with `ledger witness` before the window starts, or register a later "
+                              "window.",),
+    "SOURCE_MISMATCH": ("Replay a source of the registered grid (or the registered candidate), or register "
+                        "again.",),
+    "LINEAGE_MISMATCH": ("Register only candidates published from the parent with one and the same "
+                         "--difference.",),
+    "EXECUTION_MISMATCH": ("Replay with the registered execution identity, or register again.",),
+    "SOURCE_PRECHECK_REQUIRED": ("Run `replay precheck` and record `source review` for the source.",),
+    "SOURCE_PRECHECK_FAILED": ("Fix the source, publish it and precheck it again.",),
+    "GRID_ALREADY_ATTEMPTED": ("Register a new grid point; consumed attempts stay counted.",),
     # Execution captures (ledger/execution.py)
-    "EXECUTION_START_MISSING": ("The trial has no trial row or no execution start receipt, so nothing is sealed.",
-                                ("Replay through `replay run`, `replay precheck` or `replay explore`, which write the "
-                                 "trial and its start receipt before the container starts.",)),
-    "EXECUTION_CAPTURE_LIMIT": ("The execution capture exceeds the capacity limit of its purpose (or one file the "
-                                "per-file limit); no capture was written and the working directory is kept. A "
-                                "research or validation trial is stored as an invalid run with its recovery "
-                                "material.",
-                                ("Rerun with a shorter window or fewer instruments; for a precheck, append the kept "
-                                 "bytes with `execution recover` (they stay recovery material, not the "
-                                 "capture).",)),
-    "RECOVERY_NOT_APPLICABLE": ("Recovery applies only to a trial whose original capture is missing, from the "
-                                "working directory its start receipt records: a precheck with no run and no "
-                                "registration attempt, or (by the replay entry only) a sealed replay refused for "
-                                "size.",
-                                ("Read the trial's capture with `replay report --trial-id N`; replay again instead of "
-                                 "recovering.",)),
-    "RECOVERY_INCOMPLETE": ("The kept directory lacks valid stage facts or an original the stages require, or the "
-                            "host error is not the capture-limit refusal.",
-                            ("Pass the kept working directory unchanged and the capture-limit refusal it wrote.",)),
+    "EXECUTION_START_MISSING": ("Replay through `replay run`, `replay precheck` or `replay explore`, which write the "
+                                "trial and its start receipt before the container starts.",),
+    "EXECUTION_CAPTURE_LIMIT": ("Rerun with a shorter window or fewer instruments; for a precheck, append the kept "
+                                "bytes with `execution recover` (they stay recovery material, not the "
+                                "capture).",),
+    "RECOVERY_NOT_APPLICABLE": ("Read the trial's capture with `replay report --trial-id N`; replay again instead of "
+                                "recovering.",),
+    "RECOVERY_INCOMPLETE": ("Pass the kept working directory unchanged and the capture-limit refusal it wrote.",),
     # Coverage at ingest (ledger/coverage.py)
-    "CAPTURE_INCOMPLETE": ("The trial's original capture is missing or lists no hashed coverage receipt.",
-                           ("The run cannot be stored from this trial; replay the grid point again under a "
-                            "retry registration.",)),
-    "COVERAGE_RECEIPT_INVALID": ("The coverage receipt is not execution-input-coverage-v1, lacks the market day "
-                                 "or instruments, or an instrument has no export receipt.",
-                                 ("Export the market inputs again and replay through the product entry.",)),
-    "COVERAGE_MISMATCH": ("The coverage receipt and the native summary differ in instruments, market day or input "
-                          "interval, or the sealed receipt is not the start receipt's.",
-                          ("Replay with the inputs the receipt names; report the runner if it read others.",)),
-    "LIFECYCLE_NATIVE_COUNT_INVALID": ("A native lifecycle count is not a nonnegative integer, or an instance repeats.",
-                                       ("Report the runner defect; the run cannot be stored.",)),
-    "LIFECYCLE_BUNDLE_MISSING": ("The native summary has lifecycle events but the inputs name no lifecycle bundle.",
-                                 ("Replay with the lifecycle bundle of the market day (`--lifecycle-bundle`).",)),
-    "LIFECYCLE_COVERAGE_MISMATCH": ("The coverage receipt's format, input window or market day differs from the "
-                                    "native summary's.",
-                                    ("Replay with the inputs the receipt names; report the runner if it read others.",)),
-    "LIFECYCLE_COUNT_MISMATCH": ("The export receipts' lifecycle counts, their episodes and the native counts disagree.",
-                                 ("Export the inputs again with the lifecycle bundle; report the runner if the "
-                                  "engine delivered other events.",)),
-    "LIFECYCLE_EVENT_INVALID": ("A lifecycle event of an exported episode is not a native event, has inconsistent "
-                                "clocks or an invalid close.",
-                                ("Write a corrected lifecycle bundle for the market day; never edit an export.",)),
-    "LIFECYCLE_DUPLICATE_EVENT": ("A termination of one type, instance and time appears twice in the episodes.",
-                                  ("Write a corrected lifecycle bundle for the market day.",)),
+    "CAPTURE_INCOMPLETE": ("The run cannot be stored from this trial; replay the grid point again under a "
+                           "retry registration.",),
+    "COVERAGE_RECEIPT_INVALID": ("Export the market inputs again and replay through the product entry.",),
+    "COVERAGE_MISMATCH": ("Replay with the inputs the receipt names; report the runner if it read others.",),
+    "LIFECYCLE_NATIVE_COUNT_INVALID": ("Report the runner defect; the run cannot be stored.",),
+    "LIFECYCLE_BUNDLE_MISSING": ("Replay with the lifecycle bundle of the market day (`--lifecycle-bundle`).",),
+    "LIFECYCLE_COVERAGE_MISMATCH": ("Replay with the inputs the receipt names; report the runner if it read others.",),
+    "LIFECYCLE_COUNT_MISMATCH": ("Export the inputs again with the lifecycle bundle; report the runner if the "
+                                 "engine delivered other events.",),
+    "LIFECYCLE_EVENT_INVALID": ("Write a corrected lifecycle bundle for the market day; never edit an export.",),
+    "LIFECYCLE_DUPLICATE_EVENT": ("Write a corrected lifecycle bundle for the market day.",),
     # Runs (ledger/trials.py, ledger/metrics.py)
-    "TRIAL_PURPOSE_INVALID": ("Only research and validation trials become runs; explorations and prechecks stay "
-                              "working copies.",
-                              ("Read the exploration or precheck from its directory; register to store a run.",)),
-    "RUN_ALREADY_INGESTED": ("The trial already has a run.",
-                             ("Read it with `replay report --trial-id N`; a trial is stored once.",)),
-    "UNKNOWN_RUN": ("The ledger version read holds no run of that ID.",
-                    ("List runs with `research runs`, or with `ledger sql` on the `run` table.",)),
-    "REPORT_UNREADABLE": ("A native report file exists but is not UTF-8 CSV, JSON or gzip as the runner writes it.",
-                          ("Replay again into a new directory; report the runner if it persists.",)),
+    "TRIAL_PURPOSE_INVALID": ("Read the exploration or precheck from its directory; register to store a run.",),
+    "RUN_ALREADY_INGESTED": ("Read it with `replay report --trial-id N`; a trial is stored once.",),
+    "UNKNOWN_RUN": ("List runs with `research runs`, or with `ledger sql` on the `run` table.",),
+    "REPORT_UNREADABLE": ("Replay again into a new directory; report the runner if it persists.",),
     # Replays (replay/)
-    "TRADE_TICKS_NEED_QUOTES": ("--trade-ticks is given without --execution quotes: in the bar environment an order a "
-                                "trade prompts mid-minute would fill at the previous bar's close, up to 59 seconds "
-                                "older than the trade.",
-                                ("Add --execution quotes with its margin rates, or drop --trade-ticks.",)),
-    "RUNNER_OPTION_RESERVED": ("The runner arguments name an option the replay entry writes itself (strategy file, "
-                               "class or hash, bindings, output, market inputs).",
-                               ("Pass only the window and the instrument scope; the entry adds the rest.",)),
-    "RUNTIME_NOT_CI_BUILT": ("The runtime image is no CI build of this repository: it is not in the product "
-                             "registry, has no build source revision label, its revision is in no history of origin, "
-                             "or its code differs from that revision; nothing was written.",
-                             ("Use a runtime image CI built from a pushed branch or main "
-                              "(`--runtime ghcr.io/qoeop/trade-runtime:main`).",)),
-    "RUNTIME_CONTRACT_MISMATCH": ("The candidate's runtime contract differs from the runtime image's.",
-                                  ("Replay on an image of the candidate's contract, or publish the source for the "
-                                   "image's contract.",)),
-    "REGISTRATION_REQUIRED": ("A sealed replay needs exactly one of a research or a validation registration.",
-                              ("Pass --registration <id> or --validation <id>, not both.",)),
-    "EXPORT_CHANGED_BEFORE_EXECUTION": ("The exported inputs no longer have the content hash their input identity "
-                                        "records; nothing was started.",
-                                        ("Export the inputs again (rerun the same command).",)),
-    "REPRODUCTION_IMAGE_DIFFERS": ("A precheck is reproduced only on the image it ran on; nothing was written.",
-                                   ("Reproduce it without --image, or precheck the source again on the new image.",)),
-    "REPRODUCTION_CONFIG_DIFFERS": ("The image gives the run another effective configuration than the one it sealed, so "
-                                    "the replay would be another experiment; nothing was written.",
-                                    ("The run cannot move to this image: keep it as history on the image it reached; "
-                                     "a line that needs it there restarts under the new identity.",)),
-    "REPRODUCTION_MISMATCH": ("The reproduced native reports do not carry the semantic fingerprint recorded for the "
-                              "run (on another image, its fills, positions, exposures and returns_series), or no "
-                              "fingerprint exists on either side to compare, or a directory read as a "
-                              "reproduction is not the one its reproduction trial sealed (another trial, source, "
-                              "image or inputs, or a report file that differs from the trial's capture); the "
-                              "directory is kept for diagnosis.",
-                              ("Diagnose the kept directory; reproduce the run (replay.reproduce) and read native detail with "
-                               "the directory and the trial ID it returned.",)),
+    "TRADE_TICKS_NEED_QUOTES": ("Add --execution quotes with its margin rates, or drop --trade-ticks.",),
+    "RUNNER_OPTION_RESERVED": ("Pass only the window and the instrument scope; the entry adds the rest.",),
+    "RUNTIME_NOT_CI_BUILT": ("Use a runtime image CI built from a pushed branch or main "
+                             "(`--runtime ghcr.io/qoeop/trade-runtime:main`).",),
+    "RUNTIME_CONTRACT_MISMATCH": ("Replay on an image of the candidate's contract, or publish the source for the "
+                                  "image's contract.",),
+    "REGISTRATION_REQUIRED": ("Pass --registration <id> or --validation <id>, not both.",),
+    "EXPORT_CHANGED_BEFORE_EXECUTION": ("Export the inputs again (rerun the same command).",),
+    "REPRODUCTION_IMAGE_DIFFERS": ("Reproduce it without --image, or precheck the source again on the new image.",),
+    "REPRODUCTION_CONFIG_DIFFERS": ("The run cannot move to this image: keep it as history on the image it reached; "
+                                    "a line that needs it there restarts under the new identity.",),
+    "REPRODUCTION_MISMATCH": ("Diagnose the kept directory; reproduce the run (replay.reproduce) and read native detail with "
+                              "the directory and the trial ID it returned.",),
     # Judgments
-    "COMMIT_NOT_ANCESTOR": ("The judgment's based_on_commit is not an ancestor of the ledger head.",
-                            ("Pass the commit you read, as shown by `research state`.",)),
-    "COMMIT_BEFORE_LINE": ("The judgment's based_on_commit is older than its research line.",
-                           ("Read the ledger after the line was selected and pass that commit.",)),
-    "SUBJECT_UNKNOWN": ("A judgment subject names no existing candidate, trial or research registration.",
-                        ("Reference existing records only; list candidates with `candidate list`, trials and "
-                         "registrations with `ledger sql`.",)),
-    "SUBJECT_ROLE_MISMATCH": ("A subject role is unknown, or recommended, parent or control names no candidate.",
-                              ("Give a candidate role recommended, parent, control or about; a trial or registration "
-                               "takes about, or no role.",)),
-    "SUPERSEDES_INVALID": ("The superseded judgment is missing, of another kind or line, or already superseded.",
-                           ("Supersede the current judgment of the same kind on the same line.",)),
-    "SEARCH_EXPOSURE_VARIANTS_MISSING": ("A search_exposure body does not start with the line `Evaluated variants: K`.",
-                                         ("Make the first line `Evaluated variants: K`, K the number of rule or "
-                                          "parameter variants the view assessed against the line's data without "
-                                          "a replay (research-round feedback.md); 0 only when it touches no "
-                                          "variant.",)),
-    "DECISION_OPENING_INVALID": ("A judgment's first line reads as a decision opening but is not `Change of "
-                                 "approach.` or `Line decision.` exactly, or is not on a priority judgment.",
-                                 ("Begin the priority judgment's body with `Change of approach.` or `Line "
-                                  "decision.` exactly (research-round feedback.md, research-start), or reword "
-                                  "a first line that records no such decision.",)),
-    "APPROACH_CHOOSER_MISSING": ("A change of approach does not say who chose it.",
-                                 ("Say `chosen by the Agent` or `chosen by the user` in the body "
-                                  "(research-round feedback.md).",)),
-    "OP_ID_CONFLICT": ("This operation ID already names a record with other content.",
-                       ("Use a new operation ID, or omit it to derive one from the content.",)),
-    "RECOMMENDATION_INCOMPLETE": ("A recommendation does not name every candidate of the line (its own trials and "
-                                  "its start) with a run of the line's execution identity in its comparison table "
-                                  "at the commit it is based on.",
-                                  ("Run `research status --at COMMIT` and add a `--subject role=…,candidate=ID@N` for "
-                                   "each candidate the message lists.",)),
+    "COMMIT_NOT_ANCESTOR": ("Pass the commit you read, as shown by `research state`.",),
+    "COMMIT_BEFORE_LINE": ("Read the ledger after the line was selected and pass that commit.",),
+    "SUBJECT_UNKNOWN": ("Reference existing records only; list candidates with `candidate list`, trials and "
+                        "registrations with `ledger sql`.",),
+    "SUBJECT_ROLE_MISMATCH": ("Give a candidate role recommended, parent, control or about; a trial or registration "
+                              "takes about, or no role.",),
+    "SUPERSEDES_INVALID": ("Supersede the current judgment of the same kind on the same line.",),
+    "SEARCH_EXPOSURE_VARIANTS_MISSING": ("Make the first line `Evaluated variants: K`, K the number of rule or "
+                                         "parameter variants the view assessed against the line's data without "
+                                         "a replay (research-round feedback.md); 0 only when it touches no "
+                                         "variant.",),
+    "DECISION_OPENING_INVALID": ("Begin the priority judgment's body with `Change of approach.` or `Line "
+                                 "decision.` exactly (research-round feedback.md, research-start), or reword "
+                                 "a first line that records no such decision.",),
+    "APPROACH_CHOOSER_MISSING": ("Say `chosen by the Agent` or `chosen by the user` in the body "
+                                 "(research-round feedback.md).",),
+    "OP_ID_CONFLICT": ("Use a new operation ID, or omit it to derive one from the content.",),
+    "RECOMMENDATION_INCOMPLETE": ("Run `research status --at COMMIT` and add a `--subject role=…,candidate=ID@N` for "
+                                  "each candidate the message lists.",),
     # Witness
-    "NOT_REGISTRATION_COMMIT": ("The commit added no validation registration.",
-                                ("Pass the commit that added the validation registration (`ledger witness`).",)),
-    "WITNESS_INVALID": ("The timestamp token does not verify offline against the pinned roots, the commit, the "
-                        "nonce or the registration time.",
-                        ("Run `ledger witness` again to request a new token.",)),
-    "WITNESS_UNAVAILABLE": ("The timestamp authority was unreachable, timed out or did not grant a token.",
-                            ("Run `ledger witness` again before the validation window starts.",)),
+    "NOT_REGISTRATION_COMMIT": ("Pass the commit that added the validation registration (`ledger witness`).",),
+    "WITNESS_INVALID": ("Run `ledger witness` again to request a new token.",),
+    "WITNESS_UNAVAILABLE": ("Run `ledger witness` again before the validation window starts.",),
     # Registration (registration/register.py)
-    "REGISTRATION_INVALID": ("The registration body does not have the required shape, or a record it cites (source "
-                             "bundle, retry_of registration, grid candidate) is not in the ledger.",
-                             ("Fix the field the message names (its description is quoted), then run "
-                              "`registration add` again.",)),
-    "SOURCES_REQUIRED": ("The rationale cites external work without a source original, or a cited source bundle "
-                         "does not exist.",
-                         ("Pass the originals with `registration add --source`, or add them with `evidence add` "
-                          "and cite their bundle names.",)),
-    "RESEARCH_LINE_REQUIRED": ("The ledger has no open research line, so the window cannot be checked.",
-                               ("Select a research line with `line select`, then register.",)),
-    "WINDOW_MISMATCH": ("The registered window differs from the development window of the line it is registered "
-                        "on, or a "
-                        "validation trial's window is not inside its registered window or does not start after "
-                        "it ends.",
-                        ("Register the research line's window exactly (read it with `research state`); replay a "
-                         "validation only inside its registered window after it has ended.",)),
-    "CONFIG_MISMATCH": ("A grid point's runtime contract differs from the execution identity, or a validation's "
-                        "account terms differ from the candidate's latest passed research run at the original "
-                        "validation registration commit (or no such run existed then).",
-                        ("Publish the grid for the probed runtime contract. For validation, keep the original "
-                         "registration's account terms; later research cannot replace that baseline. If terms "
-                         "must change, stop and ask the user about a new future-window registration.",)),
-    "SOURCE_ALREADY_EXPOSED": ("A grid source already sealed an economic result the researcher could read on a "
-                               "contract this registration trades, in a trial that is neither part of this registration's retry chain nor the cited "
-                               "short precheck, so registering it now would choose it after seeing its result.",
-                               ("Preserve the exposure record. Use retry_of only for an earlier registration that "
-                                "actually consumed this source; such a rebuild on another image cites a new precheck "
-                                "on that image. Without retry_of only the cited precheck is exempt, so a new precheck "
-                                "does not clear an earlier one: register on the earlier precheck's image citing it, "
-                                "then move the run with `replay reproduce`. Register a new source for a new research "
-                                "hypothesis.",)),
-    "DUTY_UNKNOWN": ("changed_duties names a duty outside the 27, or is nonempty for a root or empty for a derived "
-                     "registration.",
-                     ("Use duty IDs A1 to I2 from the duty directory; leave changed_duties empty only for a root.",)),
-    "PREDICTION_INVALID": ("A prediction names a duty outside changed_duties or a slice or measure outside the "
-                           "measure catalogue, has an empty slice without a reason, or a changed duty has no "
-                           "prediction.",
-                           ("Write at least one prediction per changed duty on a catalogue slice and measure (or an "
-                            "empty slice with a reason).",)),
-    "INTERPRETATION_REQUIRED": ("A completed research trial of the line has no interpretation judgment (an invalid "
-                                "run whose registration a later registration retries needs none).",
-                                ("Add an interpretation with `judgment add --kind interpretation` about the trials "
-                                 "the message lists.",)),
-    "REVIEW_DUE": ("The line has run the product's fixed number of research trials since its last recommendation; "
-                   "registrations stop until a review.",
-                   ("Run `research status` and read its `comparison` table.",
-                    "Write a `recommendation` judgment naming every one of that table's `candidates` (`judgment add "
-                    "--kind recommendation --based-on COMMIT`), and a `priority` judgment for the next steps; the "
-                    "recommendation clears the stop.")),
+    "REGISTRATION_INVALID": ("Fix the field the message names (its description is quoted), then run "
+                             "`registration add` again.",),
+    "SOURCES_REQUIRED": ("Pass the originals with `registration add --source`, or add them with `evidence add` "
+                         "and cite their bundle names.",),
+    "RESEARCH_LINE_REQUIRED": ("Select a research line with `line select`, then register.",),
+    "WINDOW_MISMATCH": ("Register the research line's window exactly (read it with `research state`); replay a "
+                        "validation only inside its registered window after it has ended.",),
+    "CONFIG_MISMATCH": ("Publish the grid for the probed runtime contract. For validation, keep the original "
+                        "registration's account terms; later research cannot replace that baseline. If terms "
+                        "must change, stop and ask the user about a new future-window registration.",),
+    "SOURCE_ALREADY_EXPOSED": ("Preserve the exposure record. Use retry_of only for an earlier registration that "
+                               "actually consumed this source; such a rebuild on another image cites a new precheck "
+                               "on that image. Without retry_of only the cited precheck is exempt, so a new precheck "
+                               "does not clear an earlier one: register on the earlier precheck's image citing it, "
+                               "then move the run with `replay reproduce`. Register a new source for a new research "
+                               "hypothesis.",),
+    "DUTY_UNKNOWN": ("Use duty IDs A1 to I2 from the duty directory; leave changed_duties empty only for a root.",),
+    "PREDICTION_INVALID": ("Write at least one prediction per changed duty on a catalogue slice and measure (or an "
+                           "empty slice with a reason).",),
+    "INTERPRETATION_REQUIRED": ("Add an interpretation with `judgment add --kind interpretation` about the trials "
+                                "the message lists.",),
+    "REVIEW_DUE": ("Run `research status` and read its `comparison` table.",
+                   "Write a `recommendation` judgment naming every one of that table's `candidates` (`judgment add "
+                   "--kind recommendation --based-on COMMIT`), and a `priority` judgment for the next steps; the "
+                   "recommendation clears the stop."),
     # Comparability (registration/comparability.py)
-    "RUN_NOT_PASSED": ("The run is not a passed sealed research or validation run.",
-                       ("Choose a passed research or validation run as the control.",)),
-    "COMPARABILITY_MISMATCH": ("The two sides differ in runtime image, effective configuration or input identity.",
-                               ("Choose a comparable control, or replay the control under the new execution "
-                                "identity first.",)),
-    "IDENTITY_MALFORMED": ("An effective configuration or input identity is not a mapping or lacks a required key.",
-                           ("Replay through the product entry points, which record complete identities.",)),
-    "ECONOMIC_EVIDENCE_UNAVAILABLE": ("The run has no economic evidence (no fills, unmatched records, failed "
-                                      "capture or failed source review).",
-                                      ("Choose a control with economic evidence, or diagnose and fix the run "
-                                       "first.",)),
+    "RUN_NOT_PASSED": ("Choose a passed research or validation run as the control.",),
+    "COMPARABILITY_MISMATCH": ("Choose a comparable control, or replay the control under the new execution "
+                               "identity first.",),
+    "IDENTITY_MALFORMED": ("Replay through the product entry points, which record complete identities.",),
+    "ECONOMIC_EVIDENCE_UNAVAILABLE": ("Choose a control with economic evidence, or diagnose and fix the run "
+                                      "first.",),
     # Inputs (registration/inputs.py)
-    "SYMBOL_SELECTION_INVALID": ("The selection does not give exactly one of universe or symbols, or repeats a "
-                                 "symbol.",
-                                 ("Pass {\"universe\": true} or {\"symbols\": [...]} without repeats.",)),
-    "UNIVERSE_EMPTY": ("The market day has no universe members, or none intersects the trading window.",
-                       ("Pin a market day whose universe covers the window, or choose another window.",)),
-    "EXPORT_TIMEFRAME": ("An export receipt is not of 1-minute bars.",
-                         ("Export the market inputs again with the product entry point.",)),
-    "EXPORT_CONTENT_INVALID": ("The export root or membership file holds a symbolic link, the membership file is "
-                               "missing, or a receipt or the membership file holds no replay facts.",
-                               ("Export the market inputs again into a new directory.",)),
-    "LIFECYCLE_INPUT": ("The lifecycle evidence bundle is not lifecycle-<market_day> of the pinned market day, is "
-                        "missing, lacks lifecycle.json, fails its hash check or does not validate against the "
-                        "pinned market day.",
-                        ("Write the lifecycle bundle for this market day again with the market command.",)),
+    "SYMBOL_SELECTION_INVALID": ("Pass {\"universe\": true} or {\"symbols\": [...]} without repeats.",),
+    "UNIVERSE_EMPTY": ("Pin a market day whose universe covers the window, or choose another window.",),
+    "EXPORT_TIMEFRAME": ("Export the market inputs again with the product entry point.",),
+    "EXPORT_CONTENT_INVALID": ("Export the market inputs again into a new directory.",),
+    "LIFECYCLE_INPUT": ("Write the lifecycle bundle for this market day again with the market command.",),
     # Prechecks and source reviews (registration/precheck.py)
-    "REVIEW_INVALID": ("The source review body lacks or adds a field, uses a status or verdict outside the "
-                       "enumeration, has an empty note, or its verdict is not passed exactly when no item is "
-                       "failed or unresolved; or the reviewer name is empty or longer than 100 characters.",
-                       ("Write only the four items api, causal, activity and readiness to the --items file, each "
-                        "{status, note}; pass trial_id as --precheck-trial and verdict as --verdict.",)),
-    "PRECHECK_CAPTURE_MISSING": ("The trial has no original precheck capture (only recovery material, or another "
-                                 "purpose).",
-                                 ("Run `replay precheck` for the source and review that trial.",)),
+    "REVIEW_INVALID": ("Write only the four items api, causal, activity and readiness to the --items file, each "
+                       "{status, note}; pass trial_id as --precheck-trial and verdict as --verdict.",),
+    "PRECHECK_CAPTURE_MISSING": ("Run `replay precheck` for the source and review that trial.",),
     # Validation (registration/validation.py)
-    "CANDIDATE_UNKNOWN": ("The validated candidate is not a published candidate.",
-                          ("Pass a candidate shown by `candidate list` as strategy_id@revision.",)),
-    "DESIGN_INVALID": ("The declared test design lacks or adds a field or holds an illegal value.",
-                       ("Declare method, block_days, resamples, inner_resamples, seed, alpha, minimum_effect and "
-                        "design_reason.",)),
-    "RETRY_NOT_ALLOWED": ("A consumed attempt on the retry_of chain of a research registration, or the bound "
-                          "replay of a retried validation registration, has no capture, or has a run that is not "
-                          "invalid and has economic evidence without qualifying as a fixed-question "
-                          "research rebuild on a different image; or the retried validation registration "
-                          "does not exist, differs in candidate, window, universe rule or original test design, "
-                          "or was never bound.",
-                          ("Retry only attempts whose replay was captured without a run, invalid or without "
-                           "economic evidence. For a research runtime rebuild, keep the declarations, source grid, "
-                           "configuration and inputs fixed, cite new matching reviews and rebuild the equivalent "
-                           "control first. Validation retries keep the original candidate, window, universe "
-                           "rule and test design. A poor result is no reason to retry.",)),
-    "REGISTRATION_UNKNOWN": ("The validation registration does not exist.",
-                             ("List validation registrations with `ledger sql` on the `validation_registration` table.",)),
-    "REGISTRATION_CONSUMED": ("The validation registration was already bound.",
-                              ("Register a new validation; a bound registration stays consumed.",)),
-    "STALE_CHECKOUT": ("The product checkout's HEAD lacks the latest main commit, or this cannot be proved; for a "
-                       "research registration or replay, HEAD is not the fetched origin/main or the work tree has "
-                       "uncommitted or untracked files.",
-                       ("Fetch, move the checkout to origin/main with a clean work tree, then rerun.",)),
-    "RUNTIME_NOT_MAIN": ("The runtime image is not a main build of the product image source, or its code differs "
-                         "from that revision, or the trial ran another image.",
-                         ("Merge first, then rerun with the main runtime image.",)),
-    "MEMBERSHIP_CHANGED": ("The universe rule differs, a month up to the registration month changed between the "
-                           "two market days, a window month is missing, the replay's symbols differ from the "
-                           "baseline research run's, a member was removed from the strategy's path, or the trial's "
-                           "instruments differ from its recorded membership.",
-                           ("Replay with the registered universe rule and the baseline research run's selection "
-                            "(its symbols, or the whole universe) on a market day that keeps the registered "
-                            "months and covers the window.",)),
-    "COVERAGE_INCOMPLETE": ("A member's input interval has no coverage receipt.",
-                            ("Export the market inputs for the whole warm-up and trading interval again.",)),
+    "CANDIDATE_UNKNOWN": ("Pass a candidate shown by `candidate list` as strategy_id@revision.",),
+    "DESIGN_INVALID": ("Declare method, block_days, resamples, inner_resamples, seed, alpha, minimum_effect and "
+                       "design_reason.",),
+    "RETRY_NOT_ALLOWED": ("Retry only attempts whose replay was captured without a run, invalid or without "
+                          "economic evidence. For a research runtime rebuild, keep the declarations, source grid, "
+                          "configuration and inputs fixed, cite new matching reviews and rebuild the equivalent "
+                          "control first. Validation retries keep the original candidate, window, universe "
+                          "rule and test design. A poor result is no reason to retry.",),
+    "REGISTRATION_UNKNOWN": ("List validation registrations with `ledger sql` on the `validation_registration` table.",),
+    "REGISTRATION_CONSUMED": ("Register a new validation; a bound registration stays consumed.",),
+    "STALE_CHECKOUT": ("Fetch, move the checkout to origin/main with a clean work tree, then rerun.",),
+    "RUNTIME_NOT_MAIN": ("Merge first, then rerun with the main runtime image.",),
+    "MEMBERSHIP_CHANGED": ("Replay with the registered universe rule and the baseline research run's selection "
+                           "(its symbols, or the whole universe) on a market day that keeps the registered "
+                           "months and covers the window.",),
+    "COVERAGE_INCOMPLETE": ("Export the market inputs for the whole warm-up and trading interval again.",),
     # Export and backup (ledger/admin.py)
-    "EXPORT_PATH_INVALID": ("The export or backup destination lies inside the service directory or a Git work tree, "
-                            "exists and is no export of this ledger, or holds a file where the backup goes.",
-                            ("Choose a new directory outside the service directory and any checkout, or this ledger's "
-                             "earlier export.",)),
-    "DOLT_BACKUP": ("The full-history backup could not be synced or read, or its head differs from the ledger "
-                    "head after the sync.",
-                    ("Check the backup directory and the service, then rerun the export.",)),
-    "BACKUP_DIVERGED": ("The existing backup's head is no commit of this database's history: it is another "
-                        "database's backup, or a commit was rewritten. A sync would overwrite it, so nothing was "
-                        "synced.",
-                        ("Run `ledger review` and report the finding; a backup is replaced "
-                         "only with the user's authority.",)),
+    "EXPORT_PATH_INVALID": ("Choose a new directory outside the service directory and any checkout, or this ledger's "
+                            "earlier export.",),
+    "DOLT_BACKUP": ("Check the backup directory and the service, then rerun the export.",),
+    "BACKUP_DIVERGED": ("Run `ledger review` and report the finding; a backup is replaced "
+                        "only with the user's authority.",),
     # Publication (ledger/publish.py)
-    "REMOTE_UNSET": ("The database has no origin remote to publish to.",
-                     ("Name its DoltHub repository once with `ledger publish --remote URL`.",)),
-    "REMOTE_INVALID": ("The remote is neither a DoltHub repository nor a local file:// remote.",
-                       ("Pass https://doltremoteapi.dolthub.com/<owner>/<repository>.",)),
-    "REMOTE_MISMATCH": ("The database already publishes to another origin; it is not replaced.",
-                        ("Publish without --remote, or report it: changing the public copy needs the user's "
-                         "authority.",)),
-    "PUBLISH_FORBIDDEN": ("Only the active database publishes to a public remote; an isolated or temporary one "
-                          "publishes only to a local file:// remote.",
-                          ("Publish the active database, or give a file:// remote for an isolated one.",)),
-    "DOLTHUB_CREDENTIALS": ("No DoltHub key was found to install in the service's Dolt home, or DoltHub does not "
-                            "accept the key.",
-                            ("Ask the user to run `dolt login`, then rerun the same command; a service compose runs reads the key from "
-                             "`TRADE_DOLTHUB` (default `$TRADE_DATA/dolthub`), a copy of that `~/.dolt`, or on its first "
-                             "start makes one in that empty directory and shows it on the IDE's page.",)),
-    "PUBLISH_REJECTED": ("The remote refused the push, and after a fetch its head neither contains the local head "
-                         "nor is an ancestor of it. Nothing was forced.",
-                         ("Report it to the user: the public copy was changed elsewhere, and replacing it needs the "
-                          "user's authority.",)),
-    "PUBLISH_FAILED": ("The push or the fetch failed (network, credentials or DoltHub), the remote's head after the "
-                       "push does not contain the local one, or another publish of the database held its publish lock "
-                       "too long. The local write stands.",
-                       ("Check the network, the DoltHub key, that the repository exists and that the key's account can write "
-                        "to it, then run `ledger publish`; a first `--remote` that fails is not kept, so name the "
-                        "repository again.",
-                        "When the message says the service started before its key was installed, restart the service "
-                        "(`docker compose restart ledger` under compose; otherwise `ledger service stop`, then "
-                        "`ledger service start`) first.")),
+    "REMOTE_UNSET": ("Name its DoltHub repository once with `ledger publish --remote URL`.",),
+    "REMOTE_INVALID": ("Pass https://doltremoteapi.dolthub.com/<owner>/<repository>.",),
+    "REMOTE_MISMATCH": ("Publish without --remote, or report it: changing the public copy needs the user's "
+                        "authority.",),
+    "PUBLISH_FORBIDDEN": ("Publish the active database, or give a file:// remote for an isolated one.",),
+    "DOLTHUB_CREDENTIALS": ("Ask the user to run `dolt login`, then rerun the same command; a service compose runs reads the key from "
+                            "`TRADE_DOLTHUB` (default `$TRADE_DATA/dolthub`), a copy of that `~/.dolt`, or on its first "
+                            "start makes one in that empty directory and shows it on the IDE's page.",),
+    "PUBLISH_REJECTED": ("Report it to the user: the public copy was changed elsewhere, and replacing it needs the "
+                         "user's authority.",),
+    "PUBLISH_FAILED": ("Check the network, the DoltHub key, that the repository exists and that the key's account can write "
+                       "to it, then run `ledger publish`; a first `--remote` that fails is not kept, so name the "
+                       "repository again.",
+                       "When the message says the service started before its key was installed, restart the service "
+                       "(`docker compose restart ledger` under compose; otherwise `ledger service stop`, then "
+                       "`ledger service start`) first."),
     # Reports (report/)
-    "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market day and window could not be "
-                                   "read; only the market measures are empty.",
-                                   ("When the message names UNKNOWN_REF, the run's market day is not in the active "
-                                    "market: its market measures cannot be read here and stay "
-                                    "empty.",
-                                    "Otherwise make the market profile available (read only), then read the "
-                                    "report again.")),
-    "DIRECTORY_NOT_FOUND": ("The replay directory does not exist or is not readable.",
-                            ("Pass the output directory of an exploration or precheck.",)),
-    "NATIVE_SUMMARY_MISSING": ("The directory holds no native summary written by the runner.",
-                               ("Pass a directory the runner finished writing; a failed runner leaves its reason in "
-                                "the capture.",)),
-    "REPORT_PARSE_FAILED": ("A native report file is missing, lacks a column or does not parse in the sealed format.",
-                            ("Replay again with the runner of the runtime contract; reports are never repaired.",)),
-    "NO_CONTROL": ("The registration declares no control run, or the declared control run does not exist.",
-                   ("Register a derived hypothesis with a comparable control run to compare it.",)),
-    "RUN_NOT_IN_GRID": ("The candidate run is not the run of a grid point this registration consumed, or its source "
-                        "differs from the consumed point.",
-                        ("Compare the run under the registration whose grid point produced it.",)),
-    "COMPARISON_UNAVAILABLE": ("A side's trade-window daily returns are empty, invalid or miss a UTC day, the series "
-                               "hold fewer than two whole blocks, or the test inputs are malformed.",
-                               ("Use runs whose daily series reconcile and a window of at least two blocks; the series "
-                                "are never repaired.",)),
-    "CLOCK_MISMATCH": ("The two sides' UTC daily clocks are not the same day by day.",
-                       ("Compare runs of the same trading window; days are never filled or resampled.",)),
-    "INTERACTION_UNATTESTED": ("A declared interaction's four corners do not attest it: a and b do not derive from base "
-                               "or ab from a or b, the three-way merge of a and b from base conflicts or is not ab's "
-                               "source, a corner lacks exactly one comparable passed research run with economic "
-                               "evidence, or a corner's run is not older than the declaring registration. The "
-                               "comparison reports it as the interaction's reason and stands.",
-                               ("Declare the two-by-two when registering its last corner, with ab the merge of a and "
-                                "b; read the comparison without the interaction otherwise.",)),
+    "MARKET_RETURNS_UNAVAILABLE": ("When the message names MARKET_DAY_UNKNOWN, the run's market day is not in the active "
+                                   "market: its market measures cannot be read here and stay "
+                                   "empty.",
+                                   "Otherwise make the market profile available (read only), then read the "
+                                   "report again."),
+    "DIRECTORY_NOT_FOUND": ("Pass the output directory of an exploration or precheck.",),
+    "NATIVE_SUMMARY_MISSING": ("Pass a directory the runner finished writing; a failed runner leaves its reason in "
+                               "the capture.",),
+    "REPORT_PARSE_FAILED": ("Replay again with the runner of the runtime contract; reports are never repaired.",),
+    "NO_CONTROL": ("Register a derived hypothesis with a comparable control run to compare it.",),
+    "RUN_NOT_IN_GRID": ("Compare the run under the registration whose grid point produced it.",),
+    "COMPARISON_UNAVAILABLE": ("Use runs whose daily series reconcile and a window of at least two blocks; the series "
+                               "are never repaired.",),
+    "CLOCK_MISMATCH": ("Compare runs of the same trading window; days are never filled or resampled.",),
+    "INTERACTION_UNATTESTED": ("Declare the two-by-two when registering its last corner, with ab the merge of a and "
+                               "b; read the comparison without the interaction otherwise.",),
     # Replay stage containers (replay/seams.py, runtime.container_command)
-    "MODULE_NOT_IN_LAYOUT": ("The module is not the runner, auditor, probe or fingerprint the runtime layout declares.",
-                             ("Run only the modules runtime.layout declares for the image's contract.",)),
-    "MOUNT_HOST_PATH_INVALID": ("A mount source is not an existing absolute host path.",
-                                ("Mount only the replay's own working directory and exported inputs.",)),
-    "MOUNT_TARGET_INVALID": ("A mount target is not absolute, repeats, is the root, or lies over or under /tmp or "
-                             "the image's code (/opt/trade).",
-                             ("Give each input its own absolute container path clear of /tmp and /opt/trade.",)),
-    "MOUNT_WRITABLE_NOT_REPORTS": ("A writable mount is not /reports, or more than one mount is writable.",
-                                   ("Mount every input read-only; only the stage's output directory is /reports.",)),
-    "REPORTS_MOUNT_MISSING": ("The stage has no writable /reports mount.",
-                              ("Mount the stage's output directory writable at /reports.",)),
-    "ARGV_INVALID": ("A container argument is not a string, or a Paper or Live container's network, memory or CPU "
-                     "limit, name, labels or credential mount is malformed.",
-                     ("Pass the runner's arguments as strings and the container settings in the form the message "
-                      "names.",)),
-    "STAGE_MEMORY_LIMIT": ("A replay stage's container was killed at its memory limit (runtime.container.STAGE_MEMORY); "
-                           "a trial's capture is sealed as a host failure naming this code.",
-                           ("Reduce what the run holds in memory (a shorter window, fewer contracts or orders), or "
-                            "report the stage and its measured peak so the limit can be retuned.",)),
-    "REPLAY_TIMEOUT": ("An unrecorded replay (paper reconcile, live compare) passed its --timeout-seconds; the "
-                       "running stage's container was stopped; nothing reached a ledger.",
-                       ("Rerun with a longer --timeout-seconds or a shorter interval.",)),
+    "MODULE_NOT_IN_LAYOUT": ("Run only the modules runtime.layout declares for the image's contract.",),
+    "MOUNT_HOST_PATH_INVALID": ("Mount only the replay's own working directory and exported inputs.",),
+    "MOUNT_TARGET_INVALID": ("Give each input its own absolute container path clear of /tmp and /opt/trade.",),
+    "MOUNT_WRITABLE_NOT_REPORTS": ("Mount every input read-only; only the stage's output directory is /reports.",),
+    "REPORTS_MOUNT_MISSING": ("Mount the stage's output directory writable at /reports.",),
+    "ARGV_INVALID": ("Pass the runner's arguments as strings and the container settings in the form the message "
+                     "names.",),
+    "STAGE_MEMORY_LIMIT": ("Reduce what the run holds in memory (a shorter window, fewer contracts or orders), or "
+                           "report the stage and its measured peak so the limit can be retuned.",),
+    "REPLAY_TIMEOUT": ("Rerun with a longer --timeout-seconds or a shorter interval.",),
     # Runtime (runtime/image.py)
-    "RUNTIME_UNAVAILABLE": ("The runtime image could not be pulled, inspected or pinned to one digest.",
-                            ("Check the image reference and the container runtime, then rerun. A pull that never "
-                             "finishes is often a Docker credential helper (credsStore or credHelpers in "
-                             "~/.docker/config.json) that never answers; the public runtime image pulls "
-                             "anonymously without it.",)),
-    "RUNTIME_PROBE_INVALID": ("The runtime identity probe failed or returned an incomplete report.",
-                              ("Use a runtime image built by CI for a supported runtime contract.",)),
-    "RUNTIME_IDENTITY_INVALID": ("The runtime identity is malformed: a field is missing or extra, the reference "
-                                 "carries no sha256 digest or disagrees with it, or the image has no contract label.",
-                                 ("Resolve the image with `--runtime <image>:<tag>` or `<image>@sha256:<digest>`; "
-                                  "never write an identity by hand.",)),
-    "RUNTIME_UNSUPPORTED": ("The runtime platform or contract has no layout in this product version.",
-                            ("Use a CI image of a contract runtime.layout declares (`--runtime "
-                             "ghcr.io/qoeop/trade-runtime:main`).",)),
-    "RUNTIME_DIGEST_AMBIGUOUS": ("The local image has no single manifest digest under its image name.",
-                                 ("Pass the image by digest (`<image>@sha256:<digest>`).",)),
-    "RUNTIME_MISMATCH": ("The local image or its probe disagrees with the identity: digest, platform, contract, "
-                         "source layout or configuration hash.",
-                         ("Pull the image by digest again; report the image if the probe still disagrees.",)),
+    "RUNTIME_UNAVAILABLE": ("Check the image reference and the container runtime, then rerun. A pull that never "
+                            "finishes is often a Docker credential helper (credsStore or credHelpers in "
+                            "~/.docker/config.json) that never answers; the public runtime image pulls "
+                            "anonymously without it.",),
+    "RUNTIME_PROBE_INVALID": ("Use a runtime image built by CI for a supported runtime contract.",),
+    "RUNTIME_IDENTITY_INVALID": ("Resolve the image with `--runtime <image>:<tag>` or `<image>@sha256:<digest>`; "
+                                 "never write an identity by hand.",),
+    "RUNTIME_UNSUPPORTED": ("Use a CI image of a contract runtime.layout declares (`--runtime "
+                            "ghcr.io/qoeop/trade-runtime:main`).",),
+    "RUNTIME_DIGEST_AMBIGUOUS": ("Pass the image by digest (`<image>@sha256:<digest>`).",),
+    "RUNTIME_MISMATCH": ("Pull the image by digest again; report the image if the probe still disagrees.",),
     # The command line (cli/)
-    "USAGE_ERROR": ("The command, a required option or an option's type is not what the command line declares.",
-                    ("Read `python -m cli.main <noun> <verb> --help` and rerun with the declared options.",)),
-    "SOURCE_UNREADABLE": ("The given file is not a readable regular file (missing, a directory or a link).",
-                          ("Pass the path of the single-file UTF-8 source itself.",)),
-    "WRITE_VIA_SQL": ("`ledger sql` runs exactly one read statement (SELECT, SHOW, DESCRIBE, DESC, EXPLAIN, WITH, "
-                      "TABLE or VALUES) with the reader account; /*! and /*+ comments, which the server executes, "
-                      "are not accepted.",
-                      ("Write only through the declared commands; read with one SELECT.",)),
-    "PRECHECK_NOT_FOUND": ("The trial is no native precheck of this candidate's source on this runtime image.",
-                           ("Run `replay precheck` for the candidate on the image, then review that trial.",)),
-    "RUNTIME_UNRESOLVED": ("The runtime reference does not resolve to an image digest.",
-                           ("Pass the image the precheck ran on, by tag or digest.",)),
-    "BACKUP_TARGET_UNSET": ("The ledger profile declares no backup directory.",
-                            ("Export with `ledger export --kind reproduce --output <new directory>`.",)),
-    "EXPORT_MISMATCH": ("The written export manifest does not reread to the exported content hash; the "
-                        "incomplete copy was removed.",
-                        ("Rerun the same export; report the disk if it persists.",)),
-    "LEDGER_NOT_INITIALIZED": ("The service directory holds no initialized ledger of this profile.",
-                               ("Initialize it with `ledger init` (or `ledger temp` for a test ledger).",)),
-    "SERVICE_START_FAILED": ("The service started but the ledger did not answer. A service this host started was "
-                             "stopped; one compose runs was left running.",
-                             ("Inspect the service log (in the service directory, or `docker compose logs ledger`), "
-                              "then rerun `ledger service start`.",)),
-    "BOOTSTRAP_REFUSED": ("`ledger service run` found no service.json, but the service, data or profile directory "
-                          "is not empty; it bootstraps only into empty ones and changed nothing.",
-                          ("Report it to the user: TRADE_DATA may name the wrong directory, or service.json was lost.",)),
-    "BOOTSTRAP_FAILED": ("A bootstrap step failed (cloning the ledger's copy, or the copy holds no research ledger); "
-                         "what the bootstrap made was removed.",
-                         ("Inspect `docker compose logs ledger`; the repository must exist (Dolt reports a missing one as "
-                          "permission denied) and be empty for a new ledger or hold a research ledger; the next start "
-                          "bootstraps again.",)),
-    "SERVICE_CHECK_FAILED": ("The service or a database on it is not what this code reads (commit verification "
-                             "group, a recorded database or a schema version); it was not served.",
-                             ("Report it to the user with the named item; nothing was changed.",)),
-    "SERVICE_MANAGED": ("The Dolt service is run by compose (its service.json names no socket); this host neither "
-                        "starts nor stops it.",
-                        ("Stop or restart it with `docker compose stop ledger` or `docker compose restart ledger`.",)),
-    "JUDGMENT_BODY_UNREADABLE": ("The judgment body is not a readable UTF-8 text file.",
-                                 ("Write the judgment text to a UTF-8 file and pass it with --body.",)),
+    "USAGE_ERROR": ("Read `python -m cli.main <noun> <verb> --help` and rerun with the declared options.",),
+    "SOURCE_UNREADABLE": ("Pass the path of the single-file UTF-8 source itself.",),
+    "WRITE_VIA_SQL": ("Write only through the declared commands; read with one SELECT.",),
+    "PRECHECK_NOT_FOUND": ("Run `replay precheck` for the candidate on the image, then review that trial.",),
+    "RUNTIME_UNRESOLVED": ("Pass the image the precheck ran on, by tag or digest.",),
+    "BACKUP_TARGET_UNSET": ("Export with `ledger export --kind reproduce --output <new directory>`.",),
+    "EXPORT_MISMATCH": ("Rerun the same export; report the disk if it persists.",),
+    "LEDGER_NOT_INITIALIZED": ("Initialize it with `ledger init` (or `ledger temp` for a test ledger).",),
+    "SERVICE_START_FAILED": ("Inspect the service log (in the service directory, or `docker compose logs ledger`), "
+                             "then rerun `ledger service start`.",),
+    "BOOTSTRAP_REFUSED": ("Report it to the user: TRADE_DATA may name the wrong directory, or service.json was lost.",),
+    "BOOTSTRAP_FAILED": ("Inspect `docker compose logs ledger`; the repository must exist (Dolt reports a missing one as "
+                         "permission denied) and be empty for a new ledger or hold a research ledger; the next start "
+                         "bootstraps again.",),
+    "SERVICE_CHECK_FAILED": ("Report it to the user with the named item; nothing was changed.",),
+    "SERVICE_MANAGED": ("Stop or restart it with `docker compose stop ledger` or `docker compose restart ledger`.",),
+    "JUDGMENT_BODY_UNREADABLE": ("Write the judgment text to a UTF-8 file and pass it with --body.",),
     # The market directory (market/)
-    "ROLE_UNKNOWN": ("The market role is neither import nor reader.",
-                     ("Open the market with role import to import or reader to read.",)),
-    "MARKET_UNREACHABLE": ("The market profile names no market directory or the directory does not exist.",
-                           ("Pass the market profile with --market; create a market directory with `market init`.",)),
-    "MARKET_DAY_INVALID": ("The value is not a resolved market day (YYYY-MM-DD).",
-                           ("Resolve the reference first (`market coverage --at <ref>` prints the market day) and "
-                            "pass it.",)),
-    "MARKET_DAY_UNKNOWN": ("The export's market reference does not resolve to a day of the market.",
-                           ("Pass main, head or a market day (YYYY-MM-DD) of the market named by "
-                            "--market.",)),
-    "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month or has no closed day yet, or is "
-                      "neither the latest stored month, the month after it nor the month just before the earliest; "
-                      "aggTrades and quotes take only a month that has ended.",
-                      ("Import the month after the latest or the month before the earliest, one `market import "
-                       "--month YYYY-MM` each.",)),
-    "MONTH_EXISTS": ("The market already holds that month through its end, the sources reread for the "
-                     "month's stored part differ from the stored rows, or a month to backfill already holds bar rows or "
-                     "funding rows other than those it computes (the same ones are what a crashed backfill left).",
-                     ("Import the next month or the month before the earliest; a stored month is never rewritten.",)),
-    "RULE_VERSION_MISMATCH": ("The market day's universe rows are of another universe rule version than the one asked "
-                              "for.",
-                              ("Read the report at a market day of that rule; a new rule needs a new market directory.",)),
-    "TRADES_NOT_HELD": ("The market holds no aggTrades file of the month, which the quotes are inferred from; nothing "
-                        "was stored.",
-                        ("Import the month's aggTrades first (`market import-trades --month YYYY-MM`).",)),
-    "SEQUENCE_GAP": ("An aggTrades archive's agg_trade_id sequence is not contiguous within the day or does not continue "
-                     "the day before (both imports keep an id Binance repeated for a distinct later trade), so "
-                     "that month's trades or inferred quotes cannot be trusted; nothing was stored.",
-                     ("Re-download the day with the refused command (`market import-trades` or `market import-quotes` "
-                      "--month YYYY-MM) after clearing its cached archive; a gap the exchange published stays a gap and "
-                      "the month stays unimported.",)),
-    "UNIVERSE_UNKNOWN": ("The month has no universe members in the market and no --symbols were named.",
-                         ("Import the month's bars first (`market import --month YYYY-MM`) or name --symbols.",)),
-    "TERMS_UNKNOWN": ("The market holds no contract terms for a symbol the quote import needs (the price "
-                      "increment that pushes a stale side).",
-                      ("Import the contract's bars first; terms come from the bar import's exchangeInfo observation.",)),
-    "IMPORT_SCOPE": ("The contract list is empty, repeats a contract or names a malformed one.",
-                     ("Pass each contract once, as Binance names it.",)),
-    "UNIVERSE_CHANGED": ("The universe recomputed from the stored data differs from a stored month.",
-                         ("Report the month and contracts named; stored months are never rewritten.",)),
-    "DATA_TESTS_FAILED": ("A bar import would leave a data test failing (the newest month's members traded on the eve, "
-                          "every member has terms, the universe rule is recorded); nothing was placed.",
-                          ("Report the failed test named; the import stops rather than write inconsistent data.",)),
-    "CONCURRENT_IMPORT": ("Another import of this market directory holds its lock, or a file it was about to replace "
-                          "changed since it read it (a writer the lock does not reach); nothing was placed.",
-                          ("Wait for the running import to finish, then rerun the same command.",)),
-    "CHECK_FAILED": ("Rows offered to a market data file break its table's columns, row rules, key order, contract "
-                     "or interval; nothing was written.",
-                     ("Report the table, contract and row named; the source or the import code is wrong, the rule "
-                      "stays.",)),
-    "MARKET_EMPTY": ("The market holds no bar file yet, or the market day holds no universe month.",
-                     ("Import a month with `market import`.",)),
-    "ARCHIVE_NOT_PUBLISHED": ("The exchange has not published that archive or its checksum.",
-                              ("Nothing to repair: a bar or quote import takes the daily archives or public REST "
-                               "instead; a metrics import with no day published has nothing to import yet, so rerun it "
-                               "after the exchange publishes the day.",)),
-    "CHECKSUM_MISMATCH": ("An archive's SHA-256 differs from the .CHECKSUM the exchange published beside it.",
-                          ("Rerun the import (the archive is downloaded again); report the archive if it persists.",)),
-    "SOURCE_CONFLICT": ("Two sources hold the same minute or funding time with different values.",
-                        ("Report the contract, price type and time named; the import stops rather than choose.",)),
-    "SOURCE_SHAPE": ("A source gave a bar off the minute grid, a row that does not parse, two different metrics rows "
-                     "at one create_time, or a malformed request.",
-                     ("Rerun the import after the cache is refreshed; report the archive if it persists.",)),
-    "SOURCE_UNREACHABLE": ("An exchange archive or public endpoint stayed unreachable or throttled after retries.",
-                           ("Rerun the same import later; nothing was committed.",)),
-    "SOURCE_UNKNOWN_SYMBOL": ("The public endpoint does not know a contract the exchange lists as trading.",
-                              ("Report the contract named; rerun the import once exchangeInfo and the endpoint "
-                               "agree.",)),
-    "PRICE_TYPE_UNKNOWN": ("The price type is neither LAST nor MARK.",
-                           ("Stitch LAST or MARK series only.",)),
-    "SCALE_RANGE": ("A price or volume does not fit the market's integer scale.",
-                    ("Report the contract named; the scale is fixed.",)),
-    "SCALE_LOSS": ("A price, volume or metrics value has more decimals (or integer digits) than its "
-                   "stored column holds.",
-                   ("Report the contract named; only a volume that is a binary-float rendering of a value at the "
-                    "scale is rounded on import, and counted in rounded_volumes.",)),
-    "QUOTE_INEXACT": ("A stored quote price does not fit the instrument's price precision at export.",
-                      ("Report the contract named; the quote table and the instrument terms disagree.",)),
-    "TRADE_INEXACT": ("A stored aggregate trade's price or quantity does not fit the instrument's precisions at export.",
-                      ("Report the contract named; the agg_trade table and the instrument terms disagree.",)),
-    "QUOTES_UNSORTED": ("The stored quotes of a contract do not come out of the market in time order.",
-                        ("Report the contract named; the exporter never reorders quotes.",)),
-    "GRID_MISALIGNED": ("Bar times are not strictly increasing on the timeframe's grid.",
-                        ("Pass bars read from the market at one market day.",)),
-    "INPUT_UNSORTED": ("The minute bars to derive from are not strictly increasing whole minutes.",
-                       ("Pass bars read from the market at one market day.",)),
-    "VOLUME_OVERFLOW": ("A derived bar's volume would exceed int64.",
-                        ("Report the contract and timeframe named; derivation never truncates.",)),
-    "EXCHANGE_INFO_MALFORMED": ("An exchangeInfo contract lacks its contract type, underlying type or base asset, or "
-                                "names another contract.",
-                                ("Rerun the import; report the contract if exchangeInfo keeps the shape.",)),
-    "MONTH_NOT_FIRST_DAY": ("A universe month is not a UTC month start.",
-                            ("Pass a month start.",)),
-    "UNIVERSE_EMPTY_AT_DAY": ("The market day holds no universe month.",
-                              ("Import the next month with `market import`, then pin the new market day.",)),
-    "UNIVERSE_NOT_COVERING_WINDOW": ("The market day's last universe month ends before the replay window.",
-                                     ("Import the window's months, or end the window within the produced months.",)),
-    "NO_TERMS": ("The market day holds neither bars nor exchange terms for the contract.",
-                 ("Export only contracts listed by that market day.",)),
-    "TERMS_INVALID": ("A contract's stored increments are not positive decimals, or a lower bound exceeds its upper one.",
-                      ("Report the contract named; terms are stored as the exchange published them.",)),
-    "PRECISION_NARROWED": ("The export asked for a price precision narrower than the exchange's increment.",
-                           ("Export with at least the increment's decimals; precision is only widened.",)),
-    "UNSUPPORTED_QUOTE": ("The contract does not settle in USDT.",
-                          ("Export USDT perpetuals only.",)),
-    "SYMBOL_SHAPE": ("The contract name does not end in USDT or holds an engine separator (- or .).",
-                     ("Export USDT perpetuals by their public names.",)),
-    "EPISODE_INDEX": ("A lifecycle episode number is not a positive integer.",
-                      ("Number episodes 1, 2, ... in time order.",)),
-    "EPISODE_SHAPE": ("A lifecycle episode lacks start_ns or native events, or its instrument ID is not the "
-                      "numbered native ID SYMBOL-E<n>-PERP.BINANCE.",
-                      ("Fix the lifecycle manifest and write a new bundle with `market lifecycle`.",)),
-    "EPISODE_ORDER": ("A contract's lifecycle episodes overlap or are not in time order.",
-                      ("Fix the lifecycle manifest and write a new bundle with `market lifecycle`.",)),
-    "BARS_UNSORTED": ("Exported bar closes are not strictly increasing.",
-                      ("Report the contract named; the market is inconsistent.",)),
-    "BAR_RAW_INEXACT": ("A bar price or volume is not exact at the instrument's precision.",
-                        ("Report the contract named; the exporter never rounds.",)),
-    "MARK_UNSORTED": ("Exported mark price times are not strictly increasing.",
-                      ("Report the contract named; the market is inconsistent.",)),
-    "MARK_INEXACT": ("A mark price is not exact at the precision it is written with.",
-                     ("Report the contract named; the exporter never rounds.",)),
-    "FUNDING_FILE_MISSING": ("A month holding the window's bars has no funding file, so the replay would settle no "
-                             "funding in it.",
-                             ("Re-import the month named with `market import`; a funding file is never optional.",)),
-    "FUNDING_UNSORTED": ("A contract's funding settlement times are not strictly increasing.",
-                         ("Report the contract named; the market is inconsistent.",)),
-    "FUNDING_RATE_SHAPE": ("A funding rate is not a finite decimal.",
-                           ("Report the contract named; the market is inconsistent.",)),
-    "EXPORT_WINDOW": ("The export window is not a positive whole-minute interval.",
-                      ("Pass a window whose start and end lie on whole minutes, start before end.",)),
-    "EXPORT_SCOPE": ("The export contract list is empty or repeats a contract.",
-                     ("Pass each contract once.",)),
-    "INTERVAL_INVALID": ("The input interval is not explicit UTC on whole minutes with start before end.",
-                         ("Pass --start and --end as UTC times on whole minutes, start before end.",)),
-    "EMPTY_SYMBOLS": ("The contract list is empty or repeats a contract.",
-                      ("Pass each contract once, or none to take the universe of the interval's months.",)),
-    "UNKNOWN_SYMBOL": ("The contract is not an instrument of that market day.",
-                       ("List the market day's contracts with `market coverage` over the universe.",)),
-    "MARKET_RETURNS_WINDOW": ("The window for the market's daily returns holds no whole UTC day.",
-                              ("Report market measures only for runs with a whole trading day.",)),
+    "MARKET_UNREACHABLE": ("Pass the market profile with --market; create a market directory with `market init`.",),
+    "MARKET_DAY_UNKNOWN": ("Pass head or a market day (YYYY-MM-DD) of the market; `market coverage` without --at "
+                           "prints the newest as market_day.",
+                           "A line pinned to a later day cannot be read here until the market reaches it."),
+    "MONTH_INVALID": ("Import the month after the latest or the month before the earliest, one `market import "
+                      "--month YYYY-MM` each.",),
+    "MONTH_EXISTS": ("Import the next month or the month before the earliest; a stored month is never rewritten.",),
+    "RULE_VERSION_MISMATCH": ("Read the report at a market day of that rule; a new rule needs a new market directory.",),
+    "TRADES_NOT_HELD": ("Import the month's aggTrades first (`market import-trades --month YYYY-MM`).",),
+    "SEQUENCE_GAP": ("Re-download the day with the refused command (`market import-trades` or `market import-quotes` "
+                     "--month YYYY-MM) after clearing its cached archive; a gap the exchange published stays a gap and "
+                     "the month stays unimported.",),
+    "UNIVERSE_UNKNOWN": ("Import the month's bars first (`market import --month YYYY-MM`) or name --symbols.",),
+    "TERMS_UNKNOWN": ("Import the contract's bars first; terms come from the bar import's exchangeInfo observation.",),
+    "UNIVERSE_CHANGED": ("Report the month and contracts named; stored months are never rewritten.",),
+    "DATA_TESTS_FAILED": ("Report the failed test named; the import stops rather than write inconsistent data.",),
+    "CONCURRENT_IMPORT": ("Wait for the running import to finish, then rerun the same command.",),
+    "CHECK_FAILED": ("Report the table, contract and row named; the source or the import code is wrong, the rule "
+                     "stays.",),
+    "MARKET_EMPTY": ("Import a month with `market import`.",),
+    "ARCHIVE_NOT_PUBLISHED": ("Nothing to repair: a bar or quote import takes the daily archives or public REST "
+                              "instead; a metrics import with no day published has nothing to import yet, so rerun it "
+                              "after the exchange publishes the day.",),
+    "CHECKSUM_MISMATCH": ("Rerun the import (the archive is downloaded again); report the archive if it persists.",),
+    "SOURCE_CONFLICT": ("Report the contract, price type and time named; the import stops rather than choose.",),
+    "SOURCE_SHAPE": ("Rerun the import after the cache is refreshed; report the archive if it persists.",),
+    "SOURCE_UNREACHABLE": ("Rerun the same import later; nothing was committed.",),
+    "SOURCE_UNKNOWN_SYMBOL": ("Report the contract named; rerun the import once exchangeInfo and the endpoint "
+                              "agree.",),
+    "PRICE_TYPE_UNKNOWN": ("Stitch LAST or MARK series only.",),
+    "SCALE_RANGE": ("Report the contract named; the scale is fixed.",),
+    "SCALE_LOSS": ("Report the contract named; only a volume that is a binary-float rendering of a value at the "
+                   "scale is rounded on import, and counted in rounded_volumes.",),
+    "QUOTE_INEXACT": ("Report the contract named; the quote table and the instrument terms disagree.",),
+    "TRADE_INEXACT": ("Report the contract named; the agg_trade table and the instrument terms disagree.",),
+    "QUOTES_UNSORTED": ("Report the contract named; the exporter never reorders quotes.",),
+    "GRID_MISALIGNED": ("Pass bars read from the market at one market day.",),
+    "INPUT_UNSORTED": ("Pass bars read from the market at one market day.",),
+    "VOLUME_OVERFLOW": ("Report the contract and timeframe named; derivation never truncates.",),
+    "EXCHANGE_INFO_MALFORMED": ("Rerun the import; report the contract if exchangeInfo keeps the shape.",),
+    "MONTH_NOT_FIRST_DAY": ("Pass a month start.",),
+    "UNIVERSE_EMPTY_AT_DAY": ("Import the next month with `market import`, then pin the new market day.",),
+    "UNIVERSE_NOT_COVERING_WINDOW": ("Import the window's months, or end the window within the produced months.",),
+    "TERMS_INVALID": ("Report the contract named; terms are stored as the exchange published them.",),
+    "PRECISION_NARROWED": ("Export with at least the increment's decimals; precision is only widened.",),
+    "UNSUPPORTED_QUOTE": ("Export USDT perpetuals only.",),
+    "SYMBOL_SHAPE": ("Export USDT perpetuals by their public names.",),
+    "EPISODE_INDEX": ("Number episodes 1, 2, ... in time order.",),
+    "EPISODE_SHAPE": ("Fix the lifecycle manifest and write a new bundle with `market lifecycle`.",),
+    "EPISODE_ORDER": ("Fix the lifecycle manifest and write a new bundle with `market lifecycle`.",),
+    "BARS_UNSORTED": ("Report the contract named; the market is inconsistent.",),
+    "BAR_RAW_INEXACT": ("Report the contract named; the exporter never rounds.",),
+    "MARK_UNSORTED": ("Report the contract named; the market is inconsistent.",),
+    "MARK_INEXACT": ("Report the contract named; the exporter never rounds.",),
+    "FUNDING_FILE_MISSING": ("Re-import the month named with `market import`; a funding file is never optional.",),
+    "FUNDING_UNSORTED": ("Report the contract named; the market is inconsistent.",),
+    "FUNDING_RATE_SHAPE": ("Report the contract named; the market is inconsistent.",),
+    "INTERVAL_INVALID": ("Pass --start and --end as UTC times on whole minutes, start before end; daily bars take "
+                         "whole UTC days of LAST prices.",),
+    "EMPTY_SYMBOLS": ("Pass each contract once, as Binance names it, or none to take the universe.",),
+    "UNKNOWN_SYMBOL": ("List the market day's contracts with `market coverage` over the universe.",),
+    "MARKET_RETURNS_WINDOW": ("Report market measures only for runs with a whole trading day.",),
     # Paper runs (ledger/paper.py, paper/runs.py)
-    "PAPER_RECOVERY_UNAVAILABLE": ("The run has no consistent, supported native recovery point, or reached its "
-                                   "restart limit. Its original state is retained; no new account is started.",
-                                   ("Keep the original run and checkpoint for diagnosis. A deliberate new Paper "
-                                    "run is a new account, not a recovery.",)),
-    "PAPER_RUN_UNKNOWN": ("The Paper database holds no paper run of that ID.",
-                          ("List the runs with `paper list`.",)),
-    "PAPER_RUN_ACTIVE": ("The candidate already has a running paper run, the run to seal is still running, or the "
-                         "run to delete is not sealed yet.",
-                         ("Stop it with `paper stop --paper-id N`, which also seals it.",)),
-    "PAPER_MEMORY_FULL": ("The run's memory reservation does not fit: the running runs reserve the paper budget "
-                          "(TRADE_PAPER_MEMORY), or the host would keep less than its headroom free.",
-                          ("Stop a running one with `paper stop --paper-id N`, then start again.",)),
-    "PAPER_START_FAILED": ("The run was declared but its containers did not start; it is sealed with START_FAILED "
-                           "and the error in runner.log.",
-                           ("Read the error, repair the runtime or Docker, then start a new run.",)),
+    "PAPER_RECOVERY_UNAVAILABLE": ("Keep the original run and checkpoint for diagnosis. A deliberate new Paper "
+                                   "run is a new account, not a recovery.",),
+    "PAPER_RUN_UNKNOWN": ("List the runs with `paper list`.",),
+    "PAPER_RUN_ACTIVE": ("Stop it with `paper stop --paper-id N`, which also seals it.",),
+    "PAPER_MEMORY_FULL": ("Stop a running one with `paper stop --paper-id N`, then start again.",),
+    "PAPER_START_FAILED": ("Read the error, repair the runtime or Docker, then start a new run.",),
     # Paper reconciliation (paper/reconcile.py)
-    "PAPER_RECONCILE_EMPTY": ("The sealed run's capture names no input start or stop, or it stopped before its first "
-                              "bar closed: there is no interval to replay.",
-                              ("Reconcile a run that received at least one bar.",)),
-    "PAPER_RECONCILE_UNCOVERED": ("The market day does not hold every minute of the run's interval yet.",
-                                  ("Import the run's month with `market import --month YYYY-MM` over the market's "
-                                   "contract scope once its days are archived, then reconcile at the new market day.",)),
+    "PAPER_RECONCILE_EMPTY": ("Reconcile a run that received at least one bar.",),
+    "PAPER_RECONCILE_UNCOVERED": ("Import the run's month with `market import --month YYYY-MM` over the market's "
+                                  "contract scope once its days are archived, then reconcile at the new market day.",),
     # Live comparison (live/compare.py)
-    "LIVE_COMPARE_EMPTY": ("The Live run's journal names no warm-up start or no account observation it started from, "
-                           "or its source received no whole minute: there is no window or balance to replay.",
-                           ("Compare a run whose source started and received at least one minute.",)),
-    "LIVE_COMPARE_UNCOVERED": ("The market day does not hold every minute the Live run's source received yet.",
-                               ("Import the run's month with `market import --month YYYY-MM` over the market's "
-                                "contract scope once its days are archived, then compare at the new market day.",)),
-}
-
-
-# The market package's codes that share a name with a ledger code but refuse a market reference: their
-# meaning and repair when a market refusal is printed (`cli.common._market_refusal`).
-MARKET_CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
-    "UNKNOWN_REF": ("The reference is not main, head or a market day (a valid day, YYYY-MM-DD), or it is a day "
-                    "after the newest the market holds.",
-                    ("Pass main, head or a market day of the active market; `market coverage` without --at prints "
-                     "the newest as market_day.",
-                     "A line pinned to a later day cannot be read here until the market reaches it.")),
+    "LIVE_COMPARE_EMPTY": ("Compare a run whose source started and received at least one minute.",),
+    "LIVE_COMPARE_UNCOVERED": ("Import the run's month with `market import --month YYYY-MM` over the market's "
+                               "contract scope once its days are archived, then compare at the new market day.",),
 }
 
 
@@ -853,5 +426,4 @@ def refuse(code: str, message: str, *, missing: tuple[str, ...] = (), expected: 
            write_status: Literal["not_written", "unknown", "written"] = "not_written",
            operation_id: str | None = None) -> Refusal:
     """A refusal whose repair commands come from the catalogue (an unknown code is a KeyError)."""
-    return refusal(code, message, missing=missing, write_status=write_status, operation_id=operation_id,
-                   expected=expected, next_actions=CATALOGUE[code][1])
+    return Refusal(code, message, missing, write_status, operation_id, expected, CATALOGUE[code])

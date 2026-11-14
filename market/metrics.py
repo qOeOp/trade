@@ -30,7 +30,7 @@ from market.sources import MarketError, _refuse
 
 COLUMNS = ("create_time", "symbol", "sum_open_interest", "sum_open_interest_value", "count_toptrader_long_short_ratio",
            "sum_toptrader_long_short_ratio", "count_long_short_ratio", "sum_taker_long_short_vol_ratio")
-RATIOS = ("count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio", "count_long_short_ratio")
+RATIOS = files.METRICS_VALUES[1:]
 STEP = 300_000  # one row every five minutes
 SCALE = 16  # the most decimals an archive has used (2022); the metrics columns are decimal128(38, 16)
 # Binance publishes a day's archive the next day: a missing day that closed fewer days ago than this may be late or
@@ -156,13 +156,8 @@ def _import(market: files.Market, month: date, start: int, end: int, cache: Path
     if not days:
         raise _refuse(f"the market already holds every closed day of {label} metrics of {symbol}",
                       "MONTH_EXISTS", missing=(label,))
-    found = {}
-    for day in days:
-        try:
-            found[day] = sources.fetch_archive(cache, sources.metrics_key(symbol, day.isoformat()))
-        except MarketError as exc:
-            if exc.code != "ARCHIVE_NOT_PUBLISHED":
-                raise
+    found = {day: path for day in days
+             if (path := sources.published(cache, sources.metrics_key(symbol, day.isoformat()))) is not None}
     if not found:
         raise _refuse(f"{symbol}: no metrics archive of {days[0]}..{days[-1]} is published", "ARCHIVE_NOT_PUBLISHED",
                       missing=(symbol,))

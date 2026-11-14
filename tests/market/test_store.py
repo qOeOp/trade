@@ -133,11 +133,9 @@ class ImportTests(unittest.TestCase):
 
     def test_freshness_reads_the_market_day(self):
         fresh = store.freshness(self.profile)
-        self.assertEqual(fresh, {"market_day": self.market_days[MAR], "universe_rule": universe.RULE,
-                                 "universe_months": ["2025-02", "2025-03"], "symbols": 3,
-                                 "covered_through": day_ms(date(2025, 3, 31)), "latest_complete_day": date(2025, 3, 30),
-                                 "latest_complete_month": "2025-02", "current_month_through": day_ms(date(2025, 3, 31))})
-        self.assertEqual(store.freshness(self.profile, self.market_days[FEB])["covered_through"], day_ms(date(2025, 2, 28)))
+        self.assertEqual(fresh, {"market_day": self.market_days[MAR], "universe_months": ["2025-02", "2025-03"],
+                                 "latest_complete_day": date(2025, 3, 30)})
+        self.assertEqual(store.freshness(self.profile, self.market_days[FEB])["latest_complete_day"], date(2025, 2, 27))
 
     def test_months_import_once_and_in_order(self):
         with serving(self.exchange):
@@ -145,7 +143,7 @@ class ImportTests(unittest.TestCase):
             self.refused("MONTH_INVALID", self.imported, date(2025, 5, 1))
             self.refused("MONTH_INVALID", self.imported, date(2099, 1, 1))
             self.refused("MONTH_INVALID", self.imported, date(2025, 4, 2))
-            self.refused("IMPORT_SCOPE", self.imported, APR, scope=["BTCUSDT", "BTCUSDT"])
+            self.refused("EMPTY_SYMBOLS", self.imported, APR, scope=["BTCUSDT", "BTCUSDT"])
 
     def test_coverage_facts_and_their_refusals(self):
         found = coverage.diagnose_coverage(self.profile, None, ["BBBUSDT", "CCCUSDT"], "2025-02-09T00:00:00Z",
@@ -171,9 +169,10 @@ class ImportTests(unittest.TestCase):
         self.assertEqual((ccc["terms"]["terms_source"], ccc["terms"]["min_notional"]), ("inferred", None))
         market_day, empty = self.market_days[MAR], {"ts_open": [], "volume": []}
         self.refused("INTERVAL_INVALID", coverage.coverage_facts, market, market_day, "BTCUSDT", 1, 2, empty, empty, [])
-        self.refused("MARKET_DAY_INVALID", coverage.coverage_facts, market, "main", "BTCUSDT", 0, MINUTE, empty,
+        self.refused("MARKET_DAY_UNKNOWN", coverage.coverage_facts, market, "head", "BTCUSDT", 0, MINUTE, empty,
                      empty, [])
-        self.refused("UNKNOWN_SYMBOL", coverage.coverage_facts, market, market_day, "ZZZUSDT", 0, MINUTE, empty, empty, [])
+        self.refused("UNKNOWN_SYMBOL", coverage.diagnose_coverage, self.profile, None, ["ZZZUSDT"], "2025-02-09T00:00:00Z",
+                     "2025-02-11T00:00:00Z", None)
         self.refused("SOURCE_SHAPE", coverage.coverage_facts, market, market_day, "BTCUSDT", 0, 3 * MINUTE,
                      {"ts_open": [MINUTE, 0], "volume": [1, 1]}, empty, [])
         self.refused("EMPTY_SYMBOLS", coverage.diagnose_coverage, self.profile, None, [], "2025-02-09T00:00:00Z",
@@ -224,8 +223,8 @@ class ImportTests(unittest.TestCase):
         self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, market_day, "BTCUSDT", "LAST", "1d",
                      "2025-03-02T06:00:00Z", window[1], None)
         self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, market_day, "BTCUSDT", "MARK", "1d", *window, None)
-        self.refused("NO_TERMS", read.stored_bars, self.profile, market_day, "ZZZUSDT", "LAST", "1m", *window, None)
-        self.refused("UNKNOWN_REF", read.stored_bars, self.profile, "no-such-ref", "BTCUSDT", "LAST", "1m", *window,
+        self.refused("UNKNOWN_SYMBOL", read.stored_bars, self.profile, market_day, "ZZZUSDT", "LAST", "1m", *window, None)
+        self.refused("MARKET_DAY_UNKNOWN", read.stored_bars, self.profile, "no-such-ref", "BTCUSDT", "LAST", "1m", *window,
                      None)
 
     def test_an_export_is_renamed_into_place_whole_so_a_failure_or_a_second_writer_keeps_what_is_there(self):
@@ -294,12 +293,12 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(str(first_mark.value), f"{100 + (day_ms(MAR) // MINUTE) % 997 / 100:.2f}345678")
         self.assertEqual(run.mark_timestamps(rows), 2880)
         self.assertRaises(MarketError, export.export_catalogs, self.profile, None, ["BTCUSDT"], start + 1, end)
-        for code, args in (("EXPORT_WINDOW", (["BTCUSDT"], end, start)), ("EXPORT_SCOPE", (["BTCUSDT", "BTCUSDT"], start,
-                                                                                            end))):
+        for code, args in (("INTERVAL_INVALID", (["BTCUSDT"], end, start)), ("EMPTY_SYMBOLS", (["BTCUSDT", "BTCUSDT"], start,
+                                                                                                end))):
             with self.subTest(code=code):
                 self.refused(code, export.export_catalogs, self.profile, None, *args)
         self.refused("MARKET_DAY_UNKNOWN", export.export_catalogs, self.profile, "no-such-ref", ["BTCUSDT"], start, end)
-        self.refused("NO_TERMS", export.export_catalogs, self.profile, None, ["ZZZUSDT"], start, end, fresh=True,
+        self.refused("UNKNOWN_SYMBOL", export.export_catalogs, self.profile, None, ["ZZZUSDT"], start, end, fresh=True,
                      root=root)
 
     def test_a_lifecycle_episode_becomes_a_numbered_native_contract_with_its_events(self):
@@ -439,9 +438,7 @@ class LaterImportTests(unittest.TestCase):
         self.write_terms(market, [first, later])
         self.assertEqual(instrument.terms(market, market_day, "BTCUSDT")["observed_at"], rebuilt)
         before_listing = date(2024, 12, 31).isoformat()
-        self.refused("NO_TERMS", instrument.terms, market, before_listing, "BTCUSDT")
-        empty = {"ts_open": [], "volume": []}
-        self.refused("UNKNOWN_SYMBOL", coverage.coverage_facts, market, before_listing, "BTCUSDT", 0, MINUTE, empty, empty, [])
+        self.refused("UNKNOWN_SYMBOL", instrument.terms, market, before_listing, "BTCUSDT")
 
     def write_terms(self, market, rows) -> None:
         table = pa.Table.from_pylist(rows, schema=files.TABLES["instrument"].schema)
@@ -549,7 +546,7 @@ class LaterImportTests(unittest.TestCase):
         # Before the members: the newest day is the one before the eve, and paper refuses as it always has.
         self.assertEqual(refused(runs._membership, profile, None, None, noon,
                                  error=MarketError).code, "UNIVERSE_NOT_COVERING_WINDOW")
-        self.refused("UNKNOWN_REF", files.resolve_day, files.open_market(profile, "reader"), eve)
+        self.refused("MARKET_DAY_UNKNOWN", files.resolve_day, files.open_market(profile, "reader"), eve)
         self.follow_round(profile, found, MAR)
         self.assertEqual(rows(profile, "bar", ["BTCUSDT"], day_ms(MAR)).num_rows, 0)
         market_day, membership, chosen = runs._membership(profile, None, None, noon)

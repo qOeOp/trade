@@ -43,7 +43,7 @@ def _market_returns(market_database: str | None, market_day: str | None, univers
 
 def _market_day(ref: str) -> dict | None:
     """market.resolve_day of `ref` on the active market: {database (its name), market_day}, market_day None when
-    it holds no such version (UNKNOWN_REF). None when the active market cannot be read (no profile, its
+    it holds no such day (MARKET_DAY_UNKNOWN). None when the active market cannot be read (no profile, its
     directory unreachable): registration then refuses on its own."""
     from market import files
     from market.sources import MarketError
@@ -53,7 +53,7 @@ def _market_day(ref: str) -> dict | None:
     except Refusal:
         return None
     except MarketError as exc:
-        return {"database": profile["name"], "market_day": None} if exc.code == "UNKNOWN_REF" else None
+        return {"database": profile["name"], "market_day": None} if exc.code == "MARKET_DAY_UNKNOWN" else None
 
 
 @dataclass(frozen=True)
