@@ -19,7 +19,7 @@ async function page(query = "?line=line-a") {
   };
   const graph = loader({ context, sources: ["state/researchLines", "lib/lines"], packages: [], stubs: {
     "state/atom": { atom, useAtom: (a) => a.get() },
-    "lib/storage": { keep: () => Promise.resolve(), readKept: () => Promise.resolve(null) },
+    "lib/storage": { keep: () => Promise.resolve(), readKept: () => Promise.resolve(null), forgetKept: () => Promise.resolve() },
     "state/update": { update: { set() {} } },
   } });
   const index = await graph.namespace("state/researchLines.ts");

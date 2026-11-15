@@ -1,7 +1,7 @@
 // The served page (ide.py serve): the view comes from /api/view and follows /api/events, so the page
 // changes in place when the ledger does.
 import type { SummaryWidget, View } from "./model/types";
-import { keep, readKept } from "./lib/storage";
+import { forgetKept, keep, readKept } from "./lib/storage";
 import { update, type Choice } from "./state/update";
 import { lineHref } from "./lib/lines";
 import { readResearchLines, researchLines } from "./state/researchLines";
@@ -25,12 +25,12 @@ function lines(error?: Failure): Choice[] | undefined {
   return error.missing.map((line) => ({ label: line, href: lineHref(window.location.href, line) }));
 }
 
-/** Calls `show` with every new view and `status` with a line to show while there is none yet (`busy`
+/** Calls `show` with every new view (null: the one on the page is dropped) and `status` with a line to show while there is none yet (`busy`
  *  while one is on its way, not when it failed, then with what the product says to do next, or the lines to
  *  choose from when several are open, which stay while the ledger moves: a new head draws nothing until one
  *  is chosen); once one is
  *  shown, the way to a newer one (or a failed refresh) goes to the `update` atom instead. */
-export function follow(show: (view: View) => void, status: (text: string, busy?: boolean, choices?: Choice[], next?: string[]) => void): void {
+export function follow(show: (view: View | null) => void, status: (text: string, busy?: boolean, choices?: Choice[], next?: string[]) => void): void {
   const query = window.location.search;
   const asked = new URLSearchParams(query);
   const pinned = asked.get("at");
@@ -50,6 +50,18 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
     have = held ? `&have=${view.scope?.ledger_commit}&build=${encodeURIComponent(view.scope?.build ?? "")}` : "";
   };
   const wait = (state: string) => { if (choosing === null) status(waiting(state), true); };
+  /** When the ledger has no such line (its history replaced), the graph on the page is another ledger's: it is
+   *  dropped, kept copy included, and the page goes on as one that never had it. */
+  const forget = (error?: Failure): boolean => {
+    if (line === null || shown === null || error?.code !== "LINE_UNKNOWN") return false;
+    shown = held = null;
+    have = "";
+    unconfirmed = false;
+    void forgetKept("view", line);
+    show(null);
+    update.set(null);
+    return true;
+  };
   const failed = (error?: Failure) => {
     const refusal = NO_LINE_CHOSEN.includes(error?.code ?? "") ? error!.code! : null;
     if (refusal !== null && refusal === choosing) return;
@@ -88,7 +100,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
         show(body as View);
         if (line) void keep("view", line, body, KEPT_VIEWS);
         if (!latest) update.set(null);
-      } else if (shown !== null && response.status !== 202) {
+      } else if (shown !== null && response.status !== 202 && !forget(body as Failure)) {
         update.set({ stage: "failed", commit: null, shown, error: body as Failure });
       } else if (shown === null) {
         if (response.status === 202) {
@@ -131,7 +143,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
       if (commit === shown) update.set(null);
     }
     // A failure before any view replaces the waiting line; later failures keep the last view.
-    else if (message.state === "error" && shown === null) {
+    else if (message.state === "error" && (shown === null || forget(message.error))) {
       update.set(null);
       failed(message.error);
     }

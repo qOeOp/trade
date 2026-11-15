@@ -27,8 +27,12 @@ const root = createRoot(document.getElementById("root")!);
 let shown: View | null = null;
 
 /** Draws `next`, keeping the selected version when it is still in it, and every part of the last view
- *  that did not change: a new ledger commit alone redraws nothing. */
-function show(next: View): void {
+ *  that did not change: a new ledger commit alone redraws nothing. Null drops it, and the next status shows instead. */
+function show(next: View | null): void {
+  if (next === null) {
+    shown = null;
+    return;
+  }
   const view = shown = shared(shown, next);
   const lineage = view.widgets.find((w) => w.type === "lineage") as LineageWidget | undefined;
   const detail = view.widgets.find((w) => w.type === "candidate-detail") as DetailWidget | undefined;

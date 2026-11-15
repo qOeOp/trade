@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- IDE (fix): when the research ledger's history is replaced (a new ledger whose head does not descend from the old
+  head), the research graph service drops the graphs, failures and reads it kept for the old ledger's commits, and a
+  page drops the graph its browser kept for a line the ledger no longer has (`LINE_UNKNOWN`), instead of showing the
+  old ledger's graph until the service restarts and the site data is cleared (doctor 20261115-05).
+
 ## 0.4.0 (2026-11-15)
 
 A breaking release: Live works from the web IDE on every host after a release, as Paper does
