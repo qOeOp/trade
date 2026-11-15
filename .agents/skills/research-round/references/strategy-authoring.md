@@ -211,8 +211,10 @@ is in `engine/README.md`.
   a replay image whose `--describe` replay code matches the execution image. Live refuses without
   such a replay within 10% of the wallet (`LIVE_EVIDENCE_MISSING`, `LIVE_EVIDENCE_BALANCE`).
 
-- Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:
-  handle the end as a cancel.
+- Binance takes a GTD expiry only as a whole second (a fraction is `OrderDenied` before it is sent
+  and fails the run; replay and Paper accept one), and Live sends an entry only with at least 605 s
+  left: round the expiry up, `(self.clock.timestamp_ns() + 661 * 10**9 - 1) // 10**9 * 10**9` for
+  660 s. It may end the order early or late and report `CANCELED`: handle the end as a cancel.
 - Size from USDT equity, never a fixed USDT amount; each multiple (x1, x2) is its own version,
   scaling only the notional limit. Live measures the 3-times limit also against the account's USDT
   wallet and available balance, and each entry needs USDT cash of at least the run's
