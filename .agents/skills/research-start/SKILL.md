@@ -117,7 +117,9 @@ research-round's rule for ledger text (English, structured). The targets are the
 reading reports; ask for nothing else (no sizing, budgets or stages).
 
 An idea the user adds with the choice is one ordinary hypothesis in the line (research-round's
-hypothesis stage), never exempt from registration or applied by editing source and replaying. A
+hypothesis stage: sources and rationale labelled by kind, then publish, precheck and independent review
+before its registration), never
+exempt from registration or applied by editing source and replaying. A
 source the user gives is transcribed into a new root at once (research-round's template.md), never
 kept only as evidence or split into changes of this line's source; the user chooses its line.
 
