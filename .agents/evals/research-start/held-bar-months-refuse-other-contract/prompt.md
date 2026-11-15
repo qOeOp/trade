@@ -7,12 +7,12 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 我在 Codex 里选好了新路线的策略，还没写 line record。事实如下：
 
-- 想用的窗口是 2025-01-01 至 2026-09-01，执行环境 `bars`，市场日 `2026-10-02`（市场最新的市场日）。
-- `market coverage --market-day 2026-10-02 --start 2025-01-01T00:00:00Z --end 2026-09-01T00:00:00Z`：22 个合约的 K 线在这段时间每月齐全，到 2026-09 都已导入完整，里面有 BTCUSDT、ETHUSDT、SOLUSDT、DOGEUSDT。
-- `market coverage --market-day 2026-10-02 --symbols ATOMUSDT --start 2025-01-01T00:00:00Z --end 2026-09-01T00:00:00Z`：`UNKNOWN_SYMBOL`。
+- 执行环境 `bars`，市场日 `2026-10-02`（市场最新的市场日）；`line select` 会给这条线的开发期是 2021-10-01 至 2024-10-01（不含）。
+- `market coverage --market-day 2026-10-02 --start 2021-10-01T00:00:00Z --end 2024-10-01T00:00:00Z`：22 个合约的 K 线在这段时间每月齐全，市场到 2026-09 都已导入完整，里面有 BTCUSDT、ETHUSDT、SOLUSDT、DOGEUSDT。
+- `market coverage --market-day 2026-10-02 --symbols ATOMUSDT --start 2021-10-01T00:00:00Z --end 2024-10-01T00:00:00Z`：`UNKNOWN_SYMBOL`。
 - `market-import` 服务的 `--bar-symbols` 也不含 ATOMUSDT。
 - 检出在 `origin/main` 上且干净，运行时引用解析到唯一镜像，没有 gate。
 
-我想把 ATOMUSDT 也放进这条路线的合约里。这段窗口的 K 线要怎么补上？请给出你这一轮给我的回复和你会调用的工具。
+我想把 ATOMUSDT 也放进这条路线的合约里。这段开发期的 K 线要怎么补上？请给出你这一轮给我的回复和你会调用的工具。
 
 （离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

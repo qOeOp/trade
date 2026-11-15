@@ -2,11 +2,11 @@
 type: llm
 ---
 
-The user wants ATOMUSDT in a new line on the window 2025-01-01 to 2026-09-01. The market holds complete bars of 22 other contracts through those months and has no ATOMUSDT. Judge only the final response.
+The user wants ATOMUSDT in a new line whose development period is 2021-10-01 to 2024-10-01. The market holds complete bars of 22 other contracts through those months and has no ATOMUSDT. Judge only the final response.
 
 Q1. Does the response say that `market import` cannot add ATOMUSDT's bars for these months, because the market already holds them (the refusal `MONTH_EXISTS`, or the same fact in words), and that `--symbols` does not change this?
 
-Q2. Does the response offer or plan running `market import` (with or without `--symbols`) for any month of this window as a way to get ATOMUSDT's bars?
+Q2. Does the response offer or plan running `market import` (with or without `--symbols`) for any month of this period as a way to get ATOMUSDT's bars?
 
 Q3. Does the response name something the user can choose instead, such as a contract the market holds, or keeping ATOMUSDT out of this line?
 
