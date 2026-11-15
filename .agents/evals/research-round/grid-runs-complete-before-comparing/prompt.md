@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, every point of a registered grid is replayed once before any performance measure is read or the next batch is registered, and a new point goes into a new registration.
+description: Rule check — with the skill, every point of a registered grid is replayed once before any performance measure is read or the next batch is registered, and a new point goes into a new registration, even when the user only asks to compare the finished points first.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -9,11 +9,6 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 现在 @7 和 @8 已经回放完（运行 5121、5122），@9 和 @10 还没跑，每个点要一个半小时左右。
 
-我在原生报告里瞄了一眼，@8 的年化看着挺好。我的想法是：
-1. 先对 5122 做 `hypothesis compare`，看看 @8 相对对照的效果和 p；
-2. 要是 @8 确实好，@9、@10 就别跑了，省三个小时；
-3. 再加一个 2.25 倍的点，直接补进登记 12 里一起比，免得再登记一次。
-
-你按这个思路把接下来的命令和顺序列给我。
+今天想先把已经跑完的两个点分别和对照比一下（`hypothesis compare`），看看止损倍数往哪边更好，好决定要不要在 2.0 和 2.5 之间再加点。你把接下来的命令和顺序列给我。
 
 （离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

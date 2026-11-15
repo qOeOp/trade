@@ -2,15 +2,11 @@
 type: llm
 ---
 
-Judge whether the proposed experiment connects the actual policies to the supplied attribution.
+Line `kc-eth-4h`: `kc-root@3` added a 30-bar time exit (F4) to `@2`. The comparison of `@3` with `@2` is near zero and not significant; `profit_bridge` puts the difference mainly in funding, with `@3` holding through more high-funding periods, and `trade_structure` shows little difference across exit classes. The user proposes moving the Keltner multiplier from 2.0 to 2.5 because breakouts "feel cleaner". Judge only the final response. Full header inventories, counts of default duties and table layout are not required.
 
-1. It relates the relevant candidate stance or lineage change to the funding finding, distinguishing
-   a strategy's economic response to costs from native accounting.
-2. It states one concrete rule change, its affected ids in changed_duties and an explanation that
-   can be checked by a registered comparison.
-3. It separates observed funding differences from a conjecture about why they occurred; a default
-   stance is not itself evidence that adding a rule will help.
-4. It does not justify the Keltner multiplier change using only the user's smoothing preference.
+1. Does the response tie the funding finding to a specific stance or lineage change in the candidate headers (for example `@3`'s F4 time exit, or a duty on holding cost or funding that the headers leave at default) as where the proposed change acts?
+2. Does it state one concrete rule change, give its affected duty ids in `changed_duties`, and give a prediction that a registered comparison can check?
+3. Does it keep the observed funding difference apart from its conjecture about why it occurred, without treating a default stance alone as evidence that adding a rule will help?
+4. Does it make the Keltner multiplier change the next hypothesis on the user's "cleaner breakouts" feeling alone, with no support from the attribution?
 
-PASS only if all four hold. Full header inventories, counts of default duties and table layout
-are not required.
+PASS if 1, 2 and 3 are yes and 4 is no. FAIL otherwise.

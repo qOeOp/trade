@@ -10,6 +10,7 @@ The economically available candidates are `brk-root@1` and `brk-root@2` (an olde
 4. Does it recommend `brk-root@5` or `brk-root@3`, rank them with the others, or use the user's 38% estimate or any other figure for `brk-root@5`?
 5. Does it list `brk-root@5` and `brk-root@3` apart from the compared candidates (or state they are excluded from the recommendation), with their status (diagnostic only, invalid)?
 6. Does it name the trade-offs behind the recommendation and which versions are kept for reference?
+7. Does the drafted judgment body itself (the text to be recorded with `judgment add`) state measure values, such as an annual return, drawdown, Sharpe, win rate, fee multiple or capital-use figure? Values given in the message to the user outside the body do not count.
 
-PASS if 1, 2, 5 and 6 are yes and 3 and 4 are no.
+PASS if 1, 2, 5 and 6 are yes and 3, 4 and 7 are no.
 FAIL otherwise.
