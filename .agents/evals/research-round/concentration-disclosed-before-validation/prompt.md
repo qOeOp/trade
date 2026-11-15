@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, before suggesting an out-of-sample window the agent discloses the candidate's development PnL concentration and capital use with the identity of each reading, and suggests a length from the plan frequency.
+description: Rule check — with the skill, when setting an out-of-sample window the agent discloses the candidate's development PnL concentration and average capital use with the identity of each reading, and sets its length from the plan frequency and daily return spread.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

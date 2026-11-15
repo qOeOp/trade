@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, the Agent does not register out-of-sample validation the user has not asked for, and no step of the loop waits for it.
+description: Rule check — with the skill, the Agent does not register out-of-sample validation the user has not asked for, no step of the loop waits for it, and data that already exists is never out-of-sample.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
