@@ -255,15 +255,17 @@ uv sync --frozen
 STRATEGY_WORKDIR=$(mktemp -d /tmp/trade-draft.XXXXXX)
 uv run --frozen python -m cli.main candidate export --candidate STRATEGY-ID@N \
   --output "$STRATEGY_WORKDIR/strategy.py"
-uv run --frozen python -m cli.main replay explore \
+uv run --frozen python -m cli.main replay explore --line LINE \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" --strategy-class ENTRY-CLASS \
   --output "$STRATEGY_WORKDIR/pool" -- \
   --universe pool \
-  --start 2020-02-01T00:00:00Z --trade-start 2020-09-01T00:00:00Z \
-  --end 2026-10-01T00:00:00Z
+  --start 2021-03-01T00:00:00Z --trade-start 2021-10-01T00:00:00Z \
+  --end 2024-10-01T00:00:00Z
 ```
 
-A draft file needs no export. Exploration hashes the file it runs; a sealed run binds the source
+A draft file needs no export. The trading window (`--trade-start` to `--end`) lies inside the open line's
+development period, here 2021-10-01 to 2024-10-01; the warm-up before it may start earlier. Exploration
+hashes the file it runs; a sealed run binds the source
 to the ledger's revision, its commit and exact source hash. `replay_diagnostics`
 supplies source counters and `replay_integrity_findings` source failure findings; any finding or
 denied/rejected order fails the run.
@@ -450,14 +452,32 @@ A change that should preserve behavior (strategy refactor, runner, data adaptati
 Nautilus) is accepted by paired native replays of the same source, inputs, window and account: the reference in
 the current main image, the candidate in the pull request's image (a research change to a strategy
 follows the `research-round` skill instead). Run a BTC/ETH pilot of each
-affected source, then the full instrument set:
+affected source, then the full instrument set. `replay explore` trades inside an open line's development
+period and a temporary ledger has no line, so open one there first: publish the source, precheck it over at
+most 7 trading days (`PRECHECK-ARGS`), record a review of that precheck and select the line. `items.json`
+holds `api`, `causal`, `activity` and `readiness`, each
+`{"status": "no_opportunity", "note": "paired-acceptance fixture, not a review"}`; `line select` returns the
+development period every trading window here lies in:
 
 ```bash
 LEDGER=$(uv run --frozen python -m cli.main ledger temp | jq -r .profile)  # never the active ledger
-uv run --frozen python -m cli.main replay explore --ledger "$LEDGER" --runtime ghcr.io/qoeop/trade-runtime:main \
+uv run --frozen python -m cli.main candidate publish --ledger "$LEDGER" \
+  --file "$STRATEGY_WORKDIR/strategy.py" --strategy-id acceptance --entry-class ENTRY-CLASS \
+  --description "paired-acceptance fixture"
+uv run --frozen python -m cli.main replay precheck --ledger "$LEDGER" --market-day head \
+  --candidate acceptance@1 --runtime ghcr.io/qoeop/trade-runtime:main \
+  --output "$STRATEGY_WORKDIR/precheck" -- PRECHECK-ARGS > "$STRATEGY_WORKDIR/precheck.json"
+uv run --frozen python -m cli.main source review --ledger "$LEDGER" --candidate acceptance@1 \
+  --runtime "$(jq -r .image_ref "$STRATEGY_WORKDIR/precheck.json")" \
+  --trial-id "$(jq -r .trial_id "$STRATEGY_WORKDIR/precheck.json")" --verdict passed \
+  --items "$STRATEGY_WORKDIR/items.json" --reviewer paired-acceptance
+uv run --frozen python -m cli.main line select --ledger "$LEDGER" --start acceptance@1 --slug paired-acceptance
+uv run --frozen python -m cli.main replay explore --ledger "$LEDGER" --line paired-acceptance \
+  --runtime ghcr.io/qoeop/trade-runtime:main \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" --strategy-class ENTRY-CLASS \
   --output "$STRATEGY_WORKDIR/reference" -- RUNNER-ARGS
-uv run --frozen python -m cli.main replay explore --ledger "$LEDGER" --runtime ghcr.io/qoeop/trade-runtime:pr-N \
+uv run --frozen python -m cli.main replay explore --ledger "$LEDGER" --line paired-acceptance \
+  --runtime ghcr.io/qoeop/trade-runtime:pr-N \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" --strategy-class ENTRY-CLASS \
   --output "$STRATEGY_WORKDIR/candidate" -- RUNNER-ARGS
 uv run --frozen python -m engine.compare_reports \
