@@ -46,7 +46,7 @@
 ## Runner 合同
 
 - `rewarming` 不是结束事件，退出码仍是 3，`runner_args`、`ENDED_EVENTS`、`RUN_ENDED`、`FLAT` 不变，`RUNNER_CONTRACT` 仍是 1。
-  `tests/live/test_runner_contract.py` 加了一条：这样结束的启动读为 interrupted，会被再次启动。录好的基线不改。
+  `tests/live/test_runner_contract.py` 加了一条：这样结束的启动读为 interrupted，会被再次启动。录好的基线不改。（2026-11-14 起 `RUNNER_CONTRACT` 与它的基线连同 `tests/live/test_runner_contract.py` 一起删除，见提交 `3ba14d5a7`；“没有结束事件的启动会被再次启动”这条规则现在由 `tests/live/test_runs.py` 的 `test_an_interrupted_run_starts_again_unless_it_ended_or_a_stop_was_asked` 覆盖。）
 - 旧控制接管时照样当中断重启，只是不发 `rewarming` 的通知，缺根时仍发旧文字。
 - `live/runs.py _stop_reason` 跳过 `rewarming`。否则运行最后结束时 Telegram 会把停止原因写成第一次重新预热。
 
@@ -104,7 +104,7 @@
     - STOP 取代重新预热。
   - `tests/engine/test_live_entry.py`：在 Nautilus 回测引擎上用真实原生单验证：在途入场被撤；空仓后两次一致即 `rewarming`；
     Observer 不平仓，直接停 node，`native_flat` 为假，没有失败。
-  - `tests/live`：通知的三条文字、键和抑制（`test_notify`）；views 的 restarts（`test_views`）；合同（`test_runner_contract`）。
+  - `tests/live`：通知的三条文字、键和抑制（`test_notify`）；views 的 restarts（`test_views`）；合同（`test_runner_contract`，该文件已删除，见上）。
 - **反向对照**（每次改完都恢复），各自让对应测试失败：
   1. Observer 对重新预热走平仓路径；
   2. 比对一致后重开入场而不是重启；

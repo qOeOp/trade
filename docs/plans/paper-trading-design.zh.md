@@ -307,6 +307,8 @@ Invalid。runner 每秒把运行时异常写进 `runtime_failures.jsonl`，被�
 版本反复起停。计数由已有记录推出，不新增字段。内存超限、策略被拒、守护进程活着时的 `SIGKILL`、到时长结束
 仍不重开。重开被拒绝（同一版本已在跑、并发已满）就记在守护进程的日志里，不重试。
 
+> 2026-11-15 标注（doctor 20261114-37）：这一段被取代。现行行为见[原生恢复](paper-native-recovery.zh.md)（上面抬头已指向）：守护进程只对暂停（`SIGTERM`、`SIGINT`）或没写 summary 就中断的运行，对同一运行 `resume`，不开新运行；其余结束（STOP、到时长、runner 拒绝、节点自己停止、崩溃退出码非零）一律封存，不重开（`paper/serve.py` 的 `Daemon` 里 `action = "resume" … else "seal"`；`engine/README.md` Paper 一节）。
+
 **IDE 把重开前后的运行显示成一条（用户 2026-11-01 定）**。前一条运行以重启结束（停止原因 `SIGTERM` 或
 `KILLED`，别无失败原因，或只有 `STOPPED_BEFORE_START`），后一条是同一候选的下一个运行、合约相同、在前一条
 停止后创建，两条就连成一条链；链接不存储，由已有记录推出。运行列表里一条链只占一行（时长从第一条运行算起，

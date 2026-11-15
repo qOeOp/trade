@@ -126,9 +126,12 @@ class {entry_class}(Strategy):
         return found.as_decimal() if found is not None else Decimal(0)
 
     def order_quantity(self, quantity, price=None):
-        """`quantity` rounded down to the size increment, or None when it is below the increment,
+        """`quantity` rounded down to the size precision (decimal places), or None when it is below the increment,
         min_quantity or (given a price) min_notional; make_qty(round_down=True) raises below the
-        increment and the venue rejects an order below the minimums. Market-data price/indicator
+        increment and the venue rejects an order below the minimums. The result is a multiple of the increment
+        only when the increment is a power of ten (increment 0.5 with one decimal turns 1.76 into 1.7, increment
+        10 turns 14 into 14), and make_price likewise rounds to the price precision, not to a multiple of the
+        tick: round to the increment or tick yourself when it is not a power of ten. Market-data price/indicator
         inputs used to derive quantity and price must come from completed events strictly earlier
         than submission; this helper rounds and checks specifications, not their timestamps."""
         instrument = self.cache.instrument(self.instrument_id)
