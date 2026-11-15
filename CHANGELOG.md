@@ -14,6 +14,10 @@ commit:
 gh release create vX.Y.Z --target <merge-commit> --title vX.Y.Z --notes-file <entry.md>
 ```
 
+A commit that changes only documentation builds no image and is never admitted, so its tag never reaches the host:
+when the version was raised in an earlier pull request and this one changes only this file, target the newest
+commit `main-ready` admitted instead (the `revision` in its `release.json`), which carries the same product.
+
 The tag push wakes `release-ready`, which admits the version once every check of its commit has passed and records
 a GitHub deployment to `production`; the host switches on its next release tick. A version on a commit behind the
 one the host runs is ignored. Its images are the digests `deploy-ready` records for it: the IDE, the service and the
