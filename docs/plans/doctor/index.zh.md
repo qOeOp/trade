@@ -11,7 +11,7 @@
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
 | 20261115-05 | 账本历史被替换后，研究图服务与页面仍显示旧账本画的同名研究线的图 | 修缺陷（Hub 与页面丢掉不属于本账本的视图） | doctor | minutes | open [记录](2026-11-15-stale-ledger-after-restart.zh.md) | 2026-11-15 | 2026-11-15 |
-| 20261115-06 | 服务器的 ledger 镜像服务与 market-import 不随版本发布，镜像自动同步从没上过生产 | 改发布设计（用户定：随版本更新）；先写设计记录 | doctor | hours | open [记录](2026-11-15-stale-ledger-after-restart.zh.md) | 2026-11-15 | 2026-11-15 |
+| 20261115-06 | 服务器的 ledger 镜像服务与 market-import 不随版本发布，镜像自动同步从没上过生产 | 改发布设计（用户定：随版本更新）；先写设计记录 | doctor | hours | in PR [#3124](https://github.com/qOeOp/trade/pull/3124) | 2026-11-15 | 2026-11-15 |
 | 20261114-22 | Live 入场在派发环节被拒时不走 STOP 平仓路径，直接停节点，仓位留在账户里 | fix（改回已定设计；改变真实仓位上的平仓行为，合并前告知用户） | doctor | unknown | fixed aadf691f8 [#3022](https://github.com/qOeOp/trade/pull/3022) | 2026-11-14 | 2026-11-14 |
 | 20261114-23 | runner 以拒绝码退出且没写结束事件时，控制当作中断自动重启，因失败停下的运行会自己恢复交易 | authority（改已授权的重启规则与结束事件集合）；其后用户 2026-11-15 定：恢复启动时时钟超限（`LIVE_CLOCK`）与账户读取失败同样交回控制重试，不结束运行，见 [#3080](https://github.com/qOeOp/trade/pull/3080) | doctor | unknown | fixed 3f1bb564e [#3049](https://github.com/qOeOp/trade/pull/3049) | 2026-11-14 | 2026-11-14 |
 | 20261114-24 | Live 带持仓或在途入场单的重启（保持模式）不核实交易所止损、不撤继承来的入场单、不跑刹车，通知却写由止损保护 | authority（新增核对；文案是用户定的） | doctor | unknown | fixed e4b39030f [#3052](https://github.com/qOeOp/trade/pull/3052)；页面外观的一半（核对不过时的状态词与颜色）在草稿 PR [#3076](https://github.com/qOeOp/trade/pull/3076) 里等用户外观审阅 | 2026-11-14 | 2026-11-14 |
