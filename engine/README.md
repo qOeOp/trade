@@ -76,7 +76,8 @@ aggregates to has 0 bars. An instance's start T is the later of `--trade-start` 
 while a declared history does not hold yet, the first whole minute at which it does. At T the runner requests,
 for each period P with n > 0 bars, `{id}-{P}-LAST-EXTERNAL` over [floor(T, P) - n P, floor(T, P) - 1 ms]. The
 source's `on_historical_bars` receives the n adjacent bars once per period, each stamped 1 ms before its bucket
-ends, and then its `on_start` runs. It sees no data stamped before T, and until `on_start` its orders are
+ends, and then its `on_start` runs, after the data that arrives at T itself (`ts_init` T), whether T is the window's
+start or later. It sees no data stamped before T nor any arriving at T, and until `on_start` its orders are
 `ORDER_RULE`. It cannot request data itself: a `request_*` call is `SUBSCRIPTION_OUTSIDE_CONTRACT`.
 
 `WARMUP` may also hold `"FUNDING": n`. Before `on_start`, the source's `on_historical_funding_rates` then receives
@@ -104,15 +105,14 @@ start (`history.py`). From T + 15 s (a just-closed Binance kline was final by th
 the history and the minutes of [floor(T, P), T) from Binance's public klines (`klines.py`, no credential) into a
 temporary Catalog and request them natively as a replay does, and read the declared funding settlements. The first live minute must close at T + 1 min.
 Binance stamps a settlement at its hour or some milliseconds after it. At a T on a settlement hour, a replay streams
-a settlement stamped after T to a source subscribed in `on_start`, and one stamped T itself only when its window
-starts at T (`on_start` then runs before the first data); the live stream passes both before a Paper or Live source
-subscribes. For a source that defines `on_funding_rate` and starts on a whole hour, the warm-up therefore reads the
-funding-rate history too (declared or not, with the same wait and deadline). When the source subscribed to its
-contract's funding by the end of `on_start`, a settlement stamped after T then goes to `on_funding_rate`, the
-replay's update at the replay's stamps and rate; so does one stamped T unless the source declares a funding history
-or a bar history other than daily bars, since the replay a run is compared with then starts before T. Later settlements
-come from the stream (`engine.cadence`): the settled rate, stamped at the settlement's hour where a replay stamps
-Binance's settlement time (0 to 7 ms later in the settlements of 2026-11 sampled, 13 ms in one of 2025-10).
+a settlement stamped after T to a source subscribed in `on_start`, and never one stamped T itself (a declared funding
+history holds it); the live stream passes it before a Paper or Live source subscribes. For a source that defines
+`on_funding_rate` and starts on a whole hour, the warm-up therefore reads the funding-rate history too (declared or
+not, with the same wait and deadline). When the source subscribed to its contract's funding by the end of `on_start`,
+a settlement stamped after T then goes to `on_funding_rate`, the replay's update at the replay's stamps and rate.
+Later settlements come from the stream (`engine.cadence`): the settled rate, stamped at the settlement's hour where a
+replay stamps Binance's settlement time (0 to 7 ms later in the settlements of 2026-11 sampled, 13 ms in one of
+2025-10).
 Binance changes a contract's funding interval between 1, 4 and 8 hours after a settlement and settles at its
 multiples. The warm-up waits for the settlement that the interval now (`fapi/v1/fundingInfo`) makes due at or before
 T, not the one the latest settlements' spacing predicts; in the stream, an estimate that names a later time before

@@ -152,10 +152,10 @@ class ConstructionTests(unittest.TestCase):
 
     def test_paper_gives_a_source_starting_on_a_settlement_hour_the_settlement_a_replay_streams_after_t(self):
         """A replay starting at 16:00 streams the settlement of that hour to a source subscribed in on_start when
-        Binance stamped it after the hour (2 ms here, as the archive and REST hold it), or on the hour and the replay's
-        window starts there (tests.engine.test_warmup). Paper reads Binance's settlements before on_start and gives
-        that one as the replay's update; the live stream, whose estimates name 16:00 until it has passed (2026-11-15
-        probe), gives only the later ones."""
+        Binance stamped it after the hour (2 ms here, as the archive and REST hold it), and never one stamped on the
+        hour (tests.engine.test_warmup). Paper reads Binance's settlements before on_start and gives that one as the
+        replay's update; the live stream, whose estimates name 16:00 until it has passed (2026-11-15 probe), gives
+        only the later ones."""
         hour_ns, day = 3_600_000_000_000, 1_767_225_600_000_000_000
         at, interval = day + 16 * hour_ns, 8 * hour_ns
         klines_get, _ = binance()
@@ -230,9 +230,9 @@ class ConstructionTests(unittest.TestCase):
                  "lambda event: self.subscribe_funding_rates(self.instrument))")
         self.assertEqual(started(2, in_on_start), [settled(at + 2_000_000), stream])
         self.assertEqual(started(2, later), [stream])  # not subscribed when the replay streams it
-        # Stamped T: the replay's window starts at T unless a history reaches before it (daily bars come apart).
-        self.assertEqual(started(0, in_on_start), [settled(at), stream])
-        self.assertEqual(started(0, in_on_start, {"1-DAY": 2}), [settled(at), stream])
+        # Stamped T: known at T, so never streamed after on_start, whatever the source declares.
+        self.assertEqual(started(0, in_on_start), [stream])
+        self.assertEqual(started(0, in_on_start, {"1-DAY": 2}), [stream])
         self.assertEqual(started(0, in_on_start, {"15-MINUTE": 2}), [stream])
         self.assertEqual(started(2, in_on_start, {"15-MINUTE": 2}), [settled(at + 2_000_000), stream])
         # A declared funding history holds the settlement stamped T, and not one stamped after it.
