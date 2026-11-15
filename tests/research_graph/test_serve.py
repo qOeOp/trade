@@ -61,6 +61,12 @@ class FakeProduct:
         self.counted: list[tuple[str, str]] = []
         self.counts_failure: dict | None = None  # `research counts` refuses with this
         self.listed = [{"name": "historical", "closed": True}, {"name": "current", "closed": False}]  # `line list --all`
+        self.replaced = False  # the head's history no longer holds the commits read before
+        self.followed: list[tuple[str, str]] = []
+
+    def follows(self, older, newer):
+        self.followed.append((older, newer))
+        return not self.replaced
 
     def counts(self, line, commit):
         self.counted.append((line, commit))
@@ -316,6 +322,42 @@ class HubTests(unittest.TestCase):
         self.product.release.set()
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "d" * 32})
         self.assertEqual(self.product.drawn, ["a" * 32, "b" * 32, "d" * 32], "c is skipped for the latest head")
+
+    def test_a_replaced_history_drops_the_graphs_and_reads_of_the_old_one(self):
+        client = serve.Client("gone", None, None)
+        self.hub.refresh(wait=True)
+        self.hub.join(client)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
+        self.hub.trials.get((1, "a" * 32))
+        self.product.release = threading.Event()
+        self.addCleanup(self.product.release.set)
+        self.hub.join(serve.Client("other", None, None))  # a draw on the old history, in flight
+        until(lambda: self.hub.running == serve.ViewKey("a" * 32, "other", None))
+        self.product.same, self.product.replaced, self.product.head = True, True, "b" * 32
+        self.hub.refresh(wait=True)
+        status, body = self.hub.view("gone", None, None)
+        self.assertEqual(status, 202, "no graph of the old ledger is served at the new head")
+        self.assertNotIn("available_commit", body)
+        self.assertEqual(self.product.followed, [("a" * 32, "b" * 32)])
+        self.assertEqual(self.hub.trials.values, {}, "reads pinned to the old commits are dropped")
+        self.product.release.set()
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
+        self.assertEqual(self.product.asked, [], "the old graph is not compared with the new head, it is drawn")
+        self.assertNotIn(serve.ViewKey("a" * 32, "other", None), self.hub.views, "the draw begun on the old history is dropped")
+        self.assertEqual(self.hub.view("gone", None, None)[1]["scope"]["ledger_commit"], "b" * 32)
+
+    def test_a_head_that_advances_keeps_the_graphs_and_asks_once(self):
+        client = serve.Client("line", None, None)
+        self.hub.refresh(wait=True)
+        self.hub.join(client)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
+        self.product.same, self.product.head = True, "b" * 32
+        self.hub.refresh(wait=True)
+        self.hub.refresh(wait=True)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
+        self.assertEqual(self.product.followed, [("a" * 32, "b" * 32)], "one ancestry read per head move")
+        self.assertEqual(self.product.drawn, ["a" * 32])
+        self.assertIn(serve.ViewKey("a" * 32, "line", None), self.hub.views)
 
     def drawn_page(self, line="line", **options):
         client = serve.Client(line, None, None, **options)

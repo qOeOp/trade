@@ -64,6 +64,13 @@ export async function readKept<T>(kind: string, key: string): Promise<T | null> 
   });
 }
 
+/** Drop what is kept under `key` of `kind`. */
+export async function forgetKept(kind: string, key: string): Promise<void> {
+  const db = await database();
+  if (!db) return;
+  try { db.transaction(KEPT, "readwrite").objectStore(KEPT).delete(`${kind}/${key}`); } catch { /* storage unavailable */ }
+}
+
 /** Keep `value` under `key` of `kind`, at most `limit` of that kind. */
 export async function keep(kind: string, key: string, value: unknown, limit: number): Promise<void> {
   const db = await database();

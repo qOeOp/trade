@@ -36,3 +36,8 @@ class Pinned[K: Hashable]:
                 with self.lock:
                     del self.pending[key]
         return future.result()
+
+    def clear(self) -> None:
+        """Forget every value kept; a read already running still answers its callers."""
+        with self.lock:
+            self.values.clear()
