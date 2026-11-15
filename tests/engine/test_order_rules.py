@@ -2,6 +2,7 @@
 sent and is recorded as a breach; one inside goes on unchanged."""
 
 import unittest
+from decimal import Decimal
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
@@ -134,6 +135,55 @@ class OrderRuleTests(unittest.TestCase):
         breaches, orders = replay({2: lambda s: s.submit_order(s.limit(price="90.00", time_in_force=TimeInForce.GTD,
             expire_time=s.clock.timestamp_ns() + 600_000_000_000))})
         self.assertEqual((breaches, [row["status"] for row in orders]), ([], ["EXPIRED"]))  # sent; expires at bar 12
+
+    def test_a_gtd_order_of_a_type_live_cannot_send_gtd_is_refused(self):
+        # Rule 5: each has expire_time but no expire_time_ns (only LimitOrder has), which once raised AttributeError.
+        def gtd(s):
+            return {"time_in_force": TimeInForce.GTD, "expire_time": s.clock.timestamp_ns() + 700_000_000_000}
+        quantity, price = Quantity.from_str("0.500"), Price.from_str
+        entry = {2: lambda s: s.submit_order(s.limit(price="99.50"))}
+        cases = {
+            "STOP_MARKET entry": {2: lambda s: s.submit_order(s.order_factory.stop_market(
+                INSTRUMENT_ID, OrderSide.BUY, quantity, price("120.00"), **gtd(s)))},
+            "STOP_MARKET exit": entry | {4: lambda s: s.submit_order(s.order_factory.stop_market(
+                INSTRUMENT_ID, OrderSide.SELL, quantity, price("90.00"), reduce_only=True, **gtd(s)),
+                position_id=s.position_id)},
+            "MARKET_IF_TOUCHED exit": entry | {4: lambda s: s.submit_order(s.order_factory.market_if_touched(
+                INSTRUMENT_ID, OrderSide.SELL, quantity, price("110.00"), reduce_only=True, **gtd(s)),
+                position_id=s.position_id)},
+            "TRAILING_STOP_MARKET exit": entry | {4: lambda s: s.submit_order(s.order_factory.trailing_stop_market(
+                INSTRUMENT_ID, OrderSide.SELL, quantity, Decimal(100), trigger_price=price("90.00"),
+                reduce_only=True, **gtd(s)), position_id=s.position_id)},
+            "MARKET_TO_LIMIT exit": entry | {4: lambda s: s.submit_order(s.order_factory.market_to_limit(
+                INSTRUMENT_ID, OrderSide.SELL, quantity, reduce_only=True, **gtd(s)), position_id=s.position_id)},
+        }
+        for name, steps in cases.items():
+            with self.subTest(name=name):
+                breaches, orders = replay(steps)
+                self.assertEqual([text.rsplit(": ", 2)[1:] for _, text in breaches], [[
+                    "a GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order",
+                    f"Live cannot send a GTD {name.rsplit(' ', 1)[0]} order"]])
+                self.assertEqual(codes(breaches), ["ORDER_RULE"])
+                self.assertEqual([row["type"] for row in orders], ["LIMIT"] * (len(steps) - 1))
+
+    def test_a_gtd_stop_limit_or_limit_if_touched_exit_keeps_the_expiry_rule(self):
+        def exits(seconds):
+            def step(s):
+                gtd = {"time_in_force": TimeInForce.GTD, "reduce_only": True,
+                       "expire_time": s.clock.timestamp_ns() + seconds * 1_000_000_000}
+                quantity, price = Quantity.from_str("0.250"), Price.from_str
+                s.submit_order(s.order_factory.stop_limit(INSTRUMENT_ID, OrderSide.SELL, quantity, price("89.00"),
+                                                          price("90.00"), **gtd), position_id=s.position_id)
+                s.submit_order(s.order_factory.limit_if_touched(INSTRUMENT_ID, OrderSide.SELL, quantity,
+                                                                price("110.00"), price("110.00"), **gtd),
+                               position_id=s.position_id)
+            return {2: lambda s: s.submit_order(s.limit(price="99.50")), 4: step}
+        breaches, orders = replay(exits(600))
+        self.assertEqual((breaches, sorted(row["type"] for row in orders)),
+                         ([], ["LIMIT", "LIMIT_IF_TOUCHED", "STOP_LIMIT"]))
+        breaches, orders = replay(exits(599))
+        self.assertEqual(([text.rsplit(": ", 1)[1] for _, text in breaches], [row["type"] for row in orders]),
+                         (["a GTD order expires at least 600 seconds after it is sent"] * 2, ["LIMIT"]))
 
     def test_several_positions_on_both_sides_each_with_its_stop(self):
         def stops(s):
