@@ -5,12 +5,12 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-结束路线 L-9 吧，不做了。
+结束路线 line-9 吧，不做了。
 
-`research state --line L-9` 的默认输出：
+`research state --line line-9` 的默认输出：
 
 ```
-line: L-9   start: rev-root@2   recommendation: judgment 88 (trial 140)
+line: line-9   start: rev-root@2   recommendation: judgment 88 (trial 140)
 latest: interpretations 3, priorities 2
 earlier: {interpretations: 14, search_exposures: 3}
 ```

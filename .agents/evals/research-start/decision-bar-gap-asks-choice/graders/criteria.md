@@ -2,7 +2,7 @@
 type: llm
 ---
 
-A readiness check of line L-30 (BTCUSDT, hourly decisions, development window 2021-10-01 to 2024-10-01) finds a LAST gap on 2023-02-11 over two whole bars of the strategy's decision timeframe and a separate three-minute gap on 2023-08-03. Judge only the final response.
+A readiness check of line line-30 (BTCUSDT, hourly decisions, development window 2021-10-01 to 2024-10-01) finds a LAST gap on 2023-02-11 over two whole bars of the strategy's decision timeframe and a separate three-minute gap on 2023-08-03. Judge only the final response.
 
 Q1. Does it end by asking the user how to resolve the long gap as a data or scope choice?
 
