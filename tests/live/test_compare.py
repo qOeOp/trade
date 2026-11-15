@@ -213,7 +213,8 @@ class Compare(unittest.TestCase):
                "sum_toptrader_long_short_ratio": "1.8442000000000000", "count_long_short_ratio": None}
         with (self.root / "runs" / pack.run_id / "out" / "evidence" / "market.jsonl").open("a") as stream:
             stream.write(json.dumps(row) + "\n")
-        stored = [[START, "97897.565", "3.6904", "1.8441", None], [START + 5 * MINUTE, "97900", "3.6", "1.8", "3.1"]]
+        stored = [[START, "97897.565", "3.6904", "1.8441", None, {}],
+                  [START + 5 * MINUTE, "97900", "3.6", "1.8", "3.1", {}]]
         with mock.patch.object(shared, "archive_metrics", return_value=stored) as archive:
             _, result = self.compared(pack)
         self.assertEqual(archive.call_args.args[2:], ("BTCUSDT", START, close_of(pack.minutes - 1) + 10**6))
@@ -230,7 +231,7 @@ class Compare(unittest.TestCase):
         unsubscribed = {"kind": "metrics_unsubscribed", "instrument_id": BTC, "wall_ns": START + 6 * MINUTE}
         with (self.root / "runs" / pack.run_id / "out" / "evidence" / "market.jsonl").open("a") as stream:
             stream.write(json.dumps(received) + "\n" + json.dumps(unsubscribed) + "\n")
-        stored = [[START, "97900", "3.6", "1.8", "3.1"], [START + 5 * MINUTE, "97900", "3.6", "1.8", "3.1"]]
+        stored = [[START, "97900", "3.6", "1.8", "3.1", {}], [START + 5 * MINUTE, "97900", "3.6", "1.8", "3.1", {}]]
         with mock.patch.object(shared, "archive_metrics", return_value=stored):
             _, result = self.compared(pack)
         metrics = result["inputs"]["BTCUSDT"]["metrics"]

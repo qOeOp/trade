@@ -177,8 +177,9 @@ instant it describes (public REST's row of that timestamp), and `ts_init = creat
 REST's publication. Its values are the ones REST shows, which Paper and Live read: open interest as
 stored, the position ratio half-up to 4 decimals, each account ratio the quotient of its long share
 `r / (1 + r)` and short share `1 / (1 + r)`, each half-up to 4 decimals first, the quotient too
-(`docs/plans/binance-metrics-rest-parity.zh.md`; a position ratio the archive holds at a tie of the 4th
-decimal, about 1 row in 90, may differ by 0.0001). Both stamps are whole minutes, so in the bar environment an order the row prompts fills at the close
+(`docs/plans/binance-metrics-rest-parity.zh.md`). A position ratio the archive holds exactly at the midpoint
+of the 4th decimal (about 1 row in 100) is rounded either way by REST, and nothing in the archive tells which:
+`live compare` accepts the midpoint's half-down rounding there too, and no other difference. Both stamps are whole minutes, so in the bar environment an order the row prompts fills at the close
 of the bar that ends there, never at a price older than the decision. The receipt counts the rows
 (`counts.metrics`, present only then). The runner streams them as `CustomData(metrics_data_type(<id>),
 Metrics(...))`: `engine.strategy.Metrics` holds `instrument_id`, `sum_open_interest` (base asset), the three
@@ -919,7 +920,8 @@ Each Live run keeps what a replay of its source needs for comparison in `evidenc
   (`metrics_unsubscribed`: `instrument_id`). What arrives after a stop request reaches neither the source nor the
   file. Quotes, trades, MARKs and funding rates are not kept: `live compare` settles funding at Binance's published
   rates, and compares the metrics rows with the archive's as a replay streams them, expecting none from an
-  unsubscribe's `wall_ns` until the source receives one again.
+  unsubscribe's `wall_ns` until the source receives one again. Values must be equal, except a position ratio the
+  archive holds exactly at the midpoint of the 4th decimal, which may also be 0.0001 below the replay's.
 - `reports-<ns>/`, written when the node stops in `run` and `reconcile`: `orders.csv`, `fills.csv`,
   `positions.csv`, `account.csv` and `order_events.jsonl.gz` from the native cache, through the same writers a
   replay uses (`engine.write_reports`).
