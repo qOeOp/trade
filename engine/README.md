@@ -525,6 +525,13 @@ changed inputs, unhandled journal tails, unsupported strategy state or a missing
 recovery and retain the account records. Explicit STOP/duration still seals. The original per-source limit
 is three actual recovery launches per hour, including failures before the runtime can journal.
 
+The Sandbox does not generate position IDs (`use_position_ids=False`, as Live's execution client): the execution
+engine gives each entry's position its `P-…` ID, which the native cache keeps across a recovery. The matching
+engine's own `BINANCE-<contract>-<n>` IDs, which a resting limit entry would otherwise get, restart from zero in every
+process and number the contracts in the order their data first arrives, so after a recovery they collide with a
+cached position of the same or of another contract. A replay's venue keeps the default; the two differ only in the
+IDs, which the paired comparison masks.
+
 `PAPER_RECOVERY = 1` is an explicit source protocol: reviewed `on_save/on_load` hooks own all private state;
 `on_start` re-establishes the minute subscription and the aggregations `WARMUP` declares, without custom
 routing or dynamic changes. User timers and nonterminal orders are outside this protocol. A source must

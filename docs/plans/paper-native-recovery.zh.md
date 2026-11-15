@@ -190,3 +190,15 @@ PR #2207 已创建，首个提交43f6d16e4的全部CI检查通过。对应runtim
 - 所以一张限价单只要没成交就结束（过期或撤单），之后每个切点都会被拒。对冲持仓和 Sandbox 自动撤掉的只减仓止损都能原样读回。
 
 决定：从未成交的订单（`filled_qty` 为 0）比较时不比 `liquidity_side`。已成交订单的 `liquidity_side` 和其余字段照常比较。修复见 #2882。
+
+
+## 恢复后的仓位号（2026-11-15，发现 20261114-33）
+
+用户 2026-11-15 授权修复。原因：Paper 的 Sandbox 执行客户端按默认 `use_position_ids=True` 建立，挂着的限价进场单（含 GTD）在 HEDGING 下的仓位号由撮合引擎生成，形如 `BINANCE-<合约序号>-<计数>`。计数每个进程从 0 起，合约序号按各合约撮合引擎首次建立的顺序、即各合约数据先到的顺序；恢复后新成交的仓位号撞上缓存里的旧仓位号：撞到另一个合约的仓位，执行引擎记 `Cannot apply fill … instrument_id mismatch` 并丢掉成交，进场单一直停在已接受；撞到同合约的已平仓位，记 `Received fill for closed position … archiving closed cycle`，仓位号被复用、旧仓位记录被顶掉。市价进场的仓位号本来就由执行引擎生成（`P-…`），不受影响。上游在 rc8 修了这个缺陷；升级 Nautilus 不在本次范围内。
+
+修法：Paper 的 Sandbox 设 `use_position_ids=False`，与 Live 的执行客户端一致，仓位号全部由执行引擎生成并存在缓存里。这是 Nautilus 已有的配置，没有新增或改动任何拒绝。回放一侧不动，仍用默认值；二者只在仓位号上不同，订单、成交、手续费、仓位、账户相同（同输入进程内对照，以回放的 `add_venue` 为底，仓位号取真与假各跑一次：orders 18、fills 12、positions 6、account 37 行，除各类 ID 外逐列相同）。依赖仓位号的消费者都只在同一次运行内部用它：封存审计按运行自己的事件核对覆盖，`paper compare` 与 `replay/comparison.py` 在各自一侧用仓位号分组、查资金费，配对时屏蔽仓位号。
+
+另一条没改的事实：恢复后撮合引擎的 venue 订单号计数同样从头数，每次新单运行器日志有一条 `Generated venue order ID conflict`（ERROR 级），原生逻辑跳过冲突号，不覆盖旧订单，见上文“published API 持仓原生配对测试”。
+
+没选另一种修法（新增 `PAPER_RECOVERY_UNAVAILABLE` 拒绝）：Sandbox 本就有这个配置，改用它即可让恢复在这类运行上正确，不必拒绝。
+
