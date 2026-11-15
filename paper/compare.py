@@ -44,6 +44,7 @@ def run_record(lines: list[dict], settled: list[dict], terms: Mapping | None = N
             warmup.setdefault(line["instrument_id"], {})[line["period"]] = {
                 key: line.get(key) for key in ("bars", "first_ts_event", "last_ts_event", "sha256")}
     return {"bars": [line for line in lines if line["kind"] == "bar"], "warmup": warmup,
+            "metrics": [line for line in lines if line["kind"] in ("metrics", "metrics_unsubscribed")],
             "events": [line for line in lines if line["kind"] == "order"], "settlements": settled,
             "equity": records.equity_path(lines, settled)[0], "terms": dict(terms or {}), "fees": fees}
 

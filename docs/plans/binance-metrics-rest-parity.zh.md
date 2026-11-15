@@ -96,9 +96,11 @@
 - 市场表不变，账本不变；
 - 回执里原有的 `metrics_rule` 只是值从 v1 改成 v2。
 
-Paper 日志不记录送达的行，Live 证据包从 2026-11-15 起记录（`metrics` 行，经审阅和用户授权，见
+Live 证据包从 2026-11-15 起记录送达的行（`metrics` 行，经审阅和用户授权，见
 [`live-evidence-funding-metrics-field-review-20261115.zh.md`](live-evidence-funding-metrics-field-review-20261115.zh.md)）。
-`live compare` 用它和档案按 v2 给出的行逐行比对；`paper compare` 查不到 Paper 收到的 metrics。
+Paper 日志 `events.jsonl` 也从 2026-11-15 起记录同样的 `metrics` 行和 `metrics_unsubscribed` 行（见
+[`paper-journal-metrics-field-review-20261115.zh.md`](paper-journal-metrics-field-review-20261115.zh.md)）。
+`live compare` 和 `paper compare` 都用它们和档案按 v2 给出的行逐行比对。
 
 两者都不记录源有没有订阅 metrics，所以比较回放（`replay.comparison.replay`）因 `METRICS_NOT_SERVED` 被拒时，
 再带 `--metrics` 重放一次，比较用第二次的结果。

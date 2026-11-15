@@ -27,6 +27,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   always read 0 whatever it held, while the final equity came from the journal's last snapshot. Nothing in the product
   read it; the open positions of a run that wrote a summary stay in `summary.json` (`positions_at_stop`), and a run
   killed with a position open still ends with the journal's last equity. Seals already stored keep their readings.
+- Paper (journal): each metrics row the Feed hands a source is recorded in `events.jsonl` as `metrics`, whether or
+  not the source defines `on_data`, and each unsubscribe from metrics it followed as `metrics_unsubscribed`, the
+  same rows Live's evidence pack keeps. `paper compare` now checks them against the archive as `live compare` does
+  (missing, late, differing rows and the cause `metrics`). A run sealed before this has no such rows and compares as
+  before. The rows stay in the run's journal and the private Paper database. The change gives a new runtime image;
+  the replay is unchanged.
 - Breaking (replay inputs): an instance's `on_start` now runs after the data that arrives at its start T in every
   replay. An instance whose T is the window's start (`--trade-start` equal to `--start`, and no declared history
   moving T later) used to start before that data and receive through its subscriptions whatever arrived exactly at
