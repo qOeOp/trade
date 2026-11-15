@@ -458,12 +458,27 @@ class RoundTests(unittest.TestCase):
                                       lambda _: None)
         return {**status, "contracts": status["kinds"]["metrics"]}
 
-    def test_no_symbols_keeps_bars_and_asks_for_nothing_else(self):
+    def test_no_symbols_keeps_bars_and_only_the_metrics_the_market_already_follows(self):
         with serving(Exchange(START)), patch.object(follow, "_bars") as bars:
             status = follow.run_round(self.market(), scope(()), self.cache, follow.Memory(), at(FEB), lambda _: None)
         bars.assert_called_once()
-        self.assertEqual({kind: status["kinds"][kind] for kind in ("metrics", "trades", "quotes")},
-                         {"metrics": {}, "trades": {}, "quotes": {}})
+        self.assertEqual({kind: status["kinds"][kind] for kind in ("trades", "quotes")}, {"trades": {}, "quotes": {}})
+        self.assertEqual({symbol: entry["missing_from"] for symbol, entry in status["kinds"]["metrics"].items()},
+                         {"BTCUSDT": "2025-01-31", "ETHUSDT": "2025-01-31"})
+
+    def test_a_contract_another_import_added_is_kept_current_from_its_last_day(self):
+        # ETHUSDT's metrics from Jan 20, added by a manual import; the deployment names only BTCUSDT. Unfollowed, its
+        # last day would hold the market's newest day back for ever.
+        profile = self.market(("BTCUSDT",))
+        with serving(self.exchange({"ETHUSDT": [date(2025, 1, n) for n in range(20, 31)]})):
+            metrics.import_month(profile, JAN, self.cache, ["ETHUSDT"], log=lambda _: None, first=date(2025, 1, 20))
+        days = {symbol: [date(2025, 1, n) for n in range(1, 32)] for symbol in ("BTCUSDT", "ETHUSDT")}
+        with serving(self.exchange(days)):
+            status = self.round(profile, follow.Memory(), at(FEB), ("BTCUSDT",))
+        self.assertEqual((status["contracts"]["ETHUSDT"]["state"], status["contracts"]["ETHUSDT"]["rows"]),
+                         ("caught_up", 288))  # Jan 31 only: nothing before its first day is asked for
+        self.assertEqual(files.followed_metrics(files.open_market(profile, "reader")),
+                         {"BTCUSDT": date(2025, 1, 31), "ETHUSDT": date(2025, 1, 31)})
 
     def test_each_contract_imports_its_own_days_across_the_month_end(self):
         profile = self.market()

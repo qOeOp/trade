@@ -317,12 +317,13 @@ def bar_months_through(market: Market) -> dict[date, date]:
     return found
 
 
-def _metrics_day(market: Market) -> date | None:
-    """The last complete day of the contracts whose metrics are followed, those holding a file in the table's newest
-    month or the one before it (the newer may not have begun for every contract): the earliest of their last days."""
+def followed_metrics(market: Market) -> dict[str, date]:
+    """{contract: its last day} of the contracts whose metrics are followed, those holding a file in the table's newest
+    month or the one before it (the newer may not have begun for every contract). market.follow keeps each current,
+    whichever import added it."""
     held = entries(market, "metrics")
     if not held:
-        return None
+        return {}
     since = series._day_ms((series._ms_day(held[-1].start_ms) - timedelta(days=1)).replace(day=1))
     latest: dict[str, date] = {}
     for entry in held:
@@ -330,7 +331,12 @@ def _metrics_day(market: Market) -> date | None:
         if moment is not None:
             symbol = str(entry.symbol)
             latest[symbol] = max(latest.get(symbol, series._ms_day(moment)), series._ms_day(moment))
-    return min(latest.values(), default=None)
+    return latest
+
+
+def _metrics_day(market: Market) -> date | None:
+    """The last complete day of the followed metrics: the earliest of their contracts' last days."""
+    return min(followed_metrics(market).values(), default=None)
 
 
 def latest_day(market: Market) -> date | None:
