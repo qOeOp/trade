@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { PhonePage } from "../../components/PhoneBar";
-import { Amount, Change, HeldAlertNotice, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
+import { Amount, Change, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
 import { FormButton } from "../../components/chat/Field";
 import { useNow } from "../../components/hooks/useNow";
 import { fixed, signed } from "../../lib/paperApi";
 import { nsMilliseconds } from "../../lib/time";
+import { heldGap } from "../../model/liveHeld";
 import { lastFill, liveHeld, liveMoney, liveObserved, liveStatus, liveWorking, marked, stopFor, stopRequested } from "../../model/phoneRuns";
 import { useLiveTrading } from "../../state/liveTrading";
 import { useSnapshot } from "../../state/market";
@@ -38,9 +39,9 @@ export function LivePage({ id }: { id: string }) {
       <PhoneTop back={back} aside="Live" />
       <PhonePage>
         {status.word === "Unresolved" && <div className="px-3 pt-3"><UnresolvedNotice run={run} /></div>}
-        {run.heldAlert && <div className="px-3 pt-3"><HeldAlertNotice run={run} /></div>}
         <div className="space-y-1 px-3 pt-3">
           <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-dense"><Version name={run.candidate} /><span className={`shrink-0 ${textClass(status.tone)}`}>{status.word}</span></p>
+          {run.heldAlert?.note && <p className={`text-small ${textClass(run.heldAlert.tone)}`}>{run.heldAlert.note}</p>}
           <p className="text-small text-fg-faint">{run.symbols?.join(", ") ?? MISSING}{first !== undefined && ` · since ${since(first * 1000, zone, now)}`}{seen !== null && ` · ${keep(`observed ${ago(seen, now)} ago`)}`}</p>
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1"><Amount value={money?.equity ?? null} /><Change amount={money?.result} ratio={money && money.result !== null ? money.result / money.start : null} /></p>
           {fill && <FillLine fill={fill} zone={zone} />}
@@ -50,7 +51,7 @@ export function LivePage({ id }: { id: string }) {
         <PhoneHeading title={held.length === 1 ? "Position" : "Positions"} aside={held.length ? held[0]!.mark !== null && `mark ≈ ${fixed(held[0]!.mark)}` : "None open"} />
         {held.length > 0 && <PhoneTable head={["Contract", "Side", "Qty", "Entry", "P&L ≈"]} rows={held.flatMap((h) => [
           [h.symbol, <Side long={h.long} />, fixed(h.qty), fixed(h.entry) ?? MISSING, <span className={pnlClass(h.pnl)}>{signed(h.pnl)}</span>],
-          [<StopLine trigger={stopFor(h, working)?.trigger} mark={h.mark} ended={!run.running} />]])} />}
+          [<StopLine trigger={stopFor(h, working)?.trigger} mark={h.mark} ended={!run.running} missing={heldGap(run.heldAlert, h.symbol, h.long)} />]])} />}
         <PhoneHeading title="Open orders" aside={working.length || "None"} />
         {working.length > 0 && <PhoneTable head={["Type", "Side", "Qty", "Price"]} rows={working.map((o) => [
           <span className="font-normal">{o.type}</span>, <Side long={o.buy} word={o.buy === null ? undefined : o.buy ? "Buy" : "Sell"} />, fixed(o.qty) ?? MISSING, fixed(o.trigger ?? o.price) ?? MISSING])} />}

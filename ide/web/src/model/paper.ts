@@ -158,7 +158,8 @@ export function priceLines(orders: readonly OpenOrder[], symbol: string): PriceL
   });
 }
 
-export type Held = { long: boolean; quantity: number; average: number; pnl: number | null };
+/** `warn`: a short word in the failure hue beside the position on its chart (Live: no stop at Binance). */
+export type Held = { long: boolean; quantity: number; average: number; pnl: number | null; warn?: string };
 /** The contract's open position at the last minute, if it holds one. */
 export function heldOf(positions: readonly OpenPosition[], symbol: string): Held | null {
   const p = positions.find((x) => symbolOf(x.instrument_id) === symbol), qty = amount(p?.signed_qty), average = amount(p?.avg_px_open);

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { copyText } from "../lib/clipboard";
 import type { LiveRun } from "../model/liveTrading";
 import { IconButton } from "./IconButton";
+import { heldGapText } from "../model/liveHeld";
 import { textClass } from "../theme/roles";
 
 const PHASES: Record<string, string> = { preflight: "Account check", run: "Live execution", reconcile: "Reconciliation" };
@@ -30,7 +31,10 @@ export function liveRunStatus(run: LiveRun): readonly (readonly [string, ReactNo
 /** While the run trades, its entries and its latest comparison with a replay; closed entries and a comparison
  *  that needs a look in the misses colour. */
 function liveRunOperation(run: LiveRun): readonly (readonly [string, ReactNode])[] {
-  return [...run.entries ? [["Entries", <span className={run.entries.open ? undefined : textClass("misses")}>{run.entries.text}</span>] as const] : [],
+  const alert = run.heldAlert;
+  return [...alert ? [["Stop check", <span className={textClass(alert.tone)} title={alert.body}>
+      {[...alert.gaps.map(heldGapText), ...alert.note ? [alert.note] : []].join(" · ")}</span>] as const] : [],
+    ...run.entries ? [["Entries", <span className={run.entries.open ? undefined : textClass("misses")}>{run.entries.text}</span>] as const] : [],
     ...run.compared ? [["Replay", <span>{run.compared.day.slice(5)} · <span className={run.compared.attention ? textClass("misses") : undefined}>{run.compared.text}</span></span>] as const] : []];
 }
 

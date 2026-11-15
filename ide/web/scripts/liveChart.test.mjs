@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { namespace } from "./load.mjs";
 
 const { liveChart, sideOf } = await namespace("model/liveChart.ts");
+const { chartLevels } = await namespace("widgets/paper/chartLevels.ts");
 
 const MIN = 60_000, T = Date.UTC(2026, 10, 6, 20, 3), ns = (ms) => String(BigInt(ms) * 1_000_000n);
 const order = (type, ms, extra = {}) => ({ event_type: type, ts_event: ns(ms), observed_ns: ns(ms + 40), event_ref: { source: "native", cursor: `${type}:${ms}` },
@@ -49,4 +50,13 @@ test("a contract's side is its latest position event's, none once closed or the 
   const held = run({ symbols: ["BTCUSDT", "ETHUSDT"], positions: [pos("PositionOpened", "BTCUSDT", "SHORT"), pos("PositionClosed", "BTCUSDT", "FLAT"), pos("PositionOpened", "ETHUSDT", "LONG")] });
   assert.deepEqual([sideOf(held, "BTCUSDT"), sideOf(held, "ETHUSDT")], [null, "LONG"]);
   assert.equal(sideOf({ ...held, ended: true }, "ETHUSDT"), null);
+});
+
+test("a position the stop check found without its stop is a level on the contract's chart, with the warning in its own words", () => {
+  const colors = { fg: "fg", up: "up", down: "down", muted: "muted", pnlUp: "pnlUp", pnlDown: "pnlDown", fail: "fail", position: "position", tag: "tag" };
+  const level = (held) => chartLevels({ orders: [], held, mark: 75_000, places: 1, size: 3, c: colors }).find((l) => l.id === "average");
+  const parts = (held) => level(held).parts.map((p) => [p.text, p.color]);
+  assert.deepEqual(parts({ long: true, quantity: 0.002, average: 75_893, pnl: null, warn: "No stop" }), [["Long", "up"], ["0.002", "fg"], ["No stop", "fail"]]);
+  assert.deepEqual(parts({ long: true, quantity: 0.002, average: 75_893, pnl: null }), [["Long", "up"], ["0.002", "fg"]], "no warning, as every other chart draws it");
+  assert.equal(level({ long: true, quantity: 0.002, average: 75_893, pnl: null, warn: "No stop" }).price, 75_893);
 });

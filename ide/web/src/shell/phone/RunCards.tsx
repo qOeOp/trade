@@ -1,6 +1,7 @@
 import { fixed } from "../../lib/paperApi";
 import type { PaperRun } from "../../lib/paperApi";
 import { clockTime, displayDay, zoneOffset, type TimeZone } from "../../lib/time";
+import { heldGap, heldGapLine, type HeldGap } from "../../model/liveHeld";
 import type { LiveRun } from "../../model/liveTrading";
 import { away, lastFill, liveHeld, liveMoney, liveObserved, liveStatus, liveWorking, marked, paperEquity, paperHeld, paperIssues, stopFor, type Fill } from "../../model/phoneRuns";
 import { Amount, Change, HeldLine, PhoneCard, PhoneNotice, Side } from "../../components/PhoneParts";
@@ -47,7 +48,8 @@ export function UnresolvedNotice({ run }: { run: LiveRun }) {
 }
 
 /** A held position's protection: its stop and how far it is from the mark, or that it has none. */
-export function StopLine({ trigger, mark, ended }: { trigger: number | null | undefined; mark: number | null; ended: boolean }) {
+export function StopLine({ trigger, mark, ended, missing = null }: { trigger: number | null | undefined; mark: number | null; ended: boolean; missing?: HeldGap | null }) {
+  if (missing) return <p className="text-small font-medium text-fail-fg">{heldGapLine(missing)}</p>;
   const gap = trigger == null ? null : away(trigger, mark);
   return <p className={`text-small ${trigger != null ? "text-fg-faint" : "text-fail-fg"}`}>{trigger != null ? `Stop ${fixed(trigger)}${gap !== null ? ` · ${(gap * 100).toFixed(1)}% away` : ""}` : "No protective stop"}{ended && " · left open at Binance"}</p>;
 }
@@ -62,6 +64,7 @@ export function LiveCard({ run, now }: { run: LiveRun; now: number }) {
     <PhoneCard label={`Live run ${run.candidate}`} onClick={() => openRun({ kind: "live", id: run.id })}>
       <div className="space-y-1 px-3 pb-3 pt-2 pr-6">
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-dense"><Version name={run.candidate} /><span className={`shrink-0 ${textClass(status.tone)}`}>{status.word}</span></p>
+        {run.heldAlert?.note && <p className={`text-small ${textClass(run.heldAlert.tone)}`}>{run.heldAlert.note}</p>}
         <p className="truncate text-small text-fg-faint">Live · {run.symbols?.join(", ") ?? MISSING}{seen !== null && ` · ${ended ? `ended ${clock(seen, zone)}` : `observed ${ago(seen, now)} ago`}`}</p>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1"><Amount value={money?.equity ?? null} /><Change amount={money?.result} ratio={money && money.result !== null ? money.result / money.start : null} /></p>
         {fill && <FillLine fill={fill} zone={zone} />}
@@ -70,7 +73,7 @@ export function LiveCard({ run, now }: { run: LiveRun; now: number }) {
       {held.map((h) => (
         <div key={h.key} className="space-y-0.5 border-t border-line px-3 py-2">
           <HeldLine held={h} />
-          <StopLine trigger={stopFor(h, working)?.trigger} mark={h.mark} ended={ended} />
+          <StopLine trigger={stopFor(h, working)?.trigger} mark={h.mark} ended={ended} missing={heldGap(run.heldAlert, h.symbol, h.long)} />
         </div>
       ))}
     </PhoneCard>

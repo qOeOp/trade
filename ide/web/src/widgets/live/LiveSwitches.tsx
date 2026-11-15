@@ -3,6 +3,7 @@ import { CoinChip, CoinMenu, coinGroups, type Coin } from "../../components/Coin
 import { Tabs } from "../../components/Tabs";
 import { symbolOf } from "../../lib/paperApi";
 import { sideOf } from "../../model/liveChart";
+import { heldGap } from "../../model/liveHeld";
 import type { LiveRun } from "../../model/liveTrading";
 import { useTargets } from "../../state/shown";
 import { EquityChart } from "../paper/EquityChart";
@@ -19,9 +20,10 @@ export function LiveSwitches({ run, view, symbol, onView, onSymbol }: {
   run: LiveRun; view: LiveView; symbol: string | null; onView: (view: LiveView) => void; onSymbol: (symbol: string) => void;
 }) {
   const reading = liveReading(run.equity), symbols = run.symbols ?? [];
-  const side = (s: string) => sideOf(run, s), coinOf = (s: string): Coin => ({ symbol: s, side: side(s) });
+  const side = (s: string) => sideOf(run, s), warn = (s: string) => (heldGap(run.heldAlert, s, side(s) === "LONG") ? "No stop" : undefined);
+  const coinOf = (s: string): Coin => ({ symbol: s, side: side(s), warn: warn(s) });
   const traded = new Set((run.orders ?? []).filter((o) => o.event_type === "OrderFilled").map((o) => symbolOf(o.instrument_id)));
-  const groups = coinGroups(symbols, side, (s) => traded.has(s));
+  const groups = coinGroups(symbols, side, (s) => traded.has(s), warn);
   const after = view !== "coins" || !symbol ? undefined
     : symbols.length > 1 ? <CoinMenu groups={groups} coin={coinOf(symbol)} onPick={onSymbol} /> : <CoinChip coin={coinOf(symbol)} />;
   return <Tabs label="Chart" value={view} onChange={onView} items={[

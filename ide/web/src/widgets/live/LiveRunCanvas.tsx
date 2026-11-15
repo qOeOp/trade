@@ -43,8 +43,7 @@ export function LiveRunCanvas() {
       <div className="shrink-0 space-y-2 border-b border-line px-3 py-2">
         {view.notice && <p role="status" className="text-dense text-fg-muted">{view.notice}</p>}
         <LiveRunIdentity run={run} operation />
-        {run.heldNotice && <p role="status" className={`text-dense ${textClass(run.heldAlert?.tone ?? "misses")}`}>
-          {run.heldAlert && <span className="font-semibold">{run.heldAlert.word}. </span>}{run.heldNotice}</p>}
+        {run.heldNotice && !run.heldAlert && <p role="status" className={`text-dense ${textClass("misses")}`}>{run.heldNotice}</p>}
         <LiveActionFailure failed={action.failed} />
         {run.accountCheck && <LiveAccountCheck check={run.accountCheck} compact />}
       </div>

@@ -58,20 +58,40 @@ export function heldNotice(restarts: readonly Restart[]): string | null {
   return heldUncoveredNotice(verdict);
 }
 
+/** A position at Binance that the check found short of stops, with the sizes it compared (never a balance). */
+export type HeldGap = { symbol: string; side: string; position: string; stops: string };
+
 /** A held run whose latest check did not pass, which the run's status word and colour say apart from a hold whose
  *  stops are all in place. `fail`: something is exposed now and only the user can change it (a position without its
  *  stop, an inherited entry order Binance still holds, an answer that could not be read), the hue of a position's
- *  "No protective stop" and of an unresolved run. `misses`: the run is cancelling inherited entry orders itself. */
-export type HeldAlert = { word: string; tone: "fail" | "misses"; body: string };
+ *  "No protective stop" and of an unresolved run. `misses`: the run is cancelling inherited entry orders itself.
+ *  `gaps` are the contracts and sides short of stops, which the pages mark on that contract; `note` says in a few
+ *  words what is not about one contract (entry orders, an unreadable answer); `body` is Telegram's sentence. */
+export type HeldAlert = { word: string; tone: "fail" | "misses"; body: string; gaps: readonly HeldGap[]; note: string | null };
+
+/** The gap on `symbol`'s `long` or short side, if the latest check found one. */
+export const heldGap = (alert: HeldAlert | null | undefined, symbol: string, long: boolean): HeldGap | null =>
+  alert?.gaps.find((g) => g.symbol.toUpperCase() === symbol.toUpperCase() && g.side.toUpperCase() === (long ? "LONG" : "SHORT")) ?? null;
+
+/** A position's line when the check found it short of stops: the sizes compared at Binance. */
+export const heldGapLine = (g: HeldGap) => `No stop at Binance · position ${g.position}, stops ${g.stops}`;
+
+/** The gap as one short phrase: BTCUSDT LONG 0.002 · stops 0. */
+export const heldGapText = (g: HeldGap) => `${g.symbol} ${g.side} ${g.position} · stops ${g.stops}`;
 
 export function heldAlert(restarts: readonly Restart[]): HeldAlert | null {
   const verdict = heldCheck(restarts)?.row;
   if (verdict?.event !== "held_uncovered") return null;
   const body = heldUncoveredBody(verdict);
-  if (verdict.unreadable) return { word: "Holding, unverified", tone: "fail", body };
-  if (verdict.uncovered?.length) return { word: "Holding, no stop", tone: "fail", body };
-  if (verdict.entries && verdict.entries_kept) return { word: "Holding, entry not cancelled", tone: "fail", body };
-  if (verdict.entries) return { word: "Holding, cancelling entries", tone: "misses", body };
+  const gaps = verdict.unreadable ? [] : (verdict.uncovered ?? []).map((p) => ({ symbol: p.symbol ?? "?", side: p.side ?? "?", position: p.position ?? "?", stops: p.stops ?? "?" }));
+  const n = verdict.entries ?? 0;
+  const note = verdict.unreadable ? "Binance's answer could not be read"
+    : n ? (verdict.entries_kept ? `${n} inherited entry order(s) not cancelled` : `cancelling ${n} inherited entry order(s)`) : null;
+  const alert = (word: string, tone: "fail" | "misses") => ({ word, tone, body, gaps, note });
+  if (verdict.unreadable) return alert("Holding, unverified", "fail");
+  if (gaps.length) return alert("Holding, no stop", "fail");
+  if (n && verdict.entries_kept) return alert("Holding, entry not cancelled", "fail");
+  if (n) return alert("Holding, cancelling entries", "misses");
   // held_uncovered says nothing short of one of the four; a row that does not is an answer this page cannot read.
-  return { word: "Holding, unverified", tone: "fail", body: HELD_UNREADABLE_NOTICE.slice("This run ".length) };
+  return { word: "Holding, unverified", tone: "fail", body: HELD_UNREADABLE_NOTICE.slice("This run ".length), gaps: [], note: "Binance's answer could not be read" };
 }

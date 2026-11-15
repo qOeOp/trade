@@ -1,5 +1,5 @@
 import { PhonePage } from "../../components/PhoneBar";
-import { HeldAlertNotice, PhoneHeading, PhoneNotice } from "../../components/PhoneParts";
+import { PhoneHeading, PhoneNotice } from "../../components/PhoneParts";
 import { useNow } from "../../components/hooks/useNow";
 import { ACTIVE } from "../../model/chain";
 import { liveStatus } from "../../model/phoneRuns";
@@ -31,7 +31,6 @@ function Notices() {
   return (
     <div className="space-y-2 px-3 pt-3 empty:hidden">
       {unresolved.map((r) => <UnresolvedNotice key={r.id} run={r} />)}
-      {view.runs.map((r) => <HeldAlertNotice key={r.id} run={r} />)}
       {failed && <PhoneNotice tone="misses">Telegram failed{at !== null ? ` at ${clock(at, zone)}` : ""} ({failed.code}). Alerts are not reaching you.</PhoneNotice>}
       {view.availability === "unavailable" && view.runs.length > 0 && <PhoneNotice tone="misses">Live is not answering. These are its last facts.</PhoneNotice>}
       {paper === "offline" && <PhoneNotice tone="misses">Paper is not answering. These are its last facts.</PhoneNotice>}

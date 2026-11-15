@@ -33,6 +33,7 @@ export function chartLevels({ orders, held, mark, places, size, c }: {
   if (held) {
     const side = held.long ? "Long" : "Short", qty = fixed(held.quantity, size) ?? "";
     const parts: Part[] = [{ text: side, color: held.long ? c.up : c.down }, { text: qty, color: c.fg }];
+    if (held.warn) parts.push({ text: held.warn, color: c.fail });
     if (held.pnl !== null) parts.push({ text: signed(held.pnl, 2), color: held.pnl >= 0 ? c.pnlUp : c.pnlDown });
     levels.push({ id: "average", price: held.average, color: c.position, parts, line: false,
                   pinned: `${side} ${qty} @ ${fixed(held.average, places)}`, axis: fixed(held.average, places) ?? "", tag: c.tag, tagText: c.fg });
