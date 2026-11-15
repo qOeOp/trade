@@ -265,6 +265,31 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         self.assertEqual(precheck.require_precheck(self.world.conn, review["review_id"], published["source_sha256"],
                                                    identity), checked["trial_id"])
 
+    def test_a_precheck_gives_its_author_technical_facts_and_no_economic_reading(self):
+        published = self.world.publish("technical-only", parent=None)
+        with contextlib.redirect_stderr(io.StringIO()):
+            checked = entry.precheck(self.world.profile, self.world.market, MARKET_DAY, published["candidate"],
+                                     None, WEEK, self.world.output("technical-only"))
+        self.assertEqual(checked["status"], "passed")
+        self.assertEqual(checked["technical"]["plans"], {"passed": True, "code": None})
+        self.assertEqual(sorted(checked["technical"]), ["activity", "directory", "limitations", "order_funnel",
+                                                        "plans", "populations", "product_commit"])
+        self.assertTrue(all(check["passed"] for check in checked["technical"]["activity"].values()))
+        names = set()
+
+        def collect(value):
+            if isinstance(value, dict):
+                names.update(value)
+                for item in value.values():
+                    collect(item)
+            elif isinstance(value, list):
+                for item in value:
+                    collect(item)
+        collect(checked)
+        economic = ("metrics", "availability", "economic_evidence_available", "headline", "slices", "drawdown",
+                    "capital", "cost_basis", "annual_return", "sharpe", "win_rate", "pnl", "final_equity", "commission")
+        self.assertEqual([name for name in sorted(names) if any(word in name for word in economic)], [])
+
     def test_precheck_refuses_a_window_over_the_exemption_before_anything_runs(self):
         published = self.world.publish("exposure-window", parent=None)
         for end, allowed in (("2026-01-08T00:00:00Z", True), ("2026-01-08T00:01:00Z", False)):
