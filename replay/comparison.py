@@ -7,7 +7,10 @@ contract terms and fee rates it traded at. Each reads the archive's minutes for 
 own refusal) and passes them with that record to `replay_and_compare`, then writes comparison.json with its own keys. The
 replay runs the run's source on its image over the same window, with
 the same instruments, leverage and starting balance and the same warm-up (the source's WARMUP, requested at the
-window's start); it is no trial and writes nothing to a ledger.
+window's start), and the membership the run had: to the end of the window's last month, as Paper and Live read it
+month by month (engine.membership), not cut at the window's end, so a source that checks an entry's expiry against
+it sends the entries of the window's last order lifetime as the run did; it is no trial and writes nothing to a
+ledger.
 
 The comparison goes in order: input bars, then decisions (which order, when, at what price and quantity), then
 fills, fees and funding, then the equity path.
@@ -866,17 +869,21 @@ def replay(market: dict, market_day: str, source: bytes, entry_class: str, image
     """(the replay's status, its order events or None when it wrote none, its reports directory or None without an
     account report): the run's source on its image trading [start, end), warmed at `start` on the bars before it that
     the run `received` (history_start), in the bars environment at the run's leverage and starting balance, streaming
-    metrics when the source subscribes to them."""
+    metrics when the source subscribes to them. Its membership runs to the end of the month of the window's last
+    minute, as the run's did (engine.membership.month_end_ns)."""
+    from engine.membership import month_end_ns
     from replay import entry
     argv = ["--symbols", *symbols, "--start", utc_text(history_start(start, received)), "--trade-start", utc_text(start),
             "--end", utc_text(end),
             "--execution", "bars", "--leverage", str(leverage), "--starting-balance", str(starting_balance)]
-    replayed = entry.replay_unrecorded(market, market_day, source, entry_class, image_ref, argv, output, name, timeout)
+    membership_end = month_end_ns(end - 1)
+    replayed = entry.replay_unrecorded(market, market_day, source, entry_class, image_ref, argv, output, name, timeout,
+                                       membership_end)
     if "METRICS_NOT_SERVED" in _refusals(Path(replayed["path"])):
         # The source subscribes to metrics, which Paper and Live serve (engine.metrics) and a replay streams only with
         # --metrics; neither run records whether it read them, so the refused replay says so.
         replayed = entry.replay_unrecorded(market, market_day, source, entry_class, image_ref, [*argv, "--metrics"],
-                                           output.with_name(output.name + "-metrics"), name, timeout)
+                                           output.with_name(output.name + "-metrics"), name, timeout, membership_end)
     reports = Path(replayed["path"]) / entry.REPORTS
     events_file = reports / "order_events.jsonl.gz"
     events = [json.loads(raw) for raw in gzip.open(events_file)] if events_file.is_file() else None

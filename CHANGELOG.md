@@ -22,6 +22,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper and Live (fix): the replay of `paper compare`, `live compare` and Live's daily comparison gives the source
+  its contracts' membership to the end of the window's last month, as the run had, instead of cutting it at the
+  window's end. A source that checks an entry's expiry against its membership skipped, in the replay only, every entry
+  of the run's last order lifetime, and those groups read `unexplained`. The replay's audit is unchanged; the
+  runtime image is unchanged.
 - Paper and Live (fix): the metrics Feed reads each row from 60 s before it is due and hands it over on its first
   one-second tick at or after the due time, never before. It used to start the REST reads only at the due time and
   hand the row over a tick later, 1.0 to 2.0 s late (a 2026-11-15 Paper trial), so any stall of the node pushed rows

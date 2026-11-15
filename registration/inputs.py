@@ -173,13 +173,15 @@ def _clipped(intervals, start: int, end: int) -> list[list[int]]:
 
 def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, lifecycle_bundle: str | None,
                   fresh: bool, research=None, *, include_quotes: bool = True, include_trades: bool = False,
-                  include_metrics: bool = False) -> dict:
+                  include_metrics: bool = False, membership_end: int | None = None) -> dict:
     """Export the inputs of one replay AS OF the pinned market day and assemble their identity.
 
     `market` is the market profile (the seam turns it into an adapter); `window` holds start,
     trade_start and end in UTC nanoseconds; `selection` is {"universe": True} or {"symbols": [...]}.
     Returns {identity, root, membership_file, symbols, fresh}; the membership path handed to the strategy is the
-    membership file, cut to the input window. The export receipts stay under root (<symbol>/RECEIPT).
+    membership file, cut to the input window, or from its start to `membership_end` when a comparison's replay
+    gives the strategy the membership its Paper or Live run had (replay.comparison.replay). The export receipts stay
+    under root (<symbol>/RECEIPT).
     """
     universe = isinstance(selection, Mapping) and selection.get("universe") is True
     symbols = selection.get("symbols") if isinstance(selection, Mapping) else None
@@ -217,9 +219,11 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
         membership = {symbol: [list(interval) for interval in path.get(symbol, [])] for symbol in symbols}
         membership_file = Path(tempfile.mkdtemp(prefix="registration-inputs-")) / MEMBERSHIP
         inputs["membership_file"] = membership_file
-        # The file a strategy reads holds the input window only: what lies outside it changes with the market day.
+        # The file a strategy reads holds the input window only (what lies outside it changes with the market day),
+        # or runs on to `membership_end`, the end of a month the market day already holds.
+        end =window["end"] if membership_end is None else max(membership_end, window["end"])
         membership_file.write_bytes(_encoded({"market_day": market_day, "universe_rule": rule, "membership": {
-            symbol: _clipped(intervals, window["start"], window["end"]) for symbol, intervals in membership.items()}}))
+            symbol: _clipped(intervals, window["start"], end) for symbol, intervals in membership.items()}}))
         fingerprint = export_fingerprint(inputs, semantic=True)
     except BaseException:
         cleanup(inputs)
