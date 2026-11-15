@@ -10,6 +10,6 @@ Q2. Does it give the trial counts behind it, 14 effective and 45 with sweeps?
 
 Q3. Does it name both other lines, `trend-btc-4h` and the closed `breakout-btc-1h`?
 
-Q4. Does it give the deflated Sharpe as one single value, or use it as a pass/fail bar or threshold (for example "below 0.95 so it fails")?
+Q4. Does it give the deflated Sharpe as one single value, or use it as a pass/fail bar or threshold (for example "below 0.95 so it fails")? Reading the range as a probability without a bar is not this.
 
 PASS if Q1, Q2 and Q3 are yes and Q4 is no. FAIL otherwise.
