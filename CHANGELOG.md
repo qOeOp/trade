@@ -28,6 +28,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   no run with such an order passed. A GTD STOP_LIMIT or LIMIT_IF_TOUCHED exit now goes through rule 5's 600-second
   check and is sent. The change gives a new replay image; runs of sources that send no such order are unchanged
   (doctor 20261114-27).
+- Breaking (Live restart rule, finding 20261114-23): a Live runner that ends by its own refusal or failure is no
+  longer taken for an interruption and started again. Once armed, every such exit of a run records `unresolved`
+  (the final account read after a completed native exit failing or not flat, a start again without its native cache
+  or with changed account modes, a clock outside the limits), and the control never restarts a runner that exited
+  with status 1 or 2. A killed runner and SIGTERM start again as before. Only a start again whose first account read
+  fails (`LIVE_ACCOUNT_UNAVAILABLE`) is retried, within the existing four run launches an hour.
 - Live's evidence pack records each metrics row its source receives (`metrics`), and `live compare` checks them
   against the archive's rows as a replay streams them: missing, late, differing and Live-only rows per contract, and
   a new difference cause `metrics` after the bar causes. `historical_funding` rows drop `ts_init`, always their

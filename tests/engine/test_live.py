@@ -623,8 +623,9 @@ class LiveTests(unittest.TestCase):
             read.assert_called_once()
 
     def test_an_interrupted_armed_run_resumes_as_itself_and_an_ended_one_cannot(self):
-        class Armed(Exception):
-            """Stops a start after it armed (or resumed), before it blocks this process's signals."""
+        class Armed(BaseException):
+            """Stops a start after it armed (or resumed), before it blocks this process's signals: a kill, which no
+            failure handler sees."""
 
         args = self.runner_args("run")
         held = dict(self.flat_snapshot(), positions=[{"symbol": "BTCUSDT", "positionAmt": "0.001"}])
@@ -656,9 +657,93 @@ class LiveTests(unittest.TestCase):
             self.assertEqual(refused(live.execute, args, error=LiveRefusal).code, "LIVE_COLD_RESTART")
         self.assertEqual((self.output / "armed.json").read_bytes(), armed)
 
+    def armed_run(self):
+        """A run armed by a first start that was then killed; the patches every later start of it needs."""
+        class Killed(BaseException):
+            """A kill, which no failure handler sees."""
+
+        args = self.runner_args("run")
+        for patch in (mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_account_mode"),
+                      mock.patch.object(live, "source_for_run"),
+                      mock.patch.object(live.signal, "pthread_sigmask"), mock.patch.object(live.threading, "Thread")):
+            patch.start()
+            self.addCleanup(patch.stop)
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+                mock.patch.object(live.strategy_runtime, "clear_failures", side_effect=Killed):
+            with self.assertRaises(Killed):
+                live.execute(args)
+        return args
+
+    def events(self):
+        return [json.loads(line) for line in (self.output / "events.jsonl").read_text().splitlines()]
+
+    def test_an_armed_run_that_ends_by_its_own_refusal_or_failure_is_over(self):
+        """20261114-23: every exit after the stop path, or after the start judged a failure, leaves an ending event,
+        so neither the control nor the next start takes it for an interruption."""
+        args = self.armed_run()
+        journal = (self.output / "events.jsonl").read_text()
+
+        def exits_flat(session, *_, **__):
+            node = mock.Mock()
+            node.cache.orders.return_value = node.cache.positions_open.return_value = []
+            node.cache.orders_open.return_value = node.cache.orders_inflight.return_value = []
+            node.run.side_effect = lambda: setattr(session, "native_flat", True)  # the STOP path closed everything
+            return node
+
+        unavailable = LiveRefusal("LIVE_ACCOUNT_UNAVAILABLE", "Binance GET /fapi/v3/account returned HTTP 503")
+        cases = {
+            # The native exit is complete, and the final account read fails or shows the account is not flat.
+            "final read failed": ([self.flat_snapshot(), unavailable], {}, "LIVE_ACCOUNT_UNAVAILABLE"),
+            "final read not flat": ([self.flat_snapshot(), self.held_snapshot()], {}, "LIVE_ACCOUNT_NOT_FLAT"),
+            # Permanent causes before the node is built.
+            "cache missing": ([self.flat_snapshot()], {"LiveCache": live.LiveCache}, "LIVE_CACHE_MISSING"),
+            "account mode changed": ([self.flat_snapshot()], {"require_account_mode": mock.Mock(
+                side_effect=LiveRefusal("LIVE_ACCOUNT_MODE", "the trial requires hedge and multi-assets mode"))},
+                                     "LIVE_ACCOUNT_MODE"),
+            "a failure that is no refusal": ([self.flat_snapshot()], {"LiveCache": mock.Mock(side_effect=KeyError("x"))},
+                                             None),
+        }
+        for name, (reads, replaced, code) in cases.items():
+            with self.subTest(name):
+                (self.output / "events.jsonl").write_text(journal)
+                self.assertTrue(live.resumable(self.output))
+                with mock.patch.object(live.BinanceReadOnly, "snapshot", side_effect=reads), \
+                        mock.patch.object(live, "source_outcome"), \
+                        mock.patch.object(live, "build_node", side_effect=exits_flat), \
+                        mock.patch.multiple(live, **{"LiveCache": mock.Mock(), **replaced}):
+                    self.assertEqual(live.main(["--manifest", str(args.manifest), "--credentials-file",
+                                                str(args.credentials_file), "--output", str(args.output),
+                                                "--mode", "run"]), 2 if code else 1)
+                    last = self.events()[-1]
+                    self.assertEqual((last["event"], last["code"]), ("unresolved", code))
+                    self.assertFalse(live.resumable(self.output))
+                    self.assertEqual(refused(live.execute, args, error=LiveRefusal).code, "LIVE_COLD_RESTART")
+
+    def test_a_start_again_that_cannot_read_binance_gives_the_start_back(self):
+        """Only the account read before anything is built is retried: the start ends as an interruption does (exit
+        status 3, no ending event) and the control starts the run again within its hourly limit."""
+        unavailable = LiveRefusal("LIVE_ACCOUNT_UNAVAILABLE", "Binance GET /fapi/v3/account failed (TimeoutError)")
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", side_effect=unavailable):
+            # A first start is not armed: the refusal stands, and nothing is journalled.
+            self.assertEqual(refused(live.execute, self.runner_args("run"), error=LiveRefusal).code,
+                             "LIVE_ACCOUNT_UNAVAILABLE")
+        self.assertFalse((self.output / "events.jsonl").exists())
+        (self.output / "runner.lock").unlink()
+        args = self.armed_run()
+        before = self.events()
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", side_effect=unavailable), \
+                mock.patch.object(live, "build_node") as build:
+            self.assertEqual(live.execute(args), live.INTERRUPTED)
+            with mock.patch.object(live.BinanceReadOnly, "clock", side_effect=unavailable):
+                self.assertEqual(live.execute(args), live.INTERRUPTED)
+        build.assert_not_called()
+        self.assertEqual(self.events(), before)
+        self.assertTrue(live.resumable(self.output))
+
     def test_a_start_after_one_that_ended_to_warm_up_again_may_retry_a_failed_warm_up_once(self):
-        class Armed(Exception):
-            """Stops a start after it armed (or resumed), before it blocks this process's signals."""
+        class Armed(BaseException):
+            """Stops a start after it armed (or resumed), before it blocks this process's signals: a kill, which no
+            failure handler sees."""
 
         args, made = self.runner_args("run"), []
 

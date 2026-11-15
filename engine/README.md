@@ -742,7 +742,14 @@ their exchange stops stay, and the runner records `interrupted` and exits 3. An 
 with no ending event (`clean_stop`, `reconciled_flat`, `venue_flat`, `reconcile_stopped`, `unresolved`) and no
 `STOP` file, so also a killed runner, is started again as itself by the paired control, with the credential it was
 started with, from the same native cache; at most four run launches an hour (the first start and three restarts),
-then the control records `restart_limited` once and the user decides. Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
+then the control records `restart_limited` once and the user decides. A runner that ends by its own refusal or
+failure is not interrupted, and its run is over: once armed, every such exit of a `run` records `unresolved` (with
+the refusal's `code`), whether the final account read after a completed native exit failed or was not flat, a start
+again found no native cache or changed account modes, or anything else raised; and the control never starts again a
+runner that exited with status 1 or 2, even where it could write no event. One refusal gives the start back
+instead: a start again whose first account read fails (`LIVE_ACCOUNT_UNAVAILABLE`, before anything is built) exits 3
+with no event, and the control starts the run again within the same hourly limit (finding 20261114-23, the user
+2026-11-15). Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
 start again checks the clock and account modes: on a flat account it builds the source, warms up and trades (event
 `resuming`); with anything open it holds (`resuming` with `held`): no source, no entries, the account read every 30
 seconds, until the account is flat (its stops, or a close at Binance), when `venue_flat_while_held` ends that start
@@ -807,7 +814,8 @@ write journals `evidence_unavailable` once per part and the run goes on.
 ### Unresolved Live runs
 
 `status` says `unresolved` when a run ended without proof that the account is flat: a failed check, a
-rejected or failed close, a runner that failed, or a `reconcile` stopped before flat. A killed or interrupted
+rejected or failed close, a runner that failed or refused (exit status 1 or 2, with or without an `unresolved`
+event), or a `reconcile` stopped before flat. A killed or interrupted
 runner is not unresolved: the control starts it again. A position may remain at Binance,
 with or without its stop, and nothing will close it. When Telegram notifications are set up on the Live page,
 the paired control sends a message within about ten seconds of seeing the run unresolved, but only from its
