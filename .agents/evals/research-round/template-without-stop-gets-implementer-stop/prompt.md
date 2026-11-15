@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a template whose source has no stop gets a protective stop as an implementer choice on F3, since every source needs one, and no target the source lacks.
+description: Rule check — with the skill, a template whose source has no stop gets a protective stop as an implementer choice (on F3, or on E1 with F3 referring to it), since every source needs one, and no target the source lacks.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

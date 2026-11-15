@@ -5,9 +5,9 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究线 `carry-btc-8h` 的 Goal 已激活，`research state` 的 `review_every` 是 5，目标年化 ≥40%、最大回撤 ≤15%。最近五次研究运行：
+研究线 `carry-btc-8h` 的 Goal 已激活，`research state` 的 `review_every` 是 5，目标年化 ≥40%、最大回撤 ≤15%。上一次 `Change of approach.` 判断之后，这条线只有这五次研究运行：
 
-| trial | 改动 | 三个区间 |
+| trial | 改动 | 四个区间 |
 |---|---|---|
 | 601 | 入场阈值 | 都含零 |
 | 603 | 出场规则 | 都含零 |

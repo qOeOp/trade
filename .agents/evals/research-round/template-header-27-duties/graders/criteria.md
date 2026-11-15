@@ -6,7 +6,7 @@ Context: the root transcribes an EMA 20/50 crossover from a working paper (URL, 
 
 1. Does the header give, before the duty lines, the source line with the URL and its version or date (v3 or 2016-03-02) and the bundle name `src-ema-cross-01`? The name-and-mechanism line the header template puts above it is fine.
 2. Does the header contain all 27 duty lines — A1 A2 A3 B1 B2 B3 C1 C2 D1 D2 E1 E2 E3 E4 F1 F2 F3 F4 F5 G1 G2 G3 H1 H2 H3 I1 I2 — each with a stance (`adopted` / `default` / `not applicable`), a reason and a source label (`source` / `implementer` / `researcher`)? Check every id; omitting lines or collapsing them ("其余缺省") is no.
-3. Is every line whose rule comes from the paper and is applied here to BTC perpetual 4h bars (such as the crossover signal, the entry and the reversal on the opposite cross) labelled `researcher` rather than `source`?
+3. Is no line labelled `source`, and are the line holding the crossover signal (normally B1) and the line holding the exit and reversal on the opposite cross (normally F4) labelled `researcher`? A line whose own rule is an implementer choice may be `implementer` even when it mentions the crossover or the reversal.
 4. Are E1, E4, F5 and H2 each given a stance other than `not applicable`?
 
 PASS if 1, 2, 3 and 4 are all yes.
