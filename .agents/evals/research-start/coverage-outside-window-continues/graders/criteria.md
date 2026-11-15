@@ -2,13 +2,13 @@
 type: llm
 ---
 
-Line L-8 (window 2021-10-01 to 2024-10-01 exclusive, market day 2026-10-05, BTCUSDT only) runs under an active Goal. Before its first replay the readiness check passes except for 37 zero-volume 1-minute bars on 2021-08-11 to 2021-08-19, all in the daily warm-up before the development window and none at a daily close; the strategy reads only daily closes. There are no bar gaps and no missing funding. Registration 8 has one unreplayed grid point. Judge only the final response. Describing what would happen after a user choice never counts as asking for one.
+Line line-8 (window 2021-10-01 to 2024-10-01 exclusive, market day 2026-10-05, BTCUSDT only) runs under an active Goal. Before its first replay the readiness check passes except for 37 zero-volume 1-minute bars on 2021-08-11 to 2021-08-19, all in the daily warm-up before the development window and none at a daily close; the strategy reads only daily closes. There are no bar gaps and no missing funding. Registration 8 has one unreplayed grid point. Judge only the final response. Describing what would happen after a user choice never counts as asking for one.
 
 Q1. Does the response report the 37 zero-volume minutes as a fact, placing them outside the development window (in the warm-up), and say or imply their cause is not established?
 
 Q2. Does the response state that coverage supports the selected range (BTCUSDT over the full development window at 2026-10-05)?
 
-Q3. Does the response state what is kept, for example line L-8, ema-root@2 or registration 8's grid point staying as they are?
+Q3. Does the response state what is kept, for example line line-8, ema-root@2 or registration 8's grid point staying as they are?
 
 Q4. Does the response ask the user to choose how to resolve the data or scope (for example obtain or verify more evidence, change the window, the commit or the contracts), or say it will wait for the user's answer about these minutes before continuing?
 

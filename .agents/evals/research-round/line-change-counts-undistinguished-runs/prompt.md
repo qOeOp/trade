@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我们在研究线 `research-line-20261022-ema-cross-btc-daily` 上（起点 `ema-cross-root@2`，目标最大回撤 ≤15%、年化 ≥20%），Goal 已激活。`research state` 的 `review_every` 是 5。
+我们在研究线 `ema-cross-btc-daily` 上（起点 `ema-cross-root@2`，目标最大回撤 ≤15%、年化 ≥20%），Goal 已激活。`research state` 的 `review_every` 是 5。
 
 最近 5 次研究运行按时间是 trial 301、303、305、307、309，每次之后都写了解释和推荐，推荐一直是 `ema-fixed-dailyspec@4`。这 5 次的 `hypothesis compare` 结果：
 

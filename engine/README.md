@@ -137,7 +137,10 @@ export's best bid/ask quotes (`market import-quotes`, inferred from Binance aggT
 rule, both sizes the instrument's max quantity) are streamed to the venue and drive matching on an L1
 book, bar execution is off (bars only feed signals; the source cannot subscribe to the quotes), the venue's native liquidation is on
 (`liquidation_enabled`, trigger ratio 1.0, open orders cancelled first) with the standard margin model
-(maintenance = notional x the rate, not divided by leverage), and the instruments carry the two rates.
+(initial and maintenance margin are each notional x the rate, neither divided by leverage), and the instruments carry the
+two rates. So in `quotes` `--leverage` takes no part in margin: it is still validated and recorded as the account's
+`default_leverage`, in the effective configuration and so in the run's identity, and the venue is given it, but the
+standard margin model ignores it.
 An active contract whose export holds no quote in some UTC month of its trading window (from its trade start to the
 window end or its termination) is `QUOTES_MISSING`, naming each such month: there bar execution is off, so a month
 without quotes would replay without matching. The quotes count in the consumed
