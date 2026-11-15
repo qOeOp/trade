@@ -61,6 +61,10 @@ header template, the entry class, the two hooks and a sizing helper.
   `subscribe_instrument_status`. The pinned PRE_CLOSE does not itself reject opening orders;
   enforce the only-reduce boundary above. After CLOSE the market rejects orders, and the audit refuses a
   position or a working order left at a termination without a settlement price.
+- Paper resumes an interrupted run (a release, `docker stop`, a restart, a crash) only if the source
+  declares `PAPER_RECOVERY = 1` and implements `on_save` and `on_load` (the protocol is in Paper
+  trading, `engine/README.md`); a source written to these rules does not, so an interruption ends its
+  run. A run with any order not final, a working stop included, is not resumed even then.
 
 ## Causal clock
 
