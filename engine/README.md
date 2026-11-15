@@ -774,8 +774,11 @@ Each Live run keeps what a replay of its source needs for comparison in `evidenc
 (`engine/live_evidence.py`), never the ledger:
 
 - `market.jsonl`, in Paper's journal shape: every bar the source received (`bar`; `historical_bar` for one a
-  history request delivered). Bars after a stop request reach neither the source nor the file. Quotes, trades,
-  MARKs and funding rates are not kept: `live compare` settles funding at Binance's published rates.
+  history request delivered), each funding settlement of its declared history (`historical_funding`: `ts_event`,
+  `rate`) and each metrics row it received (`metrics`: `ts_event` and the four values, a missing ratio null; it
+  reached the source at `ts_event + 5 min`). What arrives after a stop request reaches neither the source nor the
+  file. Quotes, trades, MARKs and funding rates are not kept: `live compare` settles funding at Binance's published
+  rates, and compares the metrics rows with the archive's as a replay streams them.
 - `reports-<ns>/`, written when the node stops in `run` and `reconcile`: `orders.csv`, `fills.csv`,
   `positions.csv`, `account.csv` and `order_events.jsonl.gz` from the native cache, through the same writers a
   replay uses (`engine.write_reports`).

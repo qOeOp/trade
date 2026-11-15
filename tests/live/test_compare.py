@@ -206,6 +206,22 @@ class Compare(unittest.TestCase):
                                  "history": START - 3 * MINUTE})
         self.assertEqual((result["kind"], result["starting_balance_usdt"]), ("live", "57.5"))
 
+    def test_the_metrics_live_received_are_compared_with_the_archives(self):
+        pack = Pack(self.root)
+        row = {"kind": "metrics", "instrument_id": BTC, "ts_event": START, "wall_ns": START + 5 * MINUTE + 10**9,
+               "sum_open_interest": "97897.5650000000000000", "count_toptrader_long_short_ratio": "3.6904000000000000",
+               "sum_toptrader_long_short_ratio": "1.8442000000000000", "count_long_short_ratio": None}
+        with (self.root / "runs" / pack.run_id / "out" / "evidence" / "market.jsonl").open("a") as stream:
+            stream.write(json.dumps(row) + "\n")
+        stored = [[START, "97897.565", "3.6904", "1.8441", None], [START + 5 * MINUTE, "97900", "3.6", "1.8", "3.1"]]
+        with mock.patch.object(shared, "archive_metrics", return_value=stored) as archive:
+            _, result = self.compared(pack)
+        self.assertEqual(archive.call_args.args[2:], ("BTCUSDT", START, close_of(pack.minutes - 1) + 10**6))
+        metrics = result["inputs"]["BTCUSDT"]["metrics"]
+        self.assertEqual((metrics["live"], metrics["missing"], metrics["differing"]),
+                         (1, ["2026-11-11T00:10:00Z"], [{"at": "2026-11-11T00:05:00Z", "fields": {
+                             "sum_toptrader_long_short_ratio": ["1.8442000000000000", "1.8441"]}}]))
+
     def test_a_comparison_cut_short_replays_and_reads_only_what_came_before_the_cut(self):
         pack = Pack(self.root)
         cut = START + 6 * MINUTE

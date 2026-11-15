@@ -231,6 +231,7 @@ def run_record(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dic
     return {"bars": [row for row in pack["market"] if row.get("kind") == "bar"], "gate": gate(pack["events"]),
             "warmup": shared.received_warmup(row for row in pack["market"]
                                              if row.get("kind") in ("historical_bar", "historical_funding")),
+            "metrics": [row for row in pack["market"] if row.get("kind") == "metrics"],
             "events": pack["orders"], "settlements": settled, "equity": equity,
             "terms": dict((pack["manifest"].get("market") or {}).get("terms") or {}), "fees": _fees(snapshot, list(pack["manifest"]["symbols"]))}
 

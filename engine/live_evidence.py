@@ -15,6 +15,8 @@ from typing import Callable
 
 EVIDENCE = "evidence"
 MARKET = "market.jsonl"
+METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
+                  "count_long_short_ratio")  # engine.strategy.Metrics
 
 
 class Evidence:
@@ -55,12 +57,24 @@ class Evidence:
     def settlement(self, update) -> None:
         """A funding settlement the source received from its history (warm-up): ``historical_funding``."""
         try:
-            fields = dict(instrument_id=str(update.instrument_id), ts_event=update.ts_event, ts_init=update.ts_init,
-                          rate=str(update.rate))
+            # A settlement's stamps are all its time (engine.warmup.funding_update): ts_event alone.
+            fields = dict(instrument_id=str(update.instrument_id), ts_event=update.ts_event, rate=str(update.rate))
         except Exception as exc:
             self._fail("market", exc)
             return
         self._append("historical_funding", **fields)
+
+    def metrics(self, row) -> None:
+        """An open interest and long/short ratio row the source received (engine.metrics): ``metrics``, its values as
+        text or null; it reached the source at ts_event + 5 minutes (engine.metrics.VISIBLE_NS)."""
+        try:
+            fields = dict(instrument_id=str(row.instrument_id), ts_event=row.ts_event,
+                          **{name: None if (value := getattr(row, name)) is None else str(value)
+                             for name in METRICS_VALUES})
+        except Exception as exc:
+            self._fail("market", exc)
+            return
+        self._append("metrics", **fields)
 
     def reports(self, cache, venue) -> None:
         """Every order, fill, position and account state in the native cache as a replay writes them, into

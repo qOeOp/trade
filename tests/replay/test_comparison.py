@@ -55,10 +55,22 @@ def compared(run_events: list[dict], replay_events: list[dict], minutes: int = 4
     bars = [bar(i, (closes or {}).get(i, "100.0"), close_of(i) + 5 * 10**9 if i in late else None)
             | {"ts_init": close_of(i) - 10**6 if i in early else close_of(i) + 10**7}
             for i in range(minutes) if i not in skip]
-    run = {"bars": bars, "events": run_events, **{key: context.pop(key) for key in ("warmup", "terms", "fees",
-                                                                                   "settlements", "gate") if key in context}}
+    run = {"bars": bars, "events": run_events, **{key: context.pop(key) for key in ("warmup", "terms", "fees", "settlements",
+                                                                                   "gate", "metrics") if key in context}}
     return comparison.compare(run, replay_events, {"BTCUSDT": archived(minutes)}, None, START, START + minutes * MINUTE,
                              **context)
+
+
+def metered(at: int, position_ratio: str = "1.8441", wall_ns: int | None = None) -> dict:
+    """A metrics row Live's source received, reaching it at `at` (ts_event 5 minutes earlier)."""
+    return {"kind": "metrics", "instrument_id": BTC, "ts_event": at - comparison.METRICS_VISIBLE_NS,
+            "wall_ns": at + 10**9 if wall_ns is None else wall_ns, "sum_open_interest": "97897.5650000000000000",
+            "count_toptrader_long_short_ratio": "3.6904000000000000", "sum_toptrader_long_short_ratio": position_ratio,
+            "count_long_short_ratio": None}
+
+
+def stored_metrics(*arrivals: int) -> list[list]:
+    return [[at - comparison.METRICS_VISIBLE_NS, "97897.565", "3.6904", "1.8441", None] for at in arrivals]
 
 
 def bracket(prefix: str, at: int, filled_at: int, position: str, *, qty: str = "1", px: str = "100.0",
@@ -176,6 +188,15 @@ class Attribution(unittest.TestCase):
             with self.subTest(cause):
                 group = self.replay_only(**given)
                 self.assertEqual((group["cause"], group["look_ahead_suspect"]), (cause, False))
+
+    def test_metrics_unlike_the_archives_come_after_the_bars_and_before_the_warm_up(self):
+        given = {"metrics": [metered(START + MINUTE, "1.8442")],
+                 "archived_metrics": {"BTCUSDT": stored_metrics(START + MINUTE)}}
+        for extra, cause in (({}, "metrics"), ({"closes": {4: "100.5"}}, "bar_mismatch")):
+            with self.subTest(cause):
+                group = self.replay_only(**given, **extra)
+                self.assertEqual(group["cause"], cause)
+                self.assertEqual(group["evidence"]["differing_metrics"], 1)
 
     def test_a_concurrent_position_that_agreed_after_a_missing_bar_does_not_hide_it(self):
         """Found on a real replay: a position opened earlier and closed (agreeing) after the bar the run missed; the
@@ -397,3 +418,33 @@ class Replay(unittest.TestCase):
             self.assertEqual([("--metrics" in argv, output.name) for argv, output in calls],
                              [(False, "replay"), (True, "replay-metrics")])
             self.assertEqual((status["status"], events, reports), ("passed", None, None))
+
+
+class Metrics(unittest.TestCase):
+    def test_the_rows_live_received_are_checked_against_the_replays_from_the_first_received(self):
+        """Live's evidence pack holds each metrics row its source received (engine.live_evidence.metrics)."""
+        at = [START + i * 5 * MINUTE for i in range(6)]
+        received = [metered(at[1]), metered(at[2], "1.8442"), metered(at[4], wall_ns=at[4] + comparison.LATE_NS + 1),
+                    metered(at[5])]
+        archive = {"BTCUSDT": stored_metrics(at[0], at[1], at[2], at[3], at[5])}
+        found = comparison.compare_metrics(received, archive, at[5])["BTCUSDT"]
+        # From the first row received (at[1]) to the end, which a row reaching the source at it is not before.
+        self.assertEqual({key: found[key] for key in ("archive", "live", "missing", "live_only", "late")},
+                         {"archive": 3, "live": 3, "missing": [at[3]], "live_only": [at[4]], "late": [at[4]]})
+        # Values compare as numbers: 16 places from the Feed against the archive's text.
+        self.assertEqual(found["differing"], {at[2]: {"sum_toptrader_long_short_ratio": ["1.8442", "1.8441"]}})
+        listed = comparison.compare({"metrics": received}, None, {"BTCUSDT": archived(1)}, None, START, at[5],
+                                    archived_metrics=archive)
+        self.assertEqual({key: listed["summary"][key] for key in ("missing_metrics", "late_metrics", "differing_metrics")},
+                         {"missing_metrics": 1, "late_metrics": 1, "differing_metrics": 1})
+        self.assertEqual(listed["inputs"]["BTCUSDT"]["metrics"]["live_only"], [utc_text(at[4])])
+
+    def test_the_archive_gives_the_values_a_replay_streams(self):
+        from market import export, files
+        create = START // 10**6
+        row = (create, Decimal("97897.56500000"), Decimal("3.60563315"), Decimal("1.790050"), None)
+        with mock.patch.object(export, "metrics_rows", return_value=[row]) as read:
+            found = comparison.archive_metrics(object(), "d", "BTCUSDT", START + 5 * MINUTE, START + MINUTE * 20)
+        self.assertEqual(read.call_args.args[3:], (create + 5 * 60_000, None, create + 20 * 60_000))
+        self.assertEqual(found, [[START + 5 * MINUTE, "97897.565", "3.6062", "1.7901", None]])
+        self.assertEqual(files.METRICS_VALUES, comparison.METRICS_VALUES)

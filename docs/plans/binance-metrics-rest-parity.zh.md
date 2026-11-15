@@ -91,17 +91,17 @@
 
 ## 存储字段
 
-这次没有新增存储字段，所以不需要单独审阅：
+规则 v2 本身没有新增存储字段：
 
 - 市场表不变，账本不变；
-- Paper 日志和 Live 证据包没有新增行类型，送达的行不入库；
 - 回执里原有的 `metrics_rule` 只是值从 v1 改成 v2。
 
-因为没有入库，Live 的对比（`live/compare.py`）查不到 Live 收到的 metrics。要查的话，得在 Live 证据包里加一类
-行，那是一个存储字段，需要先审阅、再经用户授权。
+Paper 日志不记录送达的行，Live 证据包从 2026-11-15 起记录（`metrics` 行，经审阅和用户授权，见
+[`live-evidence-funding-metrics-field-review-20261115.zh.md`](live-evidence-funding-metrics-field-review-20261115.zh.md)）。
+`live compare` 用它和档案按 v2 给出的行逐行比对；`paper compare` 查不到 Paper 收到的 metrics。
 
-也因为没有入库，Paper 和 Live 的比较回放（`replay.comparison.replay`）不知道源读没读 metrics：回放因
-`METRICS_NOT_SERVED` 被拒时，再带 `--metrics` 重放一次，比较用第二次的结果。
+两者都不记录源有没有订阅 metrics，所以比较回放（`replay.comparison.replay`）因 `METRICS_NOT_SERVED` 被拒时，
+再带 `--metrics` 重放一次，比较用第二次的结果。
 
 ## 仍然不同的地方
 
