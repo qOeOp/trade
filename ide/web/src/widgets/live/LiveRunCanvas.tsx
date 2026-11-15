@@ -12,7 +12,6 @@ import { useLiveCanvas } from "../../state/liveRun";
 import { openLiveRequests } from "../../state/liveWorkspace";
 import { LiveLaunch } from "./LiveLaunch";
 import { RunStages } from "../runs/RunStages";
-import { textClass } from "../../theme/roles";
 
 /** Observed execution inside Runs. A selected run shows its identity over its chart, switched as the paper
  *  chart's: Equity, its account a minute apart (LiveSwitches), or Coins, one of its contracts' public candles
@@ -43,7 +42,6 @@ export function LiveRunCanvas() {
       <div className="shrink-0 space-y-2 border-b border-line px-3 py-2">
         {view.notice && <p role="status" className="text-dense text-fg-muted">{view.notice}</p>}
         <LiveRunIdentity run={run} operation />
-        {run.heldNotice && <p role="status" className={`text-dense ${textClass("misses")}`}>{run.heldNotice}</p>}
         <LiveActionFailure failed={action.failed} />
         {run.accountCheck && <LiveAccountCheck check={run.accountCheck} compact />}
       </div>

@@ -126,6 +126,15 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   with no stop gets its own message. The interruption and restart-limit notices say what the run did (closed nothing,
   cancelled no stop) instead of "open positions keep their exchange stops". A held start still places no stop,
   closes nothing and runs no drawdown brake.
+- Live page, held start (finding 20261114-24, the page half): a held run whose latest check found a position without
+  its stop, an inherited entry order Binance still holds, or an answer it could not read says so in its status word
+  (`Holding, no stop`, `Holding, entry not cancelled`, `Holding, unverified`) in the red of an unresolved run, and a
+  missing stop is marked on its own contract: the contract's capsule, a level at the position's entry on its chart,
+  the position's line on the phone, and a `Stop check` fact (`BTCUSDT LONG 0.002 · stops 0`). The Runs button and
+  tab dot turn red with it. While the run is still cancelling inherited entry orders it reads `Holding, cancelling
+  entries` in amber. A hold whose stops are all in place looks as before. The page's long notes (the hold's
+  explanation, the stop check's sentence, the events tables' reading notes) are the tooltip of an info icon instead
+  of a block of text above the chart or table.
 - Breaking (order rules): a GTD order of a type other than LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED is refused as
   `ORDER_RULE` in replay, Paper and Live: Nautilus's Binance USD-M client sends only those three GTD and denies any
   other. Before, rule 5 raised `AttributeError` on every GTD order but a LIMIT (a source failure, not a refusal), so

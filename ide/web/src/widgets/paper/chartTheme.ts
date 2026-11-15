@@ -104,7 +104,7 @@ export function seriesColors(dark = false) {
   return {
     island: canvasColor("island"), fg: canvasColor("fg"), muted: canvasColor("fg-muted"), ghost: canvasColor("fg-ghost"),
     up: canvasColor("candle-up"), down: canvasColor("candle-down"), upVolume: canvasTint("candle-up", dark ? 24 : 22), downVolume: canvasTint("candle-down", dark ? 24 : 22),
-    pnlUp: canvasColor("pnl-up"), pnlDown: canvasColor("pnl-down"), upTag: canvasTint("pnl-up", 16), downTag: canvasTint("pnl-down", 16),
+    fail: canvasColor("fail-fg"), pnlUp: canvasColor("pnl-up"), pnlDown: canvasColor("pnl-down"), upTag: canvasTint("pnl-up", 16), downTag: canvasTint("pnl-down", 16),
     limit: canvasColor("recommended"), limitTag: canvasTint("recommended", 16), position: canvasColor("fg", 0.8), tag: canvasColor("line-strong"),
     font,
     marks: {

@@ -1,3 +1,4 @@
+import type { HeldAlert } from "./liveHeld";
 import type { LiveEventRow, LiveRequest, LiveReviewDto } from "../lib/liveTradingDto";
 export type { LiveRequest } from "../lib/liveTradingDto";
 
@@ -37,6 +38,8 @@ export type LiveRun = {
   /** Set while the latest start holds around a position or orders it inherited: what its latest check of the stops at
    *  Binance shows (model/liveHeld.ts). */
   heldNotice?: string | null;
+  /** Set when that check did not pass: the status word and hue that say so (model/liveHeld.ts heldAlert). */
+  heldAlert?: HeldAlert | null;
   /** A running run's entries: open, or closed and why (model/liveTradingMap.ts entriesOf); null once it ended. */
   entries?: { open: boolean; text: string } | null;
   /** The control's latest daily comparison with a replay: its day and its result in words; null before the first. */

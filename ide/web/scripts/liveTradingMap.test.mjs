@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { namespace } from "./load.mjs";
 
 const { liveRunPresentation, liveHomePresentation, liveSourcePresentation, liveEvidencePresentation } = await namespace("model/liveTradingMap.ts", { sources: ["model/liveLaunchText", "model/liveHeld"], packages: [] });
-const { HELD_NOTICE, HELD_COVERED_NOTICE, HELD_ORDERS_NOTICE, HELD_UNREADABLE_NOTICE } = await namespace("model/liveHeld.ts", { sources: [], packages: [] });
+const { HELD_NOTICE, HELD_COVERED_NOTICE, HELD_ORDERS_NOTICE, HELD_UNREADABLE_NOTICE, heldGap, heldGapText, heldGapLine } = await namespace("model/liveHeld.ts", { sources: [], packages: [] });
 const run = () => ({
   run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, candidate: { strategy_id: "retest", revision: "1" },
   runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: null,
@@ -196,4 +196,38 @@ test("the latest comparison and the continuous facts read the control's records 
   assert.equal(key([check("key_check_failed", "1", "LIVE_KEY_WITHDRAWAL"), check("key_check_passed", "2")]), undefined, "a later pass clears it");
   assert.equal(key(null), undefined);
   assert.deepEqual(liveRunPresentation({ ...run(), host: { ...run().host, mode: "preflight" } }).continuity, []);
+});
+
+test("a held start whose check did not pass is told apart by word and hue; one whose stops are all in place is not", () => {
+  const alert = (restarts, state = "running") => liveRunPresentation({ ...run(), host: { ...run().host, state }, restarts }).heldAlert;
+  const resuming = (ns) => ({ event: "resuming", observed_ns: ns, held: true });
+  const verdict = (ns, event, fields = {}) => ({ event, observed_ns: ns, held: null, holding: 1, uncovered: [], entries: 0, entries_kept: false, unreadable: false, ...fields });
+  const bare = { symbol: "BTCUSDT", side: "LONG", position: "0.002", stops: "0" };
+  assert.equal(alert([resuming("1")]), null, "before the first check there is nothing to say");
+  assert.equal(alert([resuming("1"), verdict("2", "held_covered")]), null, "stops in place keeps its look");
+  assert.equal(alert([resuming("1"), verdict("2", "held_covered", { holding: 0 })]), null);
+  const noStop = alert([resuming("1"), verdict("2", "held_uncovered", { uncovered: [bare] })]);
+  assert.deepEqual([noStop.word, noStop.tone], ["Holding, no stop", "fail"]);
+  assert.match(noStop.body, /^has a position with NO STOP at Binance: BTCUSDT LONG 0\.002 \(stops 0\)\./);
+  // The contract and side short of stops, for the page to mark on that contract, with the sizes compared.
+  assert.deepEqual(noStop.gaps, [bare]);
+  assert.deepEqual([heldGap(noStop, "BTCUSDT", true), heldGap(noStop, "BTCUSDT", false), heldGap(noStop, "ETHUSDT", true), heldGap(null, "BTCUSDT", true)], [bare, null, null, null]);
+  assert.equal(heldGapText(bare), "BTCUSDT LONG 0.002 · stops 0");
+  assert.equal(heldGapLine(bare), "No stop at Binance · position 0.002, stops 0");
+  assert.equal(noStop.note, null);
+  assert.deepEqual(alert([resuming("1"), verdict("2", "held_uncovered", { uncovered: [bare], entries: 1, entries_kept: true })]).word, "Holding, no stop", "the worse of two");
+  const kept = alert([resuming("1"), verdict("2", "held_uncovered", { entries: 1, entries_kept: true })]);
+  assert.deepEqual([kept.word, kept.tone], ["Holding, entry not cancelled", "fail"]);
+  assert.deepEqual([kept.gaps, kept.note], [[], "1 inherited entry order(s) not cancelled"]);
+  const cancelling = alert([resuming("1"), verdict("2", "held_uncovered", { entries: 2 })]);
+  assert.deepEqual([cancelling.word, cancelling.tone], ["Holding, cancelling entries", "misses"], "the run is cancelling them itself");
+  assert.equal(cancelling.note, "cancelling 2 inherited entry order(s)");
+  const unreadable = alert([resuming("1"), verdict("2", "held_uncovered", { unreadable: true, holding: null })]);
+  assert.deepEqual([unreadable.word, unreadable.tone], ["Holding, unverified", "fail"]);
+  assert.deepEqual([unreadable.gaps, unreadable.note], [[], "Binance's answer could not be read"]);
+  assert.equal(alert([resuming("1"), verdict("2", "held_uncovered", { uncovered: [bare] }), verdict("3", "held_covered")]), null, "a later pass clears it");
+  assert.equal(alert([resuming("1"), verdict("2", "held_uncovered", { uncovered: [bare] }), resuming("3")]), null, "a later start has not checked yet");
+  assert.equal(alert([resuming("1"), verdict("2", "held_uncovered", { uncovered: [bare] })], "clean_stopped"), null, "an ended run");
+  assert.equal(alert([resuming("1"), verdict("2", "held_uncovered", { uncovered: [bare] }), { event: "venue_flat_while_held", observed_ns: "3", held: null }]), null);
+  assert.equal(alert(undefined), null);
 });

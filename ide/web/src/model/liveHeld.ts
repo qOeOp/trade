@@ -19,9 +19,9 @@ export const HELD_UNREADABLE_NOTICE = "This run cannot verify that its positions
 
 type Restart = NonNullable<LiveRunDto["restarts"]>[number];
 
-/** A held start's failed check, as Telegram words it (live/notify.py held_text). */
-export function heldUncoveredNotice(row: Restart): string {
-  if (row.unreadable) return HELD_UNREADABLE_NOTICE;
+/** A held start's failed check, as Telegram words it (live/notify.py held_text), without its opening "This run ". */
+function heldUncoveredBody(row: Restart): string {
+  if (row.unreadable) return HELD_UNREADABLE_NOTICE.slice("This run ".length);
   const parts: string[] = [];
   if (row.uncovered?.length) parts.push("has a position with NO STOP at Binance: "
     + row.uncovered.map((p) => `${p.symbol ?? "?"} ${p.side ?? "?"} ${p.position ?? "?"} (stops ${p.stops ?? "?"})`).join("; ")
@@ -29,18 +29,69 @@ export function heldUncoveredNotice(row: Restart): string {
   if (row.entries) parts.push(row.entries_kept
     ? `could NOT cancel ${row.entries} inherited entry order(s): they are still working at Binance. A fill has no stop: cancel them at Binance now.`
     : `has ${row.entries} inherited entry order(s) working at Binance and is cancelling them. A fill before they are gone has no stop.`);
-  return "This run " + parts.join(" It also ");
+  return parts.join(" It also ");
 }
 
-/** The notice while a run that has not ended holds in its latest start: no later start, and the account not yet seen
- *  flat. It follows the start's latest check of the stops at Binance. */
-export function heldNotice(restarts: readonly Restart[]): string | null {
+/** A held start's failed check, as Telegram words it (live/notify.py held_text). */
+export function heldUncoveredNotice(row: Restart): string {
+  return "This run " + heldUncoveredBody(row);
+}
+
+/** The latest held start's check of the stops at Binance, when the run has not ended and still holds in that start:
+ *  no later start, and the account not yet seen flat. `row` is null before the start's first check. */
+function heldCheck(restarts: readonly Restart[]): { row: Restart | null } | null {
   const rows = [...restarts].reverse();  // latest first
   const at = rows.findIndex((row) => row.event === "resuming" || row.event === "venue_flat_while_held");
   const latest = rows[at];
   if (latest?.event !== "resuming" || latest.held !== true) return null;
-  const verdict = rows.slice(0, at).find((row) => row.event === "held_covered" || row.event === "held_uncovered");
+  return { row: rows.slice(0, at).find((row) => row.event === "held_covered" || row.event === "held_uncovered") ?? null };
+}
+
+/** The notice while a run that has not ended holds in its latest start. It follows the start's latest check of the
+ *  stops at Binance. */
+export function heldNotice(restarts: readonly Restart[]): string | null {
+  const held = heldCheck(restarts);
+  if (!held) return null;
+  const verdict = held.row;
   if (!verdict) return HELD_NOTICE;
   if (verdict.event === "held_covered") return verdict.holding === 0 ? HELD_ORDERS_NOTICE : HELD_COVERED_NOTICE;
   return heldUncoveredNotice(verdict);
+}
+
+/** A position at Binance that the check found short of stops, with the sizes it compared (never a balance). */
+export type HeldGap = { symbol: string; side: string; position: string; stops: string };
+
+/** A held run whose latest check did not pass, which the run's status word and colour say apart from a hold whose
+ *  stops are all in place. `fail`: something is exposed now and only the user can change it (a position without its
+ *  stop, an inherited entry order Binance still holds, an answer that could not be read), the hue of a position's
+ *  "No protective stop" and of an unresolved run. `misses`: the run is cancelling inherited entry orders itself.
+ *  `gaps` are the contracts and sides short of stops, which the pages mark on that contract; `note` says in a few
+ *  words what is not about one contract (entry orders, an unreadable answer); `body` is Telegram's sentence. */
+export type HeldAlert = { word: string; tone: "fail" | "misses"; body: string; gaps: readonly HeldGap[]; note: string | null };
+
+/** The gap on `symbol`'s `long` or short side, if the latest check found one. */
+export const heldGap = (alert: HeldAlert | null | undefined, symbol: string, long: boolean): HeldGap | null =>
+  alert?.gaps.find((g) => g.symbol.toUpperCase() === symbol.toUpperCase() && g.side.toUpperCase() === (long ? "LONG" : "SHORT")) ?? null;
+
+/** A position's line when the check found it short of stops: the sizes compared at Binance. */
+export const heldGapLine = (g: HeldGap) => `No stop at Binance · position ${g.position}, stops ${g.stops}`;
+
+/** The gap as one short phrase: BTCUSDT LONG 0.002 · stops 0. */
+export const heldGapText = (g: HeldGap) => `${g.symbol} ${g.side} ${g.position} · stops ${g.stops}`;
+
+export function heldAlert(restarts: readonly Restart[]): HeldAlert | null {
+  const verdict = heldCheck(restarts)?.row;
+  if (verdict?.event !== "held_uncovered") return null;
+  const body = heldUncoveredBody(verdict);
+  const gaps = verdict.unreadable ? [] : (verdict.uncovered ?? []).map((p) => ({ symbol: p.symbol ?? "?", side: p.side ?? "?", position: p.position ?? "?", stops: p.stops ?? "?" }));
+  const n = verdict.entries ?? 0;
+  const note = verdict.unreadable ? "Binance's answer could not be read"
+    : n ? (verdict.entries_kept ? `${n} inherited entry order(s) not cancelled` : `cancelling ${n} inherited entry order(s)`) : null;
+  const alert = (word: string, tone: "fail" | "misses") => ({ word, tone, body, gaps, note });
+  if (verdict.unreadable) return alert("Holding, unverified", "fail");
+  if (gaps.length) return alert("Holding, no stop", "fail");
+  if (n && verdict.entries_kept) return alert("Holding, entry not cancelled", "fail");
+  if (n) return alert("Holding, cancelling entries", "misses");
+  // held_uncovered says nothing short of one of the four; a row that does not is an answer this page cannot read.
+  return { word: "Holding, unverified", tone: "fail", body: HELD_UNREADABLE_NOTICE.slice("This run ".length), gaps: [], note: "Binance's answer could not be read" };
 }

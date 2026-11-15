@@ -43,6 +43,11 @@ test("a Live run's state reads as one word: unresolved before anything else, a r
   assert.equal(liveStatus(run({ ending: [fact("Stop requested", "Yes")] })).word, "Stopping");
   assert.deepEqual(liveStatus(run({ heldNotice: "held" })), { word: "Holding", tone: "misses" });
   assert.equal(liveStatus(run({ running: false, hostState: "unresolved" })).tone, "fail");
+  // A hold whose check did not pass says what is wrong in the word and shows the hue of a missing stop; a covered hold keeps its look.
+  const noStop = { word: "Holding, no stop", tone: "fail", body: "has a position with NO STOP at Binance: BTCUSDT LONG 0.002 (stops 0)." };
+  assert.deepEqual(liveStatus(run({ heldNotice: "held", heldAlert: noStop })), { word: "Holding, no stop", tone: "fail" });
+  assert.deepEqual(liveStatus(run({ heldNotice: "held", heldAlert: { ...noStop, word: "Holding, cancelling entries", tone: "misses" } })), { word: "Holding, cancelling entries", tone: "misses" });
+  assert.equal(liveStatus(run({ heldNotice: "held", heldAlert: noStop, ending: [fact("Stop requested", "Yes")] })).word, "Stopping");
   assert.equal(liveStatus(run({ running: false, ended: true, hostState: "clean_stopped" })).word, "Ended");
 });
 
@@ -51,6 +56,9 @@ test("the Runs dot, desktop and phone alike: red for an unresolved Live run or a
   assert.equal(runsDot([run({ running: false, hostState: "unresolved" })], idle, "present"), "fail");
   assert.equal(runsDot([], idle, "offline"), "fail");
   assert.equal(runsDot([run()], idle, "present"), "meets");
+  assert.equal(runsDot([run({ heldNotice: "held", heldAlert: { word: "Holding, no stop", tone: "fail", body: "" } })], idle, "present"), "fail", "a hold with a position and no stop");
+  assert.equal(runsDot([run({ heldNotice: "held", heldAlert: { word: "Holding, cancelling entries", tone: "misses", body: "" } })], idle, "present"), "meets");
+  assert.equal(runsDot([run({ heldNotice: "held" })], idle, "present"), "meets", "a hold whose stops are in place");
   assert.equal(runsDot([], { runs: [], running: 1 }, "present"), "meets");
   assert.equal(runsDot([run({ running: false, ended: true })], null, "absent"), undefined);
 });

@@ -2,6 +2,8 @@ import { useState, type ReactNode } from "react";
 import { copyText } from "../lib/clipboard";
 import type { LiveRun } from "../model/liveTrading";
 import { IconButton } from "./IconButton";
+import { heldGapText } from "../model/liveHeld";
+import { InfoTip } from "./InfoTip";
 import { textClass } from "../theme/roles";
 
 const PHASES: Record<string, string> = { preflight: "Account check", run: "Live execution", reconcile: "Reconciliation" };
@@ -21,14 +23,23 @@ export function LiveRunId({ id }: { id: string }) {
 export function liveRunStatus(run: LiveRun): readonly (readonly [string, ReactNode])[] {
   const state = run.hostState;
   const mode = run.host.find((fact) => fact.label === "Mode")?.value;
-  return [["Status", <span className="inline-block first-letter:uppercase">{state?.replaceAll("_", " ") ?? "Unknown"}</span>],
+  const alert = run.heldAlert;
+  return [["Status", <span className="inline-flex items-center gap-1">
+      {alert ? <span className={`font-semibold ${textClass(alert.tone)}`}>{alert.word}</span> : <span className="inline-block first-letter:uppercase">{state?.replaceAll("_", " ") ?? "Unknown"}</span>}
+      {/* What the hold means is kept in an info icon, amber until a check has found a stop at Binance for every position. */}
+      {run.heldNotice && !alert && <InfoTip text={run.heldNotice} tone="misses" label="This run holds an inherited position" />}
+    </span>],
     ["Phase", mode ? PHASES[mode] ?? mode : "Not reported"]];
 }
 
 /** While the run trades, its entries and its latest comparison with a replay; closed entries and a comparison
  *  that needs a look in the misses colour. */
 function liveRunOperation(run: LiveRun): readonly (readonly [string, ReactNode])[] {
-  return [...run.entries ? [["Entries", <span className={run.entries.open ? undefined : textClass("misses")}>{run.entries.text}</span>] as const] : [],
+  const alert = run.heldAlert;
+  return [...alert ? [["Stop check", <span className="inline-flex items-center gap-1"><span className={textClass(alert.tone)}>
+      {[...alert.gaps.map(heldGapText), ...alert.note ? [alert.note] : []].join(" · ")}</span>
+      <InfoTip text={`This run ${alert.body}`} tone={alert.tone} label="What the check found" /></span>] as const] : [],
+    ...run.entries ? [["Entries", <span className={run.entries.open ? undefined : textClass("misses")}>{run.entries.text}</span>] as const] : [],
     ...run.compared ? [["Replay", <span>{run.compared.day.slice(5)} · <span className={run.compared.attention ? textClass("misses") : undefined}>{run.compared.text}</span></span>] as const] : []];
 }
 
