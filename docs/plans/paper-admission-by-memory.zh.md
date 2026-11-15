@@ -22,7 +22,7 @@
 
 每个 run 启动时预留一块内存，这块预留同时就是它在 Docker 里的硬上限（`--memory`）。是否放行，看的是预留量，不是个数：
 
-1. **每个 run 的预留量 = 基数 + 每个合约的增量 × 合约数**。由测量确定（§4），不靠猜。现有的 `config.memory` 字段已经记录了每个 run 的上限，直接沿用，不新增存储字段。run 一旦超过预留就被 Docker 杀掉，并封存为 Complete，原因 `OUT_OF_MEMORY`（2026-11-15 更正：原写 invalid（`oom_killed`），现行规则只有证据不可信才封 invalid，见 `ledger.paper.verdict` 与 `paper-trading-design.zh.md`“Invalid 只留给证据不可信”），页面写明"超过了内存预留"。坏的只是这一个 run，主机不受影响。
+1. **每个 run 的预留量 = 基数 + 每个合约的增量 × 合约数**。由测量确定（§4），不靠猜。现有的 `config.memory` 字段已经记录了每个 run 的上限，直接沿用，不新增存储字段。run 一旦超过预留就被 Docker 杀掉，并封存为 Complete，原因 `OUT_OF_MEMORY`（2026-11-15 更正：原写 invalid（`oom_killed`），现行规则只有证据不可信才封 invalid，见 `ledger.paper.verdict` 与 `paper-trading-design.zh.md`“Invalid 只留给证据不可信”），页面把这个 run 的结束显示为 "Out of memory"（`ide/web/src/model/ending.ts`）。坏的只是这一个 run，主机不受影响。
 2. **paper 总预算**：部署配置 `TRADE_PAPER_MEMORY`（例如 3 GiB），在 compose 环境里设，随主机大小调整。放行条件：已在运行的 run 的预留之和 + 新 run 的预留 ≤ 预算。这条保证的是最坏情况：所有 run 都涨满，总量也不超过预算。
 3. **启动瞬间的主机余量**：再读一次主机的 MemAvailable，要求扣掉新 run 的预留后仍至少剩 1 GiB 余量。这条随主机当下的状况变化：发布交接时两个 web 并存、Live 在跑、研究回放在跑，都会在这里体现。它只决定新 run 能不能启动，不会停掉已经在跑的 run。
 4. **CPU**：每个 runner 加 `--cpus 0.5`，CPU 不纳入准入。CPU 争用只会让东西变慢，不会把主机搞崩。
