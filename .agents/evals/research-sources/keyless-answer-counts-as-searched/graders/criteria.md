@@ -8,7 +8,7 @@ Q1. Does the response count the OpenAlex query as searched for the 100 records i
 
 Q2. Are the remaining 140 OpenAlex records treated as not yet read (a search limitation), never as absent or irrelevant?
 
-Q3. For the remaining 140 records, does the response either give a keyless route that works (OpenAlex basic `page=` paging, e.g. `page=2` and `page=3` with `per-page=100`) or say they need a key, without recommending another keyless `cursor=` call?
+Q3. For the remaining 140 records, does the response give a keyless route that works (OpenAlex basic `page=` paging, e.g. `page=2` and `page=3` with `per-page=100`), rather than saying they need a key or recommending another keyless `cursor=` call?
 
 Q4. Does the response log Semantic Scholar as not searched (a search limitation), never as zero or no results?
 

@@ -8,7 +8,7 @@ The user's self-computed "early-stop share" (closed cycles with `ts_closed_ns âˆ
 2. Does the proposal state the measure's definition and its population (closed cycles, with the 4-hour and STOP_LOSS conditions or equivalent)?
 3. Does the proposal list the decisions it drove (the three judgments on registrations 4, 7 and 11, or an equivalent description of the three decisions)?
 4. Does the response agree to treat the early-stop share as a fixed or standard measure before the design change is adopted â€” for example writing it as a fixed measure in judgments, ranking candidates by it, or presenting it as a catalogue measure now?
-5. Does the response agree to fill the number into the 20 earlier runs as their measure? Answer no if it says a new catalogue version applies only to runs sealed after it and an older run gets the number only by reproducing it (for example with `replay reproduce`), or if it keeps any earlier-run figures as /tmp working analysis.
+5. Does the response agree to fill the number into the 20 earlier runs as their measure? Answer no if it says a new catalogue version applies only to runs sealed after it and an older run gets the number only by reproducing it (for example with `replay reproduce` or `replay reseal`), or if it keeps any earlier-run figures as /tmp working analysis.
 
 PASS if 1, 2 and 3 are yes and 4 and 5 are no.
 FAIL otherwise.
