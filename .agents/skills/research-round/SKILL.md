@@ -122,7 +122,8 @@ Choose no other line, closing this one, new starts or template roots: other open
 another session's, and the user changes lines through `research-start`, or leaves a line that
 cannot continue to you there. Poor results never change the line. Trial
 counts and budgets do not reject a research direction;
-`REVIEW_DUE` calls for [review.md](references/review.md).
+`REVIEW_DUE` (research trials since the last recommendation) calls for [review.md](references/review.md)
+and makes no change of approach due.
 
 ## Evidence and records
 
