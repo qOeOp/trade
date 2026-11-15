@@ -22,6 +22,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Live (evidence pack): when a source unsubscribes from a contract's metrics, Live records `metrics_unsubscribed`
+  in `evidence/market.jsonl`. `live compare` no longer counts the archive rows after it as missing; it expects rows
+  again from the first one the source receives after resubscribing. Paper and Live hand no metrics row to a source
+  after it unsubscribed, including one already read in the same tick. The change gives a new runtime image.
 - Breaking (`research history`): a closing history test's combined verdict needs every reading it is defined on.
   A whole veto year whose run is invalid or missing, or lacks a reading, used to drop out of the veto's count, so
   the other years, or the holdout alone when every year was invalid, could read `meets_targets` true; a row without
