@@ -158,7 +158,7 @@ class Commits(Directory):
         self.assertEqual(files.resolve_day(market, JAN_1.isoformat()), JAN_1.isoformat())
         for ref in (date(2025, 1, 4).isoformat(), "2025-02-30", "20250103000000000000000000000000", "2025-01-03T00",
                     "nope", "main", "0" * 32):
-            with self.refusal("MARKET_DAY_UNKNOWN"):
+            with self.refusal("MARKET_DAY_UNRESOLVED"):
                 files.resolve_day(market, ref)
 
     def test_the_newest_day_is_the_earlier_of_bars_and_followed_metrics(self):
@@ -181,7 +181,7 @@ class Commits(Directory):
         self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", series._day_ms(last), 1)])])])
         market = files.open_market(self.profile, "reader")
         self.assertEqual(files.latest_day(market), date(2025, 1, 30))
-        with self.refusal("MARKET_DAY_UNKNOWN"):
+        with self.refusal("MARKET_DAY_UNRESOLVED"):
             files.resolve_day(market, last.isoformat())
         self.write([("universe_month", FEB_1, None, [members(FEB_1, ["BTCUSDT"])])])
         self.assertEqual(files.latest_day(market), last)

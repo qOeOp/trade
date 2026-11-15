@@ -427,7 +427,7 @@ class ReportTests(unittest.TestCase):
             return read
 
         clean = graph.version_comparison(*args)
-        with seams.use(market_returns=failing(refuse("MARKET_DAY_UNKNOWN", "no such market day"))):
+        with seams.use(market_returns=failing(refuse("MARKET_DAY_UNRESOLVED", "no such market day"))):
             drawn = graph.research_graph(self.profile, workers=1)
             self.assertIn("market_unread", drawn["scope"])
             shown = next(c["comparison"] for c in drawn["candidates"]
