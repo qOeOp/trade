@@ -1,10 +1,11 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { MISSING, pct, plural, ratio } from "../../lib/format";
 import type { HistoryCell, HistoryLine, HistoryRow } from "../../lib/historyApi";
-import { cellAt, columns, meetsBoth, noEdge, ordered, RETURN_RANGES, returnStep, type Column, type Metric, type Order } from "../../model/history";
+import { cellAt, columns, meetsBoth, noEdge, combinedTip, ordered, RETURN_RANGES, returnStep, vetoTip, type Column, type Metric, type Order } from "../../model/history";
 import { useHistory } from "../../state/history";
 import { DropdownChoice } from "../../components/Dropdown";
 import { HistoryTile } from "../../components/HistoryTile";
+import { LineHeader, PriorTip } from "./LineHeader";
 import { Tip } from "../../components/Tip";
 import { Empty } from "../../components/Waiting";
 
@@ -36,7 +37,7 @@ function tip(cell: HistoryCell, row: HistoryRow, column: Column, shortDays: numb
   );
 }
 
-/** One heatmap cell: the chosen metric over the annual return's colour, a thick border when the segment meets both of
+/** One heatmap cell: the chosen metric over the annual return's colour, a star when the segment meets both of
  *  the line's targets, grey when it is too short to count, and words when there is nothing to read. */
 function Cell({ cell, row, column, line, metric, shortDays }: { cell: HistoryCell | null; row: HistoryRow; column: Column; line: HistoryLine; metric: Metric; shortDays: number }) {
   const base = "h-7 min-w-[4.75rem] px-1.5 text-center tabular-nums";
@@ -60,10 +61,11 @@ const Verdict = ({ ok, tip: why }: { ok: boolean | null | undefined; tip?: React
 };
 
 /** A row's summary as the command gives it: the veto years' counts and readings, the two verdicts and the combined one,
- *  and, on a row meeting the targets, its holdout's Sharpe deflated at the line's participant count. */
+ *  and, on a row meeting the targets (the candidates "picked by this reading", line-close-history-test-20261110.zh.md 3.7),
+ *  its holdout's Sharpe deflated at the line's participant count. */
 function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
   const s = row.summary, td = "px-2 text-right tabular-nums whitespace-nowrap";
-  if (!s) return <td colSpan={9} className="px-2 text-misses-fg">Control replay differs from the research run: no verdict</td>;
+  if (!s) return <td colSpan={10} className="px-2 text-misses-fg">Control replay differs from the research run: no verdict</td>;
   const veto = s.veto, dsr = s.holdout.deflated_sharpe;
   return (
     <>
@@ -73,32 +75,25 @@ function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
       <td className={td}>{pct(veto.median_annual_return)}</td>
       <td className={td}>{pct(veto.worst_annual_return)}</td>
       <td className={td}>{pct(veto.worst_mark_max_drawdown)}</td>
-      <td className={td}><Verdict ok={veto.meets_targets} tip={veto.whole_years ? "Every whole veto year's drawdown within the limit and their median return at least the minimum" : "No whole veto year to judge"} /></td>
-      <td className={td}><Verdict ok={s.holdout.meets_targets} tip={`Holdout ${pct(s.holdout.annual_return)} a year, drawdown ${pct(s.holdout.mark_max_drawdown)}`} /></td>
-      <td className={`${td} font-semibold`}>
-        <Verdict ok={s.meets_targets} tip={s.judged_on === "holdout" ? "On the holdout alone: no whole veto year counts" : s.judged_on ? "On the veto years and the holdout" : "Nothing countable to judge"} />
-        {s.meets_targets && <Tip content={`The holdout's deflated Sharpe with ${line.participants} participants as the trials: the probability its Sharpe beats the best of that many by luck`}>
-          <span className="ml-2 font-normal text-fg-muted">DSR {dsr == null ? MISSING : dsr.toFixed(2)}</span></Tip>}
+      <td className={td}><Verdict ok={veto.meets_targets} tip={vetoTip(s)} /></td>
+      <td className={td}><Verdict ok={s.holdout.meets_targets} tip={<PriorTip line={line} lead={`Holdout ${pct(s.holdout.annual_return)} a year, drawdown ${pct(s.holdout.mark_max_drawdown)}`} />} /></td>
+      <td className={`${td} font-semibold`}><Verdict ok={s.meets_targets} tip={combinedTip(s)} /></td>
+      <td className={`${td} text-fg-muted`}>
+        {!s.meets_targets && <span className="text-fg-faint">{MISSING}</span>}
+        {s.meets_targets && <Tip content={<PriorTip line={line} lead={`The holdout's deflated Sharpe with ${line.participants} participants as the trials: the probability its Sharpe beats the best of that many by luck`} />}>
+          <span>{dsr == null ? MISSING : dsr.toFixed(2)}</span></Tip>}
       </td>
     </>
   );
 }
 
 /** A line's rows under its header: the line, whether it is closed, how many candidates took part and how many research
- *  trials they came from, its targets and its development period. */
+ *  trials they came from, the earlier searches of its holdout, its targets and its development period. */
 function LineRows({ line, cols, metric, order, all, shortDays }: { line: HistoryLine; cols: Column[]; metric: Metric; order: Order; all: boolean; shortDays: number }) {
   const rows = ordered(line.rows, order), shown = all ? rows : rows.filter((r) => !noEdge(r)), hidden = rows.length - shown.length;
-  const t = line.targets;
   return (
     <tbody className="border-t border-line">
-      <tr className="bg-island-alt">
-        <th colSpan={cols.length + 10} className="sticky left-0 px-2 py-1.5 text-left font-normal">
-          <span className="font-mono font-semibold">{line.line}</span>
-          <span className="ml-3 text-fg-muted">{line.closed ? "Closed" : "Closing"} · {plural(line.participants, "participant")} from {plural(line.research_trials, "research trial")}
-            {t && ` · drawdown ≤ ${pct(t.max_drawdown)}, annual return ≥ ${pct(t.annual_return)}`} · development {line.dev_start} to {line.dev_end}
-            {hidden > 0 && ` · ${hidden} with no edge hidden`}</span>
-        </th>
-      </tr>
+      <LineHeader line={line} colSpan={cols.length + 11} hidden={hidden} />
       {shown.map((row) => (
         <tr key={row.run} className="hover:bg-row-hover">
           <th className="sticky left-0 z-10 max-w-56 truncate bg-island px-2 text-left font-mono font-normal">
@@ -140,7 +135,7 @@ export function HistoryPage() {
             <tr>
               <th className={`${th} sticky left-0 z-30 bg-island text-left`}>Participant</th>
               {cols.map((c) => <th key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{c.label}</th>)}
-              {["Whole yrs", "Profitable", "Meeting", "Median", "Worst", "Worst DD", "Veto", "Holdout", "Verdict"].map((h) =>
+              {["Whole yrs", "Profitable", "Meeting", "Median", "Worst", "Worst DD", "Veto", "Holdout", "Verdict", "DSR"].map((h) =>
                 <th key={h} className={`${th} text-right ${h === "Whole yrs" ? "border-l border-line" : ""}`}>{h}</th>)}
             </tr>
           </thead>
@@ -148,7 +143,7 @@ export function HistoryPage() {
         </table>
       </div>
       <p className="shrink-0 px-3 py-1.5 text-small text-fg-faint">
-        Colour: annual return ({RETURN_RANGES[0]} to {RETURN_RANGES[6]}) · thick border: the segment meets both targets · grey: under {history.short_days} days, not counted · hatched: part of a year.
+        Colour: annual return ({RETURN_RANGES[0]} to {RETURN_RANGES[6]}) · star: the segment meets both targets · grey: under {history.short_days} days, not counted · hatched: part of a year.
         The verdict reads the veto years and the holdout apart; it tests, it does not validate, and picking by it is a choice among the participants.
       </p>
     </div>
