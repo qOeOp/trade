@@ -142,9 +142,12 @@ flag) is `METRICS_NOT_SERVED`; report the rows received and the empty ratios rea
   its trigger is already passed. Honor a declared entry lifetime with native expiry or a
   cancellation Nautilus acknowledges; under 600 s, submit GTC and cancel on a timer. Under `bars`,
   native expiry fires at the first bar stamp at or after the deadline whose price differs from the
-  last, before that bar can fill: through bars at an unchanged price the order keeps resting and
-  counting toward the exposure limit, so cancel on a timer where the lifetime must end on time;
-  stamps sit 1 ms before the minute, so a whole-minute deadline reports one bar late. Never add a
+  last, but only after that bar's first price point that differs from the last has matched (its
+  open when that differs from the previous close, else its first high or low leg), so a gap
+  through the limit still fills, up to 59.999 s after a deadline inside the bar: through bars at an
+  unchanged price the order keeps resting and counting toward the exposure limit, so cancel on a
+  timer where the lifetime must end on time; stamps sit 1 ms before the minute, so a whole-minute
+  deadline reports one bar late. Never add a
   target the source lacks.
 - The audit refuses a run in which a position is larger than its resting stops (reduce-only, closing
   side, accepted and neither triggered nor filled) for longer than one one-minute bar.
