@@ -628,7 +628,8 @@ class LiveTests(unittest.TestCase):
             failure handler sees."""
 
         args = self.runner_args("run")
-        held = dict(self.flat_snapshot(), positions=[{"symbol": "BTCUSDT", "positionAmt": "0.001"}])
+        held = dict(self.flat_snapshot(), positions=[{"symbol": "BTCUSDT", "positionSide": "LONG",
+                                                     "positionAmt": "0.001"}])
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()) as snapshot, \
                 mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_account_mode"), \
                 mock.patch.object(live, "source_for_run") as source, mock.patch.object(live, "build_node") as build, \
@@ -646,6 +647,11 @@ class LiveTests(unittest.TestCase):
             resumes = [row for row in map(json.loads, (self.output / "events.jsonl").read_text().splitlines())
                        if row["event"] == "resuming"]
             self.assertEqual([row["held"] for row in resumes], [False, True])
+            # The hold begins with a verdict on the same read: this position has no stop at Binance (20261114-24).
+            verdict = json.loads((self.output / "events.jsonl").read_text().splitlines()[-1])
+            self.assertEqual((verdict["event"], verdict["positions"], verdict["observation"]), (
+                "held_uncovered", [{"symbol": "BTCUSDT", "side": "LONG", "position": "0.001", "stops": "0"}],
+                resumes[-1]["observation"]))
             for ending in ("unresolved", "clean_stop"):
                 with self.subTest(ending):
                     events = (self.output / "events.jsonl").read_text()

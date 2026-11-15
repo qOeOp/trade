@@ -37,6 +37,7 @@ from nautilus_trader.model import ClientId, OrderStatus, PositionSide, TimeInFor
 from nautilus_trader.common import SocketState
 from nautilus_trader.trading import Strategy
 
+from engine import protection
 from engine.live_errors import LiveRefusal as Refusal
 from engine.config import symbol_of
 from engine.live_records import contract as contract_id, keep, owned, strategy_ids
@@ -79,6 +80,9 @@ class Connection:
     bar_since_reconnect: bool = True
     notified: set[str] = field(default_factory=set)
     orphans_since: int | None = None  # observed_ns of the first agreeing read finding only reduce-only orders, flat
+    held_cover: dict | None = None  # a held start's latest journalled verdict on its positions' stops (held_verdict)
+    withdrawn_ns: int | None = None  # when a held start first asked for its inherited entries' cancels (held_withdraw)
+    withdraw_failed: set[str] = field(default_factory=set)  # entries whose cancel request raised, journalled once
 
 
 def socket_key(event) -> str:
@@ -539,11 +543,112 @@ def orphans(session, cache, observed_ns: int) -> None:
 
 
 HELD_READ_SECONDS = 30
+# Binance's names of the order types engine.protection counts as stops, as its native names.
+VENUE_STOPS = {"STOP_MARKET": "STOP_MARKET", "STOP": "STOP_LIMIT", "TRAILING_STOP_MARKET": "TRAILING_STOP_MARKET"}
+
+
+def held_cover(snapshot: dict) -> dict:
+    """What one account read shows a held run to lack. `positions`: each side of a contract that holds more than the
+    stops at Binance that close it (engine.protection's judgment on the venue's own rows, conditional and regular
+    orders alike; a Hedge order closes the side it names when it sells a LONG or buys a SHORT). `entries`: the
+    orders at Binance that would open or add to a position, which no process would protect once filled. Both empty:
+    every position has its stops and nothing can add to one. `holding`: how many sides of contracts hold a position
+    (none: only orders keep the account from flat)."""
+    try:
+        held: dict[tuple[str, str], Decimal] = {}
+        for row in snapshot["positions"]:
+            amount = Decimal(row["positionAmt"])
+            if amount:
+                side = row["positionSide"] if row["positionSide"] in ("LONG", "SHORT") else \
+                    "LONG" if amount > 0 else "SHORT"
+                held[row["symbol"], side] = held.get((row["symbol"], side), Decimal(0)) + abs(amount)
+        closing: dict[tuple[str, str], list[protection.Order]] = {}
+        entries = []
+        for row in (*snapshot["orders"], *snapshot["algo_orders"]):
+            side = row.get("positionSide", "BOTH")
+            if side in ("LONG", "SHORT"):
+                closes = row["side"] == ("SELL" if side == "LONG" else "BUY")
+            else:  # a one-way row names no side: a reduce-only order closes the side opposite its own
+                closes = row.get("reduceOnly") is True or row.get("closePosition") is True
+                side = "LONG" if (row["side"] == "SELL") == closes else "SHORT"
+            key = (row["symbol"], side)
+            if not closes:
+                entries.append({"symbol": row["symbol"], "side": side})
+                continue
+            kind = row["type"] if "type" in row else row["orderType"]  # openAlgoOrders rows say `type` too
+            if row.get("closePosition") is True:
+                leaves = held.get(key, Decimal(0))  # closes whatever the side holds
+            elif "quantity" in row:  # a conditional order
+                leaves = Decimal(row["quantity"])
+            else:
+                leaves = Decimal(row["origQty"]) - Decimal(row.get("executedQty", "0"))
+            closing.setdefault(key, []).append(
+                protection.Order(row["side"], VENUE_STOPS.get(kind, kind), True, "ACCEPTED", leaves))
+        positions = []
+        for (symbol, side), quantity in sorted(held.items()):
+            stops = protection.stop_quantity(quantity if side == "LONG" else -quantity, closing.get((symbol, side), ()))
+            if stops < quantity:
+                positions.append({"symbol": symbol, "side": side, "position": str(quantity), "stops": str(stops)})
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        raise Refusal("LIVE_ACCOUNT_RESPONSE", "the venue did not supply complete position/order observations") from exc
+    return {"holding": len(held), "positions": positions,
+            "entries": sorted(entries, key=lambda row: (row["symbol"], row["side"]))}
+
+
+def held_verdict(session, snapshot: dict, observation: str | None = None) -> None:
+    """Journal what a held run's account read shows, once per change: `held_covered`, or `held_uncovered` with the
+    positions short of stops and the entry orders still working. `entries_kept`: the read began after this start
+    asked for its inherited entries' cancels (held_withdraw) and still shows entry orders, so they could not be
+    withdrawn. `unreadable`: the answer's rows could not be judged, which shows no stop either. (A read that failed
+    is not judged at all: held_tick reads again.)"""
+    state = session.connection
+    try:
+        found = held_cover(snapshot)
+        kept = bool(found["entries"]) and state.withdrawn_ns is not None and snapshot["observed_ns"] > state.withdrawn_ns
+        verdict = {**found, "entries_kept": kept, "unreadable": False}
+    except (Refusal, KeyError, TypeError):
+        verdict = {"holding": None, "positions": [], "entries": [], "entries_kept": False, "unreadable": True}
+    if verdict == state.held_cover:
+        return
+    state.held_cover = verdict
+    observation = observation or keep(session.output, "held-account", snapshot)
+    if verdict["positions"] or verdict["entries"] or verdict["unreadable"]:
+        session.event("held_uncovered", strict=False, observation=observation, **verdict)
+    else:
+        session.event("held_covered", strict=False, observation=observation, holding=verdict["holding"])
+
+
+def held_withdraw(session, cache, now: float) -> None:
+    """A held start withdraws the entry orders it inherited: no source will place a stop behind their fills. Each
+    gets a native cancel through the run's registered identity, repeated while the order stays open
+    (Session.cancel_open). An order at Binance the native cache does not hold cannot be cancelled from here; the
+    account reads say whether any entry order is still working (held_verdict)."""
+    from engine.live_commands import pending_orders
+    state = session.connection
+    for order in owned(lambda strategy_id: pending_orders(cache, strategy_id), session.manifest):
+        if order.is_reduce_only:
+            continue
+        cid = str(order.client_order_id)
+        first = cid not in session.canceled
+        try:
+            session.cancel_open(cache, [order], now)
+        except Exception as exc:
+            session.canceled[cid] = now  # asked again after the usual interval
+            if cid not in state.withdraw_failed:
+                state.withdraw_failed.add(cid)
+                session.event("entry_cancel_failed", reason="held", client_order_id=cid,
+                              failure_type=type(exc).__name__, strict=False)
+        else:
+            if first:
+                session.event("entry_cancel_requested", reason="held", client_order_id=cid, strict=False)
+    if state.withdrawn_ns is None:
+        state.withdrawn_ns = time.time_ns()
 
 
 def held_tick(session, now: float) -> None:
     """A resumed run holding around an open position reads the account until it is flat (its exchange stops, or the
-    user at Binance); then it ends this start so the next one trades again (engine.live, design §3.4)."""
+    user at Binance); then it ends this start so the next one trades again (engine.live, design §3.4). Each read
+    that is not flat is judged for stops and working entries (held_verdict)."""
     from engine import live_commands as commands
     state = session.connection
     if state.observation is None:
@@ -561,7 +666,9 @@ def held_tick(session, now: float) -> None:
     state.observation = None
     try:
         require_flat(snapshot)
-    except Refusal:
+    except Refusal as exc:
+        if exc.code == "LIVE_ACCOUNT_NOT_FLAT":
+            held_verdict(session, snapshot)
         return
     observation = keep(session.output, "held-account", snapshot)
     session.held_flat = True

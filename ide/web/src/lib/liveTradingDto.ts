@@ -56,8 +56,11 @@ export type LiveRunDto = {
   brake: { start: string | null; peak: string | null; fired: { equity: string | null; peak: string | null; drawdown: string | null; observed_ns: string | null } | null } | null;
   /** The run's result at each minute's first mark and when it stopped, [minute_ns, result] (live/views.py). */
   minute_results: [string, string | null][] | null;
-  /** Interruptions and starts again of the same run (live/views.py _restarts). */
-  restarts: { event: string; observed_ns: string; held: boolean | null }[] | null;
+  /** Interruptions and starts again of the same run (live/views.py _restarts). A held start's verdict rows
+   *  (held_covered, held_uncovered) also say what its account read shows of the stops at Binance (_held_verdict). */
+  restarts: { event: string; observed_ns: string; held: boolean | null; holding?: number | null;
+    uncovered?: { symbol: string | null; side: string | null; position: string | null; stops: string | null }[];
+    entries?: number; entries_kept?: boolean; unreadable?: boolean }[] | null;
   /** The entry gate's events (live/views.py _gate): when entries closed, why, and when they reopened. */
   gate: { event: string; observed_ns: string; reasons: string[]; socket: string | null; status: string | null }[] | null;
   /** The control's hourly checks of the run's key that failed, and a pass after one (live/views.py _key_checks). */

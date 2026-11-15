@@ -39,8 +39,9 @@ OBSERVATION_EVENTS = frozenset(OBSERVATION_PREFIXES)
 HOST_STATES = frozenset({"prepared", "running", "clean_stopped", "not_armed", "unresolved", "reconciled_flat",
                          "venue_flat", "preflight_complete", "preflight_failed", "interrupted"})
 # warmup: a trading start's source warmed up (after rewarming, entries are open again: live.notify).
+# held_covered, held_uncovered: what a held start's account reads show of its positions' stops (engine.live_connection).
 RESTART_EVENTS = frozenset({"interrupted", "resuming", "held", "venue_flat_while_held", "held_flat", "rewarming",
-                            "warmup"})
+                            "warmup", "held_covered", "held_uncovered"})
 
 
 def _text(value, pattern=IDENTIFIER):
@@ -270,12 +271,27 @@ def _gate(rows):
     return result[-MAX_ROWS:]
 
 
+def _held_verdict(row) -> dict:
+    """A held start's verdict (engine.live_connection.held_verdict): the positions short of stops at Binance, how many
+    entry orders still work there and whether their cancel failed; a held_covered row only says how many it holds."""
+    def rows(name):
+        return row.get(name) if isinstance(row.get(name), list) else []
+    return {"holding": row.get("holding") if type(row.get("holding")) is int else None,
+            "uncovered": [{"symbol": _text(item.get("symbol"), re.compile(r"[A-Z0-9]{1,40}\Z")),
+                           "side": _enum(item.get("side"), {"LONG", "SHORT"}),
+                           "position": _decimal(item.get("position")), "stops": _decimal(item.get("stops"))}
+                          for item in rows("positions")[:MAX_ROWS] if isinstance(item, dict)],
+            "entries": len(rows("entries")), "entries_kept": row.get("entries_kept") is True,
+            "unreadable": row.get("unreadable") is True}
+
+
 def _restarts(native, lifecycle):
     """Interruptions and starts again of the same run (engine.live), and the control's restart_limited."""
     if native is None or lifecycle is None:
         return None
     rows = [{"event": row["event"], "observed_ns": str(row["observed_ns"]),
-             "held": row.get("held") if isinstance(row.get("held"), bool) else None, "retry": row.get("retry") is True}
+             "held": row.get("held") if isinstance(row.get("held"), bool) else None, "retry": row.get("retry") is True,
+             **(_held_verdict(row) if row["event"] in ("held_covered", "held_uncovered") else {})}
             for row in native if row.get("event") in RESTART_EVENTS and type(row.get("observed_ns")) is int]
     rows += [{"event": "restart_limited", "observed_ns": str(row["observed_ns"]), "held": None, "retry": False}
              for row in lifecycle if row.get("event") == "restart_limited" and type(row.get("observed_ns")) is int]

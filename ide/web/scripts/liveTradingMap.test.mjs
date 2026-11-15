@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { namespace } from "./load.mjs";
 
-const { liveRunPresentation, liveHomePresentation, liveSourcePresentation, liveEvidencePresentation, HELD_NOTICE } = await namespace("model/liveTradingMap.ts", { sources: ["model/liveLaunchText"], packages: [] });
+const { liveRunPresentation, liveHomePresentation, liveSourcePresentation, liveEvidencePresentation } = await namespace("model/liveTradingMap.ts", { sources: ["model/liveLaunchText", "model/liveHeld"], packages: [] });
+const { HELD_NOTICE, HELD_COVERED_NOTICE, HELD_ORDERS_NOTICE, HELD_UNREADABLE_NOTICE } = await namespace("model/liveHeld.ts", { sources: [], packages: [] });
 const run = () => ({
   run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, candidate: { strategy_id: "retest", revision: "1" },
   runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: null,
@@ -126,7 +127,21 @@ test("a start holding around an inherited position says so until a later start o
   const held = (restarts, state = "running") => liveRunPresentation({ ...run(), host: { ...run().host, state }, restarts }).heldNotice;
   const resuming = (ns, isHeld) => ({ event: "resuming", observed_ns: ns, held: isHeld });
   assert.equal(held([resuming("1", true)]), HELD_NOTICE);
-  assert.match(HELD_NOTICE, /protected only by its stop at Binance: the strategy no longer manages its exits/);
+  assert.match(HELD_NOTICE, /The strategy no longer manages its exits and opens nothing/);
+  assert.doesNotMatch(HELD_NOTICE, /protected/, "no claim before the check (20261114-24)");
+  // The start's latest check of the stops at Binance decides what the notice says.
+  const verdict = (ns, event, fields = {}) => ({ event, observed_ns: ns, held: null, holding: 1, uncovered: [], entries: 0, entries_kept: false, unreadable: false, ...fields });
+  const bare = { symbol: "BTCUSDT", side: "LONG", position: "0.002", stops: "0" };
+  assert.equal(held([resuming("1", true), verdict("2", "held_covered")]), HELD_COVERED_NOTICE);
+  assert.equal(held([resuming("1", true), verdict("2", "held_covered", { holding: 0 })]), HELD_ORDERS_NOTICE);
+  assert.match(held([resuming("1", true), verdict("2", "held_covered"), verdict("3", "held_uncovered", { uncovered: [bare] })]),
+    /^This run has a position with NO STOP at Binance: BTCUSDT LONG 0\.002 \(stops 0\)\. Nothing will close it/);
+  assert.equal(held([resuming("1", true), verdict("2", "held_uncovered", { uncovered: [bare] }), verdict("3", "held_covered")]), HELD_COVERED_NOTICE);
+  assert.match(held([resuming("1", true), verdict("2", "held_uncovered", { entries: 2 })]), /^This run has 2 inherited entry order\(s\) working at Binance and is cancelling them/);
+  assert.match(held([resuming("1", true), verdict("2", "held_uncovered", { uncovered: [bare], entries: 1, entries_kept: true })]),
+    /now\. It also could NOT cancel 1 inherited entry order\(s\)/);
+  assert.equal(held([resuming("1", true), verdict("2", "held_uncovered", { unreadable: true, holding: null })]), HELD_UNREADABLE_NOTICE);
+  assert.equal(held([resuming("1", true), verdict("2", "held_uncovered", { uncovered: [bare] }), resuming("3", true)]), HELD_NOTICE, "a later start has not checked yet");
   assert.equal(held([resuming("1", true), { event: "held", observed_ns: "2", held: null }]), HELD_NOTICE);
   assert.equal(held([resuming("1", true), { event: "venue_flat_while_held", observed_ns: "2", held: null }]), null);
   assert.equal(held([resuming("1", true), resuming("3", false)]), null);

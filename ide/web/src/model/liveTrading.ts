@@ -34,7 +34,8 @@ export type LiveRun = {
   venue?: { canTrade: boolean | null; hedgeMode: boolean | null; multiAssets: boolean | null; wallet: string | null; available: string | null } | null;
   /** The host's own state ("running", "unresolved", …) and whether the run holds the account slot. */
   hostState?: string | null; accountOwned?: boolean | null;
-  /** Set while the latest start holds around a position or orders it inherited (model/liveTradingMap.ts HELD_NOTICE). */
+  /** Set while the latest start holds around a position or orders it inherited: what its latest check of the stops at
+   *  Binance shows (model/liveHeld.ts). */
   heldNotice?: string | null;
   /** A running run's entries: open, or closed and why (model/liveTradingMap.ts entriesOf); null once it ended. */
   entries?: { open: boolean; text: string } | null;
