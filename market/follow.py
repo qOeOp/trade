@@ -482,14 +482,14 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
         except Exception as exc:
             if not _stop("bars", BARS, exc, memory):
                 kinds["bars"][BARS]["retry"] = _refusal(exc)
-    firsts_of_metrics = {} if listing is None else _metrics_from(listing, scope)
+    firsts_of_metrics, held_metrics = ({}, {}) if listing is None else (_metrics_from(listing, scope), listing["metrics"])
     for symbol, first in firsts_of_metrics.items():
         if "*" in memory.stopped:
             break
         kinds["metrics"].setdefault(symbol, {"rows": 0})
         if memory.stop("metrics", symbol):
             continue
-        left = missing(listing["metrics"][symbol], first, today, _passed(memory, symbol))
+        left = missing(held_metrics[symbol], first, today, _passed(memory, symbol))
         for month, days in left.items():
             try:
                 if not _fetched(cache, symbol, days, today, memory):
