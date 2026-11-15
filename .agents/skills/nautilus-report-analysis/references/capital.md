@@ -22,8 +22,8 @@ Capital use is the context for drawdown and for the holding structure: read it f
   of the kept directory or of a reproduction.
 - When the reading is null (`limitations` says why), compute it from that directory instead.
   Take the fills from `tables()` and divide each fill's quantity by the volume of that instrument's
-  one-minute LAST bar at the run's market day (`market bars --market-day DAY --output`: `ts_open_ms`,
-  `volume`). A fill at T belongs to the bar opening at T floored to the minute. Give the same
+  one-minute LAST bar at the run's market day (`market bars --market-day DAY --symbol SYMBOL --start T0 --end T1 --output FILE`:
+  `ts_open_ms`, `volume`). A fill at T belongs to the bar opening at T floored to the minute. Give the same
   figures, and say whether fills are weighted by count or by quantity. Record what you computed as a
   `search_exposure` judgment (the research-round skill's next decision).
 - Read it against the fill model. Each bar's open, high, low and close each offer a quarter of the
