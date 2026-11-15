@@ -36,6 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from engine.config import instrument_id
 from ledger import db, paper as records, strategies
+from market.sources import SYMBOL  # a contract named as the market holds it, as replay takes it
 from shared.errors import Refusal
 from shared.refusals import refuse
 from paper import runs
@@ -57,7 +58,6 @@ CHILD_ENV = (*container.DOCKER_ENV, runs.BUDGET_ENV, "TRADE_LEDGER_HOME", "RESEA
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 # Docker writes this file into every container: there the daemon may listen beyond loopback.
 CONTAINER_MARK = Path("/.dockerenv")
-SYMBOL = re.compile(r"[A-Z0-9]{2,30}\Z")
 START_ID = re.compile(r"paper-web:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 FAILURES = "runtime_failures.jsonl"
 STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop|resume|logs|compare|delete)\Z")

@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { AlertDialog, Dialog } from "radix-ui";
+import { CONTRACT } from "../model/liveLaunchText";
 import { useAtom } from "../state/atom";
 import { deleteDialog, deletePaper, lastSymbols, startDialog, startPaper, stopDialog, stopPaper } from "../state/paper";
 import { FormButton } from "./chat/Field";
 import { PANEL, SCRIM } from "./dialog";
-
-const SYMBOLS = /^[A-Z0-9]{2,30}$/;
 
 /** "Run paper", asked before every new start: the contracts (the last research replay's to start with) or
  *  the whole universe; execution is bars and the account the replay's, so neither is a choice. */
@@ -21,7 +20,7 @@ function StartDialog({ candidate }: { candidate: string }) {
     }).catch(() => setNote("The last research replay could not be read: name the contracts."));
   }, [candidate]);
   const symbols = text.toUpperCase().split(/[\s,]+/).filter(Boolean);
-  const bad = symbols.filter((s) => !SYMBOLS.test(s));
+  const bad = symbols.filter((s) => !CONTRACT.test(s));
   const ready = pool || (symbols.length > 0 && bad.length === 0);
   const start = async () => {
     setBusy(true);
