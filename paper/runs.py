@@ -32,7 +32,7 @@ import time
 import uuid
 
 from engine.config import ACCOUNT_CONTRACT, Refusal as RuntimeRefusal, leverage_of
-from ledger import db, paper as records
+from ledger import db, paper as records, strategies
 from shared.refusals import refuse
 from runtime import container, image
 from engine import paper_checkpoint as checkpoint
@@ -296,17 +296,20 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
                     "symbols": prior["symbols"], "image_ref": prior["image_ref"],
                     "write_status": "replayed", "directory": str(run_dir(profile, prior["paper_id"]))}
     with db.read_as_of(research, research_at) as source:
+        # Every refusal that needs no write comes before the source copy, so a refused start leaves the Paper
+        # database as it was (write_status not_written is then true).
+        runnable = strategies.read_runnable(source, candidate)
+        identity = image.resolve(runtime or image.EXECUTION)
+        present = containers(profile)
+        if _source_running(present, runnable["source_sha256"]):
+            raise refuse("PAPER_RUN_ACTIVE", f"{candidate} already has a running paper run", missing=(candidate,))
+        if duration_seconds is not None and duration_seconds < 1:
+            raise refuse("USAGE_ERROR", "--duration-seconds must be positive")
+        market_day, membership, chosen = selection(market, at, symbols, time.time_ns())
+        terms = _terms(market, market_day, chosen)
+        memory = runner_memory(len(chosen))
+        admit(mib(memory) + mib(EGRESS_MEMORY), present)
         found = records.copy_source(profile, source, candidate)
-    identity = image.resolve(runtime or image.EXECUTION)
-    present = containers(profile)
-    if _source_running(present, found["source_sha256"]):
-        raise refuse("PAPER_RUN_ACTIVE", f"{candidate} already has a running paper run", missing=(candidate,))
-    if duration_seconds is not None and duration_seconds < 1:
-        raise refuse("USAGE_ERROR", "--duration-seconds must be positive")
-    market_day, membership, chosen = selection(market, at, symbols, time.time_ns())
-    terms = _terms(market, market_day, chosen)
-    memory = runner_memory(len(chosen))
-    admit(mib(memory) + mib(EGRESS_MEMORY), present)
     config = {"execution": "paper-bars", "fees": {"maker": ASSUMED["maker_fee"], "taker": ASSUMED["taker_fee"]},
               "universe_rule": membership["universe_rule"], "memory": memory, "duration_seconds": duration_seconds,
               "candidate": candidate, "leverage": leverage}
