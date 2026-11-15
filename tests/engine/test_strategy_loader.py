@@ -165,7 +165,7 @@ class StrategyLoaderTests(unittest.TestCase):
         engine.add_strategy_from_config(ImportableStrategyConfig(
             strategy_path=importable(loaded), config_path="engine.run:StrategyInputs", config=config))
         with self.assertRaisesRegex(RuntimeError, "CACHE_WRITE"):
-            engine.run()
+            engine.run(1)  # after T: the warm-up starts at once
         self.assertEqual([(item["stage"], item["code"]) for item in strategy_runtime.FAILURES], [("on_start", "CACHE_WRITE")])
 
     def test_runtime_metadata_hashes_the_source_and_the_runner_files(self):
@@ -389,7 +389,7 @@ class StrategyLoaderTests(unittest.TestCase):
         engine.add_strategy_from_config(ImportableStrategyConfig(
             strategy_path=importable(loaded), config_path="engine.run:StrategyInputs", config=config))
         with self.assertRaisesRegex(RuntimeError, "boom"):
-            engine.run()
+            engine.run(1)  # after T: the warm-up starts at once
         self.assertEqual(refused(run.configure_strategy, loaded,
                                  StrategyInputs(**{**config, "instrument_id": "not an instrument"}),
                                  error=Refusal).code, "STRATEGY_CONSTRUCTION_FAILED")

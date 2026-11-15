@@ -18,7 +18,7 @@ corrects where it can:
 - Funding estimates arrive every second; the strategy gets one update per settlement, stamped at the
   settlement's hour (the replay's is stamped at Binance's settlement time, up to some milliseconds later). The
   settlement of a T on a settlement hour is read from Binance's funding-rate history and given after on_start when
-  the replay streams it then (engine.history).
+  Binance stamped it after T, as the replay streams it (engine.history).
 - An instance starts at T, the first whole minute at least half a minute after the runner starts (engine.history):
   its declared WARMUP history and the minutes that warm its aggregations are read from Binance's public klines into
   a temporary Catalog and served as a replay serves them, so its first aggregated bars are complete.
