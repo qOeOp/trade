@@ -32,14 +32,17 @@ class Source(Strategy):
     def __init__(self, instrument_id, bar_type, **kwargs):
         super().__init__()
         self.observed = []
+        self.findings = []
     def on_bar(self, event):
         self.observed.append("bar")
     def on_order_event(self, event):
         self.observed.append("order")
+    def on_order_denied(self, event):
+        self.findings.append(f"order denied {event.client_order_id}: {event.reason}")
     def replay_diagnostics(self):
         return {}
     def replay_integrity_findings(self, orders_denied_or_rejected=False):
-        return []
+        return list(self.findings)
 '''
 
 
@@ -476,6 +479,33 @@ class LiveTests(unittest.TestCase):
         cache.orders.return_value = []
         live.source_outcome(session, cache)
         self.assertTrue(session.failed)
+
+    def test_findings_made_while_handling_the_gates_own_denial_do_not_fail_the_start(self):
+        """20261114-28: only as many of each text as the instance added during the gate's denials are set aside."""
+        from collections import Counter
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
+        source = mock.Mock(strategy_id="LIVE-A")
+        session.sources = {"BTCUSDT": source}
+        cache = mock.Mock()
+        cache.orders.return_value = []
+        session.gate_findings = {"LIVE-A": Counter({"order denied O-1: bars_missing": 1})}
+        source.replay_integrity_findings.return_value = ["order denied O-1: bars_missing"]
+        live.source_outcome(session, cache)
+        self.assertFalse(session.failed)
+        row = json.loads((self.output / "events.jsonl").read_text().splitlines()[-1])
+        self.assertEqual((row["findings"], row["finding_count"], row["entry_gate_findings"]),
+                         (["order denied O-1: bars_missing"], 1, 1))  # journalled as the source reported it
+        for found in (["order denied O-1: bars_missing", "stop not acknowledged"],  # another finding
+                      ["order denied O-1: bars_missing"] * 2):  # the same text once more than the gate caused
+            with self.subTest(found):
+                session.failed = False
+                source.replay_integrity_findings.return_value = found
+                live.source_outcome(session, cache)
+                self.assertTrue(session.failed)
+        session.failed, session.gate_findings = False, {"LIVE-OTHER": Counter({"order denied O-1: bars_missing": 1})}
+        source.replay_integrity_findings.return_value = ["order denied O-1: bars_missing"]
+        live.source_outcome(session, cache)
+        self.assertTrue(session.failed)  # another instance's denial sets nothing aside for this one
 
     def test_old_source_rejection_does_not_fail_a_new_observation_only_reconciliation(self):
         session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)

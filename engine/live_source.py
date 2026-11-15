@@ -1,5 +1,6 @@
 """Reviewed source construction and Live-specific native command/callback boundaries."""
 from __future__ import annotations
+from collections import Counter
 import functools
 import hashlib
 from pathlib import Path
@@ -261,6 +262,39 @@ def _at_cadence(name: str, method):
     return funding
 
 
+def _reported(source, hook) -> list[str] | None:
+    """The source's own findings now, from its unguarded hook; None when it cannot say."""
+    try:
+        found = hook(source, False)
+    except Exception:
+        return None
+    return found if isinstance(found, list) and all(isinstance(value, str) for value in found) else None
+
+
+def _own_denial(method, hook):
+    """`method`, an order callback of the source, measured around the entry gate's own denials. The gate's OrderDenied
+    reaches the source so it can end its plan (engine.live_connection.deny), and a source that reports every denied
+    order as a finding reports this one too. The denial is known by its client order ID (Session.denied), and what
+    the instance's findings gained while it handled that event is counted for the gate (Session.gate_findings):
+    engine.live_lifecycle.source_outcome does not fail the start for those. Any other denial is not measured."""
+    def handled(self, event):
+        live = self._live
+        if hook is None or type(event).__name__ != "OrderDenied" or str(event.client_order_id) not in live.denied:
+            return method(self, event)
+        before = _reported(self, hook)
+        try:
+            return method(self, event)
+        finally:
+            try:
+                after = _reported(self, hook)
+                if before is not None and after is not None:
+                    live.gate_findings.setdefault(str(self.strategy_id), Counter()).update(
+                        Counter(after) - Counter(before))
+            except Exception:
+                pass  # the measurement never fails the source's callback; what it missed counts as before
+    return handled
+
+
 def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str = "engine.live") -> dict:
     """One instance of the source per contract of the run, each trading only its own (the user, 2026-11-13): symbol ->
     instance. Instances coordinate through state the source shares between them, as in a replay."""
@@ -277,6 +311,10 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
         original = callbacks.get(name)
         if original or name in RECORDED:
             callbacks[name] = _gated(name, original)
+    hook = getattr(loaded.strategy_class, "replay_integrity_findings", None)  # the source's own, unguarded
+    for name in ("on_order_denied", "on_order_event"):
+        if callbacks.get(name):
+            callbacks[name] = _own_denial(callbacks[name], hook)
     for name in ("on_order_event", "on_position_event"):
         original = callbacks.get(name)
         def wrapped(self, event, _original=original, _name=name):

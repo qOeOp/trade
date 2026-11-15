@@ -593,6 +593,27 @@ class NativeEntryTests(unittest.TestCase):
         live_lifecycle.source_outcome(self.session, self.engine.cache)
         self.assertFalse(self.session.failed)  # the gate's own denial is no native failure
         self.assertEqual(self.read_events("source_findings")[-1]["denied_or_rejected_native_orders"], False)
+        # The source reported the denial as its own finding (as authored candidates do); that report is journalled
+        # and, made while it handled the gate's own denial, does not fail the start either (20261114-28).
+        finding = f"order denied {entry.client_order_id}: bars_missing"
+        self.assertEqual(self.source.findings, [finding])
+        self.assertEqual(dict(self.session.gate_findings[str(self.source.strategy_id)]), {finding: 1})
+        row = self.read_events("source_findings")[-1]
+        self.assertEqual((row["findings"], row["finding_count"], row["entry_gate_findings"]), ([finding], 1, 1))
+
+    def test_a_denial_that_is_not_the_gates_still_fails_the_start_by_the_sources_report(self):
+        """A denial the native risk engine makes (here the submit rate) is not the entry gate's: the source's report
+        of it counts, as before."""
+        self.owned_position()
+        self.bars_missing()
+        entry = self.limit(price="95.00")
+        self.source.submit_order(entry)
+        self.advance()
+        self.source.findings.append("order denied O-native: RATE_LIMIT_EXCEEDED")  # reported outside the gate's denial
+        live_lifecycle.source_outcome(self.session, self.engine.cache)
+        self.assertTrue(self.session.failed)
+        row = self.read_events("source_findings")[-1]
+        self.assertEqual((row["finding_count"], row["entry_gate_findings"]), (2, 1))
 
     def test_a_denied_entry_is_no_failure_in_a_later_start_whose_cache_still_holds_it(self):
         self.owned_position()

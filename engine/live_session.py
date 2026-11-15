@@ -1,5 +1,6 @@
 """Run-local lifecycle state and evidence; orders and positions stay in native cache."""
 from __future__ import annotations
+from collections import Counter
 from dataclasses import dataclass, field
 from decimal import Decimal
 import json
@@ -55,6 +56,9 @@ class Session:
     keepers: dict[str, Any] = field(default_factory=dict)
     entry_gate: Any = None  # the native ExecutionAlgorithm that denies entries (engine.live_connection.deny)
     denied: set[str] = field(default_factory=set)  # client order IDs of the entries it denied in this start
+    # What each instance added to its own findings while it handled one of those denials (engine.live_source):
+    # strategy ID -> finding -> count. The gate's denial is the product's doing, so these do not fail the start.
+    gate_findings: dict[str, Counter] = field(default_factory=dict)
     denying: bool = False  # inside a denial's native callbacks
     started: float | None = None
     stopping: bool = False

@@ -624,7 +624,12 @@ the run's entries reopen after the same two agreeing comparisons as after a reco
 on a new image) waits while a contract is not trading. The run node registers an
 `ExecutionAlgorithm` (`LIVE-GATE`) whose `deny_order` puts the source's order in the native cache as DENIED and gives
 the source `OrderDenied`; nothing is sent. Its denials, read back from the journal in later starts whose reloaded cache
-still holds them, are no native failure. An order the cache already holds, an entry submitted from within a denial's
+still holds them, are no native failure. Nor does the source's own report of one fail the start (finding 20261114-28,
+the user 2026-11-15): authored sources report every denied order from `replay_integrity_findings`, so Live reads an
+instance's findings before and after it handles an `OrderDenied` of an order the gate denied (known by its client
+order ID), and what the instance added in between is the gate's doing. `source_findings` still journals every finding
+as reported and counts those in `entry_gate_findings`; any other finding, and the report of a denial the gate did not
+make, fails the start as before. Replay and Paper judge findings as they did. An order the cache already holds, an entry submitted from within a denial's
 callbacks, or a denial that fails is refused, and the run ends. `live compare` attributes a fill the gate delayed, withdrew or denied, and a
 decision Live refused after a hold, to the cause `entry_gate` (decisions `docs/plans/live-entry-hold-20261113.zh.md`,
 `docs/plans/live-bars-missing-rewarm-20261113.zh.md`).
