@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a partial take-profit is its own reduce-only order submitted after the entry fills, not an order linked to the entry.
+description: Rule check — with the skill, a partial take-profit is its own reduce-only order submitted after the entry fills and naming its position, not an order linked to the entry.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

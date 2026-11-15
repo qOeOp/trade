@@ -15,7 +15,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 | `trend-len@4` | 616 | 90 | 2.9 | 33% | 14% |
 | `trend-len@5` | 618 | 100 | 2.0 | 19% | 17% |
 
-两两之间的 `hypothesis compare` 三个区间都含零。买入持有参照已经跑过并引用（trial 620）。
+两两之间的 `hypothesis compare` 四个区间都含零。买入持有参照已经跑过并引用（trial 620）。
 
 这次推荐哪个版本？写出 `judgment add --kind recommendation` 的正文全文（英文），再另外用几句话告诉我推荐结论和理由。正文里哪些数写、哪些只引用，按这个 skill 的规则定。
 
