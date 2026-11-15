@@ -599,8 +599,9 @@ not rely on native account event-count/history representation or unsaved cache h
 source again at its own T as a start does (history, then the unfinished buckets from their minutes), then
 calls `on_load` with the saved state and then `on_start`. It resumes only within the same bucket of every
 declared aggregation and before an unobserved funding settlement. No downtime trades or settlements are
-invented. Native Redis readback checks orders, positions, balances, margins and account events before the
-atomic cut is published.
+invented. Native Redis readback checks orders, positions and account events (the last carrying balances and margins)
+before the atomic cut is published; margins Nautilus sets only in memory are recomputed from the positions on
+restore and are not compared.
 
 A seal stores the exact journal bytes as `events/native.jsonl.gz`, including any interrupted final line, plus
 current and actually-used recovery originals. Verification hashes the decompressed byte prefix; parsed UI
