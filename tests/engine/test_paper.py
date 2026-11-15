@@ -122,6 +122,46 @@ class TradeSubscriptionTests(unittest.TestCase):
                 journal.assert_called_once_with("refusal", code=code, subscriptions=[subscription])
 
 
+class CacheLivenessTests(unittest.TestCase):
+    """The native cache child is watched every second: a dead one ends the run with a reason, as a refused one."""
+
+    def test_a_dead_cache_stops_the_run_with_its_own_reason_and_a_live_one_does_not(self):
+        held = (paper.STOP, paper.STOP_REASON)
+        for value in held:
+            self.addCleanup(value.clear)
+        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
+        health = mock.Mock()
+        session = SimpleNamespace(backend=SimpleNamespace(health=health), ready=True, try_cut=mock.Mock())
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal") as journal, \
+                mock.patch.object(recorder, "_protection"), \
+                mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock):
+            recorder.on_stop_timer(None)
+            self.assertFalse(paper.STOP.is_set())
+            session.try_cut.assert_called_once()
+            health.side_effect = paper.CacheUnavailable("OSError: the native cache process exited with -9")
+            recorder.on_stop_timer(None)
+        self.assertEqual(paper.STOP_REASON, ["PAPER_CACHE_UNAVAILABLE"])
+        journal.assert_called_once_with("refusal", code="PAPER_CACHE_UNAVAILABLE",
+                                        reason="OSError: the native cache process exited with -9")
+
+    def test_a_run_already_stopping_is_not_probed(self):
+        self.addCleanup(paper.STOP.clear)
+        self.addCleanup(paper.STOP_REASON.clear)
+        paper.STOP.set()
+        paper.STOP_REASON.append("STOP_FILE")
+        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
+        health = mock.Mock(side_effect=paper.CacheUnavailable("gone"))
+        session = SimpleNamespace(backend=SimpleNamespace(health=health), ready=True, supported=False)
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal") as journal, \
+                mock.patch.object(recorder, "_protection"), \
+                mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock,
+                                  return_value=SimpleNamespace(orders_open=lambda: [])):
+            recorder.on_stop_timer(None)
+        health.assert_not_called()
+        self.assertEqual(paper.STOP_REASON, ["STOP_FILE"])
+        self.assertEqual([call.args[0] for call in journal.call_args_list], ["stop_requested"])
+
+
 class CredentialTests(unittest.TestCase):
     def test_credential_names_are_found_by_name(self):
         environ = {"BINANCE_API_KEY": "x", "OKX_SECRET": "x", "MY_API_SECRET": "x", "PATH": "/bin", "HOME": "/h"}

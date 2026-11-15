@@ -98,7 +98,7 @@ from engine import history, metrics, strategy as strategy_runtime
 from engine import paper_checkpoint as checkpoint, protection
 from engine.order_rules import OrderRules
 from engine.fill import fill_model
-from engine.paper_redis import NativeCache
+from engine.paper_redis import CacheUnavailable, NativeCache
 from engine.paper_session import Session
 from engine.paper_signals import Signals
 from engine.cadence import Cadence
@@ -628,6 +628,15 @@ class Recorder(DataActor):
 
     def on_stop_timer(self, _event):
         self._protection()
+        if SESSION and not STOP.is_set():
+            try:
+                SESSION.backend.health()
+            except CacheUnavailable as exc:
+                # The cache holds the checkpoint's originals and the native writes; a run which trades on without it
+                # cannot be recovered and says nothing about it (finding 20261114-34). It stops like a refused one.
+                journal("refusal", code="PAPER_CACHE_UNAVAILABLE", reason=str(exc))
+                request_stop("PAPER_CACHE_UNAVAILABLE")
+                return  # the next tick runs the stop sequence
         if SESSION and not SESSION.ready and time.monotonic() >= SESSION.restore_deadline and not STOP.is_set():
             checkpoint.dirty(SESSION.backend.output)
             journal("refusal", code="PAPER_RECOVERY_UNAVAILABLE", reason="native initialization did not complete")

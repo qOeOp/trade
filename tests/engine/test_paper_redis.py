@@ -1,11 +1,13 @@
 """Native readback is checked after the FIFO marker, including adapter error and representation cases."""
 import copy
 import json
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from engine import paper_checkpoint as checkpoint
+from engine import paper_checkpoint as checkpoint, paper_redis
 from engine.paper_redis import NativeCache
 
 
@@ -56,3 +58,41 @@ class NativeReadbackTests(unittest.TestCase):
                 backend._freeze(marker, {"accounts": ['{"a":"native owner state"}'], "orders": [], "positions": []})
         save.assert_not_called()
         publish.assert_not_called()
+
+
+class NativeHealthTests(unittest.TestCase):
+    def cache(self, poll=None, returncode=None):
+        backend = NativeCache.__new__(NativeCache)
+        backend.port = 12345
+        backend.process = SimpleNamespace(poll=lambda: poll, returncode=returncode)
+        return backend
+
+    def test_a_child_that_answers_is_healthy(self):
+        with mock.patch("engine.redis_child.command", return_value=b"PONG") as ping:
+            self.cache().health()
+        ping.assert_called_once_with(12345, "PING", timeout=2.0)
+
+    def test_an_exited_child_or_one_that_does_not_answer_is_unavailable(self):
+        with mock.patch("engine.redis_child.command") as ping:
+            with self.assertRaisesRegex(paper_redis.CacheUnavailable, "exited with -9"):
+                self.cache(poll=-9, returncode=-9).health()
+            ping.assert_not_called()
+        for failure in ({"side_effect": ConnectionRefusedError("refused")}, {"side_effect": TimeoutError("timed out")},
+                        {"return_value": b"LOADING"}, {"side_effect": OSError("native cache rejected the command")}):
+            with self.subTest(failure=failure), mock.patch("engine.redis_child.command", **failure):
+                with self.assertRaises(paper_redis.CacheUnavailable):
+                    self.cache().health()
+
+    def test_both_sides_fail_fast_on_a_dead_cache(self):
+        """rc7's defaults retry for minutes and `node.dispose()` then never returns (measured 2026-11-15: 92 s)."""
+        process = SimpleNamespace(poll=lambda: None)
+        opened = []
+        with tempfile.TemporaryDirectory() as name, \
+                mock.patch("engine.redis_child.start", return_value=(process, 4242)), \
+                mock.patch("engine.redis_child.ready", return_value=True), \
+                mock.patch.object(paper_redis, "RedisCacheDatabase", side_effect=lambda *args: opened.append(args)):
+            backend = NativeCache(Path(name), "identity", "TRADER-001")
+            backend.working.cleanup()
+        fast = {"connection_timeout": 1, "response_timeout": 1, "number_of_retries": 0, "max_delay": 1}
+        self.assertEqual({key: getattr(backend.config, key) for key in fast}, fast)
+        self.assertEqual(json.loads(opened[0][3]), {"host": "127.0.0.1", "port": 4242, **fast})
