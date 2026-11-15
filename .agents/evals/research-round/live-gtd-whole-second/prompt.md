@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-候选 `brk-btc-15m@5` 之后要上 Live，Live 直接跑这个文件。按本仓库写策略文件的规则办。回放和 Paper 里它都跑得正常。入场的代码是：
+候选 `brk-btc-15m@5` 之后要上 Live，Live 直接跑这个文件。按本仓库写策略文件的规则办。入场的代码是：
 
 ```python
 now = self.clock.timestamp_ns()
