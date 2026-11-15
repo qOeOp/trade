@@ -22,6 +22,17 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+## 0.4.0 (2026-11-15)
+
+A breaking release: Live works from the web IDE on every host after a release, as Paper does
+(`docs/plans/doctor/2026-11-14-live-not-installed.zh.md`). The research ledger keeps schema generation 1. To upgrade
+a host, nothing is done by hand: the next release tick hands control to this version, which installs Live. An
+operator declaration from an earlier version is not read and can be deleted.
+It was not tagged on 2026-11-14 and now also carries the changes merged since, the fixes of the pre-production
+audit among them (`docs/plans/doctor/2026-11-14-pre-production-audit.zh.md`); each breaking entry below says what an
+upgrade changes or drops. Candidates whose GTD expiry is not a whole second are refused on this version's replay
+image until their line publishes a rounded revision; sealed runs still reproduce on their own image.
+
 - Paper and Live (fix): the replay of `paper compare`, `live compare` and Live's daily comparison gives the source
   its contracts' membership to the end of the window's last month, as the run had, instead of cutting it at the
   window's end. A source that checks an entry's expiry against its membership skipped, in the replay only, every entry
@@ -216,13 +227,6 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   native submit rate (10 orders a second) denied those past it, and nothing sent them again: the run ended
   `unresolved` with those positions open. It now submits five closes a tick, and a close the rate denied is submitted
   again; such a denial still marks the run failed.
-
-## 0.4.0 (2026-11-14)
-
-A breaking release: Live works from the web IDE on every host after a release, as Paper does
-(`docs/plans/doctor/2026-11-14-live-not-installed.zh.md`). The research ledger keeps schema generation 1. To upgrade
-a host, nothing is done by hand: the next release tick hands control to this version, which installs Live. An
-operator declaration from an earlier version is not read and can be deleted.
 
 - Live: the daily comparison container starts only while some run has a day to compare; a host that never traded
   starts none (doctor 20261114-20).
