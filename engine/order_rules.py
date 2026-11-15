@@ -18,8 +18,14 @@ contract at once (user, 2026-11-11).
 4. No modifications, order lists, emulated triggers, execution algorithms, contingent or linked orders, quote
    quantities or order parameters, and only the venue's own client.
 5. A GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order (GTD_TYPES: the types Nautilus's Binance USD-M
-   client sends GTD; it denies any other, so Live could not send one) and expires at least GTD_MINIMUM_NS after it
-   is sent (Binance's limit).
+   client sends GTD; it denies any other, so Live could not send one), expires on a whole second (Binance keeps an
+   expiry to the second and the client denies a fraction of one) and expires at least GTD_MINIMUM_NS after the
+   strategy submits it, by the strategy's clock (Binance's limit). GTD_MINIMUM_NS is the floor the three paths
+   share, not what Live needs: Live sends an entry only with GTD_MINIMUM_NS plus 5 seconds left at its own send
+   time (engine.live_connection.SEND_MARGIN_NS: the entry first waits for its account check, and the client denies
+   an expiry not strictly later than 600 seconds past its clock), so an entry of 600 to 605 seconds passes here and
+   is refused in Live (LIVE_ORDER_UNSUPPORTED). An entry bound for Live expires more than 605 seconds ahead, by
+   as long as it is to survive that wait.
 6. A strategy cancels and closes only its own orders and positions.
 7. An order is on the strategy instance's own contract (CONTRACTS): instances of one source coordinate legs on several
    contracts through state the source shares between them, each ordering on its own (user, 2026-11-13;
@@ -92,6 +98,8 @@ def violation(source, order, position_id=None, client_id=None, params=None) -> s
             return ("a GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order: Live cannot send a GTD "
                     f"{order.order_type.name} order")
         # expire_time: nanoseconds on every order type (expire_time_ns exists on LimitOrder alone); never absent on GTD
+        if order.expire_time % 1_000_000_000:
+            return "a GTD order expires on a whole second: Live cannot send a fraction of one"
         if order.expire_time - clock.timestamp_ns() < GTD_MINIMUM_NS:
             return "a GTD order expires at least 600 seconds after it is sent"
     cache = native_cache(source)

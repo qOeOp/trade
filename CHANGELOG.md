@@ -22,6 +22,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (order rules): a GTD order whose expiry is not a whole second is refused as `ORDER_RULE` in replay,
+  Paper and Live. Nautilus's Binance USD-M client denies such an order before sending it, so a source that passed a
+  replay and Paper failed at its first GTD order in Live. A replay's bars are stamped 1 ms before the minute, so
+  `self.clock.timestamp_ns() + lifetime` is never a whole second there: every candidate that writes its expiry that
+  way is refused on the new replay image and needs a new version that rounds the expiry, for example up with
+  `(self.clock.timestamp_ns() + 661 * 10**9 - 1) // 10**9 * 10**9` for 660 s. Runs sealed on earlier images are
+  unaffected and still reproduce on their own image. The 600-second minimum and Live's 605 seconds at send time are
+  unchanged (doctor 20261114-26).
 - Breaking (order rules): a GTD order of a type other than LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED is refused as
   `ORDER_RULE` in replay, Paper and Live: Nautilus's Binance USD-M client sends only those three GTD and denies any
   other. Before, rule 5 raised `AttributeError` on every GTD order but a LIMIT (a source failure, not a refusal), so
