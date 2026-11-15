@@ -23,4 +23,4 @@ RUN`; detail tables you compute (`nautilus-report-analysis`) go under their sect
 | Limitations | Deduplicated list of limitations | Both sides' limitations, merged and deduplicated |
 
 Write every run or comparison report with all the sections of its column, in this order; — marks
-a section that column does not have. Keep an empty section and write why it is empty; never drop one.
+a section that column does not have: write no heading for it. Keep an empty section and write why it is empty; never drop one.
