@@ -171,6 +171,9 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(Decimal(found["final_equity_usdt"]), Decimal("100009.9"))  # 99990 + 20 open, less 0.1 funding
         self.assertEqual(found["stopped_ns"], START + 3 * MINUTE)
         self.assertIn("Killed from outside", found["limitations"][-1])
+        # It once counted the summary's open positions, which a run killed before writing one always read as 0.
+        self.assertNotIn("positions_open_at_stop", found)
+        self.assertNotIn("positions_open_at_stop", paper.readings(ROW, journal(), 0, summary(), 0, None))
         asked = journal() + [line("stop_requested", START + 4 * MINUTE, reason="STOP_FILE")]
         waiting = [line("started", START, source_sha256=SOURCE), line("waiting", START, until_ns=START + DAY)]
         cases = {
