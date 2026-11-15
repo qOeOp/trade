@@ -814,7 +814,10 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
         support_contingent_orders=account["support_contingent_orders"],
         # The matching engine's own position IDs restart from 0 in every process and collide with the cached
         # ones after a recovery; the execution engine's (strategy-side `P-…`) are kept in the cache.
-        use_position_ids=False, fill_model=fill_model(account), fee_model=MakerTakerFeeModel(*fees)))
+        use_position_ids=False, fill_model=fill_model(account), fee_model=MakerTakerFeeModel(*fees),
+        # The contract's matching terms a replay's venue takes (engine.run.add_venue), so a change of the contract
+        # reaches Paper's Sandbox too (finding 20261114-39).
+        liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"]))
     node = builder.build()
     for inputs in planned:
         node.add_strategy(strategy_runtime.configure_strategy(loaded, inputs, paper_class))

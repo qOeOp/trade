@@ -393,3 +393,23 @@ class SandboxConfigTests(unittest.TestCase):
         configs = [call.args[2] for call in builder.mock_calls if call[0].endswith("add_simulated_exec_client")]
         self.assertEqual(len(configs), 1)
         self.assertFalse(configs[0].use_position_ids)
+
+
+    def test_the_sandbox_takes_the_contracts_matching_terms_a_replay_venue_takes(self):
+        """liquidity_consumption and queue_position come from the account contract, as in engine.run.add_venue, so
+        changing the contract changes Paper's Sandbox too (20261114-39); the contract's current values are the native
+        defaults, which a paired in-process replay confirmed give identical orders, fills, positions and account."""
+        def configured() -> SimpleNamespace:
+            builder = mock.MagicMock()
+            with mock.patch.object(paper.LiveNode, "builder", return_value=builder), \
+                    mock.patch.object(paper.history, "ACTORS", []):
+                paper.build_node([], SimpleNamespace(warmup=()), None, (Decimal("0.0002"), Decimal("0.0005")),
+                                 Path("/nonexistent"), "3", {})
+            return [call.args[2] for call in builder.mock_calls if call[0].endswith("add_simulated_exec_client")][0]
+
+        config = configured()
+        self.assertEqual((config.liquidity_consumption, config.queue_position),
+                         (paper.ACCOUNT_CONTRACT["liquidity_consumption"], paper.ACCOUNT_CONTRACT["queue_position"]))
+        with mock.patch.dict(paper.ACCOUNT_CONTRACT, {"liquidity_consumption": True, "queue_position": True}):
+            changed = configured()
+        self.assertEqual((changed.liquidity_consumption, changed.queue_position), (True, True))
