@@ -8,8 +8,10 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
+from ledger import db, strategies
 from shared.errors import Refusal
 from paper import runs
+from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 
 RUNNING = [{"name": "a-runner", "running": True}, {"name": "a-egress", "running": True},
            {"name": "b-runner", "running": False}]
@@ -115,9 +117,10 @@ class StartFailureTests(unittest.TestCase):
     def start(self, root, failing):
         profile = SimpleNamespace(database="paper", service_root=root.parent)
         row = {"paper_id": 7, "write_status": "written", "source_sha256": "s" * 64, "ledger_commit": "l"}
+        found = {"source_sha256": "s" * 64, "source": b"class E: pass\n", "entry_class": "E"}
         with mock.patch.object(runs.db, "connect"), mock.patch.object(runs.db, "read_as_of"), \
-                mock.patch.object(runs.records, "copy_source",
-                                  return_value={"source_sha256": "s" * 64, "source": b"class E: pass\n", "entry_class": "E"}), \
+                mock.patch.object(runs.strategies, "read_runnable", return_value=found), \
+                mock.patch.object(runs.records, "copy_source", return_value=found), \
                 mock.patch.object(runs.image, "resolve", return_value={"image_ref": "image@sha256:" + "a" * 64}), \
                 mock.patch.object(runs, "containers", return_value=[]), \
                 mock.patch.object(runs, "selection", return_value=("c" * 32, {"universe_rule": "fixed"}, ["BTCUSDT"])), \
@@ -145,6 +148,54 @@ class StartFailureTests(unittest.TestCase):
             refusal, seal = self.start(root, AssertionError("no binding after a failed mkdir"))
         self.assertEqual(refusal.code, "PAPER_START_FAILED")
         self.assertIn("FileExistsError", seal.call_args.kwargs["start_error"])
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class RefusedStartWritesNothingTests(unittest.TestCase):
+    """A refused `paper start` says write_status not_written, so it leaves the Paper database as it was: the
+    source copy comes after every refusal that needs no write (memory admission, a running run of the source)."""
+
+    def setUp(self):
+        service = Service()
+        self.addCleanup(service.close)
+        self.research = service.ledger("research")
+        self.profile = service.ledger("paper", holds="paper")
+        strategies.publish_candidate(self.research, source("start"), "start", "Fixture", "template root")
+        self.sha = sha(source("start"))
+
+    def copies(self) -> int:
+        with db.connect(self.profile, "reader") as conn:
+            return conn.rows("SELECT COUNT(*) FROM paper_source")[0][0]
+
+    def start(self, *, present=(), admit=None, declared=None):
+        with mock.patch.object(runs.image, "resolve", return_value={"image_ref": "image@sha256:" + "a" * 64}), \
+                mock.patch.object(runs, "containers", return_value=list(present)), \
+                mock.patch.object(runs, "selection", return_value=("c" * 32, {"universe_rule": "fixed"}, ["BTCUSDT"])), \
+                mock.patch.object(runs, "_terms", return_value={}), \
+                mock.patch.object(runs, "memory_state", return_value={
+                    "budget": 3584, "reserved": 3584 if admit == "full" else 0, "host_available": None,
+                    "free": 0 if admit == "full" else 3584}), \
+                mock.patch.object(runs.records, "open_paper_run", side_effect=declared or AssertionError("declared")):
+            runs.start.__wrapped__(self.profile, {}, None, "start@1", None, None, research=self.research)
+
+    def test_a_start_refused_for_memory_copies_no_source(self):
+        with self.assertRaises(Refusal) as caught:
+            self.start(admit="full")
+        self.assertEqual((caught.exception.code, caught.exception.write_status), ("PAPER_MEMORY_FULL", "not_written"))
+        self.assertEqual(self.copies(), 0)
+
+    def test_a_start_refused_for_a_running_run_of_the_source_copies_no_source(self):
+        running = [{"name": "r", "paper_id": 1, "role": "runner", "source_sha256": self.sha, "running": True}]
+        with self.assertRaises(Refusal) as caught:
+            self.start(present=running)
+        self.assertEqual((caught.exception.code, caught.exception.write_status), ("PAPER_RUN_ACTIVE", "not_written"))
+        self.assertEqual(self.copies(), 0)
+
+    def test_an_admitted_start_copies_the_source_once(self):
+        """The control: the same start, admitted, reaches the copy (and stops at the declaration the test stubs)."""
+        with self.assertRaises(RuntimeError):
+            self.start(declared=RuntimeError("declared"))
+        self.assertEqual(self.copies(), 1)
 
 
 class MonthFileTests(unittest.TestCase):
