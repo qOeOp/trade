@@ -1,10 +1,14 @@
 """A checkpoint cannot turn pending callbacks, hooks or native orders into an empty account."""
+from concurrent.futures import ThreadPoolExecutor
+import gc
 from pathlib import Path
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
 
+from nautilus_trader.common import Cache
 from nautilus_trader.trading import Strategy
 
 from engine import strategy as strategy_runtime
@@ -66,6 +70,31 @@ class SessionTests(unittest.TestCase):
         session.backend.snapshot.side_effect = None
         session.try_cut(None)
         self.assertIsNone(session.error, "a cut that succeeds again clears the deferral")
+
+    def test_a_deferred_cut_leaves_no_cycle_holding_the_owners_cache(self):
+        """rc7's PyCache may only be freed on the thread that made it. A deferred cut that kept its exception left a
+        cycle holding `cache`, and a collection on the native cache's I/O thread printed one "PyCache is unsendable"
+        traceback per deferred cut (finding 20261115-03)."""
+        session = self.session()
+        (session.backend.root / "dirty").write_bytes(b"")
+        io = ThreadPoolExecutor(max_workers=1)
+        self.addCleanup(io.shutdown)
+
+        def refuse():
+            raise checkpoint.fail("native cache readback differs from the owner; the checkpoint stays dirty")
+        # A plain function: a Mock would keep every `cache` alive in its call list.
+        session.backend.snapshot = lambda cache, state: io.submit(refuse).result()
+        dropped: list = []
+        gc.disable()
+        self.addCleanup(gc.enable)
+        gc.collect()
+        with mock.patch.object(sys, "unraisablehook", dropped.append), mock.patch("builtins.print"), \
+                mock.patch.dict(strategy_runtime.STRATEGIES, clear=True):
+            for _ in range(3):
+                session.try_cut(Cache())  # a new PyCache per call, as an actor's `self.cache` gives
+            io.submit(gc.collect).result()
+        self.assertEqual([str(item.exc_value) for item in dropped], [])
+        self.assertIn("readback differs", session.error)
 
     def test_a_marker_the_disk_refuses_is_the_journals_failure_and_the_callback_still_runs(self):
         session = self.session()
