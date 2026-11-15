@@ -202,6 +202,7 @@ class RestartTests(unittest.TestCase):
         daemon = serve.Daemon.__new__(serve.Daemon)
         daemon.profile, daemon.stopping = SimpleNamespace(database="paper"), {5}
         daemon.release_route = daemon.release_name = None
+        daemon.market = None
         daemon.recovery_failures = {}
         daemon.runs = mock.Mock(return_value={"runs": [
             {"paper_id": i, "state": "sealed" if i == 4 else "running" if i == 6 else "ended"}
@@ -215,6 +216,7 @@ class RestartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             daemon = self.daemon(root)
+            daemon.market = "/market"
             for i in (1, 2, 3):
                 (root / str(i) / "out").mkdir(parents=True)
             (root / "1/out/summary.json").write_text(json.dumps({"stop_reason": "SIGTERM"}))
@@ -223,9 +225,25 @@ class RestartTests(unittest.TestCase):
             with mock.patch.object(runs, "run_dir", side_effect=lambda _, i: root / str(i)):
                 daemon.seal_found()
             self.assertEqual([call.args for call in daemon.cli.call_args_list], [
-                ("resume", "--paper-id", "1"), ("seal", "--paper-id", "2"), ("seal", "--paper-id", "3")])
+                ("resume", "--paper-id", "1", "--market", "/market"), ("seal", "--paper-id", "2"),
+                ("seal", "--paper-id", "3")])
             daemon.start.assert_not_called()
             self.assertEqual([call.args[0]["paper_id"] for call in daemon.write_months.call_args_list], [6])
+
+    def test_the_automatic_resume_names_the_market_the_daemon_was_configured_with(self):
+        """`paper resume` reads the market's contract terms: without --market it fails LEDGER_UNKNOWN and the run
+        stays ended until someone resumes it by hand (the manual path passes it)."""
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            daemon = self.daemon(root)
+            daemon.market = "/data/market"
+            daemon.runs.return_value = {"runs": [{"paper_id": 1, "state": "ended"}]}
+            (root / "1" / "out").mkdir(parents=True)
+            with mock.patch.object(runs, "run_dir", side_effect=lambda _, i: root / str(i)):
+                daemon.seal_found()
+                daemon.resume_run(1)
+            self.assertEqual([call.args for call in daemon.cli.call_args_list],
+                             [("resume", "--paper-id", "1", "--market", "/data/market")] * 2)
 
     def test_a_sealed_run_that_left_containers_or_its_directory_is_sealed_again_to_collect_them(self):
         with tempfile.TemporaryDirectory() as name:
@@ -254,7 +272,7 @@ class RestartTests(unittest.TestCase):
             daemon.cli.side_effect = serve.Failure(409, "PAPER_RECOVERY_UNAVAILABLE", "journal has a tail")
             with mock.patch.object(runs, "run_dir", return_value=root), redirect_stderr(io.StringIO()):
                 daemon.seal_found()
-            daemon.cli.assert_called_once_with("resume", "--paper-id", "1")
+            daemon.cli.assert_called_once_with("resume", "--paper-id", "1")  # no market configured: none passed
             daemon.start.assert_not_called()
             self.assertEqual(daemon.recovery_failures[1]["code"], "PAPER_RECOVERY_UNAVAILABLE")
 

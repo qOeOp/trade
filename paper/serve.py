@@ -305,7 +305,7 @@ class Daemon:
             self.starting.add(candidate)
         try:
             scope = ["--universe", "pool"] if universe else ["--symbols", *(symbols or [])]
-            market = ["--market", self.market] if self.market else []
+            market = self.market_args()
             runtime = ["--runtime", self.runtime] if self.runtime else []
             research_options = ["--research-ledger", self.research, "--research-at", research_at]
             return self.cli("start", "--candidate", candidate, *scope, *market, *runtime,
@@ -360,9 +360,13 @@ class Daemon:
 
     def resume_run(self, paper_id: int) -> dict:
         """Retry the existing checkpoint protocol; never start a replacement account."""
-        found = self.cli("resume", "--paper-id", str(paper_id), *(["--market", self.market] if self.market else []))
+        found = self.cli("resume", "--paper-id", str(paper_id), *self.market_args())
         self.recovery_failures.pop(paper_id, None)
         return found
+
+    def market_args(self) -> list[str]:
+        """`--market` for a command that reads market terms (resume), as the daemon was configured."""
+        return ["--market", self.market] if self.market else []
 
     def logs(self, paper_id: int, source: str, tail: int) -> dict:
         """Bounded plain text from this run's native container or sealed originals."""
@@ -405,7 +409,7 @@ class Daemon:
 
         def run() -> None:
             try:
-                market = ["--market", self.market] if self.market else []
+                market = self.market_args()
                 self.cli("compare", "--paper-id", str(paper_id), "--output", str(output), *market,
                          "--timeout-seconds", str(COMPARE_SECONDS - 60), timeout=COMPARE_SECONDS)
                 found: dict[str, object] = {"state": "done"}
@@ -486,7 +490,7 @@ class Daemon:
             paused = summary is None or summary.get("stop_reason") in ("SIGTERM", "SIGINT")
             action = "resume" if paused and not (output / "STOP").exists() else "seal"
             try:
-                self.cli(action, "--paper-id", str(run["paper_id"]))
+                self.cli(action, "--paper-id", str(run["paper_id"]), *(self.market_args() if action == "resume" else []))
                 self.recovery_failures.pop(run["paper_id"], None)
             except Failure as exc:
                 if self.recovery_failures.get(run["paper_id"]) != exc.body:
