@@ -27,7 +27,7 @@ from nautilus_trader.infrastructure import RedisCacheConfig
 from nautilus_trader.model import (
     AccountType, BookType, CryptoPerpetual, Currency, ExecAlgorithmId, InstrumentId, MarkPriceUpdate, Money,
     OmsType, OrderSide, OrderStatus, OrderType, PositionId, PositionSide, Price, Quantity, QuoteTick,
-    StrategyId, Symbol, Venue,
+    StrategyId, Symbol, TimeInForce, Venue,
 )
 from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy, StrategyConfig
@@ -716,6 +716,17 @@ class NativeEntryTests(unittest.TestCase):
         self.assert_refused_unchanged("ORDER_RULE", lambda: self.source.submit_order(market))
         self.assertTrue(self.session.failed and self.session.stopping)
         self.assertEqual(self.read_events("entry_denied"), [])
+
+    def test_a_refused_gtd_stop_market_entry_is_journaled_with_its_own_code(self):
+        # Only LimitOrder has expire_time_ns; recording this refusal once raised AttributeError over the ORDER_RULE one.
+        entry = self.source.order_factory.stop_market(
+            self.iid, OrderSide.BUY, Quantity.from_str("0.500"), Price.from_str("120.00"),
+            time_in_force=TimeInForce.GTD, expire_time=(time.time_ns() // 10**9 + 700) * 10**9)
+        self.assert_refused_unchanged("ORDER_RULE", lambda: self.source.submit_order(entry))
+        [refused] = self.read_events("entry_refused")
+        self.assertEqual((refused["code"], refused["type"], refused["expire_time_ns"]),
+                         ("ORDER_RULE", "STOP_MARKET", entry.expire_time))
+        self.assertTrue(self.session.failed and self.session.stopping)
 
     def test_resubmitting_an_order_the_cache_holds_is_refused_not_denied_after_a_missing_bar(self):
         opening = self.engine.cache.orders(strategy_id=self.source.strategy_id)

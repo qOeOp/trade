@@ -234,7 +234,7 @@ def entry_fields(order) -> dict:
             "type": order.order_type.name, "price": str(order.price) if getattr(order, "has_price", False) else None,
             "trigger_price": str(order.trigger_price) if getattr(order, "has_trigger_price", False) else None,
             "quantity": str(order.quantity),
-            "expire_time_ns": order.expire_time_ns if order.time_in_force == TimeInForce.GTD else None}
+            "expire_time_ns": order.expire_time if order.time_in_force == TimeInForce.GTD else None}
 
 
 def hold(session, pending) -> None:
