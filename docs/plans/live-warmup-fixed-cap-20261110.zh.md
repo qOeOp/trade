@@ -28,6 +28,8 @@ Paper 暂存 `on_bar`（`paper.py` `_hold`）而不暂存 `on_historical_bars`�
 
 ### 3.1 预热全在源码里，回放不改
 
+> 2026-11-15 标注（doctor 20261114-37）：本节的做法已被取代。预热不在源码里做：runner 在 T 按源码的 `WARMUP` 声明请求历史并核对，回放、Paper、Live 同一流程（`engine/history.py`，`r1-runtime-contract-20261110.zh.md` 第 5 节），源码不再自己攒 15 分钟桶表。3.2 至 3.4 本次没有逐节核对。
+
 `update_subscriptions` 的原生路线依赖请求有应答；回放要应答就得把导出往 `--start` 之前延，会碰 `MARKET_RECEIPT_MISMATCH`
 和 `DATA_COUNT_MISMATCH`，需要授权，还会让源码看到记录窗口以外的数据。所以不用它。
 

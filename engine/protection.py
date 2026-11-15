@@ -5,8 +5,8 @@ accepted and neither triggered nor filled (native status ACCEPTED), hold at leas
 quantity. Positions are HEDGING, several to a contract (engine.order_rules); the research audit, which reads events
 without a stop's position, sums positions and stops per side instead, which order rule 3 makes the same judgment. A gap
 counts once it lasts longer than ALLOWANCE_NS of event time, the one execution bar a source has to place its stop.
-Live adds LIVE_DETECTION_NS: a stop accepted over REST gets no WebSocket event, and native code sees it only at its
-next open-order check.
+Live adds LIVE_DETECTION_NS: a stop accepted over REST is confirmed by the WebSocket's order update when Binance sends
+one, and otherwise native code's open-order check confirms it a few seconds later; the allowance covers both.
 
 The module reads plain values, so the audit can apply it to order state rebuilt from events and Paper and Live to
 the native cache.
