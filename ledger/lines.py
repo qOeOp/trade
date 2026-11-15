@@ -312,9 +312,10 @@ def history_segments(dev_start: date, dev_end: date, first_day: date, after_last
 
 
 def history_participants(conn: db.LedgerConnection, line_id: int) -> list[dict]:
-    """The candidates of a line's closing history test: every source with a passed research run on the line
+    """The participants of a line's closing history test: every source with a passed research run on the line
     written before the line's first history trial (all of them while it has none), each with its latest such
-    run, oldest source first."""
+    run, oldest source first. The test replays and judges those whose run carries economic evidence
+    (report.history.candidates)."""
     return conn.dicts(
         "SELECT t.source_sha256, MAX(t.trial_id) AS trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id "
         "WHERE t.purpose = 'research' AND t.line_id = %s AND r.status = 'passed' AND t.trial_id < COALESCE("
@@ -350,9 +351,11 @@ def history_trials(conn: db.LedgerConnection, line_id: int) -> list[dict]:
                       "ORDER BY t.trial_id", (line_id,))
 
 
-def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after_last: date) -> list[dict]:
-    """Every pair of participant and segment of the line's closing history test (history_participants,
-    history_segments), participant by participant: the segment with the participant's `source_sha256`, its
+def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after_last: date,
+                 participants: list[dict]) -> list[dict]:
+    """Every pair of participant and segment of the line's closing history test (`participants`: the
+    history_participants the test replays; history_segments), participant by participant: the segment with the
+    participant's `source_sha256`, its
     research run `trial_id`, `window` (input_start, trade_start, trade_end: the run's warm-up before a trade
     start no earlier than the segment's or than the market's first day plus that warm-up; None when nothing of
     the segment is left to trade) and `done` (the history trial with a run that covers it, or None). A forward
@@ -362,7 +365,7 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
     segments = history_segments(dev_start, dev_end, first_day, after_last)
     ran = [row for row in history_trials(conn, line_id) if row["status"] is not None]
     plan = []
-    for participant in history_participants(conn, line_id):
+    for participant in participants:
         trial = conn.one("SELECT input_start, trade_start FROM trial WHERE trial_id = %s", (participant["trial_id"],))
         assert trial is not None  # a participant is a run's trial
         warmup = trial["trade_start"] - trial["input_start"]
@@ -386,11 +389,14 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
 
 # Closing lines
 
-def close_line(profile: db.LedgerProfile, line: str, summary: bytes, market_days: tuple[date, date]) -> dict:
+def close_line(profile: db.LedgerProfile, line: str, summary: bytes, market_days: tuple[date, date],
+               candidates: Callable[[db.LedgerConnection, int], list[dict]] = history_participants) -> dict:
     """End the line `line` with the Agent's summary (UTF-8, at most SUMMARY_LIMIT bytes, stored without
     surrounding blank space); the same summary again is a replay, another one LINE_CLOSED (a closing is never
     replaced). HISTORY_INCOMPLETE until every segment of its closing history test (history_plan, with
-    `market_days`: the market's first day and the day after its latest complete day) has a history run."""
+    `market_days`: the market's first day and the day after its latest complete day) has a history run.
+    `candidates` gives the participants the test replays: every one by default; the product passes those whose
+    run carries economic evidence (report.history.candidates)."""
     try:
         text = summary.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -406,7 +412,7 @@ def close_line(profile: db.LedgerProfile, line: str, summary: bytes, market_days
                 return {"line": record["name"], "line_id": record["line_id"], "closed_at": record["closed_at"],
                         "replayed": True}
             raise refuse("LINE_CLOSED", f"{record['name']} is already closed", missing=(record["name"],))
-        left = [item for item in history_plan(conn, record["line_id"], *market_days)
+        left = [item for item in history_plan(conn, record["line_id"], *market_days, candidates(conn, record["line_id"]))
                 if item["window"] is not None and item["done"] is None]
         if left:
             raise refuse("HISTORY_INCOMPLETE", f"{len(left)} segments of the closing history test of {record['name']} "

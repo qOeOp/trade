@@ -1,7 +1,7 @@
 """A line's closing history test (`replay.history`).
 
-Before a line closes, every candidate with a passed research run on it (ledger.lines.history_participants)
-is replayed over each segment of ledger.lines.history_segments: the veto segments (the calendar years before the
+Before a line closes, every candidate of its test (report.history.candidates: the sources with a passed research
+run on it whose run carries economic evidence) is replayed over each segment of ledger.lines.history_segments: the veto segments (the calendar years before the
 development period), the period again as the control, the two-year holdout after it as one segment, and the
 forward segment after the holdout. Each segment replays the
 candidate's latest passed research run by its identity (source, image, configuration, instrument rule),
@@ -17,7 +17,7 @@ from datetime import timedelta
 from ledger import db, lines, metrics, strategies, trials
 from registration import inputs as registration_inputs, seams as registration_seams
 from replay import entry, reproduce
-from report import measures
+from report import history as report_history, measures
 
 
 def _sharpe(conn: db.LedgerConnection, trial_id: int) -> float | None:
@@ -26,14 +26,15 @@ def _sharpe(conn: db.LedgerConnection, trial_id: int) -> float | None:
 
 def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, limit: int | None = None) -> dict:
     """Run the segments of `line`'s closing history test that have no history run, at most `limit` of them;
-    returns what ran and what is left."""
+    returns what ran, what is left and the participants left out for want of economic evidence."""
     source = registration_seams.current.market(market)
     market_day = source.resolve_day(at)
     first_day, latest = source.days(market_day)
     after_last = latest + timedelta(days=1)
     with db.connect(ledger, "reader") as conn:
         record = lines.open_line(conn, line)
-        plan = lines.history_plan(conn, record["line_id"], first_day, after_last)
+        candidates, without = report_history.candidates(conn, record["line_id"])
+        plan = lines.history_plan(conn, record["line_id"], first_day, after_last, candidates)
         order = {trial_id: _sharpe(conn, trial_id) for trial_id in {item["trial_id"] for item in plan}}
     todo = [item for item in plan if item["window"] is not None and item["done"] is None]
     todo.sort(key=lambda item: (order[item["trial_id"]] is None, -(order[item["trial_id"]] or 0), item["trial_id"]))
@@ -63,5 +64,5 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
                     "history_trial_id": sealed["trial_id"], "status": sealed["status"]})
     return {"line": record["name"], "market_day": market_day, "ran": ran,
             "left": max(len(todo) - len(ran), 0),
-            "participants": len({item["source_sha256"] for item in plan}),
+            "participants": len({item["source_sha256"] for item in plan}), "without_economic_evidence": without,
             "segments_without_trading": sum(item["window"] is None for item in plan)}

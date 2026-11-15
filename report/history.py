@@ -17,7 +17,13 @@ not reproduce the research run voids the row: it has no summary. A whole year no
 here and cannot be told from one the market does not cover; `line history` replays a participant's veto years
 before its control, and without a control run nothing is decided.
 
-Picking a candidate by these readings is a choice among the line's participants, so each holdout carries its
+A line's participants (ledger.lines.history_participants) are its sources with a passed research run. The test
+replays and judges those whose run carries economic evidence now, the judgment `research status` reads
+(report.candidates.assess_runs: a failed source review or a run without real activity takes a source out); the
+others are named in `without_economic_evidence` with their reasons and no reading (20261114-13, user 2026-11-15).
+The evidence is judged on read, so a source whose review fails after the test loses its row.
+
+Picking a candidate by these readings is a choice among the line's candidates, so each holdout carries its
 deflated Sharpe (measures.deflated_sharpe, the one formula `research status` also uses) with the participant count
 as the number of trials and the variance of the participants' per-day holdout Sharpe ratios (3.7). Beside it,
 `holdout_prior_trials` counts the searches that already looked at the holdout (roundtable 2026-11-12, 20261112-17):
@@ -32,10 +38,12 @@ from datetime import datetime, time
 import math
 import statistics
 
+from collections.abc import Mapping
+
 from ledger import db, execution, lines
 from ledger import targets as line_targets
-from registration import reproduction
-from report import measures, status
+from registration import availability, precheck, reproduction
+from report import candidates as report_candidates, measures, status
 
 
 SHORT_DAYS = 90  # about three months
@@ -184,10 +192,42 @@ def _prior_trials(conn: db.LedgerConnection, line_id: int, dev_end: datetime, en
                         sorted(groups.items(), key=lambda item: (item[0][0] is None, item[0]))]}
 
 
-def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]) -> dict:
-    """One line's closing history test: its participants (history_participants) with their history cells and
-    summaries, ordered by development-period Sharpe; the line's targets in force, its research trial count and
-    the earlier searches of its holdout among `counted` (status.counted_trials' counted trials)."""
+def candidates(conn: db.LedgerConnection, line_id: int, checker: Mapping | None = None,
+               records: list | None = None) -> tuple[list[dict], list[dict]]:
+    """A line's history participants (lines.history_participants) by the economic evidence of the research run each
+    is replayed from, judged now as `research status` judges it (report.candidates.assess_runs): those with it, the
+    candidates the test replays and judges, and those without, as {source_sha256, candidate (ID@N), run, reasons}.
+    `checker` (availability.check_identity) and `records` (precheck.review_records) are what a caller reading
+    several lines reads once."""
+    participants = lines.history_participants(conn, line_id)
+    assessed = report_candidates.assess_runs(
+        conn, [item["trial_id"] for item in participants],
+        availability.check_identity() if checker is None else checker,
+        precheck.review_records(conn) if records is None else records)
+    names = {sha: f"{strategy}@{revision}" for sha, strategy, revision in conn.rows(
+        "SELECT source_sha256, strategy_id, revision FROM candidate")}
+    kept, without = [], []
+    for item in participants:
+        value = assessed[item["trial_id"]]
+        if value["economic_evidence_available"]:
+            kept.append({**item, "candidate": names.get(item["source_sha256"])})
+        else:
+            without.append({"source_sha256": item["source_sha256"], "candidate": names.get(item["source_sha256"]),
+                            "run": item["trial_id"], "reasons": value["reasons"]})
+    return kept, without
+
+
+def qualified(conn: db.LedgerConnection, line_id: int) -> list[dict]:
+    """The candidates alone (candidates): the participants `line history` replays and `line close` requires."""
+    return candidates(conn, line_id)[0]
+
+
+def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict], checker: Mapping,
+                 records: list) -> dict:
+    """One line's closing history test: its candidates (candidates) with their history cells and summaries,
+    ordered by development-period Sharpe, and the participants without economic evidence; the line's targets in
+    force, its research trial count and the earlier searches of its holdout among `counted`
+    (status.counted_trials' counted trials)."""
     record = lines.read_line(conn, line)
     dev_start, dev_end = lines.dev_window(record)
     held = datetime.combine(lines.holdout_end(dev_end.date()), time())
@@ -195,9 +235,8 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     found = lines.history_trials(conn, record["line_id"])
     rows: list[dict] = []
     returns: dict[int, list[float]] = {}
-    names = {sha: f"{strategy}@{revision}" for sha, strategy, revision in conn.rows(
-        "SELECT source_sha256, strategy_id, revision FROM candidate")}
-    for participant in lines.history_participants(conn, record["line_id"]):
+    kept, without = candidates(conn, record["line_id"], checker, records)
+    for participant in kept:
         own = [row for row in found if row["source_sha256"] == participant["source_sha256"]]
         cells = [_cell(conn, row, _kind(row, dev_start, dev_end, held), returns) for row in own]
         control = next((row for row in own if _kind(row, dev_start, dev_end, held) == "control"), None)
@@ -206,7 +245,7 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
         assert researched is not None  # a participant is a run's trial
         development = _cell(conn, {**researched, "status": "passed"}, "development")
         reproduces = _control_reproduces(conn, control, participant["trial_id"])
-        rows.append({"source_sha256": participant["source_sha256"], "candidate": names.get(participant["source_sha256"]),
+        rows.append({"source_sha256": participant["source_sha256"], "candidate": participant["candidate"],
                      "run": participant["trial_id"],
                      "development": development, "cells": cells, "control_reproduces": reproduces,
                      "summary": _summary(cells, targets, reproduces is True) if reproduces is not False else None})
@@ -220,7 +259,7 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
             "research_trials": research["n"] if research else 0, "discount": discount,
             "holdout_prior_trials": _prior_trials(conn, record["line_id"], dev_end, held,
                                                   {row["trial_id"] for row in found}, counted),
-            "rows": rows}
+            "rows": rows, "without_economic_evidence": without}
 
 
 def research_history(ledger, at: str | None = None, line: str | None = None) -> dict:
@@ -228,11 +267,12 @@ def research_history(ledger, at: str | None = None, line: str | None = None) -> 
     with db.read_as_of(db.profile(ledger), at) as conn:
         commit = db.head_commit(conn)
         counted = status.counted_trials(conn)["counted"]
+        checker, records = availability.check_identity(), precheck.review_records(conn)
         if line is not None:
-            found = [line_history(conn, line, counted)]
+            found = [line_history(conn, line, counted, checker, records)]
         else:
             named = [name for (name,) in conn.rows(
                 "SELECT DISTINCT l.name FROM research_line l JOIN trial t ON t.line_id = l.line_id "
                 "WHERE t.purpose = 'history' ORDER BY l.name")]
-            found = [line_history(conn, name, counted) for name in named]
+            found = [line_history(conn, name, counted, checker, records) for name in named]
     return {"ledger_commit": commit, "short_days": SHORT_DAYS, "lines": found}

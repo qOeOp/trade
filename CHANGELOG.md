@@ -42,6 +42,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `missing` names what is lacking (`veto YEAR`, `control`, `holdout`, `targets`). `whole_years` counts every whole
   veto year replayed, invalid ones included. Nothing is stored and no history run changes; the History page shows
   such a row's verdict as a dash (doctor 20261114-12).
+- Breaking (`line history`, `line close`, `research history`): the candidates of a line's closing history test are
+  its sources whose latest passed research run carries economic evidence, the read-time judgment `research status`
+  already applies. A source whose review failed, or whose run shows no real activity, used to be replayed, shown
+  with its development readings and judged like any other. It is now left out: not replayed, not a row, not counted
+  in `participants` or in the deflated Sharpe's trials, and `line close` no longer requires its segments. Both
+  commands name it in the new `without_economic_evidence` with its reasons and no reading; a source that loses its
+  evidence after its history runs moves there too. Nothing is stored and no history run changes (doctor
+  20261114-13).
 - Live (finding 20261114-29, the part about answers of the wrong shape): an answer from Binance with HTTP 200 that
   lacks what Live's own read-only client reads from it (the server time, the instrument list) is now the refusal
   `LIVE_ACCOUNT_RESPONSE`, where the client raised `KeyError` or `TypeError`. A periodic comparison or a held start's
