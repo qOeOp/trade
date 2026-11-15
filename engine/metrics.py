@@ -8,9 +8,11 @@ equal, the ratios equal but where the archive's 6 or 8 decimals sit at a tie of 
 contracts over 27 days: 141 of 31,104 position ratios off by 0.0001, 2 of each account ratio).
 
 No credential: ``futures/data/*`` is public. REST publishes a row 23 to 183 s after its timestamp (probes 2026-10-31
-and 2026-11-14), within the 5 minutes the rule allows; Paper and Live read it at ts_init and again every RETRY_NS for
-what is still missing, until the next row is due; a row whose open interest is still missing then is skipped, and a
-ratio still missing is None, as the archive leaves an empty one.
+and 2026-11-14), within the 5 minutes the rule allows; Paper and Live read it from READ_AHEAD_NS before ts_init and
+again every RETRY_NS for what is still missing, keep what they read, and hand the row over on the first tick at or
+after ts_init, never before. A row still incomplete at ts_init is handed over once a read completes it, or when the
+next row is due; a row whose open interest is still missing then is skipped, and a ratio still missing is None, as
+the archive leaves an empty one.
 """
 from __future__ import annotations
 
@@ -30,6 +32,10 @@ from engine.strategy import Metrics, metrics_data_type
 PERIOD_NS = 5 * MINUTE_NS  # one row per five minutes
 VISIBLE_NS = 5 * MINUTE_NS  # ts_init less ts_event (market.export: create_time + 10 min less create_time + 5 min)
 RETRY_NS = 30 * 1_000_000_000  # REST allows 1000 requests per 5 minutes per IP; a row costs 4 when published on time
+# A row's first read, 240 s after its timestamp: REST has published it by then (above), and a row it has not yet is
+# read again RETRY_NS later and at ts_init. Reading at ts_init instead handed it over a read and a tick late (1 to 2 s,
+# 2026-11-15 Paper trial).
+READ_AHEAD_NS = 2 * RETRY_NS
 TICK = timedelta(seconds=1)
 EXACT = Decimal("1e-16")  # the export's decimal128(38, 16): a value reads back with 16 places in either mode
 # The Metrics field each public endpoint gives, and the endpoint's field holding it.
@@ -95,13 +101,14 @@ class Feed:
                 pass
 
     def _metrics_step(self, state: dict, now: int) -> bool:
-        """Advance one followed contract; True when it moved on to its next row."""
+        """Advance one followed contract; True when it moved on to its next row. A row is read from READ_AHEAD_NS
+        before it is due and handed over on the first tick at or after due."""
         due = state["ts_event"] + VISIBLE_NS
         thread = state["thread"]
-        if now < due or thread is not None and thread.is_alive():
+        if now < due - READ_AHEAD_NS or thread is not None and thread.is_alive():
             return False
         complete = len(state["found"]) == len(ENDPOINTS)
-        if complete or thread is not None and now >= due + PERIOD_NS - RETRY_NS:
+        if now >= due and (complete or thread is not None and now >= due + PERIOD_NS - RETRY_NS):
             found = state["found"]
             if "sum_open_interest" in found:
                 row = Metrics(InstrumentId.from_str(state["instrument_id"]), found["sum_open_interest"],
@@ -114,7 +121,7 @@ class Feed:
                                  f"next row's time{state.get('error', '')}; skipped")
             state.update(ts_event=state["ts_event"] + PERIOD_NS, found={}, thread=None, retry_ns=0, error="")
             return True
-        if now >= state["retry_ns"]:
+        if not complete and now >= state["retry_ns"]:
             wanted = [name for name in ENDPOINTS if name not in state["found"]]
 
             def work(state=state, ts_event=state["ts_event"]):

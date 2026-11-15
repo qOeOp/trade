@@ -22,6 +22,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper and Live (fix): the metrics Feed reads each row from 60 s before it is due and hands it over on its first
+  one-second tick at or after the due time, never before. It used to start the REST reads only at the due time and
+  hand the row over a tick later, 1.0 to 2.0 s late (a 2026-11-15 Paper trial), so any stall of the node pushed rows
+  past the 2 s late limit. A row REST has not published yet is read again 30 s later and at the due time, then as
+  before. The change gives a new runtime image; the replay is unchanged.
 - Paper (fix): a metrics row the Feed hands a source no longer runs the data callbacks Paper holds for their fills.
   The Feed hands a row over from its timer, which rc7's live runner takes before execution events, so a held
   `on_bar` could run before its own bar's fills reached the cache (a 2026-11-15 trial: an entry seen `ACCEPTED` with

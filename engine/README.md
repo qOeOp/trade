@@ -191,9 +191,10 @@ refuses `METRICS_MISSING` for a month of an active contract's trading window wit
 image older than the option refuses it as `UNKNOWN_OPTION` at the probe. It stays out of the effective
 configuration: the exported metrics files already carry it into the input identity. A subscription to metrics
 the run does not stream is `METRICS_NOT_SERVED`. Paper and Live serve the metrics of every contract of the run
-(`engine.metrics.Feed`): at each row's `ts_init` they read REST's row of its `ts_event` (no credential) and hand it
-to `on_data` with the replay's stamps and values; what is not yet published is read again every 30 s until the
-next row is due, then a missing ratio is `None` and a row without open interest is skipped. After an unsubscribe
+(`engine.metrics.Feed`): from 60 s before each row's `ts_init` they read REST's row of its `ts_event` (no
+credential), keep it, and hand it to `on_data` with the replay's stamps and values on the Feed's first one-second tick
+at or after `ts_init`, never before; what is not yet published is read again every 30 s, at `ts_init` and after it
+until the next row is due, then a missing ratio is `None` and a row without open interest is skipped. After an unsubscribe
 no row reaches `on_data`, not even one read already. Each run records what its source was handed, whether or not
 it defines `on_data`: Live in its evidence pack (below), Paper in `events.jsonl` as it hands the row over, before
 holding the callback (`metrics`: `instrument_id`, `ts_event` and the four values, a missing ratio null), with each

@@ -71,7 +71,7 @@ class FeedTests(unittest.TestCase):
         host.subscribe_data(metrics.metrics_data_type(IID))
         self.assertEqual(host.timer_names(), ["runner-metrics"])
         host.at(NOON + 10 * MINUTE_NS - 1)  # the first row stamped after the start, 12:05, is due at 12:10
-        self.assertEqual((asked, host.delivered), ([], []))
+        self.assertEqual(host.delivered, [])
         host.at(NOON + 10 * MINUTE_NS)
         data, = host.delivered
         self.assertEqual((data.data_type.type_name, data.data_type.metadata), ("Metrics", {"instrument_id": IID}))
@@ -83,6 +83,59 @@ class FeedTests(unittest.TestCase):
         self.assertEqual(asked, [(NOON + 5 * MINUTE_NS, list(metrics.ENDPOINTS))])
         host.unsubscribe_data(metrics.metrics_data_type(IID))
         self.assertEqual(host.timer_names(), [])
+
+    def test_a_row_read_ahead_is_handed_over_on_the_first_tick_at_or_after_its_due_time(self):
+        """REST has the row long before it is due: read ahead, it reaches on_data at the tick that reaches due, not a
+        read and a tick later (2026-11-15 Paper trial: 1.0 to 2.0 s late), and never before."""
+        asked = []
+        host = Host(NOON + 30 * 10**9, lambda iid, ts, wanted: asked.append(ts) or
+                    {name: SHOWN[name] for name in wanted})
+        host.subscribe_data(metrics.metrics_data_type(IID))
+        due = NOON + 10 * MINUTE_NS  # the row stamped 12:05
+        host.at(due - metrics.READ_AHEAD_NS - 1)
+        self.assertEqual(asked, [])
+        host.at(due - metrics.READ_AHEAD_NS)
+        self.assertEqual((asked, host.delivered), ([NOON + 5 * MINUTE_NS], []))
+        host.at(due - 1)
+        self.assertEqual((len(asked), host.delivered), (1, []), "kept, not read again, not handed over before due")
+        host.now = due + 400_000_000
+        host._metrics_tick()  # the Feed's first tick at or after due, alone
+        row, = [data.data for data in host.delivered]
+        self.assertEqual((row.ts_event, row.ts_init, row.sum_open_interest), (NOON + 5 * MINUTE_NS, due,
+                                                                              SHOWN["sum_open_interest"]))
+        self.assertEqual(len(asked), 1)
+
+    def test_a_row_not_yet_published_when_read_ahead_is_read_again_until_due_then_as_before(self):
+        published, asked = set(), []
+
+        def reader(iid, ts, wanted):
+            asked.append(list(wanted))
+            return {name: SHOWN[name] for name in wanted if name in published}
+        host = Host(NOON, reader)
+        host.subscribe_data(metrics.metrics_data_type(IID))  # the row stamped 12:00 is due 12:05
+        due = NOON + 5 * MINUTE_NS
+        host.at(due - metrics.READ_AHEAD_NS)
+        host.at(due - metrics.READ_AHEAD_NS + metrics.RETRY_NS)
+        self.assertEqual((len(asked), host.delivered), (2, []))
+        published.update(SHOWN)
+        host.at(due - 1)
+        self.assertEqual((len(asked), host.delivered), (2, []), "the next read is at due")
+        host.at(due)
+        self.assertEqual(len(asked), 3)
+        self.assertEqual([data.data.ts_init for data in host.delivered], [due])
+
+    def test_a_row_read_ahead_never_reaches_a_source_that_unsubscribed_before_it_was_due(self):
+        host = Host(NOON, lambda iid, ts, wanted: {name: SHOWN[name] for name in wanted})
+        host.subscribe_data(metrics.metrics_data_type(IID))
+        due = NOON + 5 * MINUTE_NS
+        host.at(due - metrics.READ_AHEAD_NS)  # read and kept
+        host.unsubscribe_data(metrics.metrics_data_type(IID))
+        host.at(due)
+        self.assertEqual((host.delivered, host.timer_names()), ([], []))
+        host.now = due + 1
+        host.subscribe_data(metrics.metrics_data_type(IID))  # again: from the next row due after now
+        self.assertEqual(host._metrics_followed[IID]["found"], {})
+        self.assertEqual(host._metrics_followed[IID]["ts_event"], NOON + 5 * MINUTE_NS)
 
     def test_a_late_row_is_read_again_for_what_is_missing_until_the_next_is_due(self):
         published, asked = {"sum_open_interest", "sum_toptrader_long_short_ratio"}, []
