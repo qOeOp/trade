@@ -164,7 +164,7 @@ class InputTests(unittest.TestCase):
                   for period, count in (("1-MINUTE", 5), ("1-HOUR", 2), ("1-DAY", 3))]
         argv: list[str] = []
 
-        def replayed(market, commit, source, entry_class, image, given, output, name, timeout):
+        def replayed(market, commit, source, entry_class, image, given, output, name, timeout, membership_end):
             argv.extend(given)
             reports = Path(output) / entry.REPORTS
             reports.mkdir(parents=True)

@@ -22,6 +22,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper and Live (fix): the replay of `paper compare`, `live compare` and Live's daily comparison gives the source
+  its contracts' membership to the end of the window's last month, as the run had, instead of cutting it at the
+  window's end. A source that checks an entry's expiry against its membership skipped, in the replay only, every entry
+  of the run's last order lifetime, and those groups read `unexplained`. The replay's audit is unchanged; the
+  runtime image is unchanged.
 - Refusals (breaking): a market day that does not resolve is `MARKET_DAY_UNRESOLVED` wherever it is read (doctor
   20261113-126). `MARKET_DAY_UNKNOWN` is gone: the market directory's reads (`market coverage`, `market bars`,
   exports) and the market measures of reports now name the same code `line select`, registration and `research

@@ -404,7 +404,7 @@ class Replay(unittest.TestCase):
         from replay import entry
         calls = []
 
-        def replayed(market, day, source, entry_class, image, argv, output, name, timeout):
+        def replayed(market, day, source, entry_class, image, argv, output, name, timeout, membership_end):
             calls.append((list(argv), output))
             failures = Path(output) / "reports" / "runtime_failures.jsonl"
             failures.parent.mkdir(parents=True)
@@ -418,6 +418,31 @@ class Replay(unittest.TestCase):
             self.assertEqual([("--metrics" in argv, output.name) for argv, output in calls],
                              [(False, "replay"), (True, "replay-metrics")])
             self.assertEqual((status["status"], events, reports), ("passed", None, None))
+
+    def test_an_entry_in_the_windows_last_order_lifetime_is_inside_the_replays_membership(self):
+        """20261115-04: Paper and Live hold a contract's membership to its month's end (engine.membership); the
+        comparison's replay holds the same, so a source checking an entry's GTD expiry against it sends an entry
+        decided 5 minutes before the window's end with an 11-minute lifetime, as the run did."""
+        from engine.membership import month_end_ns
+        from registration import seams as registration_seams
+        from tests.registration.world import FakeMarket, months_rows
+        end = 1_768_466_760 * 10**9  # 2026-01-15T08:46:00Z
+        decided, lifetime = end - 5 * MINUTE, 660 * 10**9
+        read = {}
+
+        def inspected(identity, argv, exported):
+            read.update(json.loads(Path(exported["membership_file"]).read_text())["membership"])
+            raise RuntimeError("stop before the runtime")
+
+        with tempfile.TemporaryDirectory() as name, \
+                registration_seams.use(market=lambda profile: profile, inspect_runtime=inspected,
+                                       resolve_runtime=lambda runtime: {"runtime_contract": "c"}):
+            with self.assertRaises(RuntimeError):
+                comparison.replay(FakeMarket({"c" * 32: months_rows()}), "c" * 32, b"", "S", "image", ["AAAUSDT"],
+                                  end - 46 * MINUTE, end, "3", "1000", Path(name) / "replay", "n", None, {})
+        self.assertTrue(any(low <= decided and decided + lifetime <= high for low, high in read["AAAUSDT"]),
+                        read["AAAUSDT"])
+        self.assertEqual(max(high for _, high in read["AAAUSDT"]), month_end_ns(end - 1))
 
 
 class Metrics(unittest.TestCase):

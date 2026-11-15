@@ -115,14 +115,16 @@ def _identity4(identity: Mapping) -> dict:
     return {key: identity[key] for key in execution.IDENTITY_FIELDS}
 
 
-def _export(market, at: str | None, runner_argv: list[str], fresh: bool, research) -> tuple[dict, dict]:
+def _export(market, at: str | None, runner_argv: list[str], fresh: bool, research,
+            membership_end: int | None = None) -> tuple[dict, dict]:
     """(runner inputs {window, selection, lifecycle_bundle}, exported inputs) of one replay."""
     runner = registration_seams.runner_inputs(list(runner_argv))
     return runner, registration_inputs.market_inputs(market, at, runner["window"], runner["selection"],
                                                      runner.get("lifecycle_bundle"), fresh, research,
                                                      include_quotes=runner["execution"] == "quotes",
                                                      include_trades=runner.get("trade_ticks", False),
-                                                     include_metrics=runner.get("metrics", False))
+                                                     include_metrics=runner.get("metrics", False),
+                                                     membership_end=membership_end)
 
 
 def _prepare(workdir: Path, source: bytes, entry_class: str, source_sha256: str, identity: Mapping,
@@ -355,19 +357,20 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
 # Replays that are no trial
 
 def replay_unrecorded(market, at: str | None, source: bytes, entry_class: str, runtime: str, runner_argv: list[str],
-                      output: Path, name: str, timeout: float | None = None) -> dict:
+                      output: Path, name: str, timeout: float | None = None, membership_end: int | None = None) -> dict:
     """Replay a source into `output` (a new temporary directory) as every replay does (pinned image, exported
     inputs, probed configuration, coverage receipt, runner and auditor), but as no trial: nothing reaches a
     ledger. Only replay.comparison calls it (`paper compare`, `live compare` and Live's daily comparison), whose
     source, image, contracts and window come from a Paper or Live run's declaration (user decision 2026-10-26).
-    `name` prefixes the stage containers."""
+    `name` prefixes the stage containers; `membership_end` is where the strategy's membership ends
+    (registration.inputs.market_inputs)."""
     output = paths.temporary_path(output)
     identity = registration_seams.current.resolve_runtime(runtime)
     exported = None
     try:
         # Fresh, so the export goes with it (registration.inputs.cleanup): on the Paper host the temporary
         # directory persists.
-        _, exported = _export(market, at, runner_argv, True, None)
+        _, exported = _export(market, at, runner_argv, True, None, membership_end)
         inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), exported)
         _, argv, mounts = _prepare(output, source, entry_class, hashlib.sha256(source).hexdigest(), identity,
                                    inspection, exported, runner_argv)
