@@ -198,7 +198,10 @@ no row reaches `on_data`, not even one read already. Each run records what its s
 it defines `on_data`: Live in its evidence pack (below), Paper in `events.jsonl` as it hands the row over, before
 holding the callback (`metrics`: `instrument_id`, `ts_event` and the four values, a missing ratio null), with each
 unsubscribe from metrics the source followed (`metrics_unsubscribed`: `instrument_id`). `paper compare` and `live
-compare` check these rows the same way against the archive's.
+compare` check these rows the same way against the archive's. Paper's Feed hands a row over on a timer, not a data
+dispatch, so the row only joins the held data callbacks and releases none: they run with it, in the order they
+came, at the next data dispatch (a MARK update arrives every second), after the fills their bars caused. Live holds
+no data callback, so its `on_data` runs as the row is handed over.
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_day`, `universe_path`, `universe_sha256` (the membership file's bytes),

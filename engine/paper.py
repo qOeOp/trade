@@ -30,8 +30,10 @@ corrects where it can:
   therefore wait, in the order they came, until the next data event is dispatched: rc7's live runner dispatches
   data only once every queued time event, execution event and execution command is processed (its biased
   select), so the fills the held data caused, and the orders and fills those caused, are then applied. A stop or
-  target filled on a bar is closed when the strategy's ``on_bar`` for it runs, as in the replay. A fill stamped
-  before a dispatch whose callbacks already ran is journaled as ``release_late`` (PAPER_RELEASE_LATE).
+  target filled on a bar is closed when the strategy's ``on_bar`` for it runs, as in the replay. A metrics row,
+  which the Feed hands over on a timer (rc7 takes time events before execution events), joins the held callbacks
+  and releases none. A fill stamped before a dispatch whose callbacks already ran is journaled as ``release_late``
+  (PAPER_RELEASE_LATE).
 
 The Sandbox matches with the replay's terms: its fill model, book type and bar ordering, and the maker and
 taker rates the run is given (``--maker-fee``, ``--taker-fee``: the market's assumed rates, which a replay
@@ -432,9 +434,12 @@ def release_before(value) -> None:
             pass
 
 
-def _hold(self, callback, value, dispatched) -> None:
-    """Queue a data callback until the next data dispatch (release_before); `dispatched` is the data that came."""
-    release_before(dispatched)
+def _hold(self, callback, value, dispatched, *, release: bool = True) -> None:
+    """Queue a data callback until the next data dispatch (release_before); `dispatched` is the data that came. Data
+    that no dispatch brought (`release` False: a metrics row the Feed hands over from its timer, which rc7's live
+    runner takes before the execution events queued with it) releases nothing: it only joins the queue."""
+    if release:
+        release_before(dispatched)
     clock = Strategy.clock.__get__(self, type(self))
     self._paper_held.append((next(SEQUENCE), dispatch_of(dispatched), clock.timestamp_ns(), callback, value))
 
@@ -474,14 +479,16 @@ def paper_callbacks(strategy_class: type) -> dict:
     def on_data(self, data):
         """A metrics row the Feed hands the source (engine.metrics) is journalled as it comes, whether or not the
         source handles it, before it is held: `paper compare` checks it against the archive's as `live compare`
-        does (replay.comparison.compare_metrics)."""
+        does (replay.comparison.compare_metrics). The Feed hands it over on a timer, not a data dispatch, so it
+        releases no held callback: one released there could run before the fills its own bar caused."""
         row = getattr(data, "data", None)
-        if isinstance(row, strategy_runtime.Metrics):
+        handed = isinstance(row, strategy_runtime.Metrics)
+        if handed:
             journal("metrics", instrument_id=str(row.instrument_id), ts_event=row.ts_event,
                     **{name: None if (value := getattr(row, name)) is None else str(value)
                        for name in metrics.ENDPOINTS})
         if source["on_data"]:
-            _hold(self, source["on_data"], data, data)
+            _hold(self, source["on_data"], data, data, release=not handed)
 
     def _warming_settled(self, update):
         """The settlement of T's hour (engine.history, step 6): data like any other, held until the next dispatch."""
