@@ -17,6 +17,10 @@ export type HistorySummary = {
           worst_mark_max_drawdown: number | null; years_meeting_targets: number | null; meets_targets: boolean | null };
   holdout: { annual_return: number | null; mark_max_drawdown: number | null; meets_targets: boolean | null; deflated_sharpe?: number | null };
   meets_targets: boolean | null; judged_on: "veto and holdout" | "holdout" | null;
+  /** What the combined verdict lacks (it is then null whatever the holdout's own verdict): `veto YEAR` for a whole veto
+   *  year without both readings, `control` without a control run, `holdout` without a countable reading, `targets`
+   *  for a line without any. Absent from a server before 20261114-12. */
+  missing?: string[];
 };
 export type HistoryRow = {
   source_sha256: string; candidate: string | null; run: number; development: HistoryCell; cells: HistoryCell[];
@@ -31,6 +35,9 @@ export type HistoryLine = {
    *  line's own history trials left out); null before the line's first research trial. */
   holdout_prior_trials?: { trials: number; instruments: string[]; by_line: { line: string | null; purpose: string; trials: number }[] } | null;
   rows: HistoryRow[];
+  /** The participants left out for want of economic evidence now (a failed source review, no real activity): no row, no
+   *  reading, the reasons as `research status` gives them. Absent from a server before 20261114-13. */
+  without_economic_evidence?: { source_sha256: string; candidate: string | null; run: number; reasons: string[] }[];
 };
 export type History = { ledger_commit: string; short_days: number; lines: HistoryLine[] };
 

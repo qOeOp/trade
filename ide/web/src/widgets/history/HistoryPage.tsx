@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { MISSING, pct, plural, ratio } from "../../lib/format";
 import type { HistoryCell, HistoryLine, HistoryRow } from "../../lib/historyApi";
-import { cellAt, columns, meetsBoth, noEdge, ordered, priorGroups, priorTrials, RETURN_RANGES, returnStep, type Column, type Metric, type Order } from "../../model/history";
+import { cellAt, columns, meetsBoth, noEdge, combinedTip, ordered, priorGroups, priorTrials, RETURN_RANGES, returnStep, vetoTip, type Column, type Metric, type Order } from "../../model/history";
 import { useHistory } from "../../state/history";
 import { DropdownChoice } from "../../components/Dropdown";
 import { HistoryTile } from "../../components/HistoryTile";
@@ -80,6 +80,17 @@ function PriorTip({ line, lead }: { line: HistoryLine; lead?: string }) {
   );
 }
 
+/** The participants a line's test leaves out for want of economic evidence now, with the reasons. */
+function LeftOut({ left }: { left: NonNullable<HistoryLine["without_economic_evidence"]> }) {
+  return (
+    <div className="space-y-0.5">
+      <p className="font-semibold">Left out: no economic evidence</p>
+      <p>A participant whose latest research run has none now (a failed source review, no real activity) is not replayed or judged here: no row, no reading.</p>
+      {left.map((l) => <p key={l.run}>{l.candidate ?? l.source_sha256.slice(0, 12)}: {l.reasons.join("; ") || MISSING}</p>)}
+    </div>
+  );
+}
+
 /** A row's summary as the command gives it: the veto years' counts and readings, the two verdicts and the combined one,
  *  and, on a row meeting the targets (the candidates "picked by this reading", line-close-history-test-20261110.zh.md 3.7),
  *  its holdout's Sharpe deflated at the line's participant count. */
@@ -95,10 +106,10 @@ function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
       <td className={td}>{pct(veto.median_annual_return)}</td>
       <td className={td}>{pct(veto.worst_annual_return)}</td>
       <td className={td}>{pct(veto.worst_mark_max_drawdown)}</td>
-      <td className={td}><Verdict ok={veto.meets_targets} tip={veto.whole_years ? "Every whole veto year's drawdown within the limit and their median return at least the minimum" : "No whole veto year to judge"} /></td>
+      <td className={td}><Verdict ok={veto.meets_targets} tip={vetoTip(s)} /></td>
       <td className={td}><Verdict ok={s.holdout.meets_targets} tip={<PriorTip line={line} lead={`Holdout ${pct(s.holdout.annual_return)} a year, drawdown ${pct(s.holdout.mark_max_drawdown)}`} />} /></td>
       <td className={`${td} font-semibold`}>
-        <Verdict ok={s.meets_targets} tip={s.judged_on === "holdout" ? "On the holdout alone: no whole veto year counts" : s.judged_on ? "On the veto years and the holdout" : "Nothing countable to judge"} />
+        <Verdict ok={s.meets_targets} tip={combinedTip(s)} />
         {s.meets_targets && <Tip content={<PriorTip line={line} lead={`The holdout's deflated Sharpe with ${line.participants} participants as the trials: the probability its Sharpe beats the best of that many by luck`} />}>
           <span className="ml-2 font-normal text-fg-muted">DSR {dsr == null ? MISSING : dsr.toFixed(2)}</span></Tip>}
       </td>
@@ -110,15 +121,16 @@ function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
  *  trials they came from, the earlier searches of its holdout, its targets and its development period. */
 function LineRows({ line, cols, metric, order, all, shortDays }: { line: HistoryLine; cols: Column[]; metric: Metric; order: Order; all: boolean; shortDays: number }) {
   const rows = ordered(line.rows, order), shown = all ? rows : rows.filter((r) => !noEdge(r)), hidden = rows.length - shown.length;
-  const t = line.targets;
+  const t = line.targets, left = line.without_economic_evidence ?? [];
   return (
     <tbody className="border-t border-line">
       <tr className="bg-island-alt">
         <th colSpan={cols.length + 10} className="sticky left-0 px-2 py-1.5 text-left font-normal">
-          {/* The cell spans the whole table, so its text is held to the visible width: on a phone it wraps in view. */}
-          <div className="max-w-[calc(100vw-6rem)]">
+          {/* The cell spans the whole table, so its text is held to the visible width and sticks to the left: on a phone it wraps in view and stays there when the table scrolls. */}
+          <div className="sticky left-0 max-w-[calc(100vw-6rem)]">
           <span className="font-mono font-semibold">{line.line}</span>
           <span className="ml-3 text-fg-muted">{line.closed ? "Closed" : "Closing"} · {plural(line.participants, "participant")} from {plural(line.research_trials, "research trial")}
+            {left.length > 0 && <>{" · "}<Tip content={<LeftOut left={left} />}><span className="whitespace-nowrap">{plural(left.length, "source")} left out: no economic evidence</span></Tip></>}
             {" · "}<Tip content={<PriorTip line={line} />}><span>earlier searches of the holdout: <span className={priorTrials(line) ? "text-fg" : ""}>{priorWords(line)}</span></span></Tip>
             {t && <>{" · "}<span className="whitespace-nowrap">drawdown ≤ {pct(t.max_drawdown)}</span>, <span className="whitespace-nowrap">annual return ≥ {pct(t.annual_return)}</span></>}
             {" · development "}<span className="whitespace-nowrap">{line.dev_start} to {line.dev_end}</span>
@@ -177,7 +189,6 @@ export function HistoryPage() {
       <p className="shrink-0 px-3 py-1.5 text-small text-fg-faint">
         Colour: annual return ({RETURN_RANGES[0]} to {RETURN_RANGES[6]}) · thick border: the segment meets both targets · grey: under {history.short_days} days, not counted · hatched: part of a year.
         The verdict reads the veto years and the holdout apart; it tests, it does not validate, and picking by it is a choice among the participants.
-        Read the holdout verdict with the holdout's earlier searches in the line's header: the deflated Sharpe does not count them.
       </p>
     </div>
   );

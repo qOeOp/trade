@@ -52,3 +52,28 @@ test("the holdout's earlier searches: a count when the API gave one, zero is a c
   assert.equal(h.priorTrials(line([])), null, "a server that does not send it");
   assert.deepEqual(h.priorGroups(line([])), []);
 });
+
+const summary = (extra = {}) => ({ veto: { whole_years: 2 }, holdout: {}, meets_targets: null, judged_on: null, ...extra });
+
+test("an undecided verdict says what it lacks, in the API's order; the veto tip names the years without a reading (20261114-12)", () => {
+  assert.deepEqual(h.missingWords(["veto 2022", "veto 2023", "control", "holdout", "targets"]),
+    ["the 2022 veto year", "the 2023 veto year", "the control run", "a countable holdout", "the line's targets"]);
+  assert.deepEqual(h.missingWords(["something new"]), ["something new"], "a name the page does not know shows as it came");
+  assert.deepEqual(h.missingWords(undefined), [], "a server before the field");
+  assert.deepEqual(h.missingYears(["veto 2022", "control"]), ["the 2022 veto year"]);
+  assert.equal(h.listed(["a"]), "a");
+  assert.equal(h.listed(["a", "b", "c"]), "a, b and c");
+  const year = summary({ missing: ["veto 2022", "control"] });
+  assert.equal(h.combinedTip(year), "Undecided: no reading of the 2022 veto year and the control run. A verdict needs every reading it is defined on");
+  assert.equal(h.vetoTip(year), "No verdict: no readings for the 2022 veto year, so the veto years are not judged");
+  const control = summary({ missing: ["control"] });
+  assert.match(h.combinedTip(control), /no reading of the control run/);
+  assert.match(h.vetoTip(control), /^Every whole veto year's drawdown within the limit/, "its years are read: the veto rule stands");
+});
+
+test("a decided verdict keeps its tips; without the field the old words stand", () => {
+  assert.equal(h.combinedTip(summary({ meets_targets: true, judged_on: "holdout", missing: [] })), "On the holdout alone: no whole veto year counts");
+  assert.equal(h.combinedTip(summary({ meets_targets: true, judged_on: "veto and holdout", missing: [] })), "On the veto years and the holdout");
+  assert.equal(h.combinedTip(summary()), "Nothing countable to judge");
+  assert.equal(h.vetoTip(summary({ veto: { whole_years: 0 } })), "No whole veto year to judge");
+});
