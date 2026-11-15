@@ -25,9 +25,11 @@ class Cadence:
 
     def funding(self, update) -> FundingRateUpdate | None:
         """The settlement the live estimates passed, if this update is the first after it: the update the replay
-        gives (rate settled, stamped at the settlement and naming it as its next funding). Binance's first
-        estimate after a settlement carried the settled rate in the native probe; the sealing step accounts with
-        the rate Binance publishes."""
+        gives, with the rate settled, stamped at the settlement's hour and naming it as its next funding. The replay's
+        update is stamped at Binance's settlement time, which can be some milliseconds after the hour. Binance's
+        first estimate after a settlement carried the settled rate in the native probes (2026-11-15: the rate its
+        funding-rate history then published); the sealing step accounts with the rate Binance publishes. A settlement
+        of the source's start hour is not here: its warm-up gives it (engine.history, step 6)."""
         settled, self.next_funding_ns = self.next_funding_ns, update.next_funding_ns
         if settled is None or update.next_funding_ns is None or update.next_funding_ns <= settled:
             return None

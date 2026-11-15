@@ -91,6 +91,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   replay, from Binance's public funding-rate history in Paper and Live. A source that reads funding no longer waits
   for n settlements (72 hours for nine) at every replay, Paper or Live start. Paper and Live comparisons check the
   received settlements against the market's.
+- Paper and Live: a source that reads funding (`on_funding_rate`) and starts on a settlement hour receives that
+  hour's settlement after `on_start` when a replay streams it then: one Binance stamped after the hour (some
+  milliseconds later, about half of the settlements sampled), and one stamped on the hour unless the source declares
+  a funding history or a bar history other than daily bars. A source with a warm-up used to miss it (the live stream
+  passed it before the source subscribed); one without got the stream's update, stamped on the hour, whatever it
+  declared. Such a start on a whole hour now reads Binance's funding-rate history in its warm-up, declared or not, so
+  its `on_start` runs from T + 15 s and a due settlement not published by T + 45 s is `WARMUP_TIMEOUT`.
 - Live: an entry refused when the Observer dispatches it (a failed or late account read, changed contract terms, the
   cash floor, the 3-times limit) ends the run on the STOP path, which closes the run's positions, as every other
   refused entry does (`stop_reason` `entry_admission_failed`, a failed run). It used to stop the node at once and
