@@ -1,5 +1,5 @@
 ---
-description: Rule check — when a new line has no stated targets and the ledger has no default, the Agent asks the user for both numbers rather than proposing or recording its own.
+description: Rule check — when a new line has no stated targets and the ledger has no default, the Agent asks the user for both numbers rather than proposing or recording its own, passes no window of the user's to `line select` and does not register or establish the Goal before the targets arrive.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

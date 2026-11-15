@@ -1,19 +1,19 @@
 ---
-description: Rule check — with the skill, pausing a Goal follows the host's permission, not tool availability; on a user-only pause host the Agent asks the user to pause in the same message as the blocking question, keeps window-dependent work blocked and follows the host's blocked threshold; on an automatic-pause host it may pause first.
+description: Rule check — with the skill, pausing a Goal follows the host's permission, not tool availability; on a user-only pause host the Agent asks the user to pause in the same message as the blocking question, keeps the work that depends on the blocking choice undone and follows the host's blocked threshold; on an automatic-pause host it may pause first.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-这是一道研究入口的离线情景题，不连接真实宿主工具或数据库。研究线已选定，Goal 已激活，就绪检查已过。你现在需要用户在“保持当前开发窗口”与“扩大窗口”间决定，否则无法继续登记；还有一个可自行处理的报告格式小问题。
+这是一道研究入口的离线情景题，不连接真实宿主工具或数据库。研究线已选定（只有 BTCUSDT，小时线决策），Goal 已激活。就绪检查查到 LAST 在开发期内有一段 2 小时 20 分的缺口，盖住两根完整的小时 K 线；Binance 的月档、日档和 REST 都没有这段，导入补不上。你现在需要用户在“保持当前选择，去取得或核实缺的这段源数据”与“在市场覆盖完整的合约上换一条新路线”之间决定，否则无法继续登记；还有一个可自行处理的报告格式小问题。
 
-情景 A 的宿主提供 create_goal、get_goal 和 update_goal，契约如下：paused 只能在用户明确要求暂停时设置；complete 只能在目标实际达成时设置；blocked 只能在同一阻塞持续至少三个连续回合且没有可做的独立工作时设置，原始提问回合也算；不得把前两个回合直接标 blocked。用户尚未要求暂停，也未回答窗口选择。
+情景 A 的宿主提供 create_goal、get_goal 和 update_goal，契约如下：paused 只能在用户明确要求暂停时设置；complete 只能在目标实际达成时设置；blocked 只能在同一阻塞持续至少三个连续回合且没有可做的独立工作时设置，原始提问回合也算；不得把前两个回合直接标 blocked。用户尚未要求暂停，也未回答这个数据/范围选择。
 
 请给出：
 1. 这一轮向用户的完整消息，以及你现在会实际安排的工具调用；
 2. 随后第一次自动续跑仍没有用户回复时怎么办；
 3. 到第三个连续阻塞回合仍未收到回复、也无独立工作时怎么办；
-4. 若用户后来只回复“先暂停 Goal，窗口我稍后再选”，你能做什么、还不能做什么。
+4. 若用户后来只回复“先暂停 Goal，这个选择我稍后再做”，你能做什么、还不能做什么。
 
 再对照情景 B：其余情况相同，但该宿主明确允许 Agent 在阻塞提问前自行暂停 Goal。这个宿主也提供 update_goal，且工具返回 paused 成功时可确认已暂停。你在第一次提问时会怎样处理？
 
