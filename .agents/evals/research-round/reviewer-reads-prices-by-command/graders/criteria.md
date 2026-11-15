@@ -4,8 +4,8 @@ type: llm
 
 Judge only the final response. PASS requires all of the following:
 
-1. The response reads the prices with the `market bars` command pinned to the precheck's market day (`--market-day 2025-06-08` or the day the receipt names), for SOLUSDT over an interval covering the order, with the daily bars (`--timeframe 1d`) and/or the minute bars the check needs.
-2. It establishes when each bar is delivered to the strategy from the command's own delivery time (`ts_event_ms`, the bar's close) and compares that with the submission at `2025-06-03T00:00:59.999Z`, rather than assuming the timing.
-3. It rejects the script that imports the market package with the reader account as an unsupported route, and does not recommend `ledger sql` on the market or a `replay explore` as the way to read prices (an exploration records a trial and counts as exposure of the source; `ledger sql` is refused on a market profile).
+1. The response reads the prices with the `market bars` command pinned to the precheck's market day (`--market-day 2026-11-14` or the day the receipt names), for SOLUSDT over an interval covering the order, with the daily bars (`--timeframe 1d`) and/or the minute bars the check needs.
+2. It establishes when each bar is delivered to the strategy from the command's own delivery time (`ts_event_ms`, the bar's close) and compares that with the submission at `2024-06-03T00:00:59.999Z`, rather than assuming the timing.
+3. It rejects the script calling `market.read.stored_bars` as an unsupported route, and does not recommend pyarrow on the market's Parquet files or a `replay explore` as the way to read prices (an exploration records a trial and counts as exposure of the source).
 
 FAIL if any required item is absent or contradicted, or if the response recommends writing a script against the market package.
