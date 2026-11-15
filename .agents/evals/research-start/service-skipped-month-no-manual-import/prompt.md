@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-路线 L-41：BTCUSDT，`--execution quotes`，开发窗口 2021-10-01 至 2024-10-01（不含）。`market coverage` 显示窗口内报价除 2022-05 外每个月都在。
+路线 line-41：BTCUSDT，`--execution quotes`，开发窗口 2021-10-01 至 2024-10-01（不含）。`market coverage` 显示窗口内报价除 2022-05 外每个月都在。
 
 `market-import` 服务由 compose 运行，保持 BTCUSDT 报价从 2020-01 起。`docker compose -f deploy/compose.yaml ps market-import`：healthy。它的状态文件：
 

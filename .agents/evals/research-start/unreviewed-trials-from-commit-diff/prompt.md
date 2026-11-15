@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-新会话开始，继续路线 L-9 的研究（起点 donchian-root@1，开发窗口 2021-10-01 至 2024-09-30，市场日 2026-10-05）。research state 输出摘录：
+新会话开始，继续路线 line-9 的研究（起点 donchian-root@1，开发窗口 2021-10-01 至 2024-09-30，市场日 2026-10-05）。research state 输出摘录：
 
 ```
 recommendation: donchian-root@5 (judgment j-0104, based_on 8e9f0a1)

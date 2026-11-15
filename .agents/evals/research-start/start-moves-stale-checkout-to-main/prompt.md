@@ -7,7 +7,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 （中断后恢复）research-start
 
-本会话目标里的路线 `research-line-20261028-rsi-btc-15m`（起点 `rsi-reversion@3`，开发窗口 2021-10-01 至 2024-09-30，市场日 `2026-10-02`）。下一步是为 `rsi-reversion@4` 登记并做它的正式研究回放。
+本会话目标里的路线 `rsi-btc-15m`（起点 `rsi-reversion@3`，开发窗口 2021-10-01 至 2024-09-30，市场日 `2026-10-02`）。下一步是为 `rsi-reversion@4` 登记并做它的正式研究回放。
 
 本会话刚跑过的命令和输出：
 
