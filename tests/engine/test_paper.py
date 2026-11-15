@@ -292,6 +292,22 @@ class CadenceTests(unittest.TestCase):
         self.assertEqual((settled.ts_event, settled.ts_init, settled.next_funding_ns, settled.rate),
                          (settlement, settlement + 3, settlement, Decimal("0.0002")))
 
+    def test_a_settlement_binance_moves_later_before_it_is_due_is_not_one(self):
+        """Binance lengthens a funding interval (1 to 4 hours for HOTUSDT after 2026-11-12 20:00, its funding info
+        updated at 20:01): an estimate naming 21:00, the old interval's next, followed before 21:00 by ones naming
+        00:00 is no settlement at 21:00, and the replay streams none; the next is 00:00's."""
+        hour = 3600 * 10**9
+        cadence = Cadence()
+        self.assertIsNone(cadence.funding(estimate(DAY + 19 * hour + 5, DAY + 20 * hour)))
+        settled = cadence.funding(estimate(DAY + 20 * hour + 3, DAY + 21 * hour))
+        assert settled is not None
+        self.assertEqual(settled.ts_event, DAY + 20 * hour)
+        self.assertIsNone(cadence.funding(estimate(DAY + 20 * hour + MINUTE_NS, DAY + 24 * hour)))
+        self.assertIsNone(cadence.funding(estimate(DAY + 23 * hour, DAY + 24 * hour)))
+        settled = cadence.funding(estimate(DAY + 24 * hour + 4, DAY + 28 * hour))
+        assert settled is not None
+        self.assertEqual(settled.ts_event, DAY + 24 * hour)
+
 
 class PlanTests(unittest.TestCase):
     def test_instances_keep_membership_from_the_input_start_and_a_non_member_is_refused(self):

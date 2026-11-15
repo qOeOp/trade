@@ -30,6 +30,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `on_position_event` callbacks missed events, and the seal read `complete` with no reason). A script that matches
   seal reasons exactly sees a reason it did not know. Paper image only; the replay image is unchanged (doctor
   20261114-43, the user 2026-11-15).
+- Paper and Live: after Binance changes a contract's funding interval, the next settlement is the one Binance makes,
+  as a replay streams it. A start's warm-up waits for the settlement the contract's interval now
+  (`fapi/v1/fundingInfo`) makes due at or before T; it used to predict it from the spacing of the last two, so a start
+  after a shortening (8 to 1 hours) could miss that settlement and a start after a lengthening (1 to 4 hours) waited
+  for one that never came, `WARMUP_TIMEOUT`. The live stream's estimate that moves the next funding time later before
+  the named time has come is no longer taken for a settlement at the named time. The change gives a new replay image;
+  replays are unchanged.
 - Breaking (Paper end reason): a Paper run whose native cache process (the runner's Redis child) exits or stops
   answering now ends with `PAPER_CACHE_UNAVAILABLE`: its working orders are canceled, positions stay open, and the
   seal's reasons say `REFUSED:PAPER_CACHE_UNAVAILABLE` and `STOPPED:PAPER_CACHE_UNAVAILABLE`. Before, a run whose
@@ -50,6 +57,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `missing` names what is lacking (`veto YEAR`, `control`, `holdout`, `targets`). `whole_years` counts every whole
   veto year replayed, invalid ones included. Nothing is stored and no history run changes; the History page shows
   such a row's verdict as a dash (doctor 20261114-12).
+- Breaking (`line history`, `line close`, `research history`): the candidates of a line's closing history test are
+  its sources whose latest passed research run carries economic evidence, the read-time judgment `research status`
+  already applies. A source whose review failed, or whose run shows no real activity, used to be replayed, shown
+  with its development readings and judged like any other. It is now left out: not replayed, not a row, not counted
+  in `participants` or in the deflated Sharpe's trials, and `line close` no longer requires its segments. Both
+  commands name it in the new `without_economic_evidence` with its reasons and no reading; a source that loses its
+  evidence after its history runs moves there too. Nothing is stored and no history run changes (doctor
+  20261114-13).
 - Live (finding 20261114-29, the part about answers of the wrong shape): an answer from Binance with HTTP 200 that
   lacks what Live's own read-only client reads from it (the server time, the instrument list) is now the refusal
   `LIVE_ACCOUNT_RESPONSE`, where the client raised `KeyError` or `TypeError`. A periodic comparison or a held start's

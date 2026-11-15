@@ -113,6 +113,10 @@ replay's update at the replay's stamps and rate; so does one stamped T unless th
 or a bar history other than daily bars, since the replay a run is compared with then starts before T. Later settlements
 come from the stream (`engine.cadence`): the settled rate, stamped at the settlement's hour where a replay stamps
 Binance's settlement time (0 to 7 ms later in the settlements of 2026-11 sampled, 13 ms in one of 2025-10).
+Binance changes a contract's funding interval between 1, 4 and 8 hours after a settlement and settles at its
+multiples. The warm-up waits for the settlement that the interval now (`fapi/v1/fundingInfo`) makes due at or before
+T, not the one the latest settlements' spacing predicts; in the stream, an estimate that names a later time before
+the named one has come is no settlement.
 Klines that miss or are not adjacent are `WARMUP_INSUFFICIENT` or `WARMUP_NOT_ADJACENT`, and a fetch or
 delivery not done by T + 45 s is `WARMUP_TIMEOUT`; no order can go out before the warm-up ends. Paper
 refuses the run and Live stops it. A live aggregation closes on a timer, but the bucket's last Binance minute
