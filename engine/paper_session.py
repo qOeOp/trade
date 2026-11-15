@@ -107,16 +107,22 @@ class Session:
             return
         try:
             self.cut(cache)
-            self.error = None
         except Exception as exc:
             # Whatever the native cache raises (a dead child gives RuntimeError: broken pipe) is a deferred cut. An
             # exception out of the timer callback that calls this stops rc7's dispatch for good: the journal and the
             # checkpoint stopped, STOP was ignored and `paper stop` ended in SIGKILL (2026-11-15, finding 20261114-34).
-            found = exc if isinstance(exc, checkpoint.Refusal) else checkpoint.fail(
-                f"the native checkpoint failed: {type(exc).__name__}: {exc}")
-            if str(found) != self.error:
-                print(f"Paper checkpoint deferred: {found}", flush=True)
-                self.error = str(found)
+            # Only its text leaves this block. The exception's traceback holds this frame and so `cache`, rc7's
+            # thread-bound PyCache: kept in a local, it made a cycle that a garbage collection on the native cache's
+            # I/O thread freed, where rc7 refuses the drop ("PyCache is unsendable, but is being dropped on another
+            # thread", one per deferred cut; finding 20261115-03).
+            found = str(exc if isinstance(exc, checkpoint.Refusal) else checkpoint.fail(
+                f"the native checkpoint failed: {type(exc).__name__}: {exc}"))
+        else:
+            self.error = None
+            return
+        if found != self.error:
+            print(f"Paper checkpoint deferred: {found}", flush=True)
+            self.error = found
 
     def restore_source(self, strategy, iid: str) -> None:
         saved = (self.saved or {}).get("sources", {}).get(iid)

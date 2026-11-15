@@ -25,9 +25,16 @@ class NativeReadbackTests(unittest.TestCase):
         before = NativeCache._native([account([a, b])])
         self.assertEqual(before, NativeCache._native([account([a, a, b], flag=False)]))
         self.assertNotEqual(before, NativeCache._native([account([a, b, a])]))
-        self.assertNotEqual(before, NativeCache._native([account([a, b], total="99 USDT")]))
-        self.assertNotEqual(before, NativeCache._native([account([a, b], margin="5 USDT")]))
         self.assertEqual(json.loads(before[0])["last_event"], b)
+
+    def test_margins_with_no_event_behind_them_are_not_compared(self):
+        # rc7's initialize_positions sets an open position's maintenance margin in memory only, so after a resume
+        # the owner's margins and locked balance differ from the account Redis rebuilds (finding 20261115-03).
+        a, b = {"event_id": "a", "balance": "100"}, {"event_id": "b", "balance": "101", "margins": []}
+        self.assertEqual(NativeCache._native([account([a, b])]),
+                         NativeCache._native([account([a, b], total="99 USDT", margin="5 USDT")]))
+        self.assertNotEqual(NativeCache._native([account([a, b])]),
+                            NativeCache._native([account([a, dict(b, margins=["5 USDT"])])]))
 
     def test_an_unfilled_orders_liquidity_side_is_not_compared_and_a_filled_ones_is(self):
         # rc7's Sandbox sets MAKER on a resting limit order without an event; Redis rebuilds it from its events.
