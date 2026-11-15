@@ -202,8 +202,8 @@ REFUSALS: dict[str, str] = {
     "ORDER_RULE": "A strategy's order command broke the order rules of engine.order_rules; it was not sent.",
     "METRICS_MISSING": "--metrics is given but an active contract's export holds no metrics in some UTC month of its "
                        "trading window.",
-    "METRICS_NOT_SERVED": "A strategy subscribed to metrics the run does not stream (no --metrics, or paper "
-                          "trading); it would see none.",
+    "METRICS_NOT_SERVED": "A strategy subscribed to metrics the run does not stream (no --metrics, or a contract "
+                          "outside the run); it would see none.",
     "DATA_COUNT_MISMATCH": "The engine consumed another number of events than the export receipts hold.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",
     "LIFECYCLE_BUNDLE_MISSING": "The summary counts lifecycle events but the inputs name no lifecycle bundle.",
@@ -285,8 +285,7 @@ INTEGRITY_CODES: dict[str, str] = {
     "EXPOSURE_WRITE_FAILED": "Writing the exposure table failed.",
     "PAPER_EXEC_CLIENT_NOT_SANDBOX": "A paper run traded an account other than the Sandbox's; the run stopped.",
     "TRADES_NOT_SERVED": "A paper strategy subscribed to trades, which paper trading does not stream; the run stopped.",
-    "METRICS_NOT_SERVED": "A paper strategy subscribed to metrics, which paper trading does not stream; the run "
-                          "stopped.",
+    "METRICS_NOT_SERVED": "A paper strategy subscribed to metrics of a contract outside the run; the run stopped.",
     "SUBSCRIPTION_OUTSIDE_CONTRACT": "A paper strategy subscribed to data no run serves; the run stopped.",
     "ORDER_RULE": "A paper strategy's order command broke the order rules; it was not sent and the run stopped.",
     "TERMS_CHANGED": "A paper contract's tick size, step size or minimum notional differs from the market's at the "

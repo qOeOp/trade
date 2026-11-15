@@ -177,8 +177,10 @@ class ImportTests(unittest.TestCase):
         row = {"catalog_path": str(Path(found["root"]) / "BTCUSDT"),
                "instrument_id": run.InstrumentId.from_str(receipt["pieces"][0]["instrument_id"])}
         first = next(run._metrics_events(row))
-        self.assertEqual(first.data, run.Metrics(row["instrument_id"], Decimal("1000.5"), Decimal("1.25"),
-                                                 Decimal("2.5"), Decimal("0.75"), low + 5 * 60 * 10**9,
+        # Stored 1.25, 2.5 and 0.75, shown as REST shows them: account ratios from 4-decimal shares (5556 / 4444,
+        # 4286 / 5714), the position ratio to 4 decimals.
+        self.assertEqual(first.data, run.Metrics(row["instrument_id"], Decimal("1000.5"), Decimal("1.2502"),
+                                                 Decimal("2.5"), Decimal("0.7501"), low + 5 * 60 * 10**9,
                                                  low + 10 * 60 * 10**9))
         self.assertEqual(run.months_missing(row, "Metrics", low, high), [])
         noon = low + store.DAY * 10**6 // 2
@@ -191,6 +193,18 @@ class ImportTests(unittest.TestCase):
         self.assertNotIn("metrics", plain["receipts"]["BTCUSDT"]["pieces"][0]["counts"])
         self.assertNotIn("metrics_rule", plain["receipts"]["BTCUSDT"])
         self.assertFalse(list(Path(plain["root"]).rglob("metrics")))
+
+    def test_an_exported_ratio_is_the_value_binance_rest_shows(self):
+        """ETHUSDT archive rows of 2026-11-13 00:00 and 00:05 against fapi.binance.com/futures/data at +5 min: an
+        account ratio is the quotient of 4-decimal shares, not the archive's ratio rounded (3.6056, 3.4981)."""
+        from market import export
+        for name, stored, shown in (("count_toptrader_long_short_ratio", "3.60563315", "3.6062"),
+                                    ("count_long_short_ratio", "3.49812048", "3.4984"),
+                                    ("count_long_short_ratio", "3.49450600", "3.4944"),
+                                    ("sum_toptrader_long_short_ratio", "1.83005800", "1.8301"),
+                                    ("sum_toptrader_long_short_ratio", "1.83032500", "1.8303")):
+            self.assertEqual(export.shown_ratio(name, Decimal(stored)), Decimal(shown))
+        self.assertIsNone(export.shown_ratio("count_long_short_ratio", None))
 
     def test_later_import_appends_days_published_since_and_records_gaps_before_the_last(self):
         profile = self.market()

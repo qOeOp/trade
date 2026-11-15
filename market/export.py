@@ -20,7 +20,7 @@ market day (`market.read_funding`, `market bars`), and the receipt is sealed wit
 from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 import errno
 import hashlib
 import json
@@ -381,13 +381,33 @@ def trade_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, 
 
 
 # Open interest and long/short ratios (market/metrics.py): a row stamped create_time describes create_time + 5 min
-# (its open interest equals public REST's then) and reaches a strategy 5 minutes later, past REST's publication
-# (at most 183 s after its stamp, measured 2026-10-31; docs/plans/binance-open-interest-input.zh.md). Both are
-# whole minutes, so a row arrives on a minute boundary: an order it prompts in the bar environment fills at the
-# close of the bar that ends there, not at a price older than the decision.
-METRICS_RULE = "binance-metrics-visible-v1"
+# (public REST's row of that timestamp) and reaches a strategy 5 minutes later, past REST's publication (at most
+# 183 s after its stamp, measured 2026-10-31; docs/plans/binance-open-interest-input.zh.md). Both are whole minutes,
+# so a row arrives on a minute boundary: an order it prompts in the bar environment fills at the close of the bar
+# that ends there, not at a price older than the decision. Its values are the ones REST shows, which Paper and Live
+# read (engine.metrics; docs/plans/binance-metrics-rest-parity.zh.md): open interest as stored, the ratios at REST's 4
+# decimals, each account ratio the quotient of its long and short shares, each share rounded to 4 decimals first.
+METRICS_RULE = "binance-metrics-visible-v2"
 METRICS_DESCRIBES_MS = 5 * MINUTE  # ts_event = create_time + 5 min
 METRICS_VISIBLE_MS = 10 * MINUTE  # ts_init = create_time + 10 min
+RATIO_PLACES = Decimal("0.0001")
+ACCOUNT_RATIOS = ("count_toptrader_long_short_ratio", "count_long_short_ratio")
+
+
+def shown_ratio(name: str, ratio: Decimal | None) -> Decimal | None:
+    """The long/short ratio `name` as Binance's REST shows the archive's `ratio` (None stays None): half-up to 4
+    decimals, an account ratio as round(long) / round(short) with long = ratio / (1 + ratio) and short = 1 / (1 +
+    ratio). The archive's position ratio has 6 decimals, so one at exactly half a unit of the 4th (about 1 in 90 rows)
+    is a tie REST may have resolved either way."""
+    if ratio is None:
+        return None
+    if name not in ACCOUNT_RATIOS:
+        return ratio.quantize(RATIO_PLACES, ROUND_HALF_UP)
+    with localcontext() as context:
+        context.prec = 60
+        long = (ratio / (1 + ratio)).quantize(RATIO_PLACES, ROUND_HALF_UP)
+        short = (1 / (1 + ratio)).quantize(RATIO_PLACES, ROUND_HALF_UP)
+        return (long / short).quantize(RATIO_PLACES, ROUND_HALF_UP)
 
 
 def metrics_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, high_ms: int | None,
@@ -406,15 +426,16 @@ def metrics_rows(market: files.Market, market_day: str, symbol: str, low_ms: int
 
 def write_metrics(root: Path, instrument_id: str, rows: list[tuple]) -> int:
     """market.write_metrics: one file of the rows under data/metrics/<instrument>/ (named by its first and last
-    ts_init), ts_event and ts_init in nanoseconds by the visibility rule and the values as exact decimals (a ratio
-    the archive left empty stays null); the runner streams each row as custom data."""
+    ts_init), ts_event and ts_init in nanoseconds by the visibility rule and the values as REST shows them (shown_ratio;
+    a ratio the archive left empty stays null); the runner streams each row as custom data."""
     if not rows:
         return 0
     stamps = np.array([row[0] for row in rows], dtype=np.int64)
     columns = {"ts_event": pa.array((stamps + METRICS_DESCRIBES_MS) * 1_000_000, pa.int64()),
                "ts_init": pa.array((stamps + METRICS_VISIBLE_MS) * 1_000_000, pa.int64())}
     for index, name in enumerate(files.METRICS_VALUES, start=1):
-        columns[name] = pa.array([row[index] for row in rows], pa.decimal128(38, 16))
+        shown = [row[index] for row in rows] if index == 1 else [shown_ratio(name, row[index]) for row in rows]
+        columns[name] = pa.array(shown, pa.decimal128(38, 16))
     table = pa.table(columns).replace_schema_metadata({"type_name": "Metrics", "instrument_id": instrument_id,
                                                        "rule": METRICS_RULE})
     directory = Path(root) / "data" / "metrics" / instrument_id

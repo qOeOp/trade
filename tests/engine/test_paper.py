@@ -99,7 +99,7 @@ class HoldTests(unittest.TestCase):
 
 
 class TradeSubscriptionTests(unittest.TestCase):
-    def test_a_trade_or_metrics_subscription_stops_the_run_since_paper_streams_neither(self):
+    def test_a_trade_or_unserved_metrics_subscription_stops_the_run(self):
         self.assertTrue(issubclass(paper._PaperConfigured, paper.strategy_runtime.Subscriptions))
         held = (paper.STOP, paper.STOP_REASON, paper.strategy_runtime.BREACHES)
         for value in held:
@@ -107,7 +107,7 @@ class TradeSubscriptionTests(unittest.TestCase):
         for code, subscription in (
                 ("TRADES_NOT_SERVED", "R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE"),
                 ("METRICS_NOT_SERVED",
-                 "R1-BTCUSDT: subscribe_data Metrics for BTCUSDT-PERP.BINANCE, which this run does not stream")):
+                 "R1-BTCUSDT: subscribe_data Metrics for ETHUSDT-PERP.BINANCE, which this run does not stream")):
             for value in held:
                 value.clear()
             recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))

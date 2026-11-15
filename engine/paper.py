@@ -21,8 +21,8 @@ corrects where it can:
   its declared WARMUP history and the minutes that warm its aggregations are read from Binance's public klines into
   a temporary Catalog and served as a replay serves them, so its first aggregated bars are complete.
 - No trades are streamed (orders match bars, so a mid-bar trade signal would see the bar's end); a strategy
-  subscribing to trades stops the run with ``TRADES_NOT_SERVED``. No metrics are streamed either; a metrics
-  subscription stops it with ``METRICS_NOT_SERVED``.
+  subscribing to trades stops the run with ``TRADES_NOT_SERVED``. Metrics of the run's contracts are read from
+  Binance's public REST at a replay's stamps and values (engine.metrics).
 - The Sandbox matches a bar before the strategy sees it, as a replay's exchange does, but its fills reach the
   cache on the live runner's execution channel, after the bar's dispatch. The strategy's data callbacks
   therefore wait, in the order they came, until the next data event is dispatched: rc7's live runner dispatches
@@ -92,7 +92,7 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.trading import Strategy
 
-from engine import history, strategy as strategy_runtime
+from engine import history, metrics, strategy as strategy_runtime
 from engine import paper_checkpoint as checkpoint, protection
 from engine.order_rules import OrderRules
 from engine.fill import fill_model
@@ -219,11 +219,10 @@ def _paper_clock(self):
     return PaperClock(Strategy.clock.__get__(self, type(self)), self)
 
 
-class _PaperConfigured(history.Warming, OrderRules, strategy_runtime.Subscriptions):
+class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runtime.Subscriptions):
     """Construct the source's entry class from the paper runner's inputs (the same source arguments as Replay).
     Paper trading streams no trades, so any trade subscription stops the run (TRADES_NOT_SERVED): its orders
-    would match the bars, as a replay's in the bar environment. It streams no metrics either
-    (METRICS_NOT_SERVED)."""
+    would match the bars, as a replay's in the bar environment. Metrics come from REST (engine.metrics.Feed)."""
 
     _source_constructor_args: tuple[tuple, dict]
     _runner_warmup: tuple[tuple[str, int], ...]
@@ -249,6 +248,7 @@ class _PaperConfigured(history.Warming, OrderRules, strategy_runtime.Subscriptio
         strategy_runtime.declare(self, declared)
         self._warming_setup(kwargs["strategy_id"], args[0], inputs.warm_at, declared,
                             vars(type(self))["_runner_funding"], FETCH[0] if FETCH else None)
+        self._metrics_setup(READ_METRICS[0] if READ_METRICS else None)
         super().__init__(*args, **kwargs)
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
         self._replay_input_start_ns = inputs.input_start_ns
@@ -276,6 +276,10 @@ class _PaperConfigured(history.Warming, OrderRules, strategy_runtime.Subscriptio
             self._paper_subscription_changes = True
         self._paper_subscriptions.add(str(bar_type))
         return super().subscribe_bars(bar_type, *args, **kwargs)
+
+    def _metrics_follow(self, instrument_id: str) -> None:
+        self._paper_subscription_changes = True  # a recovery restores no metrics subscription (engine.paper_session)
+        return super()._metrics_follow(instrument_id)
 
     def unsubscribe_bars(self, bar_type, *args, **kwargs):
         self._paper_subscription_changes = True
@@ -307,8 +311,10 @@ class PaperInputs:
     warm_at: int  # T of this process's warm-up: the input start, or for a recovery the first minute it can be
 
 
-# The fetch the instances' warm-ups use (engine.history.fetch into this run's Catalog), set by _main.
+# The fetch the instances' warm-ups use (engine.history.fetch into this run's Catalog) and the read of their metrics
+# (engine.metrics.read), set by _main.
 FETCH: list = []
+READ_METRICS: list = []
 
 
 def _begin(source) -> None:
@@ -863,9 +869,11 @@ def _main(args) -> None:
             journal("waiting", until_ns=start_ns)
         planned = plan(list(args.symbols), membership, start_ns, warm_at, args.universe.parent / membership_months.MONTHS)
         FETCH[:] = [functools.partial(history.fetch, catalog=catalog, proxy_url=args.proxy_url)]
+        READ_METRICS[:] = [functools.partial(metrics.read, proxy_url=args.proxy_url)]
         strategy_runtime.STRATEGIES.clear()
         for served in strategy_runtime.SERVED.values():
             served.clear()
+        strategy_runtime.SERVED["Metrics"].update(instrument_id(symbol) for symbol in args.symbols)
         strategy_runtime.BREACHES.clear()
         strategy_runtime.DECLARED.clear()
         order_rules.WARMING.clear()
@@ -921,6 +929,7 @@ def _main(args) -> None:
             backend.close()
         SESSION = None
         FETCH.clear()
+        READ_METRICS.clear()
         shutil.rmtree(catalog, ignore_errors=True)
 
 

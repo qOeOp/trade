@@ -108,10 +108,11 @@ environment, decided and passed like `--execution`; the pinned market day must h
 month of the trading window (`market coverage`, `metrics`). The source subscribes with
 `subscribe_data(DataType("Metrics", metadata={"instrument_id": str(instrument_id)}))` and reads
 `data.data` in `on_data`: `sum_open_interest` (base asset) and the three ratios as `Decimal`, a ratio
-the archive left empty as `None`. Each row describes `ts_event` and arrives at `ts_init`, 10 minutes
-after the archive's `create_time`, on a whole minute; it is signal input only. A subscription the run
-does not serve (no flag, paper trading) is `METRICS_NOT_SERVED`; report the rows received and the
-empty ratios read in `replay_diagnostics`.
+the archive left empty as `None`, at the 4 decimals Binance's REST shows. Each row describes `ts_event`
+and arrives at `ts_init`, 10 minutes after the archive's `create_time`, on a whole minute; it is signal
+input only. Paper and Live read the same rows from REST. A subscription the run does not serve (no
+flag) is `METRICS_NOT_SERVED`; report the rows received and the empty ratios read in
+`replay_diagnostics`.
 
 ## Orders and protection
 
