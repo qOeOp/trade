@@ -31,6 +31,15 @@ export function meetsBoth(cell: HistoryCell | null, targets: HistoryLine["target
   return m.annual_return != null && m.mark_max_drawdown != null && m.annual_return >= targets.annual_return && m.mark_max_drawdown <= targets.max_drawdown;
 }
 
+/** `holdout_prior_trials` as the API gives it: the count of counted trials in this ledger that already searched the line's
+ *  holdout (its own history trials left out), or null when the API gave none (before the line's first research trial,
+ *  or an older server). Zero is a count: none was counted here, which says nothing of searches outside the ledger. */
+export const priorTrials = (line: HistoryLine): number | null => line.holdout_prior_trials?.trials ?? null;
+
+/** The earlier searches by line and purpose, one phrase each ("rsi-twin, history: 2 trials"; "no line" for a trial on none). */
+export const priorGroups = (line: HistoryLine): string[] =>
+  (line.holdout_prior_trials?.by_line ?? []).map((g) => `${g.line ?? "no line"}, ${g.purpose}: ${g.trials} ${g.trials === 1 ? "trial" : "trials"}`);
+
 const EDGES = [0.02, 0.15, 0.4] as const;
 /** The colour step of an annual return: grey within ±2%, then ±1 to ±3 at 15% and 40%. */
 export const returnStep = (value: number | null | undefined): Step | null => stepOf(value, EDGES);

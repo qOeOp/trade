@@ -39,3 +39,16 @@ test("returns colour by sign and size; rows with no edge hide; orders put unknow
   assert.deepEqual(h.ordered([a, b, c], "meeting").map((r) => r.run), [2, 1, 3]);
   assert.deepEqual(h.ordered([a, b, c], "development").map((r) => r.run), [1, 2, 3]);
 });
+
+test("the holdout's earlier searches: a count when the API gave one, zero is a count, no field is unknown", () => {
+  const shared = { ...line([]), holdout_prior_trials: { trials: 3, instruments: ["BTCUSDT"], by_line: [
+    { line: "rsi-twin", purpose: "history", trials: 2 }, { line: null, purpose: "explore", trials: 1 }] } };
+  assert.equal(h.priorTrials(shared), 3);
+  assert.deepEqual(h.priorGroups(shared), ["rsi-twin, history: 2 trials", "no line, explore: 1 trial"]);
+  const none = { ...line([]), holdout_prior_trials: { trials: 0, instruments: ["BTCUSDT"], by_line: [] } };
+  assert.equal(h.priorTrials(none), 0, "none counted here, not unknown");
+  assert.deepEqual(h.priorGroups(none), []);
+  assert.equal(h.priorTrials({ ...line([]), holdout_prior_trials: null }), null, "before the line's first research trial");
+  assert.equal(h.priorTrials(line([])), null, "a server that does not send it");
+  assert.deepEqual(h.priorGroups(line([])), []);
+});
