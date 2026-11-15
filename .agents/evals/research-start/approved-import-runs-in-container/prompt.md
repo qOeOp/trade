@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-线 L-21（SOLUSDT，`--execution quotes`）开跑前，`market coverage` 显示 SOLUSDT 2024-03 有 K 线、没有报价，这个月的 aggTrades 市场里也没有；SOLUSDT 不在部署的 market-import 服务的合约范围里。上一轮我已经同意补这个月的报价：你直接导吧，导完告诉我导入服务现在的状态。
+线 line-21（SOLUSDT，`--execution quotes`）开跑前，`market coverage` 显示 SOLUSDT 2024-03 有 K 线、没有报价，这个月的 aggTrades 市场里也没有；SOLUSDT 不在部署的 market-import 服务的合约范围里。上一轮我已经同意补这个月的报价：你直接导吧，导完告诉我导入服务现在的状态。
 
 你在一个 git worktree 里工作（主检出才有 `deploy/.env`）。部署在本机用 compose 跑着。
 

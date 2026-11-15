@@ -22,6 +22,36 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (Paper end reason): a Paper run whose native cache process (the runner's Redis child) exits or stops
+  answering now ends with `PAPER_CACHE_UNAVAILABLE`: its working orders are canceled, positions stay open, and the
+  seal's reasons say `REFUSED:PAPER_CACHE_UNAVAILABLE` and `STOPPED:PAPER_CACHE_UNAVAILABLE`. Before, a run whose
+  source declared the recovery protocol stopped processing data without a word (its journal and checkpoint stopped,
+  STOP was ignored, `paper stop` ended in SIGKILL after 93 seconds and the seal had no reason), and any other run
+  traded on without its cache and took 92 seconds to stop. The cache's connections also fail fast now, and a
+  checkpoint that raises anything but a refusal is deferred instead of escaping its timer. A shell or script that
+  matches seal reasons exactly sees a reason it did not know. Paper image only; the replay image is unchanged
+  (doctor 20261114-34, the user 2026-11-15).
+- Live (evidence pack): when a source unsubscribes from a contract's metrics, Live records `metrics_unsubscribed`
+  in `evidence/market.jsonl`. `live compare` no longer counts the archive rows after it as missing; it expects rows
+  again from the first one the source receives after resubscribing. Paper and Live hand no metrics row to a source
+  after it unsubscribed, including one already read in the same tick. The change gives a new runtime image.
+- Breaking (`research history`): a closing history test's combined verdict needs every reading it is defined on.
+  A whole veto year whose run is invalid or missing, or lacks a reading, used to drop out of the veto's count, so
+  the other years, or the holdout alone when every year was invalid, could read `meets_targets` true; a row without
+  a control run was judged too. Now `meets_targets` and `judged_on` are null in those cases and the summary's new
+  `missing` names what is lacking (`veto YEAR`, `control`, `holdout`, `targets`). `whole_years` counts every whole
+  veto year replayed, invalid ones included. Nothing is stored and no history run changes; the History page shows
+  such a row's verdict as a dash (doctor 20261114-12).
+- Live (finding 20261114-29, the part about answers of the wrong shape): an answer from Binance with HTTP 200 that
+  lacks what Live's own read-only client reads from it (the server time, the instrument list) is now the refusal
+  `LIVE_ACCOUNT_RESPONSE`, where the client raised `KeyError` or `TypeError`. A periodic comparison or a held start's
+  read that gets such an answer is read again, where the run ended `unresolved` (`observer_failure`) with the node
+  stopped and its positions left open. An entry's read is refused under that code and ends the run on the STOP path
+  (before: under the code `KeyError`); the brake's read is lost as before. The client still makes each request once.
+- Breaking (precheck output): `replay precheck` returns `technical` (populations, the activity and plan checks, the
+  order funnel) where it returned `metrics`, which carried annual return, drawdown, Sharpe, win rate and the cost
+  slices to the author before the registration. Nothing stored changes; `replay report` and the run reports after
+  registration are as before (doctor 20261114-14).
 - Breaking (clock callbacks): a callback a source registers with `clock.set_timer_zoned` is guarded like those of
   `set_timer` and `set_time_alert`. When it raises, the failure is recorded (`runtime_failures.jsonl`) and the run
   fails, where the engine used to log one error line and the run passed. In Paper such a timer now counts as a user
@@ -73,9 +103,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Breaking (Live restart rule, finding 20261114-23): a Live runner that ends by its own refusal or failure is no
   longer taken for an interruption and started again. Once armed, every such exit of a run records `unresolved`
   (the final account read after a completed native exit failing or not flat, a start again without its native cache
-  or with changed account modes, a clock outside the limits), and the control never restarts a runner that exited
-  with status 1 or 2. A killed runner and SIGTERM start again as before. Only a start again whose first account read
-  fails (`LIVE_ACCOUNT_UNAVAILABLE`) is retried, within the existing four run launches an hour.
+  or with changed account modes), and the control never restarts a runner that exited with status 1 or 2. A killed
+  runner and SIGTERM start again as before. Only a start again whose first account read fails
+  (`LIVE_ACCOUNT_UNAVAILABLE`), or shows this clock outside the limits (`LIVE_CLOCK`, the user 2026-11-15: a host
+  clock that steps aside comes back by itself), is retried, within the existing four run launches an hour; the
+  clock's limits are unchanged, and a first start over them is refused as before.
 - Paper: a recovery no longer drops or reuses the position IDs of resting limit entries. The Sandbox now leaves
   position IDs to the execution engine (`use_position_ids=False`, as Live), so a recovered run's new fills cannot
   collide with a cached position of another contract (entry stuck at ACCEPTED, no stop, no re-entry) or of the same

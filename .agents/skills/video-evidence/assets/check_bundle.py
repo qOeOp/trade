@@ -66,29 +66,52 @@ def sha(path):
     return digest.hexdigest()
 
 
-def load(path, b):
-    """Strict JSON: duplicate keys and non-finite numbers are refused."""
+def nonfinite(value, path=()):
+    """Paths (keys and list indexes) of every NaN or infinity inside value."""
+    if isinstance(value, float) and not math.isfinite(value):
+        yield path
+    for k, child in enumerate(value) if isinstance(value, list) else value.items() if isinstance(value, dict) else []:
+        yield from nonfinite(child, path + (k,))
+
+
+def unread(path):
+    """True for a transcript value no check reads, i.e. outside language, segments[].{start,end,text,compression_ratio,words}
+    and words[].{word,start,end,probability}: whisper's avg_logprob, NaN for a segment it scored no token for, is one."""
+    if not path or path[0] not in ("language", "segments"):
+        return True
+    if path[0] == "segments" and len(path) > 2 and path[2] not in ("start", "end", "text", "compression_ratio", "words"):
+        return True
+    return len(path) > 4 and path[:1] == ("segments",) and path[2] == "words" and path[4] not in ("word", "start", "end", "probability")
+
+
+def load(path, b, tolerate=None):
+    """Strict JSON: duplicate keys and non-finite numbers are refused, except at paths tolerate() accepts (counted in flags)."""
     def pairs(items):
         if len({k for k, _ in items}) != len(items):
             raise ValueError("duplicate key")
         return dict(items)
-
-    def finite(text):
-        if not math.isfinite(float(text)):
-            raise ValueError("non-finite number " + text)
-        return float(text)
     try:
-        value = json.loads(path.read_text(), object_pairs_hook=pairs, parse_float=finite, parse_constant=finite)
-        if isinstance(value, dict):
-            return value
-        raise ValueError("not an object")
+        value = json.loads(path.read_text(), object_pairs_hook=pairs)
+        if not isinstance(value, dict):
+            raise ValueError("not an object")
+        bad = list(nonfinite(value))
+        for p in bad:
+            if not (tolerate and tolerate(p)):
+                raise ValueError("non-finite number at " + "".join(f"[{k}]" if isinstance(k, int) else f".{k}" for k in p))
+        counts = {}
+        for p in bad:
+            key = next(k for k in reversed(p) if isinstance(k, str))
+            counts[key] = counts.get(key, 0) + 1
+        if counts:
+            out["flags"]["non_finite_unread"] = counts
+        return value
     except (OSError, ValueError, UnicodeDecodeError) as error:
         check("bundle", f"readable_json:{path.relative_to(b).as_posix()}", False, str(error)[:200])
         return {}
 
 
 def number(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def exact(value):
@@ -526,7 +549,7 @@ def body(a):
         if not check("bundle", "layout:" + rel, LAYOUT.fullmatch(rel)) or p.stat().st_size >= 8 << 20:
             continue
         if p.suffix == ".json":
-            docs[rel] = load(p, b)
+            docs[rel] = load(p, b, unread if rel == "asr/transcript.json" else None)
         elif p.suffix == ".png":
             problem = png_plain(p)
             check("bundle", "png_plain:" + rel, not problem, problem)

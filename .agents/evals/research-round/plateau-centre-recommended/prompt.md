@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究线 `research-line-20261104-trend-4h-eth`（目标最大回撤 ≤20%、年化 ≥20%）刚触发 `REVIEW_DUE`。比较表里这条线的 5 个候选只差一个常数 LENGTH，别的都相同：
+研究线 `trend-4h-eth`（目标最大回撤 ≤20%、年化 ≥20%）刚触发 `REVIEW_DUE`。比较表里这条线的 5 个候选只差一个常数 LENGTH，别的都相同：
 
 | 候选 | trial | LENGTH | Sharpe | 年化 | 最大回撤 |
 |---|---|---|---|---|---|

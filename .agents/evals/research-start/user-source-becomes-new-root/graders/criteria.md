@@ -2,7 +2,7 @@
 type: llm
 ---
 
-With line L-5 selected, the user gives a paper's complete rules. Judge only the final response.
+With line line-5 selected, the user gives a paper's complete rules. Judge only the final response.
 
 Q1. Does it transcribe the paper into a new root, with no parent and no control, rather than a revision or edit of `ema-root@4`?
 

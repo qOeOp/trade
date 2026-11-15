@@ -87,8 +87,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the candidate (reader); the market at --market-day, exported fresh; the runtime image",
         "a precheck trial with its start receipt and execution capture; the new --output directory",
         "purpose, trial_id, source_sha256, image_ref, export_sha256, comparable_config_sha256, status (passed or "
-        "failed), problems, path, metrics, scope, exposure_exemption {trading_days, maximum_exempt_days, "
-        "note}; exit 1 unless passed",
+        "failed), problems, path, technical (populations, activity and plan checks, order_funnel; no return, "
+        "drawdown, ratio, win rate or cost measure), scope, exposure_exemption {trading_days, "
+        "maximum_exempt_days, note}; exit 1 unless passed",
         "BAD_REF, UNKNOWN_CANDIDATE; PRECHECK_WINDOW_TOO_LONG (the trading window is over the exemption, refused "
         "before anything runs); RUNTIME_NOT_CI_BUILT (the image is no CI build of this repository; any "
         "branch's passes); RUNTIME_CONTRACT_MISMATCH (the candidate's contract is not the image's); "

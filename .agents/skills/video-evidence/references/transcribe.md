@@ -72,6 +72,7 @@ Never pass `--initial-prompt` (it reaches only the first window and plants words
 | `loops`, `too_dense`, `too_sparse`, `empty_or_outside` | Not evidence: label the span; never quote or summarize it. A claim citing one fails `flagged_span_limited` unless it records the limitation. |
 | `gaps_over_3s`, `tail_gap_s` over 10 | Look at the frames there; label silence, music or "not transcribed". |
 | `repeats` | A loop only together with a flag above. |
+| `non_finite_unread` | Count of NaN or infinity in transcript fields no check reads (whisper's `avg_logprob` of an unscored segment): not a failure or a span flag; never edit them. |
 | `numbers_to_verify` | A number (or name or ticker) you rely on, in a note too, needs a frame or crop in its span, a page sidecar holding it, or the label ASR-only with the value as the ASR wrote it. |
 
 Whisper writes Mandarin numbers as Arabic or Chinese numerals (`12.5`, `十二点五`, `两小时`) and homophones hide

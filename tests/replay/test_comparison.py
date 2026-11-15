@@ -439,6 +439,22 @@ class Metrics(unittest.TestCase):
                          {"missing_metrics": 1, "late_metrics": 1, "differing_metrics": 1})
         self.assertEqual(listed["inputs"]["BTCUSDT"]["metrics"]["live_only"], [utc_text(at[4])])
 
+    def test_no_row_is_expected_after_an_unsubscribe_until_one_is_received_again(self):
+        """Live records the unsubscribe (engine.live_evidence.metrics_unsubscribed); a resubscription shows as the
+        first row received after it."""
+        at = [START + i * 5 * MINUTE for i in range(7)]
+        quit_at = at[2] + MINUTE
+        received = [metered(at[1]), {"kind": "metrics_unsubscribed", "instrument_id": BTC, "wall_ns": quit_at},
+                    metered(at[5])]
+        archive = {"BTCUSDT": stored_metrics(*at)}
+        found = comparison.compare_metrics(received, archive, at[6])["BTCUSDT"]
+        # at[2] was due before the unsubscribe and never received; at[3] and at[4] were not followed.
+        self.assertEqual({key: found[key] for key in ("archive", "live", "missing", "live_only")},
+                         {"archive": 3, "live": 2, "missing": [at[2]], "live_only": []})
+        listed = comparison.compare({"metrics": received}, None, {"BTCUSDT": archived(1)}, None, START, at[6],
+                                    archived_metrics=archive)
+        self.assertEqual(listed["summary"]["missing_metrics"], 1)
+
     def test_the_archive_gives_the_values_a_replay_streams(self):
         from market import export, files
         create = START // 10**6

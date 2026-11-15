@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import TypedDict
 import uuid
 
 from nautilus_trader.core import UUID4
@@ -28,6 +29,23 @@ from engine.config import ACCOUNT_CONTRACT
 
 MARKER = "paper-recovery"
 SECONDS = 10.0
+HEALTH_SECONDS = 2.0
+# A dead cache must fail a read or write at once. rc7's defaults (20-second timeouts, 100 retries) leave its writer
+# task retrying, `close()` waits for that task, and `node.dispose()` then does not return (measured 2026-11-15: `paper
+# stop` took 92 s and ended in SIGKILL). Live sets the same four values (engine.live_cache.NATIVE_CONNECTION).
+class NativeConnection(TypedDict):
+    connection_timeout: int
+    response_timeout: int
+    number_of_retries: int
+    max_delay: int
+
+
+NATIVE_CONNECTION: NativeConnection = {"connection_timeout": 1, "response_timeout": 1, "number_of_retries": 0,
+                                       "max_delay": 1}
+
+
+class CacheUnavailable(Exception):
+    """The native cache process exited or does not answer: the run cannot keep the cache its checkpoint needs."""
 
 
 class NativeCache:
@@ -59,15 +77,27 @@ class NativeCache:
                 raise checkpoint.fail("the native cache service failed to load; its log and originals are retained"
                                       if exited else "the native cache service did not become ready")
         self.port = port
-        self.config = RedisCacheConfig(host="127.0.0.1", port=port)
+        self.config = RedisCacheConfig(host="127.0.0.1", port=port, **NATIVE_CONNECTION)
         try:
             self.reader = RedisCacheDatabase(
                 TraderId(trader_id), UUID4(), json.dumps({"encoding": "json", "use_instance_id": False}).encode(),
-                json.dumps({"host": "127.0.0.1", "port": port}).encode(),
+                json.dumps({"host": "127.0.0.1", "port": port, **NATIVE_CONNECTION}).encode(),
             )
         except BaseException:
             self.close()
             raise
+
+    def health(self) -> None:
+        """CacheUnavailable once the child exited or does not answer a PING within HEALTH_SECONDS. Nothing is written,
+        so the checkpoint's RDB holds Nautilus' keys only. A write the adapter lost to an alive cache is the
+        readback's to find (`_freeze`)."""
+        try:
+            if self.process is not None and self.process.poll() is not None:
+                raise OSError(f"the native cache process exited with {self.process.returncode}")
+            if redis_child.command(self.port, "PING", timeout=HEALTH_SECONDS) != b"PONG":
+                raise OSError("the native cache did not answer PING")
+        except (OSError, ValueError) as exc:
+            raise CacheUnavailable(f"{type(exc).__name__}: {exc}") from None
 
     def state(self) -> dict | None:
         if not self.restored:

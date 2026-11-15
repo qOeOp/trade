@@ -2,8 +2,7 @@
 
 ## Validity before performance
 
-Product eligibility and masking determine which economic measures are available. Never recover
-masked values elsewhere. Explain absent activity or reconciliation failures from signal/readiness,
+Product eligibility and masking determine which economic measures are available. Explain absent activity or reconciliation failures from signal/readiness,
 opportunity rules and native order/event evidence. Such runs are diagnostic only, not economic
 losses or reasons to change priority.
 

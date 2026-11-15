@@ -67,6 +67,6 @@ judgment whose body begins `Change of approach.`, ranks the approaches with the 
 choice, says who chose (`chosen by the Agent` or `chosen by the user`), names each scale-only run
 left out with its reason and each counted run as a subject (`--subject trial=N`): that restarts the
 count (SKILL.md). An idea needing more contracts or inputs is a reading there, never an exit. Tell the user once, in that round's message and asking nothing: the reading above, the
-recommended version's readings research-start's recommendation.md lists, the approaches, the one
+recommended version's readings ([review.md](review.md#readings)), the approaches, the one
 chosen and why, and the judgment. Then carry out its first experiment; an approach the user names
 later replaces yours.

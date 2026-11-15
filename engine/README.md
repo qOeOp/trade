@@ -137,7 +137,10 @@ export's best bid/ask quotes (`market import-quotes`, inferred from Binance aggT
 rule, both sizes the instrument's max quantity) are streamed to the venue and drive matching on an L1
 book, bar execution is off (bars only feed signals; the source cannot subscribe to the quotes), the venue's native liquidation is on
 (`liquidation_enabled`, trigger ratio 1.0, open orders cancelled first) with the standard margin model
-(maintenance = notional x the rate, not divided by leverage), and the instruments carry the two rates.
+(initial and maintenance margin are each notional x the rate, neither divided by leverage), and the instruments carry the
+two rates. So in `quotes` `--leverage` takes no part in margin: it is still validated and recorded as the account's
+`default_leverage`, in the effective configuration and so in the run's identity, and the venue is given it, but the
+standard margin model ignores it.
 An active contract whose export holds no quote in some UTC month of its trading window (from its trade start to the
 window end or its termination) is `QUOTES_MISSING`, naming each such month: there bar execution is off, so a month
 without quotes would replay without matching. The quotes count in the consumed
@@ -185,7 +188,8 @@ configuration: the exported metrics files already carry it into the input identi
 the run does not stream is `METRICS_NOT_SERVED`. Paper and Live serve the metrics of every contract of the run
 (`engine.metrics.Feed`): at each row's `ts_init` they read REST's row of its `ts_event` (no credential) and hand it
 to `on_data` with the replay's stamps and values; what is not yet published is read again every 30 s until the
-next row is due, then a missing ratio is `None` and a row without open interest is skipped.
+next row is due, then a missing ratio is `None` and a row without open interest is skipped. After an unsubscribe
+no row reaches `on_data`, not even one read already.
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_day`, `universe_path`, `universe_sha256` (the membership file's bytes),
@@ -543,7 +547,8 @@ only container also on the outbound bridge and tunnels to `fapi.binance.com` and
 `paper stop` writes the run's `STOP` file and seals; SIGTERM comes only after a timeout, since on SIGTERM
 the node also shuts down by itself and the strategy misses its cancels. `paper seal` captures a run that
 ended by itself. How a run ended is a reason in `seal.json` (`RUNNER_EXIT_NONZERO`, `SUMMARY_MISSING`,
-`OUT_OF_MEMORY` for a kill at the memory limit) and leaves the status `complete`; only evidence that cannot be trusted
+`OUT_OF_MEMORY` for a kill at the memory limit, `REFUSED:<code>` and `STOPPED:<code>` for a refusal the runner journaled such as
+`PAPER_CACHE_UNAVAILABLE`, below) and leaves the status `complete`; only evidence that cannot be trusted
 (`SOURCE_MISMATCH`, `LEVERAGE_MISMATCH`, `EGRESS_DENIED`, or a runner that started and left no journal) seals `invalid`
 (`ledger.paper.verdict`). The daemon resumes a run that paused (SIGTERM or SIGINT) or was interrupted before its summary
 and seals every other end. The seal stores the run's files (`paper_file`): the journal by UTC day, the summary, the
@@ -552,8 +557,12 @@ egress and runner logs and `seal.json`, whose readings add the funding the Sandb
 `docs/plans/paper-admission-by-memory.zh.md`), one per source at a time.
 
 Paper recovery keeps the same unsealed run, pinned image and inputs. Each runner owns a loopback-only
-native Redis cache; immutable RDB originals and their exact journal cuts are retained. The daemon invokes
-`paper resume`, never a replacement `paper start`, after an interruption. Missing/dirty checkpoints,
+native Redis cache, whichever the source declares, and watches it every second: a child that exited or does not
+answer a PING ends the run with `PAPER_CACHE_UNAVAILABLE` (a `refusal` in the journal, then the stop of a refused
+run: working orders canceled, positions left open, summary written), since a run without its cache could not be
+recovered and would not say so. The cache's connections fail fast (one-second timeouts, no retries, as Live's), so a
+dead one cannot hold `paper stop` in `node.dispose()`. Immutable RDB originals and their exact journal cuts are
+retained. The daemon invokes `paper resume`, never a replacement `paper start`, after an interruption. Missing/dirty checkpoints,
 changed inputs, unhandled journal tails, unsupported strategy state or a missing original container refuse
 recovery and retain the account records. Explicit STOP/duration still seals. The original per-source limit
 is three actual recovery launches per hour, including failures before the runtime can journal.
@@ -820,10 +829,15 @@ then the control records `restart_limited` once and the user decides. A runner t
 failure is not interrupted, and its run is over: once armed, every such exit of a `run` records `unresolved` (with
 the refusal's `code`), whether the final account read after a completed native exit failed or was not flat, a start
 again found no native cache or changed account modes, or anything else raised; and the control never starts again a
-runner that exited with status 1 or 2, even where it could write no event. One refusal gives the start back
-instead: a start again whose first account read fails (`LIVE_ACCOUNT_UNAVAILABLE`, before anything is built) exits 3
-with no event, and the control starts the run again within the same hourly limit (finding 20261114-23, the user
-2026-11-15). Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
+runner that exited with status 1 or 2, even where it could write no event. Two refusals give the start back
+instead, before anything is built or written: a start again whose first account read fails
+(`LIVE_ACCOUNT_UNAVAILABLE`), or whose read shows this clock outside the limits (`LIVE_CLOCK`; the limits are
+unchanged), exits 3 with no event, and the control starts the run again within the same hourly limit (finding
+20261114-23, the user 2026-11-15). Both pass by themselves, a host clock that steps aside included, and the account
+may hold a position. While the clock stays outside the limits the run stays `interrupted`: nothing checks its
+positions and stops, the control records `restart_limited` each time the hourly limit keeps it from starting the
+run, and starts it again once the hour allows; `live logs` shows the refused start. A read with no usable server
+time (`LIVE_ACCOUNT_RESPONSE`) ends the run. Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
 start again checks the clock and account modes: on a flat account it builds the source, warms up and trades (event
 `resuming`); with anything open it holds (`resuming` with `held`): no source, no entries, the account read every 30
 seconds, until the account is flat (its stops, or a close at Binance), when `venue_flat_while_held` ends that start
@@ -888,9 +902,11 @@ Each Live run keeps what a replay of its source needs for comparison in `evidenc
 - `market.jsonl`, in Paper's journal shape: every bar the source received (`bar`; `historical_bar` for one a
   history request delivered), each funding settlement of its declared history (`historical_funding`: `ts_event`,
   `rate`) and each metrics row it received (`metrics`: `ts_event` and the four values, a missing ratio null; it
-  reached the source at `ts_event + 5 min`). What arrives after a stop request reaches neither the source nor the
+  reached the source at `ts_event + 5 min`), and each unsubscribe from a contract's metrics it followed
+  (`metrics_unsubscribed`: `instrument_id`). What arrives after a stop request reaches neither the source nor the
   file. Quotes, trades, MARKs and funding rates are not kept: `live compare` settles funding at Binance's published
-  rates, and compares the metrics rows with the archive's as a replay streams them.
+  rates, and compares the metrics rows with the archive's as a replay streams them, expecting none from an
+  unsubscribe's `wall_ns` until the source receives one again.
 - `reports-<ns>/`, written when the node stops in `run` and `reconcile`: `orders.csv`, `fills.csv`,
   `positions.csv`, `account.csv` and `order_events.jsonl.gz` from the native cache, through the same writers a
   replay uses (`engine.write_reports`).

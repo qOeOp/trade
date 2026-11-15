@@ -4,6 +4,8 @@
 本文是设计，不授权代码改动：第 9 节逐条列出要用户授权的检查和拒绝改动，批准后才实施。
 基线 `main` `454a3eb29`（已含第 1 步的 Live 证据包，#2557）。初稿经过一轮独立审查，审查意见已经并入正文。
 
+**2026-11-15 标注**（审计发现 `20261114-37` 留下的尾巴，见 `doctor/index.zh.md`）：原文是 2026-11-10 的设计，不改。下面每个计划项后面的〔现状〕是 2026-11-15 对照 `main`（`d91031c07`）的代码与 `CHANGELOG.md` 写的：已做（给提交、PR 或文件位置）、已被取代（给取代它的文档或提交）、仍未做。行号以 `main` 为准。
+
 ## 1. 范围
 
 新契约把回放、Paper、Live 的输入、账户、预热、订单规则、分配和停止定成一份，版本号 `replay-contract@v8`。
@@ -42,64 +44,64 @@
   - `manage_stop=False`、`manage_gtd_expiry=False`、`manage_contingent_orders=False`；
   - `market_exit_reduce_only=True`。
 
-  `__init__(self, instrument_id, bar_type, **kwargs)` 调用 `super().__init__()`。源码出现 `__new__` 或把配置传给 `super().__init__`，加载时拒绝。
-- **构造参数**：`instrument_id`、`bar_type`（1 分钟 EXTERNAL）、`trade_start_ns`、`strategy_id`、`universe_membership`、`execution_bar_minutes`。删除 `historical_daily_bars` 和 `daily_bar_type`。
+  `__init__(self, instrument_id, bar_type, **kwargs)` 调用 `super().__init__()`。源码出现 `__new__` 或把配置传给 `super().__init__`，加载时拒绝。 〔现状：已做，`engine/strategy.py:165-167`（`source_config`）注入配置，源码写 `__new__` 或 `StrategyConfig` 在加载时拒绝，`engine/load.py:120-123`（#2595）。其中 `oms_type=NETTING` 已被取代：现为 `HEDGING`，一个策略在一个合约上可持有多个仓位，见 #2588 与 `cross-line-fusion-20261111.zh.md` §4〕
+- **构造参数**：`instrument_id`、`bar_type`（1 分钟 EXTERNAL）、`trade_start_ns`、`strategy_id`、`universe_membership`、`execution_bar_minutes`。删除 `historical_daily_bars` 和 `daily_bar_type`。 〔现状：已做，`trade_start_ns`、`universe_membership`、`execution_bar_minutes` 由 `engine/live_source.py:47-49`、`engine/paper.py:240-242`、`engine/run.py:154` 传入；`historical_daily_bars`、`daily_bar_type` 已删（#2584）〕
 - **类属性**（加载时用 AST 读，不执行文件）：
-  - `WARMUP`：周期到根数的字典，如 `{"15-MINUTE": 81, "1-DAY": 200}`，取代 `DAILY_WARMUP`。
+  - `WARMUP`：周期到根数的字典，如 `{"15-MINUTE": 81, "1-DAY": 200}`，取代 `DAILY_WARMUP`。 〔现状：已做（#2584，`engine/history.py`）；`DAILY_WARMUP` 已删。`WARMUP` 后来还能声明 `"FUNDING"`（`engine/README.md` 的预热一节），本文没有写〕
     - 键必须是 Binance K 线也有的周期（1、3、5、15、30 分钟，1、2、4、6、8、12 小时，1 天）。
     - 除 1 分钟外，键就是源码能订阅的聚合周期，根数可以是 0。
-  - `USES_STOP_LOSS` 必须为 `True`（A4）。
+  - `USES_STOP_LOSS` 必须为 `True`（A4）。 〔现状：已做，`engine/load.py:252-253`（`STOP_LOSS_REQUIRED`）〕
 - **回调**：
-  - 每个周期一次 `on_historical_bars(bars)`：`P-LAST-EXTERNAL` 类型，按时间升序，最后一根止于 `floor(T,P) − 1ms`。
-  - 全部历史就绪后，runner 才调用源码的 `on_start`，源码在这里订阅实时数据。
+  - 每个周期一次 `on_historical_bars(bars)`：`P-LAST-EXTERNAL` 类型，按时间升序，最后一根止于 `floor(T,P) − 1ms`。 〔现状：已做，`engine/history.py:266`（`on_historical_bars`）〕
+  - 全部历史就绪后，runner 才调用源码的 `on_start`，源码在这里订阅实时数据。 〔现状：已做，`engine/history.py` 文件头：全部历史交给源码之后才调用 `on_start`〕
   - 实时聚合 K 线的类型是 `P-LAST-INTERNAL`，打在桶结束时刻；历史是 EXTERNAL，打在结束前 1ms。这与 v7 的日线约定相同，三处一样。
-  - 不能定义 `on_stop`（第 8 节）。
+  - 不能定义 `on_stop`（第 8 节）。 〔现状：已做，`engine/load.py:255-257`（`ON_STOP_DEFINED`）〕
 
-技能 `research-round/references/strategy-authoring.md` 的 Entry class、Causal clock、Orders、Live 各节随之重写。Live 一节大部分并入通用规则后删除。
+技能 `research-round/references/strategy-authoring.md` 的 Entry class、Causal clock、Orders、Live 各节随之重写。Live 一节大部分并入通用规则后删除。 〔现状：已做，技能 `strategy-authoring.md` 已按 `WARMUP` 改写。「Live 一节并入通用规则后删除」仍未做：Live 一节还在，并随后来的审计继续更新（如 #3020）〕
 
 ## 4. 数据
 
 - **能订阅的**：
   - 1 分钟 LAST EXTERNAL K 线，和 `WARMUP` 声明周期的 `INTERNAL@1-MINUTE-EXTERNAL` 聚合；
   - MARK、资金费、合约状态和收盘价；
-  - 回放的 `--trade-ticks`、`--metrics` 自定义数据（只在回放有）。
+  - 回放的 `--trade-ticks`、`--metrics` 自定义数据（只在回放有）。 〔现状：已做，`engine/strategy.py` 的 `contract_bar_type`〕
 - **拒绝的**（三处一样）：
   - 报价、盘口、指数价、原生逐笔成交；
   - 契约外的 K 线类型和未声明的聚合周期；
-  - Paper 和 Live 里的逐笔成交和 metrics 自定义数据：没有实时来源，所以用了它们的候选上不了 Live。
+  - Paper 和 Live 里的逐笔成交和 metrics 自定义数据：没有实时来源，所以用了它们的候选上不了 Live。 〔现状：已做，`engine/strategy.py:112` 起的 `Subscriptions` 拒绝这些订阅，回放、Paper、Live 三处的源码包装都继承它（`engine/run.py:140`、`engine/paper.py:224`、`engine/live_source.py:354`）〕
 
-  实现：把 `engine.strategy.Subscriptions` 扩到这些种类，三处的源码包装都用它。Live 现在没有它。
+  实现：把 `engine.strategy.Subscriptions` 扩到这些种类，三处的源码包装都用它。Live 现在没有它。 〔现状：已做，同上；Live 现在也有它〕
   回放的拒绝和 `TRADES_NOT_SERVED` 一样，在当前分块结束后停止并拒绝（`engine/run.py:688`）。
-- **`quotes` 执行环境**：仍用导出的报价驱动撮合，但报价不再是源码的信号输入。R2 规定 Live 证据用 `bars`。
-- **节奏**：Paper 和 Live 的源码只看到每分钟第一个 MARK 和每次结算的一条资金费。用 `engine/cadence.py`（第 1 步已从 Paper 移出），Live 的源码包装加上和 Paper 一样的门。
-- **首根 K 线**：三处 `time_bars_skip_first_non_full_bar=False`，预热请求也显式传 `skip_first_non_full_bar=False`。聚合器由当前桶的 1 分钟数据填好，第一根实时聚合 K 线是完整的。
+- **`quotes` 执行环境**：仍用导出的报价驱动撮合，但报价不再是源码的信号输入。R2 规定 Live 证据用 `bars`。 〔现状：已做，`quotes` 环境仍在（`--execution quotes`），报价不是源码能订阅的输入（`engine/README.md` 的 `--execution` 一段）〕
+- **节奏**：Paper 和 Live 的源码只看到每分钟第一个 MARK 和每次结算的一条资金费。用 `engine/cadence.py`（第 1 步已从 Paper 移出），Live 的源码包装加上和 Paper 一样的门。 〔现状：已做，`engine/cadence.py`，Live 源码包装用它（`engine/live_source.py:13,66`）〕
+- **首根 K 线**：三处 `time_bars_skip_first_non_full_bar=False`，预热请求也显式传 `skip_first_non_full_bar=False`。聚合器由当前桶的 1 分钟数据填好，第一根实时聚合 K 线是完整的。 〔现状：已做，`time_bars_skip_first_non_full_bar=False`（`engine/config.py:141`，`engine/run.py:816`、`engine/paper.py:717`、`engine/live_node.py:38`），预热请求传 `skip_first_non_full_bar=False`（`engine/history.py:366`）〕
 
 ## 5. 预热
 
-1. **T。** 回放是 `--trade-start`。Paper 和 Live 是启动后至少 30 秒的第一个整分钟，用原生定时器等到 T。
-   - 回放第一个分块显式 `run(start=T)`，现在是 `start=None`（`engine/run.py:674-688`）。
-2. **历史请求。** 在 T，源码包装为 `WARMUP` 的每个周期 P（根数 n > 0）发一个请求：`request_bars(P-LAST-EXTERNAL, [floor(T,P) − n·P, floor(T,P) − 1ms])`。回应回调给源码，但先经第 4 点的核对。
+1. **T。** 回放是 `--trade-start`。Paper 和 Live 是启动后至少 30 秒的第一个整分钟，用原生定时器等到 T。 〔现状：已做，Paper 和 Live 的 T 是启动后至少 `START_MARGIN_NS`（30 秒）的第一个整分钟，`engine/history.py:56,71-73`〕
+   - 回放第一个分块显式 `run(start=T)`，现在是 `start=None`（`engine/run.py:674-688`）。 〔现状：仍未做：`engine/run.py:648` 仍是 `start = None`，首块 `engine.run(start, …)` 传的就是 `None`；代码、`CHANGELOG.md`、`docs/` 里没有「已落实」或「决定不做」的记录。本行引的行号 `engine/run.py:674-688` 已过期，现为 `stream`（`engine/run.py:640` 起）〕
+2. **历史请求。** 在 T，源码包装为 `WARMUP` 的每个周期 P（根数 n > 0）发一个请求：`request_bars(P-LAST-EXTERNAL, [floor(T,P) − n·P, floor(T,P) − 1ms])`。回应回调给源码，但先经第 4 点的核对。 〔现状：已做，`engine/history.py`（#2584）〕
 3. **聚合器预热。** runner 的 `DataActor` 为每个聚合周期 P 发一个请求，前提是 `floor(T,P) < T`：
    - 请求是 `request_bars(1-MINUTE-EXTERNAL, [floor(T,P), T − 1ms], params={"bar_types": [P], "update_subscriptions": True, "skip_first_non_full_bar": False})`；
    - 回应只到 actor，由它核对，不给源码；
-   - 每个周期最多一个周期长度的 1 分钟数据，日线最多 1440 根。
+   - 每个周期最多一个周期长度的 1 分钟数据，日线最多 1440 根。 〔现状：已做，`engine/history.py:366` 一带的聚合器预热请求〕
 4. **核对。**
    - 回应必须和 Catalog 写入的逐根相同：升序、无重复、不晚于 T、在请求区间内。
    - 每个周期最后 n 根前后相邻（间隔 P），最后一根止于 `floor(T,P) − 1ms`。这是 v7 日线 `daily_run` 规则的推广（`engine/load.py:522-534`）。
-   - 1 分钟数据有缺口时照样送（与实时流相同，`market/coverage.py:31-44`），只有声明的历史根数不满足相邻规则时才算不足。
-5. **交给源码。** 全部回应核对通过后，调用源码的 `on_start`。
-6. **下单闸门。** 第 5 步之前提交任何订单都拒绝。
-7. **衔接。** 第一根实时 1 分钟 K 线必须是 `T + 60s − 1ms`。Paper 和 Live 中，回应在 `T + 45s` 后才到就拒绝启动（`WARMUP_TIMEOUT`，第 11 节）。
+   - 1 分钟数据有缺口时照样送（与实时流相同，`market/coverage.py:31-44`），只有声明的历史根数不满足相邻规则时才算不足。 〔现状：已做，`engine/history.py` 文件头与 `WARMUP_NOT_ADJACENT`（`engine/config.py:239`）〕
+5. **交给源码。** 全部回应核对通过后，调用源码的 `on_start`。 〔现状：已做，`engine/history.py`〕
+6. **下单闸门。** 第 5 步之前提交任何订单都拒绝。 〔现状：已做，`engine.order_rules` 的规则 8（`WARMING`）〕
+7. **衔接。** 第一根实时 1 分钟 K 线必须是 `T + 60s − 1ms`。Paper 和 Live 中，回应在 `T + 45s` 后才到就拒绝启动（`WARMUP_TIMEOUT`，第 11 节）。 〔现状：已做，`WARMUP_TIMEOUT`（`engine/history.py:29-30`，`engine/config.py:243`）〕
 8. **历史不足。**
    - 回放保留 v7 的 `plan_instances` 做法（`engine/run.py:697-726`）：实例推迟到它的历史满足的第一个时刻，用原生定时器在那时发请求；整个窗口都不满足就不建实例，没有任何实例时拒绝（`WARMUP_INSUFFICIENT`）。
-   - Paper 和 Live 历史不足时拒绝启动。
+   - Paper 和 Live 历史不足时拒绝启动。 〔现状：已做，回放 `plan_instances`（`engine/run.py:705`）；Paper 和 Live 拒绝启动（`WARMUP_INSUFFICIENT`，`engine/history.py:115,138`）〕
 9. **数据从哪里来。**
    - 回放：导出的 Catalog 已有 1 分钟和派生日线（`engine/load.py:512`）。其他周期在回放准备时从 1 分钟派生，写进同一运行的临时 Catalog（`catalogs=[导出, 临时]`），用与日线相同的派生规则。
    - Paper 和 Live：在 T 之后用 Binance 公开 K 线（`fapi/v1/klines`，无凭据，与 Paper 现有日线预热同一接口）取每个周期的历史和当前桶的 1 分钟，写进临时 Catalog，再发请求。
      - Live 主机没有挂载市场目录（`deploy/live_host.py:144-152`）。市场目录本身也来自 Binance 的公开归档，所以 Paper 和 Live 不读市场目录。
      - 派生 K 线与 Binance 同周期 K 线是否逐根相等，实施时用历史数据核对；不相等就改为从 1 分钟派生。
-   - Paper 和 Live 实际送入的预热 K 线记入证据包（`historical_bar` 行，第 1 步已实现），由 R3.2 先比。
-10. **缓存容量。** 三处把 `CacheConfig(bar_capacity)` 设为至少 `WARMUP` 最大根数加一天的分钟数，避免历史被原生缓存截断。
+   - Paper 和 Live 实际送入的预热 K 线记入证据包（`historical_bar` 行，第 1 步已实现），由 R3.2 先比。 〔现状：已做，`engine/warmup.py:130`（`derive`）与 `engine/klines.py`；Paper 和 Live 不读市场目录〕
+10. **缓存容量。** 三处把 `CacheConfig(bar_capacity)` 设为至少 `WARMUP` 最大根数加一天的分钟数，避免历史被原生缓存截断。 〔现状：已做，`engine/history.py:401`（`bar_capacity`），三处用它：`engine/run.py:813`、`engine/paper.py:724`、`engine/live_node.py:48`〕
 
 11. **派生 K 线核对与接受的差异（2026-11-11）。** 用产品自己的导出（`market.export.export_catalogs`）取分钟线，`engine.warmup.derive` 派生，再与 Binance 公开 K 线（`engine.klines.bars`）和原生聚合（`BacktestEngine` 订阅 `{P}-LAST-INTERNAL@1-MINUTE-EXTERNAL`）逐根比对：
     - BTCUSDT，2025-10-06 起 3 天，15m 和 1h：三方逐根相同（358 根）。
@@ -115,46 +117,46 @@
 - `DAILY_WARMUP`、`historical_daily_bars`；
 - 回放窗口的第三个时间点和经 `on_bar` 送入的分钟预热；
 - Paper 的 REST 日线预热、`warmup_digest`，以及恢复时"原日线预热变了"的拒绝；
-- Live 的 `LIVE_WARMUP_UNSUPPORTED`。
+- Live 的 `LIVE_WARMUP_UNSUPPORTED`。 〔现状：已做：`DAILY_WARMUP`、`historical_daily_bars`、`LIVE_WARMUP_UNSUPPORTED` 在 `engine/*.py` 里已无出现；`warmup_digest` 按 §11 末段保留（`engine/paper.py:135`）；Paper 恢复时「原日线预热变了」的拒绝由 §11 末段的新恢复取代，后来又改为原生恢复（`paper-native-recovery.zh.md`）〕
 
 ## 6. 账户与合约条款
 
 一份账户契约，三处共用：`BINANCE`、USDT、`MARGIN` 账户，源码 NETTING。起始资金、杠杆和执行环境是运行参数。
 
-- **杠杆。** 新运行参数 `--leverage`，三处一致。
-  - Live 启动时读交易所该合约的实际杠杆，不等于契约值就拒绝。Live 从不改账户设置，杠杆由用户在 Binance 上设好。
-  - 现在回放杠杆 1、合约 `margin_init` 0.1（`engine/config.py:91`、`market/instrument.py:22`）。rc7 怎么把两者结合成初始保证金要先探针，再定回放的保证金设置，使它等于 Binance 的 名义价值/杠杆。"入场可到 3 倍权益，所以杠杆至少 3"的结论以这个探针为前提。
-  - `--leverage` 会进入保存的有效配置。按 AGENTS.md，实施前先做一次新增保存字段的独立审查，结论记在 `docs/plans/`。
+- **杠杆。** 新运行参数 `--leverage`，三处一致。 〔现状：已做，#2600（`3d37c5a8c`）：`--leverage` 默认 3，三处一致，`engine/config.py:416`〕
+  - Live 启动时读交易所该合约的实际杠杆，不等于契约值就拒绝。Live 从不改账户设置，杠杆由用户在 Binance 上设好。 〔现状：已做，`engine/live_venue.py:196-203`：交易所杠杆不等于声明值即拒绝（`LIVE_MARGIN_MODE`），Live 不设杠杆〕
+  - 现在回放杠杆 1、合约 `margin_init` 0.1（`engine/config.py:91`、`market/instrument.py:22`）。rc7 怎么把两者结合成初始保证金要先探针，再定回放的保证金设置，使它等于 Binance 的 名义价值/杠杆。"入场可到 3 倍权益，所以杠杆至少 3"的结论以这个探针为前提。 〔现状：已做：探针与结论在 `r1-2d-leverage-terms-20261111.zh.md`，`bars` 合约保证金率 1（`engine/config.py:115-118`）。回放杠杆 1、`margin_init` 0.1 是写本文时的现状，已不是〕
+  - `--leverage` 会进入保存的有效配置。按 AGENTS.md，实施前先做一次新增保存字段的独立审查，结论记在 `docs/plans/`。 〔现状：已做，字段审查记在 `r1-2d-leverage-terms-20261111.zh.md` §4〕
 - **合约条款。**
   - Paper 和 Live 的原生合约来自 Binance 合约加载器（`engine/paper.py:736-737`、`engine/live_node.py:21`）。不在原生层替换它们。
-  - 启动时把加载的合约和 `exchangeInfo` 的最小价位、数量步长、最小名义价值与市场导出的合约比对，不一致就拒绝。交易所改了条款，市场要先跟上。
+  - 启动时把加载的合约和 `exchangeInfo` 的最小价位、数量步长、最小名义价值与市场导出的合约比对，不一致就拒绝。交易所改了条款，市场要先跟上。 〔现状：已做，`engine/config.py:296` 的 `TERMS_COMPARED`，不一致为 `TERMS_CHANGED`（`engine/config.py:291`）；Paper 沙盒因 rc7 不能替换合约而取杠杆 × 0.1 的做法见 `engine/README.md` 的 Account 一段〕
   - 保证金率和手续费仍然不同：前者等上面的探针决定，后者由账户等级决定，由 R3.2 归因。
   - 修正：初稿说 Paper 用 `rest_terms` 取合约精度，不对。它只给日线预热 K 线定精度（`engine/paper.py:867-868`）。
-- **持仓模式。** 不变：交易所 Hedge 加 Multi-assets，执行客户端 `HEDGING`，源码 NETTING。
-- **爆仓。** 不变：`bars` 不模拟，`quotes` 模拟。
+- **持仓模式。** 不变：交易所 Hedge 加 Multi-assets，执行客户端 `HEDGING`，源码 NETTING。 〔现状：已被取代（源码一半）：交易所 Hedge 加 Multi-assets 与执行客户端 `HEDGING` 不变，源码不再是 `NETTING`，现为 `HEDGING`，见 #2588、`cross-line-fusion-20261111.zh.md` §4〕
+- **爆仓。** 不变：`bars` 不模拟，`quotes` 模拟。 〔现状：已做（未改）：`bars` 不模拟爆仓，`quotes` 模拟（`engine/config.py:147` 起的 `execution_account`）〕
 
 ## 7. 订单规则与保护单覆盖
 
 ### 7.1 订单规则：一个函数，三处调用
 
-`engine/order_rules.py`（新）返回违规代码或空。三处源码包装在 `submit_order` 等入口调用它：
+`engine/order_rules.py`（新）返回违规代码或空。三处源码包装在 `submit_order` 等入口调用它： 〔现状：已做，`engine/order_rules.py`（#2565，`f799193d2`），Live 的违规走停止路径；此后规则有改动，逐条见下〕
 - 回放和 Paper：记下违规、不提交该订单，分块结束后以违规代码拒绝运行；
 - Live：照旧当场拒绝，并进入停止路径。
 
 规则：
-1. 入场（非 reduce-only）必须是基础数量的 LIMIT 或 STOP_MARKET，且该策略在该合约上没有持仓和未结订单（一次一笔）。不收市价入场，用可成交的限价单代替。
-2. 入场的名义价值不超过账户 USDT 权益的 3 倍（`ENTRY_EQUITY_MULTIPLE`，原生组合权益）：LIMIT 按限价计，STOP_MARKET 按触发价计。
-3. 退出必须 reduce-only，带 `position_id`，不超过当前持仓的方向和数量。
-4. 不改单；不用订单列表、括号单、模拟触发、执行算法、订单参数、关联单、按报价货币下单。
-5. GTD 的到期时间至少在 600 秒之后（Binance 的限制，现在哪里都不查）。
-6. 只能撤自己的单。
+1. 入场（非 reduce-only）必须是基础数量的 LIMIT 或 STOP_MARKET，且该策略在该合约上没有持仓和未结订单（一次一笔）。不收市价入场，用可成交的限价单代替。 〔现状：入场只收 LIMIT 与 STOP_MARKET 已做；「该策略在该合约上没有持仓和未结订单（一次一笔）」已被取代：现在一个策略可在一个合约上同时持有多个仓位和未结入场单（#2588，`engine/order_rules.py` 文件头）〕
+2. 入场的名义价值不超过账户 USDT 权益的 3 倍（`ENTRY_EQUITY_MULTIPLE`，原生组合权益）：LIMIT 按限价计，STOP_MARKET 按触发价计。 〔现状：已做，`ENTRY_EQUITY_MULTIPLE = 3`（`engine/order_rules.py`）；计法已改为该策略在该合约上的敞口（已开仓位按均价、未结入场单按限价或触发价，多空相加，再加本单）〕
+3. 退出必须 reduce-only，带 `position_id`，不超过当前持仓的方向和数量。 〔现状：已做，`engine/order_rules.py` 规则 3；现要求退出单点名仓位，同一仓位的在途止损合计不超过其数量〕
+4. 不改单；不用订单列表、括号单、模拟触发、执行算法、订单参数、关联单、按报价货币下单。 〔现状：已做，`engine/order_rules.py` 规则 4〕
+5. GTD 的到期时间至少在 600 秒之后（Binance 的限制，现在哪里都不查）。 〔现状：已做并已扩展：GTD 至少 600 秒已有（`GTD_MINIMUM_NS`）；之后又加了「GTD 只能是 `LIMIT`、`STOP_LIMIT`、`LIMIT_IF_TOUCHED`」（`c606cf92e`）和「到期必须是整秒」（`c0aeebd41`）；Live 入场另要多留 5 秒（`engine/order_rules.py` 规则 5）〕
+6. 只能撤自己的单。 〔现状：已做，`engine/order_rules.py` 规则 6〕
 
-加载时的 AST 检查（文件中出现 `submit_order_list`、`bracket`、`add_exec_algorithm`、`close_all_positions` 就拒绝）从 Live 扩到三处。
+加载时的 AST 检查（文件中出现 `submit_order_list`、`bracket`、`add_exec_algorithm`、`close_all_positions` 就拒绝）从 Live 扩到三处。 〔现状：已做，`engine/load.py` 的 `FORBIDDEN_ORDER_APIS`，三处共用〕
 
 Live 另外保留它自己的账户准入，这是真实账户托管的需要，不放进共用规则：
 - 入场时整个账户在原生缓存里无持仓、无未结订单（`engine/live_commands.py:124-125`）；
 - 交易所快照无持仓（`require_flat`）；
-- 3 倍限额的权益取 REST 快照的 `min(钱包, 可用)`（`engine/live_venue.py:244`），不是原生组合权益。
+- 3 倍限额的权益取 REST 快照的 `min(钱包, 可用)`（`engine/live_venue.py:244`），不是原生组合权益。 〔现状：账户级准入保留，但「整个账户无持仓、无未结订单」已被取代：新启动要求交易所全空（`engine/live_venue.py:158` 的 `require_flat`），之后的入场只要求交易所上没有运行合约之外的持仓和未结订单（`engine/live_venue.py:169-178` 的 `require_own_symbol`），可与本运行自己的仓位并存；3 倍限额的权益仍取 `min(钱包, 可用)`（`engine/live_venue.py:248` 一带）〕
 
 Live 开始时要求账户为空、只跑一个策略，所以两种口径在 Live 上一般一致；不一致时 Live 更严。这是留下的唯一一处 Live 专有入场检查，记为执行差异。
 
@@ -163,7 +165,7 @@ Live 开始时要求账户为空、只跑一个策略，所以两种口径在 Li
 `engine/protection.py`（新）只有一个判定：
 - 同合约、同策略、平仓方向、reduce-only 的止损类订单；
 - 状态是 ACCEPTED，即已接受、未触发、未成交；
-- 按剩余数量求和，不小于持仓数量才算覆盖。
+- 按剩余数量求和，不小于持仓数量才算覆盖。 〔现状：已做，`engine/protection.py`（#2565）：Live 调用它（`engine/live_session.py:184`），Paper 调用它（`engine/paper.py:621`），研究审计调用它（`engine/audit.py:29`）〕
 
 | 位置 | 现在 | 改后 |
 | --- | --- | --- |
@@ -171,24 +173,24 @@ Live 开始时要求账户为空、只跑一个策略，所以两种口径在 Li
 | Paper（`engine/paper.py:615-630`） | 按订单总量，不排除已触发的单；连续两次分钟快照不足才记录，实际 60 到 120 秒 | 调用它，按事件时间 60 秒，仍只记录 `protection_gap`（封存审计是 R4） |
 | 研究审计（`engine/audit.py:296-356`） | 已接受、未结束、有未成交量的止损都算，已触发的也算（`OrderTriggered` 是被动事件，`:41`） | 从事件重建订单状态后调用同一判定：已触发的止损不再算覆盖。这是收紧，见 A5 |
 
-允许时长：回放审计和 Paper 都是 60 秒。Live 是 60 秒加 30 秒检测延迟（具名常量）。
-Live 多出的 30 秒有真实执行上的原因：经 REST 接受的止损没有 WebSocket 事件，原生要靠 10 秒一次的未结订单检查才看到。
+允许时长：回放审计和 Paper 都是 60 秒。Live 是 60 秒加 30 秒检测延迟（具名常量）。 〔现状：已做，`ALLOWANCE_NS`（60 秒）与 `LIVE_DETECTION_NS`（30 秒）两个具名常量（`engine/protection.py:20-21`）〕
+Live 多出的 30 秒有真实执行上的原因：经 REST 接受的止损没有 WebSocket 事件，原生要靠 10 秒一次的未结订单检查才看到。 〔现状：理由一句已被证否：经 REST 接受的止损没有 WebSocket 事件的说法与锁定的 rc7 币安适配器不一致，适配器对 `ALGO_UPDATE` 状态 New 发 `OrderAccepted`（`crates/adapters/binance/src/futures/websocket/streams/dispatch.rs`）；审计的回环探针里两种情形都在 30 秒容忍内确认，保护判断不受影响，见 `docs/plans/doctor/2026-11-14-pre-production-audit.zh.md` 核实卡 O-09。真实 Binance 推不推 NEW 没有读数。30 秒这个常量保留〕
 
 ## 8. 分配、频率和停止
 
 - **分配。** 见第 3 节。删除：
   - `__new__` 例外（README "Native strategy allocation"）；
   - `LIVE_SOURCE_CONFIG`、`LIVE_SOURCE_STOP`、`LIVE_SOURCE_REVIEW`（`single_order_source_reviewed`）；
-  - Paper 恢复订单工厂计数的代码和它的拒绝（`engine/paper_session.py:133-141`）。UUID 订单号用不到计数。
+  - Paper 恢复订单工厂计数的代码和它的拒绝（`engine/paper_session.py:133-141`）。UUID 订单号用不到计数。 〔现状：已做：`__new__` 例外已删；`LIVE_SOURCE_CONFIG`、`LIVE_SOURCE_STOP`、`LIVE_SOURCE_REVIEW` 已删（#2605，`d3520a8f1`）；Paper 恢复订单工厂计数的代码和拒绝在 `engine/paper_session.py` 里已无〕
 
-  `require_source_config` 留作注入后的断言：违反说明产品自身出错。
+  `require_source_config` 留作注入后的断言：违反说明产品自身出错。 〔现状：已做，`engine/live_node.py:90`、`engine/live_source.py:67`〕
 - **下单频率。** 建议不改：回放和 Paper 保持 200/秒，Live 保持 10/秒。理由：
   - rc7 的限流是整个引擎共用的，超出直接拒绝（第 2 节）。回放改成 10/秒后，多合约回放在日线收盘时同时入场，会出现被拒订单，触发 `ORDERS_DENIED_OR_REJECTED`（`engine/config.py:237`）。
   - Live 只能跑一个合约（`engine/live_venue.py:179`），10/秒是产品自己的设置，不是 Binance 的限制。
   - 第 7.1 节"一次一笔、不用订单列表"之后，一个实例每秒至多几笔，碰不到 10/秒。
 
-  父计划写的是改成 10/秒；若用户仍要求三处一致，就是 A7。
-- **停止。** 三处都不运行源码的 `on_stop`，源码定义了就在加载时拒绝。运行结束由 runner 负责，见第 1 节。
+  父计划写的是改成 10/秒；若用户仍要求三处一致，就是 A7。 〔现状：已做（按建议不改）：回放和 Paper 200/秒（`engine/config.py:143`），Live 10/秒（`engine/live_node.py:61`）。理由里「Live 只能跑一个合约」已被取代：现在每个合约一个实例、同一 10/秒限频，停止时批量平仓会丢单，见审计发现 20261114-31，已由 #3027 修〕
+- **停止。** 三处都不运行源码的 `on_stop`，源码定义了就在加载时拒绝。运行结束由 runner 负责，见第 1 节。 〔现状：已做，`ON_STOP_DEFINED`（`engine/load.py:255-257`）〕
 
 ## 9. 需要用户授权的改动
 
@@ -210,16 +212,30 @@ Live 多出的 30 秒有真实执行上的原因：经 REST 接受的止损没�
 | A8 | `on_stop` | 回放和 Paper 运行源码的 `on_stop`，Live 换成空操作 | 源码定义 `on_stop` 在加载时拒绝 |
 | A9 | 账户契约比对 | Live 接受任意正杠杆，不比对合约条款 | 新参数 `--leverage`；Live 杠杆不等于契约值就拒绝；Paper 和 Live 的最小价位、数量步长、最小名义价值与市场导出不一致就拒绝 |
 
+**§9 各项现状**（2026-11-15 标注）：
+
+| 编号 | 现状 |
+| --- | --- |
+| A1 | 已做：`engine/strategy.py` 的 `Subscriptions`，三处共用 |
+| A2 | 已做：`time_bars_skip_first_non_full_bar=False`，`engine/config.py:141` |
+| A3 | 已做：见 §5 各项；`WARMUP_TIMEOUT`、`WARMUP_INSUFFICIENT`、`WARMUP_NOT_ADJACENT` 在 `engine/config.py`，`TERMS_CHANGED` 同处 |
+| A4 | 已做并有后续改动：规则 1、5 的后续改动见 §7.1 各条（#2588、`c606cf92e`、`c0aeebd41`）；`USES_STOP_LOSS` 为 `True` 见 §3 |
+| A5 | 已做：`engine/protection.py`，见 §7.2 |
+| A6 | 已做：见 §3、§8 |
+| A7 | 已做（按建议不改）：见 §8 |
+| A8 | 已做：`ON_STOP_DEFINED` |
+| A9 | 已做：#2600；Live 杠杆不等于声明值拒绝为 `LIVE_MARGIN_MODE`（`engine/live_venue.py:196-203`），合约条款比对为 `TERMS_CHANGED` |
+
 ## 10. 实施顺序与验证
 
 实施分三个 PR，都基于 `main`。v8 一次启用，不同时支持 v7。
-1. **共用模块**：`order_rules`、`protection`、`Subscriptions` 扩展、Live 节奏门。接入三处，审计判定同时切换。
+1. **共用模块**：`order_rules`、`protection`、`Subscriptions` 扩展、Live 节奏门。接入三处，审计判定同时切换。 〔现状：已做，#2565（`f799193d2`）〕
 2. **契约 v8**：
    - 分配注入、构造参数和 `WARMUP`；
    - 预热：回放用 Catalog 加临时 Catalog，Paper 和 Live 用临时 Catalog，runner 的预热 actor；
    - 首根、`on_stop`、`--leverage` 与条款比对；
-   - 技能文字同一个 PR 改。
-3. **清理**：删除 v7 分支、`RETAINED_FORMATS`、旧 manifest 读取、Paper 工厂计数恢复。
+   - 技能文字同一个 PR 改。 〔现状：已做，#2584、#2589、#2595、#2600；`LIVE_SOURCE_*` 的删除另在 #2605〕
+3. **清理**：删除 v7 分支、`RETAINED_FORMATS`、旧 manifest 读取、Paper 工厂计数恢复。 〔现状：已做，`RETAINED_FORMATS` 已不在代码里，v7 路径随 #2595（`f76c7dd82`）删除〕
 
 合并前要知道的：v8 合并后，现有账本里的候选不能再跑（研究会话、Paper 新启动、Live 声明）。这与用户"备份后删除旧账本"的决定一致。合并时机由用户定。
 
@@ -240,7 +256,7 @@ Live 多出的 30 秒有真实执行上的原因：经 REST 接受的止损没�
 
   核对输入、首根、预热和订单规则一致。
 - **确定性**：同一回放跑两次，指纹相同。
-- **成对回放**：一份参考源码分别按 v7 和 v8 写，在同一窗口成对回放。差别只能来自本文列出的改动，逐项解释。
+- **成对回放**：一份参考源码分别按 v7 和 v8 写，在同一窗口成对回放。差别只能来自本文列出的改动，逐项解释。 〔现状：本次标注没有逐项重跑验证清单：各项随上述 PR 的测试与 `engine/README.md` 的 Paired acceptance 进行，不据此标已做或未做〕
 
 ## 11. 实施时还要定的
 
