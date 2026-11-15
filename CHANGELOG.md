@@ -70,6 +70,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   or with changed account modes, a clock outside the limits), and the control never restarts a runner that exited
   with status 1 or 2. A killed runner and SIGTERM start again as before. Only a start again whose first account read
   fails (`LIVE_ACCOUNT_UNAVAILABLE`) is retried, within the existing four run launches an hour.
+- Paper: a recovery no longer drops or reuses the position IDs of resting limit entries. The Sandbox now leaves
+  position IDs to the execution engine (`use_position_ids=False`, as Live), so a recovered run's new fills cannot
+  collide with a cached position of another contract (entry stuck at ACCEPTED, no stop, no re-entry) or of the same
+  contract (an earlier position's record overwritten). Paper's position IDs are now `P-…` for every entry; replays are
+  unchanged. Takes effect with the next execution image.
 - Live's evidence pack records each metrics row its source receives (`metrics`), and `live compare` checks them
   against the archive's rows as a replay streams them: missing, late, differing and Live-only rows per contract, and
   a new difference cause `metrics` after the bar causes. `historical_funding` rows drop `ts_init`, always their

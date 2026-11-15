@@ -745,8 +745,10 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
         book_type=getattr(BookType, account["book_type"]), bar_execution=account["bar_execution"],
         bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"],
         reject_stop_orders=account["reject_stop_orders"], support_gtd_orders=account["support_gtd_orders"],
-        support_contingent_orders=account["support_contingent_orders"], fill_model=fill_model(account),
-        fee_model=MakerTakerFeeModel(*fees)))
+        support_contingent_orders=account["support_contingent_orders"],
+        # The matching engine's own position IDs restart from 0 in every process and collide with the cached
+        # ones after a recovery; the execution engine's (strategy-side `P-…`) are kept in the cache.
+        use_position_ids=False, fill_model=fill_model(account), fee_model=MakerTakerFeeModel(*fees)))
     node = builder.build()
     for inputs in planned:
         node.add_strategy(strategy_runtime.configure_strategy(loaded, inputs, paper_class))
