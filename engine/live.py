@@ -317,6 +317,10 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
         session.event("clean_stop" if args.mode == "run" else "reconciled_flat",
                       source_failed=session.failed, observation=observation)
         return 1 if session.failed else 0
+    if session.venue_flat:
+        # Binance held nothing while the native cache still held a position (engine.live_connection.venue_flat_exit):
+        # the run is over with its venue_flat event, as after a reconciliation that finds the account flat.
+        return 1 if session.failed else 0
     if (session.interrupting or session.held_flat or session.rewarming) and not session.failed:
         # Positions and their exchange stops stay; the control starts this run again (live.runs).
         start_ended(session)

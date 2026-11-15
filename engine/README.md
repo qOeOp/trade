@@ -668,6 +668,30 @@ Redis list it never trims and reads whole at each start: about 0.45 GB a year, a
 seconds. In memory, Nautilus purges account states older than a day each hour, starting an hour after the start, so a
 start still loads the whole list first.
 
+A close Binance made that the native cache never received leaves a position in the cache that Binance no longer
+holds: a stop that triggered while no process heard it (the runner down, the user stream down), a liquidation, an
+ADL, a close by hand. Native reconciliation does not match it (finding 20261114-25; confirmed only against a local
+fake exchange, not on Binance). Two rules bound what the run does on such a cache (the user 2026-11-15):
+
+- An entry is not sent while Binance's positions differ from the native cache's. Each entry's own account read is
+  compared, contract by contract and side by side, with its instance's positions in the cache. A fill between the
+  read and the comparison disagrees for a moment, so the entry reads once more (`entry_reread`); a second
+  disagreeing read refuses it (`LIVE_CONNECTION_UNVERIFIED`) and the run ends as for any refused entry, on the STOP
+  path. The periodic comparison (every five minutes) finds the same difference later, as before.
+- When Binance holds nothing at all (no position on any symbol, no open or conditional order) and the cache still
+  holds a position of the run, there is nothing to close and a close could only be rejected: the run records
+  `venue_flat` with that read, sends nothing and ends (exit 0 unless it had failed otherwise), as a reconciliation
+  that finds the account flat does. The control releases the slot (`venue_flat`); the next run starts from a fresh
+  native identity. This is judged at three points: when a start again on a flat account has connected and its
+  reloaded cache still holds a position (nothing of that start is in flight); at an entry's second disagreeing read;
+  and when two comparisons at least 30 seconds apart (one native position check) both find it.
+
+Where Binance still holds something (a stop left behind, part of the position), only the first rule applies: no new
+entry is sent, and the STOP path still closes by the cache, where a close of a position Binance no longer holds is
+rejected and the run ends `unresolved`. A position whose close is found by the 90-second stop-coverage rule before
+any comparison (a liquidation that also removed its stop) takes that path too. The run does not go on trading by
+itself after either ending.
+
 Any other failure of the Observer sends the same one cancel per working entry and ends the run unresolved, closing
 nothing. A source that leaves
 the running state by itself (`stop`, `fault`, `degrade`) enters the normal STOP path, marked failed.

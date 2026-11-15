@@ -755,6 +755,58 @@ class LiveTests(unittest.TestCase):
                     self.assertFalse(live.resumable(self.output))
                     self.assertEqual(refused(live.execute, args, error=LiveRefusal).code, "LIVE_COLD_RESTART")
 
+    def test_a_start_again_on_a_flat_account_whose_cache_holds_a_position_ends_venue_flat(self):
+        """20261114-25: the stop triggered while the runner was down. The connected start finds Binance flat and
+        the reloaded cache holding the position; it sends nothing and the run ends with its venue_flat event."""
+        from tests.engine.test_live_venue import fixture
+        snapshot, _ = fixture()
+        snapshot["credential_binding"] = self.credentials.binding
+        session = live.Session(self.manifest, self.output, "run")
+        session.brake.budget = Decimal("85")
+        session.account_reader = mock.Mock()
+        session.account_reader.snapshot.return_value = snapshot
+        session.node, session.sources = mock.Mock(), {"BTCUSDT": mock.Mock()}
+        phantom = SimpleNamespace(strategy_id=self.instance, id="P-1", is_open=True)
+        observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=mock.Mock())
+        observer.cache.positions.return_value = observer.cache.orders.return_value = []
+        observer.cache.positions_open.return_value = [phantom]
+        commands.start_observation(session, "connected")
+        session.account_observation.result.result(timeout=1)
+        with mock.patch.object(live_lifecycle.live_brake, "tick"), mock.patch.object(session, "check_protection"), \
+                mock.patch.object(session, "check_mark"), mock.patch.object(live_lifecycle.live_connection, "tick"), \
+                mock.patch.object(session, "observe_source_state"):
+            live_lifecycle.Observer.observe(observer)
+        self.assertTrue(session.account_verified and session.venue_flat and session.stopping)
+        session.node.handle.return_value.stop.assert_called_once()  # the STOP path stops the node at once
+        session.sources["BTCUSDT"].close_position.assert_not_called()
+        rows = self.events()
+        self.assertEqual([row["event"] for row in rows][-3:], ["started", "venue_flat", "stopping"])
+        self.assertFalse(session.failed)
+        self.assertFalse(live.resumable(self.output))  # venue_flat ends the run
+
+    def test_a_run_that_ended_venue_flat_exits_zero_unless_it_failed(self):
+        args = self.armed_run()
+
+        def ends_flat_at_binance(session, *_, **__):
+            node = mock.Mock()
+            node.cache.orders.return_value = node.cache.orders_open.return_value = []
+            node.cache.positions_open.return_value = [object()]  # the cache still holds the position
+            node.run.side_effect = lambda: live.live_connection.venue_flat_exit(session, self.flat_snapshot())
+            return node
+
+        for failed, expected in ((False, 0), (True, 1)):
+            with self.subTest(failed=failed):
+                events = (self.output / "events.jsonl").read_text()
+                with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+                        mock.patch.object(live, "LiveCache"), \
+                        mock.patch.object(live, "source_outcome", side_effect=lambda session, _: setattr(
+                            session, "failed", failed)), \
+                        mock.patch.object(live, "build_node", side_effect=ends_flat_at_binance):
+                    self.assertEqual(live.execute(args), expected)
+                ending = [row["event"] for row in self.events() if row["event"] in live.ENDED_EVENTS]
+                self.assertEqual(ending, ["venue_flat"])  # no unresolved beside it
+                (self.output / "events.jsonl").write_text(events)
+
     def test_a_start_again_that_cannot_read_binance_gives_the_start_back(self):
         """Only the account read before anything is built is retried: the start ends as an interruption does (exit
         status 3, no ending event) and the control starts the run again within its hourly limit."""

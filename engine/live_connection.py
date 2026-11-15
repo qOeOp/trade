@@ -80,6 +80,7 @@ class Connection:
     bar_since_reconnect: bool = True
     notified: set[str] = field(default_factory=set)
     orphans_since: int | None = None  # observed_ns of the first agreeing read finding only reduce-only orders, flat
+    phantom_ns: int | None = None  # observed_ns of the first comparison that found Binance flat, the cache not (phantom)
     held_cover: dict | None = None  # a held start's latest journalled verdict on its positions' stops (held_verdict)
     withdrawn_ns: int | None = None  # when a held start first asked for its inherited entries' cancels (held_withdraw)
     withdraw_failed: set[str] = field(default_factory=set)  # entries whose cancel request raised, journalled once
@@ -354,6 +355,60 @@ def rewarm(session) -> None:
     session.begin_stop("rewarming")
 
 
+def position_differences(snapshot: dict, cache, manifest: dict) -> list[dict]:
+    """The contracts of the run on which Binance's positions per side differ from the instance's own in the native
+    cache. A read whose position rows cannot be judged raises KeyError, TypeError, ValueError or ArithmeticError."""
+    strategies = strategy_ids(manifest)
+    venue = {symbol: {"LONG": Decimal(0), "SHORT": Decimal(0)} for symbol in strategies}
+    for row in snapshot["positions"]:
+        amount = Decimal(row["positionAmt"])
+        if row["symbol"] in venue and amount:
+            venue[row["symbol"]][row["positionSide"]] += abs(amount)
+    found = []
+    for symbol, strategy in strategies.items():
+        native = {"LONG": Decimal(0), "SHORT": Decimal(0)}
+        for position in cache.positions_open(instrument_id=contract_id(symbol)):
+            if position.strategy_id == strategy:
+                native["LONG" if position.side == PositionSide.LONG else "SHORT"] += position.quantity.as_decimal()
+        if venue[symbol] != native:
+            found.append({"symbol": symbol, "venue": {side: str(value) for side, value in venue[symbol].items()},
+                          "native": {side: str(value) for side, value in native.items()}})
+    return found
+
+
+def entry_positions(session, snapshot: dict) -> list[dict]:
+    """position_differences for an entry's own account read (engine.live_commands.dispatch_entry): an entry is not
+    sent while Binance's positions and the native cache disagree (finding 20261114-25)."""
+    source = session.any_source()
+    if source is None:
+        return []
+    try:
+        return position_differences(snapshot, native_cache(source), session.manifest)
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        raise Refusal("LIVE_ACCOUNT_RESPONSE", "the venue did not supply complete position observations") from exc
+
+
+def phantom(session, cache, snapshot: dict) -> bool:
+    """Binance holds nothing at all (no position on any symbol, no open or conditional order) while the native cache
+    still holds an open position of the run: a close the cache never received (a stop triggered while no process
+    heard it, a liquidation, a close by hand), which native reconciliation does not match."""
+    try:
+        require_flat(snapshot)
+    except Refusal:
+        return False
+    return bool(owned(cache.positions_open, session.manifest))
+
+
+def venue_flat_exit(session, snapshot: dict) -> None:
+    """End the run as a reconciliation that finds the whole account flat does (engine.live venue_flat): nothing is
+    sent, since a close of a position Binance no longer holds can only be rejected; the read is the record, and the
+    next run starts from a fresh native identity."""
+    observation = keep(session.output, "final-account", snapshot)
+    session.venue_flat = True
+    session.event("venue_flat", strict=False, observation=observation, native_positions=True)
+    session.begin_stop("venue_flat")
+
+
 def compare(snapshot: dict, cache, manifest: dict) -> dict:
     """What the venue's REST read and the native cache disagree on, contract by contract; empty when they agree.
     `unknown_orders` maps each contract to the venue's orders on it the cache does not know."""
@@ -368,11 +423,7 @@ def compare(snapshot: dict, cache, manifest: dict) -> dict:
             transient = exc.code in {"LIVE_OBSERVATION_STALE", "LIVE_ACCOUNT_RESPONSE"}
             found.setdefault("observation" if transient else name, []).append(exc.code)
     try:
-        venue = {symbol: {"LONG": Decimal(0), "SHORT": Decimal(0)} for symbol in strategies}
-        for row in snapshot["positions"]:
-            amount = Decimal(row["positionAmt"])
-            if row["symbol"] in venue and amount:
-                venue[row["symbol"]][row["positionSide"]] += abs(amount)
+        differences = position_differences(snapshot, cache, manifest)
         at_venue: dict[str, list[set[str]]] = {symbol: [] for symbol in strategies}
         for row in (*snapshot["orders"], *snapshot["algo_orders"]):
             if row["symbol"] in at_venue:
@@ -380,18 +431,13 @@ def compare(snapshot: dict, cache, manifest: dict) -> dict:
                                                 if row.get(name) not in (None, "", 0)})
     except (KeyError, TypeError, ValueError, ArithmeticError):
         return {"response": ["LIVE_ACCOUNT_RESPONSE"]}
+    if differences:
+        found["positions"] = differences
     for symbol, strategy in strategies.items():
         instrument = contract_id(symbol)
-        native = {"LONG": Decimal(0), "SHORT": Decimal(0)}
         for position in cache.positions_open(instrument_id=instrument):
             if position.strategy_id != strategy:
                 found.setdefault("foreign", []).append(str(position.id))
-                continue
-            native["LONG" if position.side == PositionSide.LONG else "SHORT"] += position.quantity.as_decimal()
-        if venue[symbol] != native:
-            found.setdefault("positions", []).append(
-                {"symbol": symbol, "venue": {side: str(value) for side, value in venue[symbol].items()},
-                 "native": {side: str(value) for side, value in native.items()}})
         ids: set[str] = set()
         for order in cache.orders(instrument_id=instrument):
             if order.is_closed or order.status == OrderStatus.INITIALIZED:
@@ -493,7 +539,7 @@ def judge(session, cache, snapshot: dict) -> None:
     session.event("comparison", strict=False, agreed=not found, found=found, observation=observation,
                   entries=gate_reason(session))
     if not found:
-        state.suspect = False
+        state.suspect, state.phantom_ns = False, None
         orphans(session, cache, snapshot["observed_ns"])
         if not checking:
             return
@@ -504,6 +550,17 @@ def judge(session, cache, snapshot: dict) -> None:
             rewarm(session) if rewarming else open_entries(session)
         return
     state.agreed = None
+    if "positions" in found and phantom(session, cache, snapshot):
+        # Two reads a native position check apart both find Binance flat and the cache holding a position: no fill in
+        # flight explains that, and native reconciliation had its cycle. The run ends there (venue_flat_exit).
+        if state.phantom_ns is not None and \
+                snapshot["observed_ns"] - state.phantom_ns >= (COMPARE_SPACING_SECONDS - 1) * 1_000_000_000:
+            venue_flat_exit(session, snapshot)
+            return
+        if state.phantom_ns is None:
+            state.phantom_ns = snapshot["observed_ns"]
+    else:
+        state.phantom_ns = None
     if "unknown_orders" in found:
         close_entries(session, "unknown_orders", orders=found["unknown_orders"])
         for symbol in found["unknown_orders"]:

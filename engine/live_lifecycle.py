@@ -143,6 +143,10 @@ class Observer(Strategy):
                 if snapshot is None:
                     return
                 commands.verify_connected_account(session, snapshot)
+                if session.mode == "run" and live_connection.phantom(session, self.cache, snapshot):
+                    # A start again on a flat account whose reloaded cache still holds a position: its close came
+                    # while no process heard it (finding 20261114-25). Nothing of this start is in flight.
+                    live_connection.venue_flat_exit(session, snapshot)
             except Exception:
                 session.lose_connection("connected_account_unverified")
                 return
@@ -161,8 +165,8 @@ class Observer(Strategy):
             if not session.observe_stop_intent():
                 return
         commands.discard_observation(session)
-        if session.mode in ("reconcile", "held") or not session.sources:
-            session.node.handle().stop()
+        if session.mode in ("reconcile", "held") or not session.sources or session.venue_flat:
+            session.node.handle().stop()  # nothing to close: no source, or Binance holds nothing (venue_flat_exit)
             return
         positions = owned(self.cache.positions_open, session.manifest)
         pending = owned(lambda strategy_id: pending_orders(self.cache, strategy_id), session.manifest)

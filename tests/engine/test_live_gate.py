@@ -400,6 +400,58 @@ class GateTests(unittest.TestCase):
                          ["held_uncovered"])
         self.assertFalse(self.session.held_flat)
 
+    def phantom_position(self):
+        return SimpleNamespace(strategy_id=self.strategy, side=PositionSide.LONG, id="P-1", is_open=True,
+                               quantity=SimpleNamespace(as_decimal=lambda: Decimal("0.002")))
+
+    def test_binances_positions_are_compared_with_the_instances_own_in_the_cache(self):
+        """20261114-25: the difference an entry's read and the periodic comparison both judge."""
+        held = [{"symbol": SYMBOL, "positionSide": "LONG", "positionAmt": "0.002"},
+                {"symbol": SYMBOL, "positionSide": "SHORT", "positionAmt": "0"},
+                {"symbol": "ETHUSDT", "positionSide": "LONG", "positionAmt": "1"}]  # outside the run: not judged here
+        manifest, cache = self.session.manifest, Cache([self.phantom_position()])
+        self.assertEqual(live_connection.position_differences(dict(self.snapshot, positions=held), cache, manifest), [])
+        gone = live_connection.position_differences(dict(self.snapshot, positions=[]), cache, manifest)
+        self.assertEqual(gone, [{"symbol": SYMBOL, "venue": {"LONG": "0", "SHORT": "0"},
+                                 "native": {"LONG": "0.002", "SHORT": "0"}}])
+        other = SimpleNamespace(**{**vars(self.phantom_position()), "strategy_id": "EXTERNAL"})
+        self.assertEqual(live_connection.position_differences(dict(self.snapshot, positions=[]), Cache([other]),
+                                                              manifest), [])  # not the instance's own: `foreign`
+        with self.assertRaises(KeyError):
+            live_connection.position_differences(dict(self.snapshot, positions=[{"symbol": SYMBOL}]), cache, manifest)
+
+    def test_a_phantom_is_a_cache_position_while_binance_holds_nothing_at_all(self):
+        cache = Cache([self.phantom_position()])
+        self.assertTrue(live_connection.phantom(self.session, cache, dict(self.snapshot)))
+        self.assertFalse(live_connection.phantom(self.session, Cache(), dict(self.snapshot)))
+        left = dict(self.snapshot, algo_orders=[{"symbol": SYMBOL, "algoId": 7}])  # a stop left behind: not flat
+        self.assertFalse(live_connection.phantom(self.session, cache, left))
+        elsewhere = dict(self.snapshot, positions=[{"symbol": "ETHUSDT", "positionSide": "LONG", "positionAmt": "1"}])
+        self.assertFalse(live_connection.phantom(self.session, cache, elsewhere))
+
+    def test_two_comparisons_a_position_check_apart_end_a_run_on_a_phantom_and_one_does_not(self):
+        cache = Cache([self.phantom_position()])
+        self.session.connection.last_compare = 0
+
+        def read(seconds):
+            return dict(self.snapshot, observed_ns=self.snapshot["observed_ns"] + seconds * 10**9)
+
+        with mock.patch("engine.live_venue.time.time_ns", side_effect=lambda: self.snapshot["observed_ns"]), \
+                mock.patch.object(live_connection, "require_clock"):
+            live_connection.judge(self.session, cache, read(0))
+            self.assertFalse(self.session.venue_flat)
+            live_connection.judge(self.session, cache, read(10))  # too soon: a fill in flight could still explain it
+            self.assertFalse(self.session.venue_flat or self.session.stopping)
+            live_connection.judge(self.session, Cache(), read(20))  # the cache caught up: nothing was wrong
+            self.assertIsNone(self.session.connection.phantom_ns)
+            live_connection.judge(self.session, cache, read(30))
+            live_connection.judge(self.session, cache, read(61))
+        self.assertTrue(self.session.venue_flat and self.session.stopping and not self.session.failed)
+        ended = [row for row in self.events() if row["event"] in ("venue_flat", "stopping")]
+        self.assertEqual([(row["event"], row.get("reason")) for row in ended],
+                         [("venue_flat", None), ("stopping", "venue_flat")])
+        self.assertTrue((self.session.output / ended[0]["observation"]).name.startswith("final-account-"))
+
     def test_a_resumed_run_counts_its_duration_from_its_first_arming(self):
         import time
         self.session.started = time.monotonic()  # this start began just now

@@ -43,6 +43,9 @@ class Session:
     interrupt_requested: threading.Event = field(default_factory=threading.Event)
     interrupting: bool = False
     held_flat: bool = False  # a held resume saw the venue flat: the next start trades again
+    # Binance held nothing while the native cache still held a position: the run ended there, nothing sent
+    # (engine.live_connection.venue_flat_exit).
+    venue_flat: bool = False
     rewarming: bool = False  # a missing bar while flat: the next start warms the source up again
     # This start follows one that ended to warm up again (engine.live warmup_retry): if its warm-up fails, the run
     # starts once more instead of ending (the user, 2026-11-13); warmup_retried says this start does so.

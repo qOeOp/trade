@@ -28,6 +28,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   timer, outside the recovery protocol, and in Live its callback no longer runs once the run is stopping, as with
   the other timers. The change gives a new replay image; sources that do not use `set_timer_zoned` are unchanged
   (doctor 20261114-35).
+- Live (finding 20261114-25, the part that needs no real-account reading): an entry is no longer sent while
+  Binance's positions differ from the native cache's. Each entry's own account read is compared with its instance's
+  positions; a first difference reads once more (`entry_reread`), a second refuses the entry
+  (`LIVE_CONNECTION_UNVERIFIED`) and the run ends on the STOP path. When Binance holds nothing at all while the cache
+  still holds a position of the run (a stop that triggered while the runner was down, a liquidation), the run now
+  records `venue_flat`, sends nothing and ends with its slot released, instead of sending closes that can only be
+  rejected and ending `unresolved`: at a start again on a flat account, at an entry's second disagreeing read, and
+  after two comparisons 30 seconds apart. Confirmed against a local fake exchange only.
 - Breaking (order rules): a GTD order whose expiry is not a whole second is refused as `ORDER_RULE` in replay,
   Paper and Live. Nautilus's Binance USD-M client denies such an order before sending it, so a source that passed a
   replay and Paper failed at its first GTD order in Live. A replay's bars are stamped 1 ms before the minute, so
