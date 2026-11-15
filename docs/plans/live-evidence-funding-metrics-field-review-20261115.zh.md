@@ -98,6 +98,6 @@
 
 ## 仍然留下的
 
-- 源中途退订 metrics（`_metrics_unfollow`）不会留下记录，退订之后的行会被算成缺失。
+- 源中途退订 metrics（`_metrics_unfollow`）不会留下记录，退订之后的行会被算成缺失。已由 `live-evidence-metrics-unsubscribe-field-review-20261115.zh.md` 补上。
 - Paper 日志不记录 metrics，所以 `paper compare` 查不到 Paper 收到的 metrics。要查得另加一个 Paper 日志行类型，那是另一个存储字段，这次没有授权。
 - 档案里头部持仓比落在第 4 位中点的行（约 1/90），会显示为差 0.0001 的不同值，并可能成为差异原因 `metrics`。这是规则 v2 已知的残差，`evidence.differing_metrics` 会给出数量。

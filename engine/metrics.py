@@ -88,9 +88,10 @@ class Feed:
             self._metrics_clock().cancel_timer("runner-metrics")
 
     def _metrics_tick(self, _event=None) -> None:
+        """Each followed contract's due rows; none once the source unfollowed it, even from a row's own on_data."""
         now = self._metrics_clock().timestamp_ns()
         for state in list(self._metrics_followed.values()):
-            while self._metrics_step(state, now):
+            while self._metrics_followed.get(state["instrument_id"]) is state and self._metrics_step(state, now):
                 pass
 
     def _metrics_step(self, state: dict, now: int) -> bool:
