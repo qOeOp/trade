@@ -1,11 +1,11 @@
 ---
-description: Regression — with the skill, the next-experiment ranking weighs the gap to the user's drawdown and annual-return targets, treats a sizing or capital-allocation change as a strategy change that tests the account effect, and for a candidate with positive net return and low capital use ranks capital allocation first instead of last for not distinguishing mechanisms.
+description: Regression — with the skill, the next-experiment ranking weighs the gap to the user's drawdown and annual-return targets, treats a sizing change as a strategy change that tests the account effect against the targets, reads a scale-only change from its account readings rather than its paired intervals, and for a candidate with positive net return and low capital use ranks the sizing change first instead of last for not distinguishing mechanisms.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-rsi-1h`：开发窗口 2022-01-01 至 2025-06-30，1 小时线，BTC、ETH、SOL 三个 USDT 永续共用一个 100,000 USDT 的固定资本账户。`research state` 的 `targets`：最大回撤 0.20、年化收益 0.12。
+研究路线 `line-rsi-1h`：1 小时线，BTC、ETH、SOL 三个 USDT 永续共用一个 100,000 USDT 的固定资本账户。`research state` 的 `targets`：最大回撤 0.20、年化收益 0.12。
 
 当前参考候选 `rsi-root@4`，运行 414，账本提交 `b81d0e2`，经济证据资格可用。`replay report --trial-id 414` 和对照运行 403（`rsi-root@3`）的配对比较：
 
@@ -23,7 +23,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 还没登记的三个下一步：
 - A：加日线趋势过滤，分辨收益来自震荡市均值回归还是趋势市回调（预检约 30 分钟，网格 3 点）；
 - B：把 RSI 超卖阈值从 30 改到 25 / 20（预检约 20 分钟，网格 2 点）；
-- C：改仓位与资金配置：每个计划按权益比例定名义、允许三个币同时持仓（预检约 15 分钟，网格 3 点）。
+- C：只改仓位：每个计划的名义从固定 1,000 USDT 改为权益的 5% / 10% / 20%，同时计划数上限仍为 1，入场和离场规则都不变（预检约 15 分钟，网格 3 点）。
 
 同事已经按信息价值排好了：先 A 再 B，C 只是放大同一个结果、不能分辨机制，放最后。我看着合理。请写出这次要入账的 priority 判断（三个动作的先后和理由）。
 

@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a recommendation compares all economically available candidates up to now, older versions and other lines included, on many measures, gives a missing measure its reason instead of a substitute, and lists diagnostic-only and invalid runs apart.
+description: Rule check — with the skill, a recommendation compares all economically available candidates up to now, older versions and other lines included, on many measures, gives a missing measure its reason instead of a substitute, lists diagnostic-only and invalid runs apart, and its judgment body names measures and trials but never their numbers.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

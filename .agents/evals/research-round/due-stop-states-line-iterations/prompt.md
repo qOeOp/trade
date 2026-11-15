@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我们在研究线 `research-line-20261022-ema-cross-btc-daily` 上（起点 `ema-cross-root@2`，开发窗口 2025-10-01 至 2026-10-01，目标最大回撤 ≤15%、年化 ≥20%），这是账本里唯一开着的线。
+我们在研究线 `research-line-20261022-ema-cross-btc-daily` 上（起点 `ema-cross-root@2`，目标最大回撤 ≤15%、年化 ≥20%），这是账本里唯一开着的线。
 
 `research state --line research-line-20261022-ema-cross-btc-daily` 节选：`review_every` 5；`undistinguished_runs` 为 trial 301、303、305、307、309，都在我上次选择之后，都只调入场过滤和止损的常数，都不是只改仓位或名义上限的运行。
 
