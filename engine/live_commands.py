@@ -59,6 +59,7 @@ class PendingEntry:
     submit: Callable
     client_id: Any
     bar_type: Any = None  # the bar the source was handling when it decided, if any
+    reread: bool = False  # its account read disagreed with the native cache's positions once; it reads once more
     deadline_ns: int | None = None  # set when the entry is held at a closed gate (engine.live_connection.hold)
 
     def held_ns(self) -> int | None:
@@ -212,6 +213,22 @@ def dispatch_entry(session: Session) -> None:
         require_entry(session, pending.order)
         require_entry_size(session, pending.order, equity)
         live_connection.require_send_time(pending)
+        differences = live_connection.entry_positions(session, snapshot)
+        if differences:
+            # Binance's positions are not the native cache's (finding 20261114-25). A fill between the read and now
+            # disagrees for a moment, so this entry reads once more; a second disagreeing read sends nothing.
+            if not pending.reread:
+                pending.reread = True
+                session.event("entry_reread", strict=False, client_order_id=str(pending.order.client_order_id),
+                              positions=differences, observation=observation)
+                session.account_observation = None
+                start_observation(session, "entry")
+                return
+            if live_connection.phantom(session, native_cache(session.any_source()), snapshot):
+                live_connection.venue_flat_exit(session, snapshot)  # the STOP path journals the waiting entries
+                return
+            raise Refusal("LIVE_CONNECTION_UNVERIFIED", "Binance's positions differ from the native cache in two "
+                                                        f"reads, so no entry is sent: {differences}")
         try:
             require_clock(snapshot)  # each entry reads the venue's time too (design §3.9)
         except Refusal as exc:

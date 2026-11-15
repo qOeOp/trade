@@ -109,6 +109,7 @@ class NativeEntryTests(unittest.TestCase):
             universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
             source=dict(entry_class="Source", source_sha256=hashlib.sha256(SOURCE.encode()).hexdigest()))
         self.reader = DeferredAccount(self.snapshot)
+        self.venue_mirrors = True
         self.addCleanup(self.reader.release.set)
         self.session = live.Session(self.manifest, self.root, "run", account_reader=self.reader)
         live_brake.arm(self.session, self.snapshot)  # the cash floor: 85 USDT of the fixture's 100
@@ -159,6 +160,17 @@ class NativeEntryTests(unittest.TestCase):
         self.engine.add_data([quote], None, False, True)
         self.engine.run(None, self.ts, None, True)
         self.engine.clear_data()
+        if self.venue_mirrors:
+            self.reader.snapshot_value["positions"] = self.venue_positions()
+
+    def venue_positions(self):
+        """Binance's rows for what the simulated venue holds: an account read shows the positions the native cache
+        does, unless a test takes them away (venue_mirrors False)."""
+        held = {"LONG": Decimal(0), "SHORT": Decimal(0)}
+        for position in self.engine.cache.positions_open():
+            held[position.side.name] += position.quantity.as_decimal()
+        return [{"symbol": "BTCUSDT", "positionSide": side, "positionAmt": str(amount if side == "LONG" else -amount)}
+                for side, amount in held.items()]
 
     def limit(self, quantity="0.500", price="100.00", **kwargs):
         return self.source.order_factory.limit(self.iid, OrderSide.BUY,
@@ -614,6 +626,75 @@ class NativeEntryTests(unittest.TestCase):
         self.assertTrue(self.session.failed)
         row = self.read_events("source_findings")[-1]
         self.assertEqual((row["finding_count"], row["entry_gate_findings"]), (2, 1))
+
+    def entry_read(self, entry=None):
+        """Submit an entry while the reader answers at once, and judge its account read."""
+        entry = entry or self.limit(price="95.00")
+        self.reader.release.set()
+        self.source.submit_order(entry)
+        self.session.account_observation.result.result(timeout=2)
+        commands.dispatch_entry(self.session)
+        return entry
+
+    def test_an_entry_is_not_sent_while_binances_positions_differ_from_the_cache(self):
+        """20261114-25: the position was closed at Binance and the cache never heard. A stop is still there, so the
+        account is not flat: the entry reads once more, is refused, and the run takes the STOP path."""
+        self.owned_position()
+        self.venue_mirrors = False
+        self.reader.snapshot_value.update(positions=[], algo_orders=[{"symbol": "BTCUSDT", "algoId": 9}])
+        entry = self.entry_read()
+        [again] = self.read_events("entry_reread")
+        self.assertEqual((again["client_order_id"], again["positions"]), (str(entry.client_order_id), [
+            {"symbol": "BTCUSDT", "venue": {"LONG": "0", "SHORT": "0"}, "native": {"LONG": "0.500", "SHORT": "0"}}]))
+        self.assertFalse(self.session.stopping)
+        self.assertEqual([pending.order for pending in self.session.pending_entries], [entry])  # still waiting
+        self.session.account_observation.result.result(timeout=2)
+        commands.dispatch_entry(self.session)
+        self.assertIsNone(self.engine.cache.order(entry.client_order_id))  # never sent
+        [refused] = self.read_events("entry_refused")
+        self.assertEqual((refused["client_order_id"], refused["code"]),
+                         (str(entry.client_order_id), "LIVE_CONNECTION_UNVERIFIED"))
+        self.assertTrue(self.session.failed and self.session.stopping and not self.session.venue_flat)
+        self.assertEqual(self.read_events("stopping")[-1]["reason"], "entry_admission_failed")
+
+    def test_an_entry_on_a_cache_position_binance_no_longer_holds_ends_the_run_venue_flat(self):
+        """Binance holds nothing at all: there is nothing to close, so nothing is sent and the run ends."""
+        position = self.owned_position()
+        self.venue_mirrors = False
+        self.reader.snapshot_value.update(positions=[])
+        entry = self.entry_read()
+        self.assertEqual(len(self.read_events("entry_reread")), 1)
+        self.session.account_observation.result.result(timeout=2)
+        commands.dispatch_entry(self.session)
+        self.assertIsNone(self.engine.cache.order(entry.client_order_id))
+        self.assertTrue(self.session.venue_flat and self.session.stopping and not self.session.failed)
+        [ended] = self.read_events("venue_flat")
+        self.assertTrue((self.root / ended["observation"]).exists())
+        self.assertEqual(self.read_events("stopping")[-1]["reason"], "venue_flat")
+        live_lifecycle.Observer.observe(SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0.0,
+                                                        query_account=lambda _: None))
+        self.session.node.handle.return_value.stop.assert_called_once()  # the STOP path closes nothing
+        self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [position])
+        self.assertEqual(self.session.exits, set())
+        self.assertEqual(self.read_events("entry_refused")[-1]["code"], "LIVE_ENTRY_STOPPED")  # the waiting entry
+
+    def test_an_entry_whose_second_read_agrees_with_the_cache_is_sent(self):
+        """A fill between the read and its judgment disagrees for a moment; the second read agrees."""
+        self.owned_position()
+        self.venue_mirrors = False
+        self.reader.snapshot_value.update(positions=[])  # the read began before the fill reached Binance's answer
+        entry = self.entry_read(self.limit())
+        self.reader.snapshot_value.update(positions=self.venue_positions())
+        self.session.account_observation.result.result(timeout=2)
+        self.assertEqual(len(self.read_events("entry_reread")), 1)
+        # The first read's answer may already be in; a read begun after the venue showed the fill is what counts.
+        self.session.account_observation = None
+        commands.start_observation(self.session, "entry")
+        self.session.account_observation.result.result(timeout=2)
+        commands.dispatch_entry(self.session)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.ACCEPTED)
+        self.assertFalse(self.session.stopping or self.session.failed or self.session.venue_flat)
 
     def test_a_denied_entry_is_no_failure_in_a_later_start_whose_cache_still_holds_it(self):
         self.owned_position()
