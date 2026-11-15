@@ -37,6 +37,7 @@ from urllib.parse import parse_qs, urlsplit
 from engine.config import instrument_id
 from ledger import db, paper as records, strategies
 from shared.errors import Refusal
+from shared.failures import FAILURES, failure_records
 from shared.refusals import refuse
 from paper import runs
 from replay import comparison
@@ -59,7 +60,6 @@ LOOPBACK = ("127.0.0.1", "::1", "localhost")
 CONTAINER_MARK = Path("/.dockerenv")
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}\Z")
 START_ID = re.compile(r"paper-web:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
-FAILURES = "runtime_failures.jsonl"
 STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop|resume|logs|compare|delete)\Z")
 
 
@@ -157,20 +157,6 @@ def held(directory: Path) -> dict | None:
         return None
     return {"minute_ns": state.get("minute_ns"), "positions": state.get("positions") or [],
             "orders": state.get("orders") or []}
-
-
-def failure_records(data: bytes | None) -> list[dict]:
-    """The records of a runtime_failures.jsonl (engine/run.py: one per distinct exception, with its count
-    and first traceback). A line cut by the capture's tail or by a write in progress is left out."""
-    found = []
-    for raw in (data or b"").splitlines():
-        try:
-            value = json.loads(raw)
-        except ValueError:
-            continue
-        if isinstance(value, dict) and isinstance(value.get("count"), int):
-            found.append(value)
-    return found
 
 
 def _read_bytes(path: Path) -> bytes | None:

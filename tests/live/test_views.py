@@ -132,6 +132,21 @@ class LiveViewTests(LiveViewFixture):
         self.assertEqual(views.run_view(self.root, self.run_id)["compare"],
                          {"format": daily.FORMAT, "day": "2026-11-11", "state": "done", "unexplained_count": 0})
 
+    def test_the_strategys_runtime_failures_show_as_papers_and_a_symlink_is_never_read(self):
+        """Doctor finding 20261113-120: the runner writes runtime_failures.jsonl and the page shows it."""
+        self.assertEqual(views.run_view(self.root, self.run_id)["failures"], [])
+        record = {"format": "runtime-failure", "stage": "on_bar", "exception_type": "ZeroDivisionError",
+                  "instrument_id": "BTCUSDT-PERP.BINANCE", "code": None, "message": "division by zero",
+                  "traceback": "Traceback ...", "count": 2}
+        receipts = self.directory / "out" / "runtime_failures.jsonl"
+        receipts.write_text(json.dumps(record) + "\n" + json.dumps(record)[:30], encoding="utf-8")
+        self.assertEqual(views.run_view(self.root, self.run_id)["failures"], [record])
+        receipts.unlink()
+        receipts.symlink_to(self.credentials)
+        result = views.run_view(self.root, self.run_id)
+        self.assertIsNone(result["failures"])
+        self.assertNotIn("example-secret", json.dumps(result))
+
     def test_restarts_show_interruptions_starts_again_and_the_control_limit(self):
         self.native("interrupted")
         self.native("resuming", held=True)

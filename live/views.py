@@ -18,6 +18,7 @@ import time
 
 from engine.live_errors import REFUSALS, LiveRefusal
 from live import daily, runs, state
+from shared.failures import FAILURES, failure_records
 
 
 MAX_BYTES = 16 * 1024 * 1024  # a JSON sample, or one journal row
@@ -163,6 +164,23 @@ def _stop_marker(path: Path) -> _Sample:
         return _Sample(path, "stop_intent", {"present": False}, "absent", "complete", None, read_ns)
     except (OSError, ValueError):
         return _Sample(path, "stop_intent", None, None, "invalid", None, read_ns)
+
+
+def _failures(path: Path) -> list[dict] | None:
+    """The strategy's runtime failure receipts, as Paper shows them (shared.failures): none before its first
+    exception; unknown (None) when the file is not a regular file within MAX_BYTES. The runner replaces the
+    file whole, so a read never sees half of one."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                return None
+            raw = stream.read(MAX_BYTES + 1)
+    except FileNotFoundError:
+        return []
+    except OSError:
+        return None
+    return failure_records(raw) if len(raw) <= MAX_BYTES else None
 
 
 def _recheck(sample: _Sample, *, journal=False):
@@ -467,6 +485,7 @@ def run_view(root: Path, run_id: str) -> dict:
                   "key_checks": _key_checks(lifecycle),
                   # The control's daily comparison with a replay (live.daily); never read through a link.
                   "compare": daily.read_record(directory),
+                  "failures": _failures(directory / "out" / FAILURES),
                   "event_limit": MAX_ROWS}
         evidence = [sample.evidence() for sample in (*samples.values(), stop)]
         if observation is not None:

@@ -20,9 +20,10 @@ export const scoped = (failures: readonly RuntimeFailure[], only: string | null)
 
 /** The exceptions the strategy raised, one row per distinct one in the order they first came: the
  *  contract, the callback it raised in, its type, how often and its message; a click opens its first
- *  traceback. Rows of the contract the chart shows (and those of no contract) when one shows. */
-export function Exceptions({ failures, sealed, only, candidate }: {
-  failures: readonly RuntimeFailure[]; sealed: boolean; only: string | null; candidate: string | null;
+ *  traceback. Rows of the contract the chart shows (and those of no contract) when one shows. A `live` run
+ *  stops at its first exception and its counts are never read again at the end (engine/live_session.py). */
+export function Exceptions({ failures, sealed, only, candidate, live = false }: {
+  failures: readonly RuntimeFailure[]; sealed: boolean; only: string | null; candidate: string | null; live?: boolean;
 }) {
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
   const rows = failures.map((f, i) => ({ f, i })).filter(({ f }) => scoped([f], only).length > 0);
@@ -31,8 +32,8 @@ export function Exceptions({ failures, sealed, only, candidate }: {
   return (
     <div className="flex flex-col">
       <p className="px-3 py-2 text-dense text-fg-muted">
-        Each exception ended its callback early{sealed ? "." : "; the run keeps going."}
-        {!sealed && <span className="text-fg-faint"> Counts are read at 1, 2, 4, 8… until the seal.</span>}
+        Each exception ended its callback early{live ? "; the first one stops the run." : sealed ? "." : "; the run keeps going."}
+        {!sealed && <span className="text-fg-faint"> Counts are read at 1, 2, 4, 8…{live ? "" : " until the seal."}</span>}
       </p>
       <table className="w-full table-fixed border-collapse text-dense tabular-nums">
         <thead><tr>
