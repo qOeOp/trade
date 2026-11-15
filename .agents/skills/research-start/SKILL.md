@@ -53,7 +53,8 @@ select`); its development period follows from the date and the start's contracts
   continue a stopped line, after an interruption included, or establish a Goal for it, and never
   offer keeping it open or leaving it as it is until the stop lifts.
 - A non-empty `runs_behind_image` (a new replay image) stops nothing and needs no choice from the
-  user: a run moves before a comparison or recommendation reads it (research-round's
+  user: move a control with `replay reproduce` before a registration compares against it, and a
+  recommended run and its control before a recommendation (research-round's
   [changes.md](../research-round/references/changes.md)).
 - A line stays open until it is closed; selecting another line leaves it open, and several open
   lines are normal. Close a line only when the user ends it, and never propose closing one; a
