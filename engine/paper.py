@@ -119,6 +119,10 @@ VENUE = ACCOUNT_CONTRACT["venue"]
 LOADER_MARGIN = Decimal("0.1")
 LATE_BAR_NS = 2_000_000_000  # a bar arriving later than this after its close is a late-bar event
 STOP_CANCEL_SECONDS = 10
+# The runner's exit status after its journal failed (ledger.paper.JOURNAL_FAILED_EXIT reads it: with a full disk the
+# summary is as likely missing as the journal's last lines, and the exit status is what the seal still has).
+JOURNAL_FAILED_EXIT = 3
+JOURNAL_WRITE_FAILED = "PAPER_JOURNAL_WRITE_FAILED"
 # The order in which data callbacks were held, across strategies (release_before).
 SEQUENCE = itertools.count()
 # Names of variables that may hold an exchange credential. Matching is on names only: values are never read.
@@ -145,35 +149,79 @@ def warmup_digest(bars: list) -> dict:
 # The journal
 
 class Journal:
-    """events.jsonl (appended and flushed line by line) and state.json (replaced whole)."""
+    """events.jsonl (appended and flushed line by line) and state.json (replaced whole).
 
-    def __init__(self, output: Path):
+    The first write the disk refuses (a full disk: Errno 28) latches `failure` and stops the run
+    (``on_failure``, finding 20261114-43): a journal with a gap is not a record, so nothing is written after it, and
+    nothing raises into a callback, so the source still receives the event the write belonged to."""
+
+    def __init__(self, output: Path, on_failure=None):
         output.mkdir(parents=True, exist_ok=True)
         self.output = output
         self._stream = (output / "events.jsonl").open("a", encoding="utf-8", buffering=1)
         self._lock = threading.Lock()
+        self._on_failure = on_failure
+        self.failure: str | None = None
+
+    def fail(self, exc: OSError) -> None:
+        """Latch the first failed write; the runner log (stdout) is the record a full disk leaves."""
+        if self.failure is None:
+            self.failure = f"{type(exc).__name__}: {exc}"
+            print(f"Paper journal write failed, the run stops: {self.failure}", flush=True)
+            if self._on_failure is not None:
+                self._on_failure()
 
     def write(self, kind: str, **fields) -> None:
         line = json.dumps({"wall_ns": time.time_ns(), "kind": kind, **fields}, default=str, sort_keys=True)
         with self._lock:
-            self._stream.write(line + "\n")
+            if self.failure is not None:
+                return
+            try:
+                self._stream.write(line + "\n")
+            except OSError as exc:
+                self.fail(exc)
 
     def state(self, value: dict) -> None:
+        if self.failure is not None:
+            return
         partial = self.output / ".state.json.partial"
-        partial.write_text(json.dumps(value, default=str, sort_keys=True), encoding="utf-8")
-        os.replace(partial, self.output / "state.json")
+        try:
+            partial.write_text(json.dumps(value, default=str, sort_keys=True), encoding="utf-8")
+            os.replace(partial, self.output / "state.json")
+        except OSError as exc:
+            self.fail(exc)
 
     def close(self) -> None:
-        self._stream.close()
+        try:
+            self._stream.close()
+        except OSError as exc:  # its buffer held a line the disk refused
+            self.fail(exc)
 
     def sync(self) -> None:
         with self._lock:
-            self._stream.flush()
-            os.fsync(self._stream.fileno())
+            if self.failure is not None:
+                raise OSError(f"the journal failed: {self.failure}")
+            try:
+                self._stream.flush()
+                os.fsync(self._stream.fileno())
+            except OSError as exc:
+                self.fail(exc)
+                raise
 
 
 JOURNAL: Journal | None = None
 SESSION: Session | None = None
+
+
+def disk(action) -> None:
+    """One of the run's own disk operations: a refusal by the disk is the journal's failure (the run stops and still
+    reaches its summary and its dispose), not an exception out of a callback, the watcher or the end."""
+    try:
+        action()
+    except OSError as exc:
+        if JOURNAL is None:
+            raise
+        JOURNAL.fail(exc)
 
 
 def mutation(callback):
@@ -839,10 +887,13 @@ def main(argv: list[str] | None = None) -> None:
                       ", ".join(found) + "; start the runner with an allowlisted environment")
     args = parse(argv)
     with Signals(request_stop):
-        _main(args)
+        failed = _main(args)
+    if failed:
+        sys.exit(JOURNAL_FAILED_EXIT)
 
 
-def _main(args) -> None:
+def _main(args) -> bool:
+    """Run the node to its end; whether the journal failed on the way (the runner then exits JOURNAL_FAILED_EXIT)."""
     global JOURNAL, SESSION
     strategy_runtime.clear_failures()
     strategy_runtime.FAILURE_PATH = args.output / "runtime_failures.jsonl"
@@ -866,7 +917,7 @@ def _main(args) -> None:
     warm_at = history.start_at(time.time_ns())
     start_ns = saved["input_start_ns"] if saved else warm_at
     warm_at = max(warm_at, start_ns)
-    JOURNAL = Journal(args.output)
+    JOURNAL = Journal(args.output, on_failure=lambda: request_stop(JOURNAL_WRITE_FAILED))
     catalog = Path(tempfile.mkdtemp(prefix="paper-warmup-"))
     try:
         SESSION = Session(backend, JOURNAL, loaded, saved, started_ns, start_ns, warm_at) if backend else None
@@ -919,7 +970,7 @@ def _main(args) -> None:
                     request_stop("DURATION")
                 total = sum(receipt["count"] for receipt in strategy_runtime.FAILURES)
                 if total != written:
-                    strategy_runtime.write_failures()
+                    disk(strategy_runtime.write_failures)
                     written = total
                 STOP.wait(1)
 
@@ -928,13 +979,13 @@ def _main(args) -> None:
             node.run()
         finally:
             if SESSION:
-                checkpoint.dirty(args.output)
+                disk(lambda: checkpoint.dirty(args.output))
             result = summary(args, loaded, planned, recorder, node, started_ns)
             result["runtime_failures"] = len(strategy_runtime.FAILURES)
             if strategy_runtime.FAILURES:
-                strategy_runtime.write_failures()
-            checkpoint.atomic(args.output / "summary.json",
-                              json.dumps(result, default=str, indent=2, sort_keys=True).encode())
+                disk(strategy_runtime.write_failures)
+            disk(lambda: checkpoint.atomic(args.output / "summary.json",
+                                           json.dumps(result, default=str, indent=2, sort_keys=True).encode()))
             journal("summary_written", stop_reason=result["stop_reason"])
             try:
                 write_native_reports(args.output, node.cache)
@@ -951,6 +1002,7 @@ def _main(args) -> None:
         FETCH.clear()
         READ_METRICS.clear()
         shutil.rmtree(catalog, ignore_errors=True)
+    return JOURNAL is not None and JOURNAL.failure is not None
 
 
 if __name__ == "__main__":
