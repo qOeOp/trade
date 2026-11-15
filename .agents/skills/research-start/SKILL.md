@@ -88,7 +88,8 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   any of it. List template roots
   (research-round's [template.md](../research-round/references/template.md)) when the ledger has no
   candidate or the user says to leave every line, each with its contract scope and why, and its first
-  report on the current development period or marked not yet replayed. The scope is each replay's `--symbols` or `--universe pool` (the members among the contracts
+  report on the current development period or marked not yet replayed, never with a figure from
+  elsewhere (an estimate, other data, a result outside this ledger), not even against a target. The scope is each replay's `--symbols` or `--universe pool` (the members among the contracts
   this deployment's market holds, not every listed contract): propose it, never as a question of its own; the why comes from the hypothesis and `market coverage`, never
   from what earlier lines used. Roots with the same scope may share one scope and why.
 - A due change of approach (research-round) is not a line offer: you choose an approach inside the
@@ -117,8 +118,9 @@ research-round's rule for ledger text (English, structured). The targets are the
 reading reports; ask for nothing else (no sizing, budgets or stages).
 
 An idea the user adds with the choice is one ordinary hypothesis in the line (research-round's
-hypothesis stage: sources and rationale labelled by kind, then publish, precheck and independent review
-before its registration), never
+hypothesis stage: retained evidence read with `evidence export`, what it leaves searched with
+`research-sources`, reasons labelled external, local or conjecture (the user's impression is
+conjecture), then publish, precheck and an independent `source review` before its registration), never
 exempt from registration or applied by editing source and replaying. A
 source the user gives is transcribed into a new root at once (research-round's template.md), never
 kept only as evidence or split into changes of this line's source; the user chooses its line.
