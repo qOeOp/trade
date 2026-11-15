@@ -88,9 +88,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Breaking (Live restart rule, finding 20261114-23): a Live runner that ends by its own refusal or failure is no
   longer taken for an interruption and started again. Once armed, every such exit of a run records `unresolved`
   (the final account read after a completed native exit failing or not flat, a start again without its native cache
-  or with changed account modes, a clock outside the limits), and the control never restarts a runner that exited
-  with status 1 or 2. A killed runner and SIGTERM start again as before. Only a start again whose first account read
-  fails (`LIVE_ACCOUNT_UNAVAILABLE`) is retried, within the existing four run launches an hour.
+  or with changed account modes), and the control never restarts a runner that exited with status 1 or 2. A killed
+  runner and SIGTERM start again as before. Only a start again whose first account read fails
+  (`LIVE_ACCOUNT_UNAVAILABLE`), or shows this clock outside the limits (`LIVE_CLOCK`, the user 2026-11-15: a host
+  clock that steps aside comes back by itself), is retried, within the existing four run launches an hour; the
+  clock's limits are unchanged, and a first start over them is refused as before.
 - Paper: a recovery no longer drops or reuses the position IDs of resting limit entries. The Sandbox now leaves
   position IDs to the execution engine (`use_position_ids=False`, as Live), so a recovered run's new fills cannot
   collide with a cached position of another contract (entry stuck at ACCEPTED, no stop, no re-entry) or of the same

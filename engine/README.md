@@ -824,10 +824,15 @@ then the control records `restart_limited` once and the user decides. A runner t
 failure is not interrupted, and its run is over: once armed, every such exit of a `run` records `unresolved` (with
 the refusal's `code`), whether the final account read after a completed native exit failed or was not flat, a start
 again found no native cache or changed account modes, or anything else raised; and the control never starts again a
-runner that exited with status 1 or 2, even where it could write no event. One refusal gives the start back
-instead: a start again whose first account read fails (`LIVE_ACCOUNT_UNAVAILABLE`, before anything is built) exits 3
-with no event, and the control starts the run again within the same hourly limit (finding 20261114-23, the user
-2026-11-15). Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
+runner that exited with status 1 or 2, even where it could write no event. Two refusals give the start back
+instead, before anything is built or written: a start again whose first account read fails
+(`LIVE_ACCOUNT_UNAVAILABLE`), or whose read shows this clock outside the limits (`LIVE_CLOCK`; the limits are
+unchanged), exits 3 with no event, and the control starts the run again within the same hourly limit (finding
+20261114-23, the user 2026-11-15). Both pass by themselves, a host clock that steps aside included, and the account
+may hold a position. While the clock stays outside the limits the run stays `interrupted`: nothing checks its
+positions and stops, the control records `restart_limited` each time the hourly limit keeps it from starting the
+run, and starts it again once the hour allows; `live logs` shows the refused start. A read with no usable server
+time (`LIVE_ACCOUNT_RESPONSE`) ends the run. Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
 start again checks the clock and account modes: on a flat account it builds the source, warms up and trades (event
 `resuming`); with anything open it holds (`resuming` with `held`): no source, no entries, the account read every 30
 seconds, until the account is flat (its stops, or a close at Binance), when `venue_flat_while_held` ends that start

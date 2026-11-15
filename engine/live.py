@@ -4,7 +4,8 @@ Paper retains its credential-free Sandbox contract. This entry point never chang
 interrupted run (SIGTERM, a killed runner) starts again as the same run: on a flat account its source warms up and
 trades again; otherwise it holds, observing only, until the account is flat (design §3.4, first stage: the source
 cannot yet rebuild its state around an open position). An armed run that ends by its own refusal or failure is over
-(`unresolved`) and is never started again; only a start again whose first account read fails gives the start back.
+(`unresolved`) and is never started again; only a start again whose first account read fails, or shows this clock
+outside the limits, gives the start back.
 """
 
 from __future__ import annotations
@@ -45,6 +46,10 @@ from engine.live_node import build_node
 
 
 INTERRUPTED = 3  # the exit status of a run that starts again as itself
+# The refusals of a start again that give the start back instead of ending the run (the user, 2026-11-15): Binance
+# could not be read, or the read shows this clock outside the limits. Both pass by themselves (a host clock that
+# steps aside comes back), the account may hold a position, and the limits themselves are unchanged.
+GIVEN_BACK = frozenset({"LIVE_ACCOUNT_UNAVAILABLE", "LIVE_CLOCK"})
 IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}\Z")
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -201,20 +206,21 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
     try:
         clock = observer.clock() if args.mode in ("preflight", "run") else None
         snapshot = observer.snapshot(manifest["symbols"])
+        if clock is not None:
+            snapshot["clock"] = clock
+        if resuming:
+            require_clock(snapshot)
     except Refusal as exc:
-        if not resuming or exc.code != "LIVE_ACCOUNT_UNAVAILABLE":
+        if not resuming or exc.code not in GIVEN_BACK:
             raise
-        # Binance could not be read before anything was built: nothing is known and nothing changed, so this
-        # start ends as an interruption does and the control starts the run again, within its hourly limit.
+        # Before anything was built or written: nothing changed, so this start ends as an interruption does and the
+        # control starts the run again, within its hourly limit. `live logs` shows the line.
         print(str(exc), file=sys.stderr)
         return INTERRUPTED
-    if clock is not None:
-        snapshot["clock"] = clock
     observation = keep(args.output, "preflight", snapshot)
     session.event("preflight", mode=args.mode, observation=observation)
     loaded = None
     if resuming:
-        require_clock(snapshot)
         require_account_mode(snapshot, manifest)
         try:
             require_flat(snapshot)
