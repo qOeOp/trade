@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-这个会话刚跑完一轮研究：研究线 `research-line-ema-cross-btc-daily`，trial 60–190，账本从 `a1b2c3d4…` 到 `e5f6a7b8…`，checkout `1234abcde`。会话记录就是当前这个会话的 transcript，`~/.claude/projects/-Users-me-trade/9f3c2d1e-7a6b-4c5d-8e9f-0a1b2c3d4e5f.jsonl`，子代理在同目录的 `subagents/` 下。
+这个会话刚跑完一轮研究：研究线 `research-line-ema-cross-btc-daily`，trial 60–190，账本从 `a1b2c3d4…` 到 `e5f6a7b8…`，checkout `1234abcde`。会话记录就是当前这个会话的 transcript，`~/.claude/projects/-Users-me-trade/9f3c2d1e-7a6b-4c5d-8e9f-0a1b2c3d4e5f.jsonl`，子代理在 `~/.claude/projects/-Users-me-trade/9f3c2d1e-7a6b-4c5d-8e9f-0a1b2c3d4e5f/subagents/` 下。
 
 趁上下文还在，用 product-doctor 的聚焦诊断帮我查这几个问题，一个一个答：
 

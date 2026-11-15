@@ -1,5 +1,5 @@
 ---
-description: Regression — with the skill, standard ratios and the HTML report come from the pinned Nautilus analysis classes on tables() trade-window daily returns annualized over 365 days, and the whole-window Sharpe is checked against the report's `sharpe_365`.
+description: Regression — with the skill, standard ratios and the HTML report come from the pinned Nautilus analysis classes on tables() trade-window daily returns annualized over 365 days, the whole-window Sharpe is checked against the report's `sharpe_365`, and the maximum drawdown is read from the report, not computed.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
