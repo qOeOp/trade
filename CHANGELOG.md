@@ -22,6 +22,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper and Live: after Binance changes a contract's funding interval, the next settlement is the one Binance makes,
+  as a replay streams it. A start's warm-up waits for the settlement the contract's interval now
+  (`fapi/v1/fundingInfo`) makes due at or before T; it used to predict it from the spacing of the last two, so a start
+  after a shortening (8 to 1 hours) could miss that settlement and a start after a lengthening (1 to 4 hours) waited
+  for one that never came, `WARMUP_TIMEOUT`. The live stream's estimate that moves the next funding time later before
+  the named time has come is no longer taken for a settlement at the named time. The change gives a new replay image;
+  replays are unchanged.
 - Breaking (Paper end reason): a Paper run whose native cache process (the runner's Redis child) exits or stops
   answering now ends with `PAPER_CACHE_UNAVAILABLE`: its working orders are canceled, positions stay open, and the
   seal's reasons say `REFUSED:PAPER_CACHE_UNAVAILABLE` and `STOPPED:PAPER_CACHE_UNAVAILABLE`. Before, a run whose

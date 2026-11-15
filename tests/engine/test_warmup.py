@@ -169,6 +169,8 @@ class FundingTests(unittest.TestCase):
         asked = []
 
         def get(url, proxy_url):
+            if url.endswith("/fapi/v1/fundingInfo"):
+                return [{"symbol": "AAAUSDT", "fundingIntervalHours": 8}]
             asked.append(url)
             query = dict(urllib.parse.parse_qsl(url.split("?")[1], strict_parsing=True))
             held = [at for at in times if at <= int(query["endTime"])][-int(query["limit"]):]
@@ -193,8 +195,10 @@ class FundingTests(unittest.TestCase):
     def test_a_start_at_a_settlement_hour_waits_until_binance_publishes_it(self):
         hour = 3_600_000
 
-        def binance_funding(times):
+        def binance_funding(times, interval_hours=8):
             def get(url, proxy_url):
+                if url.endswith("/fapi/v1/fundingInfo"):
+                    return [{"symbol": "AAAUSDT", "fundingIntervalHours": interval_hours}]
                 query = dict(urllib.parse.parse_qsl(url.split("?")[1], strict_parsing=True))
                 held = [at for at in times if at <= int(query["endTime"])][-int(query["limit"]):]
                 return [{"fundingTime": at, "fundingRate": "0.0001"} for at in held]
@@ -222,6 +226,20 @@ class FundingTests(unittest.TestCase):
         # No settlement is due a minute before the hour.
         self.assertEqual(stamps(history.settlements(IID, at - 60_000 * NS, 3, None, binance_funding(published))),
                          (published[-3:], []))
+        # Binance shortens the interval to 1 hour after a settlement (HOTUSDT 2026-11-03 00:00, 8 hours before): a
+        # start at the next hour waits for that hour's settlement, which the last two's spacing does not make due.
+        shortened = binance_funding(published, 1)
+        with self.assertRaises(history.FundingPending):
+            history.settlements(IID, at - 7 * 3_600_000 * NS, 3, None, shortened)
+        self.assertEqual(stamps(history.settlements(IID, at - 7 * 3_600_000 * NS, 0, None,
+                                                    binance_funding([*published, base + 25 * hour + 2], 1))),
+                         ([], [base + 25 * hour + 2]))
+        # It lengthens the interval to 4 hours after a settlement (HOTUSDT 2026-11-12 20:00, 1 hour before): no
+        # settlement is due at the next hours, and a start there gets the history Binance holds.
+        hourly = [base + 20 * hour + index * hour for index in range(5)]
+        lengthened = binance_funding(hourly, 4)
+        self.assertEqual(stamps(history.settlements(IID, (base + 25 * hour) * NS, 2, None, lengthened)),
+                         (hourly[-2:], []))
 
 
 class ReplayWarmupTests(unittest.TestCase):

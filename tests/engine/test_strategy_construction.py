@@ -165,6 +165,8 @@ class ConstructionTests(unittest.TestCase):
             published[-1] += jitter_ms
 
             def get(url, proxy_url):
+                if url.endswith("/fapi/v1/fundingInfo"):
+                    return [{"symbol": "BTCUSDT", "fundingIntervalHours": 8}]
                 if "fundingRate" not in url:
                     return klines_get(url, proxy_url)
                 end = int(dict(part.split("=") for part in url.split("?")[1].split("&"))["endTime"])
