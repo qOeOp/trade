@@ -19,6 +19,7 @@ is then told `unchanged` instead of having one drawn; every other answer goes th
 Up to 16 trials' reports, 64 versions' comparisons, 8 lines' states and 16 contracts' daily bars stay in memory, keyed by what they were read for,
 and `research history` (`/api/history`, the closing history tests of every line, at the head or `at`) for the last 4 commits,
 and the lines with their recommendations (`line list --readings`, `/api/readings`, the phone's Research tab) for the last 4 commits.
+A head whose history does not continue the one read before (the old head is not in its log: the ledger was replaced) drops every view, failure and read kept for the old history's commits.
 Nothing is written anywhere.
 
 With an agent URL (the trade IDE's chat service, `ide/agent`), requests under `/api/agent/`
@@ -174,6 +175,12 @@ class Product:
         at = [f"--at={ref}"] if ref else []
         return self.run("ledger", "sql", f"--ledger={self.ledger}", *at, "SELECT 1")["ledger_commit"]
 
+    def follows(self, older: str, newer: str) -> bool:
+        """Whether `newer` is `older` or a commit after it (both full hashes): false when the history was replaced. The
+        log at `newer` is its ancestry (`ledger sql` reads at a detached commit, where DOLT_MERGE_BASE is refused)."""
+        query = f"SELECT commit_hash FROM dolt_log WHERE commit_hash = '{older}'"
+        return self.run("ledger", "sql", f"--ledger={self.ledger}", f"--at={newer}", query)["rows"] == [[older]]
+
     def service(self) -> dict:
         return self.run("ledger", "service", "status", f"--ledger={self.ledger}")
 
@@ -286,6 +293,7 @@ class Hub:
         self.checking: tuple[ViewKey, str] | None = None
         # Their answers at the head: None when it must be drawn, else what the unchanged state adds. A new head forgets them.
         self.same: dict[tuple[ViewKey, str], dict | None] = {}
+        self.history_epoch = 0  # moves when the head's history replaces the one read before; a draw begun before it is dropped
 
     # States
 
@@ -371,6 +379,24 @@ class Hub:
 
     # The head
 
+    def _follows(self, older: str | None, newer: str) -> bool:
+        """Whether `newer` continues the history `older` was read on. Only a confirmed ancestor does: a refusal, an
+        unknown commit included, counts as a replaced history, which costs a draw and never shows another ledger's graph."""
+        if older is None or older == newer:
+            return True
+        if not (COMMIT.fullmatch(older) and COMMIT.fullmatch(newer)):
+            return False
+        try:
+            return self.product.follows(older, newer)
+        except ProductError:
+            return False
+
+    def _forget(self) -> None:
+        """Drop the graphs and failures of the replaced history (the caller holds the lock)."""
+        self.history_epoch += 1
+        self.views.clear()
+        self.failed.clear()
+
     def _head(self) -> str:
         """The head from the mirror's controller when there is one; else, or when it gives none, from the product,
         whose refusal is what a page should see."""
@@ -389,6 +415,10 @@ class Hub:
             try:
                 head = self._head()
                 index = None
+                replaced = not self._follows(self.head, head)
+                if replaced:  # reads pinned to the replaced history's commits
+                    for cache in (self.line_index, self.history, self.readings, self.trials, self.comparisons, self.counts, self.states):
+                        cache.clear()
                 if head != self.head:
                     try:
                         index = self.line_index.get(head)
@@ -402,6 +432,8 @@ class Hub:
             with self.lock:
                 moved, self.head, self.fault = head != self.head, head, None
                 self.checked = time.monotonic()
+                if replaced:
+                    self._forget()
                 if moved:
                     self.same.clear()
                     self.checks.clear()
@@ -494,7 +526,7 @@ class Hub:
                 while not self.wanted:
                     self.lock.wait()
                 key, pinned = self.wanted.pop(0)
-                self.running = key
+                self.running, epoch = key, self.history_epoch
                 self._notify()
             view = failure = None
             try:
@@ -510,7 +542,10 @@ class Hub:
                 failure = _failure("GRAPH_UNREADABLE", f"{type(exc).__name__}: {exc}")
             with self.lock:
                 self.running = None
-                if view is not None:
+                if epoch != self.history_epoch:
+                    if pinned:  # drawn on the history the head left: an `at` page is answered on the new one
+                        self._want(key, pinned)
+                elif view is not None:
                     self._remember(key, view, pinned)
                 else:
                     self.failed[key] = failure or _failure("GRAPH_UNREADABLE", "no view")

@@ -35,6 +35,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   install, so the mirror's per-minute DoltHub sync never ran there. The first tick after this version moves them.
   Before a whole-project `compose up`, name the routed version's images in the env file
   (`deploy/remote/README.md`, Ledger mirror and market import), or compose puts the older image back.
+- IDE (fix): when the research ledger's history is replaced (a new ledger whose head does not descend from the old
+  head), the research graph service drops the graphs, failures and reads it kept for the old ledger's commits, and a
+  page drops the graph its browser kept for a line the ledger no longer has (`LINE_UNKNOWN`), instead of showing the
+  old ledger's graph until the service restarts and the site data is cleared (doctor 20261115-05).
 
 ## 0.4.0 (2026-11-15)
 

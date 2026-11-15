@@ -5,7 +5,7 @@ import { createContext } from "node:vm";
 import { namespace } from "./load.mjs";
 
 async function page(stored = null, views = []) {
-  const requests = [], shown = [], notices = [], nexts = [], updates = [], timers = [], urls = [], kept = [];
+  const requests = [], shown = [], notices = [], nexts = [], updates = [], timers = [], urls = [], kept = [], forgotten = [];
   let events, streams = 0, visibility;
   const document = { hidden: false, addEventListener: (type, listener) => { assert.equal(type, "visibilitychange"); visibility = listener; } };
   const context = createContext({
@@ -20,10 +20,11 @@ async function page(stored = null, views = []) {
     "lib/storage": {
       keep: (kind, key, value) => { kept.push([kind, key, value.scope.ledger_commit, value.scope.drawn_commit]); return Promise.resolve(); },
       readKept: () => Promise.resolve(stored),
+      forgetKept: (kind, key) => { forgotten.push([kind, key]); return Promise.resolve(); },
     },
     "state/update": { update: { set: (value) => updates.push(value) } },
   } });
-  live.follow((view) => { shown.push(view.scope.ledger_commit); views.push(view); }, (text, busy, choices, next) => { notices.push(text); nexts.push(next); });
+  live.follow((view) => { shown.push(view?.scope.ledger_commit ?? null); views.push(view); }, (text, busy, choices, next) => { notices.push(text); nexts.push(next); });
   const flush = async () => {
     for (let i = 0; i < 12; i++) {
       await Promise.resolve();
@@ -32,7 +33,7 @@ async function page(stored = null, views = []) {
   };
   await flush();
   return {
-    requests, shown, notices, nexts, updates, flush, kept, urls,
+    requests, shown, notices, nexts, updates, flush, kept, urls, forgotten,
     streams: () => streams,
     hide: (hidden) => { document.hidden = hidden; visibility(); },
     event: (message) => events.onmessage({ data: JSON.stringify(message) }),
@@ -244,4 +245,22 @@ test("a service that does not answer shows over the kept graph", async () => {
   await p.flush();
   assert.equal(p.updates.at(-1).stage, "failed");
   assert.equal(p.updates.at(-1).error.code, "UNAVAILABLE");
+});
+
+test("a kept graph of a line this ledger does not have is dropped, from the answer and from the events", async () => {
+  const unknown = { code: "LINE_UNKNOWN", message: "no research line 'line-a'" };
+  const p = await page(kept("old"));
+  await p.answer(0, 400, unknown);
+  assert.deepEqual(p.shown, ["old", null]);
+  assert.deepEqual(p.forgotten, [["view", "line-a"]]);
+  assert.match(p.notices.at(-1), /LINE_UNKNOWN/);
+  assert.equal(p.updates.at(-1), null);
+  const q = await page(kept("old"));
+  await q.answer(0, 202, { state: "checking", ledger_commit: "new" });
+  q.event({ state: "error", ledger_commit: "new", error: unknown });
+  assert.deepEqual(q.shown, ["old", null]);
+  assert.deepEqual(q.forgotten, [["view", "line-a"]]);
+  assert.match(q.notices.at(-1), /LINE_UNKNOWN/);
+  q.event({ state: "ready", ledger_commit: "newer" });
+  assert.equal(q.requests.at(-1).url, "/api/view?line=line-a", "the next read names no kept graph");
 });
