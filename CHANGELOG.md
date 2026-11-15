@@ -22,6 +22,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (order rules): a GTD order of a type other than LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED is refused as
+  `ORDER_RULE` in replay, Paper and Live: Nautilus's Binance USD-M client sends only those three GTD and denies any
+  other. Before, rule 5 raised `AttributeError` on every GTD order but a LIMIT (a source failure, not a refusal), so
+  no run with such an order passed. A GTD STOP_LIMIT or LIMIT_IF_TOUCHED exit now goes through rule 5's 600-second
+  check and is sent. The change gives a new replay image; runs of sources that send no such order are unchanged
+  (doctor 20261114-27).
 - Live's evidence pack records each metrics row its source receives (`metrics`), and `live compare` checks them
   against the archive's rows as a replay streams them: missing, late, differing and Live-only rows per contract, and
   a new difference cause `metrics` after the bar causes. `historical_funding` rows drop `ts_init`, always their

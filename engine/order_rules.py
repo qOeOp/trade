@@ -17,7 +17,9 @@ contract at once (user, 2026-11-11).
    when they cover the side (engine.audit).
 4. No modifications, order lists, emulated triggers, execution algorithms, contingent or linked orders, quote
    quantities or order parameters, and only the venue's own client.
-5. A GTD order expires at least GTD_MINIMUM_NS after it is sent (Binance's limit).
+5. A GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order (GTD_TYPES: the types Nautilus's Binance USD-M
+   client sends GTD; it denies any other, so Live could not send one) and expires at least GTD_MINIMUM_NS after it
+   is sent (Binance's limit).
 6. A strategy cancels and closes only its own orders and positions.
 7. An order is on the strategy instance's own contract (CONTRACTS): instances of one source coordinate legs on several
    contracts through state the source shares between them, each ordering on its own (user, 2026-11-13;
@@ -41,6 +43,9 @@ CODE = "ORDER_RULE"
 ENTRY_EQUITY_MULTIPLE = 3  # user, 2026-11-09 (multiple) and 2026-11-10 (of equity, not a fixed USDT cap)
 ENTRY_TYPES = frozenset({OrderType.LIMIT, OrderType.STOP_MARKET})  # user, 2026-11-10 ("Also allow stop entries")
 GTD_MINIMUM_NS = 600_000_000_000
+# What the pinned Nautilus sends GTD on Binance USD-M (crates/adapters/binance/src/futures/execution.rs,
+# determine_futures_order_lifetime); another type is OrderDenied before it reaches the venue.
+GTD_TYPES = frozenset({OrderType.LIMIT, OrderType.STOP_LIMIT, OrderType.LIMIT_IF_TOUCHED})
 VENUE = "BINANCE"
 WARMING: set[str] = set()  # the strategy IDs whose warm-up has not ended (engine.run)
 CONTRACTS: dict[str, Any] = {}  # strategy ID -> its instance's own InstrumentId (engine.history.Warming._warming_setup)
@@ -82,8 +87,13 @@ def violation(source, order, position_id=None, client_id=None, params=None) -> s
     if CONTRACTS.get(str(order.strategy_id)) != order.instrument_id:
         return "an order is on its strategy instance's own contract"
     clock = Strategy.clock.__get__(source, type(source))
-    if order.time_in_force == TimeInForce.GTD and order.expire_time_ns - clock.timestamp_ns() < GTD_MINIMUM_NS:
-        return "a GTD order expires at least 600 seconds after it is sent"
+    if order.time_in_force == TimeInForce.GTD:
+        if order.order_type not in GTD_TYPES:
+            return ("a GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order: Live cannot send a GTD "
+                    f"{order.order_type.name} order")
+        # expire_time: nanoseconds on every order type (expire_time_ns exists on LimitOrder alone); never absent on GTD
+        if order.expire_time - clock.timestamp_ns() < GTD_MINIMUM_NS:
+            return "a GTD order expires at least 600 seconds after it is sent"
     cache = native_cache(source)
     if order.is_reduce_only:
         position = cache.position(position_id) if position_id is not None else None
