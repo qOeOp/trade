@@ -37,7 +37,7 @@ function tip(cell: HistoryCell, row: HistoryRow, column: Column, shortDays: numb
   );
 }
 
-/** One heatmap cell: the chosen metric over the annual return's colour, a dot when the segment meets both of
+/** One heatmap cell: the chosen metric over the annual return's colour, a star when the segment meets both of
  *  the line's targets, grey when it is too short to count, and words when there is nothing to read. */
 function Cell({ cell, row, column, line, metric, shortDays }: { cell: HistoryCell | null; row: HistoryRow; column: Column; line: HistoryLine; metric: Metric; shortDays: number }) {
   const base = "h-7 min-w-[4.75rem] px-1.5 text-center tabular-nums";
@@ -143,7 +143,7 @@ export function HistoryPage() {
         </table>
       </div>
       <p className="shrink-0 px-3 py-1.5 text-small text-fg-faint">
-        Colour: annual return ({RETURN_RANGES[0]} to {RETURN_RANGES[6]}) · dot: the segment meets both targets · grey: under {history.short_days} days, not counted · hatched: part of a year.
+        Colour: annual return ({RETURN_RANGES[0]} to {RETURN_RANGES[6]}) · star: the segment meets both targets · grey: under {history.short_days} days, not counted · hatched: part of a year.
         The verdict reads the veto years and the holdout apart; it tests, it does not validate, and picking by it is a choice among the participants.
       </p>
     </div>
