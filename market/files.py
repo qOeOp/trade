@@ -284,7 +284,7 @@ def parse_day(market_day: str) -> date | None:
 
 def check_day(market_day) -> str:
     if parse_day(market_day) is None:
-        raise _refuse(f"{market_day!r} is not a resolved market day", "MARKET_DAY_UNKNOWN",
+        raise _refuse(f"{market_day!r} is not a resolved market day", "MARKET_DAY_UNRESOLVED",
                       missing=(str(market_day),))
     return market_day
 
@@ -317,12 +317,13 @@ def bar_months_through(market: Market) -> dict[date, date]:
     return found
 
 
-def _metrics_day(market: Market) -> date | None:
-    """The last complete day of the contracts whose metrics are followed, those holding a file in the table's newest
-    month or the one before it (the newer may not have begun for every contract): the earliest of their last days."""
+def followed_metrics(market: Market) -> dict[str, date]:
+    """{contract: its last day} of the contracts whose metrics are followed, those holding a file in the table's newest
+    month or the one before it (the newer may not have begun for every contract). market.follow keeps each current,
+    whichever import added it."""
     held = entries(market, "metrics")
     if not held:
-        return None
+        return {}
     since = series._day_ms((series._ms_day(held[-1].start_ms) - timedelta(days=1)).replace(day=1))
     latest: dict[str, date] = {}
     for entry in held:
@@ -330,7 +331,12 @@ def _metrics_day(market: Market) -> date | None:
         if moment is not None:
             symbol = str(entry.symbol)
             latest[symbol] = max(latest.get(symbol, series._ms_day(moment)), series._ms_day(moment))
-    return min(latest.values(), default=None)
+    return latest
+
+
+def _metrics_day(market: Market) -> date | None:
+    """The last complete day of the followed metrics: the earliest of their contracts' last days."""
+    return min(followed_metrics(market).values(), default=None)
 
 
 def latest_day(market: Market) -> date | None:
@@ -361,10 +367,10 @@ def resolve_day(market: Market, ref: str | None) -> str:
         return market_day
     day = parse_day(ref)
     if day is None:
-        raise _refuse(f"{ref!r} is not head or a market day (YYYY-MM-DD)", "MARKET_DAY_UNKNOWN", missing=(ref,))
+        raise _refuse(f"{ref!r} is not head or a market day (YYYY-MM-DD)", "MARKET_DAY_UNRESOLVED", missing=(ref,))
     latest = latest_day(market)
     if latest is None or day > latest:
-        raise _refuse(f"{ref!r} is after the newest day this market holds, {latest}", "MARKET_DAY_UNKNOWN",
+        raise _refuse(f"{ref!r} is after the newest day this market holds, {latest}", "MARKET_DAY_UNRESOLVED",
                       missing=(ref,))
     return ref
 
@@ -384,7 +390,7 @@ def day_end(table: str, market_day: str) -> int:
     then)."""
     day = parse_day(market_day)
     if day is None:
-        raise _refuse(f"{market_day!r} is not a market day", "MARKET_DAY_UNKNOWN", missing=(str(market_day),))
+        raise _refuse(f"{market_day!r} is not a market day", "MARKET_DAY_UNRESOLVED", missing=(str(market_day),))
     if table == "universe_month":
         return series._day_ms(universe.next_month((day + timedelta(days=1)).replace(day=1)))
     return series._day_ms(day) + (2 if table == "instrument" else 1) * DAY

@@ -287,7 +287,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "market_day, scope {symbols, start, end, expanded}, input_interval_ms, coverage [per contract], lifecycle, "
         "lifecycle_missing, interpretation",
         "INTERVAL_INVALID (not UTC whole minutes, or start not before end); EMPTY_SYMBOLS; UNKNOWN_SYMBOL; "
-        "MARKET_DAY_UNKNOWN; LIFECYCLE_INPUT"),
+        "MARKET_DAY_UNRESOLVED; LIFECYCLE_INPUT"),
     ("market", "bars"): (
         "bar, funding and instrument at --market-day (reader), through the exporter's own reads "
         "(market.read_bars, market.daily_bars, market.read_funding)",
@@ -295,7 +295,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "market_day, symbol, price_type, timeframe, interval {start, end, ms}, next_start, bars {columns, count, rows}, "
         "funding {columns, count, rows}, output",
         "INTERVAL_INVALID (not UTC whole minutes, start not before end; 1d: not whole UTC days or MARK); UNKNOWN_SYMBOL "
-        "(no such contract at the market day); MARKET_DAY_UNKNOWN; NOT_TEMPORARY_PATH, PATH_EXISTS (--output)"),
+        "(no such contract at the market day); MARKET_DAY_UNRESOLVED; NOT_TEMPORARY_PATH, PATH_EXISTS (--output)"),
 }
 
 

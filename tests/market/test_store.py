@@ -168,7 +168,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual((ccc["terms"]["terms_source"], ccc["terms"]["min_notional"]), ("inferred", None))
         market_day, empty = self.market_days[MAR], {"ts_open": [], "volume": []}
         self.refused("INTERVAL_INVALID", coverage.coverage_facts, market, market_day, "BTCUSDT", 1, 2, empty, empty, [])
-        self.refused("MARKET_DAY_UNKNOWN", coverage.coverage_facts, market, "head", "BTCUSDT", 0, MINUTE, empty,
+        self.refused("MARKET_DAY_UNRESOLVED", coverage.coverage_facts, market, "head", "BTCUSDT", 0, MINUTE, empty,
                      empty, [])
         self.refused("UNKNOWN_SYMBOL", coverage.diagnose_coverage, self.profile, None, ["ZZZUSDT"], "2025-02-09T00:00:00Z",
                      "2025-02-11T00:00:00Z", None)
@@ -223,7 +223,7 @@ class ImportTests(unittest.TestCase):
                      "2025-03-02T06:00:00Z", window[1], None)
         self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, market_day, "BTCUSDT", "MARK", "1d", *window, None)
         self.refused("UNKNOWN_SYMBOL", read.stored_bars, self.profile, market_day, "ZZZUSDT", "LAST", "1m", *window, None)
-        self.refused("MARKET_DAY_UNKNOWN", read.stored_bars, self.profile, "no-such-ref", "BTCUSDT", "LAST", "1m", *window,
+        self.refused("MARKET_DAY_UNRESOLVED", read.stored_bars, self.profile, "no-such-ref", "BTCUSDT", "LAST", "1m", *window,
                      None)
 
     def test_an_export_is_renamed_into_place_whole_so_a_failure_or_a_second_writer_keeps_what_is_there(self):
@@ -296,7 +296,7 @@ class ImportTests(unittest.TestCase):
                                                                                                 end))):
             with self.subTest(code=code):
                 self.refused(code, export.export_catalogs, self.profile, None, *args)
-        self.refused("MARKET_DAY_UNKNOWN", export.export_catalogs, self.profile, "no-such-ref", ["BTCUSDT"], start, end)
+        self.refused("MARKET_DAY_UNRESOLVED", export.export_catalogs, self.profile, "no-such-ref", ["BTCUSDT"], start, end)
         self.refused("UNKNOWN_SYMBOL", export.export_catalogs, self.profile, None, ["ZZZUSDT"], start, end, fresh=True,
                      root=root)
 
@@ -547,7 +547,7 @@ class LaterImportTests(unittest.TestCase):
         # Before the members: the newest day is the one before the eve, and paper refuses as it always has.
         self.assertEqual(refused(universe.selection, profile, None, None, noon,
                                  error=MarketError).code, "UNIVERSE_NOT_COVERING_WINDOW")
-        self.refused("MARKET_DAY_UNKNOWN", files.resolve_day, files.open_market(profile, "reader"), eve)
+        self.refused("MARKET_DAY_UNRESOLVED", files.resolve_day, files.open_market(profile, "reader"), eve)
         self.follow_round(profile, found, MAR)
         self.assertEqual(rows(profile, "bar", ["BTCUSDT"], day_ms(MAR)).num_rows, 0)
         market_day, membership, chosen = universe.selection(profile, None, None, noon)

@@ -23,7 +23,8 @@ Five services on one Docker engine:
   `TRADE_LEDGER_MEMORY` (default `40g`).
 - **market-import**: the unattended import of Binance data (`market follow`; `market/README.md`,
   "Unattended upkeep"): the bars of `--bar-symbols` daily, open interest and long/short ratios daily
-  and quotes and aggTrades monthly for the contracts its `--symbols` name, each from its own first month or day. The
+  and quotes and aggTrades monthly for the contracts its `--symbols` name, each from its own first month or day, and
+  the open interest and ratios of any other contract a manual import added, from its last day. The
   range is `TRADE_MARKET_ARGS` in `.env` (below) and the directory does not record it; unset, the service refuses and
   keeps restarting, and the rest of the deployment runs. Same image. It is the only
   writer of the market directory `$TRADE_DATA/market`, mounted read-write. Its market profile is the

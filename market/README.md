@@ -48,9 +48,9 @@ A **market day**, written YYYY-MM-DD, names the market data through that day. At
 rows before the end of D, the universe its months through that of D + 1 (a month's members depend only on the days before it, so a month's eve covers its first day), and the terms observed before the end of D + 1 (a day's
 data is imported the next day and its terms observed then). With no market day named, the latest is the earlier of the last
 complete days of the bars and the followed metrics. A month's last day
-waits for the next month's members, so that market day's membership never changes. A market day after that is `MARKET_DAY_UNKNOWN`. A contract counts as followed when it holds a metrics file in the table's newest month or the one before it, whatever
-imported it: a manual `market import-metrics` of another contract in those months holds the latest day back at that
-contract's last day, for up to about two months. A late metrics day or late-imported quote month changes what a pinned D reads, and `REPRODUCTION_MISMATCH`
+waits for the next month's members, so that market day's membership never changes. A market day after that is `MARKET_DAY_UNRESOLVED`. A contract counts as followed when it holds a metrics file in the table's newest month or the one before it, whatever
+imported it; `market follow` keeps each such contract current, so a manual `market import-metrics` of another contract
+holds the latest day back only until the follower's next round. A late metrics day or late-imported quote month changes what a pinned D reads, and `REPRODUCTION_MISMATCH`
 shows it: the same inputs give the same rows, and any difference is visible rather than silently kept apart. That fingerprint
 covers what a replay reads (`registration.export_fingerprint`): the data files' bytes, a receipt's assumed fees and
 episodes and the membership in the window, not the market day, the terms' observation time or a receipt's wording. The
@@ -251,7 +251,8 @@ imports above and nothing else. Without `--symbols` it keeps bars only. Each rou
   that has the day before's (or 3 days after it closed), so a finished month never ends on REST minutes alone. A month
   missing between stored ones is `MONTH_INVALID`, which stops the bars. On a month's first day, once the month before
   is complete, the round writes the new month's members alone;
-- **metrics:** the named contracts' days from `--metrics-from` still missing. A day closed more than `SETTLE_DAYS` (3)
+- **metrics:** the named contracts' days from `--metrics-from` still missing, and those of every other followed
+  contract (above) from the day after its last, so another import never pins the latest day. A day closed more than `SETTLE_DAYS` (3)
   ago with no archive is not asked for again until the process restarts (`unpublished` in the status);
 - **aggTrades, then quotes:** the named contracts' closed months after their latest (from `--trades-from` and
   `--quotes-from` for a contract with none), oldest first; aggTrades the contracts due that month in one call, once

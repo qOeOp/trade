@@ -230,8 +230,10 @@ the breach's code; Live refuses at once and takes the STOP path.
   `LAST-INTERNAL@1-MINUTE-EXTERNAL` aggregations to a period the source's `WARMUP` declares, MARK, funding, instrument status and close, and the custom trades and metrics a replay streams.
   Quotes, books, index prices, option data and other bar types are `SUBSCRIPTION_OUTSIDE_CONTRACT`; native trades
   and unstreamed custom data keep `TRADES_NOT_SERVED` and `METRICS_NOT_SERVED`. Paper and Live stream no trades and
-  read metrics from REST. Paper and Live give the source the first MARK of each minute and one funding update per settlement
-  (`engine.cadence`), as a replay does.
+  read metrics from REST. Paper and Live give the source one MARK a minute and one funding update per settlement
+  (`engine.cadence`), as many as a replay gives, but not the same MARK: a replay's is the minute's closing MARK,
+  stamped 1 ms before the minute ends (`market.export.write_marks`); Paper's and Live's is the first live update
+  of the new minute.
 - Orders (`engine.order_rules`, code `ORDER_RULE`): positions are HEDGING, so each entry order opens its own position
   and a strategy may hold long and short positions and entries on one contract together (user, 2026-11-11; the
   simulated venue is HEDGING too, since on a NETTING venue a reduce-only exit of a virtual short is canceled while the

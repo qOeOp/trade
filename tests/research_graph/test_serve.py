@@ -353,7 +353,7 @@ class HubTests(unittest.TestCase):
 
         def degraded(commit, line, since):
             graph = real(commit, line, since)
-            graph["scope"]["market_unread"] = "MARKET_DAY_UNKNOWN: no such market day"
+            graph["scope"]["market_unread"] = "MARKET_DAY_UNRESOLVED: no such market day"
             return graph
 
         self.product.graph, self.product.same = degraded, True
