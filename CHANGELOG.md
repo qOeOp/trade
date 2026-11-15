@@ -30,6 +30,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `(self.clock.timestamp_ns() + 661 * 10**9 - 1) // 10**9 * 10**9` for 660 s. Runs sealed on earlier images are
   unaffected and still reproduce on their own image. The 600-second minimum and Live's 605 seconds at send time are
   unchanged (doctor 20261114-26).
+- Live (finding 20261114-28): a source's own report of an entry the entry gate denied no longer ends the start
+  `unresolved`. Authored sources report every denied order from `replay_integrity_findings`; Live now sets aside what
+  an instance adds to its findings while it handles the gate's own `OrderDenied` (missing bar, contract not trading,
+  clock, membership), so a start after such a denial ends `interrupted`, `rewarming` or `held_flat` and is started
+  again as designed. `source_findings` journals every finding as before and counts the set-aside ones in
+  `entry_gate_findings`. Other findings and other denials fail the start as before; replay and Paper are unchanged.
 - Live, held start (finding 20261114-24): a start that holds around an inherited position now checks, when the hold
   begins and at each 30-second account read, that the stops at Binance cover each side of each contract, and cancels
   the entry orders it inherited. New journal events `held_covered` and `held_uncovered` (positions short of stops,
