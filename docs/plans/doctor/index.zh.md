@@ -10,7 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261114-22 | Live 入场在派发环节被拒时不走 STOP 平仓路径，直接停节点，仓位留在账户里 | fix（改回已定设计；改变真实仓位上的平仓行为，合并前告知用户） | doctor | unknown | in PR [#3022](https://github.com/qOeOp/trade/pull/3022) | 2026-11-14 | 2026-11-14 |
+| 20261114-22 | Live 入场在派发环节被拒时不走 STOP 平仓路径，直接停节点，仓位留在账户里 | fix（改回已定设计；改变真实仓位上的平仓行为，合并前告知用户） | doctor | unknown | fixed aadf691f8 [#3022](https://github.com/qOeOp/trade/pull/3022) | 2026-11-14 | 2026-11-14 |
 | 20261114-23 | runner 以拒绝码退出且没写结束事件时，控制当作中断自动重启，因失败停下的运行会自己恢复交易 | authority（改已授权的重启规则与结束事件集合） | doctor | unknown | open [诊断](2026-11-14-pre-production-audit.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261114-24 | Live 带持仓或在途入场单的重启（保持模式）不核实交易所止损、不撤继承来的入场单、不跑刹车，通知却写由止损保护 | authority（新增核对；文案是用户定的） | doctor | unknown | open [诊断](2026-11-14-pre-production-audit.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261114-25 | 交易所侧发生而本地没并进来的成交使 rc7 缓存里的仓位成幻影，运行中没有出口：止损在收不到用户流事件时触发；或外部平仓（手动、强平、ADL）被过滤，发现前仍开新仓、STOP 时平错仓、留孤儿条件单（只在假交易所回环上确认） | measure（真实账户受控试验，用户授权并启动）→ authority（给“持仓与缓存对不上”一个出口；入场读取里比较持仓） | doctor | unknown | open [诊断](2026-11-14-pre-production-audit.zh.md) | 2026-11-14 | 2026-11-14 |
@@ -19,7 +19,7 @@
 | 20261114-28 | 候选把闸门的原生拒单记成 finding，这次 Live 启动只能以 unresolved 结束；`dow-theory@51` 与 `@62` 都必碰 | authority（改变 Live 的失败判定） | doctor | unknown | open [诊断](2026-11-14-pre-production-audit.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261114-29 | 只读 REST 客户端无重试、应答形状不对时抛 `KeyError`；下单或撤单结果不明时 rc7 约 30 秒后本地判定，交易所上的单可能还活着 | authority（`KeyError` 转换按 20261113-105 的先例先问用户）；measure → authority（重试与退避；`RETAIN_UNRESOLVED` 只管下单一侧） | doctor | unknown | open [诊断](2026-11-14-pre-production-audit.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261114-30 | 聚合 K 线的收盘靠单调时钟上的定长定时器，单调时钟停走的暂停（主机休眠、VM 挂起）之后收盘一直晚下去，产品对聚合 bar 的送达时刻没有检测；不休眠时的日线边界与 `docker pause` 在当前镜像上都实测不偏，休眠没有实测 | measure → fix（重述 `bars_missing` 的检查对象；扩大 Live 关入场检查与对照新增已知原因都先问用户） | doctor | wrong output（旧 Paper 运行 8，旧代码）；当前镜像 unknown | open [诊断](2026-11-14-pre-production-audit.zh.md) | 2026-11-14 | 2026-11-14 |
-| 20261114-31 | Live 的 10 单每秒限频使停止时的批量平仓丢单且不重发；默认杠杆 3 下现金底线先拦住，开不到 11 个仓位 | fix（分批，或保留失败标记的重发；让重发成功算干净结束、或调高限频要授权） | doctor | unknown | open [诊断](2026-11-14-pre-production-audit.zh.md) | 2026-11-14 | 2026-11-14 |
+| 20261114-31 | Live 的 10 单每秒限频使停止时的批量平仓丢单且不重发；默认杠杆 3 下现金底线先拦住，开不到 11 个仓位 | fix（分批，或保留失败标记的重发；让重发成功算干净结束、或调高限频要授权） | doctor | unknown | in PR [#3027](https://github.com/qOeOp/trade/pull/3027) | 2026-11-14 | 2026-11-14 |
 | 20261114-32 | 宿主 shell 环境里有两个交易所凭证变量（设计文档 `paper-trading-design.zh.md:376` 已记过）；本次新增：rc7 期货执行客户端没给 key 时会回退读取，容器之外的进程仍继承（只写变量名） | authority（宿主配置，用户处置） | doctor | unknown | open [诊断](2026-11-14-pre-production-audit.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261114-33 | 声明恢复协议、用限价单进场的 Paper 运行恢复后 Sandbox 仓位号重数：成交被丢（多合约）或旧仓位记录被顶掉；rc8 已修。守护进程自动恢复不带 `--market`（自动恢复一项在 [#3021](https://github.com/qOeOp/trade/pull/3021)；L-15 仓位号一项仍未修） | fix（仓位号三选一：Sandbox 设 `use_position_ids=False` 并验收，或新增拒绝（需授权），或升 rc8 以上后复测（用户定）；`--market` 不需授权） | doctor | wrong output（审计运行，仓位号）；unknown（预期 hours，`--market`） | in PR [#3021](https://github.com/qOeOp/trade/pull/3021) | 2026-11-14 | 2026-11-14 |
 | 20261114-34 | Paper 的 Redis 子进程死掉后运行悄悄停止交易，`paper stop` 用 91 秒靠强杀收场，封存 `complete` 且没有原因 | fix（快速失败参数）；authority（运行中存活检查是新增拒绝；`try_cut` 转换按 20261113-105 的先例先问用户） | doctor | wrong output（审计运行） | open [诊断](2026-11-14-pre-production-audit.zh.md) | 2026-11-14 | 2026-11-14 |
