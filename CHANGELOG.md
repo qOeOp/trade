@@ -38,6 +38,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   cash floor, the 3-times limit) ends the run on the STOP path, which closes the run's positions, as every other
   refused entry does (`stop_reason` `entry_admission_failed`, a failed run). It used to stop the node at once and
   leave the positions at Binance with their stops (`unresolved`, `observer_failure`).
+- Live: a stop with more than ten positions open closes them all. The STOP path sent every close on one tick, the
+  native submit rate (10 orders a second) denied those past it, and nothing sent them again: the run ended
+  `unresolved` with those positions open. It now submits five closes a tick, and a close the rate denied is submitted
+  again; such a denial still marks the run failed.
 
 ## 0.4.0 (2026-11-14)
 

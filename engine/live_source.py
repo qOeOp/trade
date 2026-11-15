@@ -187,6 +187,9 @@ class _LiveConfigured(history.Warming, metrics.Feed):
         history.Warming._warming_begin(self)
 
 
+RATE_LIMITED = "RATE_LIMIT_EXCEEDED"  # Nautilus's reason for an order its risk engine denies over the submit rate
+
+
 def native_event(event) -> dict:
     encoder = getattr(event, "to_dict", None)
     if callable(encoder):
@@ -278,6 +281,10 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
                     type(event).__name__ == "OrderDenied" and str(event.client_order_id) in self._live.denied):
                 self._live.native_order_failure, self._live.failed = True, True
                 self._live.begin_stop("native_order_failure")
+                if type(event).__name__ == "OrderDenied" and str(event.reason) == RATE_LIMITED:
+                    # Never sent: if it was the Observer's close of a position, the STOP path closes that position
+                    # again (engine.live_lifecycle). The denial itself still fails the run, as any other.
+                    self._live.exits.discard(str(native_cache(self).position_id(event.client_order_id)))
             try:
                 payload = native_event(event)
             except Exception:

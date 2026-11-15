@@ -16,6 +16,10 @@ from engine.live_session import MARK_SECONDS, Session, STOP_GRACE_SECONDS
 # own account read refreshes it too (engine.live_commands.start_observation), so the native risk engine checks an entry's
 # margin against a fresh free balance; the run's own checks read Binance over REST.
 ACCOUNT_QUERY_SECONDS = 60
+# The closes the STOP path submits on one tick: half the native submit rate (engine.live_node: 10 a second), since two
+# timer ticks can fall within one second. An order over the rate is denied locally and never sent; a close denied so
+# is submitted again (engine.live_source).
+CLOSES_PER_TICK = 5
 
 def source_outcome(session: Session, cache) -> None:
     """Keep native failures authoritative and label the source's own declared findings."""
@@ -171,12 +175,10 @@ class Observer(Strategy):
             return
         closing = [order for order in pending if order.is_reduce_only and order.order_type == OrderType.MARKET]
         if not entries and not closing:
-            for position in positions:
-                pid = str(position.id)
-                if pid not in session.exits:
-                    # The native execution engine owns the closing order and asynchronous fills.
-                    session.owner(position.strategy_id).close_position(position, reduce_only=True)
-                    session.exits.add(pid)
+            for position in [found for found in positions if str(found.id) not in session.exits][:CLOSES_PER_TICK]:
+                # The native execution engine owns the closing order and asynchronous fills.
+                session.owner(position.strategy_id).close_position(position, reduce_only=True)
+                session.exits.add(str(position.id))
         if not positions and not entries:
             session.cancel_open(self.cache, pending, now)
             if not pending:
