@@ -73,8 +73,9 @@ not a substitute for the disposition.
   names it) and status file (`docker exec NAME cat /tmp/market-import/status.json`), and report a
   gap with the state there (`waiting`, `lagging`, or `stopped` with its refusal; months it
   `skipped` are archive gaps no import fills). Other contracts and kinds, and months before its
-  range, you import yourself through `market import`, `market import-quotes` (quotes for a month whose
-  bars the market holds) or `market import-metrics`: at once for what the line already uses, a new
+  range, you import yourself through `market import`, `market import-trades` then `market import-quotes`
+  (quotes, inferred from the month's stored aggTrades, for a month whose bars the market holds) or
+  `market import-metrics`: at once for what the line already uses, a new
   contract or kind only with a chosen line's start. Check free memory and disk first, and run them in
   that container (`docker exec NAME python -m cli.main
   market ... --market /run/trade/market-import.json`: the import lock holds only there), except
