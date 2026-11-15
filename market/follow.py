@@ -1,6 +1,6 @@
 """Unattended upkeep of the market (market.follow): the bars of the configured contracts from the configured month
-through the last closed UTC day, each named contract's open interest and long/short ratios through the same day, its
-complete aggTrades and the quotes inferred from them by closed month, each imported by its existing importer once
+through the last closed UTC day, each named contract's open interest and long/short ratios through the same day (and
+those of any contract the market's newest day waits for, from the day after its last), its complete aggTrades and the quotes inferred from them by closed month, each imported by its existing importer once
 Binance publishes the archives. What is due is what the configured range
 lacks on disk. It adds no import rule; each refusal of an import is sorted into retrying next round,
 stopping one kind of data (or one contract's), skipping a month whose archive breaks the aggTrade sequence, or stopping
@@ -47,7 +47,7 @@ STALE = timedelta(hours=26)  # a status older than this is a stuck command
 @dataclass(frozen=True)
 class Scope:
     """The deployment's range. `bar_symbols` None is every eligible contract."""
-    symbols: list[str]  # the contracts of metrics, aggTrades and quotes; none keeps bars only
+    symbols: list[str]  # the contracts of metrics from metrics_from, aggTrades and quotes
     bars_from: date
     metrics_from: date
     trades_from: date
@@ -411,14 +411,23 @@ def _stop(kind: str, symbol: str, exc: BaseException, memory: Memory) -> bool:
 
 def _listings(profile: dict, symbols: list[str]) -> dict:
     """What the market directory holds: bars {month: first day not held}, members {month: symbols}, metrics {symbol:
-    days}, trades and quotes {symbol: months}."""
+    days} of `symbols` and of the contracts whose metrics the newest day waits for (files.followed_metrics), each
+    of the latter that `symbols` lacks due from the day after its last (metrics_from), trades and quotes {symbol:
+    months}."""
     market = files.open_market(profile, "reader")
     members: dict[date, list[str]] = {}
     for month, symbol in universe.months_of(market, None):
         members.setdefault(month, []).append(symbol)
+    others = {symbol: last + timedelta(days=1) for symbol, last in sorted(files.followed_metrics(market).items())
+              if symbol not in symbols}
     return {"bars": files.bar_months_through(market), "members": members,
-            "metrics": {symbol: metrics.held_days(market, symbol) for symbol in symbols},
-            **{kind: _held(profile, kind, symbols) for kind in MONTHLY}}
+            "metrics": {symbol: metrics.held_days(market, symbol) for symbol in [*symbols, *others]},
+            "metrics_from": others, **{kind: _held(profile, kind, symbols) for kind in MONTHLY}}
+
+
+def _metrics_from(listing: dict, scope: Scope) -> dict[str, date]:
+    """{contract: first day due} of the metrics a round keeps."""
+    return {**{symbol: scope.metrics_from for symbol in scope.symbols}, **listing.get("metrics_from", {})}
 
 
 def _states(listing: dict | None, scope: Scope, memory: Memory, now: datetime, kinds: dict) -> None:
@@ -436,7 +445,8 @@ def _states(listing: dict | None, scope: Scope, memory: Memory, now: datetime, k
                 entry["through"] = first.isoformat()
                 entry["state"] = ("caught_up" if first >= end else "lagging" if first < lag else "waiting")
             elif kind == "metrics":
-                left = missing(listing["metrics"][symbol], scope.metrics_from, today, _passed(memory, symbol))
+                first = _metrics_from(listing, scope).get(symbol, scope.metrics_from)
+                left = missing(listing["metrics"].get(symbol, set()), first, today, _passed(memory, symbol))
                 flat = [day for days in left.values() for day in days]
                 entry["missing_from"], entry["missing_days"] = (flat[0].isoformat() if flat else None), len(flat)
                 entry["unpublished"] = sorted(day.isoformat() for day in _passed(memory, symbol))
@@ -472,17 +482,19 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
         except Exception as exc:
             if not _stop("bars", BARS, exc, memory):
                 kinds["bars"][BARS]["retry"] = _refusal(exc)
-    for symbol in symbols:
-        if listing is None or "*" in memory.stopped:
+    firsts_of_metrics = {} if listing is None else _metrics_from(listing, scope)
+    for symbol, first in firsts_of_metrics.items():
+        if "*" in memory.stopped:
             break
+        kinds["metrics"].setdefault(symbol, {"rows": 0})
         if memory.stop("metrics", symbol):
             continue
-        left = missing(listing["metrics"][symbol], scope.metrics_from, today, _passed(memory, symbol))
+        left = missing(listing["metrics"][symbol], first, today, _passed(memory, symbol))
         for month, days in left.items():
             try:
                 if not _fetched(cache, symbol, days, today, memory):
                     continue
-                found = metrics.import_month(profile, month, cache, [symbol], log=log, first=scope.metrics_from)
+                found = metrics.import_month(profile, month, cache, [symbol], log=log, first=first)
                 kinds["metrics"][symbol]["rows"] += found["metrics_rows"]
             except Exception as exc:
                 if _stop("metrics", symbol, exc, memory):
