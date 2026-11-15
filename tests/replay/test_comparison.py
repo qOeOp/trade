@@ -375,3 +375,25 @@ class Warmup(unittest.TestCase):
         self.assertFalse(comparison.warmup({BTC: {FUNDING: journaled}}, {"BTCUSDT": {FUNDING: archived}})["BTCUSDT"]["same"])
         self.assertEqual(comparison.history_start(at, {BTC: {FUNDING: journaled}}),
                          stored[0][0] * 10**6 // MINUTE * MINUTE)
+
+
+class Replay(unittest.TestCase):
+    def test_a_source_that_reads_metrics_is_replayed_again_with_them(self):
+        """Paper and Live serve metrics and record nothing of them: a replay refused for them is run with --metrics."""
+        from replay import entry
+        calls = []
+
+        def replayed(market, day, source, entry_class, image, argv, output, name, timeout):
+            calls.append((list(argv), output))
+            failures = Path(output) / "reports" / "runtime_failures.jsonl"
+            failures.parent.mkdir(parents=True)
+            if "--metrics" not in argv:
+                failures.write_text("not json\n" + json.dumps({"code": "METRICS_NOT_SERVED", "stage": "replay"}) + "\n")
+            return {"path": str(output), "status": "passed" if "--metrics" in argv else "invalid", "problems": []}
+
+        with tempfile.TemporaryDirectory() as name, mock.patch.object(entry, "replay_unrecorded", side_effect=replayed):
+            status, events, reports = comparison.replay({}, "c" * 32, b"", "S", "image", ["BTCUSDT"], START,
+                                                        START + MINUTE, "3", "1000", Path(name) / "replay", "n", None, {})
+            self.assertEqual([("--metrics" in argv, output.name) for argv, output in calls],
+                             [(False, "replay"), (True, "replay-metrics")])
+            self.assertEqual((status["status"], events, reports), ("passed", None, None))

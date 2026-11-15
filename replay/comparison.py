@@ -746,17 +746,38 @@ def history_start(start: int, received: Mapping[str, Mapping[str, Mapping]]) -> 
     return first
 
 
+def _refusals(output: Path) -> set[str]:
+    """The codes of the runtime failures a replay directory recorded (engine.execution_failure)."""
+    from ledger import problems
+    found = set()
+    path = output / problems.RUNTIME_ERRORS
+    for line in path.read_text(encoding="utf-8").splitlines() if path.is_file() else []:
+        try:
+            item = json.loads(line)
+        except ValueError:  # the replay's audit reports a malformed line
+            continue
+        if isinstance(item, dict) and isinstance(item.get("code"), str):
+            found.add(item["code"])
+    return found
+
+
 def replay(market: dict, market_day: str, source: bytes, entry_class: str, image_ref: str, symbols: list[str],
            start: int, end: int, leverage: str, starting_balance: str, output: Path, name: str,
            timeout: float | None, received: Mapping[str, Mapping[str, Mapping]]) -> tuple[dict, list[dict] | None, Path | None]:
     """(the replay's status, its order events or None when it wrote none, its reports directory or None without an
     account report): the run's source on its image trading [start, end), warmed at `start` on the bars before it that
-    the run `received` (history_start), in the bars environment at the run's leverage and starting balance."""
+    the run `received` (history_start), in the bars environment at the run's leverage and starting balance, streaming
+    metrics when the source subscribes to them."""
     from replay import entry
     argv = ["--symbols", *symbols, "--start", utc_text(history_start(start, received)), "--trade-start", utc_text(start),
             "--end", utc_text(end),
             "--execution", "bars", "--leverage", str(leverage), "--starting-balance", str(starting_balance)]
     replayed = entry.replay_unrecorded(market, market_day, source, entry_class, image_ref, argv, output, name, timeout)
+    if "METRICS_NOT_SERVED" in _refusals(Path(replayed["path"])):
+        # The source subscribes to metrics, which Paper and Live serve (engine.metrics) and a replay streams only with
+        # --metrics; neither run records whether it read them, so the refused replay says so.
+        replayed = entry.replay_unrecorded(market, market_day, source, entry_class, image_ref, [*argv, "--metrics"],
+                                           output.with_name(output.name + "-metrics"), name, timeout)
     reports = Path(replayed["path"]) / entry.REPORTS
     events_file = reports / "order_events.jsonl.gz"
     events = [json.loads(raw) for raw in gzip.open(events_file)] if events_file.is_file() else None

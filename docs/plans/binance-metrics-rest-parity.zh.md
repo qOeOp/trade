@@ -100,6 +100,9 @@
 因为没有入库，Live 的对比（`live/compare.py`）查不到 Live 收到的 metrics。要查的话，得在 Live 证据包里加一类
 行，那是一个存储字段，需要先审阅、再经用户授权。
 
+也因为没有入库，Paper 和 Live 的比较回放（`replay.comparison.replay`）不知道源读没读 metrics：回放因
+`METRICS_NOT_SERVED` 被拒时，再带 `--metrics` 重放一次，比较用第二次的结果。
+
 ## 仍然不同的地方
 
 - 头部持仓比在第 4 位中点的行约占 1/90，其中约一半和 REST 差 0.0001；
