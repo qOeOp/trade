@@ -17,7 +17,7 @@ export function HistoryTile({ step, quiet, short, meets, partial, children }: {
          style={{ background: short ? v("heat-0") : v(fillRole(step)), color: quiet ? v("fg-muted") : v(ink),
                   backgroundImage: partial ? HATCH : undefined, opacity: short ? 0.6 : 1 }}>
       {children}
-      {meets && <span aria-label="Meets both targets" className="absolute right-0.5 top-0.5 grid"><Icon name="star" size={12} tone="selected-mark" className="fill-current" /></span>}
+      {meets && <span aria-label="Meets both targets" className="absolute right-[3px] top-[3px] grid"><Icon name="star" size={12} tone="selected-mark" className="size-[9px] fill-current" /></span>}
     </div>
   );
 }
