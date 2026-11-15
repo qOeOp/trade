@@ -25,7 +25,7 @@ flowchart LR
 
 发布入口只管理 Web IDE 与其独立 Agent 服务；Paper 控制器、Dolt、Docker API 和已启动的策略镜像
 不由发布器重建。（后来的变化：Paper 控制器 2026-11-07 起随版本发布，见 `paper-continuous-delivery.zh.md`；
-ledger 镜像与 market-import 2026-11-16 起在 Paper 与 Live 空闲时随已提交版本换服务镜像，见
+ledger 镜像与 market-import 2026-11-16 起在没有进行中的 Paper 操作、Live 空闲时随已提交版本换服务镜像，见
 `release-moves-ledger-mirror-20261116.zh.md`。Docker API 与策略镜像仍不动。）研究/执行平面的协议或存储迁移仍需要单独的兼容性发布；构建了 service/runtime
 镜像不代表会把它们替换到活动运行。新的网页仍通过原有只读配置与现有 Paper API 工作。
 

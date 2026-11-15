@@ -127,6 +127,8 @@ def report_failure(phase: str, error: Exception) -> None:
 
 # What a notice may quote from a probe: a Paper run's candidate and its refusal code.
 NOTICE_TEXT = re.compile(r"[A-Za-z0-9_.@:-]{1,80}\Z")
+# Paper states whose run the controller is about to stop, resume or seal: a lifecycle operation is due.
+PAPER_OPERATIONS = frozenset({"stopping", "ended", "unsealed"})
 PAPER_LISTING_SECONDS = 3  # past the Paper controller's listing cache (paper/serve.py LIST_SECONDS)
 LEDGER_LAG_SECONDS = 1800  # the ledger service retries a publish every 5 minutes: six retries have failed
 
@@ -661,20 +663,38 @@ class Release:
         self.prune()
         return False
 
-    def paper_idle(self, web: str) -> bool:
-        """No Paper run is starting, open or still has containers, read through the routed Web: the controller has
-        nothing to seal, resume, stop or collect in the Paper database. Unreadable counts as busy."""
+    def paper_quiet(self, web: str) -> set[int] | None:
+        """No Paper operation is in progress, read through the routed Web: no run is starting, stopping, or ended
+        or unsealed and so about to be resumed or sealed. Open runs and their containers are allowed (the user,
+        2026-11-16, 「放宽」): runners never reach the ledger, and what the controller does with an open run across a
+        restart either fails before any effect or replays, and is retried every 15 s. The runs that already carry a
+        recovery failure; None when an operation is in progress or the listing is unreadable."""
         try:
             listed = self.host.probe(web, "/api/paper/runs", routed=True)
-            return not listed["starting"] and all(run["state"] == "sealed" and not run["containers"]
-                                                  for run in listed["runs"])
+            if listed["starting"] or any(run["state"] in PAPER_OPERATIONS for run in listed["runs"]):
+                return None
+            return {run["id"] for run in listed["runs"] if run["recovery"]}
         except (RuntimeError, ValueError, KeyError, subprocess.TimeoutExpired):
-            return False
+            return None
+
+    def recovered(self, web: str, before: set[int]) -> None:
+        """Wait a while for recovery failures that appeared during the move to clear: a run that ended while the
+        ledger restarted fails to resume or seal until the controller's next round, and the tick's notices would
+        report it as a run that could not resume. One that stays is reported; it does not undo the move."""
+        def cleared() -> None:
+            runs = self.host.probe(web, "/api/paper/runs", routed=True)["runs"]
+            if any(run["recovery"] and run["id"] not in before for run in runs):
+                raise RuntimeError("a Paper recovery failed during the service move")
+
+        try:
+            until_ready(cleared, 180, 5, errors=(RuntimeError, ValueError, KeyError, subprocess.SubprocessError))
+        except (RuntimeError, ValueError, KeyError, subprocess.SubprocessError):
+            print("A Paper run's recovery still fails after the service move; the notice reports it", flush=True)
 
     def follow(self, active: str) -> None:
         """Move the compose services of the service image, the ledger mirror and market-import, to the committed
-        version's admitted service digest, while Paper and Live are idle (the user, 2026-11-15, doctor
-        20261115-06; docs/plans/release-moves-ledger-mirror-20261116.zh.md). A running service created after the
+        version's admitted service digest, while no Paper operation is in progress and Live is idle (the user,
+        2026-11-15 and 2026-11-16, doctor 20261115-06; docs/plans/release-moves-ledger-mirror-20261116.zh.md). A running service created after the
         active Web was already recreated since this version committed, by a move undone or by the operator, and
         stays until the next version; one that is absent or stopped is the operator's and is never started."""
         sha = revision(active)
@@ -695,8 +715,8 @@ class Release:
             moving.append((name, container, healthy, found["image"]))
         if not moving:
             return
-        if not self.paper_idle(active):
-            print("The ledger mirror and market import wait until no Paper run is open", flush=True)
+        if self.paper_quiet(active) is None:
+            print("The ledger mirror and market import wait until no Paper operation is in progress", flush=True)
             return
         self.host.pull(service, SERVICE_REF, sha)
         paper = self.paper().host
@@ -706,8 +726,9 @@ class Release:
             with paper.barrier(paper.inspect(controller)["image"]) as drained:
                 drained()  # a lifecycle operation that passed before the freeze has finished
             time.sleep(PAPER_LISTING_SECONDS)
-            if not self.paper_idle(active):
-                print("A Paper run opened; the ledger mirror and market import wait", flush=True)
+            before = self.paper_quiet(active)
+            if before is None:
+                print("A Paper operation began; the ledger mirror and market import wait", flush=True)
                 return
             live = self.live.barrier(active, idle=True) if self.host.requires_live(active) else nullcontext(lambda: None)
             with live as held:
@@ -715,8 +736,10 @@ class Release:
                 self.move(active, controller, moving, service, held)
         except LiveBusy as busy:
             print(f"{busy}; the ledger mirror and market import wait until Live is idle", flush=True)
+            return
         finally:
             paper.normalize()
+        self.recovered(active, before)
 
     def move(self, web: str, controller: str, moving: list, service: str, held) -> None:
         """Recreate each service on `service`, then check what reads them; on any failure put back every one it

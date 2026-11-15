@@ -896,7 +896,8 @@ class FollowHost(Host):
         super().__init__(state)
         self.services = {LEDGER: {"image": OLD_SERVICE, "created": moment(BEFORE)},
                          MARKET_IMPORT: {"image": OLD_SERVICE, "created": moment(BEFORE)}}
-        self.runs = {"starting": 0, "runs": [{"id": 1, "state": "sealed", "containers": 0}]}
+        self.runs = {"starting": 0, "runs": [{"id": 1, "state": "sealed", "containers": 0, "recovery": None}]}
+        self.after_move = None  # the listing once the services moved, when it differs
         self.recreated = []
         self.broken = set()
         self.during = None
@@ -913,6 +914,8 @@ class FollowHost(Host):
             self.during()
         self.recreated.append((service, image, healthy))
         self.services[name] = {"image": image, "created": moment(AFTER)}
+        if self.after_move is not None:
+            self.runs = self.after_move.pop(0) if isinstance(self.after_move, list) else self.after_move
         if service in self.broken and image in self.broken:
             raise RuntimeError("compose service did not start on its image: " + service)
 
@@ -974,10 +977,19 @@ class FollowTests(unittest.TestCase):
         self.release.follow(WEB + A)
         self.assertEqual(self.host.recreated, [], "nothing moves twice")
 
-    def test_an_open_starting_or_uncollected_paper_run_or_an_unreadable_listing_waits(self):
+    def test_open_paper_runs_and_their_containers_do_not_hold_the_move_back(self):
+        # The user, 2026-11-16 (「放宽」): runners never reach the ledger, so only a Paper operation in progress waits.
+        self.host.runs = {"starting": 0, "runs": [
+            {"id": 1, "state": "running", "containers": 2, "recovery": None},
+            {"id": 2, "state": "sealed", "containers": 1, "recovery": None}]}
+        self.release.follow(WEB + A)
+        self.assertEqual([service for service, _, _ in self.host.recreated], ["ledger", "market-import"])
+        self.unfrozen()
+
+    def test_a_paper_operation_in_progress_or_an_unreadable_listing_waits(self):
         for runs in ({"starting": 1, "runs": []},
-                     {"starting": 0, "runs": [{"id": 1, "state": "running", "containers": 2}]},
-                     {"starting": 0, "runs": [{"id": 1, "state": "sealed", "containers": 1}]},
+                     *({"starting": 0, "runs": [{"id": 1, "state": state, "containers": 2, "recovery": None}]}
+                       for state in ("stopping", "ended", "unsealed")),
                      {"runs": []}):
             with self.subTest(runs=runs):
                 self.host.runs = runs
@@ -985,6 +997,32 @@ class FollowTests(unittest.TestCase):
                 self.assertEqual(self.host.recreated, [])
                 self.assertEqual(self.live.held, [])
                 self.unfrozen()
+
+    def test_a_recovery_failure_from_the_restart_is_waited_out_and_a_lasting_one_does_not_undo_the_move(self):
+        failing = {"starting": 0, "runs": [{"id": 1, "state": "ended", "containers": 2, "recovery": "LEDGER_START"}]}
+        cleared = {"starting": 0, "runs": [{"id": 1, "state": "running", "containers": 2, "recovery": None}]}
+        self.host.after_move = failing  # the restart failed a resume of a run that ended meanwhile
+        polled = []
+
+        def ready(check, *args, **kwargs):
+            if check.__name__ != "cleared":
+                return check()
+            with self.assertRaises(RuntimeError):  # what the tick's notices would report as a lost run
+                check()
+            polled.append(True)
+            self.host.runs = cleared  # the controller's next round resumes it
+            return check()
+
+        with patch("deploy.release.until_ready", side_effect=ready):
+            self.release.follow(WEB + A)
+        self.assertEqual(polled, [True], "the move waits for the controller's retry before the tick's notices")
+        self.assertEqual(len(self.host.recreated), 2)
+        self.host.services = {LEDGER: {"image": OLD_SERVICE, "created": moment(BEFORE)}}
+        self.host.recreated.clear()
+        self.host.after_move = failing  # a recovery failure that lasts: reported by the tick's notices, not undone
+        with patch("deploy.release.until_ready", side_effect=lambda check, *args, **kwargs: check()):
+            self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated, [("ledger", TARGET["service"], True)])
 
     def test_busy_live_waits_and_unfreezes_paper(self):
         self.live.busy = True

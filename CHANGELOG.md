@@ -27,7 +27,8 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 ## Unreleased
 
 - Release (doctor 20261115-06): the release host's ledger mirror and market import now follow each version. On the
-  first tick after a version commits, while no Paper run is open and Live is idle, the release recreates the compose
+  first tick after a version commits, while no Paper operation is in progress (running Paper runs are allowed) and
+  Live is idle, the release recreates the compose
   services `ledger` and `market-import` (when it runs) on that version's admitted service digest, from the host's own
   compose files, passing the digest in the environment; `/etc/trade/remote.env` is not written. A failed move puts
   both back on their previous image and waits for the next version. Until now they stayed on the image of the host's

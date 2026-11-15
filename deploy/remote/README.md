@@ -8,7 +8,7 @@ and updates it by hand, or forks the repository and changes those names in the f
 
 The [continuous Web release plane](../../docs/plans/remote-continuous-delivery.zh.md) runs the Web, its
 single Agent writer, its Live control and the Paper controller, and publishes admitted versions without recreating Paper
-runs or strategy containers; the ledger mirror and market import follow each version once Paper and Live are idle
+runs or strategy containers; the ledger mirror and market import follow each version while no Paper operation is in progress and Live is idle
 ([Ledger mirror and market import](#ledger-mirror-and-market-import)). A merge to `main` is not a release: only a version tag
 ([`CHANGELOG.md`](../../CHANGELOG.md)) moves this host, and each version is released by its own control code
 ([Release control code](#release-control-code)). Bootstrap the plane once on a new host with
@@ -89,9 +89,12 @@ written. The ledger must pass its health check within 10 minutes; market import 
 the image changes: their command and mounts stay those of `/opt/trade-app`, which the operator updates as for `edge`.
 A service that is stopped or absent (market import before step 5 below) is never started.
 
-It waits, and the tick says why, until Paper and Live are idle: no Paper run is starting, unsealed or still has
-containers (the Paper controller writes the Paper database, which shares the ledger's Dolt process), and Live
-answers idle inside the account lock, which it holds during the move. Paper's writes are paused for the move, as in a
+It waits, and the tick says why, until no Paper operation is in progress and Live is idle: no Paper run is starting,
+stopping, or ended or unsealed and so about to be resumed or sealed (the Paper controller does those in the Paper
+database, which shares the ledger's Dolt process), and Live answers idle inside the account lock, which it holds
+during the move. Running Paper runs do not hold it back: their runners never reach the ledger, and a run that ends
+during the restart is resumed or sealed on the controller's next round without using up a recovery attempt; the
+move then waits up to 3 minutes for such a run's recovery failure to clear before the tick's notices read it. Paper's writes are paused for the move, as in a
 release, and lifecycle operations already admitted finish first. The restart is a short outage of ledger reads for
 the Web, Agent, Paper controller and Live control; the Paper database and the research mirror live in
 `$TRADE_DATA/dolt` and the `trade-dolt-data` volume and survive it. A comparison already running on the Paper page
