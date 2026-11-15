@@ -764,6 +764,22 @@ seconds, until the account is flat (its stops, or a close at Binance), when `ven
 with exit 3 and the next one trades. A source cannot yet rebuild its state around an open position, so a held run
 waits for that. STOP during a held start ends it as `reconcile` does. Each step is a Telegram notice.
 
+A held start checks what protects the positions it inherited, and says so (`engine/live_connection.py`, finding
+20261114-24, the user 2026-11-15). When the hold begins, when the node has connected and at each 30-second read, the
+same account read is judged: on each side of each contract, the stops at Binance that close it (`STOP_MARKET`, `STOP`,
+`TRAILING_STOP_MARKET`, conditional or regular; a take-profit is none) must hold at least the position's quantity,
+`engine.protection`'s judgment on the venue's own rows. A change of the verdict is journalled with the read beside
+it: `held_covered` (every position has its stops and no entry order is working; `holding` 0 when only orders keep
+the account from flat), or `held_uncovered` with the `positions` short of stops, the `entries` (orders at Binance that
+would open or add to a position) and `entries_kept`; an answer whose rows cannot be judged is `held_uncovered` with
+`unreadable`, and a read that failed is read again. The held start also withdraws the entry orders it inherited: one
+native cancel each through the run's registered identity (`entry_cancel_requested`, reason `held`; a request that
+raises is `entry_cancel_failed`), repeated every 5 seconds while the order stays open. An entry order still at
+Binance in a read begun after that (the cancel was lost or refused, or the native cache does not hold the order, so
+nothing could be sent) is reported with `entries_kept`. The check tells; it does not act: a held start places no stop
+and closes nothing, and the drawdown brake does not run while it holds. The Live page and Telegram say what the
+latest check found, a position with no stop in its own words.
+
 STOP disables opening decisions, cancels owned opening orders, repeating the cancel every 5 seconds while one
 stays open (after a request with an unknown outcome, as a native cancel-all scoped to the order's side, because
 native `cancel_order` sends nothing for a PENDING_CANCEL order; withheld while that side holds a reduce-only order

@@ -286,13 +286,43 @@ class Sending(Base):
         texts = [text for key, text in notify.messages(run(restarts=restarts)) if ":restart:" in key]
         self.assertEqual(len(texts), 5)  # held_flat only ends a start; venue_flat_while_held already said so
         self.assertIn("interrupted without closing", texts[0])
-        self.assertIn("protected only by its stop at Binance: the strategy no longer manages its exits", texts[1])
+        self.assertIn("The strategy no longer manages its exits and opens nothing", texts[1])
+        self.assertIn("the next message says what the check found", texts[1])
+        self.assertNotIn("protected", texts[1])  # no claim before the check (20261114-24)
         self.assertIn("close the position at Binance", texts[1])
         keys = [key for key, _ in notify.messages(run(restarts=restarts)) if ":restart:" in key]
         self.assertEqual(keys[1], "run-a:restart:resuming:2", "the key the earlier text was sent under: no resend")
         self.assertIn("flat at Binance again", texts[2])
         self.assertIn("flat account", texts[3])
         self.assertIn("no longer started again automatically", texts[4])
+
+    def test_a_held_start_says_what_its_reads_show_of_the_stops_at_binance(self):
+        """20261114-24: a passed and a failed check are different messages, and a position with no stop says so."""
+        bare = {"symbol": "BTCUSDT", "side": "LONG", "position": "0.002", "stops": "0"}
+
+        def verdict(ns, event="held_uncovered", **fields):
+            return {"event": event, "observed_ns": ns, "held": None, "holding": 1, "uncovered": [], "entries": 0,
+                    "entries_kept": False, "unreadable": False, **fields}
+
+        restarts = [{"event": "resuming", "observed_ns": "1", "held": True},
+                    verdict("2", uncovered=[bare]), verdict("3", "held_covered"),
+                    verdict("4", entries=2), verdict("5", entries=2, entries_kept=True),
+                    verdict("6", uncovered=[bare], entries=1), verdict("7", unreadable=True, holding=None),
+                    verdict("8", "held_covered", holding=0)]
+        sent = [(key, text) for key, text in notify.messages(run(restarts=restarts)) if ":restart:" in key]
+        self.assertEqual([key for key, _ in sent], ["run-a:restart:resuming:1"] + [
+            f"run-a:restart:{row['event']}:{row['observed_ns']}" for row in restarts[1:]])
+        texts = [text for _, text in sent]
+        self.assertIn("has a position with NO STOP at Binance: BTCUSDT LONG 0.002 (stops 0). Nothing will close it",
+                      texts[1])
+        self.assertIn("holds only positions that have their stop at Binance", texts[2])
+        self.assertIn("has 2 inherited entry order(s) working at Binance and is cancelling them", texts[3])
+        self.assertIn("could NOT cancel 2 inherited entry order(s): they are still working at Binance", texts[4])
+        self.assertIn("now. It also has 1 inherited entry order(s) working", texts[5])
+        self.assertIn("cannot verify that its positions have stops", texts[6])
+        self.assertIn("holds no position, but orders are still open at Binance", texts[7])
+        for text in (texts[2], texts[3], texts[4], texts[6], texts[7]):
+            self.assertNotIn("NO STOP", text)
 
     def test_a_closed_run_stays_read_until_the_summary_after_its_last_fill_and_while_it_holds_the_newest_wallet(self):
         self.tick(DAY)

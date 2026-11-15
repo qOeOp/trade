@@ -284,6 +284,122 @@ class GateTests(unittest.TestCase):
         flat_event = next(row for row in self.events() if row["event"] == "venue_flat_while_held")
         self.assertTrue((self.session.output / flat_event["observation"]).exists())
 
+    def held(self, positions=(("LONG", "0.002"),), orders=(), algos=()):
+        """An account read of a held run: Binance's Hedge rows for SYMBOL."""
+        return dict(self.snapshot, orders=[{"symbol": SYMBOL, **row} for row in orders],
+                    algo_orders=[{"symbol": SYMBOL, **row} for row in algos],
+                    positions=[{"symbol": SYMBOL, "positionSide": side, "positionAmt": amount}
+                               for side, amount in positions])
+
+    def test_a_held_read_compares_each_side_with_the_stops_that_close_it(self):
+        """20261114-24: a position is covered by the stops at Binance that close its side, of at least its size."""
+        stop = {"algoId": 7, "type": "STOP_MARKET", "side": "SELL", "positionSide": "LONG", "quantity": "0.002"}
+        covered = {"holding": 1, "positions": [], "entries": []}
+        self.assertEqual(live_connection.held_cover(self.held(algos=[stop])), covered)
+        # Binance's own documents name a conditional order's type `orderType`; rc7's fixture of the same rows, `type`.
+        renamed = {key if key != "type" else "orderType": value for key, value in stop.items()}
+        self.assertEqual(live_connection.held_cover(self.held(algos=[renamed])), covered)
+        # A regular stop-limit counts by what is left of it, and one that closes the whole position by the position.
+        limit = {"orderId": 8, "type": "STOP", "side": "SELL", "positionSide": "LONG", "origQty": "0.003",
+                 "executedQty": "0.001"}
+        self.assertEqual(live_connection.held_cover(self.held(orders=[limit])), covered)
+        whole = dict(stop, quantity="0", closePosition=True)
+        self.assertEqual(live_connection.held_cover(self.held(algos=[whole])), covered)
+
+        def short(**changed):
+            return live_connection.held_cover(self.held(algos=[dict(stop, **changed)]))["positions"]
+
+        bare = [{"symbol": SYMBOL, "side": "LONG", "position": "0.002", "stops": "0"}]
+        self.assertEqual(live_connection.held_cover(self.held())["positions"], bare)  # no order at all
+        self.assertEqual(short(quantity="0.001"), [dict(bare[0], stops="0.001")])  # less than the position
+        self.assertEqual(short(type="TAKE_PROFIT_MARKET"), bare)  # a take-profit protects nothing
+        self.assertEqual(short(positionSide="SHORT", side="BUY"), bare)  # the other side's stop
+        # Each side by itself: the SHORT's stop buys.
+        both = self.held(positions=(("LONG", "0.002"), ("SHORT", "-0.004")), algos=[
+            stop, {"algoId": 9, "type": "STOP_MARKET", "side": "BUY", "positionSide": "SHORT", "quantity": "0.003"}])
+        self.assertEqual(live_connection.held_cover(both), {"holding": 2, "entries": [], "positions": [
+            {"symbol": SYMBOL, "side": "SHORT", "position": "0.004", "stops": "0.003"}]})
+        # An order that opens or adds is an entry no stop stands behind; only orders left is no position to cover.
+        entry = {"orderId": 5, "type": "LIMIT", "side": "BUY", "positionSide": "LONG", "origQty": "0.001",
+                 "executedQty": "0"}
+        self.assertEqual(live_connection.held_cover(self.held(orders=[entry], algos=[stop])),
+                         {"holding": 1, "positions": [], "entries": [{"symbol": SYMBOL, "side": "LONG"}]})
+        self.assertEqual(live_connection.held_cover(self.held(positions=(), algos=[stop])),
+                         {"holding": 0, "positions": [], "entries": []})
+        with self.assertRaises(LiveRefusal) as caught:
+            live_connection.held_cover(self.held(algos=[{"algoId": 7}]))
+        self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_RESPONSE")
+
+    def test_a_held_start_journals_its_verdict_once_per_change(self):
+        self.session.mode = "held"
+        stop = {"algoId": 7, "type": "STOP_MARKET", "side": "SELL", "positionSide": "LONG", "quantity": "0.002"}
+        entry = {"orderId": 5, "type": "LIMIT", "side": "BUY", "positionSide": "LONG", "origQty": "0.001"}
+
+        def verdicts():
+            return [(row["event"], row.get("positions"), row.get("entries"), row.get("entries_kept"),
+                     row.get("unreadable")) for row in self.events() if row["event"].startswith("held_")]
+
+        bare = [{"symbol": SYMBOL, "side": "LONG", "position": "0.002", "stops": "0"}]
+        live_connection.held_verdict(self.session, self.held(), "preflight-1.json")
+        live_connection.held_verdict(self.session, self.held())  # the same verdict again: nothing new
+        self.assertEqual(verdicts(), [("held_uncovered", bare, [], False, False)])
+        self.assertEqual(self.events()[-1]["observation"], "preflight-1.json")
+        live_connection.held_verdict(self.session, self.held(algos=[stop]))
+        self.assertEqual(verdicts()[-1], ("held_covered", None, None, None, None))
+        self.assertEqual(self.events()[-1]["holding"], 1)
+        self.assertTrue((self.session.output / self.events()[-1]["observation"]).exists())  # the read is kept
+        # An inherited entry is reported; a read begun after its cancel was asked for that still shows it says so.
+        working = self.held(orders=[entry], algos=[stop])
+        live_connection.held_verdict(self.session, working)
+        self.assertEqual(verdicts()[-1], ("held_uncovered", [], [{"symbol": SYMBOL, "side": "LONG"}], False, False))
+        self.session.connection.withdrawn_ns = working["observed_ns"] - 1
+        live_connection.held_verdict(self.session, working)
+        self.assertEqual(verdicts()[-1], ("held_uncovered", [], [{"symbol": SYMBOL, "side": "LONG"}], True, False))
+        # An answer whose rows cannot be judged shows no stop either.
+        live_connection.held_verdict(self.session, self.held(algos=[{"algoId": 7}]))
+        self.assertEqual(verdicts()[-1], ("held_uncovered", [], [], False, True))
+        self.assertEqual(len(verdicts()), 5)
+
+    def test_a_held_start_withdraws_the_entries_it_inherited_and_keeps_the_stops(self):
+        self.session.mode = "held"
+        keeper = mock.Mock()
+        self.session.keepers = {SYMBOL: keeper}
+        entry = SimpleNamespace(client_order_id="O-entry", strategy_id=self.strategy, is_closed=False,
+                                is_reduce_only=False, status=OrderStatus.ACCEPTED)
+        stop = SimpleNamespace(client_order_id="O-stop", strategy_id=self.strategy, is_closed=False,
+                               is_reduce_only=True, status=OrderStatus.ACCEPTED)
+        cache = Cache(orders=[entry, stop])
+        self.assertIsNone(self.session.connection.withdrawn_ns)
+        for now in (100.0, 101.0, 104.0):  # asked once; again only after the usual interval
+            live_connection.held_withdraw(self.session, cache, now)
+        keeper.cancel_order.assert_called_once_with("O-entry")
+        self.assertIsNotNone(self.session.connection.withdrawn_ns)
+        live_connection.held_withdraw(self.session, cache, 106.0)
+        self.assertEqual(keeper.cancel_order.call_count, 2)
+        asked = [(row["reason"], row["client_order_id"]) for row in self.events()
+                 if row["event"] == "entry_cancel_requested"]
+        self.assertEqual(asked, [("held", "O-entry")])
+        # A request that raises is journalled once and asked again; the hold goes on.
+        other = SimpleNamespace(**{**vars(entry), "client_order_id": "O-other"})
+        keeper.cancel_order.side_effect = RuntimeError("no route")
+        live_connection.held_withdraw(self.session, Cache(orders=[other]), 200.0)
+        live_connection.held_withdraw(self.session, Cache(orders=[other]), 206.0)
+        failed = [(row["reason"], row["client_order_id"], row["failure_type"]) for row in self.events()
+                  if row["event"] == "entry_cancel_failed"]
+        self.assertEqual(failed, [("held", "O-other", "RuntimeError")])
+        self.assertFalse(self.session.stopping)
+
+    def test_a_held_read_that_is_not_flat_is_judged_and_a_failed_read_is_not(self):
+        self.session.mode = "held"
+        reads = [self.held(), LiveRefusal("LIVE_ACCOUNT_UNAVAILABLE", "HTTP 503"), self.held()]
+        with mock.patch.object(commands, "observe_account", return_value=object()), \
+                mock.patch.object(commands, "observed_account", side_effect=reads):
+            for now in (0, 1, 30, 31, 60, 61):
+                live_connection.held_tick(self.session, now)
+        self.assertEqual([row["event"] for row in self.events() if row["event"].startswith("held_")],
+                         ["held_uncovered"])
+        self.assertFalse(self.session.held_flat)
+
     def test_a_resumed_run_counts_its_duration_from_its_first_arming(self):
         import time
         self.session.started = time.monotonic()  # this start began just now

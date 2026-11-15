@@ -146,6 +146,22 @@ class LiveViewTests(LiveViewFixture):
                           ("rewarming", None, False), ("warmup", None, False), ("rewarming", None, True),
                           ("restart_limited", None, False)])
 
+    def test_a_held_starts_verdicts_show_only_checked_values(self):
+        self.native("resuming", held=True)
+        self.native("held_uncovered", holding=1, entries=[{"symbol": "BTCUSDT", "side": "LONG"}], entries_kept=True,
+                    unreadable=False, observation="held-account-1.json",
+                    positions=[{"symbol": "BTCUSDT", "side": "LONG", "position": "0.002", "stops": "0"},
+                               {"symbol": "<script>", "side": "UP", "position": "x", "stops": None}, "junk"])
+        self.native("held_covered", holding=1, observation="held-account-2.json")
+        rows = views.run_view(self.root, self.run_id)["restarts"]
+        self.assertEqual([row["event"] for row in rows], ["resuming", "held_uncovered", "held_covered"])
+        self.assertNotIn("uncovered", rows[0])
+        self.assertEqual({key: rows[1][key] for key in ("holding", "uncovered", "entries", "entries_kept", "unreadable")},
+                         {"holding": 1, "entries": 1, "entries_kept": True, "unreadable": False, "uncovered": [
+                             {"symbol": "BTCUSDT", "side": "LONG", "position": "0.002", "stops": "0"},
+                             {"symbol": None, "side": None, "position": None, "stops": None}]})
+        self.assertEqual((rows[2]["holding"], rows[2]["uncovered"], rows[2]["entries"]), (1, [], 0))
+
     def test_missing_native_and_account_are_unknown_not_zero_or_flat(self):
         (self.directory / "out" / "events.jsonl").unlink()
         result = views.run_view(self.root, self.run_id)

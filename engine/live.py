@@ -39,7 +39,7 @@ from engine.live_records import journal, keep, write_json
 from engine.live_commands import pending_orders
 from engine.live_session import ENDED_EVENTS, Session
 from engine.live_source import source_for_run
-from engine import live_brake
+from engine import live_brake, live_connection
 from engine.live_lifecycle import source_outcome
 from engine.live_node import build_node
 
@@ -225,6 +225,9 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
         session.armed_ns = json.loads(read_regular_file(args.output / "armed.json"))["observed_ns"]
         live_brake.resume(session, args.output)  # the first arming's cash floor and the highest equity since
         session.event("resuming", held=session.mode == "held", observation=observation)
+        if session.mode == "held":
+            # The hold begins: whether each inherited position has its stop at Binance, from the same read.
+            live_connection.held_verdict(session, snapshot, observation)
         if session.mode == "run":
             loaded = source_for_run(manifest)
     elif args.mode in ("preflight", "run"):
@@ -297,7 +300,7 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
                 session.evidence.reports(node.cache, Venue("BINANCE"))
                 node.dispose()
             session.node, session.entry_gate = None, None
-            session.sources = {}
+            session.sources, session.keepers = {}, {}
             if session.warmup_catalog is not None:
                 shutil.rmtree(session.warmup_catalog, ignore_errors=True)
         finally:

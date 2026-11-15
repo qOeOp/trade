@@ -153,6 +153,7 @@ class Observer(Strategy):
                 session.check_protection(self.cache, now)
                 live_brake.tick(session, session.check_mark(self.cache, now), now)
             elif session.mode == "held":
+                live_connection.held_withdraw(session, self.cache, now)
                 live_connection.held_tick(session, now)
             if not session.observe_stop_intent():
                 return

@@ -30,6 +30,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `(self.clock.timestamp_ns() + 661 * 10**9 - 1) // 10**9 * 10**9` for 660 s. Runs sealed on earlier images are
   unaffected and still reproduce on their own image. The 600-second minimum and Live's 605 seconds at send time are
   unchanged (doctor 20261114-26).
+- Live, held start (finding 20261114-24): a start that holds around an inherited position now checks, when the hold
+  begins and at each 30-second account read, that the stops at Binance cover each side of each contract, and cancels
+  the entry orders it inherited. New journal events `held_covered` and `held_uncovered` (positions short of stops,
+  entry orders still working, an answer that cannot be judged). The Telegram and Live-page texts no longer say an
+  inherited position is protected by its stop before the check; they say what the latest check found, and a position
+  with no stop gets its own message. The interruption and restart-limit notices say what the run did (closed nothing,
+  cancelled no stop) instead of "open positions keep their exchange stops". A held start still places no stop,
+  closes nothing and runs no drawdown brake.
 - Breaking (order rules): a GTD order of a type other than LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED is refused as
   `ORDER_RULE` in replay, Paper and Live: Nautilus's Binance USD-M client sends only those three GTD and denies any
   other. Before, rule 5 raised `AttributeError` on every GTD order but a LIMIT (a source failure, not a refusal), so

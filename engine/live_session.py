@@ -50,6 +50,9 @@ class Session:
     armed_ns: int | None = None  # a resumed run's first arming: its duration counts from there, across starts
     node: Any = None
     sources: dict[str, Any] = field(default_factory=dict)  # the run's instances: contract -> instance (engine.live_source)
+    # A start without sources (held, reconcile) registers each instance's identity as an inert native Strategy
+    # (engine.live_node); a held start cancels the entries it inherited through them (engine.live_connection).
+    keepers: dict[str, Any] = field(default_factory=dict)
     entry_gate: Any = None  # the native ExecutionAlgorithm that denies entries (engine.live_connection.deny)
     denied: set[str] = field(default_factory=set)  # client order IDs of the entries it denied in this start
     denying: bool = False  # inside a denial's native callbacks
@@ -154,8 +157,10 @@ class Session:
             else self.started is not None and time.monotonic() - self.started >= duration)
 
     def owner(self, strategy_id):
-        """The instance of `strategy_id`, which sends its orders' commands."""
-        return next((self.sources.get(symbol) for symbol, found in strategy_ids(self.manifest).items()
+        """The instance of `strategy_id`, which sends its orders' commands; in a start without sources, the inert
+        Strategy registered with that identity."""
+        instances = self.sources or self.keepers
+        return next((instances.get(symbol) for symbol, found in strategy_ids(self.manifest).items()
                      if found == strategy_id), None)
 
     def any_source(self):

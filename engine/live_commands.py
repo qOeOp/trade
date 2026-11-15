@@ -137,6 +137,8 @@ def verify_connected_account(session: Session, snapshot: dict) -> None:
         require_account_mode(snapshot, session.manifest)
     session.event({"run": "started", "reconcile": "reconciled", "held": "held"}[session.mode], mode=session.mode,
                   source_callbacks=session.mode == "run", observation=observation)
+    if session.mode == "held":
+        live_connection.held_verdict(session, snapshot, observation)
     session.account_verified = True
     session.account_observation = None
 
