@@ -22,7 +22,7 @@ Detect the spoken language on two 30 s windows. If they disagree, or differ from
 named, stop and ask: a wrong `--language` makes Whisper write a fluent translation and exit 0. Rerun
 the block with the user's answer in `USER_LANGUAGE`; only that answer and the reviewer rerun set it.
 
-    mkdir -p "$W"; MEDIA=${MEDIA:-$ROOT/sha256}
+    rm -rf "$W"; mkdir -p "$W"; MEDIA=${MEDIA:-$ROOT/sha256}
     for h in $(cut -c1-64 "$B/media/SHA256SUMS"); do f=$(ls "$MEDIA/$h".*)
       if ffprobe -v error "${FMT[@]}" -select_streams a -show_entries stream=index -of csv=p=0 "$f" | grep -q .; then AUDIO=$f; fi; done
     ffmpeg -nostdin -v error "${FMT[@]}" -i "$AUDIO" -vn -ac 1 -ar 16000 -c:a pcm_s16le "$W/audio.wav"
