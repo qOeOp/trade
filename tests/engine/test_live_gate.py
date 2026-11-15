@@ -94,9 +94,10 @@ class GateTests(unittest.TestCase):
 
     def pending(self, ts_init, gtd_seconds=None, bar_type=None):
         tif = TimeInForce.GTD if gtd_seconds is not None else TimeInForce.GTC
+        expires = ts_init + (gtd_seconds or 0) * 10**9  # a LimitOrder has both; every other order type, expire_time only
         entry = SimpleNamespace(client_order_id="O-1", ts_init=ts_init, side=OrderSide.BUY, order_type=OrderType.LIMIT,
                                 has_price=True, price="90.00", has_trigger_price=False, quantity="0.003",
-                                time_in_force=tif, expire_time_ns=ts_init + (gtd_seconds or 0) * 10**9,
+                                time_in_force=tif, expire_time_ns=expires, expire_time=expires,
                                 instrument_id=BAR.instrument_id)
         return commands.PendingEntry(entry, mock.Mock(), None, bar_type)
 
