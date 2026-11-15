@@ -1,5 +1,6 @@
 import { Tabs } from "../../components/Tabs";
-import { LiveEvents } from "../../components/LiveEvents";
+import { eventNotes, LiveEvents } from "../../components/LiveEvents";
+import { InfoTip } from "../../components/InfoTip";
 import { atom, useAtom } from "../../state/atom";
 import { useLiveRunView } from "../../state/liveRun";
 
@@ -9,7 +10,8 @@ export function LiveTradesTools() {
   // Pulled left by a tab's own padding, so its text sits on the island's inset as a title's does.
   return <><div className="-ml-2 min-w-0"><Tabs label="Live native events" value={selected} onChange={tab.set} items={[
     { id: "orders", label: "Order events" }, { id: "positions", label: "Position events" },
-  ]} /></div><span className="ml-auto text-small text-fg-faint">Live · retained native observations</span></>;
+  ]} /></div><span className="ml-auto flex items-center gap-1.5 text-small text-fg-faint">Live · retained native observations
+    <InfoTip text={eventNotes(selected === "orders" ? "Order" : "Position")} label={`About ${selected === "orders" ? "order" : "position"} events`} /></span></>;
 }
 
 export function LiveTrades() {

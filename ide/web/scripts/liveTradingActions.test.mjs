@@ -15,6 +15,7 @@ async function component(name, fixtures = {}) {
   };
   const exports = await namespace(`components/${name}.tsx`, { stubs: {
     "icons/Icon": { Icon: () => null },
+    "components/InfoTip": { InfoTip: () => null },
     "components/IconButton": { IconButton: function IconButton() { return null; } },
     ...fixtures,
     react: hooks,
