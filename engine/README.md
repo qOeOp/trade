@@ -226,13 +226,15 @@ the breach's code; Live refuses at once and takes the STOP path.
 
 ## Streaming and memory
 
-`BacktestNode` with one data configuration per contract and type loads every configuration whole
-and merge-sorts them before it streams to its engine, so its memory grows with the window: on
-one-minute bars, 40 contracts took 2.8 GiB for three months and 5.3 GiB for six, about 0.26 GiB per
-million events. The runner therefore drives the pinned `BacktestEngine` itself. Bars and MARK
-updates (and quotes and trades) come from the exported Catalogs through `ParquetDataCatalog.query`, one
-query per data type and UTC day over only the files that hold rows of that day (found from each file's
-row group statistics), merged by `ts_init`; funding and lifecycle events are read whole. Events of one
+`BacktestNode` with one data configuration per contract and type keeps memory that grows with the window: without
+a chunk size rc7 loads every configuration whole and sorts them, and with one (its streaming path) it reads each
+configuration in pages and merges the pages, which still grows with the window (on one-minute bars, 40 contracts
+took 2.8 GiB for three months and 5.3 GiB for six, about 0.26 GiB per million events). The runner therefore drives the pinned
+`BacktestEngine` itself. Bars and MARK updates (and quotes and trades) come from the exported Catalogs through
+`ParquetDataCatalog.query`, one query per data type and UTC day, merged by `ts_init`. The runner passes the files
+that hold rows of that day (found from each file's row group statistics), but rc7's default
+`optimize_file_loading` turns the listed files into their parent directories, so the day's `start` and `end` limit
+the rows, not the file list; funding and lifecycle events are read whole. Events of one
 `ts_init` keep the node's order (contract by contract: MARK, quotes, trades, funding, bars, status,
 close; one millisecond's trades in aggregate trade ID order, after its quotes, so a market order a trade
 prompts fills at the quote that millisecond ends with) and the engine gets the node's chunks (50,000
@@ -494,9 +496,10 @@ The Sandbox takes the replay's account, fill model, book type and bar ordering, 
 taker rates (the market's assumption, which a replay reads from its export receipts). The strategy sees
 the replay's cadence: the first MARK update of each minute and one funding update per settlement. The
 Sandbox settles no funding; `events.jsonl` records each settlement with the positions it applies to.
-`STOP` in the output directory, SIGTERM, SIGINT or `--duration-seconds` cancels the working orders,
-waits for the cancels and stops the node; positions stay open and are valued at their latest MARK in
-`summary.json`.
+`STOP` in the output directory or `--duration-seconds` cancels the working orders, waits for the cancels and stops
+the node; positions stay open and are valued at their latest MARK in `summary.json`. SIGTERM or SIGINT does the
+same, except for a source that declares `PAPER_RECOVERY = 1` (below): that run pauses without cancelling anything
+and the daemon resumes it.
 
 `python -m cli.main paper start|resume|stop|seal|list` runs it as the product does
 (`paper/runs.py`): the candidate's source is copied from the research ledger into the separate Paper database
@@ -506,7 +509,11 @@ only container also on the outbound bridge and tunnels to `fapi.binance.com` and
 443 alone. Docker gets an allowlisted environment and passes no host variable into either container.
 `paper stop` writes the run's `STOP` file and seals; SIGTERM comes only after a timeout, since on SIGTERM
 the node also shuts down by itself and the strategy misses its cancels. `paper seal` captures a run that
-ended by itself. The seal stores the run's files (`paper_file`): the journal by UTC day, the summary, the
+ended by itself. How a run ended is a reason in `seal.json` (`RUNNER_EXIT_NONZERO`, `SUMMARY_MISSING`,
+`OUT_OF_MEMORY` for a kill at the memory limit) and leaves the status `complete`; only evidence that cannot be trusted
+(`SOURCE_MISMATCH`, `LEVERAGE_MISMATCH`, `EGRESS_DENIED`, or a runner that started and left no journal) seals `invalid`
+(`ledger.paper.verdict`). The daemon resumes a run that paused (SIGTERM or SIGINT) or was interrupted before its summary
+and seals every other end. The seal stores the run's files (`paper_file`): the journal by UTC day, the summary, the
 egress and runner logs and `seal.json`, whose readings add the funding the Sandbox does not settle
 (`docs/plans/paper-run-storage-decision.zh.md`). Runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
 `docs/plans/paper-admission-by-memory.zh.md`), one per source at a time.
@@ -630,7 +637,7 @@ withdrawn; a position keeps its instance and exits. Once no instance holds a pos
 instance sees a further bar, and after two agreeing comparisons this start ends
 without closing anything (`rewarming`, exit status 3). The control starts the run again, whose warm-up reads Binance's
 complete bars (decision `docs/plans/live-bars-missing-rewarm-20261113.zh.md`). If that warm-up fails, the start ends the
-same way once more (`rewarming` with `retry`; it counts toward the control's three starts an hour); a second failure ends
+same way once more (`rewarming` with `retry`; it counts toward the control's four run launches an hour); a second failure ends
 the run. Flat with only reduce-only orders left at Binance, the run waits with entries closed and cancels nothing. Once
 agreeing comparisons (every five minutes) have seen them at Binance for ten minutes, the user is told
 (`orphan_orders`): 10 to 20 minutes after the account went flat. The comparison also
@@ -726,8 +733,8 @@ host restart, a release, `docker stop`) interrupts it instead of stopping it (de
 their exchange stops stay, and the runner records `interrupted` and exits 3. An armed run whose latest start ended
 with no ending event (`clean_stop`, `reconciled_flat`, `venue_flat`, `reconcile_stopped`, `unresolved`) and no
 `STOP` file, so also a killed runner, is started again as itself by the paired control, with the credential it was
-started with, from the same native cache; at most three run launches an hour, then the control records
-`restart_limited` once and the user decides. Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
+started with, from the same native cache; at most four run launches an hour (the first start and three restarts),
+then the control records `restart_limited` once and the user decides. Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
 start again checks the clock and account modes: on a flat account it builds the source, warms up and trades (event
 `resuming`); with anything open it holds (`resuming` with `held`): no source, no entries, the account read every 30
 seconds, until the account is flat (its stops, or a close at Binance), when `venue_flat_while_held` ends that start
