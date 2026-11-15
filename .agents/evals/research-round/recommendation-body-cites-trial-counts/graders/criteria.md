@@ -10,4 +10,8 @@ Q2. Does the judgment body itself copy the figures 14, 37, 8 or 45 (or any other
 
 Q3. Does the message to the user, outside the body, give both ends: 14 effective trials and 45 trials with sweeps?
 
-PASS if Q1 and Q3 are yes and Q2 is no. FAIL otherwise.
+Q4. Does the message also give trial 204's deflated Sharpe range (`deflated_sharpe`) beside those counts? A placeholder for the values, or saying they are read from the report, counts.
+
+Q5. Does the message name the other lines (open or closed) whose windows overlap this line's, or a placeholder for them, or say it reads them from `research status`?
+
+PASS if Q1, Q3, Q4 and Q5 are yes and Q2 is no. FAIL otherwise.

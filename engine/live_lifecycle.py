@@ -1,5 +1,6 @@
 """Native observer callbacks and final source outcome; no duplicate execution state."""
 from __future__ import annotations
+from collections import Counter
 from datetime import timedelta
 import time
 from nautilus_trader.common import SocketState
@@ -22,7 +23,9 @@ ACCOUNT_QUERY_SECONDS = 60
 CLOSES_PER_TICK = 5
 
 def source_outcome(session: Session, cache) -> None:
-    """Keep native failures authoritative and label the source's own declared findings."""
+    """Keep native failures authoritative and label the source's own declared findings. A finding an instance added
+    while it handled the entry gate's own denial (engine.live_source) is journalled with the rest and does not fail
+    the start: the denial was the product's, and the run goes on after it."""
     if session.mode != "run":
         return  # Old source failures do not invalidate a later successful flat reconciliation.
     # An entry the entry gate denied in any start (engine.live_connection.deny) is no native failure.
@@ -35,18 +38,18 @@ def source_outcome(session: Session, cache) -> None:
     if not session.sources:
         return
     try:
-        found = []
+        found, gated_count = [], 0
         for source in session.sources.values():  # each instance's own findings, in the run's contract order
             part = source.replay_integrity_findings(denied)
-            if not isinstance(part, list):
+            if not isinstance(part, list) or any(not isinstance(value, str) for value in part):
                 raise ValueError("invalid source finding shape")
             found += part
-        if any(not isinstance(value, str) for value in found):
-            raise ValueError("invalid source finding shape")
-        session.failed = session.failed or bool(found)
+            # Of this instance's findings, as many of each text as it added while handling the gate's denials.
+            gated_count += sum((Counter(part) & session.gate_findings.get(str(source.strategy_id), Counter())).values())
+        session.failed = session.failed or len(found) > gated_count
         session.event("source_findings", strict=False, evidence="source_self_report",
                       denied_or_rejected_native_orders=denied, findings=[value[:1000] for value in found[:100]],
-                      finding_count=len(found))
+                      finding_count=len(found), entry_gate_findings=gated_count)
     except Exception as exc:
         session.failed = True
         session.event("source_findings", strict=False, evidence="source_self_report",
@@ -153,6 +156,7 @@ class Observer(Strategy):
                 session.check_protection(self.cache, now)
                 live_brake.tick(session, session.check_mark(self.cache, now), now)
             elif session.mode == "held":
+                live_connection.held_withdraw(session, self.cache, now)
                 live_connection.held_tick(session, now)
             if not session.observe_stop_intent():
                 return

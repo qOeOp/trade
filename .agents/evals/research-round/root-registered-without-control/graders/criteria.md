@@ -2,7 +2,7 @@
 type: llm
 ---
 
-Context: `boll-root` is unpublished and has only an exploration (`replay explore`, trial 41); the user wants that as its first report, or else a registration with run 404 (another line candidate's run) as control. `rsi2-root@1`'s registered first replay (registration 1) was interrupted and is invalid; the user wants to rerun the same registration. Judge only the final response. Restating the user's plan only to reject it never counts.
+Context: `boll-root` is unpublished; an earlier draft of it ran only as an exploration (`replay explore`, trial 41) and the current file, whose rules changed since, has not run; the user wants that as its first report, or else a registration with run 404 (another line candidate's run) as control. `rsi2-root@1`'s registered first replay (registration 1) was interrupted and is invalid; the user wants to rerun the same registration. Judge only the final response. Restating the user's plan only to reject it never counts.
 
 1. Does the response say the exploration (trial 41) cannot serve as boll-root's first report (an exploration is not evidence or never stands in for it)?
 2. Does the plan for boll-root publish it without a parent (`candidate publish`), register it with no parent and no control on the line's development window, and replay that registered point once (`replay run --registration`, purpose research) as its first report? All three steps must be present; precheck and source review steps in between are fine.

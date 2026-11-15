@@ -340,8 +340,15 @@ class LiveCustodyTests(LiveFixture):
             self.assertEqual(runs.active_run(self.root), self.run_id)
             (self.directory / "out" / "events.jsonl").unlink()
             state.write_new(self.directory / "out" / "armed.json", b"{}")
-            # Armed, and no ending event: interrupted (killed, or SIGTERM), the run starts again as itself.
-            self.assertEqual(maintain(self.root, self.run_id)["state"], "interrupted")
+            # Armed, no ending event, but the runner ended by its own refusal: the run is over (20261114-23).
+            self.assertEqual(maintain(self.root, self.run_id)["state"], "unresolved")
+        for exit_code, expected in ((1, "unresolved"), (3, "interrupted"), (137, "interrupted"), (143, "interrupted")):
+            with self.subTest(exit_code), patch.object(runs, "inspect_runner", return_value={
+                    "State": {"Running": False, "Status": "exited", "ExitCode": exit_code}}):
+                # Armed, no ending event, and the runner did not end itself in failure (killed, SIGTERM, or a start
+                # it gave back): interrupted, the run starts again as itself.
+                self.assertEqual(maintain(self.root, self.run_id)["state"], expected)
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 137}}):
             state.append(self.directory / "out" / "events.jsonl", "unresolved", self.run_id)
             self.assertEqual(maintain(self.root, self.run_id)["state"], "unresolved")
             state.write_new(self.directory / "out" / "STOP", b"operator stop\n")
@@ -410,6 +417,26 @@ class LiveCustodyTests(LiveFixture):
             with self.assertRaises(LiveRefusal) as caught:
                 launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
         self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
+
+    def test_a_runner_that_ended_by_its_own_refusal_or_failure_is_not_started_again(self):
+        """20261114-23: with no ending event written (a refusal before the journal, a failed write), the runner's
+        own exit status still says it decided to end. Only a start it gave back (3) or a kill starts again."""
+        class Reached(Exception):
+            """The launch got past the restart check."""
+
+        self.launch_record()
+        state.write_new(self.directory / "out" / "armed.json", b"{}")
+        for exit_code in (1, 2):
+            with self.subTest(exit_code), patch.object(runs, "inspect_runner", return_value={
+                    "State": {"Running": False, "ExitCode": exit_code}}), \
+                    patch.object(runs.key, "require_limits", side_effect=Reached):
+                with self.assertRaises(LiveRefusal) as caught:
+                    launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
+                self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
+        with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 3}}), \
+                patch.object(runs.key, "require_limits", side_effect=Reached):
+            with self.assertRaises(Reached):
+                launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
 
     def test_at_most_three_restarts_an_hour(self):
         for _ in range(4):  # the first start and three restarts

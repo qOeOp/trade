@@ -1,5 +1,6 @@
 """Run-local lifecycle state and evidence; orders and positions stay in native cache."""
 from __future__ import annotations
+from collections import Counter
 from dataclasses import dataclass, field
 from decimal import Decimal
 import json
@@ -27,6 +28,9 @@ CANCEL_RETRY_SECONDS = 5
 # engine.protection's allowance plus its Live detection lag. A false alarm flattens a healthy trade.
 PROTECTION_SECONDS = (protection.ALLOWANCE_NS + protection.LIVE_DETECTION_NS) // 1_000_000_000
 MARK_SECONDS = 60  # With a position open and no mark for this long, the run stops (design §3.2.4).
+# The runner's events after which the run is over; a run whose latest start ended in none of them (interrupted,
+# held until flat, or killed without a word) starts again as itself.
+ENDED_EVENTS = frozenset({"clean_stop", "reconciled_flat", "venue_flat", "reconcile_stopped", "unresolved"})
 
 
 @dataclass
@@ -47,13 +51,20 @@ class Session:
     armed_ns: int | None = None  # a resumed run's first arming: its duration counts from there, across starts
     node: Any = None
     sources: dict[str, Any] = field(default_factory=dict)  # the run's instances: contract -> instance (engine.live_source)
+    # A start without sources (held, reconcile) registers each instance's identity as an inert native Strategy
+    # (engine.live_node); a held start cancels the entries it inherited through them (engine.live_connection).
+    keepers: dict[str, Any] = field(default_factory=dict)
     entry_gate: Any = None  # the native ExecutionAlgorithm that denies entries (engine.live_connection.deny)
     denied: set[str] = field(default_factory=set)  # client order IDs of the entries it denied in this start
+    # What each instance added to its own findings while it handled one of those denials (engine.live_source):
+    # strategy ID -> finding -> count. The gate's denial is the product's doing, so these do not fail the start.
+    gate_findings: dict[str, Counter] = field(default_factory=dict)
     denying: bool = False  # inside a denial's native callbacks
     started: float | None = None
     stopping: bool = False
     stop_at: float | None = None
     native_flat: bool = False
+    ended: bool = False  # this start journalled an event that ends the run (ENDED_EVENTS)
     failed: bool = False
     native_order_failure: bool = False
     persistence_failed: bool = False
@@ -96,6 +107,7 @@ class Session:
                 stream.write(json.dumps(row, sort_keys=True, default=str) + "\n")
                 stream.flush()
                 os.fsync(stream.fileno())
+            self.ended = self.ended or event in ENDED_EVENTS
             return True
         except (OSError, ValueError, TypeError):
             self.failed, self.journal_failed, self.native_flat = True, True, False
@@ -149,8 +161,10 @@ class Session:
             else self.started is not None and time.monotonic() - self.started >= duration)
 
     def owner(self, strategy_id):
-        """The instance of `strategy_id`, which sends its orders' commands."""
-        return next((self.sources.get(symbol) for symbol, found in strategy_ids(self.manifest).items()
+        """The instance of `strategy_id`, which sends its orders' commands; in a start without sources, the inert
+        Strategy registered with that identity."""
+        instances = self.sources or self.keepers
+        return next((instances.get(symbol) for symbol, found in strategy_ids(self.manifest).items()
                      if found == strategy_id), None)
 
     def any_source(self):

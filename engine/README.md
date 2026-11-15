@@ -213,8 +213,11 @@ the breach's code; Live refuses at once and takes the STOP path.
   trigger price, both sides added, with the new entry stay within 3 times the native portfolio's USDT equity;
   an exit is reduce-only, names its strategy's open position and fits it, and one position's working stops hold at
   most its quantity; no modifications, order lists, emulation,
-  execution algorithms, contingent or linked orders, quote quantities or order parameters; a GTD order expires at
-  least 600 seconds after it is sent (Binance's limit); a strategy cancels and closes only its own orders and
+  execution algorithms, contingent or linked orders, quote quantities or order parameters; a GTD order is a LIMIT,
+  STOP_LIMIT or LIMIT_IF_TOUCHED order (the types Nautilus's Binance client sends GTD; it denies any other, so Live
+  could not send one), expires on a whole second (the client denies a fraction of one) and at least 600 seconds
+  after the strategy submits it, by the strategy's clock (Binance's limit; Live needs more, see
+  [Live execution](#live-execution)); a strategy cancels and closes only its own orders and
   positions; every order is on the strategy instance's own contract. A source naming `submit_order_list`,
   `bracket`, `add_exec_algorithm` or `close_all_positions` is refused at load.
 - Stop coverage (`engine.protection`): a position is covered when its own reduce-only stops (submitted with its
@@ -407,7 +410,7 @@ termination (or without one) is `DATA_ENDS_WITHOUT_TERMINATION`. Every finding s
 function at ingest.
 
 A strategy constructor, callback, callback registered on the clock (`set_timer`, `set_timer_ns`,
-`set_time_alert`, `set_time_alert_ns`, `register_default_handler`), `replay_diagnostics` or
+`set_timer_zoned`, `set_time_alert`, `set_time_alert_ns`, `register_default_handler`), `replay_diagnostics` or
 `replay_integrity_findings` that raises leaves a structured receipt in `runtime_failures.jsonl` before
 the exception goes on; the runner then exits nonzero even when the engine caught the exception and
 finished. So does any exception that ends the runner before its verdict, with its stage
@@ -628,7 +631,12 @@ the run's entries reopen after the same two agreeing comparisons as after a reco
 on a new image) waits while a contract is not trading. The run node registers an
 `ExecutionAlgorithm` (`LIVE-GATE`) whose `deny_order` puts the source's order in the native cache as DENIED and gives
 the source `OrderDenied`; nothing is sent. Its denials, read back from the journal in later starts whose reloaded cache
-still holds them, are no native failure. An order the cache already holds, an entry submitted from within a denial's
+still holds them, are no native failure. Nor does the source's own report of one fail the start (finding 20261114-28,
+the user 2026-11-15): authored sources report every denied order from `replay_integrity_findings`, so Live reads an
+instance's findings before and after it handles an `OrderDenied` of an order the gate denied (known by its client
+order ID), and what the instance added in between is the gate's doing. `source_findings` still journals every finding
+as reported and counts those in `entry_gate_findings`; any other finding, and the report of a denial the gate did not
+make, fails the start as before. Replay and Paper judge findings as they did. An order the cache already holds, an entry submitted from within a denial's
 callbacks, or a denial that fails is refused, and the run ends. `live compare` attributes a fill the gate delayed, withdrew or denied, and a
 decision Live refused after a hold, to the cause `entry_gate` (decisions `docs/plans/live-entry-hold-20261113.zh.md`,
 `docs/plans/live-bars-missing-rewarm-20261113.zh.md`).
@@ -677,9 +685,15 @@ entry then waits, in order, for its own fresh account check (cash of at least th
 against that check's equity) before dispatch, and may join the run's open positions and orders. The drawdown brake counts the whole run.
 A GTD order goes to Binance with its expiry, which Binance
 [keeps to the second](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Order)
-and refuses when less than 600 seconds ahead; the order can end up to a second early, or late in extreme markets,
+and refuses when less than 600 seconds ahead. The order rules hold all three paths to the same two terms: a whole
+second (Nautilus's client denies a fraction of one before sending) and at least 600 seconds after the strategy
+submits it. The 600 seconds are the shared floor, not what Live needs: a Live entry waits for its account check and
+is sent only with at least 605 seconds left (the client denies an expiry not strictly more than 600 seconds past its
+own clock), so a GTD entry of 600 to 605 seconds passes a replay and Paper and is refused in Live
+(`LIVE_ORDER_UNSUPPORTED`); one bound for Live expires more than 605 seconds ahead by as long as it is to survive
+that wait. The order can end up to a second early, or late in extreme markets,
 and in the 2026-11-06 trial such an end came back `CANCELED`, not `EXPIRED`. An expiry is no precise end time, and
-a stop placed GTD stops protecting when it ends.
+a stop placed GTD (a STOP_LIMIT; the order rules refuse a GTD STOP_MARKET) stops protecting when it ends.
 The Observer temporarily holds only that unsubmitted native order, then checks its expiry, current native
 cache, connection, STOP, persistence, native source Running state and cash budget before calling native submit.
 The order's strategy/trader identity must match the registered native source, so a foreign OrderFactory
@@ -748,12 +762,35 @@ their exchange stops stay, and the runner records `interrupted` and exits 3. An 
 with no ending event (`clean_stop`, `reconciled_flat`, `venue_flat`, `reconcile_stopped`, `unresolved`) and no
 `STOP` file, so also a killed runner, is started again as itself by the paired control, with the credential it was
 started with, from the same native cache; at most four run launches an hour (the first start and three restarts),
-then the control records `restart_limited` once and the user decides. Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
+then the control records `restart_limited` once and the user decides. A runner that ends by its own refusal or
+failure is not interrupted, and its run is over: once armed, every such exit of a `run` records `unresolved` (with
+the refusal's `code`), whether the final account read after a completed native exit failed or was not flat, a start
+again found no native cache or changed account modes, or anything else raised; and the control never starts again a
+runner that exited with status 1 or 2, even where it could write no event. One refusal gives the start back
+instead: a start again whose first account read fails (`LIVE_ACCOUNT_UNAVAILABLE`, before anything is built) exits 3
+with no event, and the control starts the run again within the same hourly limit (finding 20261114-23, the user
+2026-11-15). Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
 start again checks the clock and account modes: on a flat account it builds the source, warms up and trades (event
 `resuming`); with anything open it holds (`resuming` with `held`): no source, no entries, the account read every 30
 seconds, until the account is flat (its stops, or a close at Binance), when `venue_flat_while_held` ends that start
 with exit 3 and the next one trades. A source cannot yet rebuild its state around an open position, so a held run
 waits for that. STOP during a held start ends it as `reconcile` does. Each step is a Telegram notice.
+
+A held start checks what protects the positions it inherited, and says so (`engine/live_connection.py`, finding
+20261114-24, the user 2026-11-15). When the hold begins, when the node has connected and at each 30-second read, the
+same account read is judged: on each side of each contract, the stops at Binance that close it (`STOP_MARKET`, `STOP`,
+`TRAILING_STOP_MARKET`, conditional or regular; a take-profit is none) must hold at least the position's quantity,
+`engine.protection`'s judgment on the venue's own rows. A change of the verdict is journalled with the read beside
+it: `held_covered` (every position has its stops and no entry order is working; `holding` 0 when only orders keep
+the account from flat), or `held_uncovered` with the `positions` short of stops, the `entries` (orders at Binance that
+would open or add to a position) and `entries_kept`; an answer whose rows cannot be judged is `held_uncovered` with
+`unreadable`, and a read that failed is read again. The held start also withdraws the entry orders it inherited: one
+native cancel each through the run's registered identity (`entry_cancel_requested`, reason `held`; a request that
+raises is `entry_cancel_failed`), repeated every 5 seconds while the order stays open. An entry order still at
+Binance in a read begun after that (the cancel was lost or refused, or the native cache does not hold the order, so
+nothing could be sent) is reported with `entries_kept`. The check tells; it does not act: a held start places no stop
+and closes nothing, and the drawdown brake does not run while it holds. The Live page and Telegram say what the
+latest check found, a position with no stop in its own words.
 
 STOP disables opening decisions, cancels owned opening orders, repeating the cancel every 5 seconds while one
 stays open (after a request with an unknown outcome, as a native cancel-all scoped to the order's side, because
@@ -813,7 +850,8 @@ write journals `evidence_unavailable` once per part and the run goes on.
 ### Unresolved Live runs
 
 `status` says `unresolved` when a run ended without proof that the account is flat: a failed check, a
-rejected or failed close, a runner that failed, or a `reconcile` stopped before flat. A killed or interrupted
+rejected or failed close, a runner that failed or refused (exit status 1 or 2, with or without an `unresolved`
+event), or a `reconcile` stopped before flat. A killed or interrupted
 runner is not unresolved: the control starts it again. A position may remain at Binance,
 with or without its stop, and nothing will close it. When Telegram notifications are set up on the Live page,
 the paired control sends a message within about ten seconds of seeing the run unresolved, but only from its

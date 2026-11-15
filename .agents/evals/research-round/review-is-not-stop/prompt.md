@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我们在做加密永续的均值回归研究，路线是我选的（起点 `mr-root@2`，开发窗口 2023-01-01 到 2025-06-30）。
+我们在做加密永续的均值回归研究，路线是我选的（起点 `mr-root@2`，在本路线的开发窗口上）。
 
 下一次登记被 `REVIEW_DUE` 拒绝了（账本提交 `d31f9a0`）：上次推荐以来已经 5 次研究试验，`research state` 的 `unreviewed_trials` 有 5 个，到了复盘的时候。`research status` 显示这条路线累计 41 次试验。最近 5 次登记（登记 18 到 22）的比较结果：2 次 not_significant、2 次 loss（`annual_return_difference_interval` 整体在零以下）、1 次 zero_activity。
 

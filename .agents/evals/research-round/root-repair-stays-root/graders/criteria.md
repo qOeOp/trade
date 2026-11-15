@@ -6,5 +6,7 @@ Context: the template root `don-root@1` (no parent) failed its precheck on an im
 
 1. Does the plan register the repaired revision as a root: no parent, no control and empty `changed_duties`, then replay it once as its first report?
 
+A note about how later derived changes are registered does not count against 1.
+
 PASS if 1 is yes.
 FAIL otherwise.

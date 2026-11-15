@@ -336,11 +336,42 @@ def _gate_messages(run: dict, name: str) -> list[tuple[str, str]]:
     return result
 
 
-# A start that found a position or open orders it inherited (engine.live held). The Live page says the same
-# (ide/web/src/model/liveTradingMap.ts HELD_NOTICE).
-HELD_TEXT = ("started again and found a position or open orders it inherited. That position is now protected only by "
-             "its stop at Binance: the strategy no longer manages its exits and opens nothing. The run trades again "
-             "by itself once the account is flat; close the position at Binance if you want to end it sooner.")
+# A start that found a position or open orders it inherited (engine.live held), and what its account reads then show
+# of the stops at Binance (engine.live_connection.held_verdict; finding 20261114-24). The Live page says the same
+# (ide/web/src/model/liveHeld.ts).
+HELD_TEXT = ("started again and found a position or open orders it inherited. The strategy no longer manages its exits "
+             "and opens nothing, and the run cancels entry orders it inherited. Whether each position has its stop at "
+             "Binance is checked now and every 30 seconds; the next message says what the check found. The run trades "
+             "again by itself once the account is flat; close the position at Binance if you want to end it sooner.")
+HELD_COVERED = ("holds only positions that have their stop at Binance (stops of at least each position's size, read "
+                "every 30 seconds), and no entry order is working. Nothing else protects them: the strategy does not "
+                "manage their exits.")
+HELD_ORDERS = ("holds no position, but orders are still open at Binance. The run trades again once the account is "
+               "flat; cancel them at Binance if nothing needs them.")
+HELD_UNREADABLE = ("cannot verify that its positions have stops: Binance's answer could not be read. The run only "
+                   "observes while it holds: check the position and its stop at Binance now.")
+HELD_UNCOVERED = ("has a position with NO STOP at Binance: {positions}. Nothing will close it: the run only observes "
+                  "while it holds. Close it or place a stop at Binance now.")
+HELD_ENTRIES = ("has {count} inherited entry order(s) working at Binance and is cancelling them. A fill before they "
+                "are gone has no stop.")
+HELD_ENTRIES_KEPT = ("could NOT cancel {count} inherited entry order(s): they are still working at Binance. A fill has "
+                     "no stop: cancel them at Binance now.")
+
+
+def held_text(row: dict) -> str | None:
+    """What a held start's verdict row (live.views _held_verdict) tells the user, to follow the run's name."""
+    if row["event"] == "held_covered":
+        return HELD_ORDERS if row.get("holding") == 0 else HELD_COVERED
+    if row.get("unreadable"):
+        return HELD_UNREADABLE
+    parts = []
+    if row.get("uncovered"):
+        parts.append(HELD_UNCOVERED.format(positions="; ".join(
+            f"{item.get('symbol') or '?'} {item.get('side') or '?'} {item.get('position') or '?'} "
+            f"(stops {item.get('stops') or '?'})" for item in row["uncovered"])))
+    if row.get("entries"):
+        parts.append((HELD_ENTRIES_KEPT if row.get("entries_kept") else HELD_ENTRIES).format(count=row["entries"]))
+    return " It also ".join(parts) or None
 
 
 def _brake_and_key_messages(run: dict, name: str) -> list[tuple[str, str]]:
@@ -414,15 +445,16 @@ def _compared(run: dict, last: str | None, newest: str) -> bool:
 
 
 def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
-    """An interruption, each start again of the same run (trading, or holding around an open position), the account
-    flat while held, and the control's limit on automatic starts (engine.live, design §3.4)."""
-    texts = {"interrupted": "was interrupted without closing: open positions keep their exchange stops, and the "
-                            "control starts the run again.",
+    """An interruption, each start again of the same run (trading, or holding around an open position), what a held
+    start's reads show of the stops at Binance, the account flat while held, and the control's limit on automatic
+    starts (engine.live, design §3.4)."""
+    texts = {"interrupted": "was interrupted without closing: it closed no position and cancelled no stop at "
+                            "Binance, and the control starts the run again.",
              "venue_flat_while_held": "is flat at Binance again; the next start trades.",
              "rewarming": "missed a bar and holds no position: it starts again to warm up on Binance's complete bars.",
              "restart_limited": "was interrupted more than 3 times within an hour and is no longer started again "
-                                "automatically: open positions keep their exchange stops. Look at the run, then start "
-                                "or stop it."}
+                                "automatically: it closed no position and cancelled no stop at Binance, and nothing "
+                                "checks them now. Look at the run, then start or stop it."}
     result: list[tuple[str, str]] = []
     rewarming = False
     for row in run.get("restarts") or []:
@@ -437,6 +469,8 @@ def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
             # The user's decision of 2026-11-13 (docs/plans/live-continuous-step4-resume-20261113.zh.md): say at
             # once that the strategy no longer manages the inherited position, so it can be closed by hand.
             text = (HELD_TEXT if row.get("held") else "started again on a flat account; it warms up and trades.")
+        elif event in ("held_covered", "held_uncovered"):
+            text = held_text(row)
         elif event == "rewarming" and row.get("retry"):
             # The user's decision of 2026-11-13: a failed warm-up after a missing bar starts the run once more.
             text, rewarming = ("could not warm up again after the missing bar; it starts once more to try again. If "

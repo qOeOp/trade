@@ -2,7 +2,7 @@
 type: llm
 ---
 
-The agent designs its own root instead of using a library template. Judge only the final response.
+The agent designs its own root instead of using a library template. A stop to have the user choose the line or approve its goal is not a template-authorization stop. Judge only the final response.
 
 Q1. Does the response say this root needs no template authorization from the user, because it is not a template?
 

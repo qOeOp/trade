@@ -39,8 +39,8 @@ PAIRED_LIMITATIONS = (
     "The block bootstrap assumes the daily differences are roughly stationary and weakly dependent",
     "The annual difference interval does not test the minimum effect",
     "The drawdown difference reads close-to-close daily account equity, not the reports' MARK maximum drawdown; its "
-    "interval rebuilds each side's path from resampled blocks, so it is rough for a path-dependent measure and is "
-    "no part of the change-of-approach count",
+    "interval rebuilds each side's path from resampled blocks, so it is rough for a path-dependent measure; like the "
+    "return intervals it counts toward telling candidate and control apart in the change-of-approach count",
     "The test design values are uncalibrated method examples")
 SINGLE_LIMITATIONS = (
     "p is a tail probability under the null model, not the probability that the strategy works",

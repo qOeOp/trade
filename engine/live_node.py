@@ -91,11 +91,12 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
         else:
             # Register OMS before native cache load/reconciliation, including accepted entries
             # which have no first fill or position mapping yet. No old source is imported.
-            for strategy in strategy_ids(manifest).values():
-                node.add_strategy(Strategy(strategy_runtime.source_config(strategy)))
+            for symbol, strategy in strategy_ids(manifest).items():
+                session.keepers[symbol] = Strategy(strategy_runtime.source_config(strategy))
+                node.add_strategy(session.keepers[symbol])
     except BaseException:
         node.dispose()
         session.node, session.entry_gate = None, None
-        session.sources = {}
+        session.sources, session.keepers = {}, {}
         raise
     return node

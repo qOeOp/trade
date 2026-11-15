@@ -451,7 +451,20 @@ class StrategyLoaderTests(unittest.TestCase):
                          ("EXECUTION_BINDING_MISMATCH", "execution_binding", "EXECUTION_BINDING_MISMATCH"))
         self.assertIn("missing effective_config_sha256; extra strategy_binding", written[0]["message"])
 
+    def test_every_clock_api_that_takes_a_callback_is_guarded(self):
+        # A Clock method the pinned Nautilus adds with a callback must join CLOCK_CALLBACK_APIS, or its callback's
+        # failure leaves no receipt (set_timer_zoned did not, doctor 20261114-35).
+        from nautilus_trader.common import Clock
+        found = {}
+        for name in dir(Clock):
+            signature = getattr(getattr(Clock, name), "__text_signature__", None) or ""
+            parameters = [part.split("=")[0].strip() for part in signature.strip("()").split(",")]
+            if "callback" in parameters:
+                found[name] = parameters.index("callback") - parameters.index("$self") - 1
+        self.assertEqual(found, strategy_runtime.CLOCK_CALLBACK_APIS)
+
     def test_a_raising_clock_callback_leaves_a_receipt_though_the_engine_goes_on(self):
+        from datetime import datetime, timezone
         from datetime import timedelta
         from decimal import Decimal
         from nautilus_trader.model import (
@@ -469,9 +482,18 @@ class StrategyLoaderTests(unittest.TestCase):
                 self.subscribe_bars(native.BAR_TYPE)
                 self.clock.set_timer("tick", timedelta(minutes=5), callback=self.tick)
                 self.clock.set_time_alert_ns("alert", self.clock.timestamp_ns() + 60 * 10**9, self.alert)
+                start = datetime.fromtimestamp(self.clock.timestamp_ns() / 10**9, tz=timezone.utc)
+                self.clock.set_timer_zoned("zoned", "PT5M", start, callback=self.zoned)
+                self.clock.set_timer_zoned("placed", "PT5M", start, None, self.placed)
 
             def tick(self, event):
                 raise ValueError("timer failed")
+
+            def zoned(self, event):
+                raise RuntimeError("zoned timer failed")
+
+            def placed(self, event):
+                raise LookupError("zoned timer failed")
 
             def alert(self, event):
                 raise KeyError("alert failed")
@@ -496,4 +518,6 @@ class StrategyLoaderTests(unittest.TestCase):
         engine.run()  # the engine logs and swallows a time event callback's exception
         stages = {(item["stage"], item["exception_type"], item["instrument_id"]) for item in strategy_runtime.FAILURES}
         self.assertEqual(stages, {("set_timer:tick", "ValueError", "unconstructed"),
-                                  ("set_time_alert_ns:alert", "KeyError", "unconstructed")})
+                                  ("set_time_alert_ns:alert", "KeyError", "unconstructed"),
+                                  ("set_timer_zoned:zoned", "RuntimeError", "unconstructed"),
+                                  ("set_timer_zoned:placed", "LookupError", "unconstructed")})

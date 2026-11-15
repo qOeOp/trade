@@ -15,7 +15,7 @@ latest: interpretations 3, priorities 2
 earlier: {interpretations: 14, search_exposures: 3}
 ```
 
-`research state --help` 里有 `--line LINE`、`--full`（包含 earlier 的正文）。`line close --help` 的要求：`--line LINE --summary TEXT`。
+`research state --help` 里有 `--line LINE`、`--full`（包含 earlier 的正文）。`line close --help` 的要求：`--line LINE --summary FILE`（UTF-8 文本文件，最多 32 KB）。
 
 写出你要执行的命令，以及 summary 的结构（读到内容之前写不出的细节先用占位）。
 

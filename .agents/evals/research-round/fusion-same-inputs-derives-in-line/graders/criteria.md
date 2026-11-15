@@ -6,7 +6,7 @@ The user chose a fusion on line `btc-trend`: merge the entry rule of `revert@3` 
 
 Q1. Does it register the fused source on `btc-trend` as a derivation whose parent is `trend@7` (or this line's candidate) and whose control is a run of this line, as one change?
 
-Q2. Does the registration's local rationale (or equivalent field) name the parts (for example `revert@3` and its line) and the history years that chose them?
+Q2. Does the registration body's `rationale.local` name the parts (for example `revert@3` and its line `btc-revert`) and the history years that chose them? Naming them only in another field, or in prose outside the registration body, is no.
 
 Q3. Does it say the years used to choose `revert@3` cannot count toward the fused source meeting the targets?
 

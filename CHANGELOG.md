@@ -22,6 +22,46 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (clock callbacks): a callback a source registers with `clock.set_timer_zoned` is guarded like those of
+  `set_timer` and `set_time_alert`. When it raises, the failure is recorded (`runtime_failures.jsonl`) and the run
+  fails, where the engine used to log one error line and the run passed. In Paper such a timer now counts as a user
+  timer, outside the recovery protocol, and in Live its callback no longer runs once the run is stopping, as with
+  the other timers. The change gives a new replay image; sources that do not use `set_timer_zoned` are unchanged
+  (doctor 20261114-35).
+- Breaking (order rules): a GTD order whose expiry is not a whole second is refused as `ORDER_RULE` in replay,
+  Paper and Live. Nautilus's Binance USD-M client denies such an order before sending it, so a source that passed a
+  replay and Paper failed at its first GTD order in Live. A replay's bars are stamped 1 ms before the minute, so
+  `self.clock.timestamp_ns() + lifetime` is never a whole second there: every candidate that writes its expiry that
+  way is refused on the new replay image and needs a new version that rounds the expiry, for example up with
+  `(self.clock.timestamp_ns() + 661 * 10**9 - 1) // 10**9 * 10**9` for 660 s. Runs sealed on earlier images are
+  unaffected and still reproduce on their own image. The 600-second minimum and Live's 605 seconds at send time are
+  unchanged (doctor 20261114-26).
+- Live (finding 20261114-28): a source's own report of an entry the entry gate denied no longer ends the start
+  `unresolved`. Authored sources report every denied order from `replay_integrity_findings`; Live now sets aside what
+  an instance adds to its findings while it handles the gate's own `OrderDenied` (missing bar, contract not trading,
+  clock, membership), so a start after such a denial ends `interrupted`, `rewarming` or `held_flat` and is started
+  again as designed. `source_findings` journals every finding as before and counts the set-aside ones in
+  `entry_gate_findings`. Other findings and other denials fail the start as before; replay and Paper are unchanged.
+- Live, held start (finding 20261114-24): a start that holds around an inherited position now checks, when the hold
+  begins and at each 30-second account read, that the stops at Binance cover each side of each contract, and cancels
+  the entry orders it inherited. New journal events `held_covered` and `held_uncovered` (positions short of stops,
+  entry orders still working, an answer that cannot be judged). The Telegram and Live-page texts no longer say an
+  inherited position is protected by its stop before the check; they say what the latest check found, and a position
+  with no stop gets its own message. The interruption and restart-limit notices say what the run did (closed nothing,
+  cancelled no stop) instead of "open positions keep their exchange stops". A held start still places no stop,
+  closes nothing and runs no drawdown brake.
+- Breaking (order rules): a GTD order of a type other than LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED is refused as
+  `ORDER_RULE` in replay, Paper and Live: Nautilus's Binance USD-M client sends only those three GTD and denies any
+  other. Before, rule 5 raised `AttributeError` on every GTD order but a LIMIT (a source failure, not a refusal), so
+  no run with such an order passed. A GTD STOP_LIMIT or LIMIT_IF_TOUCHED exit now goes through rule 5's 600-second
+  check and is sent. The change gives a new replay image; runs of sources that send no such order are unchanged
+  (doctor 20261114-27).
+- Breaking (Live restart rule, finding 20261114-23): a Live runner that ends by its own refusal or failure is no
+  longer taken for an interruption and started again. Once armed, every such exit of a run records `unresolved`
+  (the final account read after a completed native exit failing or not flat, a start again without its native cache
+  or with changed account modes, a clock outside the limits), and the control never restarts a runner that exited
+  with status 1 or 2. A killed runner and SIGTERM start again as before. Only a start again whose first account read
+  fails (`LIVE_ACCOUNT_UNAVAILABLE`) is retried, within the existing four run launches an hour.
 - Paper: a recovery no longer drops or reuses the position IDs of resting limit entries. The Sandbox now leaves
   position IDs to the execution engine (`use_position_ids=False`, as Live), so a recovered run's new fills cannot
   collide with a cached position of another contract (entry stuck at ACCEPTED, no stop, no re-entry) or of the same
