@@ -73,6 +73,11 @@ header template, the entry class, the two hooks and a sizing helper.
   close (Paper and Live: 5 s later, once the last minute is in), the first one whole. The warm-up
   history of the same period arrives as `{instrument_id}-<N>-<UNIT>-LAST-EXTERNAL`, a different bar
   type with the same `bar_type.spec`: route bars by instrument and `spec`, so that neither is dropped.
+- A timer and data at one instant: in replay a whole-minute timer runs after that minute's bar
+  (stamped 1 ms earlier), and against an aggregated bar stamped on the minute by name (`A0` before,
+  `a0` after); in Paper and Live it runs first, on the wall clock (the bar comes about 0.1 s later,
+  the aggregated bar 5 s). Set a cancel timer between bars, 30 s after the minute the last bar that
+  may fill ends.
 - Every input used to decide whether, how much or at what price to submit (signals, quantity
   inputs, specification-check prices, equity and account state included) must come from a
   completed event strictly earlier than submission; in replay a timestamp's MARK arrives before its
