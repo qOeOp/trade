@@ -14,7 +14,8 @@ import unittest
 from unittest.mock import patch
 
 from cli import research_commands
-from ledger import admin, lines, targets
+from ledger import admin, lines, strategies, targets
+from registration import precheck
 from replay import entry, history
 from report import history as report_history, measures, status
 from shared.errors import Refusal
@@ -349,3 +350,48 @@ class HistoryRunTests(unittest.TestCase):
                          "the year read and the holdout both reach the targets")
         self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]), (None, None, ["veto 2024"]),
                          "the invalid year cannot be replayed again: the row stays undecided")
+
+    def test_a_source_without_economic_evidence_is_no_candidate(self):
+        """20261114-13: the test's candidates are the participants whose research run carries economic evidence, as
+        `research status` judges it. Before, a source whose review had failed was replayed, shown with its
+        development readings and given a summary."""
+        world = self.world
+        line = world.line["line"]
+        registration, refs = registered_grid(world, ["kept", "early", "late"])
+        runs = {ref: entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
+                               registration=registration)["trial_id"] for ref in refs}
+        kept, early, late = refs
+
+        def fail_review(ref):
+            sha = strategies.read_candidate(world.conn, ref)["source_sha256"]
+            (trial_id,), = world.conn.rows("SELECT trial_id FROM trial WHERE purpose = 'precheck' AND source_sha256 = %s",
+                                           (sha,))
+            precheck.record_review(world.profile, world.review_body(
+                trial_id, "failed", causal={"status": "failed", "note": "found after the run was sealed"}), "reviewer-z")
+
+        def read():
+            found = report_history.research_history(world.profile, line=line)["lines"][0]
+            return ([row["candidate"] for row in found["rows"]], found["participants"], found["discount"]["trials"],
+                    [(item["candidate"], item["run"], item["reasons"][0].split(":")[0])
+                     for item in found["without_economic_evidence"]])
+
+        self.assertEqual(read(), ([kept, early, late], 3, 3, []))
+        fail_review(early)
+        apart = status.research_status(world.profile, line=line)["comparison"]["without_economic_evidence"]
+        self.assertEqual([item["candidate"] for item in apart], [early], "the judgment `research status` reads")
+        ran = history.run_history(world.profile, world.market, MARKET_DAY, line)
+        self.assertEqual({item["run"] for item in ran["ran"]}, {runs[kept], runs[late]}, "the failed source is not replayed")
+        self.assertEqual((ran["participants"], ran["left"], [item["candidate"] for item in ran["without_economic_evidence"]]),
+                         (2, 0, [early]))
+        self.assertEqual(read(), ([kept, late], 2, 2, [(early, runs[early], "SOURCE_REVIEW_FAILED")]))
+
+        fail_review(late)  # after its history runs: judged on read, it loses its row and its readings
+        self.assertEqual(read(), ([kept], 1, 1, [(early, runs[early], "SOURCE_REVIEW_FAILED"),
+                                                 (late, runs[late], "SOURCE_REVIEW_FAILED")]))
+        days = (date(2025, 11, 1), date(2026, 4, 1))
+        with self.assertRaises(Refusal) as refused:
+            lines.close_line(world.profile, line, b"summary", days)
+        self.assertEqual(refused.exception.code, "HISTORY_INCOMPLETE", "of every participant, the ledger's own rule")
+        with patch.object(research_commands, "_market_days", return_value=days):
+            closed = research_commands.line_close(world.profile, line, b"summary", {})
+        self.assertFalse(closed["replayed"], "`line close` requires the candidates' segments only")

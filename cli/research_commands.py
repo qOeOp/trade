@@ -305,7 +305,8 @@ def line_close(profile: db.LedgerProfile, line: str, summary: bytes, market: dic
     """line close: end the line, then sync the profile's backup (`ledger export --kind backup`). The closing
     stands whatever the sync does: a refused sync is reported as backup_failed, and `ledger review` reports the
     backup as behind until a sync succeeds."""
-    closed = lines.close_line(profile, line, summary, _market_days(market))
+    from report import history as report_history
+    closed = lines.close_line(profile, line, summary, _market_days(market), report_history.qualified)
     if profile.backup_root is None:
         return {**closed, "backup": None}
     try:
@@ -519,24 +520,28 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); LINE_ENDED "
         "(--line is closed); LINE_UNKNOWN; TARGETS_INVALID (needs 0 < max-drawdown < 1 and 0 < annual-return < 1000)"),
     ("line", "history"): (
-        "the open line, its passed research runs and history trials (writer, head); the market at --market-day "
+        "the open line, its passed research runs with their economic evidence and its history trials (writer, "
+        "head); the market at --market-day "
         "(default: the newest day): its first day and latest complete day; each run's runtime image, probed",
         "one history trial and its run per segment left (each calendar year before the development period as a "
         "veto segment, the period again as the control, the two-year holdout after it as one segment, the forward "
         "segment after the holdout), candidates by development-period Sharpe; "
         "a segment with a history run is skipped, so a rerun resumes",
-        "line, market_day, ran [{source_sha256, segment, run, history_trial_id, status}], left, participants, "
-        "segments_without_trading",
+        "line, market_day, ran [{source_sha256, segment, run, history_trial_id, status}], left, participants (the "
+        "candidates), without_economic_evidence [{source_sha256, candidate, run, reasons}] (the participants left "
+        "out), segments_without_trading",
         "LINE_UNKNOWN, LINE_ENDED; MARKET_DAY_UNRESOLVED; REPRODUCTION_CONFIG_DIFFERS (the image gives a run "
         "another effective configuration); the replay refusals of a sealed run"),
     ("line", "close"): (
-        "--summary (a regular UTF-8 file, at most 32 KB); the line, its history trials and its closing at the head "
+        "--summary (a regular UTF-8 file, at most 32 KB); the line, its passed research runs with their economic "
+        "evidence, its history trials and its closing at the head "
         "(writer); the market's first and latest complete day at the newest day",
         "one line_close row holding the summary, which ends the line; the same summary again is a replay; then the "
         "profile's backup is synced as `ledger export --kind backup` does",
         "line, line_id, closed_at, ledger_commit, replayed, backup ({ledger_commit, backup_path}, null without a backup "
         "directory or when the sync was refused), backup_failed (the sync's refusal; the closing stands)",
-        "HISTORY_INCOMPLETE (a segment of the closing history test has no history run: `line history`); "
+        "HISTORY_INCOMPLETE (a segment of the closing history test has no history run: `line history`; only the "
+        "segments of its candidates count, the participants whose run carries economic evidence); "
         "LINE_CLOSED (closed with another summary); LINE_UNKNOWN; LINE_SUMMARY_INVALID"),
     ("line", "list"): (
         "the open research lines (with --all the closed ones too), their closings and targets at --at (reader); "
@@ -631,8 +636,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "SCHEMA_MISMATCH, MARKET_UNREACHABLE (a service undistinguished_runs' comparisons read is unreachable, "
         "refuses the account or holds another schema: the read refuses rather than list runs it never compared)"),
     ("research", "history"): (
-        "the line's research and history trials, their runs, captures and stored facts, and its targets at --at "
-        "(reader); no market",
+        "the line's research and history trials, their runs, captures and stored facts, the source reviews and its "
+        "targets at --at (reader); no market",
         "nothing",
         "ledger_commit, short_days, lines [{line, closed, dev_start, dev_end, targets, participants, research_trials, "
         "rows [{source_sha256, candidate (ID@N), run, development (the research run's cell), cells [{trial_id, kind (veto, control, "
@@ -645,7 +650,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "their per-day holdout Sharpe ratios)}, holdout_prior_trials {trials, instruments, by_line [{line, purpose, "
         "trials}]} (the earlier searches of the holdout: counted trials of any purpose and line on the line's "
         "instruments whose trading window overlaps it, the line's own history trials left out; searches outside this "
-        "ledger do not show; null before the line's first research trial)}]. Rows by development-period Sharpe. "
+        "ledger do not show; null before the line's first research trial), without_economic_evidence "
+        "[{source_sha256, candidate, run, reasons}]}]. Rows by development-period Sharpe. A row is a candidate: a "
+        "source with a passed research run on the line whose latest such run carries economic evidence now, as "
+        "`research status` judges it; `participants` counts them. A source whose run does not (a failed source "
+        "review, no real activity) is named in without_economic_evidence with the reasons and no reading, also "
+        "when it lost the evidence after its history runs. "
         "deflated_sharpe is the holdout's "
         "deflated Sharpe at the participant count (the `research status` formula), null when it cannot be computed. The veto passes when every whole veto year's drawdown is "
         "at most the target and their median annual return at least the target; the holdout when its drawdown is at "
@@ -834,11 +844,13 @@ def register(verbs, verb, runner) -> None:
     scope.add_argument("--default", action="store_true", help="the ledger default for lines without their own")
     _targets_options(command, None)
     command = verb(line, "history", "run the line's closing history test")
-    command.epilog = ("Every candidate with a passed research run on the line replays its latest such run over each "
+    command.epilog = ("Every candidate, a source with a passed research run on the line whose latest such run carries "
+                      "economic evidence (the judgment `research status` reads), replays that run over each "
                       "calendar year before the development period (veto), the period again (a control that must "
                       "reproduce the run), the two-year holdout after it in one run and the forward segment after "
-                      "the holdout: same source, image and configuration, another window. The candidates are fixed "
-                      "by the line's first history trial. Rerun to resume; "
+                      "the holdout: same source, image and configuration, another window. The sources that can "
+                      "take part are fixed by the line's first history trial; one without economic evidence is left "
+                      "out and named. Rerun to resume; "
                       "`line close` needs every segment to have a run.")
     _ledger_option(command)
     _market_option(command)
