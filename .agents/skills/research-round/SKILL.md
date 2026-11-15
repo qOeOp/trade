@@ -55,7 +55,7 @@ del(.native_economics)), orders: [.reports.orders[] | del(.commissions)], order_
 the names of the api/causal/activity/readiness items, whose meaning it reads in research-round: the
 brief explains no item and carries no earlier verdict or the author's view. Its brief says it reads
 no host or session memory, which carries earlier sessions' conclusions. It keeps the review
-bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
+bound to the precheck trial, checks only those four and records `source review`, never with status `no_opportunity` (code counts it as passed); use a new reviewer
 after a repair (Codex: `fork_turns: "none"`). Api, causal and readiness are source properties,
 activity this precheck's; each guards one risk. The api item covers every native call in the source
 against the pinned image, whether or not the precheck ran it. Nautilus is compiled: `__doc__` and
