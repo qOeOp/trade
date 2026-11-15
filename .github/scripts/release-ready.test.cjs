@@ -5,6 +5,7 @@ const { createHash } = require('node:crypto');
 const { test } = require('node:test');
 const publish = require('./release-ready.cjs');
 const A = 'a'.repeat(40), B = 'b'.repeat(40), C = 'c'.repeat(40);
+const BUILT = '2026-09-01T00:00:00Z';
 const digest = `ghcr.io/qoeop/trade-ide@sha256:${'d'.repeat(64)}`;
 const service = `ghcr.io/qoeop/trade-service@sha256:${'e'.repeat(64)}`;
 const runtime = `ghcr.io/qoeop/trade-runtime@sha256:${'f'.repeat(64)}`;
@@ -19,12 +20,12 @@ function fixture() {
   // previous/records are main-ready; production/deployed are deploy-ready, which only version tags move.
   const f = { records: [], previous: { revision: A, image: digest, service, runtime },
     production: { revision: A, image: digest, service, runtime }, deployed: [], tags: [], deployments: [], parents: {},
-    runs: [run('quality', 1), run('ide-image', 2)],
+    runs: [run('quality', 1), run('ide-image', 2, { created_at: BUILT })], staged: [],
     checks: [{ name: 'quality', app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success' }],
     artifact: { id: 7, name: 'web-image-amd64-2', expired: false, workflow_run: { head_sha: B } },
-    history: { [A]: [run('quality', 11, { head_sha: A })], [C]: [run('quality', 21, { head_sha: C }), run('ide-image', 22, { head_sha: C })] },
+    history: { [A]: [run('quality', 11, { head_sha: A })], [C]: [run('quality', 21, { head_sha: C }), run('ide-image', 22, { head_sha: C, created_at: BUILT })] },
     historyChecks: {}, artifacts: {}, downloads: {}, runtimeHistory: [], trees: {}, blobs: {}, truncated: new Set(),
-    calls: { pushes: [], checks: [], trees: [], blobs: [], runtimePages: 0 }, conflict: null };
+    calls: { pushes: [], checks: [], trees: [], blobs: [], runtimePages: 0, staged: 0 }, conflict: null };
   const base = [
     ['engine/runtime/Dockerfile', dockerfile], ['engine/run.py', '# native engine\n'],
     ['pyproject.toml', '[project]\nname = "fixture"\n'], ['uv.lock', 'version = 1\n'],
@@ -112,10 +113,12 @@ function fixture() {
       return { data: { status: before === after ? 'identical' : before < after ? 'ahead' : 'behind' } };
     },
     async getContent({ ref }) {
-      const record = { 'main-ready-tip': f.previous, 'deploy-ready-tip': f.production }[ref];
+      if (ref.startsWith('staged-')) f.calls.staged++;
+      const record = ref.startsWith('staged-') ? f.staged[Number(ref.slice('staged-'.length))]
+        : { 'main-ready-tip': f.previous, 'deploy-ready-tip': f.production }[ref];
       return { data: { content: Buffer.from(JSON.stringify(record)).toString('base64') } };
     },
-    listTags() {},
+    listTags() {}, listCommits() {},
     async createDeployment(args) { f.deployments.push({ ...args, statuses: [] }); return { data: { id: f.deployments.length } }; },
     async createDeploymentStatus({ owner: _owner, repo: _repo, deployment_id, ...status }) { f.deployments[deployment_id - 1].statuses.push(status); },
   };
@@ -124,6 +127,11 @@ function fixture() {
       f.calls.pushes.push(args.head_sha); return args.head_sha === B ? f.runs : f.history[args.head_sha];
     }
     if (method === repos.listTags) return f.tags;
+    if (method === repos.listCommits) {
+      // main-ready's records since the version commit's build, newest first as the API lists them.
+      assert.equal(args.sha, 'main-ready'); assert.equal(args.since, BUILT);
+      return f.staged.map((_, i) => ({ sha: `staged-${i}` })).reverse();
+    }
     if (method === checks.listForRef) { f.calls.checks.push(args.ref); return args.ref === B ? f.checks : f.historyChecks[args.ref]; }
     if (method === actions.listWorkflowRunArtifacts) return args.run_id === 2 ? [f.artifact] : f.artifacts[args.run_id] ?? [];
     if (method === actions.listWorkflowRuns) {
@@ -391,6 +399,32 @@ test('an admitted revision keeps its recorded digests after its artifacts expire
   await f.go(); assert.deepEqual(f.records, []); assert.deepEqual(f.deployed, []); assert.deepEqual(f.deployments, []);
   const g = fixture(); g.tags = [tag('v0.2.0', B)]; g.production = withheld; g.context.payload = {}; g.artifact.expired = true;
   await assert.rejects(g.go(), /no matching attempt artifact/); assert.deepEqual(g.deployed, []);
+});
+
+test('a first version on a commit built before its artifacts expired takes the digests main-ready admitted', async () => {
+  // main-ready admitted B long ago and has since moved on to C; every artifact of B and of its runtime source is gone.
+  const old = () => {
+    const f = fixture(); f.tags = [tag('v0.2.0', B)]; f.context.payload = {};
+    f.previous = { ...admitted, revision: C };
+    f.staged = [{ ...admitted, revision: A }, withheld, admitted, { ...withheld, revision: C }, { ...admitted, revision: C }];
+    f.artifact.expired = true; f.artifacts[12][0].expired = true;
+    return f;
+  };
+  const f = old(); await f.go();
+  assert.deepEqual(f.deployed, [admitted]); assert.equal(f.deployments.length, 1);
+  assert.equal(f.calls.staged, 4, 'the scan stops at the first record past the version');
+  // Its own web artifact still retained, only the runtime source's gone: the same recorded decision.
+  const runtimeOnly = old(); runtimeOnly.artifact.expired = false; await runtimeOnly.go();
+  assert.deepEqual(runtimeOnly.deployed, [admitted]);
+  // Only the last decision main-ready made about the commit counts, and only an admitted one.
+  for (const [change, expected] of [[(g) => { g.staged.splice(3, 0, withheld); }, /no matching attempt artifact/],
+    [(g) => { g.staged = [{ ...admitted, revision: C }]; }, /no matching attempt artifact/],
+    [(g) => { g.staged[2] = { ...admitted, runtime: 'ghcr.io/qoeop/trade-runtime:latest' }; }, /main-ready.*invalid/]]) {
+    const g = old(); change(g); await assert.rejects(g.go(), expected); assert.deepEqual(g.deployed, []);
+  }
+  // The commit's checks are read again: a red check withholds it whatever main-ready recorded.
+  const red = old(); red.checks.push({ name: 'scanner', app: { slug: 'scanner' }, status: 'completed', conclusion: 'failure' });
+  await red.go(); assert.deepEqual(red.deployed, [withheld]); assert.deepEqual(red.deployments, []);
 });
 
 test('a rerun of the version commit withholds it on both channels and records no deployment', async () => {
