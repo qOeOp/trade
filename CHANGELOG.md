@@ -22,6 +22,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper (fix): a metrics row the Feed hands a source no longer runs the data callbacks Paper holds for their fills.
+  The Feed hands a row over from its timer, which rc7's live runner takes before execution events, so a held
+  `on_bar` could run before its own bar's fills reached the cache (a 2026-11-15 trial: an entry seen `ACCEPTED` with
+  0 filled, then `release_late`). The row now only joins the held callbacks and runs with them, in the order they
+  came, at the next data dispatch. Live holds no data callback and is unchanged; the replay is unchanged. The change
+  gives a new runtime image.
 - Paper seal (finding 20261114-38): `seal.json` no longer carries `positions_open_at_stop` (readings version
   `paper-readings@2026-11-15`). It counted the summary's open positions, so a run killed before it wrote a summary
   always read 0 whatever it held, while the final equity came from the journal's last snapshot. Nothing in the product

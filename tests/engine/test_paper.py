@@ -153,6 +153,41 @@ class MetricsJournalTests(unittest.TestCase):
         self.assertEqual(journal.call_args_list, [mock.call("metrics", instrument_id=str(IID), ts_event=DAY,
                                                             **{name: "1.5000000000000000" for name in metrics.ENDPOINTS})])
 
+    def test_the_feeds_hand_over_releases_no_held_callback_before_its_fills(self):
+        """The Feed hands a row over from its timer, which rc7's live runner takes before the execution events queued
+        with it: a bar's held on_bar still waits for its fills, and both run at the next data dispatch in the order
+        they came (2026-11-15 Paper trial: a BNB on_bar saw its entry ACCEPTED with 0 filled, then release_late)."""
+        from engine import metrics
+        seen: list = []
+
+        class Source:
+            def on_bar(self, bar):
+                seen.append(("bar", bar.ts_init))
+
+            def on_data(self, data):
+                seen.append(("metrics", data.data.ts_event))
+        cls = type("PaperHeld", (paper._PaperConfigured, Source), {**paper.paper_callbacks(Source), "clock": None})
+        source = object.__new__(cls)
+        source._paper_held, source._paper_released_ns = [], 0
+        source._paper_cadence = mock.Mock(**{"mark.return_value": False})
+        source._metrics_setup(None)
+        paper.strategy_runtime.STRATEGIES["BTC"] = source
+        due = DAY + metrics.VISIBLE_NS
+        self.now[0] = due
+        source.on_bar(HoldTests.bar(due))  # held for the fills the Sandbox matched on it
+        found = {name: Decimal("1.5").quantize(metrics.EXACT) for name in metrics.ENDPOINTS}
+        state = {"instrument_id": str(IID), "ts_event": DAY, "found": found, "thread": None, "retry_ns": 0}
+        filled = type("OrderFilled", (), {"strategy_id": "R1-BTCUSDT", "client_order_id": "O-1", "ts_event": due})()
+        with mock.patch.object(paper, "journal") as journal, mock.patch.object(paper, "_event_fields", return_value={}):
+            self.assertTrue(source._metrics_step(state, due))  # the Feed's tick
+            self.assertEqual(seen, [], "the bar's on_bar waits for its fills, the row with it")
+            source.on_order_event(filled)  # the execution channel, after the timer
+            source.on_mark_price(mark(due + 1))  # the next data dispatch
+        self.assertEqual(seen, [("bar", due), ("metrics", DAY)])
+        self.assertEqual([call.args[0] for call in journal.call_args_list], ["metrics", "order"],
+                         "no release_late: the fill reached the cache before the on_bar of its bar ran")
+        self.assertEqual(source._paper_held, [])
+
     def test_an_unsubscribe_of_metrics_the_source_followed_is_journalled(self):
         source = object.__new__(paper._PaperConfigured)
         source._metrics_followed = {str(IID): {}}
