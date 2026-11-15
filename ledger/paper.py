@@ -41,6 +41,9 @@ CLEAN_STOPS = frozenset({"STOP_FILE", "SIGTERM", "SIGINT", "DURATION"})
 # The stop reason of a runner killed from outside (a Docker or host restart that did not wait for its stop).
 KILLED = "KILLED"
 KILLED_EXIT = 137  # 128 + SIGKILL
+# The exit status of a runner whose journal could not be written (engine.paper.JOURNAL_FAILED_EXIT; a test keeps them
+# equal): with a full disk the summary is as likely missing as the journal's last lines, and this is what the seal has.
+JOURNAL_FAILED_EXIT = 3
 
 
 # The reasons that leave a run's evidence untrusted (user 2026-11-01): it ran other code than declared, or
@@ -454,6 +457,8 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         reasons.append("SUMMARY_MISSING")
     if not ended_by_kill and (exit_code not in (0, None) or (exit_code is None and summary is None)):
         reasons.append("RUNNER_EXIT_NONZERO" if exit_code is not None else "RUNNER_EXIT_UNKNOWN")
+    if exit_code == JOURNAL_FAILED_EXIT:
+        reasons.append("PAPER_JOURNAL_WRITE_FAILED")
     if oom_killed:
         reasons.append("OUT_OF_MEMORY")
     if ended_by_kill and not any(line["kind"] == "bar" for line in lines):

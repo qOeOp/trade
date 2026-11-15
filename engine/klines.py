@@ -1,11 +1,11 @@
 """Binance's public USD-M klines as native bars, and its funding-rate history as native settlements: the history Paper
 and Live read at their start (engine.history).
 
-No credential: ``fapi/v1/klines`` and ``fapi/v1/fundingRate`` are public, as the market's archives are. A kline
-becomes a ``{id}-{period}-LAST-EXTERNAL`` bar stamped at its close time (its open plus the period, less 1 ms), as the
-market export and a replay's history are (engine.warmup). A settlement becomes the update a replay streams for it
-(engine.warmup.funding_update): the endpoint answers the monthly archives' times, jitter included, and rates (probed
-on BTCUSDT 2025-10: all 93 equal), which the market stores.
+No credential: ``fapi/v1/klines``, ``fapi/v1/fundingRate`` and ``fapi/v1/fundingInfo`` are public, as the market's
+archives are. A kline becomes a ``{id}-{period}-LAST-EXTERNAL`` bar stamped at its close time (its open plus the
+period, less 1 ms), as the market export and a replay's history are (engine.warmup). A settlement becomes the update a
+replay streams for it (engine.warmup.funding_update): the endpoint answers the monthly archives' times, jitter
+included, and rates (probed on BTCUSDT 2025-10: all 93 equal), which the market stores.
 """
 from __future__ import annotations
 
@@ -76,3 +76,14 @@ def settlements(instrument_id, at_ns: int, count: int, proxy_url: str | None, ge
             break
         end_ms = page[0][0] - 1
     return found
+
+
+def funding_interval(instrument_id, proxy_url: str | None, get=get_json) -> int:
+    """The funding interval of `instrument_id` now, in nanoseconds (``fapi/v1/fundingInfo``). Binance changes it between
+    1, 4 and 8 hours and settles at its multiples from the epoch (2026-11-15 probe: every trading perpetual's next
+    funding time, and every settlement in the last 500 of ten contracts, changes included). The endpoint listed every
+    trading perpetual in that probe; one it leaves out has Binance's default, 8 hours."""
+    symbol = str(instrument_id).split("-PERP.")[0]
+    rows = get(f"{REST_BASE}/fapi/v1/fundingInfo", proxy_url)
+    hours = next((int(row["fundingIntervalHours"]) for row in rows if row["symbol"] == symbol), 8)
+    return hours * 3600 * 1_000_000_000

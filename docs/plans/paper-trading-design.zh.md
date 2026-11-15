@@ -299,6 +299,14 @@ Invalid。runner 每秒把运行时异常写进 `runtime_failures.jsonl`，被�
 证据不受影响。此前这样的运行要么悄悄停止处理数据（声明了恢复协议的源码），要么带着死缓存照常交易、`paper stop`
 等 92 秒后被强杀；细节见[原生恢复](paper-native-recovery.zh.md)“缓存进程中途死掉”一节。
 
+**日志写失败的运行按失败停止（用户 2026-11-15 授权，发现 20261114-43）**。磁盘写满时，日志、`state.json`、恢复标记或
+失败回执的第一次写失败被锁存，运行随即停止（`PAPER_JOURNAL_WRITE_FAILED`），不再往日志里写任何东西，日志停在缺口
+之前；写失败也不再抛进回调，源码照常收到那次订单或仓位事件（此前写日志抛 `OSError`，后面的步骤被跳过，源码的通用
+`on_order_event`、`on_position_event` 收不到事件，运行还继续交易，封存仍是 `complete`、`reasons []`；2026-11-15
+实跑：写满期间 26 条订单事件里源码只收到 13 条）。写满也可能让概要写不出，所以 runner 以退出码 3 结束，封存读它：
+`reasons` 有 `PAPER_JOURNAL_WRITE_FAILED`、`RUNNER_EXIT_NONZERO`，概要写得出时还有 `STOPPED:PAPER_JOURNAL_WRITE_FAILED`，
+状态仍是 Complete。没有概要的运行守护进程会尝试 `resume`，检查点是脏的，被拒，运行停在 `ended`，等 `paper seal`。
+
 **Invalid 只留给证据不可信（用户 2026-11-01 定）**。一条运行要么在跑，要么已停；停了怎么结束的（用户停、到时长、
 重启、崩溃、没起来、内存超限、策略被拒、策略抛异常）只是原因，日志记下的照样算数，封存为 Complete，原因照记。
 只有证据本身不可信才封 Invalid：跑的代码和声明的不一致（`SOURCE_MISMATCH`）、跑的杠杆和声明的不一致

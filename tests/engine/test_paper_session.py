@@ -67,6 +67,16 @@ class SessionTests(unittest.TestCase):
         session.try_cut(None)
         self.assertIsNone(session.error, "a cut that succeeds again clears the deferral")
 
+    def test_a_marker_the_disk_refuses_is_the_journals_failure_and_the_callback_still_runs(self):
+        session = self.session()
+        ran = []
+        with mock.patch.object(checkpoint, "dirty", side_effect=OSError(28, "No space left on device")):
+            with session.callback():
+                ran.append(session.depth)
+        self.assertEqual(ran, [1])
+        session.journal.fail.assert_called_once()
+        self.assertEqual(session.depth, 0)
+
     def test_a_callback_or_runtime_failure_refuses_without_publishing(self):
         session = self.session()
         with session.callback():
