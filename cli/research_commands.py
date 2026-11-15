@@ -640,8 +640,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "mark_max_drawdown, sharpe_365, cycles, plan_win_rate} (passed runs only)}], control_reproduces, summary "
         "{veto {whole_years, profitable_years, median_annual_return, worst_annual_return, worst_mark_max_drawdown, "
         "years_meeting_targets, meets_targets}, holdout {annual_return, mark_max_drawdown, meets_targets, "
-        "deflated_sharpe}, meets_targets, judged_on (veto and holdout, holdout, or null)} or null when the control "
-        "does not reproduce}], discount {trials (the participants), holdouts_with_returns, daily_sharpe_variance (of "
+        "deflated_sharpe}, meets_targets, judged_on (veto and holdout, holdout, or null), missing [veto YEAR, "
+        "control, holdout or targets]} or null when the control does not reproduce}], discount {trials (the participants), holdouts_with_returns, daily_sharpe_variance (of "
         "their per-day holdout Sharpe ratios)}, holdout_prior_trials {trials, instruments, by_line [{line, purpose, "
         "trials}]} (the earlier searches of the holdout: counted trials of any purpose and line on the line's "
         "instruments whose trading window overlaps it, the line's own history trials left out; searches outside this "
@@ -650,7 +650,11 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "deflated Sharpe at the participant count (the `research status` formula), null when it cannot be computed. The veto passes when every whole veto year's drawdown is "
         "at most the target and their median annual return at least the target; the holdout when its drawdown is at "
         "most the target and its annual return at least the target; meets_targets when both pass, or the holdout "
-        "alone when no veto year counts. A falsification test, not "
+        "alone when the test has no whole veto year. whole_years counts every whole veto year replayed. The verdict "
+        "needs every reading it is defined on: a whole veto year whose run is invalid or missing or lacks a reading, "
+        "a control without a run, a holdout without a countable reading and a line without targets are named in "
+        "missing, and with anything missing meets_targets and judged_on are null, whatever the holdout's own verdict. "
+        "A falsification test, not "
         "out-of-sample validation; picking by it is a choice among `participants` candidates",
         "LINE_UNKNOWN"),
     ("research", "runs"): (

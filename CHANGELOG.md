@@ -22,6 +22,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (`research history`): a closing history test's combined verdict needs every reading it is defined on.
+  A whole veto year whose run is invalid or missing, or lacks a reading, used to drop out of the veto's count, so
+  the other years, or the holdout alone when every year was invalid, could read `meets_targets` true; a row without
+  a control run was judged too. Now `meets_targets` and `judged_on` are null in those cases and the summary's new
+  `missing` names what is lacking (`veto YEAR`, `control`, `holdout`, `targets`). `whole_years` counts every whole
+  veto year replayed, invalid ones included. Nothing is stored and no history run changes; the History page shows
+  such a row's verdict as a dash (doctor 20261114-12).
 - Live (finding 20261114-29, the part about answers of the wrong shape): an answer from Binance with HTTP 200 that
   lacks what Live's own read-only client reads from it (the server time, the instrument list) is now the refusal
   `LIVE_ACCOUNT_RESPONSE`, where the client raised `KeyError` or `TypeError`. A periodic comparison or a held start's
