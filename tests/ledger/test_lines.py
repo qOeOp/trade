@@ -181,7 +181,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.code(start="start@9"), "START_NOT_FOUND")
 
         def unresolved(at):
-            raise refuse("MARKET_DAY_UNKNOWN", "no such market day")
+            raise refuse("MARKET_DAY_UNRESOLVED", "no such market day")
 
         self.assertEqual(self.code(market=unresolved), "MARKET_DAY_UNRESOLVED")
         self.assertEqual(self.code(market=market(universe_rule=None)), "MARKET_DAY_UNRESOLVED")

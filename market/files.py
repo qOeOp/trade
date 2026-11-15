@@ -284,7 +284,7 @@ def parse_day(market_day: str) -> date | None:
 
 def check_day(market_day) -> str:
     if parse_day(market_day) is None:
-        raise _refuse(f"{market_day!r} is not a resolved market day", "MARKET_DAY_UNKNOWN",
+        raise _refuse(f"{market_day!r} is not a resolved market day", "MARKET_DAY_UNRESOLVED",
                       missing=(str(market_day),))
     return market_day
 
@@ -367,10 +367,10 @@ def resolve_day(market: Market, ref: str | None) -> str:
         return market_day
     day = parse_day(ref)
     if day is None:
-        raise _refuse(f"{ref!r} is not head or a market day (YYYY-MM-DD)", "MARKET_DAY_UNKNOWN", missing=(ref,))
+        raise _refuse(f"{ref!r} is not head or a market day (YYYY-MM-DD)", "MARKET_DAY_UNRESOLVED", missing=(ref,))
     latest = latest_day(market)
     if latest is None or day > latest:
-        raise _refuse(f"{ref!r} is after the newest day this market holds, {latest}", "MARKET_DAY_UNKNOWN",
+        raise _refuse(f"{ref!r} is after the newest day this market holds, {latest}", "MARKET_DAY_UNRESOLVED",
                       missing=(ref,))
     return ref
 
@@ -390,7 +390,7 @@ def day_end(table: str, market_day: str) -> int:
     then)."""
     day = parse_day(market_day)
     if day is None:
-        raise _refuse(f"{market_day!r} is not a market day", "MARKET_DAY_UNKNOWN", missing=(str(market_day),))
+        raise _refuse(f"{market_day!r} is not a market day", "MARKET_DAY_UNRESOLVED", missing=(str(market_day),))
     if table == "universe_month":
         return series._day_ms(universe.next_month((day + timedelta(days=1)).replace(day=1)))
     return series._day_ms(day) + (2 if table == "instrument" else 1) * DAY

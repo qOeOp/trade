@@ -22,6 +22,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Refusals (breaking): a market day that does not resolve is `MARKET_DAY_UNRESOLVED` wherever it is read (doctor
+  20261113-126). `MARKET_DAY_UNKNOWN` is gone: the market directory's reads (`market coverage`, `market bars`,
+  exports) and the market measures of reports now name the same code `line select`, registration and `research
+  state` already used.
 - Paper and Live (fix): the metrics Feed reads each row from 60 s before it is due and hands it over on its first
   one-second tick at or after the due time, never before. It used to start the REST reads only at the due time and
   hand the row over a tick later, 1.0 to 2.0 s late (a 2026-11-15 Paper trial), so any stall of the node pushed rows

@@ -92,12 +92,6 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "START_REVIEW_REQUIRED": ("Run `replay precheck` on the start revision and record its `source review`, then "
                               "select the line again; after a failed review, fix the source, publish it and start "
                               "from the new revision.",),
-    "MARKET_DAY_UNRESOLVED": ("Pass a market day of the active market; `market coverage` without --market-day prints "
-                              "its latest as market_day.",
-                              "A market that is still empty (MARKET_EMPTY in the message) has no market day: import "
-                              "two months with `market import` first (the first has no members).",
-                              "A day later than this market holds does not resolve: nothing pinned to it registers "
-                              "or replays against this market."),
     "WINDOW_INVALID": ("Pass a window whose start precedes its end (and, for a replay, a whole-minute warm-up "
                        "start no later than the trading start).",),
     "WINDOW_OUTSIDE_DEVELOPMENT": ("Trade inside that period; the holdout, the history before the period and the "
@@ -288,7 +282,7 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                        "(`docker compose restart ledger` under compose; otherwise `ledger service stop`, then "
                        "`ledger service start`) first."),
     # Reports (report/)
-    "MARKET_RETURNS_UNAVAILABLE": ("When the message names MARKET_DAY_UNKNOWN, the run's market day is not in the active "
+    "MARKET_RETURNS_UNAVAILABLE": ("When the message names MARKET_DAY_UNRESOLVED, the run's market day is not in the active "
                                    "market: its market measures cannot be read here and stay "
                                    "empty.",
                                    "Otherwise make the market profile available (read only), then read the "
@@ -347,9 +341,12 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "JUDGMENT_BODY_UNREADABLE": ("Write the judgment text to a UTF-8 file and pass it with --body.",),
     # The market directory (market/)
     "MARKET_UNREACHABLE": ("Pass the market profile with --market; create a market directory with `market init`.",),
-    "MARKET_DAY_UNKNOWN": ("Pass head or a market day (YYYY-MM-DD) of the market; `market coverage` without "
-                           "--market-day prints the newest as market_day.",
-                           "A line pinned to a later day cannot be read here until the market reaches it."),
+    "MARKET_DAY_UNRESOLVED": ("Pass head or a market day (YYYY-MM-DD) of the market; `market coverage` without "
+                              "--market-day prints the newest as market_day.",
+                              "A market that is still empty (MARKET_EMPTY in the message) has no market day: import "
+                              "two months with `market import` first (the first has no members).",
+                              "A day later than this market holds does not resolve: nothing pinned to it registers, "
+                              "replays or is read against this market until the market reaches it."),
     "MONTH_INVALID": ("Import the month after the latest or the month before the earliest, one `market import "
                       "--month YYYY-MM` each.",),
     "MONTH_EXISTS": ("Import the next month or the month before the earliest; a stored month is never rewritten.",),
