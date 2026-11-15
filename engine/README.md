@@ -653,7 +653,8 @@ Redis list it never trims and reads whole at each start: about 0.45 GB a year, a
 seconds. In memory, Nautilus purges account states older than a day each hour, starting an hour after the start, so a
 start still loads the whole list first.
 
-An Observer failure sends the same one cancel per working entry and ends the run unresolved. A source that leaves
+Any other failure of the Observer sends the same one cancel per working entry and ends the run unresolved, closing
+nothing. A source that leaves
 the running state by itself (`stop`, `fault`, `degrade`) enters the normal STOP path, marked failed.
 
 Orders follow the shared order rules above; Binance Futures in the pinned release refuses linked OCO/OTO order
@@ -669,8 +670,10 @@ The Observer temporarily holds only that unsubmitted native order, then checks i
 cache, connection, STOP, persistence, native source Running state and cash budget before calling native submit.
 The order's strategy/trader identity must match the registered native source, so a foreign OrderFactory
 cannot bypass the source's history or recovery identity. It never retries,
-fabricates an order event or persists a dispatch queue. An entry rejected before native submission ends
-the run. A run may enter any number of times; each entry passes its own admission.
+fabricates an order event or persists a dispatch queue. An entry refused at any of these steps (a failed or late
+account read included) ends the run one way: each entry not yet sent is journaled (`entry_refused`), the run is
+marked failed and takes the STOP path with `stop_reason` `entry_admission_failed`, which withdraws working entries
+and closes the run's positions. A run may enter any number of times; each entry passes its own admission.
 Besides the native portfolio equity of the order rules, Live also measures the 3-times limit
 (`engine.order_rules.ENTRY_EQUITY_MULTIPLE`, user 2026-11-09 and 2026-11-10) against the lower of USDT wallet and
 available balance in the account observation the entry's own admission read, which may hold the run's own positions

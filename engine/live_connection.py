@@ -208,9 +208,7 @@ def deny_staged(session, reason: str, symbol: str | None = None) -> None:
             # Not denied: this one and the rest are refused like any entry, and the run ends.
             refused(session, pending, getattr(exc, "code", type(exc).__name__), str(exc)[:1000])
             from engine import live_commands as commands  # engine.live_commands imports this module
-            commands.discard_observation(session, "LIVE_CONNECTION_UNVERIFIED", reason)
-            session.failed = True
-            session.begin_stop("entry_admission_failed")
+            commands.refuse_entries(session, "LIVE_CONNECTION_UNVERIFIED", reason)
             return
     if session.pending_entries and session.account_observation is None and entries_open(session):
         from engine import live_commands as commands  # engine.live_commands imports this module
@@ -272,9 +270,7 @@ def deny_queued(session, reason: str, detail: str | None = None) -> None:
     """Entries still waiting to be sent are refused like a new one, so the run ends."""
     if session.pending_entries:
         from engine import live_commands as commands  # engine.live_commands imports this module
-        commands.discard_observation(session, "LIVE_CONNECTION_UNVERIFIED", detail or reason)
-        session.failed = True
-        session.begin_stop("entry_admission_failed")
+        commands.refuse_entries(session, "LIVE_CONNECTION_UNVERIFIED", detail or reason)
 
 
 def held_bar(session, bar) -> bool:

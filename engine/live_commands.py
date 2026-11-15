@@ -103,6 +103,15 @@ def discard_observation(session: Session, code: str = "LIVE_ENTRY_STOPPED", deta
         observation.result.cancel()  # Does not cancel an already running HTTP request.
 
 
+def refuse_entries(session: Session, code: str, detail: str | None = None) -> None:
+    """An entry refused before it is sent ends the run, the same way wherever it is refused (decision
+    docs/plans/live-entry-hold-20261113.zh.md, rule 5): every entry still waiting is journaled as refused, the run is
+    marked failed and takes the STOP path, where the Observer withdraws working entries and closes the run's positions."""
+    discard_observation(session, code, detail)
+    session.failed = True
+    session.begin_stop("entry_admission_failed")
+
+
 def observed_account(session: Session, purpose: str, observation: AccountObservation | None = None) -> dict | None:
     observation = session.account_observation if observation is None else observation
     if observation is None or observation.purpose != purpose:
@@ -210,11 +219,7 @@ def dispatch_entry(session: Session) -> None:
             # user, 2026-11-13). Removed first, as before a submit: its callbacks run at once.
             session.pending_entries.pop(0)
             session.account_observation = None
-            try:
-                live_connection.deny(session, pending.order, "entry_clock_skew", pending.held_ns(), reason="clock")
-            except Exception as failed:
-                live_connection.refused(session, pending, getattr(failed, "code", type(failed).__name__), str(failed)[:1000])
-                raise
+            live_connection.deny(session, pending.order, "entry_clock_skew", pending.held_ns(), reason="clock")
             if session.pending_entries and session.account_observation is None:
                 start_observation(session, "entry")
             return
@@ -230,7 +235,9 @@ def dispatch_entry(session: Session) -> None:
         if session.pending_entries and session.account_observation is None:
             start_observation(session, "entry")
     except Exception as exc:
-        discard_observation(session, getattr(exc, "code", type(exc).__name__), str(exc))
-        session.failed = True
-        session.begin_stop("entry_admission_failed")
-        raise
+        # Not raised: the Observer's own failure path stops the node without closing anything, and the run may hold
+        # positions (entries join them). The Observer goes on to the STOP path in this same tick.
+        code = getattr(exc, "code", type(exc).__name__)
+        if pending not in session.pending_entries:  # taken out to be denied or sent
+            live_connection.refused(session, pending, code, str(exc)[:1000])
+        refuse_entries(session, code, str(exc))

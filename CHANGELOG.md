@@ -34,6 +34,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   replay, from Binance's public funding-rate history in Paper and Live. A source that reads funding no longer waits
   for n settlements (72 hours for nine) at every replay, Paper or Live start. Paper and Live comparisons check the
   received settlements against the market's.
+- Live: an entry refused when the Observer dispatches it (a failed or late account read, changed contract terms, the
+  cash floor, the 3-times limit) ends the run on the STOP path, which closes the run's positions, as every other
+  refused entry does (`stop_reason` `entry_admission_failed`, a failed run). It used to stop the node at once and
+  leave the positions at Binance with their stops (`unresolved`, `observer_failure`).
 
 ## 0.4.0 (2026-11-14)
 

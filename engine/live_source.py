@@ -110,9 +110,7 @@ class _LiveConfigured(history.Warming, metrics.Feed):
         except Exception as exc:
             if pending not in self._live.pending_entries:
                 live_connection.refused(self._live, pending, getattr(exc, "code", type(exc).__name__), str(exc))
-            commands.discard_observation(self._live, getattr(exc, "code", type(exc).__name__), str(exc))
-            self._live.failed = True
-            self._live.begin_stop("entry_admission_failed")
+            commands.refuse_entries(self._live, getattr(exc, "code", type(exc).__name__), str(exc))
             raise
 
     def owned_position(self, position_id):
