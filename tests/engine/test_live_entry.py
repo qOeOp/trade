@@ -39,7 +39,7 @@ from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 from engine.membership import month_end_ns
 from tests.engine.test_live import SOURCE
-from tests.engine.test_live_venue import fixture, venue_clock
+from tests.engine.test_live_venue import ERROR_ANSWER, answering_200, fixture, venue_clock
 
 
 class DeferredAccount:
@@ -829,6 +829,13 @@ class NativeEntryTests(unittest.TestCase):
                 self.assert_dispatch_refused("LIVE_CLOCK" if gate is None else "LIVE_ACCOUNT_RESPONSE")
                 self.assertIsNone(self.engine.cache.order(entry.client_order_id))
         self.assertEqual(self.read_events("entry_denied"), [])
+
+    def test_an_entry_read_of_the_wrong_shape_refuses_the_entry_and_ends_the_run_on_the_stop_path(self):
+        """20261114-29: HTTP 200 without the instrument list is a refused read, as a failed read is."""
+        self.session.account_reader = answering_200(exchange_info=ERROR_ANSWER)
+        self.source.submit_order(self.limit())
+        self.session.account_observation.result.exception(timeout=2)
+        self.assert_dispatch_refused("LIVE_ACCOUNT_RESPONSE")
 
     def test_a_clock_entry_that_fails_another_entry_check_still_ends_the_run(self):
         # Negative control: only the clock is denied; an entry the other checks refuse ends the run as before.

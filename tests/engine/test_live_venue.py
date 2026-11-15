@@ -7,9 +7,11 @@ import json
 from pathlib import Path
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import urllib.error
+import urllib.parse
 
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import (
@@ -72,6 +74,32 @@ def two_contracts():
     return snapshot, manifest
 
 
+# What Binance sends for a refused request; here it arrives with HTTP 200 where the answer should be.
+ERROR_ANSWER = {"code": -1003, "msg": "Too many requests."}
+
+
+def answering_200(server_time=None, exchange_info=None) -> BinanceReadOnly:
+    """The real read-only client over a venue that answers every GET with HTTP 200 and fixture()'s account, except
+    for the answers given here: the venue's time, or its instrument list."""
+    snapshot, _ = fixture()
+    details = snapshot["symbols"]["BTCUSDT"]
+    answers = {"/fapi/v2/account": snapshot["account"], "/fapi/v1/accountConfig": snapshot["config"],
+               "/fapi/v3/positionRisk": [], "/fapi/v1/openOrders": [], "/fapi/v1/openAlgoOrders": [],
+               "/fapi/v1/exchangeInfo": exchange_info or {"symbols": [{"symbol": "BTCUSDT", **details["instrument"]}]},
+               "/fapi/v1/symbolConfig": details["config"], "/fapi/v1/premiumIndex": details["mark"],
+               "/fapi/v1/commissionRate": {}}
+
+    def respond(request, timeout):
+        path = urllib.parse.urlsplit(request.full_url).path
+        answer = (server_time or {"serverTime": time.time_ns() // 1_000_000}) if path == BinanceReadOnly.TIME \
+            else answers[path]
+        return io.BytesIO(json.dumps(answer).encode())
+
+    client = BinanceReadOnly(Credentials("test-key", "test-secret"))
+    client.opener = SimpleNamespace(open=respond)
+    return client
+
+
 class LiveClockTest(unittest.TestCase):
     def clock(self, sent, received, server_ms=1_000_000):
         ms = 1_000_000
@@ -112,6 +140,19 @@ class LiveClockTest(unittest.TestCase):
             samples = client.clock()
         self.assertEqual(len(samples), 3)
         self.assertEqual(samples[0], {"sent_ns": 1_000_000_000, "server_ms": 1100, "received_ns": 1_150_000_000})
+
+    def test_an_answer_with_http_200_that_lacks_its_field_is_a_refusal_at_each_read(self):
+        """20261114-29: these three reads raised KeyError or TypeError, which is no Live refusal."""
+        self.assertEqual(answering_200().snapshot(["BTCUSDT"])["symbols"]["BTCUSDT"]["instrument"]["status"], "TRADING")
+        reads = {
+            "a signed request's timestamp": lambda wrong: answering_200(server_time=wrong).get("/fapi/v2/account"),
+            "the clock": lambda wrong: answering_200(server_time=wrong).clock(),
+            "the instrument list": lambda wrong: answering_200(exchange_info=wrong).snapshot(["BTCUSDT"]),
+        }
+        for name, read in reads.items():
+            for wrong in (ERROR_ANSWER, ["unexpected"], {"symbols": [{"pair": "BTCUSDT"}]}, {"symbols": [None]}):
+                with self.subTest(read=name, answer=wrong):
+                    self.assertEqual(refused(read, wrong, error=Refusal).code, "LIVE_ACCOUNT_RESPONSE")
 
     def test_the_runner_reader_stays_on_futures_and_its_declared_paths(self):
         client = BinanceReadOnly(Credentials("key", "secret"))

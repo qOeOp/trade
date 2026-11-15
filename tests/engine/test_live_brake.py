@@ -12,7 +12,7 @@ from unittest import mock
 from engine import live, live_brake, live_commands as commands
 from engine.live_errors import LiveRefusal
 from tests.engine.test_live_gate import manifest
-from tests.engine.test_live_venue import fixture
+from tests.engine.test_live_venue import ERROR_ANSWER, answering_200, fixture
 
 
 class BrakeTests(unittest.TestCase):
@@ -92,6 +92,16 @@ class BrakeTests(unittest.TestCase):
         self.assertTrue(self.session.stopping)
         self.assertTrue(self.session.failed)
         self.assertEqual([row["reason"] for row in self.events("stopping")], ["drawdown_unverified"])
+
+    def test_an_answer_of_the_wrong_shape_is_a_refused_read_and_only_that_read_is_lost(self):
+        """20261114-29: HTTP 200 without the venue's time, read here for the signed requests' timestamp."""
+        live_brake.arm(self.session, self.read("100"))
+        self.session.account_reader = answering_200(server_time=ERROR_ANSWER)
+        live_brake.tick(self.session, True, 0)
+        self.assertEqual(self.session.brake.observation.result.exception(timeout=2).code, "LIVE_ACCOUNT_RESPONSE")
+        live_brake.tick(self.session, True, 1)
+        self.assertIsNone(self.session.brake.observation)
+        self.assertFalse(self.session.stopping)
 
     def test_a_completed_read_is_judged_and_the_next_one_waits_its_turn(self):
         live_brake.arm(self.session, self.read("100"))
