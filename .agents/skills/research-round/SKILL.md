@@ -34,7 +34,7 @@ diagnosis; attribution may remain unresolved.
 For a coverage gap, zero-volume minutes, missing funding or an inferred-quote contract, period or
 liquidation use not yet validated, load `research-start` through the host's skill invocation tool
 (without one, read its entry and readiness reference) and return its readiness disposition (its
-input checks inside an existing line); this is not a new session.
+input checks inside an existing line).
 
 | Stage | Commands | Read for this stage |
 |---|---|---|
