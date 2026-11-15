@@ -22,6 +22,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper seal (finding 20261114-38): `seal.json` no longer carries `positions_open_at_stop` (readings version
+  `paper-readings@2026-11-15`). It counted the summary's open positions, so a run killed before it wrote a summary
+  always read 0 whatever it held, while the final equity came from the journal's last snapshot. Nothing in the product
+  read it; the open positions of a run that wrote a summary stay in `summary.json` (`positions_at_stop`), and a run
+  killed with a position open still ends with the journal's last equity. Seals already stored keep their readings.
 - Breaking (replay inputs): an instance's `on_start` now runs after the data that arrives at its start T in every
   replay. An instance whose T is the window's start (`--trade-start` equal to `--start`, and no declared history
   moving T later) used to start before that data and receive through its subscriptions whatever arrived exactly at

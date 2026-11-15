@@ -34,7 +34,7 @@ from ledger import db, metrics, strategies
 from shared.refusals import refuse
 
 
-READINGS = "paper-readings@2026-11-12"
+READINGS = "paper-readings@2026-11-15"
 LOG_TAIL_BYTES = 1024 * 1024
 # How a run may end without a reason recorded: the user's stop, the engineering duration.
 CLEAN_STOPS = frozenset({"STOP_FILE", "SIGTERM", "SIGINT", "DURATION"})
@@ -532,7 +532,6 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         "orders_submitted": orders.get("OrderSubmitted", 0),
         "orders_rejected_or_denied": orders.get("OrderRejected", 0) + orders.get("OrderDenied", 0),
         "positions_closed": sum(1 for line in lines if line["kind"] == "position" and line.get("type") == "PositionClosed"),
-        "positions_open_at_stop": len((summary or {}).get("positions_at_stop") or ()),
         "bars": kinds.get("bar", 0),
         "missing_bars": sum(int(line.get("missing_bars") or 0) for line in lines if line["kind"] == "data_gap"),
         "late_bars": kinds.get("late_bar", 0), "protection_gaps": kinds.get("protection_gap", 0),
