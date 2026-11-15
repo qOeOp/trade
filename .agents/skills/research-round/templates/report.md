@@ -22,5 +22,5 @@ RUN`; detail tables you compute (`nautilus-report-analysis`) go under their sect
 | Prediction check | — | Whether each registered prediction has the same sign; the interaction when one was declared |
 | Limitations | Deduplicated list of limitations | Both sides' limitations, merged and deduplicated |
 
-Write every run or comparison report with all these sections in this order. Keep an empty
-section and write why it is empty; never drop one.
+Write every run or comparison report with all the sections of its column, in this order; — marks
+a section that column does not have. Keep an empty section and write why it is empty; never drop one.
