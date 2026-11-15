@@ -132,10 +132,10 @@ flag) is `METRICS_NOT_SERVED`; report the rows received and the empty ratios rea
   their average open price) and entries (at their limit or trigger price), both sides added, stay
   within 3 times USDT equity. An exit is reduce-only and names its position (`position_id`); one
   position's working stops hold at most its quantity. Every order is on the instance's own
-  contract. Nothing is modified, listed, bracketed, emulated or given params, and a GTD expiry
-  lies at least 600 s ahead. A breach is not sent and
-  the run is refused; naming `bracket`, `submit_order_list`, `add_exec_algorithm` or
-  `close_all_positions` anywhere in the file is refused at load.
+  contract. Nothing is modified, listed, bracketed, emulated or given params. Only a LIMIT,
+  STOP_LIMIT or LIMIT_IF_TOUCHED order is GTD, expiring on a whole second at least 600 s ahead. A
+  breach is not sent and the run is refused; naming `bracket`, `submit_order_list`,
+  `add_exec_algorithm` or `close_all_positions` anywhere in the file is refused at load.
 - Keep one stop per position, submitted on the entry's first fill, and a target or partial exit as
   its own reduce-only order. Nautilus's simulated venue (replay, Paper) resizes every accepted
   reduce-only order of a position to its quantity whenever a fill changes it; Binance does not, so a
@@ -223,10 +223,10 @@ is in `engine/README.md`.
   a replay image whose `--describe` replay code matches the execution image. Live refuses without
   such a replay within 10% of the wallet (`LIVE_EVIDENCE_MISSING`, `LIVE_EVIDENCE_BALANCE`).
 
-- Binance takes a GTD expiry only as a whole second (a fraction is `OrderDenied` before it is sent
-  and fails the run; replay and Paper accept one), and Live sends an entry only with at least 605 s
-  left: round the expiry up, `(self.clock.timestamp_ns() + 661 * 10**9 - 1) // 10**9 * 10**9` for
-  660 s. It may end the order early or late and report `CANCELED`: handle the end as a cancel.
+- Round a GTD expiry up to the whole second (the clock at a bar reads 1 ms before the minute),
+  `(self.clock.timestamp_ns() + 661 * 10**9 - 1) // 10**9 * 10**9` for 660 s: Live sends an entry
+  only with at least 605 s left. Binance may end the order early or late and report `CANCELED`:
+  handle the end as a cancel.
 - Size from USDT equity, never a fixed USDT amount; each multiple (x1, x2) is its own version,
   scaling only the notional limit. Live measures the 3-times limit also against the account's USDT
   wallet and available balance, and each entry needs USDT cash of at least the run's
