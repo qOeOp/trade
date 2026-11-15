@@ -1,6 +1,6 @@
-"""Open interest and long/short ratios as a strategy receives them: the row a replay streams from its export
-(market.export, the rule binance-metrics-visible-v2) and the row Paper and Live read from Binance's public REST at the
-same stamps (docs/plans/binance-metrics-rest-parity.zh.md).
+"""Paper and Live: open interest and long/short ratios read from Binance's public REST, as the engine.strategy.Metrics
+row a replay streams from its export (market.export, the rule binance-metrics-visible-v2) at the same stamps
+(docs/plans/binance-metrics-rest-parity.zh.md). Outside the replay image: a replay never imports it.
 
 A row describes ts_event, REST's timestamp (the archive's create_time + 5 min), and reaches the strategy at ts_init,
 5 minutes later. The export gives the values REST shows, so REST's row of a timestamp is the replay's: open interest
@@ -16,16 +16,16 @@ from __future__ import annotations
 
 import threading
 import urllib.parse
-from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
-from nautilus_trader.model import CustomData, DataType, InstrumentId
+from nautilus_trader.model import CustomData, InstrumentId
 from nautilus_trader.trading import Strategy
 
 from engine import klines
 from engine.config import MINUTE_NS
+from engine.strategy import Metrics, metrics_data_type
 
 PERIOD_NS = 5 * MINUTE_NS  # one row per five minutes
 VISIBLE_NS = 5 * MINUTE_NS  # ts_init less ts_event (market.export: create_time + 10 min less create_time + 5 min)
@@ -37,28 +37,6 @@ ENDPOINTS = {"sum_open_interest": ("openInterestHist", "sumOpenInterest"),
              "count_toptrader_long_short_ratio": ("topLongShortAccountRatio", "longShortRatio"),
              "sum_toptrader_long_short_ratio": ("topLongShortPositionRatio", "longShortRatio"),
              "count_long_short_ratio": ("globalLongShortAccountRatio", "longShortRatio")}
-
-
-@dataclass(frozen=True)
-class Metrics:
-    """engine.Metrics: one five-minute row of Binance open interest and long/short ratios, the payload of
-    metrics_data_type. sum_open_interest is in the base asset; a ratio Binance left empty is None. ts_event is the
-    instant the row describes; ts_init is 5 minutes later, when the run delivers it."""
-
-    instrument_id: InstrumentId
-    sum_open_interest: Decimal
-    count_toptrader_long_short_ratio: Decimal | None
-    sum_toptrader_long_short_ratio: Decimal | None
-    count_long_short_ratio: Decimal | None
-    ts_event: int
-    ts_init: int
-
-
-def metrics_data_type(instrument_id) -> DataType:
-    """engine.metrics_data_type: the custom data type a metrics row of the contract reaches a strategy as, a Metrics in
-    CustomData.data: subscribe_data(DataType("Metrics", metadata={"instrument_id": str(instrument_id)})), then
-    on_data. A replay streams it only with --metrics; Paper and Live read it from REST."""
-    return DataType("Metrics", metadata={"instrument_id": str(instrument_id)})
 
 
 def read(instrument_id, ts_event: int, wanted, proxy_url: str | None, get=klines.get_json) -> dict:
@@ -98,8 +76,9 @@ class Feed:
             return
         clock = self._metrics_clock()
         start = max(getattr(self, "_replay_input_start_ns", 0), clock.timestamp_ns() - VISIBLE_NS + 1)
-        self._metrics_followed[instrument_id] = {"instrument_id": instrument_id, "ts_event": -(-start // PERIOD_NS) * PERIOD_NS,
-                                                 "found": {}, "thread": None, "retry_ns": 0}
+        first = -(-start // PERIOD_NS) * PERIOD_NS
+        self._metrics_followed[instrument_id] = {"instrument_id": instrument_id, "ts_event": first, "found": {},
+                                                 "thread": None, "retry_ns": 0}
         if "runner-metrics" not in clock.timer_names():
             clock.set_timer("runner-metrics", TICK, callback=self._metrics_tick)
 
@@ -125,12 +104,13 @@ class Feed:
             found = state["found"]
             if "sum_open_interest" in found:
                 row = Metrics(InstrumentId.from_str(state["instrument_id"]), found["sum_open_interest"],
-                              found.get("count_toptrader_long_short_ratio"), found.get("sum_toptrader_long_short_ratio"),
-                              found.get("count_long_short_ratio"), state["ts_event"], due)
+                              found.get("count_toptrader_long_short_ratio"),
+                              found.get("sum_toptrader_long_short_ratio"), found.get("count_long_short_ratio"),
+                              state["ts_event"], due)
                 self.on_data(CustomData(metrics_data_type(state["instrument_id"]), row))
             else:
-                self.log.warning(f"metrics of {state['instrument_id']} at {state['ts_event']} were not read by the next "
-                                 f"row's time{state.get('error', '')}; skipped")
+                self.log.warning(f"metrics of {state['instrument_id']} at {state['ts_event']} were not read by the "
+                                 f"next row's time{state.get('error', '')}; skipped")
             state.update(ts_event=state["ts_event"] + PERIOD_NS, found={}, thread=None, retry_ns=0, error="")
             return True
         if now >= state["retry_ns"]:

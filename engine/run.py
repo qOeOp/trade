@@ -87,7 +87,7 @@ from engine.load import (
     trading_end,
 )
 from engine import history, order_rules, warmup
-from engine.metrics import Metrics, metrics_data_type
+from engine.strategy import Metrics, metrics_data_type
 
 
 def execution_metadata(config) -> dict:

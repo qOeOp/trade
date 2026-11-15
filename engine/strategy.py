@@ -11,10 +11,12 @@ import json
 import os
 import re
 import traceback
+from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from nautilus_trader.model import OmsType, StrategyId
+from nautilus_trader.model import DataType, InstrumentId, OmsType, StrategyId
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine.config import Refusal
@@ -22,6 +24,33 @@ from engine.load import LoadedStrategy
 
 
 STRATEGIES: dict[str, Strategy] = {}
+
+
+# The metrics a source receives, the same row in the three modes (engine.run streams it, engine.metrics reads it).
+
+@dataclass(frozen=True)
+class Metrics:
+    """engine.Metrics: one five-minute row of Binance open interest and long/short ratios, the payload of
+    metrics_data_type, at the values Binance's public REST shows (the export receipt's metrics_rule). sum_open_interest
+    is in the base asset; a ratio Binance left empty is None. ts_event is the archive's create_time + 5 min, the
+    instant the row describes (REST's timestamp); ts_init is create_time + 10 min, when the run delivers it."""
+
+    instrument_id: InstrumentId
+    sum_open_interest: Decimal
+    count_toptrader_long_short_ratio: Decimal | None
+    sum_toptrader_long_short_ratio: Decimal | None
+    count_long_short_ratio: Decimal | None
+    ts_event: int
+    ts_init: int
+
+
+def metrics_data_type(instrument_id) -> DataType:
+    """engine.metrics_data_type: the custom data type an exported metrics row of the contract reaches a strategy
+    as, a Metrics in CustomData.data: subscribe_data(DataType("Metrics", metadata={"instrument_id":
+    str(instrument_id)})), then on_data. A replay streams it only with --metrics; Paper and Live read it from REST
+    (engine.metrics)."""
+    return DataType("Metrics", metadata={"instrument_id": str(instrument_id)})
+
 
 
 # What a source may subscribe to (docs/plans/r1-runtime-contract-20261110.zh.md, 4): one-minute LAST EXTERNAL bars and

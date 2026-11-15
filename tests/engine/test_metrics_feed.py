@@ -76,7 +76,7 @@ class FeedTests(unittest.TestCase):
         data, = host.delivered
         self.assertEqual((data.data_type.type_name, data.data_type.metadata), ("Metrics", {"instrument_id": IID}))
         # The replay's row: decimal128(38, 16) values, ts_event REST's timestamp, ts_init 5 minutes later.
-        self.assertEqual(data.data, metrics.Metrics(InstrumentId.from_str(IID), Decimal("97897.5650000000000000"),
+        self.assertEqual(data.data, strategy_runtime.Metrics(InstrumentId.from_str(IID), Decimal("97897.5650000000000000"),
                                                     Decimal("3.6904000000000000"), Decimal("1.8441000000000000"),
                                                     Decimal("3.0900000000000000"), NOON + 5 * MINUTE_NS,
                                                     NOON + 10 * MINUTE_NS))

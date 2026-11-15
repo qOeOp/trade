@@ -164,7 +164,7 @@ stored, the position ratio half-up to 4 decimals, each account ratio the quotien
 decimal, about 1 row in 90, may differ by 0.0001). Both stamps are whole minutes, so in the bar environment an order the row prompts fills at the close
 of the bar that ends there, never at a price older than the decision. The receipt counts the rows
 (`counts.metrics`, present only then). The runner streams them as `CustomData(metrics_data_type(<id>),
-Metrics(...))`: `engine.metrics.Metrics` holds `instrument_id`, `sum_open_interest` (base asset), the three
+Metrics(...))`: `engine.strategy.Metrics` holds `instrument_id`, `sum_open_interest` (base asset), the three
 ratios `count_toptrader_long_short_ratio`, `sum_toptrader_long_short_ratio` and `count_long_short_ratio`
 as exact `Decimal` (`None` where the archive left one empty), `ts_event` and `ts_init`. A strategy
 subscribes with `subscribe_data(DataType("Metrics", metadata={"instrument_id": <id>}))` and reads
