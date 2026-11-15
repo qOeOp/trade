@@ -19,10 +19,13 @@ on_start and on_historical_bars aside. At T the runner:
    engine.warmup.funding_history) to its on_historical_funding_rates once, then runs its on_start (`_warming_begin`);
 6. (Paper and Live) gives the settlement of T's hour that a replay streams after on_start to the source's
    on_funding_rate (`_warming_settled`), when the source subscribed to its contract's funding by the end of on_start;
-   the live stream (engine.cadence) passed it before the source subscribed. A replay streams one stamped after T,
-   and one stamped T itself only when its window starts at T, where on_start runs before the first data: the replay
-   a Paper or Live run is compared with starts at T unless the source declares a funding history or a bar history
-   other than daily bars (`from_start`).
+   the live stream (engine.cadence) passed it before the source subscribed. A replay streams one stamped after T and
+   never one stamped T itself, which a declared funding history holds.
+
+Step 1 starts on a clock alert at T (T + SETTLE_NS when it reads Binance), also when the clock is at T already: the
+native engine fires an alert after the data that arrives at its time, so a replay instance gets no data arriving at
+T, whether T is the window's start or later (rc7 probe 2026-11-15: an alert set in on_start for the engine's start
+time fires after that time's data, one set for a later time after that time's data too).
 
 Until then the source's orders are refused (engine.order_rules.WARMING). A failure goes to `_warming_failed`: replay
 and Paper record it and refuse the run, Live stops. Paper and Live refuse a start whose warm-up has not completed by
@@ -98,8 +101,8 @@ def _slot(ns: int) -> int:
 
 
 def settlements(instrument_id, at: int, count: int, proxy_url: str | None, get=klines.get_json) -> tuple[list, list]:
-    """The last `count` settlements at or before `at` (engine.klines.settlements), and those stamped from `at` to a
-    minute after it (the settlement of `at`'s hour, which Binance stamps at the hour or some milliseconds later).
+    """The last `count` settlements at or before `at` (engine.klines.settlements), and those stamped after `at` up to a
+    minute after it (the settlement of `at`'s hour when Binance stamped it some milliseconds after the hour).
     FundingPending while the latest settlement due at or before `at` by the contract's funding interval now
     (engine.klines.funding_interval) is after the latest known one but not yet published, so a start at a settlement's
     hour gets it as a replay does; WARMUP_INSUFFICIENT when Binance holds fewer. The interval, not the latest
@@ -116,7 +119,7 @@ def settlements(instrument_id, at: int, count: int, proxy_url: str | None, get=k
     if len(known) < count:
         raise Refusal("WARMUP_INSUFFICIENT", f"{instrument_id}: Binance holds {len(known)} of the {count} funding "
                                              f"settlements at or before {utc(at)}")
-    return known[len(known) - count:], [update for update in seen if update.ts_event >= at]
+    return known[len(known) - count:], [update for update in seen if update.ts_event > at]
 
 
 def fetch(instrument_id, at: int, declared, precisions: tuple[int, int], catalog: Path, proxy_url: str | None,
@@ -176,8 +179,7 @@ class Warming:
             "at": at, "instrument_id": instrument_id, "declared": declared, "funding": funding, "fetch": fetch,
             "settlements": settlements if fetch is None else None, "pending": set(), "received": {}, "expected": {},
             "delivered": {}, "result": None, "thread": None, "fetched_ns": None, "requested": False, "done": False,
-            "follow": fetch is not None and follows and at % HOUR_NS == 0, "subscribed": False, "following": [],
-            "from_start": not funding and not any(count and period != "1-DAY" for period, count in declared)}
+            "follow": fetch is not None and follows and at % HOUR_NS == 0, "subscribed": False, "following": []}
 
     def _warming_state(self) -> dict:
         return STATES[str(Strategy.strategy_id.__get__(self, type(self)))]
@@ -190,7 +192,7 @@ class Warming:
         fetching = state["fetch"] and (requests(state["at"], state["declared"]) or state["funding"] or state["follow"])
         when = state["at"] + (SETTLE_NS if fetching else 0)
         clock = self._warming_clock()
-        if clock.timestamp_ns() >= when:
+        if clock.timestamp_ns() > when:
             self._warming_go()
         else:
             clock.set_time_alert_ns("runner-warmup", when, self._warming_go)
@@ -338,9 +340,8 @@ class Warming:
         order_rules.WARMING.discard(str(Strategy.strategy_id.__get__(self, type(self))))
         self._source_on_start()
         state = self._warming_state()
-        streamed = [update for update in state["following"] if update.ts_event > state["at"] or state["from_start"]]
-        if state["follow"] and state["subscribed"] and streamed:
-            self._warming_settled(streamed[0])
+        if state["follow"] and state["subscribed"] and state["following"]:
+            self._warming_settled(state["following"][0])
 
 
 @dataclass

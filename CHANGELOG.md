@@ -27,6 +27,16 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   always read 0 whatever it held, while the final equity came from the journal's last snapshot. Nothing in the product
   read it; the open positions of a run that wrote a summary stay in `summary.json` (`positions_at_stop`), and a run
   killed with a position open still ends with the journal's last equity. Seals already stored keep their readings.
+- Breaking (replay inputs): an instance's `on_start` now runs after the data that arrives at its start T in every
+  replay. An instance whose T is the window's start (`--trade-start` equal to `--start`, and no declared history
+  moving T later) used to start before that data and receive through its subscriptions whatever arrived exactly at
+  T, such as a funding settlement stamped on the hour (twice for a source declaring `FUNDING`: in its history and
+  again as an update). It now receives none of it, as an instance starting later already did, so each settlement
+  reaches a source once: in its history when stamped at or before T, otherwise after `on_start`. A replay whose
+  window starts at T can therefore give a source different inputs and different orders than before; replays whose T
+  lies after the window's start are unchanged. Paper and Live follow: at a start on a settlement hour they give a
+  source only a settlement Binance stamped after the hour, no longer one stamped on it to a source without a funding
+  or intraday bar history (the user 2026-11-15).
 - Breaking (Paper end reason): a Paper run whose journal cannot be written (a full disk) now stops with
   `PAPER_JOURNAL_WRITE_FAILED` and the runner exits with status 3; the seal's reasons say
   `PAPER_JOURNAL_WRITE_FAILED` and `RUNNER_EXIT_NONZERO`, and `STOPPED:PAPER_JOURNAL_WRITE_FAILED` when the summary
