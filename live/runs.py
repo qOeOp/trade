@@ -36,8 +36,13 @@ UNRESOLVED_NOTE = ("Exposure may remain at Binance and nothing will close it: fo
                    "Live page).")
 REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
 # The runner's events that end a run (engine.live.ENDED_EVENTS). An armed run whose latest start ended in none of them,
-# with no stop asked for, was interrupted: it keeps its slot, positions and exchange stops, and starts again as itself.
+# with no stop asked for, and whose runner did not end by itself in failure, was interrupted: it keeps its slot,
+# positions and exchange stops, and starts again as itself.
 RUN_ENDED = frozenset({"clean_stop", "reconciled_flat", "venue_flat", "reconcile_stopped", "unresolved"})
+# The runner's own exit statuses for a failure (1) and a refusal (2), engine.live.main. A start that ended so decided
+# to end, even where it could write no ending event (a refusal before its journal, a failed write); a killed runner
+# (137 and other signal statuses) and one that gives the start back (3) did not.
+FAILED_EXITS = frozenset({1, 2})
 KEY_EVENTS = frozenset({"key_check_failed", "key_check_passed"})  # live.control.check_key_locked's lifecycle rows
 RESTARTS_PER_HOUR = 3  # automatic starts of an interrupted run; beyond them the user is told and decides (design §3.4)
 HOUR_NS = 3600 * 10**9
@@ -93,10 +98,13 @@ def _flat(directory: Path, run_id: str) -> str | None:
                  and row.get("observed_ns", row.get("ts_ns", 0)) >= launch["observed_ns"]), None)
 
 
-def _interrupted(directory: Path, launch: dict | None) -> bool:
-    """The latest start was a run that armed and ended in no ending event, and no stop was asked for."""
+def _interrupted(directory: Path, launch: dict | None, actual: dict | None) -> bool:
+    """The latest start was a run that armed and ended in no ending event, no stop was asked for, and its runner
+    (`actual`, the inspected container, when there is one) did not end by its own failure or refusal."""
     if launch is None or launch["mode"] != "run" or not os.path.lexists(directory / "out" / "armed.json") \
             or os.path.lexists(directory / "out" / "STOP"):
+        return False
+    if actual is not None and actual["State"].get("ExitCode") in FAILED_EXITS:
         return False
     return not any(row.get("event") in RUN_ENDED for row in _since(directory, launch))
 
@@ -649,7 +657,7 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, requ
                 return {"run_id": run_id, "mode": mode, "state": "running", "write_status": "replayed"}
             raise state.fail("LIVE_RUNNING", "the previous Live process must end before another mode starts")
         if mode == "run" and any(row.get("mode") == "run" for row in host_events(directory)) \
-                and not _interrupted(directory, latest):
+                and not _interrupted(directory, latest, actual):
             raise state.fail("LIVE_RESTART_REQUIRES_RECONCILIATION",
                              "only an interrupted Live run starts again; after not_armed, prepare a new run-id")
     if mode == "reconcile" and not os.path.lexists(directory / "out" / "armed.json"):
@@ -693,7 +701,7 @@ def _outcome(root: Path, run_id: str, directory: Path, manifest: dict, launch: d
     running = bool(actual and actual["State"].get("Running"))
     result = ("running" if running else flat if flat
               else "not_armed" if launch and _released_unarmed(root, run_id)
-              else "interrupted" if actual and _interrupted(directory, launch)
+              else "interrupted" if actual and _interrupted(directory, launch, actual)
               else "unresolved" if launch else "prepared")
     if launch and launch["mode"] == "preflight" and actual and not running:
         result = "preflight_complete" if actual["State"].get("ExitCode") == 0 else "preflight_failed"

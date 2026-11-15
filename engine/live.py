@@ -3,7 +3,8 @@
 Paper retains its credential-free Sandbox contract. This entry point never changes account settings. An
 interrupted run (SIGTERM, a killed runner) starts again as the same run: on a flat account its source warms up and
 trades again; otherwise it holds, observing only, until the account is flat (design §3.4, first stage: the source
-cannot yet rebuild its state around an open position).
+cannot yet rebuild its state around an open position). An armed run that ends by its own refusal or failure is over
+(`unresolved`) and is never started again; only a start again whose first account read fails gives the start back.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from engine.live_venue import MANIFEST_FORMAT, BinanceReadOnly, read_credentials
 from engine.load import read_regular_file
 from engine.live_records import journal, keep, write_json
 from engine.live_commands import pending_orders
-from engine.live_session import Session
+from engine.live_session import ENDED_EVENTS, Session
 from engine.live_source import source_for_run
 from engine import live_brake
 from engine.live_lifecycle import source_outcome
@@ -91,11 +92,6 @@ def read_manifest(path: Path) -> dict:
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
         raise Refusal("LIVE_MANIFEST_INVALID", "Live needs a complete immutable manifest") from exc
 
-
-
-# The runner's events after which the run is over; a run whose latest start ended in none of them (interrupted,
-# held until flat, or killed without a word) starts again as itself.
-ENDED_EVENTS = frozenset({"clean_stop", "reconciled_flat", "venue_flat", "reconcile_stopped", "unresolved"})
 
 
 def latest_start(output: Path) -> list[dict]:
@@ -186,128 +182,150 @@ def execute(args) -> int:
         if resuming and not resumable(args.output):  # judged before this start writes its own events
             raise Refusal("LIVE_COLD_RESTART", "this run ended or was asked to stop; it can only reconcile")
         session = Session(manifest, args.output, args.mode, warmup_retry=resuming and warmup_retry(args.output))
-        observer = BinanceReadOnly(credentials, proxy_url=manifest["config"].get("proxy_url"))
-        session.account_reader = observer
+        try:
+            return start(args, manifest, credentials, session, resuming)
+        except Exception as exc:
+            # An armed run that ends by its own refusal or failure says so, whatever raised it (the final account read
+            # after a native exit, a missing cache, changed account modes): with no ending event the control would
+            # take the exit for an interruption and start a failed run again.
+            if args.mode == "run" and os.path.lexists(args.output / "armed.json") and not session.ended:
+                session.event("unresolved", failure_type=type(exc).__name__, strict=False,
+                              code=exc.code if isinstance(exc, Refusal) else None)
+            raise
+
+
+def start(args, manifest: dict, credentials, session: Session, resuming: bool) -> int:
+    """One start of the execution under its lock: the account read, then the mode's own work."""
+    observer = BinanceReadOnly(credentials, proxy_url=manifest["config"].get("proxy_url"))
+    session.account_reader = observer
+    try:
         clock = observer.clock() if args.mode in ("preflight", "run") else None
         snapshot = observer.snapshot(manifest["symbols"])
-        if clock is not None:
-            snapshot["clock"] = clock
-        observation = keep(args.output, "preflight", snapshot)
-        session.event("preflight", mode=args.mode, observation=observation)
-        loaded = None
-        if resuming:
-            require_clock(snapshot)
-            require_account_mode(snapshot, manifest)
-            try:
-                require_flat(snapshot)
-            except Refusal as exc:
-                if exc.code != "LIVE_ACCOUNT_NOT_FLAT":
-                    raise
-                session.mode = "held"  # observe only until the account is flat; the user is told
-            session.armed_ns = json.loads(read_regular_file(args.output / "armed.json"))["observed_ns"]
-            live_brake.resume(session, args.output)  # the first arming's cash floor and the highest equity since
-            session.event("resuming", held=session.mode == "held", observation=observation)
-            if session.mode == "run":
-                loaded = source_for_run(manifest)
-        elif args.mode in ("preflight", "run"):
-            require_clock(snapshot)
-            live_brake.arm(session, snapshot)
-            require_admission(snapshot, manifest, session.brake.budget)  # flat: the run starts on a flat account
-            backing = require_evidence(snapshot, manifest)
-            session.event("replay_evidence", trial_id=backing["trial_id"], starting_balance_usdt=backing["starting_balance_usdt"])
-            loaded = source_for_run(manifest)
-        if args.mode == "preflight":
-            return 0
-        if resuming:
-            pass  # armed already; the account slot is still this run's
-        elif args.mode == "run":
-            try:
-                with (args.output / "armed.json").open("x") as stream:
-                    # The arming's account observation: the run's cash floor and first equity (engine.live_brake).
-                    json.dump({"run_id": manifest["run_id"], "observed_ns": time.time_ns(), "observation": observation},
-                              stream)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                # The host releases an account slot on this file's absence, so it must survive a crash.
-                directory = os.open(args.output, os.O_RDONLY)
-                try:
-                    os.fsync(directory)
-                finally:
-                    os.close(directory)
-            except FileExistsError:
-                # An armed run resumes (resuming above); this armed.json is not a regular file.
-                raise Refusal("LIVE_COLD_RESTART", "armed.json exists but is not a regular file, so this start can "
-                                                   "neither arm nor resume the run") from None
-            # The run's first highest equity: its start, from which the brake and the page's chart count.
-            session.event("equity_peak", equity=str(session.brake.peak), observed_ns=snapshot["observed_ns"])
-        else:
-            if not (args.output / "armed.json").is_file():
-                raise Refusal("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
-            if venue_flat(session, snapshot, observation):
-                return 0
-            require_account_mode(snapshot, manifest)
-        strategy_runtime.clear_failures()
-        strategy_runtime.FAILURE_PATH = args.output / "runtime_failures.jsonl"
-        signals = {signal.SIGTERM, signal.SIGINT}
-        signal.pthread_sigmask(signal.SIG_BLOCK, signals)
-        def await_signal():
-            signal.sigwait(signals)
-            session.interrupt_requested.set()
-        threading.Thread(target=await_signal, daemon=True).start()
-        cache = LiveCache(args.output, resume=args.mode == "reconcile" or resuming)
-        session.cache_guard = cache
-        node = None
-        try:
-            node = build_node(session, credentials, cache.config, loaded, source_module=__name__)
-            session.event("connecting", mode=args.mode)
-            node.run()
-            source_outcome(session, node.cache)
-            session.check_storage()
-            # Late fills/cancels may arrive during native shutdown's residual-event grace.
-            # Recheck the whole cache at the completed boundary, never a stale timer cut.
-            observed_flat = not (pending_orders(node.cache) or node.cache.positions_open())
-            session.native_flat = observed_flat and (session.native_flat or args.mode == "reconcile") \
-                and not (session.persistence_failed or session.journal_failed or session.connection_failed
-                         or session.interrupting or session.held_flat or session.rewarming)
-        except BaseException as exc:
-            session.event("unresolved", failure_type=type(exc).__name__, strict=False,
-                          code=exc.code if isinstance(exc, Refusal) else None)
+    except Refusal as exc:
+        if not resuming or exc.code != "LIVE_ACCOUNT_UNAVAILABLE":
             raise
+        # Binance could not be read before anything was built: nothing is known and nothing changed, so this
+        # start ends as an interruption does and the control starts the run again, within its hourly limit.
+        print(str(exc), file=sys.stderr)
+        return INTERRUPTED
+    if clock is not None:
+        snapshot["clock"] = clock
+    observation = keep(args.output, "preflight", snapshot)
+    session.event("preflight", mode=args.mode, observation=observation)
+    loaded = None
+    if resuming:
+        require_clock(snapshot)
+        require_account_mode(snapshot, manifest)
+        try:
+            require_flat(snapshot)
+        except Refusal as exc:
+            if exc.code != "LIVE_ACCOUNT_NOT_FLAT":
+                raise
+            session.mode = "held"  # observe only until the account is flat; the user is told
+        session.armed_ns = json.loads(read_regular_file(args.output / "armed.json"))["observed_ns"]
+        live_brake.resume(session, args.output)  # the first arming's cash floor and the highest equity since
+        session.event("resuming", held=session.mode == "held", observation=observation)
+        if session.mode == "run":
+            loaded = source_for_run(manifest)
+    elif args.mode in ("preflight", "run"):
+        require_clock(snapshot)
+        live_brake.arm(session, snapshot)
+        require_admission(snapshot, manifest, session.brake.budget)  # flat: the run starts on a flat account
+        backing = require_evidence(snapshot, manifest)
+        session.event("replay_evidence", trial_id=backing["trial_id"], starting_balance_usdt=backing["starting_balance_usdt"])
+        loaded = source_for_run(manifest)
+    if args.mode == "preflight":
+        return 0
+    if resuming:
+        pass  # armed already; the account slot is still this run's
+    elif args.mode == "run":
+        try:
+            with (args.output / "armed.json").open("x") as stream:
+                # The arming's account observation: the run's cash floor and first equity (engine.live_brake).
+                json.dump({"run_id": manifest["run_id"], "observed_ns": time.time_ns(), "observation": observation},
+                          stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            # The host releases an account slot on this file's absence, so it must survive a crash.
+            directory = os.open(args.output, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        except FileExistsError:
+            # An armed run resumes (resuming above); this armed.json is not a regular file.
+            raise Refusal("LIVE_COLD_RESTART", "armed.json exists but is not a regular file, so this start can "
+                                               "neither arm nor resume the run") from None
+        # The run's first highest equity: its start, from which the brake and the page's chart count.
+        session.event("equity_peak", equity=str(session.brake.peak), observed_ns=snapshot["observed_ns"])
+    else:
+        if not (args.output / "armed.json").is_file():
+            raise Refusal("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
+        if venue_flat(session, snapshot, observation):
+            return 0
+        require_account_mode(snapshot, manifest)
+    strategy_runtime.clear_failures()
+    strategy_runtime.FAILURE_PATH = args.output / "runtime_failures.jsonl"
+    signals = {signal.SIGTERM, signal.SIGINT}
+    signal.pthread_sigmask(signal.SIG_BLOCK, signals)
+    def await_signal():
+        signal.sigwait(signals)
+        session.interrupt_requested.set()
+    threading.Thread(target=await_signal, daemon=True).start()
+    cache = LiveCache(args.output, resume=args.mode == "reconcile" or resuming)
+    session.cache_guard = cache
+    node = None
+    try:
+        node = build_node(session, credentials, cache.config, loaded, source_module=__name__)
+        session.event("connecting", mode=args.mode)
+        node.run()
+        source_outcome(session, node.cache)
+        session.check_storage()
+        # Late fills/cancels may arrive during native shutdown's residual-event grace.
+        # Recheck the whole cache at the completed boundary, never a stale timer cut.
+        observed_flat = not (pending_orders(node.cache) or node.cache.positions_open())
+        session.native_flat = observed_flat and (session.native_flat or args.mode == "reconcile") \
+            and not (session.persistence_failed or session.journal_failed or session.connection_failed
+                     or session.interrupting or session.held_flat or session.rewarming)
+    except BaseException as exc:
+        session.event("unresolved", failure_type=type(exc).__name__, strict=False,
+                      code=exc.code if isinstance(exc, Refusal) else None)
+        raise
+    finally:
+        try:
+            if node is not None:
+                session.evidence.reports(node.cache, Venue("BINANCE"))
+                node.dispose()
+            session.node, session.entry_gate = None, None
+            session.sources = {}
+            if session.warmup_catalog is not None:
+                shutil.rmtree(session.warmup_catalog, ignore_errors=True)
         finally:
             try:
-                if node is not None:
-                    session.evidence.reports(node.cache, Venue("BINANCE"))
-                    node.dispose()
-                session.node, session.entry_gate = None, None
-                session.sources = {}
-                if session.warmup_catalog is not None:
-                    shutil.rmtree(session.warmup_catalog, ignore_errors=True)
-            finally:
-                try:
-                    cache.close()
-                except Refusal:
-                    session.persistence_failed, session.native_flat = True, False
-                    session.event("unresolved", reason="persistence_shutdown_failure", strict=False)
-                    raise
-        if session.native_flat:
-            final_snapshot = observer.snapshot(manifest["symbols"])
-            observation = keep(args.output, "final-account", final_snapshot)
-            require_flat(final_snapshot)
-            session.event("clean_stop" if args.mode == "run" else "reconciled_flat",
-                          source_failed=session.failed, observation=observation)
-            return 1 if session.failed else 0
-        if (session.interrupting or session.held_flat or session.rewarming) and not session.failed:
-            # Positions and their exchange stops stay; the control starts this run again (live.runs).
-            start_ended(session)
-            return INTERRUPTED
-        if session.mode == "run":
-            session.event("unresolved", mode=args.mode)
-            return 1
+                cache.close()
+            except Refusal:
+                session.persistence_failed, session.native_flat = True, False
+                session.event("unresolved", reason="persistence_shutdown_failure", strict=False)
+                raise
+    if session.native_flat:
         final_snapshot = observer.snapshot(manifest["symbols"])
         observation = keep(args.output, "final-account", final_snapshot)
-        if not venue_flat(session, final_snapshot, observation):
-            session.event("reconcile_stopped", mode=args.mode)
-        return 0
+        require_flat(final_snapshot)
+        session.event("clean_stop" if args.mode == "run" else "reconciled_flat",
+                      source_failed=session.failed, observation=observation)
+        return 1 if session.failed else 0
+    if (session.interrupting or session.held_flat or session.rewarming) and not session.failed:
+        # Positions and their exchange stops stay; the control starts this run again (live.runs).
+        start_ended(session)
+        return INTERRUPTED
+    if session.mode == "run":
+        session.event("unresolved", mode=args.mode)
+        return 1
+    final_snapshot = observer.snapshot(manifest["symbols"])
+    observation = keep(args.output, "final-account", final_snapshot)
+    if not venue_flat(session, final_snapshot, observation):
+        session.event("reconcile_stopped", mode=args.mode)
+    return 0
 
 
 

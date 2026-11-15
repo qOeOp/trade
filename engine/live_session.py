@@ -27,6 +27,9 @@ CANCEL_RETRY_SECONDS = 5
 # engine.protection's allowance plus its Live detection lag. A false alarm flattens a healthy trade.
 PROTECTION_SECONDS = (protection.ALLOWANCE_NS + protection.LIVE_DETECTION_NS) // 1_000_000_000
 MARK_SECONDS = 60  # With a position open and no mark for this long, the run stops (design §3.2.4).
+# The runner's events after which the run is over; a run whose latest start ended in none of them (interrupted,
+# held until flat, or killed without a word) starts again as itself.
+ENDED_EVENTS = frozenset({"clean_stop", "reconciled_flat", "venue_flat", "reconcile_stopped", "unresolved"})
 
 
 @dataclass
@@ -54,6 +57,7 @@ class Session:
     stopping: bool = False
     stop_at: float | None = None
     native_flat: bool = False
+    ended: bool = False  # this start journalled an event that ends the run (ENDED_EVENTS)
     failed: bool = False
     native_order_failure: bool = False
     persistence_failed: bool = False
@@ -96,6 +100,7 @@ class Session:
                 stream.write(json.dumps(row, sort_keys=True, default=str) + "\n")
                 stream.flush()
                 os.fsync(stream.fileno())
+            self.ended = self.ended or event in ENDED_EVENTS
             return True
         except (OSError, ValueError, TypeError):
             self.failed, self.journal_failed, self.native_flat = True, True, False
