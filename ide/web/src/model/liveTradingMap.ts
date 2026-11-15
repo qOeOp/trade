@@ -121,7 +121,7 @@ export function liveRunPresentation(run: LiveRunDto, review?: LiveRunDto): LiveR
       wallet: account.usdt_wallet, available: account.usdt_available } : null,
     hostState: run.host.state, accountOwned: run.host.account_owned, heldNotice: open ? heldNotice(run.restarts ?? []) : null, heldAlert: open ? heldAlert(run.restarts ?? []) : null,
     entries, compared, continuity: run.host.mode === "run" ? continuityOf(run, entries, compared) : [],
-    orders: run.orders, positions: run.positions, equity: equityOf(run), review: review?.review ?? run.review ?? null, reviewError: review?.review_error?.code ?? run.review_error?.code ?? null,
+    orders: run.orders, positions: run.positions, failures: run.failures, equity: equityOf(run), review: review?.review ?? run.review ?? null, reviewError: review?.review_error?.code ?? run.review_error?.code ?? null,
   };
 }
 

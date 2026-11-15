@@ -1,5 +1,6 @@
 import type { HeldAlert } from "./liveHeld";
 import type { LiveEventRow, LiveRequest, LiveReviewDto } from "../lib/liveTradingDto";
+import type { RuntimeFailure } from "../lib/paperApi";
 export type { LiveRequest } from "../lib/liveTradingDto";
 
 /** Non-persistent presentation values. The transport maps the frozen API DTOs into these;
@@ -51,6 +52,8 @@ export type LiveRun = {
   /** The host reports the run ended, so Request stop has nothing to stop. */
   ended: boolean;
   orders?: readonly LiveEventRow[] | null; positions?: readonly LiveEventRow[] | null;
+  /** The strategy's runtime failure receipts, as a paper run's; null when unreadable. */
+  failures?: readonly RuntimeFailure[] | null;
   /** The account the run's chart draws: its budget and, a minute apart, budget plus its result at the venue's mark
    *  (null: unknown), by time in seconds; null when the budget or the results are unknown. */
   equity?: { budget: number; minutes: readonly (readonly [number, number | null])[] } | null;

@@ -1,3 +1,5 @@
+import type { RuntimeFailure } from "./paperApi";
+
 /** Frozen HTTP projections. Native event rows are observations, never a browser order ledger. */
 export type LiveRequest = {
   request_id: string; action: string; target: { run_id?: string; credential_ref?: string };
@@ -67,6 +69,8 @@ export type LiveRunDto = {
   key_checks: { event: "key_check_failed" | "key_check_passed"; code: string | null; observed_ns: string }[] | null;
   /** The control's latest daily comparison with a replay (live/daily.py). */
   compare: LiveCompareDto | null;
+  /** The strategy's runtime failure receipts, as a paper run's (live/views.py _failures); null when unreadable. */
+  failures: RuntimeFailure[] | null;
   review?: LiveReviewDto | null; review_error?: { code: string } | null;
 };
 export type LiveCompareDto = {
