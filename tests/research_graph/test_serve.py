@@ -725,6 +725,11 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.hub.product.read_bars, [("BTCUSDT", "2026-09-01", "2026-10-01", at)])
         response = self.get(f"/api/bars?symbol=NOPEUSDT&timeframe=1d&{days}&at={at}")
         self.assertEqual((response.status, json.loads(response.read())["code"]), (400, "UNKNOWN_SYMBOL"))
+        # A contract named as the market holds it, a non-ASCII coin included, reaches the product's own check.
+        from market import sources
+        self.assertEqual(serve.SYMBOL.pattern, sources.SYMBOL.pattern)
+        response = self.get(f"/api/bars?symbol=%E5%B8%81%E5%AE%89%E4%BA%BA%E7%94%9FUSDT&timeframe=1d&{days}&at={at}")
+        self.assertEqual((response.status, json.loads(response.read())["symbol"]), (200, "币安人生USDT"))
         for query in (f"symbol=BTCUSDT&timeframe=1m&{days}&at={at}", f"symbol=BTCUSDT&{days}&at={at}",
                       f"symbol=btc;rm&timeframe=1d&{days}&at={at}", f"symbol=BTCUSDT&timeframe=1d&{days}&at=main",
                       f"symbol=BTCUSDT&timeframe=1d&{days}&at=head", f"symbol=BTCUSDT&timeframe=1d&{days}&at={'d' * 32}",
@@ -735,7 +740,7 @@ class HttpTests(unittest.TestCase):
                       f"symbol=BTCUSDT&timeframe=1d&start=2026-02-30&end=2026-10-01&at={at}"):
             self.assertEqual(self.get(f"/api/bars?{query}").status, 400, query)
         self.assertEqual(self.get(f"/api/bars?symbol=BTCUSDT&timeframe=1d&{days}&at={at}", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
-        self.assertEqual(len(self.hub.product.read_bars), 2)
+        self.assertEqual(len(self.hub.product.read_bars), 3)
 
     def test_without_a_chat_service_there_is_no_agent(self):
         self.assertEqual(self.get("/api/agent/health").status, 404)

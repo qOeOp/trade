@@ -92,7 +92,7 @@ STATES = 8
 STATE_KEYS = ("ledger_commit", "gates", "review_every", "undistinguished_runs", "unreviewed_trials")
 HISTORIES = 4
 READINGS = 4
-SYMBOL = re.compile(r"[A-Z0-9]{2,30}")  # a Binance symbol such as BTCUSDT
+SYMBOL = re.compile(r"[^\W_]+\Z")  # market.sources.SYMBOL: a contract as the market holds it, a non-ASCII coin included
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")  # a UTC day
 COMMIT = re.compile(r"[0-9a-v]{32}")  # a Dolt commit hash in full
 STALE = timedelta(hours=26)  # market.follow.STALE: a status older than this is a stuck command

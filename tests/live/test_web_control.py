@@ -448,6 +448,11 @@ class LiveWebControlTests(unittest.TestCase):
             self.assertEqual(asked.call_args.args[1], (self.HEAD, self.origin()["source_sha256"],
                                                        ("ETHUSDT", "BTCUSDT")))
             thread.assert_called_once()  # a new key starts its read now, not at the next background pass
+            # A non-ASCII coin arrives percent-encoded in the path and is read as replay names it.
+            with patch.object(evidence, "request", return_value={}) as asked:
+                serve.read(self.config, "/api/live/candidates/example/2/evidence/"
+                           "%E5%B8%81%E5%AE%89%E4%BA%BA%E7%94%9FUSDT,BTCUSDT", evidence=evidence)
+            self.assertEqual(asked.call_args.args[1][2], ("币安人生USDT", "BTCUSDT"))
 
     def test_maintenance_inspects_existing_runs_without_relaunch_or_credentials(self):
         with state.serialized(self.root):

@@ -217,3 +217,9 @@ test("check account prepares the selected version on its contracts and asks for 
   named(render(props), "LiveLaunchColumn").props.edit("contracts", "BTCUSDT");
   assert.deepEqual(state.draft.edits, {});
 });
+
+test("typed contracts take a non-ASCII coin as the market names it (market/sources.py SYMBOL)", async () => {
+  const { contractsOf } = await namespace("model/liveLaunchText.ts", { sources: [], packages: [] });
+  assert.deepEqual(contractsOf("币安人生usdt, BTCUSDT"), ["币安人生USDT", "BTCUSDT"]);
+  assert.equal(contractsOf("BTC_USDT"), null);
+});

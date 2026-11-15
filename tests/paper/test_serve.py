@@ -132,6 +132,11 @@ class GateTests(unittest.TestCase):
             with self.subTest(body), self.assertRaises(serve.Failure) as caught:
                 daemon.start(body)
             self.assertEqual(caught.exception.body["code"], "USAGE_ERROR")
+        # A non-ASCII coin is a contract as replay takes it (market.sources.SYMBOL): it reaches the candidate read.
+        daemon.research_profile = "research"
+        with mock.patch.object(serve.db, "read_as_of", side_effect=RuntimeError("read")), \
+                self.assertRaisesRegex(RuntimeError, "read"):
+            daemon.start({"candidate": "a@1", "symbols": ["币安人生USDT"]})
 
 
 class ListenTests(unittest.TestCase):

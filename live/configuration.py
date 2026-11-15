@@ -11,12 +11,12 @@ import re
 from engine.config import ACCOUNT_CONTRACT, is_leverage
 from engine.live_brake import BRAKE_MAX
 from live import state
+from market.sources import SYMBOL  # a contract named as the market holds it, as replay takes it
 
 
 # A candidate reference, strategy_id@revision (ledger.strategies.parse_ref).
 CANDIDATE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}@[1-9][0-9]{0,8}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
-SYMBOL = re.compile(r"[A-Z0-9]{1,20}USDT\Z")  # bounded: the page sends it
 # A run's choices: its duration (None: until stopped), the account's Binance leverage and its drawdown brake, which
 # defaults to the user's maximum-drawdown target and can only be tighter (engine.live_brake). Its cash floor is a share
 # of the wallet at its first arming, not a choice.
@@ -73,9 +73,11 @@ def run_config(value) -> dict:
 
 
 def symbols(value) -> list[str]:
-    """A run's contracts, one strategy instance each: distinct Binance USDT-M symbols."""
+    """A run's contracts, one strategy instance each: distinct Binance USDT-M symbols, named as replay names them
+    (market.export.native_symbol), a non-ASCII coin included."""
     if (not isinstance(value, list) or not value or len(set(map(str, value))) != len(value)
-            or any(not isinstance(item, str) or not SYMBOL.fullmatch(item) for item in value)):
+            or any(not isinstance(item, str) or not SYMBOL.fullmatch(item) or not item.endswith("USDT")
+                   or item == "USDT" for item in value)):
         raise state.fail("LIVE_SYMBOLS", "Live requires distinct explicit USD-M symbols")
     return list(value)
 

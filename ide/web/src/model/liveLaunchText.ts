@@ -39,11 +39,15 @@ export function refusalText(code: string | undefined): string {
   }[code]) || "Live refused this step. Requests shows what it recorded.";
 }
 
+/** A contract as the market holds it, Paper and Live take it: letters and digits of any script, a non-ASCII coin
+ *  included (market/sources.py SYMBOL). */
+export const CONTRACT = /^[\p{L}\p{N}]+$/u;
+
 /** Contracts typed as words ("btcusdt, ETHUSDT"): distinct Binance USDT perpetuals in the order typed, upper-cased; null
  *  when the text names none, repeats one or names something else (live/configuration.py symbols). */
 export function contractsOf(text: string | null): string[] | null {
   const symbols = (text ?? "").toUpperCase().split(/[\s,]+/).filter(Boolean);
-  return symbols.length && new Set(symbols).size === symbols.length && symbols.every((symbol) => /^[A-Z0-9]+USDT$/.test(symbol)) ? symbols : null;
+  return symbols.length && new Set(symbols).size === symbols.length && symbols.every((symbol) => CONTRACT.test(symbol) && symbol.endsWith("USDT") && symbol !== "USDT") ? symbols : null;
 }
 
 /** The units a duration is typed in, largest first: a month is 30 days and a year 365; `max` is the largest the part
