@@ -66,6 +66,13 @@ class _LiveConfigured(history.Warming, metrics.Feed):
         self._live_cadence = Cadence()
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
 
+    def _metrics_unfollow(self, instrument_id: str) -> None:
+        """An unsubscribe of metrics the source followed goes to the evidence pack: `live compare` expects no row after
+        it (replay.comparison.compare_metrics)."""
+        if instrument_id in self._metrics_followed:
+            self._live.evidence.metrics_unsubscribed(instrument_id)
+        super()._metrics_unfollow(instrument_id)
+
     def submit_order(self, order, position_id=None, client_id=None, params=None):
         commands.require_connection(self._live)
         if not order.is_reduce_only and not self._live.check_storage():

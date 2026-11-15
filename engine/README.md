@@ -137,7 +137,10 @@ export's best bid/ask quotes (`market import-quotes`, inferred from Binance aggT
 rule, both sizes the instrument's max quantity) are streamed to the venue and drive matching on an L1
 book, bar execution is off (bars only feed signals; the source cannot subscribe to the quotes), the venue's native liquidation is on
 (`liquidation_enabled`, trigger ratio 1.0, open orders cancelled first) with the standard margin model
-(maintenance = notional x the rate, not divided by leverage), and the instruments carry the two rates.
+(initial and maintenance margin are each notional x the rate, neither divided by leverage), and the instruments carry the
+two rates. So in `quotes` `--leverage` takes no part in margin: it is still validated and recorded as the account's
+`default_leverage`, in the effective configuration and so in the run's identity, and the venue is given it, but the
+standard margin model ignores it.
 An active contract whose export holds no quote in some UTC month of its trading window (from its trade start to the
 window end or its termination) is `QUOTES_MISSING`, naming each such month: there bar execution is off, so a month
 without quotes would replay without matching. The quotes count in the consumed
@@ -185,7 +188,8 @@ configuration: the exported metrics files already carry it into the input identi
 the run does not stream is `METRICS_NOT_SERVED`. Paper and Live serve the metrics of every contract of the run
 (`engine.metrics.Feed`): at each row's `ts_init` they read REST's row of its `ts_event` (no credential) and hand it
 to `on_data` with the replay's stamps and values; what is not yet published is read again every 30 s until the
-next row is due, then a missing ratio is `None` and a row without open interest is skipped.
+next row is due, then a missing ratio is `None` and a row without open interest is skipped. After an unsubscribe
+no row reaches `on_data`, not even one read already.
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_day`, `universe_path`, `universe_sha256` (the membership file's bytes),
@@ -893,9 +897,11 @@ Each Live run keeps what a replay of its source needs for comparison in `evidenc
 - `market.jsonl`, in Paper's journal shape: every bar the source received (`bar`; `historical_bar` for one a
   history request delivered), each funding settlement of its declared history (`historical_funding`: `ts_event`,
   `rate`) and each metrics row it received (`metrics`: `ts_event` and the four values, a missing ratio null; it
-  reached the source at `ts_event + 5 min`). What arrives after a stop request reaches neither the source nor the
+  reached the source at `ts_event + 5 min`), and each unsubscribe from a contract's metrics it followed
+  (`metrics_unsubscribed`: `instrument_id`). What arrives after a stop request reaches neither the source nor the
   file. Quotes, trades, MARKs and funding rates are not kept: `live compare` settles funding at Binance's published
-  rates, and compares the metrics rows with the archive's as a replay streams them.
+  rates, and compares the metrics rows with the archive's as a replay streams them, expecting none from an
+  unsubscribe's `wall_ns` until the source receives one again.
 - `reports-<ns>/`, written when the node stops in `run` and `reconcile`: `orders.csv`, `fills.csv`,
   `positions.csv`, `account.csv` and `order_events.jsonl.gz` from the native cache, through the same writers a
   replay uses (`engine.write_reports`).

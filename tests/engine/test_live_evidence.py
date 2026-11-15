@@ -112,11 +112,18 @@ class LiveEvidenceTests(unittest.TestCase):
                 "kind": "metrics", "instrument_id": iid, "ts_event": first,
                 "sum_open_interest": "97897.5650000000000000", "count_toptrader_long_short_ratio": "3.6904000000000000",
                 "sum_toptrader_long_short_ratio": None, "count_long_short_ratio": "3.0900000000000000"})
+            # An unsubscribe of metrics the source followed is recorded: live compare expects no row after it.
+            source.subscribe_data(metrics_data_type(iid))
+            source.unsubscribe_data(metrics_data_type(iid))
+            source.unsubscribe_data(metrics_data_type(iid))  # no longer followed: nothing to record
+            self.assertEqual([{key: value for key, value in row.items() if key != "wall_ns"}
+                              for row in rows(self.output)[4:]],
+                             [{"kind": "metrics_unsubscribed", "instrument_id": iid}])
             # After a stop request the source hears no further bar or row, and none is recorded as received.
             (self.output / "STOP").write_text("")
             source.on_bar(bar(first + 2 * MINUTE_NS))
             source.on_data(CustomData(metrics_data_type(iid), metered))
-            self.assertEqual(len(rows(self.output)), 4)
+            self.assertEqual(len(rows(self.output)), 5)
             self.assertEqual(source.observed, ["start", "bar", "bar"])
         finally:
             engine.dispose()

@@ -204,7 +204,7 @@ its parent and the difference; a root has none. A new revision of the same strat
 its description what it fixes from the previous revision and why, since the difference stays
 relative to the parent. A description gives the rule, its sources and its non-claims.
 
-Any later source change is a new candidate. A draft can be tried before publishing with `replay explore`.
+A draft can be tried before publishing with `replay explore`.
 In the precheck, confirm every filled entry has the protection its source gives
 it, every order carries one plan tag and every stop and exit names its plan's position, no order precedes
 trade start, none was denied or rejected, and fills, fees, funding and account rows appear in the

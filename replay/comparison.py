@@ -387,21 +387,38 @@ def bars(run_bars: list[dict], archive: Mapping[str, list[list]], start: int, en
     return result
 
 
+def _followed(arrivals: Iterable[int], unsubscribed: list[int], end: int) -> list[tuple[int, int]]:
+    """The spans [from, to) in which a source followed a contract's metrics: from each row it received after the
+    previous unsubscribe (the first of all included) to the next unsubscribe, or `end`."""
+    spans: list[tuple[int, int]] = []
+    for at in sorted(arrivals):
+        if not spans or at >= spans[-1][1]:
+            spans.append((at, min([cut for cut in unsubscribed if cut > at] + [end])))
+    return spans
+
+
 def compare_metrics(run_rows: Iterable[Mapping], archive: Mapping[str, list[list]], end: int) -> dict[str, dict]:
     """Per contract whose source received metrics (Live's evidence pack), the rows it received against those a replay
     streams (`archive`: {symbol: [[ts_event, four values as text or None]]}, archive_metrics), each by the instant it
-    reached the source (ts_event + METRICS_VISIBLE_NS), from the first it received to `end`: {archive, live, missing,
-    late, live_only, differing: {instant: {field: [live, archive]}}}. A ratio the archive held at a tie of REST's 4th
-    decimal may differ by 0.0001 (docs/plans/binance-metrics-rest-parity.zh.md)."""
+    reached the source (ts_event + METRICS_VISIBLE_NS), while it followed them: from the first it received to its
+    unsubscribe (`metrics_unsubscribed`, at its wall_ns), and again from the first it received after one, up to `end`:
+    {archive, live, missing, late, live_only, differing: {instant: {field: [live, archive]}}}. A row due before the
+    unsubscribe and not received counts as missing, also one due at a bar close the source unsubscribed on. A ratio
+    the archive held at a tie of REST's 4th decimal may differ by 0.0001
+    (docs/plans/binance-metrics-rest-parity.zh.md)."""
     live: dict[str, dict[int, Mapping]] = {}
+    unsubscribed: dict[str, list[int]] = {}
     for line in run_rows:
-        if line["ts_event"] + METRICS_VISIBLE_NS < end:
+        if line.get("kind") == "metrics_unsubscribed":
+            unsubscribed.setdefault(symbol_of(line["instrument_id"]), []).append(line["wall_ns"])
+        elif line["ts_event"] + METRICS_VISIBLE_NS < end:
             live.setdefault(symbol_of(line["instrument_id"]), {})[line["ts_event"] + METRICS_VISIBLE_NS] = line
     result = {}
     for symbol, mine in live.items():
-        first = min(mine)
+        spans = _followed(mine, unsubscribed.get(symbol, []), end)
         stored = {row[0] + METRICS_VISIBLE_NS: dict(zip(METRICS_VALUES, row[1:], strict=True))
-                  for row in archive.get(symbol, []) if first <= row[0] + METRICS_VISIBLE_NS < end}
+                  for row in archive.get(symbol, [])
+                  if any(low <= row[0] + METRICS_VISIBLE_NS < high for low, high in spans)}
         differing = {}
         for at, row in stored.items():
             if at in mine:
@@ -715,9 +732,9 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
             reports: Path | None, start: int, end: int, *, archived_warmup: Mapping | None = None,
             replay_terms: Mapping | None = None, replay_fees: Mapping | None = None,
             archived_metrics: Mapping | None = None) -> dict:
-    """A run against its replay. `run`: {bars, warmup ({instrument: {period: digest}}), metrics (rows received, Live
-    alone), events (native order events), settlements (funding), equity ([(minute, value)]), terms ({symbol: terms}),
-    fees ({symbol: {maker, taker}})}.
+    """A run against its replay. `run`: {bars, warmup ({instrument: {period: digest}}), metrics (rows received and
+    unsubscribes, Live alone), events (native order events), settlements (funding), equity ([(minute, value)]),
+    terms ({symbol: terms}), fees ({symbol: {maker, taker}})}.
     `replay_events` None means the replay wrote no order events: its orders are unknown, not none."""
     found = bars(run.get("bars") or [], archive, start, end)
     warmed = warmup(run.get("warmup") or {}, archived_warmup or {})
@@ -869,7 +886,9 @@ def replay_and_compare(run: Mapping, market: dict, market_day: str, archived: Ma
                        for symbol in symbols}
     firsts: dict[str, int] = {}
     for row in run.get("metrics") or []:
-        firsts[symbol_of(row["instrument_id"])] = min(row["ts_event"], firsts.get(symbol_of(row["instrument_id"]), end))
+        if row.get("kind") != "metrics_unsubscribed":
+            firsts[symbol_of(row["instrument_id"])] = min(row["ts_event"],
+                                                          firsts.get(symbol_of(row["instrument_id"]), end))
     archived_metrics = {symbol: archive_metrics(opened, market_day, symbol, first, end)
                         for symbol, first in firsts.items()}
     output = paths.temporary_path(output)

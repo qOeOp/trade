@@ -112,6 +112,17 @@ class FeedTests(unittest.TestCase):
         self.assertEqual(len(host.warnings), 1)
         self.assertEqual(host._metrics_followed[IID]["ts_event"], NOON + 5 * MINUTE_NS)
 
+    def test_no_row_reaches_the_source_once_it_unsubscribed_even_from_a_rows_on_data(self):
+        other = "ETHUSDT-PERP.BINANCE"
+        strategy_runtime.SERVED["Metrics"].add(other)
+        host = Host(NOON, lambda iid, ts, wanted: {name: SHOWN[name] for name in wanted})
+        host.on_data = lambda data: (host.delivered.append(data),
+                                     host.unsubscribe_data(metrics.metrics_data_type(other)))
+        host.subscribe_data(metrics.metrics_data_type(IID))
+        host.subscribe_data(metrics.metrics_data_type(other))
+        host.at(NOON + 5 * MINUTE_NS)  # both rows are read; the first delivered unsubscribes the other
+        self.assertEqual([str(data.data.instrument_id) for data in host.delivered], [IID])
+
     def test_metrics_of_a_contract_outside_the_run_are_refused(self):
         host = Host(NOON, lambda iid, ts, wanted: {})
         host.subscribe_data(metrics.metrics_data_type("ETHUSDT-PERP.BINANCE"))

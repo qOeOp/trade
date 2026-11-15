@@ -14,14 +14,35 @@ import unittest
 from unittest.mock import patch
 
 from cli import research_commands
-from ledger import admin, lines
+from ledger import admin, lines, targets
 from replay import entry, history
 from report import history as report_history, measures, status
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP
 from tests.registration.test_register import second_line
-from tests.registration.world import RUNNER_ARGV
-from tests.replay.world import ReplayWorld, registered_grid
+from tests.registration.world import RUNNER_ARGV, config, months_rows
+from tests.replay import world as replay_world
+from tests.replay.world import Market, ReplayWorld, registered_grid
+
+
+YEARS_MONTHS = [f"{year}-{month:02d}" for year in range(2023, 2027) for month in range(1, 13)][11:43]  # 2023-12 to 2026-07
+
+
+class YearsMarket(Market):
+    """The fake market from December 2023 to July 2026: before the fixtures' January 2026 development period lie the
+    whole years 2024 and 2025, after it a six-month holdout."""
+
+    def days(self, market_day):
+        return date(2023, 12, 1), date(2026, 7, 31)
+
+
+def windowed(identity, runner_argv, inputs):
+    """The stand-in probe reporting the window the runner was given (the fixtures' reports January whatever ran, so
+    a history run over another window is invalid: COVERAGE_MISMATCH)."""
+    at = {name: runner_argv[runner_argv.index(name) + 1] for name in ("--start", "--trade-start", "--end")}
+    return {"runtime_contract": identity["runtime_contract"], "effective_config": config(
+        symbols=inputs["symbols"], root=str(inputs["root"]), start=at["--start"], trade_start=at["--trade-start"],
+        end=at["--end"])}
 
 
 class SegmentTests(unittest.TestCase):
@@ -47,34 +68,85 @@ class SegmentTests(unittest.TestCase):
 
 class VerdictTests(unittest.TestCase):
     """3.7 (user 2026-11-11, "否决和留出分开都要过"): the veto years and the holdout are judged apart on the two targets,
-    and a candidate meets them when both pass; with no countable veto year, on the holdout alone."""
+    and a candidate meets them when both pass; a test with no whole veto year is judged on the holdout alone. A verdict
+    needs every reading it is defined on (20261114-12, user 2026-11-15): with one missing it is undecided."""
 
     TARGETS = {"max_drawdown": 0.2, "annual_return": 0.3}
+    HOLDOUT = {"kind": "holdout", "label": "holdout", "whole_year": False, "short": False,
+               "measures": {"annual_return": 0.35, "mark_max_drawdown": 0.12}}
 
     @staticmethod
-    def cell(kind, annual, drawdown, whole=True, short=False):
-        return {"kind": kind, "whole_year": kind == "veto" and whole, "short": short,
+    def cell(kind, annual, drawdown, whole=True, short=False, label="2020"):
+        return {"kind": kind, "label": label, "whole_year": kind == "veto" and whole, "short": short,
                 "measures": {"annual_return": annual, "mark_max_drawdown": drawdown}}
 
-    def summary(self, *cells):
-        return report_history._summary(list(cells), self.TARGETS)
+    @staticmethod
+    def unread(label, status="invalid"):
+        """A whole veto year whose run is invalid, or whose trial has no run (status None): no measures."""
+        return {"kind": "veto", "label": label, "whole_year": True, "short": False, "status": status}
+
+    def summary(self, *cells, targets=TARGETS, control=True):
+        return report_history._summary(list(cells), targets, control)
+
+    @staticmethod
+    def verdict(found):
+        return found["meets_targets"], found["judged_on"], found["missing"]
 
     def test_both_must_pass(self):
-        years = [self.cell("veto", 0.1, 0.15), self.cell("veto", 0.5, 0.1), self.cell("veto", 0.4, 0.18)]
-        passed = self.summary(*years, self.cell("holdout", 0.35, 0.12))
-        self.assertEqual((passed["veto"]["meets_targets"], passed["holdout"]["meets_targets"], passed["meets_targets"],
-                          passed["judged_on"]), (True, True, True, "veto and holdout"),
+        years = [self.cell("veto", 0.1, 0.15, label="2019"), self.cell("veto", 0.5, 0.1),
+                 self.cell("veto", 0.4, 0.18, label="2021")]
+        passed = self.summary(*years, self.HOLDOUT)
+        self.assertEqual((passed["veto"]["meets_targets"], passed["holdout"]["meets_targets"], *self.verdict(passed)),
+                         (True, True, True, "veto and holdout", []),
                          "a year below the return target is fine while the median reaches it")
-        self.assertIs(self.summary(*years, self.cell("holdout", 0.25, 0.12))["meets_targets"], False)
-        self.assertIs(self.summary(*years[:2], self.cell("veto", 0.9, 0.25), self.cell("holdout", 0.35, 0.12))
+        self.assertEqual(self.verdict(self.summary(*years, self.cell("holdout", 0.25, 0.12))),
+                         (False, "veto and holdout", []))
+        self.assertIs(self.summary(*years[:2], self.cell("veto", 0.9, 0.25, label="2021"), self.HOLDOUT)
                       ["meets_targets"], False, "one veto year over the drawdown target fails the veto")
 
-    def test_without_a_countable_veto_year_the_holdout_alone_decides(self):
-        found = self.summary(self.cell("veto", -0.5, 0.6, whole=False), self.cell("holdout", 0.35, 0.12))
-        self.assertEqual((found["veto"]["meets_targets"], found["meets_targets"], found["judged_on"]),
-                         (None, True, "holdout"))
+    def test_a_test_without_a_whole_veto_year_is_judged_on_the_holdout_alone(self):
+        found = self.summary(self.cell("veto", -0.5, 0.6, whole=False), self.HOLDOUT)
+        self.assertEqual((found["veto"]["whole_years"], found["veto"]["meets_targets"], *self.verdict(found)),
+                         (0, None, True, "holdout", []))
+
+    def test_a_whole_veto_year_without_readings_leaves_the_verdict_undecided(self):
+        """Before, such a year left the veto's denominator: the others, or the holdout alone, decided."""
+        every = self.summary(self.unread("2020"), self.unread("2021", status=None), self.HOLDOUT)
+        self.assertEqual((every["veto"]["whole_years"], every["veto"]["meets_targets"], every["holdout"]["meets_targets"]),
+                         (2, None, True), "the years stay counted, and the holdout keeps its own verdict")
+        self.assertEqual(self.verdict(every), (None, None, ["veto 2020", "veto 2021"]), "not the holdout alone")
+        one = self.summary(self.cell("veto", 0.5, 0.1, label="2019"), self.unread("2020"),
+                           self.cell("veto", 0.4, 0.1, label="2021"), self.HOLDOUT)
+        self.assertEqual(self.verdict(one), (None, None, ["veto 2020"]))
+        self.assertEqual((one["veto"]["whole_years"], one["veto"]["profitable_years"], one["veto"]["median_annual_return"],
+                          one["veto"]["years_meeting_targets"], one["veto"]["meets_targets"]), (3, 2, 0.45, None, None),
+                         "the readings are those of the years read; no verdict on a part of the years")
+        over = self.summary(self.unread("2020"), self.cell("veto", 0.4, 0.5, label="2021"), self.HOLDOUT)
+        self.assertEqual(self.verdict(over), (None, None, ["veto 2020"]), "undecided whatever the other years read")
+        unknown = self.summary(self.cell("veto", None, 0.1), self.cell("veto", 0.4, 0.1, label="2021"), self.HOLDOUT)
+        self.assertEqual(self.verdict(unknown), (None, None, ["veto 2020"]), "a passed year without its annual return")
+
+    def test_a_year_takes_its_run_with_readings(self):
+        """A trial left without a run (the host died) is replayed again: the year reads its rerun."""
+        found = self.summary(self.unread("2020", status=None), self.cell("veto", 0.5, 0.1), self.HOLDOUT)
+        self.assertEqual((found["veto"]["whole_years"], *self.verdict(found)), (1, True, "veto and holdout", []))
+
+    def test_without_a_control_run_nothing_is_decided(self):
+        found = self.summary(self.cell("veto", 0.5, 0.1), self.HOLDOUT, control=False)
+        self.assertEqual((found["veto"]["meets_targets"], found["holdout"]["meets_targets"], *self.verdict(found)),
+                         (True, True, None, None, ["control"]))
+
+    def test_without_a_countable_holdout_or_targets_nothing_is_decided(self):
         short = self.summary(self.cell("veto", 0.5, 0.1), self.cell("holdout", 0.35, 0.12, short=True))
-        self.assertEqual((short["meets_targets"], short["judged_on"]), (None, None), "a short holdout counts in nothing")
+        self.assertEqual(self.verdict(short), (None, None, ["holdout"]), "a short holdout counts in nothing")
+        invalid = self.summary(self.cell("veto", 0.5, 0.1), {"kind": "holdout", "label": "holdout", "short": False})
+        self.assertEqual(self.verdict(invalid), (None, None, ["holdout"]))
+        self.assertEqual(self.verdict(self.summary(self.cell("veto", 0.5, 0.1), self.cell("holdout", 0.35, None))),
+                         (None, None, ["holdout"]))
+        every = self.summary(self.unread("2020"), control=False, targets=None)
+        self.assertEqual(self.verdict(every), (None, None, ["veto 2020", "control", "holdout", "targets"]))
+        self.assertEqual(self.verdict(self.summary(self.cell("veto", 0.5, 0.1), self.HOLDOUT, targets=None)),
+                         (None, None, ["targets"]))
 
 
 class DiscountTests(unittest.TestCase):
@@ -157,8 +229,9 @@ class HistoryRunTests(unittest.TestCase):
                          ("2026-02-01T00:00:00", "2026-04-01T00:00:00"), "the holdout, cut at the market's last day")
         self.assertEqual(row["summary"]["veto"]["whole_years"], 0)
         self.assertTrue(cells["holdout"]["short"], "two months of holdout in the fixture market")
-        self.assertEqual((row["summary"]["meets_targets"], row["summary"]["judged_on"]), (None, None),
-                         "neither a whole veto year nor a countable holdout to judge by")
+        self.assertEqual((row["summary"]["meets_targets"], row["summary"]["judged_on"], row["summary"]["missing"]),
+                         (None, None, ["holdout", "targets"]),
+                         "no whole veto year; no countable holdout to judge by, and the fixture line has no targets")
 
         backups = Path(tempfile.mkdtemp(prefix="backups-", dir="/tmp"))
         self.addCleanup(shutil.rmtree, backups, True)
@@ -233,3 +306,46 @@ class HistoryRunTests(unittest.TestCase):
         (row,) = report_history.research_history(world.profile, line=line)["lines"][0]["rows"]
         self.assertIs(row["control_reproduces"], False)
         self.assertIsNone(row["summary"])
+
+    def test_an_invalid_whole_veto_year_or_a_missing_control_leaves_the_verdict_undecided(self):
+        """20261114-12: before, the invalid year left the veto's denominator and a row without a control run was
+        judged all the same, so this row read `meets_targets` true twice."""
+        world = self.world
+        line = world.line["line"]
+        world.market = YearsMarket({MARKET_DAY: months_rows(YEARS_MONTHS)})
+        targets.set_targets(world.conn, world.line["line_id"], 0.2, 0.2)
+        registration, (ref,) = registered_grid(world, ["kept"])
+        entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
+        segments = lines.history_segments
+
+        def summary():
+            (row,) = report_history.research_history(world.profile, line=line)["lines"][0]["rows"]
+            return row["control_reproduces"], row["summary"]
+
+        def replay(count, **scenario):
+            world.scenario = {"returns": [0.001], **scenario}  # about 44% a year with no drawdown
+            return [(item["segment"], item["status"]) for item in
+                    history.run_history(world.profile, world.market, MARKET_DAY, line, limit=count)["ran"]]
+
+        with patch.object(replay_world, "inspect_stand_in", windowed):
+            self.assertEqual(replay(1), [("2023", "passed")])
+            self.assertEqual(replay(1, audit_passed=False, audit_exit=1), [("2024", "invalid")])
+            self.assertEqual(replay(1), [("2025", "passed")])
+            # the state the run order never leaves, a holdout run before the control's: the reading must not lean on it
+            with patch.object(lines, "history_segments", lambda *args: [
+                    item for item in segments(*args) if item["kind"] != "control"]):
+                self.assertEqual(replay(1), [("holdout", "passed")])
+            reproduces, found = summary()
+            self.assertIsNone(reproduces)
+            self.assertEqual((found["veto"]["whole_years"], found["veto"]["meets_targets"], found["holdout"]["meets_targets"]),
+                             (2, None, True), "2024 and 2025; 2023 starts in December")
+            self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]),
+                             (None, None, ["veto 2024", "control"]))
+            self.assertIsNone(found["holdout"]["deflated_sharpe"], "one participant leaves no variance")
+            self.assertEqual(replay(None), [("development", "passed")])
+        reproduces, found = summary()
+        self.assertTrue(reproduces)
+        self.assertEqual((found["veto"]["median_annual_return"] > 0.2, found["holdout"]["meets_targets"]), (True, True),
+                         "the year read and the holdout both reach the targets")
+        self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]), (None, None, ["veto 2024"]),
+                         "the invalid year cannot be replayed again: the row stays undecided")

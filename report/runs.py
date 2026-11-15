@@ -423,16 +423,30 @@ def directory_facts(reports: metrics.Reports, sealed: Mapping) -> dict:
             "trade_end_ns": metrics.utc_ns(summary["period_end_utc"]), "input_identity": {}}
 
 
-def directory_report(directory: Path, account: bool = False) -> dict:
-    """The report of an unsealed exploration or precheck directory with the sealed run's functions and
-    criterion, marked unverified; for the Agent's self-check before registering, never evidence."""
+def _directory_sealed(directory: Path) -> tuple[metrics.Reports, dict]:
     reports = load_directory(directory)
     try:
-        sealed = metrics.metrics(reports)
+        return reports, metrics.metrics(reports)
     except Refusal as exc:
         if exc.code != "REPORT_UNREADABLE":
             raise
         raise refuse("REPORT_PARSE_FAILED", exc.message, missing=exc.missing) from exc
+
+
+def technical_directory_report(directory: Path) -> dict:
+    """The technical part of an unsealed directory's report: its populations, activity and plan checks and
+    order funnel, with no return, drawdown, ratio, win rate or cost measure. What a precheck gives its author,
+    who has not yet registered the predictions such a measure would test."""
+    _, sealed = _directory_sealed(directory)
+    return {"directory": str(directory), "product_commit": metrics.product_commit(),
+            "populations": sealed["populations"], "activity": sealed["activity"],
+            "order_funnel": sealed["order_funnel"], "plans": plans(sealed), "limitations": [UNVERIFIED]}
+
+
+def directory_report(directory: Path, account: bool = False) -> dict:
+    """The report of an unsealed exploration or precheck directory with the sealed run's functions and
+    criterion, marked unverified; for the Agent's self-check before registering, never evidence."""
+    reports, sealed = _directory_sealed(directory)
     reasons = availability.native_reasons(sealed)
     if reports.audit is None:
         reasons.append("AUDIT_RESULT_MISSING: the directory holds no audit result")

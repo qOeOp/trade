@@ -31,6 +31,28 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   checkpoint that raises anything but a refusal is deferred instead of escaping its timer. A shell or script that
   matches seal reasons exactly sees a reason it did not know. Paper image only; the replay image is unchanged
   (doctor 20261114-34, the user 2026-11-15).
+||||||| d3e2f0fd4
+- Live (evidence pack): when a source unsubscribes from a contract's metrics, Live records `metrics_unsubscribed`
+  in `evidence/market.jsonl`. `live compare` no longer counts the archive rows after it as missing; it expects rows
+  again from the first one the source receives after resubscribing. Paper and Live hand no metrics row to a source
+  after it unsubscribed, including one already read in the same tick. The change gives a new runtime image.
+- Breaking (`research history`): a closing history test's combined verdict needs every reading it is defined on.
+  A whole veto year whose run is invalid or missing, or lacks a reading, used to drop out of the veto's count, so
+  the other years, or the holdout alone when every year was invalid, could read `meets_targets` true; a row without
+  a control run was judged too. Now `meets_targets` and `judged_on` are null in those cases and the summary's new
+  `missing` names what is lacking (`veto YEAR`, `control`, `holdout`, `targets`). `whole_years` counts every whole
+  veto year replayed, invalid ones included. Nothing is stored and no history run changes; the History page shows
+  such a row's verdict as a dash (doctor 20261114-12).
+- Live (finding 20261114-29, the part about answers of the wrong shape): an answer from Binance with HTTP 200 that
+  lacks what Live's own read-only client reads from it (the server time, the instrument list) is now the refusal
+  `LIVE_ACCOUNT_RESPONSE`, where the client raised `KeyError` or `TypeError`. A periodic comparison or a held start's
+  read that gets such an answer is read again, where the run ended `unresolved` (`observer_failure`) with the node
+  stopped and its positions left open. An entry's read is refused under that code and ends the run on the STOP path
+  (before: under the code `KeyError`); the brake's read is lost as before. The client still makes each request once.
+- Breaking (precheck output): `replay precheck` returns `technical` (populations, the activity and plan checks, the
+  order funnel) where it returned `metrics`, which carried annual return, drawdown, Sharpe, win rate and the cost
+  slices to the author before the registration. Nothing stored changes; `replay report` and the run reports after
+  registration are as before (doctor 20261114-14).
 - Breaking (clock callbacks): a callback a source registers with `clock.set_timer_zoned` is guarded like those of
   `set_timer` and `set_time_alert`. When it raises, the failure is recorded (`runtime_failures.jsonl`) and the run
   fails, where the engine used to log one error line and the run passed. In Paper such a timer now counts as a user
