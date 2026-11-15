@@ -40,7 +40,6 @@ from engine.live_venue import Credentials
 from engine.membership import month_end_ns
 from tests.engine.test_live import SOURCE
 from tests.engine.test_live_venue import fixture, venue_clock
-from tests.helpers import refused
 
 
 class DeferredAccount:
@@ -234,6 +233,18 @@ class NativeEntryTests(unittest.TestCase):
         self.advance()
         self.assertEqual([order.client_order_id for order in self.engine.cache.orders()], ids)
 
+    def assert_dispatch_refused(self, code, reason="entry_admission_failed"):
+        """The dispatch refuses the waiting entry without raising: it is journaled, nothing is sent, and the run is
+        failed and on the STOP path."""
+        ids = [order.client_order_id for order in self.engine.cache.orders()]
+        commands.dispatch_entry(self.session)
+        self.assertEqual(self.read_events("entry_refused")[-1]["code"], code)
+        self.assertTrue(self.session.failed and self.session.stopping)
+        self.assertEqual(self.read_events("stopping")[-1]["reason"], reason)
+        self.assertEqual(self.session.pending_entries, [])
+        self.advance()
+        self.assertEqual([order.client_order_id for order in self.engine.cache.orders()], ids)
+
     def equity_at(self, unrealized, now=0.0):
         """An account read with the fixture's 100 USDT wallet and this unrealized result."""
         snapshot = copy.deepcopy(self.snapshot)
@@ -419,6 +430,38 @@ class NativeEntryTests(unittest.TestCase):
             self.session.mode = "run"
             live_lifecycle.Observer.observe(observer)
         self.assertTrue(tick.call_args.args[1])  # a position is open
+
+    def test_an_entry_refused_at_dispatch_with_a_position_held_closes_it_on_the_stop_path(self):
+        # 20261114-22: the refusal used to reach Observer.tick's own failure path, which stops the node at once with
+        # the position open (`unresolved`, `observer_failure`).
+        position = self.owned_position()
+        stop = self.stop()
+        self.reader.release.clear()
+        self.reader.started.clear()
+        self.reader.failure = OSError("fixture account response unavailable")
+        entry = self.limit(price="95.00")
+        self.source.submit_order(entry)
+        self.assertTrue(self.reader.started.wait(2))
+        self.reader.release.set()
+        with self.assertRaises(OSError):
+            self.session.account_observation.result.result(timeout=2)
+        self.session.node = Mock()
+        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
+        observer.observe = partial(live_lifecycle.Observer.observe, observer)
+        with patch.object(live_brake, "tick"):
+            live_lifecycle.Observer.tick(observer, None)
+            self.assertEqual(self.read_events("stopping")[0]["reason"], "entry_admission_failed")
+            self.assertEqual([(row["client_order_id"], row["code"]) for row in self.read_events("entry_refused")],
+                             [(str(entry.client_order_id), "OSError")])
+            self.session.node.handle().stop.assert_not_called()  # the position is still open
+            self.advance("99.00", "100.00")
+            self.assertTrue(self.engine.cache.position(position.id).is_closed)
+            self.assertIsNone(self.engine.cache.order(entry.client_order_id))  # never sent
+            live_lifecycle.Observer.tick(observer, None)  # flat, and its stop went with the position
+        self.assertEqual(self.engine.cache.order(stop.client_order_id).status, OrderStatus.CANCELED)
+        self.session.node.handle().stop.assert_called_once()
+        self.assertTrue(self.session.native_flat and self.session.failed)
+        self.assertEqual(self.read_events("unresolved"), [])
 
     def test_an_interruption_withdraws_entries_and_keeps_the_position_and_its_stop(self):
         position = self.owned_position()
@@ -624,10 +667,7 @@ class NativeEntryTests(unittest.TestCase):
                     self.source.submit_order(entry)
                     observation = self.session.account_observation
                 self.finish_read(observation)
-                with self.assertRaises(LiveRefusal) as caught:
-                    commands.dispatch_entry(self.session)
-                self.assertEqual(caught.exception.code, "LIVE_CLOCK" if gate is None else "LIVE_ACCOUNT_RESPONSE")
-                self.assertTrue(self.session.failed and self.session.stopping)
+                self.assert_dispatch_refused("LIVE_CLOCK" if gate is None else "LIVE_ACCOUNT_RESPONSE")
                 self.assertIsNone(self.engine.cache.order(entry.client_order_id))
         self.assertEqual(self.read_events("entry_denied"), [])
 
@@ -636,8 +676,7 @@ class NativeEntryTests(unittest.TestCase):
         self.skewed(self.ahead())
         entry, observation = self.submit_pending(self.limit(quantity="3.500", price="95.00"))  # over 3 x equity
         self.finish_read(observation)
-        self.assertEqual(refused(commands.dispatch_entry, self.session, error=LiveRefusal).code, "LIVE_BUDGET")
-        self.assertTrue(self.session.failed and self.session.stopping)
+        self.assert_dispatch_refused("LIVE_BUDGET")
         self.assertEqual(self.read_events("entry_denied"), [])
         self.assertIsNone(self.engine.cache.order(entry.client_order_id))
 
@@ -659,10 +698,7 @@ class NativeEntryTests(unittest.TestCase):
         self.skewed(self.ahead(), self.ahead())
         first, observation = self.submit_pending(self.limit(price="95.00"))
         self.finish_read(observation)
-        try:
-            commands.dispatch_entry(self.session)
-        except LiveRefusal:
-            pass
+        commands.dispatch_entry(self.session)
         self.advance()
         self.assertEqual(self.engine.cache.order(first.client_order_id).status, OrderStatus.DENIED)
         [again] = made
@@ -998,7 +1034,7 @@ class NativeEntryTests(unittest.TestCase):
         self.source.stop()
         self.assertFalse(self.source.is_running())
         self.finish_read(observation)
-        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", partial(commands.dispatch_entry, self.session))
+        self.assert_dispatch_refused("LIVE_ENTRY_STOPPED")
         self.assert_no_orders()
         self.assertEqual(self.session.pending_entries, [])
         self.assertTrue(self.session.stopping)
@@ -1090,13 +1126,10 @@ class NativeEntryTests(unittest.TestCase):
     def test_the_exposure_limit_counts_the_open_position(self):
         self.owned_position()  # 0.5 at 100: 50 USDT of the 300 USDT limit
         order = self.limit(quantity="2.600")
-        with self.assertRaises(LiveRefusal):
-            self.source.submit_order(order)
-            self.session.account_observation.result.result(timeout=2)
-            commands.dispatch_entry(self.session)
-        self.advance()
+        self.source.submit_order(order)
+        self.session.account_observation.result.result(timeout=2)
+        self.assert_dispatch_refused("LIVE_BUDGET")
         self.assertIsNone(self.engine.cache.order(order.client_order_id))
-        self.assertTrue(self.session.stopping)
 
     def assert_pending_cancel(self, method):
         order, observation = self.submit_pending()
@@ -1139,7 +1172,7 @@ class NativeEntryTests(unittest.TestCase):
         # The fixture's wallet holds 100 USDT (available 199.9...), so the limit is 300.
         _, observation = self.submit_pending(self.limit(quantity="3.001"))
         self.finish_read(observation)
-        self.assert_refused_unchanged("LIVE_BUDGET", partial(commands.dispatch_entry, self.session))
+        self.assert_dispatch_refused("LIVE_BUDGET")
         self.assert_no_orders()
 
     def test_entry_at_three_times_equity_dispatches(self):
@@ -1157,7 +1190,7 @@ class NativeEntryTests(unittest.TestCase):
             asset.update(walletBalance="200", availableBalance="60")
         _, observation = self.submit_pending(self.limit(quantity="1.801"))
         self.finish_read(observation)
-        self.assert_refused_unchanged("LIVE_BUDGET", partial(commands.dispatch_entry, self.session))
+        self.assert_dispatch_refused("LIVE_BUDGET")
         self.assert_no_orders()
 
     def stop_entry(self, quantity):
@@ -1170,7 +1203,7 @@ class NativeEntryTests(unittest.TestCase):
     def test_a_stop_entry_over_three_times_equity_at_its_trigger_never_dispatches(self):
         _, observation = self.submit_pending(self.stop_entry("2.950"))  # 300.90 at the trigger
         self.finish_read(observation)
-        self.assert_refused_unchanged("LIVE_BUDGET", partial(commands.dispatch_entry, self.session))
+        self.assert_dispatch_refused("LIVE_BUDGET")
         self.assert_no_orders()
 
     def test_an_entry_outside_the_order_rules_shape_is_refused_as_in_replay(self):
@@ -1185,30 +1218,28 @@ class NativeEntryTests(unittest.TestCase):
         _, observation = self.submit_pending()
         (self.root / "STOP").write_text("")
         self.finish_read(observation)
-        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", partial(commands.dispatch_entry, self.session))
+        self.assert_dispatch_refused("LIVE_ENTRY_STOPPED", reason="requested")
         self.assert_no_orders()
 
     def test_storage_failure_during_observation_never_dispatches_entry(self):
         _, observation = self.submit_pending()
         self.session.persistence_failed = True
         self.finish_read(observation)
-        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", partial(commands.dispatch_entry, self.session))
+        self.assert_dispatch_refused("LIVE_ENTRY_STOPPED")
         self.assert_no_orders()
 
     def test_stale_snapshot_cannot_dispatch(self):
         self.reader.snapshot_value["observed_ns"] -= 60_000_000_000
         _, observation = self.submit_pending()
         self.finish_read(observation)
-        with self.assertRaises(LiveRefusal):
-            commands.dispatch_entry(self.session)
-        self.advance()
+        self.assert_dispatch_refused("LIVE_OBSERVATION_STALE")
         self.assert_no_orders()
 
     def test_observation_deadline_expiry_discards_even_completed_result(self):
         _, observation = self.submit_pending()
         self.finish_read(observation)
         with patch.object(live.time, "monotonic", return_value=observation.deadline + 1):
-            self.assert_refused_unchanged("LIVE_OBSERVATION_STALE", partial(commands.dispatch_entry, self.session))
+            self.assert_dispatch_refused("LIVE_OBSERVATION_STALE")
         self.assert_no_orders()
         self.assertEqual(self.session.pending_entries, [])
 
@@ -1218,26 +1249,21 @@ class NativeEntryTests(unittest.TestCase):
         self.reader.release.set()
         with self.assertRaises(OSError):
             observation.result.result(timeout=2)
-        with self.assertRaises(OSError):
-            commands.dispatch_entry(self.session)
-        self.advance()
+        self.assert_dispatch_refused("OSError")
         self.assert_no_orders()
-        self.assertTrue(self.session.stopping)
 
     def test_changed_account_mode_in_fresh_snapshot_never_dispatches(self):
         self.reader.snapshot_value["config"]["dualSidePosition"] = False
         _, observation = self.submit_pending()
         self.finish_read(observation)
-        self.assert_refused_unchanged("LIVE_ACCOUNT_MODE", partial(commands.dispatch_entry, self.session))
+        self.assert_dispatch_refused("LIVE_ACCOUNT_MODE")
         self.assert_no_orders()
 
     def test_foreign_exposure_discovered_by_fresh_read_cannot_dispatch(self):
         self.reader.snapshot_value["orders"] = [{"symbol": "ETHUSDT"}]
         _, observation = self.submit_pending()
         self.finish_read(observation)
-        with self.assertRaises(LiveRefusal):
-            commands.dispatch_entry(self.session)
-        self.advance()
+        self.assert_dispatch_refused("LIVE_ACCOUNT_NOT_FLAT")
         self.assert_no_orders()
 
     def test_disconnect_discards_late_future_and_never_rearms(self):
