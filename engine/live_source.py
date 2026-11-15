@@ -38,6 +38,7 @@ class _LiveConfigured(history.Warming, metrics.Feed):
     config: Any
     _orders_allowed: Any  # engine.order_rules.OrderRules, after this class in the source's bases
     _source_constructor_args: tuple[tuple, dict]
+    _runner_reads_funding: bool
 
     def __new__(cls, session, loaded, symbol, start, membership):
         iid = contract(symbol)
@@ -57,7 +58,8 @@ class _LiveConfigured(history.Warming, metrics.Feed):
         strategy_runtime.declare(self, loaded.warmup)
         self._warming_setup(kwargs["strategy_id"], args[0], kwargs["trade_start_ns"], loaded.warmup, loaded.funding,
                             functools.partial(history.fetch, catalog=session.catalog(),
-                                              proxy_url=session.manifest["config"].get("proxy_url")))
+                                              proxy_url=session.manifest["config"].get("proxy_url")),
+                            follows=self._runner_reads_funding)
         self._metrics_setup(functools.partial(metrics.read, proxy_url=session.manifest["config"].get("proxy_url")))
         super().__init__(*args, **kwargs)
         self._replay_input_start_ns = kwargs["trade_start_ns"]
@@ -303,6 +305,11 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     strategy_runtime.SERVED["Metrics"].clear()
     strategy_runtime.SERVED["Metrics"].update(str(contract(symbol)) for symbol in session.manifest["symbols"])
     callbacks = strategy_runtime.guarded_callbacks(loaded.strategy_class)
+    funding = callbacks.get("on_funding_rate")
+    # The settlement of T's hour reaches the source as the stream's would, past the cadence (engine.history, step 6).
+    callbacks["_runner_reads_funding"] = funding is not None
+    if funding:
+        callbacks["_warming_settled"] = _gated("on_funding_rate", funding)
     for name in ("on_mark_price", "on_funding_rate"):
         if callbacks.get(name):
             callbacks[name] = _at_cadence(name, callbacks[name])

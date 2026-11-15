@@ -103,6 +103,16 @@ Paper and Live warm a source the same way at their own T, the first whole minute
 start (`history.py`). From T + 15 s (a just-closed Binance kline was final by then in every probe) they fetch
 the history and the minutes of [floor(T, P), T) from Binance's public klines (`klines.py`, no credential) into a
 temporary Catalog and request them natively as a replay does, and read the declared funding settlements. The first live minute must close at T + 1 min.
+Binance stamps a settlement at its hour or some milliseconds after it. At a T on a settlement hour, a replay streams
+a settlement stamped after T to a source subscribed in `on_start`, and one stamped T itself only when its window
+starts at T (`on_start` then runs before the first data); the live stream passes both before a Paper or Live source
+subscribes. For a source that defines `on_funding_rate` and starts on a whole hour, the warm-up therefore reads the
+funding-rate history too (declared or not, with the same wait and deadline). When the source subscribed to its
+contract's funding by the end of `on_start`, a settlement stamped after T then goes to `on_funding_rate`, the
+replay's update at the replay's stamps and rate; so does one stamped T unless the source declares a funding history
+or a bar history other than daily bars, since the replay a run is compared with then starts before T. Later settlements
+come from the stream (`engine.cadence`): the settled rate, stamped at the settlement's hour where a replay stamps
+Binance's settlement time (0 to 7 ms later in the settlements of 2026-11 sampled, 13 ms in one of 2025-10).
 Klines that miss or are not adjacent are `WARMUP_INSUFFICIENT` or `WARMUP_NOT_ADJACENT`, and a fetch or
 delivery not done by T + 45 s is `WARMUP_TIMEOUT`; no order can go out before the warm-up ends. Paper
 refuses the run and Live stops it. A live aggregation closes on a timer, but the bucket's last Binance minute

@@ -16,7 +16,9 @@ corrects where it can:
 - MARK updates arrive every second; the strategy gets the first of each minute, as the replay gives one per
   minute.
 - Funding estimates arrive every second; the strategy gets one update per settlement, stamped at the
-  settlement, as the replay does.
+  settlement's hour (the replay's is stamped at Binance's settlement time, up to some milliseconds later). The
+  settlement of a T on a settlement hour is read from Binance's funding-rate history and given after on_start when
+  the replay streams it then (engine.history).
 - An instance starts at T, the first whole minute at least half a minute after the runner starts (engine.history):
   its declared WARMUP history and the minutes that warm its aggregations are read from Binance's public klines into
   a temporary Catalog and served as a replay serves them, so its first aggregated bars are complete.
@@ -227,6 +229,7 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
     _source_constructor_args: tuple[tuple, dict]
     _runner_warmup: tuple[tuple[str, int], ...]
     _runner_funding: int
+    _runner_reads_funding: bool
 
     def __new__(cls, inputs: PaperInputs):
         iid = InstrumentId.from_str(inputs.instrument_id)
@@ -247,7 +250,8 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
         declared = vars(type(self))["_runner_warmup"]
         strategy_runtime.declare(self, declared)
         self._warming_setup(kwargs["strategy_id"], args[0], inputs.warm_at, declared,
-                            vars(type(self))["_runner_funding"], FETCH[0] if FETCH else None)
+                            vars(type(self))["_runner_funding"], FETCH[0] if FETCH else None,
+                            follows=vars(type(self))["_runner_reads_funding"])
         self._metrics_setup(READ_METRICS[0] if READ_METRICS else None)
         super().__init__(*args, **kwargs)
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
@@ -410,6 +414,10 @@ def paper_callbacks(strategy_class: type) -> dict:
         else:
             release_before(update)
 
+    def _warming_settled(self, update):
+        """The settlement of T's hour (engine.history, step 6): data like any other, held until the next dispatch."""
+        _hold(self, source["on_funding_rate"], update, update)
+
     def on_order_event(self, event):
         journal("order", strategy_id=str(event.strategy_id), **_event_fields(event))
         _late(self, event)
@@ -422,7 +430,8 @@ def paper_callbacks(strategy_class: type) -> dict:
             return source["on_position_event"](self, event)
 
     callbacks = {**found, **held, "on_mark_price": on_mark_price, "on_funding_rate": on_funding_rate,
-                 "on_order_event": on_order_event, "on_position_event": on_position_event}
+                 "on_order_event": on_order_event, "on_position_event": on_position_event,
+                 "_warming_settled": _warming_settled, "_runner_reads_funding": bool(source["on_funding_rate"])}
     return {**{name: mutation(value) if callable(value) else value for name, value in callbacks.items()},
             "clock": property(_paper_clock)}
 
