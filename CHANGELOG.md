@@ -22,6 +22,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Live's evidence pack records each metrics row its source receives (`metrics`), and `live compare` checks them
+  against the archive's rows as a replay streams them: missing, late, differing and Live-only rows per contract, and
+  a new difference cause `metrics` after the bar causes. `historical_funding` rows drop `ts_init`, always their
+  `ts_event`. Comparison results are `run-comparison@2026-11-15`.
 - Breaking (metrics replays): `--metrics` exports by the rule `binance-metrics-visible-v2`, which gives the values
   Binance's public REST shows: the long/short ratios at 4 decimals, each account ratio the quotient of its long and
   short shares rounded to 4 decimals first; open interest and the stamps are unchanged. Every replay that reads

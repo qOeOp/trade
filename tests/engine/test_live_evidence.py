@@ -3,6 +3,7 @@ failed write never changes the run. Live warms its source at T from Binance's kl
 (engine.history), offline here: a BacktestEngine drives the Live wrapper and synthetic klines stand in for
 Binance's."""
 
+from decimal import Decimal
 import gc
 import hashlib
 import json
@@ -15,7 +16,7 @@ from unittest.mock import Mock
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.model import (
-    Bar, MarkPriceUpdate, Price, Quantity, TraderId, Venue,
+    Bar, CustomData, MarkPriceUpdate, Price, Quantity, TraderId, Venue,
 )
 from nautilus_trader.persistence import DataCatalogConfig
 
@@ -24,6 +25,7 @@ from engine.config import Refusal
 from engine.live_evidence import EVIDENCE, MARKET, Evidence
 from engine.report import ORDER_EVENTS, write_order_events, write_reports
 from engine.run import ACCOUNT_CONTRACT, add_venue
+from engine.strategy import Metrics, metrics_data_type
 from tests.engine import test_fill_model as fixture
 from tests.engine.test_live import SOURCE
 from tests.engine.test_live_venue import MARKET_DAY
@@ -101,10 +103,20 @@ class LiveEvidenceTests(unittest.TestCase):
                 "kind": "bar", "bar_type": str(fixture.BAR_TYPE), "instrument_id": str(fixture.INSTRUMENT_ID),
                 "ts_event": first, "ts_init": first, "open": "100.00", "high": "101.00", "low": "99.00",
                 "close": "100.00", "volume": "40.000"})
-            # After a stop request the source hears no further bar, and none is recorded as received.
+            # A metrics row the source receives (engine.metrics), though it defines no on_data, a missing ratio null.
+            iid = str(fixture.INSTRUMENT_ID)
+            metered = Metrics(fixture.INSTRUMENT_ID, Decimal("97897.5650000000000000"), Decimal("3.6904000000000000"),
+                              None, Decimal("3.0900000000000000"), first, first + 5 * MINUTE_NS)
+            source.on_data(CustomData(metrics_data_type(iid), metered))
+            self.assertEqual({key: value for key, value in rows(self.output)[-1].items() if key != "wall_ns"}, {
+                "kind": "metrics", "instrument_id": iid, "ts_event": first,
+                "sum_open_interest": "97897.5650000000000000", "count_toptrader_long_short_ratio": "3.6904000000000000",
+                "sum_toptrader_long_short_ratio": None, "count_long_short_ratio": "3.0900000000000000"})
+            # After a stop request the source hears no further bar or row, and none is recorded as received.
             (self.output / "STOP").write_text("")
             source.on_bar(bar(first + 2 * MINUTE_NS))
-            self.assertEqual(len(rows(self.output)), 3)
+            source.on_data(CustomData(metrics_data_type(iid), metered))
+            self.assertEqual(len(rows(self.output)), 4)
             self.assertEqual(source.observed, ["start", "bar", "bar"])
         finally:
             engine.dispose()

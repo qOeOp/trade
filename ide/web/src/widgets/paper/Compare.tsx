@@ -13,6 +13,7 @@ const STAGE: Record<Stage, string> = { decision: "Order", fill: "Fill", fee: "Fe
 const KIND: Record<RowClass, string> = { same: "same", time: "time", type: "type", quantity: "size", price: "price", amount: "amount", run_only: "only on paper", replay_only: "only in the replay" };
 const CAUSE: Record<Exclude<Cause, "consequence">, string> = {
   missing_bar: "a live bar was missing", late_bar: "a live bar arrived late", bar_mismatch: "a live bar differed from the archive",
+  metrics: "the metrics received differed from the archive", entry_gate: "Live's entry gate held or withdrew the entry",
   warmup: "the warm-up differed from the archive", contract_terms: "the contract terms or fee rates differed", window_end: "at the stop", unexplained: "unexplained" };
 const ROLE: Record<string, string> = { entry: "entry", stop: "stop", target: "target" };
 

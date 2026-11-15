@@ -203,15 +203,15 @@ def native_event(event) -> dict:
         for name in fields if (value := getattr(event, name, None)) is not None}}
 
 
-# The bars and funding history the source receives go to the evidence pack (engine.live_evidence), whether or not it
-# handles them.
-RECORDED_BARS = {"on_bar": "bar", "on_historical_bars": "historical_bar",
-                 "on_historical_funding_rates": "historical_funding"}
+# The bars, funding history and metrics the source receives go to the evidence pack (engine.live_evidence), whether
+# or not it handles them.
+RECORDED = {"on_bar": "bar", "on_historical_bars": "historical_bar",
+                 "on_historical_funding_rates": "historical_funding", "on_data": "metrics"}
 
 
 def _gated(name: str, method):
-    """The callback, unless a stop was asked for; a bar it receives is recorded first."""
-    kind = RECORDED_BARS.get(name)
+    """The callback, unless a stop was asked for; a bar or metrics row it receives is recorded first."""
+    kind = RECORDED.get(name)
 
     def call(self, *args, **kwargs):
         if self._live.observe_stop_intent():
@@ -234,6 +234,9 @@ def _gated(name: str, method):
         elif kind == "historical_funding":
             for update in args[0]:
                 self._live.evidence.settlement(update)
+        elif kind == "metrics":
+            if isinstance(getattr(args[0], "data", None), strategy_runtime.Metrics):
+                self._live.evidence.metrics(args[0].data)
         elif kind is not None:
             for bar in args[0]:
                 self._live.evidence.bar(bar, kind)
@@ -272,7 +275,7 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     for name in (*strategy_runtime.DATA_CALLBACKS, "on_start", "on_historical_data", "on_historical_bars",
                  "on_historical_funding_rates"):
         original = callbacks.get(name)
-        if original or name in RECORDED_BARS:
+        if original or name in RECORDED:
             callbacks[name] = _gated(name, original)
     for name in ("on_order_event", "on_position_event"):
         original = callbacks.get(name)

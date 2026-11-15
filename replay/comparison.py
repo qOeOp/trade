@@ -51,7 +51,7 @@ from shared import paths
 from shared.refusals import refuse
 
 
-FORMAT = "run-comparison@2026-11-12"
+FORMAT = "run-comparison@2026-11-15"
 MINUTE_NS = 60 * 10**9
 MILLISECOND_NS = 10**6
 ON_TIME_NS = MINUTE_NS  # a decision or fill within one bar of its counterpart is on time
@@ -61,8 +61,11 @@ LISTED = 50  # bars listed per contract and kind; the counts are complete
 ROLES = {"ENTRY": "entry", "STOP_LOSS": "stop", "TAKE_PROFIT": "target"}
 BAR_FIELDS = ("open", "high", "low", "close", "volume")
 MINUTE_BAR = "1-MINUTE-LAST-EXTERNAL"
-CAUSES = ("missing_bar", "late_bar", "bar_mismatch", "warmup", "contract_terms", "window_end",
+CAUSES = ("missing_bar", "late_bar", "bar_mismatch", "metrics", "warmup", "contract_terms", "window_end",
           "entry_gate")  # in this order
+METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
+                  "count_long_short_ratio")
+METRICS_VISIBLE_NS = 5 * MINUTE_NS  # a metrics row reaches the source 5 minutes after ts_event (market.export)
 STAGES = ("decision", "fill", "fee", "funding")  # a group's first difference is looked for in this order
 FINAL = {"OrderFilled": "filled", "OrderCanceled": "canceled", "OrderExpired": "expired",
          "OrderRejected": "rejected", "OrderDenied": "denied"}
@@ -384,6 +387,50 @@ def bars(run_bars: list[dict], archive: Mapping[str, list[list]], start: int, en
     return result
 
 
+def compare_metrics(run_rows: Iterable[Mapping], archive: Mapping[str, list[list]], end: int) -> dict[str, dict]:
+    """Per contract whose source received metrics (Live's evidence pack), the rows it received against those a replay
+    streams (`archive`: {symbol: [[ts_event, four values as text or None]]}, archive_metrics), each by the instant it
+    reached the source (ts_event + METRICS_VISIBLE_NS), from the first it received to `end`: {archive, live, missing,
+    late, live_only, differing: {instant: {field: [live, archive]}}}. A ratio the archive held at a tie of REST's 4th
+    decimal may differ by 0.0001 (docs/plans/binance-metrics-rest-parity.zh.md)."""
+    live: dict[str, dict[int, Mapping]] = {}
+    for line in run_rows:
+        if line["ts_event"] + METRICS_VISIBLE_NS < end:
+            live.setdefault(symbol_of(line["instrument_id"]), {})[line["ts_event"] + METRICS_VISIBLE_NS] = line
+    result = {}
+    for symbol, mine in live.items():
+        first = min(mine)
+        stored = {row[0] + METRICS_VISIBLE_NS: dict(zip(METRICS_VALUES, row[1:], strict=True))
+                  for row in archive.get(symbol, []) if first <= row[0] + METRICS_VISIBLE_NS < end}
+        differing = {}
+        for at, row in stored.items():
+            if at in mine:
+                fields = {name: [mine[at].get(name), row[name]] for name in METRICS_VALUES
+                          if _amount(mine[at].get(name)) != _amount(row[name])}
+                if fields:
+                    differing[at] = fields
+        late = sorted(at for at, line in mine.items()
+                      if isinstance(line.get("wall_ns"), int) and line["wall_ns"] - at > LATE_NS)
+        result[symbol] = {"archive": len(stored), "live": len(mine), "late": late,
+                          "missing": sorted(set(stored) - set(mine)), "live_only": sorted(set(mine) - set(stored)),
+                          "differing": differing}
+    return result
+
+
+def archive_metrics(opened, market_day: str, symbol: str, low: int, end: int) -> list[list]:
+    """The metrics rows a replay streams of `symbol` from ts_event `low` that reach it before `end`
+    (market.export.metrics_rows, the ratios as shown_ratio gives them): [[ts_event, *METRICS_VALUES], ...], the values
+    as text or None."""
+    from market import export, files
+    rows = export.metrics_rows(opened, market_day, symbol, low // MILLISECOND_NS, None, end // MILLISECOND_NS)
+    found = []
+    for row in rows:
+        stored = dict(zip(files.METRICS_VALUES, row[1:], strict=True))
+        found.append([(row[0] + export.METRICS_DESCRIBES_MS) * MILLISECOND_NS, text(stored[METRICS_VALUES[0]]),
+                      *(text(export.shown_ratio(name, stored[name])) for name in METRICS_VALUES[1:])])
+    return found
+
+
 def digest(rows: Iterable[tuple]) -> dict:
     """A history as engine.paper.warmup_digest records it: rows (ts_event, open, high, low, close, volume) as text."""
     found = list(rows)
@@ -548,7 +595,8 @@ def _gated(group: Mapping, gate: Mapping) -> bool:
 
 
 def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[str, dict],
-              contract: Mapping[str, dict], start: int, end: int, gate: Mapping | None = None) -> list[dict]:
+              contract: Mapping[str, dict], start: int, end: int, gate: Mapping | None = None,
+              metered: Mapping[str, dict] | None = None) -> list[dict]:
     """Each group pair with its cause when it differs (CAUSES, in order; else unexplained), whether it is a
     look-ahead suspect, or the earlier difference it follows."""
     agreed: dict[str, int] = {}  # the decision of the contract's latest agreeing group
@@ -572,15 +620,21 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
         evidence: dict = {"missing_bars": len(_within(inputs["missing"], since, last)),
                     "late_bars": len(_within(inputs["late"], since, last)),
                     "differing_bars": len(_within(inputs["differing"], since, last))}
-        listed = (_within(inputs["missing"], since, last) + _within(inputs["late"], since, last)
-                  + _within(inputs["differing"], since, last))
+        rows = (metered or {}).get(symbol) or empty
+        evidence |= {"missing_metrics": len(_within(rows["missing"], since, last)),
+                     "late_metrics": len(_within(rows["late"], since, last)),
+                     "differing_metrics": len(_within(rows["differing"], since, last))}
+        listed = [at for item in (inputs, rows) for kind in ("missing", "late", "differing")
+                  for at in _within(item[kind], since, last)]
         evidence["first"] = utc_text(min(listed)) if listed else None
         warm = warmed.get(symbol)
         evidence["warmup"] = bool(warm and not warm["same"] and first < start + warm["reach_ns"])
         item = contract.get(symbol) or {"differs": [], "fees": []}
         evidence["terms"] = item["differs"] + (item["fees"] if group["stage"] == "fee" else [])
         known = {"missing_bar": evidence["missing_bars"] > 0, "late_bar": evidence["late_bars"] > 0,
-                 "bar_mismatch": evidence["differing_bars"] > 0, "warmup": evidence["warmup"],
+                 "bar_mismatch": evidence["differing_bars"] > 0,
+                 "metrics": evidence["missing_metrics"] + evidence["late_metrics"] + evidence["differing_metrics"] > 0,
+                 "warmup": evidence["warmup"],
                  "contract_terms": bool(evidence["terms"]),
                  "window_end": _alone(group, ("run_only", "replay_only")) and last >= end - MINUTE_NS, "entry_gate": _gated(group, gate or {})}
         cause = next((name for name in CAUSES if known[name]), "unexplained")
@@ -649,14 +703,25 @@ def replay_equity(reports: Path, minutes: list[int]) -> list[list]:
 
 # The whole comparison
 
+def _listed_metrics(item: Mapping) -> dict:
+    """A contract's metrics comparison as comparison.json lists it: complete counts, the first LISTED of each kind."""
+    return {"archive": item["archive"], "live": item["live"],
+            **{f"{kind}_metrics": len(item[kind]) for kind in ("missing", "late", "differing", "live_only")},
+            **{kind: [utc_text(at) for at in item[kind][:LISTED]] for kind in ("missing", "late", "live_only")},
+            "differing": [{"at": utc_text(at), "fields": fields} for at, fields in list(item["differing"].items())[:LISTED]]}
+
+
 def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str, list[list]],
             reports: Path | None, start: int, end: int, *, archived_warmup: Mapping | None = None,
-            replay_terms: Mapping | None = None, replay_fees: Mapping | None = None) -> dict:
-    """A run against its replay. `run`: {bars, warmup ({instrument: {period: digest}}), events (native order
-    events), settlements (funding), equity ([(minute, value)]), terms ({symbol: terms}), fees ({symbol: {maker, taker}})}.
+            replay_terms: Mapping | None = None, replay_fees: Mapping | None = None,
+            archived_metrics: Mapping | None = None) -> dict:
+    """A run against its replay. `run`: {bars, warmup ({instrument: {period: digest}}), metrics (rows received, Live
+    alone), events (native order events), settlements (funding), equity ([(minute, value)]), terms ({symbol: terms}),
+    fees ({symbol: {maker, taker}})}.
     `replay_events` None means the replay wrote no order events: its orders are unknown, not none."""
     found = bars(run.get("bars") or [], archive, start, end)
     warmed = warmup(run.get("warmup") or {}, archived_warmup or {})
+    metered = compare_metrics(run.get("metrics") or [], archived_metrics or {}, end)
     contract = terms(sorted(archive), run.get("terms") or {}, traded_terms(replay_terms or {}, reports), run.get("fees"),
                      replay_fees)
     inputs = {symbol: {"bars": {**{key: item[key] for key in ("archive", "live")},
@@ -670,6 +735,7 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
                                 "live_only": [utc_text(close) for close in item["live_only"][:LISTED]],
                                 "differing": [{"close": utc_text(close), "fields": fields}
                                               for close, fields in list(item["differing"].items())[:LISTED]]},
+                       "metrics": _listed_metrics(metered[symbol]) if symbol in metered else None,
                        "warmup": warmed.get(symbol), "terms": contract.get(symbol)}
               for symbol, item in found.items()}
     run_orders = orders(run.get("events") or [])
@@ -678,6 +744,8 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
                "late_bars": sum(len(item["late"]) for item in found.values()),
                "early_bars": sum(len(item["early"]) for item in found.values()),
                "differing_bars": sum(len(item["differing"]) for item in found.values()),
+               **{f"{kind}_metrics": sum(len(item[kind]) for item in metered.values())
+                  for kind in ("missing", "late", "differing")},
                "warmup_differs": sum(not item["same"] for item in warmed.values()),
                "terms_differ": sum(bool(item["differs"] or item["fees"]) for item in contract.values())}
     compared = None
@@ -688,7 +756,7 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
         replay_orders = orders(replay_events)
         mine, theirs = run_funding(run.get("settlements") or []), replay_funding(reports)
         compared = attribute([compare_group(a, b, mine, theirs) for a, b in pair(groups(run_orders), groups(replay_orders))],
-                             found, warmed, contract, start, end, run.get("gate"))
+                             found, warmed, contract, start, end, run.get("gate"), metered)
         summary |= {"replay_orders": len(replay_orders),
                     "replay_fills": sum(bool(item["filled"]) for item in replay_orders),
                     "groups": len(compared),
@@ -791,7 +859,7 @@ def replay_and_compare(run: Mapping, market: dict, market_day: str, archived: Ma
                        timeout: float | None) -> tuple[Path, dict, dict]:
     """(the new temporary directory, the replay's status, the comparison): the run's source replayed into
     `output`/replay on the warm-up the run received, and `run` compared with it against the `archived` minutes, the
-    contract terms at `market_day`, the warm-up the archive gives and the fees the market assumes."""
+    contract terms at `market_day`, the warm-up and metrics the archive gives and the fees the market assumes."""
     from market import files, instrument
     opened = files.open_market(market, "reader")
     replay_terms = {symbol: instrument.terms(opened, market_day, symbol) for symbol in symbols}
@@ -799,10 +867,16 @@ def replay_and_compare(run: Mapping, market: dict, market_day: str, archived: Ma
     archived_warmup = {symbol: archive_warmup(market, market_day, symbol, start,
                                               received.get(instrument_id(symbol), {}), replay_terms[symbol])
                        for symbol in symbols}
+    firsts: dict[str, int] = {}
+    for row in run.get("metrics") or []:
+        firsts[symbol_of(row["instrument_id"])] = min(row["ts_event"], firsts.get(symbol_of(row["instrument_id"]), end))
+    archived_metrics = {symbol: archive_metrics(opened, market_day, symbol, first, end)
+                        for symbol, first in firsts.items()}
     output = paths.temporary_path(output)
     output.mkdir(mode=0o700, parents=True)
     replayed, events, reports = replay(market, market_day, source, entry_class, image_ref, symbols, start, end,
                                        leverage, starting_balance, output / "replay", name, timeout, received)
     return output, replayed, compare(run, events, archived, reports, start, end, archived_warmup=archived_warmup,
+                                     archived_metrics=archived_metrics,
                                      replay_terms=replay_terms, replay_fees={"maker": instrument.ASSUMED["maker_fee"],
                                                                             "taker": instrument.ASSUMED["taker_fee"]})
