@@ -99,6 +99,73 @@ class HoldTests(unittest.TestCase):
         self.assertEqual((late[0].kwargs["code"], late[0].kwargs["released_ns"]), ("PAPER_RELEASE_LATE", DAY))
 
 
+class MetricsJournalTests(unittest.TestCase):
+    """engine.paper journals each metrics row the Feed hands a source and each unsubscribe of metrics it followed,
+    which `paper compare` checks against the archive (replay.comparison.compare_metrics)."""
+
+    setUp = HoldTests.setUp
+
+    def row(self, ts_event: int = DAY):
+        from nautilus_trader.model import CustomData
+        from engine.strategy import Metrics, metrics_data_type
+        found = Metrics(IID, Decimal("97897.565").quantize(Decimal("1e-16")), Decimal("3.6904"), None,
+                        Decimal("2.0001"), ts_event, ts_event + 5 * MINUTE_NS)
+        return CustomData(metrics_data_type(str(IID)), found)
+
+    def instance(self, seen: list | None):
+        class Reads:
+            def on_data(self, data):
+                seen.append(data.data.ts_event)
+
+        class Ignores:
+            pass
+        instance = type("Metered", (), {**paper.paper_callbacks(Ignores if seen is None else Reads), "clock": None})()
+        instance._paper_held, instance._paper_released_ns = [], 0
+        paper.strategy_runtime.STRATEGIES["BTC"] = instance
+        return instance
+
+    def test_each_row_handed_over_is_journalled_before_it_is_held_whether_or_not_the_source_reads_it(self):
+        for seen in ([], None):
+            with self.subTest(reads=seen is not None), mock.patch.object(paper, "journal") as journal:
+                self.instance(seen).on_data(self.row())
+                self.assertEqual(journal.call_args_list, [mock.call(
+                    "metrics", instrument_id=str(IID), ts_event=DAY, sum_open_interest="97897.5650000000000000",
+                    count_toptrader_long_short_ratio="3.6904", sum_toptrader_long_short_ratio=None,
+                    count_long_short_ratio="2.0001")])
+                if seen is not None:
+                    self.assertEqual(seen, [], "held until the next data dispatch, as every data callback")
+                    paper.release_before(HoldTests.bar(DAY + 1))
+                    self.assertEqual(seen, [DAY])
+
+    def test_the_feeds_hand_over_reaches_the_journal_through_the_paper_class(self):
+        """The class paper_class builds: engine.metrics.Feed's own step hands the row to the journalling on_data."""
+        from engine import metrics
+
+        class Ignores:
+            pass
+        cls = type("PaperMetered", (paper._PaperConfigured, Ignores), {**paper.paper_callbacks(Ignores), "clock": None})
+        source = object.__new__(cls)
+        source._metrics_setup(None)
+        found = {name: Decimal("1.5").quantize(metrics.EXACT) for name in metrics.ENDPOINTS}
+        state = {"instrument_id": str(IID), "ts_event": DAY, "found": found, "thread": None, "retry_ns": 0}
+        with mock.patch.object(paper, "journal") as journal:
+            self.assertTrue(source._metrics_step(state, DAY + metrics.VISIBLE_NS))
+        self.assertEqual(journal.call_args_list, [mock.call("metrics", instrument_id=str(IID), ts_event=DAY,
+                                                            **{name: "1.5000000000000000" for name in metrics.ENDPOINTS})])
+
+    def test_an_unsubscribe_of_metrics_the_source_followed_is_journalled(self):
+        source = object.__new__(paper._PaperConfigured)
+        source._metrics_followed = {str(IID): {}}
+        clock = mock.Mock(**{"timer_names.return_value": ["runner-metrics"]})
+        with mock.patch.object(paper._PaperConfigured, "_metrics_clock", return_value=clock), \
+                mock.patch.object(paper, "journal") as journal:
+            source._metrics_unfollow(str(IID))
+            source._metrics_unfollow(str(IID))  # no longer followed: nothing to record
+        self.assertEqual(journal.call_args_list, [mock.call("metrics_unsubscribed", instrument_id=str(IID))])
+        self.assertEqual(source._metrics_followed, {})
+        clock.cancel_timer.assert_called_with("runner-metrics")
+
+
 class TradeSubscriptionTests(unittest.TestCase):
     def test_a_trade_or_unserved_metrics_subscription_stops_the_run(self):
         self.assertTrue(issubclass(paper._PaperConfigured, paper.strategy_runtime.Subscriptions))

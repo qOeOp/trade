@@ -398,12 +398,13 @@ def _followed(arrivals: Iterable[int], unsubscribed: list[int], end: int) -> lis
 
 
 def compare_metrics(run_rows: Iterable[Mapping], archive: Mapping[str, list[list]], end: int) -> dict[str, dict]:
-    """Per contract whose source received metrics (Live's evidence pack), the rows it received against those a replay
-    streams (`archive`: {symbol: [[ts_event, four values as text or None, ties]]}, archive_metrics), each by the
-    instant it reached the source (ts_event + METRICS_VISIBLE_NS), while it followed them: from the first it received
-    to its unsubscribe (`metrics_unsubscribed`, at its wall_ns), and again from the first it received after one, up to
-    `end`: {archive, live, missing, late, live_only, differing: {instant: {field: [live, archive]}}}. A row due before
-    the unsubscribe and not received counts as missing, also one due at a bar close the source unsubscribed on.
+    """Per contract whose source received metrics (Live's evidence pack, Paper's journal), the rows it received
+    against those a replay streams (`archive`: {symbol: [[ts_event, four values as text or None, ties]]},
+    archive_metrics), each by the instant it reached the source (ts_event + METRICS_VISIBLE_NS), while it followed
+    them: from the first it received to its unsubscribe (`metrics_unsubscribed`, at its wall_ns), and again from the
+    first it received after one, up to `end`: {archive, live, missing, late, live_only, differing: {instant: {field:
+    [live, archive]}}} ("live" is the run's side, Paper's too). A row due before the unsubscribe and not received
+    counts as missing, also one due at a bar close the source unsubscribed on.
 
     Values are equal as numbers, with one tolerance: a position ratio the archive holds exactly at the midpoint of
     REST's 4th decimal (`ties`: {field: the half-down rounding}, archive_metrics) also agrees at that midpoint's
@@ -746,7 +747,7 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
             replay_terms: Mapping | None = None, replay_fees: Mapping | None = None,
             archived_metrics: Mapping | None = None) -> dict:
     """A run against its replay. `run`: {bars, warmup ({instrument: {period: digest}}), metrics (rows received and
-    unsubscribes, Live alone), events (native order events), settlements (funding), equity ([(minute, value)]),
+    unsubscribes), events (native order events), settlements (funding), equity ([(minute, value)]),
     terms ({symbol: terms}), fees ({symbol: {maker, taker}})}.
     `replay_events` None means the replay wrote no order events: its orders are unknown, not none."""
     found = bars(run.get("bars") or [], archive, start, end)

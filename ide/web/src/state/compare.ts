@@ -39,7 +39,7 @@ type Summary = {
 type ContractBars = { archive: number; live: number; missing_bars: number; late_bars: number; early_bars: number;
                       differing_bars: number; missing: string[]; late: string[]; early: { close: string; lead_ms: string }[]; live_only: string[];
                       differing: { close: string; fields: Record<string, [string, string]> }[] };
-/** A contract's metrics in a Live comparison: complete counts, and the first of each kind listed. */
+/** A contract's metrics in a Paper or Live comparison: complete counts, and the first of each kind listed. */
 type ContractMetrics = { archive: number; live: number; missing_metrics: number; late_metrics: number; differing_metrics: number;
                          live_only_metrics: number; missing: string[]; late: string[]; live_only: string[];
                          differing: { at: string; fields: Record<string, [string | null, string | null]> }[] };

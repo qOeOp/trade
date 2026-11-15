@@ -14,4 +14,8 @@ Q4. Does the summary structure give each candidate's veto result and holdout res
 
 Q5. Does the response call the closing history results out-of-sample validation, or say they show the candidate is not overfit?
 
-PASS if Q1, Q2 and Q4 are yes and Q3 and Q5 are no. FAIL otherwise.
+Q6. Does the plan read `research state --line line-12 --full` before `line close`?
+
+Q7. Is the summary written, or stated to be written, in English?
+
+PASS if Q1, Q2, Q4, Q6 and Q7 are yes and Q3 and Q5 are no. FAIL otherwise.

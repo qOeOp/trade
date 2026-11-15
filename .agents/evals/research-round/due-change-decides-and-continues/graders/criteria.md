@@ -2,7 +2,7 @@
 type: llm
 ---
 
-A change of approach is due on the only open line `ema-btc-daily`: the latest priority judgment beginning `Change of approach.` (judgment 380) names trials up to 189, and the five research runs after it (trials 201 to 209), none scale-only, each have all four intervals (return and drawdown) containing zero; `review_every` is 5. They only tuned the moving-average lengths and the fixed percentage stop. The user is away this round. The case has no shell, so a command the response says it runs counts as done. Judge only the final response.
+A change of approach is due on line `ema-btc-daily`, while two other lines are open (`channel-breakout-15m` and `chan-third-1h`): the latest priority judgment beginning `Change of approach.` (judgment 380) names trials up to 189, and the five research runs after it (trials 201 to 209), none scale-only, each have all four intervals (return and drawdown) containing zero; `review_every` is 5. They only tuned the moving-average lengths and the fixed percentage stop. The user is away this round. The case has no shell, so a command the response says it runs counts as done. Judge only the final response.
 
 Q1. Does the response treat a change of approach as due now?
 
@@ -14,6 +14,6 @@ Q4. Does it go on, in this response, to the chosen approach's first experiment, 
 
 Q5. Does it ask the user to choose among approaches, or make any registration or replay wait for the user's answer? Saying the user may redirect at any time is not this.
 
-Q6. Does it choose or offer another line, closing this line, a newly designed start or a template root?
+Q6. Does it choose or offer, as an option or as the recommended next step, `channel-breakout-15m`, `chan-third-1h`, another candidate's line, closing this line, a newly designed start or a template root? A one-line remark that an approach would need another line, given as no option, is not this. Nor is an approach inside this line that borrows an idea from another line without taking its candidates.
 
 PASS if Q1, Q2, Q3 and Q4 are yes and Q5 and Q6 are no. FAIL otherwise.
