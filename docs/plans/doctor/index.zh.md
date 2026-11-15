@@ -10,7 +10,6 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261115-01 | 关线历史检验的 `holdout_prior_trials` 只数本账本：上一代账本在当前线留出期上的 2432 个试验（含同名一族 572 个）读不到；产品已写明账本外的搜索不计，缺的是这个数 | authority（用户定：是否把上一代的重叠试验数作为声明值带进来；不带则关线时连同记录里的读数一起读） | doctor | unknown | open [后续](2026-11-15-pre-production-audit-followup.zh.md) | 2026-11-15 | 2026-11-15 |
 | 20261114-22 | Live 入场在派发环节被拒时不走 STOP 平仓路径，直接停节点，仓位留在账户里 | fix（改回已定设计；改变真实仓位上的平仓行为，合并前告知用户） | doctor | unknown | fixed aadf691f8 [#3022](https://github.com/qOeOp/trade/pull/3022) | 2026-11-14 | 2026-11-14 |
 | 20261114-23 | runner 以拒绝码退出且没写结束事件时，控制当作中断自动重启，因失败停下的运行会自己恢复交易 | authority（改已授权的重启规则与结束事件集合）；其后用户 2026-11-15 定：恢复启动时时钟超限（`LIVE_CLOCK`）与账户读取失败同样交回控制重试，不结束运行，见 [#3080](https://github.com/qOeOp/trade/pull/3080) | doctor | unknown | fixed 3f1bb564e [#3049](https://github.com/qOeOp/trade/pull/3049) | 2026-11-14 | 2026-11-14 |
 | 20261114-24 | Live 带持仓或在途入场单的重启（保持模式）不核实交易所止损、不撤继承来的入场单、不跑刹车，通知却写由止损保护 | authority（新增核对；文案是用户定的） | doctor | unknown | fixed e4b39030f [#3052](https://github.com/qOeOp/trade/pull/3052)；页面外观的一半（核对不过时的状态词与颜色）在草稿 PR [#3076](https://github.com/qOeOp/trade/pull/3076) 里等用户外观审阅 | 2026-11-14 | 2026-11-14 |
@@ -70,6 +69,7 @@
 
 | id | 发现 | 来源 | 代价 | 状态 |
 |---|---|---|---|---|
+| 20261115-01 | 关线历史检验的 `holdout_prior_trials` 只数本账本：上一代账本在当前线留出期上的 2432 个试验（含同名一族 572 个）读不到（[后续](2026-11-15-pre-production-audit-followup.zh.md)） | doctor | unknown | rejected：用户 2026-11-15 定"不用把上一代账本的重叠试验数带进来"，研究在新账本上从头开始 |
 | 20261115-04 | `paper compare` 给回放的成员区间截在 Paper 运行的结束时刻，Paper 运行时的成员区间到月底：检查到期时刻也在成员区间内的源码（现行候选都这样写）在回放里跳过运行结束前一个订单有效期（660 秒）内的入场，这些组成了仅 Paper 一侧；只有最后一分钟内的归因 `window_end`，其余是 `unexplained` | doctor | minutes | verified `tests/replay/test_comparison.py::Replay::test_an_entry_in_the_windows_last_order_lifetime_is_inside_the_replays_membership`（没有修复会失败），另有审计运行 7、16 的重跑对账（原来的 `unexplained` 组变为一致）[#3114](https://github.com/qOeOp/trade/pull/3114)；对账回放的成员区间改到窗口所在月的月底，研究回放不变；原 open [回放与 Paper 对账](2026-11-15-replay-paper-reconciliation.zh.md) |
 | 20261113-119 | 非 ASCII 合约名：回放编码，Paper、Live、IDE 假定 ASCII（[瘦身审计](2026-11-13-whole-product-slimming-audit.zh.md)） | doctor | unknown | verified `tests/paper/test_serve.py`、`tests/live/test_web_control.py`、`tests/research_graph/test_serve.py`、`ide/web/scripts/liveLaunch.test.mjs` 的新增用例（没有修复会失败）[#3117](https://github.com/qOeOp/trade/pull/3117)；Paper、Live、IDE 改用回放的合约名规则 `market.sources.SYMBOL`，USDⓈ-M 现有 5 个非 ASCII 永续；Live 与 Paper 在这类合约上没有实跑；原 recurred [上线前审计](2026-11-14-pre-production-audit.zh.md) |
 | 20261113-120 | Paper `summary.json` 重复日志事实；Live 证据的 mark、资金费行与 `instruments.json` 无读者；Live 不读 `runtime_failures.jsonl`（[瘦身审计](2026-11-13-whole-product-slimming-audit.zh.md)） | doctor | none | verified `tests/live/test_views.py` 的 `test_the_strategys_runtime_failures_show_as_papers_and_a_symlink_is_never_read`（没有修复会失败）[#3115](https://github.com/qOeOp/trade/pull/3115)；Live 运行页显示 Paper 同款的 Exceptions 表，外观经用户审过；原 recurred [上线前审计](2026-11-14-pre-production-audit.zh.md) |
