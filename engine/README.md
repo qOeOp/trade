@@ -552,13 +552,22 @@ only container also on the outbound bridge and tunnels to `fapi.binance.com` and
 the node also shuts down by itself and the strategy misses its cancels. `paper seal` captures a run that
 ended by itself. How a run ended is a reason in `seal.json` (`RUNNER_EXIT_NONZERO`, `SUMMARY_MISSING`,
 `OUT_OF_MEMORY` for a kill at the memory limit, `REFUSED:<code>` and `STOPPED:<code>` for a refusal the runner journaled such as
-`PAPER_CACHE_UNAVAILABLE`, below) and leaves the status `complete`; only evidence that cannot be trusted
+`PAPER_CACHE_UNAVAILABLE`, below, and `PAPER_JOURNAL_WRITE_FAILED`) and leaves the status `complete`; only evidence that cannot be trusted
 (`SOURCE_MISMATCH`, `LEVERAGE_MISMATCH`, `EGRESS_DENIED`, or a runner that started and left no journal) seals `invalid`
 (`ledger.paper.verdict`). The daemon resumes a run that paused (SIGTERM or SIGINT) or was interrupted before its summary
 and seals every other end. The seal stores the run's files (`paper_file`): the journal by UTC day, the summary, the
 egress and runner logs and `seal.json`, whose readings add the funding the Sandbox does not settle
 (`docs/plans/paper-run-storage-decision.zh.md`). Runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
 `docs/plans/paper-admission-by-memory.zh.md`), one per source at a time.
+
+A write the disk refuses (a full disk) stops the run the same way instead of leaving it trading unrecorded. The first
+failed write of the journal, `state.json`, the recovery marker or the failure receipts is latched and the run stops
+(`PAPER_JOURNAL_WRITE_FAILED`): nothing is written after the gap, and nothing raises into a callback, so the source still
+receives the order or position event whose journal line could not be written. The runner then ends with exit status 3,
+which the seal reads (`PAPER_JOURNAL_WRITE_FAILED`, `RUNNER_EXIT_NONZERO`, and `STOPPED:PAPER_JOURNAL_WRITE_FAILED` when
+the summary could still be written), since a full disk may take the summary too; the daemon seals a run that has a
+summary and tries to resume one that has none, which a dirty checkpoint refuses, so that run waits for `paper seal`.
+The journal ends at the gap; what the run did after it is not recorded.
 
 Paper recovery keeps the same unsealed run, pinned image and inputs. Each runner owns a loopback-only
 native Redis cache, whichever the source declares, and watches it every second: a child that exited or does not

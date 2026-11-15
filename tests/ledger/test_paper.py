@@ -145,6 +145,13 @@ class ReadingTests(unittest.TestCase):
                               {"EGRESS_DENIED"}, "invalid"),
             "nothing at all": ([], None, None, None, {"JOURNAL_MISSING", "SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"},
                                "invalid"),
+            "journal could not be written, no summary": (journal(), None, paper.JOURNAL_FAILED_EXIT, None,
+                                                         {"PAPER_JOURNAL_WRITE_FAILED", "SUMMARY_MISSING",
+                                                          "RUNNER_EXIT_NONZERO"}, "complete"),
+            "journal could not be written, summary kept": (
+                journal(), summary(stop_reason="PAPER_JOURNAL_WRITE_FAILED"), paper.JOURNAL_FAILED_EXIT, None,
+                {"PAPER_JOURNAL_WRITE_FAILED", "STOPPED:PAPER_JOURNAL_WRITE_FAILED", "RUNNER_EXIT_NONZERO"},
+                "complete"),
         }
         for name, (lines, found_summary, exit_code, egress, reasons, status) in cases.items():
             with self.subTest(name):
@@ -153,6 +160,10 @@ class ReadingTests(unittest.TestCase):
         never = paper.readings(ROW, [], 0, None, None, None, start_failed=True)
         self.assertEqual((never["status"], set(never["reasons"])),
                          ("complete", {"START_FAILED", "JOURNAL_MISSING", "SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"}))
+
+    def test_the_runner_and_the_seal_agree_on_the_exit_status_of_a_failed_journal(self):
+        from engine import paper as runner
+        self.assertEqual(runner.JOURNAL_FAILED_EXIT, paper.JOURNAL_FAILED_EXIT)
 
     def test_a_runner_killed_from_outside_ends_as_a_stop_with_what_it_journaled(self):
         found = paper.readings(ROW, journal(), 0, None, 137, None)

@@ -122,6 +122,105 @@ class TradeSubscriptionTests(unittest.TestCase):
                 journal.assert_called_once_with("refusal", code=code, subscriptions=[subscription])
 
 
+class JournalFailureTests(unittest.TestCase):
+    """A write the disk refuses stops the run without raising into a callback: the source still gets the event."""
+
+    FULL = OSError(28, "No space left on device")
+
+    def setUp(self):
+        shown = mock.patch("builtins.print")
+        self.shown = shown.start()
+        self.addCleanup(shown.stop)
+
+    @staticmethod
+    def refusing(journal, **calls):
+        """The journal's stream replaced by one whose given calls raise (the real one closed first)."""
+        journal._stream.close()
+        journal._stream = mock.Mock(close=mock.Mock(), **{name: mock.Mock(side_effect=error) for name, error in calls.items()})
+
+    def journal(self, stops: list):
+        import tempfile
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        journal = paper.Journal(Path(directory.name), on_failure=lambda: stops.append("stop"))
+        self.addCleanup(journal.close)
+        return journal
+
+    def test_the_first_refused_line_latches_the_failure_stops_the_run_once_and_nothing_follows_it(self):
+        stops: list = []
+        journal = self.journal(stops)
+        journal.write("bar")
+        self.refusing(journal, write=self.FULL)
+        journal.write("order")
+        journal.write("position")
+        self.assertEqual((stops, journal.failure), (["stop"], "OSError: [Errno 28] No space left on device"))
+        journal._stream.write.assert_called_once()  # nothing is written after the gap
+        self.shown.assert_called_once()
+        with self.assertRaises(OSError):
+            journal.sync()
+        journal.state({"positions": []})  # skipped, not raised
+        self.assertFalse((journal.output / "state.json").exists())
+
+    def test_a_refused_flush_or_state_file_is_the_same_failure(self):
+        for name in ("sync", "state"):
+            with self.subTest(name):
+                stops: list = []
+                journal = self.journal(stops)
+                if name == "sync":
+                    self.refusing(journal, flush=self.FULL)
+                    with self.assertRaises(OSError):
+                        journal.sync()
+                else:
+                    with mock.patch.object(Path, "write_text", side_effect=self.FULL):
+                        journal.state({})
+                self.assertEqual((stops, journal.failure is not None), (["stop"], True))
+
+    def test_a_source_still_gets_the_order_event_its_journal_line_could_not_be_written_for(self):
+        stops: list = []
+        journal = self.journal(stops)
+        self.refusing(journal, write=self.FULL)
+        seen: list = []
+
+        class Source:
+            def on_order_event(self, event):
+                seen.append(event)
+
+            def on_position_event(self, event):
+                seen.append(event)
+
+        instance = type("Journaled", (), {**paper.paper_callbacks(Source), "clock": None})()
+        instance._paper_released_ns = 0
+        event = type("OrderFilled", (), {"strategy_id": "R1-BTCUSDT", "client_order_id": "O-1", "ts_event": DAY})()
+        with mock.patch.object(paper, "JOURNAL", journal), mock.patch.object(paper, "_event_fields", return_value={}):
+            instance.on_order_event(event)
+            instance.on_position_event(event)
+        self.assertEqual(seen, [event, event])
+        self.assertEqual(stops, ["stop"])
+
+    def test_the_runs_own_disk_operations_latch_instead_of_raising_and_without_a_journal_they_raise(self):
+        stops: list = []
+        journal = self.journal(stops)
+
+        def full():
+            raise self.FULL
+        with mock.patch.object(paper, "JOURNAL", journal):
+            paper.disk(full)
+        self.assertEqual(stops, ["stop"])
+        with mock.patch.object(paper, "JOURNAL", None), self.assertRaises(OSError):
+            paper.disk(full)
+
+    def test_a_runner_whose_journal_failed_exits_with_the_status_the_seal_reads(self):
+        args = SimpleNamespace(symbols=[], strategy_file=Path("s.py"), strategy_class="C", strategy_sha256="x")
+        with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(paper, "parse", return_value=args), \
+                mock.patch.object(paper, "_main", return_value=True), mock.patch.object(paper, "Signals"):
+            with self.assertRaises(SystemExit) as raised:
+                paper.main([])
+        self.assertEqual(raised.exception.code, paper.JOURNAL_FAILED_EXIT)
+        with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(paper, "parse", return_value=args), \
+                mock.patch.object(paper, "_main", return_value=False), mock.patch.object(paper, "Signals"):
+            paper.main([])
+
+
 class CacheLivenessTests(unittest.TestCase):
     """The native cache child is watched every second: a dead one ends the run with a reason, as a refused one."""
 

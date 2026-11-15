@@ -22,6 +22,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (Paper end reason): a Paper run whose journal cannot be written (a full disk) now stops with
+  `PAPER_JOURNAL_WRITE_FAILED` and the runner exits with status 3; the seal's reasons say
+  `PAPER_JOURNAL_WRITE_FAILED` and `RUNNER_EXIT_NONZERO`, and `STOPPED:PAPER_JOURNAL_WRITE_FAILED` when the summary
+  could be written. The journal ends at the first refused write, and the source still receives every order and
+  position event, which a refused journal line used to skip (the run went on, its general `on_order_event` and
+  `on_position_event` callbacks missed events, and the seal read `complete` with no reason). A script that matches
+  seal reasons exactly sees a reason it did not know. Paper image only; the replay image is unchanged (doctor
+  20261114-43, the user 2026-11-15).
 - Paper and Live: after Binance changes a contract's funding interval, the next settlement is the one Binance makes,
   as a replay streams it. A start's warm-up waits for the settlement the contract's interval now
   (`fapi/v1/fundingInfo`) makes due at or before T; it used to predict it from the spacing of the last two, so a start

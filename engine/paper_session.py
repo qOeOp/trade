@@ -76,7 +76,12 @@ class Session:
 
     @contextmanager
     def callback(self):
-        checkpoint.dirty(self.backend.output)
+        try:
+            checkpoint.dirty(self.backend.output)
+        except OSError as exc:
+            # A refused marker must not skip the callback: the source still gets the event, and the run stops
+            # (engine.paper.Journal.fail, finding 20261114-43).
+            self.journal.fail(exc)
         self.depth += 1
         try:
             yield
