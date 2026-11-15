@@ -29,8 +29,10 @@ class Cadence:
         update is stamped at Binance's settlement time, which can be some milliseconds after the hour. Binance's
         first estimate after a settlement carried the settled rate in the native probes (2026-11-15: the rate its
         funding-rate history then published); the sealing step accounts with the rate Binance publishes. A settlement
-        of the source's start hour is not here: its warm-up gives it (engine.history, step 6)."""
+        of the source's start hour is not here: its warm-up gives it (engine.history, step 6). An estimate before the
+        named time that names a later one is no settlement: Binance moved it when it changed the funding interval."""
         settled, self.next_funding_ns = self.next_funding_ns, update.next_funding_ns
-        if settled is None or update.next_funding_ns is None or update.next_funding_ns <= settled:
+        if (settled is None or update.next_funding_ns is None or update.next_funding_ns <= settled
+                or update.ts_event < settled):
             return None
         return FundingRateUpdate(update.instrument_id, update.rate, settled, update.ts_init, None, settled)

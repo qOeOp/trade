@@ -7,8 +7,8 @@ on_start and on_historical_bars aside. At T the runner:
    close, volume and trade count changed until 5 to 10 s after T, never later), then reads every bar its requests
    cover from Binance's public klines (engine.klines) into the run's temporary Catalog, and the declared funding
    settlements from Binance's public funding-rate history (engine.klines.settlements), off the node's thread, until
-   the settlement the latest ones' spacing makes due at or before T is published (FundingPending; 2026-11-15 probe:
-   first answered 2 to 4 s after the settlement, while other answers still lacked it until 21 s after). A source
+   the settlement the contract's funding interval makes due at or before T is published (FundingPending; 2026-11-15
+   probe: first answered 2 to 4 s after the settlement, while other answers still lacked it until 21 s after). A source
    that reads funding (on_funding_rate) starting on a whole hour has that history read too, declared or not, for the
    settlement of T's hour (step 6);
 2. has WarmupActor warm each declared aggregation with the one-minute bars of the bucket T falls in,
@@ -100,15 +100,17 @@ def _slot(ns: int) -> int:
 def settlements(instrument_id, at: int, count: int, proxy_url: str | None, get=klines.get_json) -> tuple[list, list]:
     """The last `count` settlements at or before `at` (engine.klines.settlements), and those stamped from `at` to a
     minute after it (the settlement of `at`'s hour, which Binance stamps at the hour or some milliseconds later).
-    FundingPending while the settlement due next after the latest two known ones, by their spacing, is due at or
-    before `at` but not yet published, so a start at a settlement's hour gets it as a replay does; WARMUP_INSUFFICIENT
-    when Binance holds fewer."""
-    seen = klines.settlements(instrument_id, at + MINUTE_NS, max(count, 2) + 1, proxy_url, get)
+    FundingPending while the latest settlement due at or before `at` by the contract's funding interval now
+    (engine.klines.funding_interval) is after the latest known one but not yet published, so a start at a settlement's
+    hour gets it as a replay does; WARMUP_INSUFFICIENT when Binance holds fewer. The interval, not the latest
+    settlements' spacing: Binance changes it after a settlement (2026-11 probe: 8 to 1 hours, 1 to 4), and either
+    interval makes that settlement due."""
+    seen = klines.settlements(instrument_id, at + MINUTE_NS, max(count, 1) + 1, proxy_url, get)
     known = [update for update in seen if update.ts_event <= at]
-    if len(known) >= 2:
-        last = _slot(known[-1].ts_event)
-        due = 2 * last - _slot(known[-2].ts_event)
-        if due <= at and not any(_slot(update.ts_event) == due for update in seen):
+    if known:
+        interval = klines.funding_interval(instrument_id, proxy_url, get)
+        due = at // interval * interval
+        if due > _slot(known[-1].ts_event) and not any(_slot(update.ts_event) == due for update in seen):
             raise FundingPending(f"{instrument_id}: the settlement of {utc(due)} is not in Binance's funding-rate "
                                  "history yet")
     if len(known) < count:
