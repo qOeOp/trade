@@ -31,7 +31,6 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   checkpoint that raises anything but a refusal is deferred instead of escaping its timer. A shell or script that
   matches seal reasons exactly sees a reason it did not know. Paper image only; the replay image is unchanged
   (doctor 20261114-34, the user 2026-11-15).
-||||||| d3e2f0fd4
 - Live (evidence pack): when a source unsubscribes from a contract's metrics, Live records `metrics_unsubscribed`
   in `evidence/market.jsonl`. `live compare` no longer counts the archive rows after it as missing; it expects rows
   again from the first one the source receives after resubscribing. Paper and Live hand no metrics row to a source
