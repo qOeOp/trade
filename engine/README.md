@@ -194,7 +194,11 @@ the run does not stream is `METRICS_NOT_SERVED`. Paper and Live serve the metric
 (`engine.metrics.Feed`): at each row's `ts_init` they read REST's row of its `ts_event` (no credential) and hand it
 to `on_data` with the replay's stamps and values; what is not yet published is read again every 30 s until the
 next row is due, then a missing ratio is `None` and a row without open interest is skipped. After an unsubscribe
-no row reaches `on_data`, not even one read already.
+no row reaches `on_data`, not even one read already. Each run records what its source was handed, whether or not
+it defines `on_data`: Live in its evidence pack (below), Paper in `events.jsonl` as it hands the row over, before
+holding the callback (`metrics`: `instrument_id`, `ts_event` and the four values, a missing ratio null), with each
+unsubscribe from metrics the source followed (`metrics_unsubscribed`: `instrument_id`). `paper compare` and `live
+compare` check these rows the same way against the archive's.
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_day`, `universe_path`, `universe_sha256` (the membership file's bytes),

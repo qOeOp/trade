@@ -38,7 +38,8 @@ taker rates the run is given (``--maker-fee``, ``--taker-fee``: the market's ass
 reads from its export receipts).
 
 Its own record is ``<output>/events.jsonl``: bars, data gaps, socket state, orders, positions, funding
-settlements, the account totals once a minute and protection gaps. ``<output>/state.json`` holds the latest
+settlements, the account totals once a minute, protection gaps, and the metrics rows the source was handed with
+its unsubscribes from them (``paper compare`` checks them, replay.comparison.compare_metrics). ``<output>/state.json`` holds the latest
 totals with the open positions and orders, ``<output>/runtime_failures.jsonl`` is rewritten within a second of
 each runtime failure, and ``<output>/summary.json`` and ``<output>/reports/`` (the native cache's reports and order
 events as a replay writes them, which the sealing step audits) are written at the end. Sandbox
@@ -333,6 +334,13 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
         self._paper_subscription_changes = True  # a recovery restores no metrics subscription (engine.paper_session)
         return super()._metrics_follow(instrument_id)
 
+    def _metrics_unfollow(self, instrument_id: str) -> None:
+        """An unsubscribe of metrics the source followed goes to the journal: `paper compare` expects no row after it
+        (replay.comparison.compare_metrics), as Live's evidence pack does."""
+        if instrument_id in self._metrics_followed:
+            journal("metrics_unsubscribed", instrument_id=str(instrument_id))
+        super()._metrics_unfollow(instrument_id)
+
     def unsubscribe_bars(self, bar_type, *args, **kwargs):
         self._paper_subscription_changes = True
         self._paper_subscriptions.discard(str(bar_type))
@@ -445,9 +453,10 @@ def paper_callbacks(strategy_class: type) -> dict:
     sees it."""
     found = strategy_runtime.deferred_start(strategy_runtime.guarded_callbacks(strategy_class))
     source = {name: found.get(name) for name in ("on_mark_price", "on_funding_rate", "on_order_event",
-                                                 "on_position_event")}
+                                                 "on_position_event", "on_data")}
     held = {name: (lambda callback: lambda self, value: _hold(self, callback, value, value))(found[name])
-            for name in strategy_runtime.DATA_CALLBACKS if found.get(name) and name not in ("on_mark_price", "on_funding_rate")}
+            for name in strategy_runtime.DATA_CALLBACKS
+            if found.get(name) and name not in ("on_mark_price", "on_funding_rate", "on_data")}
 
     def on_mark_price(self, update):
         if self._paper_cadence.mark(update) and source["on_mark_price"]:
@@ -461,6 +470,18 @@ def paper_callbacks(strategy_class: type) -> dict:
             _hold(self, source["on_funding_rate"], settled, update)
         else:
             release_before(update)
+
+    def on_data(self, data):
+        """A metrics row the Feed hands the source (engine.metrics) is journalled as it comes, whether or not the
+        source handles it, before it is held: `paper compare` checks it against the archive's as `live compare`
+        does (replay.comparison.compare_metrics)."""
+        row = getattr(data, "data", None)
+        if isinstance(row, strategy_runtime.Metrics):
+            journal("metrics", instrument_id=str(row.instrument_id), ts_event=row.ts_event,
+                    **{name: None if (value := getattr(row, name)) is None else str(value)
+                       for name in metrics.ENDPOINTS})
+        if source["on_data"]:
+            _hold(self, source["on_data"], data, data)
 
     def _warming_settled(self, update):
         """The settlement of T's hour (engine.history, step 6): data like any other, held until the next dispatch."""
@@ -478,7 +499,7 @@ def paper_callbacks(strategy_class: type) -> dict:
             return source["on_position_event"](self, event)
 
     callbacks = {**found, **held, "on_mark_price": on_mark_price, "on_funding_rate": on_funding_rate,
-                 "on_order_event": on_order_event, "on_position_event": on_position_event,
+                 "on_order_event": on_order_event, "on_position_event": on_position_event, "on_data": on_data,
                  "_warming_settled": _warming_settled, "_runner_reads_funding": bool(source["on_funding_rate"])}
     return {**{name: mutation(value) if callable(value) else value for name, value in callbacks.items()},
             "clock": property(_paper_clock)}

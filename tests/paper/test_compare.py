@@ -97,6 +97,32 @@ class Compare(unittest.TestCase):
         self.assertEqual(compare.run_record(lines, [])["warmup"],
                          {BTC: {"1-HOUR": {"bars": 4, "first_ts_event": 1, "last_ts_event": 2, "sha256": "h"}}})
 
+    def test_the_metrics_the_journal_holds_are_checked_as_live_compare_checks_them(self):
+        """engine.paper journals each metrics row the Feed hands the source and each unsubscribe (`metrics`,
+        `metrics_unsubscribed`); the comparison expects rows from the first received until the unsubscribe."""
+        fives = [START + i * 5 * MINUTE for i in range(1, 5)]  # instants the rows reach the source
+
+        def received(at: int, position_ratio: str) -> dict:
+            return {"kind": "metrics", "instrument_id": BTC, "ts_event": at - shared.METRICS_VISIBLE_NS,
+                    "wall_ns": at + 10**9, "sum_open_interest": "97897.5650000000000000",
+                    "count_toptrader_long_short_ratio": "3.6904000000000000",
+                    "sum_toptrader_long_short_ratio": position_ratio, "count_long_short_ratio": None}
+
+        lines = journal([], 20) + [received(fives[0], "1.8441000000000000"), received(fives[1], "1.8442000000000000"),
+                                   {"kind": "metrics_unsubscribed", "instrument_id": BTC, "wall_ns": fives[2] - MINUTE}]
+        stored = {"BTCUSDT": [[at - shared.METRICS_VISIBLE_NS, "97897.565", "3.6904", "1.8441", None, {}]
+                              for at in fives]}
+        run = compare.run_record(lines, [])
+        self.assertEqual([line["kind"] for line in run["metrics"]], ["metrics", "metrics", "metrics_unsubscribed"])
+        found = shared.compare(run, [], {"BTCUSDT": archived(20)}, None, START, START + 20 * MINUTE,
+                               archived_metrics=stored)
+        metrics = found["inputs"]["BTCUSDT"]["metrics"]
+        # fives[2] and fives[3] are due after the unsubscribe: not expected.
+        self.assertEqual((metrics["archive"], metrics["live"], metrics["missing"], metrics["differing"]),
+                         (2, 2, [], [{"at": shared.utc_text(fives[1]), "fields": {
+                             "sum_toptrader_long_short_ratio": ["1.8442000000000000", "1.8441"]}}]))
+        self.assertEqual(found["summary"]["differing_metrics"], 1)
+
     def test_the_interval_runs_from_the_input_start_to_the_minute_the_run_stopped(self):
         lines = journal([], 0)
         self.assertEqual(compare.window(lines, {"stopped_ns": START + 3 * MINUTE + 17 * 10**9}),
