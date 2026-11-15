@@ -463,6 +463,63 @@ class NativeEntryTests(unittest.TestCase):
         self.assertTrue(self.session.native_flat and self.session.failed)
         self.assertEqual(self.read_events("unresolved"), [])
 
+    def positions(self, count):
+        """`count` open positions of the run, each from its own admitted entry."""
+        self.reader.release.set()
+        for _ in range(count):
+            self.ts += 1_000_000_000  # entries count toward the native submit rate too
+            self.source.submit_order(self.limit(quantity="0.010"))
+            self.session.account_observation.result.result(timeout=2)
+            commands.dispatch_entry(self.session)
+            self.advance()
+            self.advance("99.00", "100.00")
+        found = self.engine.cache.positions_open(strategy_id=self.source.strategy_id)
+        self.assertEqual(len(found), count)
+        return found
+
+    def stop_ticks(self, count):
+        """`count` Observer ticks a second apart after a requested stop; the closes still open after each tick."""
+        (self.root / "STOP").write_text("")
+        self.session.node = Mock()
+        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
+        left = []
+        for _ in range(count):
+            self.ts += 1_000_000_000
+            self.advance("99.00", "100.00")
+            live_lifecycle.Observer.observe(observer)
+            self.advance("99.00", "100.00")
+            left.append(len(self.engine.cache.positions_open(strategy_id=self.source.strategy_id)))
+        return left
+
+    def denied_closes(self):
+        return [order for order in self.engine.cache.orders()
+                if order.is_reduce_only and order.status == OrderStatus.DENIED]
+
+    def test_a_stop_with_more_positions_than_the_submit_rate_closes_them_all(self):
+        # 20261114-31: every close went out on one tick, the native submit rate denied those past it locally, and
+        # nothing sent them again: the run ended unresolved with those positions open.
+        limit = int(str(self.live_risk.max_order_submit_rate).split("/")[0])
+        self.assertLessEqual(2 * live_lifecycle.CLOSES_PER_TICK, limit)
+        self.positions(limit + 2)
+        self.assertEqual(self.stop_ticks(4), [limit + 2 - live_lifecycle.CLOSES_PER_TICK,
+                                              limit + 2 - 2 * live_lifecycle.CLOSES_PER_TICK, 0, 0])
+        self.assertEqual(self.denied_closes(), [])
+        self.session.node.handle().stop.assert_called_once()
+        self.assertTrue(self.session.native_flat)
+        self.assertFalse(self.session.failed or self.session.native_order_failure)
+
+    def test_a_close_the_submit_rate_denied_is_submitted_again_and_the_run_stays_failed(self):
+        limit = int(str(self.live_risk.max_order_submit_rate).split("/")[0])
+        self.positions(limit + 2)
+        with patch.object(live_lifecycle, "CLOSES_PER_TICK", limit + 2):  # the rate is spent some other way
+            self.assertEqual(self.stop_ticks(3), [2, 0, 0])
+        self.assertEqual([str(order.last_event.reason) for order in self.denied_closes()],
+                         [live_source_runtime.RATE_LIMITED] * 2)
+        self.session.node.handle().stop.assert_called_once()
+        self.assertTrue(self.session.native_flat)
+        self.assertTrue(self.session.failed and self.session.native_order_failure)  # a denial fails the run, as before
+        self.assertEqual(self.read_events("unresolved"), [])
+
     def test_an_interruption_withdraws_entries_and_keeps_the_position_and_its_stop(self):
         position = self.owned_position()
         stop = self.stop()
