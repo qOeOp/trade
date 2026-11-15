@@ -172,15 +172,38 @@ async function channel(github, repo, branch) {
   return { previous, previousRecord };
 }
 
+// The last decision main-ready appended about one commit, or null. main-ready only moves forward along main and
+// decides about a commit only once its build exists, so its records from that build on are read oldest first until
+// one is about a later commit.
+async function staged(github, repo, sha, built) {
+  const commits = await github.paginate(github.rest.repos.listCommits, { ...repo, sha: STAGING, since: built.created_at, per_page: 100 });
+  let last = null;
+  for (const commit of commits.reverse()) {
+    const file = await github.rest.repos.getContent({ ...repo, path: 'release.json', ref: commit.sha });
+    const record = JSON.parse(Buffer.from(file.data.content, 'base64').toString('utf8'));
+    if (!SHA.test(record.revision)) throw Error(`Invalid ${STAGING} eligibility source`);
+    if (record.revision === sha) last = record;
+    else if (!await compare(github, repo, record.revision, sha)) break;
+  }
+  if (!last?.image) return null;
+  if (!IMAGE.test(last.image) || !SERVICE.test(last.service) || !RUNTIME.test(last.runtime)) {
+    throw Error(`${STAGING} record of ${sha} is invalid`);
+  }
+  return { revision: sha, image: last.image, service: last.service, runtime: last.runtime };
+}
+
 // The record of one main commit, or null when that commit built no product image.
-async function assess({ github, repo, readArchive, inputs }, sha, previousRecord) {
+async function assess({ github, repo, readArchive, inputs }, sha, previousRecord, recordedOnStaging = false) {
   const values = await pushRuns(github, repo, sha);
   const built = values.find((run) => run.name === 'ide-image');
   if (!built) return null; // A documentation-only main commit has no new product image to release.
   const record = { revision: sha, image: null, service: null, runtime: null };
   if (await green(github, repo, sha, values)) {
-    // The channel record keeps the tested digests it admitted: artifacts expire after 30 days, the record does not.
+    // A channel record keeps the tested digests it admitted: artifacts expire after 30 days, the records do not.
     if (previousRecord?.revision === sha && previousRecord.image) return previousRecord;
+    // A version's commit main-ready admitted from its artifacts while they lasted, however long before the tag.
+    const recorded = recordedOnStaging && await staged(github, repo, sha, built);
+    if (recorded) return recorded;
     const image = await testedArtifact(github, repo, built, 'web-image', sha, readArchive);
     if (!IMAGE.test(image.image) || !SERVICE.test(image.service)) throw Error('Native service/IDE artifact identity is invalid');
     record.runtime = await matchingRuntime(github, repo, sha, readArchive, inputs);
@@ -246,7 +269,7 @@ async function production(job, trigger) {
       core.info(`${tag.name} (${tag.sha}) is behind ${PRODUCTION} ${previousRecord.revision}; nothing changed`);
       return;
     }
-    const record = await assess(job, tag.sha, previousRecord);
+    const record = await assess(job, tag.sha, previousRecord, true);
     if (!record) {
       core.warning(`${tag.name} (${tag.sha}) built no product image; ${PRODUCTION} unchanged`);
       return;
