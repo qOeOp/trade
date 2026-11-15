@@ -293,6 +293,12 @@ Invalid。runner 每秒把运行时异常写进 `runtime_failures.jsonl`，被�
 没收到第一根 K 线就被杀的判 `STOPPED_BEFORE_START`；内存超限加 `OUT_OF_MEMORY`。这条只改封存时的判定，
 不管是谁杀的；要不要重开仍按上面的判据（守护进程启动前被杀）。
 
+**缓存进程死掉的运行按拒绝停止（用户 2026-11-15 授权，发现 20261114-34）**。runner 里的 Redis 子进程退出或不答
+`PING`，运行就以 `PAPER_CACHE_UNAVAILABLE` 结束：日志记一条 `refusal`，停止序列照常（撤单、写概要，持仓留着），
+封存 `reasons` 带 `REFUSED:PAPER_CACHE_UNAVAILABLE` 和 `STOPPED:PAPER_CACHE_UNAVAILABLE`，状态仍是 Complete，
+证据不受影响。此前这样的运行要么悄悄停止处理数据（声明了恢复协议的源码），要么带着死缓存照常交易、`paper stop`
+等 92 秒后被强杀；细节见[原生恢复](paper-native-recovery.zh.md)“缓存进程中途死掉”一节。
+
 **Invalid 只留给证据不可信（用户 2026-11-01 定）**。一条运行要么在跑，要么已停；停了怎么结束的（用户停、到时长、
 重启、崩溃、没起来、内存超限、策略被拒、策略抛异常）只是原因，日志记下的照样算数，封存为 Complete，原因照记。
 只有证据本身不可信才封 Invalid：跑的代码和声明的不一致（`SOURCE_MISMATCH`）、跑的杠杆和声明的不一致

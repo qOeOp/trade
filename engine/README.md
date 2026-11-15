@@ -547,7 +547,8 @@ only container also on the outbound bridge and tunnels to `fapi.binance.com` and
 `paper stop` writes the run's `STOP` file and seals; SIGTERM comes only after a timeout, since on SIGTERM
 the node also shuts down by itself and the strategy misses its cancels. `paper seal` captures a run that
 ended by itself. How a run ended is a reason in `seal.json` (`RUNNER_EXIT_NONZERO`, `SUMMARY_MISSING`,
-`OUT_OF_MEMORY` for a kill at the memory limit) and leaves the status `complete`; only evidence that cannot be trusted
+`OUT_OF_MEMORY` for a kill at the memory limit, `REFUSED:<code>` and `STOPPED:<code>` for a refusal the runner journaled such as
+`PAPER_CACHE_UNAVAILABLE`, below) and leaves the status `complete`; only evidence that cannot be trusted
 (`SOURCE_MISMATCH`, `LEVERAGE_MISMATCH`, `EGRESS_DENIED`, or a runner that started and left no journal) seals `invalid`
 (`ledger.paper.verdict`). The daemon resumes a run that paused (SIGTERM or SIGINT) or was interrupted before its summary
 and seals every other end. The seal stores the run's files (`paper_file`): the journal by UTC day, the summary, the
@@ -556,8 +557,12 @@ egress and runner logs and `seal.json`, whose readings add the funding the Sandb
 `docs/plans/paper-admission-by-memory.zh.md`), one per source at a time.
 
 Paper recovery keeps the same unsealed run, pinned image and inputs. Each runner owns a loopback-only
-native Redis cache; immutable RDB originals and their exact journal cuts are retained. The daemon invokes
-`paper resume`, never a replacement `paper start`, after an interruption. Missing/dirty checkpoints,
+native Redis cache, whichever the source declares, and watches it every second: a child that exited or does not
+answer a PING ends the run with `PAPER_CACHE_UNAVAILABLE` (a `refusal` in the journal, then the stop of a refused
+run: working orders canceled, positions left open, summary written), since a run without its cache could not be
+recovered and would not say so. The cache's connections fail fast (one-second timeouts, no retries, as Live's), so a
+dead one cannot hold `paper stop` in `node.dispose()`. Immutable RDB originals and their exact journal cuts are
+retained. The daemon invokes `paper resume`, never a replacement `paper start`, after an interruption. Missing/dirty checkpoints,
 changed inputs, unhandled journal tails, unsupported strategy state or a missing original container refuse
 recovery and retain the account records. Explicit STOP/duration still seals. The original per-source limit
 is three actual recovery launches per hour, including failures before the runtime can journal.

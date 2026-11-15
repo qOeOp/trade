@@ -22,6 +22,15 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (Paper end reason): a Paper run whose native cache process (the runner's Redis child) exits or stops
+  answering now ends with `PAPER_CACHE_UNAVAILABLE`: its working orders are canceled, positions stay open, and the
+  seal's reasons say `REFUSED:PAPER_CACHE_UNAVAILABLE` and `STOPPED:PAPER_CACHE_UNAVAILABLE`. Before, a run whose
+  source declared the recovery protocol stopped processing data without a word (its journal and checkpoint stopped,
+  STOP was ignored, `paper stop` ended in SIGKILL after 93 seconds and the seal had no reason), and any other run
+  traded on without its cache and took 92 seconds to stop. The cache's connections also fail fast now, and a
+  checkpoint that raises anything but a refusal is deferred instead of escaping its timer. A shell or script that
+  matches seal reasons exactly sees a reason it did not know. Paper image only; the replay image is unchanged
+  (doctor 20261114-34, the user 2026-11-15).
 - Live (evidence pack): when a source unsubscribes from a contract's metrics, Live records `metrics_unsubscribed`
   in `evidence/market.jsonl`. `live compare` no longer counts the archive rows after it as missing; it expects rows
   again from the first one the source receives after resubscribing. Paper and Live hand no metrics row to a source
