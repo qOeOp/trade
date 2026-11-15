@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 from nautilus_trader.model import BarType
 from nautilus_trader.trading import Strategy
-from engine import history, strategy as strategy_runtime
+from engine import history, metrics, strategy as strategy_runtime
 from engine.cadence import Cadence
 from engine.config import EXECUTION_BAR_MINUTES, Refusal as ContractRefusal
 from engine.live_errors import LiveRefusal as Refusal
@@ -33,7 +33,7 @@ class LiveClock(strategy_runtime.GuardedClock):
         return lambda *args, **kwargs: None if self._instance._live.observe_stop_intent() else guarded(*args, **kwargs)
 
 
-class _LiveConfigured(history.Warming):
+class _LiveConfigured(history.Warming, metrics.Feed):
     config: Any
     _orders_allowed: Any  # engine.order_rules.OrderRules, after this class in the source's bases
     _source_constructor_args: tuple[tuple, dict]
@@ -57,6 +57,7 @@ class _LiveConfigured(history.Warming):
         self._warming_setup(kwargs["strategy_id"], args[0], kwargs["trade_start_ns"], loaded.warmup, loaded.funding,
                             functools.partial(history.fetch, catalog=session.catalog(),
                                               proxy_url=session.manifest["config"].get("proxy_url")))
+        self._metrics_setup(functools.partial(metrics.read, proxy_url=session.manifest["config"].get("proxy_url")))
         super().__init__(*args, **kwargs)
         self._replay_input_start_ns = kwargs["trade_start_ns"]
         self._live_cadence = Cadence()
@@ -260,6 +261,9 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     """One instance of the source per contract of the run, each trading only its own (the user, 2026-11-13): symbol ->
     instance. Instances coordinate through state the source shares between them, as in a replay."""
     history.clear()  # one Live source per process; its node adds the warm-up actor after its instances
+    # Metrics of the run's contracts come from REST (engine.metrics.Feed); trades are served nowhere in Live.
+    strategy_runtime.SERVED["Metrics"].clear()
+    strategy_runtime.SERVED["Metrics"].update(str(contract(symbol)) for symbol in session.manifest["symbols"])
     callbacks = strategy_runtime.guarded_callbacks(loaded.strategy_class)
     for name in ("on_mark_price", "on_funding_rate"):
         if callbacks.get(name):

@@ -160,7 +160,7 @@ head 与省略市场日指最新的截至日：bar、metrics（在最新月份�
 
 ### `metrics` [#def-table-metrics]
 
-保存币安 USD-M 每日 `metrics` 归档里的持仓量和三个多空比，每个合约每 5 分钟一行，列名照抄归档。一行描述的是 create_time + 5 分钟那一刻（持仓量与 REST 在该时刻的值逐位一致，2026-10-31 实测），导出时才定可见时刻。
+保存币安 USD-M 每日 `metrics` 归档里的持仓量和三个多空比，每个合约每 5 分钟一行，列名照抄归档。一行描述的是 create_time + 5 分钟那一刻（持仓量与 REST 在该时刻的值逐位一致，2026-10-31 实测），导出时才定可见时刻。表里存归档原值；导出按规则 `binance-metrics-visible-v2` 给出 REST 显示的值（多空比 4 位小数，账户多空比由四舍五入到 4 位的多、空占比相除），Paper 和 Live 从 REST 读同一行。
 
 <TypeTable type={{ "symbol": { type: "string", description: "交易所公开合约名（归档所带）", required: true }, "create_time": { type: "int64", description: "归档的时间戳，UTC 毫秒，在 5 分钟格点上；不是可见时刻", required: true }, "sum_open_interest": { type: "decimal128(38,16)", description: "持仓量，基础资产数量，精确十进制", required: true }, "count_toptrader_long_short_ratio": { type: "decimal128(38,16)", description: "头部交易者账户多空比；归档为空时为 NULL" }, "sum_toptrader_long_short_ratio": { type: "decimal128(38,16)", description: "头部交易者持仓多空比；归档为空时为 NULL" }, "count_long_short_ratio": { type: "decimal128(38,16)", description: "全市场账户多空比；归档为空时为 NULL" } }} />
 

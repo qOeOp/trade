@@ -87,6 +87,7 @@ from engine.load import (
     trading_end,
 )
 from engine import history, order_rules, warmup
+from engine.metrics import Metrics, metrics_data_type
 
 
 def execution_metadata(config) -> dict:
@@ -547,29 +548,6 @@ def trade_data_type(instrument_id) -> DataType:
     str(instrument_id)})), then on_data. Nautilus routes a native TradeTick to the venue, whose L1 book takes its
     price and size whatever trade_execution says; custom data reaches only subscribers."""
     return DataType("TradeTick", metadata={"instrument_id": str(instrument_id)})
-
-
-@dataclass(frozen=True)
-class Metrics:
-    """engine.Metrics: one five-minute row of the Binance metrics archive (the market's metrics table), the
-    payload of metrics_data_type. sum_open_interest is in the base asset; a ratio the archive left empty is
-    None. ts_event is the archive's create_time + 5 min, the instant the row describes; ts_init is create_time +
-    10 min, when the run delivers it (the export receipt's metrics_rule)."""
-
-    instrument_id: InstrumentId
-    sum_open_interest: Decimal
-    count_toptrader_long_short_ratio: Decimal | None
-    sum_toptrader_long_short_ratio: Decimal | None
-    count_long_short_ratio: Decimal | None
-    ts_event: int
-    ts_init: int
-
-
-def metrics_data_type(instrument_id) -> DataType:
-    """engine.metrics_data_type: the custom data type an exported metrics row of the contract reaches a strategy
-    as, a Metrics in CustomData.data: subscribe_data(DataType("Metrics", metadata={"instrument_id":
-    str(instrument_id)})), then on_data. Only a replay given --metrics streams it."""
-    return DataType("Metrics", metadata={"instrument_id": str(instrument_id)})
 
 
 METRICS_BATCH = 288  # rows read at a time: one day of a contract

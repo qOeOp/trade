@@ -29,7 +29,9 @@ STRATEGIES: dict[str, Strategy] = {}
 # custom trades and metrics a replay streams. Quotes, books, index prices, option data and native trades exist in
 # none of replay, Paper and Live alike, so the run is refused once the current chunk (replay) or tick (Paper) ends,
 # or at once (Live). Trades and metrics reach a strategy only as custom data (trade_data_type, metrics_data_type) of
-# a contract whose export counts them (the entry's --trade-ticks or --metrics); Paper and Live stream neither.
+# a contract the run serves them for: in a replay, one whose export counts them (the entry's --trade-ticks or
+# --metrics); in Paper and Live, metrics of every contract of the run, read from REST (engine.metrics.Feed), and no
+# trades.
 NOT_SERVED = {"TradeTick": "TRADES_NOT_SERVED", "Metrics": "METRICS_NOT_SERVED"}
 SERVED: dict[str, set[str]] = {kind: set() for kind in NOT_SERVED}  # the instrument IDs this run streams it for
 OUTSIDE = "SUBSCRIPTION_OUTSIDE_CONTRACT"
@@ -99,7 +101,14 @@ class Subscriptions:
             if served not in SERVED[kind]:
                 return self._breach(NOT_SERVED[kind], f"{self.strategy_id}: subscribe_data {kind} for {served}, "
                                                       "which this run does not stream")
+            if kind == "Metrics" and hasattr(self, "_metrics_follow"):
+                return self._metrics_follow(served)
         return super().subscribe_data(data_type, *args, **kwargs)  # type: ignore[misc]
+
+    def unsubscribe_data(self, data_type, *args, **kwargs):
+        if data_type.type_name == "Metrics" and hasattr(self, "_metrics_unfollow"):
+            return self._metrics_unfollow((data_type.metadata or {}).get("instrument_id"))
+        return super().unsubscribe_data(data_type, *args, **kwargs)  # type: ignore[misc]
 
     def subscribe_trades(self, instrument_id, *args, **kwargs):
         return self._breach("TRADES_NOT_SERVED", f"{self.strategy_id}: subscribe_trades {instrument_id}; trades "

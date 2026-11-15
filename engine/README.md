@@ -154,13 +154,17 @@ streams no trades (its orders match bars, as in the bar environment), so a trade
 run with the same code.
 
 Open interest and long/short ratios (`market import-metrics`) are signal input in either environment. The
-entry's `--metrics` exports every stored row the window shows by the rule `binance-metrics-visible-v1`
+entry's `--metrics` exports every stored row the window shows by the rule `binance-metrics-visible-v2`
 (the receipt's `metrics_rule`): a row stamped `create_time` gets `ts_event = create_time + 5 min`, the
-instant its open interest describes, and `ts_init = create_time + 10 min`, past the public REST
-publication. Both are whole minutes, so in the bar environment an order the row prompts fills at the close
+instant it describes (public REST's row of that timestamp), and `ts_init = create_time + 10 min`, past
+REST's publication. Its values are the ones REST shows, which Paper and Live read: open interest as
+stored, the position ratio half-up to 4 decimals, each account ratio the quotient of its long share
+`r / (1 + r)` and short share `1 / (1 + r)`, each half-up to 4 decimals first, the quotient too
+(`docs/plans/binance-metrics-rest-parity.zh.md`; a position ratio the archive holds at a tie of the 4th
+decimal, about 1 row in 90, may differ by 0.0001). Both stamps are whole minutes, so in the bar environment an order the row prompts fills at the close
 of the bar that ends there, never at a price older than the decision. The receipt counts the rows
 (`counts.metrics`, present only then). The runner streams them as `CustomData(metrics_data_type(<id>),
-Metrics(...))`: `engine.run.Metrics` holds `instrument_id`, `sum_open_interest` (base asset), the three
+Metrics(...))`: `engine.metrics.Metrics` holds `instrument_id`, `sum_open_interest` (base asset), the three
 ratios `count_toptrader_long_short_ratio`, `sum_toptrader_long_short_ratio` and `count_long_short_ratio`
 as exact `Decimal` (`None` where the archive left one empty), `ts_event` and `ts_init`. A strategy
 subscribes with `subscribe_data(DataType("Metrics", metadata={"instrument_id": <id>}))` and reads
@@ -168,7 +172,10 @@ subscribes with `subscribe_data(DataType("Metrics", metadata={"instrument_id": <
 refuses `METRICS_MISSING` for a month of an active contract's trading window without exported metrics; an
 image older than the option refuses it as `UNKNOWN_OPTION` at the probe. It stays out of the effective
 configuration: the exported metrics files already carry it into the input identity. A subscription to metrics
-the run does not stream, and any in paper trading, is `METRICS_NOT_SERVED`.
+the run does not stream is `METRICS_NOT_SERVED`. Paper and Live serve the metrics of every contract of the run
+(`engine.metrics.Feed`): at each row's `ts_init` they read REST's row of its `ts_event` (no credential) and hand it
+to `on_data` with the replay's stamps and values; what is not yet published is read again every 30 s until the
+next row is due, then a missing ratio is `None` and a row without open interest is skipped.
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_day`, `universe_path`, `universe_sha256` (the membership file's bytes),
@@ -195,8 +202,8 @@ the breach's code; Live refuses at once and takes the STOP path.
 - Subscriptions (`engine.strategy.Subscriptions`): one-minute `LAST-EXTERNAL` bars and their
   `LAST-INTERNAL@1-MINUTE-EXTERNAL` aggregations to a period the source's `WARMUP` declares, MARK, funding, instrument status and close, and the custom trades and metrics a replay streams.
   Quotes, books, index prices, option data and other bar types are `SUBSCRIPTION_OUTSIDE_CONTRACT`; native trades
-  and unstreamed custom data keep `TRADES_NOT_SERVED` and `METRICS_NOT_SERVED`. Paper and Live stream neither trades
-  nor metrics. Paper and Live give the source the first MARK of each minute and one funding update per settlement
+  and unstreamed custom data keep `TRADES_NOT_SERVED` and `METRICS_NOT_SERVED`. Paper and Live stream no trades and
+  read metrics from REST. Paper and Live give the source the first MARK of each minute and one funding update per settlement
   (`engine.cadence`), as a replay does.
 - Orders (`engine.order_rules`, code `ORDER_RULE`): positions are HEDGING, so each entry order opens its own position
   and a strategy may hold long and short positions and entries on one contract together (user, 2026-11-11; the

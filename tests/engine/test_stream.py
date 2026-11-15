@@ -759,8 +759,8 @@ class StreamTests(unittest.TestCase):
                                 for event in found))
             self.assertEqual([event[1] for event in found], sorted(event[1] for event in found))
             self.assertEqual(found[0][3], row["instrument_id"])
-            self.assertEqual(found[1][4:], (Decimal("1235.5"), Decimal("1.25"), Decimal("0.875"), None))
-            self.assertEqual(found[7][7], Decimal("2"))
+            self.assertEqual(found[1][4:], (Decimal("1235.5"), Decimal("1.2502"), Decimal("0.875"), None))  # as REST shows
+            self.assertEqual(found[7][7], Decimal("2.0003"))  # 6667 / 3333
         first = next(event for event in seen["AAA"] if event[0] == "metrics" and event[1] >= window.trade_start_ns)
         close = next(event[2] for event in seen["AAA"] if event[0] == "bar" and event[1] == first[1] - 10**6)
         self.assertEqual([str(fill["last_px"]) for fill in fills], [close])

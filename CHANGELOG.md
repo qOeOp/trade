@@ -22,6 +22,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (metrics replays): `--metrics` exports by the rule `binance-metrics-visible-v2`, which gives the values
+  Binance's public REST shows: the long/short ratios at 4 decimals, each account ratio the quotient of its long and
+  short shares rounded to 4 decimals first; open interest and the stamps are unchanged. Every replay that reads
+  metrics gets other inputs than under v1, so earlier metrics research does not compare with new runs. Paper and Live
+  now serve metrics of the run's contracts, read from that REST at the replay's stamps, where a subscription used to
+  stop the run (`METRICS_NOT_SERVED`). A position ratio the archive holds at a tie of the 4th decimal (about 1 row in
+  90) may differ from REST by 0.0001.
 - Engine: a source may declare `"FUNDING": n` in `WARMUP`. Before `on_start`, `on_historical_funding_rates` receives
   the last n funding settlements at or before its start, the updates a replay streams for them: from the export in a
   replay, from Binance's public funding-rate history in Paper and Live. A source that reads funding no longer waits
