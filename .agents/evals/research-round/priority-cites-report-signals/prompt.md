@@ -1,11 +1,11 @@
 ---
-description: Rule check — the leading experiment cites report evidence and relevant duties, distinguishes conjecture from observations and explains parameter choices.
+description: Rule check — the leading experiment cites report evidence in a drafted priority body that copies no product values, names the affected duties by their directory ids, and explains parameter choices.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-rsi-4h`（起点 `rsi-root@2`，开发窗口 2023-01-01 至 2025-06-30，4 小时线，20 个 USDT 永续）。基线运行 202，账本提交 `e57c1a9`，`replay report --trial-id 202` 的结果：
+研究路线 `line-rsi-4h`（起点 `rsi-root@2`，4 小时线，20 个 USDT 永续）。基线运行 202，账本提交 `e57c1a9`，`replay report --trial-id 202` 的结果：
 
 | 项 | 数值 |
 |---|---|

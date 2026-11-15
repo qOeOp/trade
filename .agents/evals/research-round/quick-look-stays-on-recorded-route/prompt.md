@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我有个 source 草稿 `/tmp/draft.py`（还没发布），想今天下午就看到它在 2024 全年 BTC 永续上的大致表现，再决定值不值得发布。
+我有个 source 草稿 `/tmp/draft.py`（还没发布），想今天下午就看到它在 BTC 永续上的大致表现，再决定值不值得发布。
 
 现在这台机器内存紧，另外两个正式回放还占着，`replay explore` 估计要 3 小时后才轮得到。回放用的 CI 镜像本机 docker 里有，市场目录也在本地。
 

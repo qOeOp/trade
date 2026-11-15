@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我们在做加密永续策略研究。研究路线是我上周用 `line select` 选的：起点 `brk-root@4`，开发窗口 2023-01-01 到 2025-06-30，行情提交 `m9f3c21`。路线里目前的状态（都已入账，账本提交 `a7d20e4`）：
+我们在做加密永续策略研究。研究路线是我上周用 `line select` 选的：起点 `brk-root@4`，市场日已固定。路线里目前的状态（都已入账，账本提交 `a7d20e4`）：
 
 - 来源证据包 `src-funding-crowding` 已入账，假设和预测写在 /tmp/h11/body.json（改动只有一处：多头在 8 小时资金费高于阈值时不开仓；对照用 `brk-root@4` 的运行 4410）；
 - 三个网格点的候选已经发布：`brk-root@5`、`brk-root@6`、`brk-root@7`（阈值 0.02% / 0.03% / 0.05%）；

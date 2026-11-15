@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-CI 刚构建出新的运行镜像 `ghcr.io/qoeop/trade-runtime@sha256:e51b…`（Nautilus 1.221.0 升到 1.223.0）。研究路线 `line-fund-8h` 的 `research state --line` 显示 `runs_behind_image` 是 `[588, 604, 611]`。
+CI 刚构建出新的运行镜像 `ghcr.io/qoeop/trade-runtime@sha256:e51b…`。研究路线 `line-fund-8h` 的 `research state --line` 显示 `runs_behind_image` 是 `[588, 604, 611]`。
 
 当前 recommendation 判断推荐 `fund-root@4`（运行 604），对照是 `fund-root@2`（运行 588），配对比较 p = 0.02。运行 611 是 `fund-root@3`。
 
