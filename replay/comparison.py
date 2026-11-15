@@ -38,7 +38,7 @@ from collections.abc import Iterable, Mapping
 import ast
 import csv
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_EVEN
+from decimal import Decimal, ROUND_HALF_DOWN, ROUND_HALF_EVEN
 import gzip
 import hashlib
 import itertools
@@ -399,12 +399,17 @@ def _followed(arrivals: Iterable[int], unsubscribed: list[int], end: int) -> lis
 
 def compare_metrics(run_rows: Iterable[Mapping], archive: Mapping[str, list[list]], end: int) -> dict[str, dict]:
     """Per contract whose source received metrics (Live's evidence pack), the rows it received against those a replay
-    streams (`archive`: {symbol: [[ts_event, four values as text or None]]}, archive_metrics), each by the instant it
-    reached the source (ts_event + METRICS_VISIBLE_NS), while it followed them: from the first it received to its
-    unsubscribe (`metrics_unsubscribed`, at its wall_ns), and again from the first it received after one, up to `end`:
-    {archive, live, missing, late, live_only, differing: {instant: {field: [live, archive]}}}. A row due before the
-    unsubscribe and not received counts as missing, also one due at a bar close the source unsubscribed on. A ratio
-    the archive held at a tie of REST's 4th decimal may differ by 0.0001
+    streams (`archive`: {symbol: [[ts_event, four values as text or None, ties]]}, archive_metrics), each by the
+    instant it reached the source (ts_event + METRICS_VISIBLE_NS), while it followed them: from the first it received
+    to its unsubscribe (`metrics_unsubscribed`, at its wall_ns), and again from the first it received after one, up to
+    `end`: {archive, live, missing, late, live_only, differing: {instant: {field: [live, archive]}}}. A row due before
+    the unsubscribe and not received counts as missing, also one due at a bar close the source unsubscribed on.
+
+    Values are equal as numbers, with one tolerance: a position ratio the archive holds exactly at the midpoint of
+    REST's 4th decimal (`ties`: {field: the half-down rounding}, archive_metrics) also agrees at that midpoint's
+    other rounding, 0.0001 below the replay's half-up. The archive's 6 places do not say which way REST rounded the
+    true value; on 650 such rows of 64,000 (8 contracts, 29 days to 2026-11-14) REST rounded 350 up and 300 down,
+    and no rule from the archive's columns reproduced it. No other difference is accepted
     (docs/plans/binance-metrics-rest-parity.zh.md)."""
     live: dict[str, dict[int, Mapping]] = {}
     unsubscribed: dict[str, list[int]] = {}
@@ -416,14 +421,15 @@ def compare_metrics(run_rows: Iterable[Mapping], archive: Mapping[str, list[list
     result = {}
     for symbol, mine in live.items():
         spans = _followed(mine, unsubscribed.get(symbol, []), end)
-        stored = {row[0] + METRICS_VISIBLE_NS: dict(zip(METRICS_VALUES, row[1:], strict=True))
+        stored = {row[0] + METRICS_VISIBLE_NS: (dict(zip(METRICS_VALUES, row[1:-1], strict=True)), row[-1])
                   for row in archive.get(symbol, [])
                   if any(low <= row[0] + METRICS_VISIBLE_NS < high for low, high in spans)}
         differing = {}
-        for at, row in stored.items():
+        for at, (row, ties) in stored.items():
             if at in mine:
                 fields = {name: [mine[at].get(name), row[name]] for name in METRICS_VALUES
-                          if _amount(mine[at].get(name)) != _amount(row[name])}
+                          if _amount(mine[at].get(name)) != _amount(row[name])
+                          and (name not in ties or _amount(mine[at].get(name)) != _amount(ties[name]))}
                 if fields:
                     differing[at] = fields
         late = sorted(at for at, line in mine.items()
@@ -436,15 +442,22 @@ def compare_metrics(run_rows: Iterable[Mapping], archive: Mapping[str, list[list
 
 def archive_metrics(opened, market_day: str, symbol: str, low: int, end: int) -> list[list]:
     """The metrics rows a replay streams of `symbol` from ts_event `low` that reach it before `end`
-    (market.export.metrics_rows, the ratios as shown_ratio gives them): [[ts_event, *METRICS_VALUES], ...], the values
-    as text or None."""
+    (market.export.metrics_rows, the ratios as shown_ratio gives them): [[ts_event, *METRICS_VALUES, ties], ...], the
+    values as text or None; `ties` holds {field: text} for a position ratio stored exactly at the midpoint of the 4th
+    decimal, rounded half-down, the other value REST may show (compare_metrics)."""
     from market import export, files
     rows = export.metrics_rows(opened, market_day, symbol, low // MILLISECOND_NS, None, end // MILLISECOND_NS)
     found = []
     for row in rows:
         stored = dict(zip(files.METRICS_VALUES, row[1:], strict=True))
+        ties: dict[str, str | None] = {}
+        for name in METRICS_VALUES[1:]:
+            if name not in export.ACCOUNT_RATIOS and stored[name] is not None:
+                down = stored[name].quantize(export.RATIO_PLACES, ROUND_HALF_DOWN)
+                if down != export.shown_ratio(name, stored[name]):  # half-up and half-down part only at the midpoint
+                    ties[name] = text(down)
         found.append([(row[0] + export.METRICS_DESCRIBES_MS) * MILLISECOND_NS, text(stored[METRICS_VALUES[0]]),
-                      *(text(export.shown_ratio(name, stored[name])) for name in METRICS_VALUES[1:])])
+                      *(text(export.shown_ratio(name, stored[name])) for name in METRICS_VALUES[1:]), ties])
     return found
 
 

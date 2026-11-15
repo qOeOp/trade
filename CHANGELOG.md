@@ -37,6 +37,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   for one that never came, `WARMUP_TIMEOUT`. The live stream's estimate that moves the next funding time later before
   the named time has come is no longer taken for a settlement at the named time. The change gives a new replay image;
   replays are unchanged.
+- `live compare` (metrics): a top-trader position ratio the archive holds exactly at the midpoint of the 4th
+  decimal, about 1 row in 100, now also agrees when Live received its half-down rounding. REST rounds such a value
+  either way (350 up, 300 down on 650 rows of 8 contracts over 29 days) and no rule from the archive reproduced it,
+  so these rows were reported as `metrics` differences that were not real. Any other difference is reported as
+  before; the replay's values and the comparison format are unchanged.
 - Breaking (Paper end reason): a Paper run whose native cache process (the runner's Redis child) exits or stops
   answering now ends with `PAPER_CACHE_UNAVAILABLE`: its working orders are canceled, positions stay open, and the
   seal's reasons say `REFUSED:PAPER_CACHE_UNAVAILABLE` and `STOPPED:PAPER_CACHE_UNAVAILABLE`. Before, a run whose

@@ -70,7 +70,7 @@ def metered(at: int, position_ratio: str = "1.8441", wall_ns: int | None = None)
 
 
 def stored_metrics(*arrivals: int) -> list[list]:
-    return [[at - comparison.METRICS_VISIBLE_NS, "97897.565", "3.6904", "1.8441", None] for at in arrivals]
+    return [[at - comparison.METRICS_VISIBLE_NS, "97897.565", "3.6904", "1.8441", None, {}] for at in arrivals]
 
 
 def bracket(prefix: str, at: int, filled_at: int, position: str, *, qty: str = "1", px: str = "100.0",
@@ -462,5 +462,32 @@ class Metrics(unittest.TestCase):
         with mock.patch.object(export, "metrics_rows", return_value=[row]) as read:
             found = comparison.archive_metrics(object(), "d", "BTCUSDT", START + 5 * MINUTE, START + MINUTE * 20)
         self.assertEqual(read.call_args.args[3:], (create + 5 * 60_000, None, create + 20 * 60_000))
-        self.assertEqual(found, [[START + 5 * MINUTE, "97897.565", "3.6062", "1.7901", None]])
+        # 1.790050 lies at the midpoint of the 4th decimal: REST may show it rounded either way.
+        self.assertEqual(found, [[START + 5 * MINUTE, "97897.565", "3.6062", "1.7901", None,
+                                  {"sum_toptrader_long_short_ratio": "1.79"}]])
         self.assertEqual(files.METRICS_VALUES, comparison.METRICS_VALUES)
+
+    def test_only_a_position_ratio_stored_at_a_midpoint_may_show_its_other_rounding(self):
+        """REST rounds a position ratio the archive holds at the midpoint of the 4th decimal either way (650 such
+        rows of 64,000 on 2026-10-17..11-14, 350 up and 300 down); no other difference is accepted."""
+        from market import export
+        create = START // 10**6
+        rows = [(create, Decimal("97897.565"), Decimal("1.79005"), Decimal("1.790050"), Decimal("2.00015")),
+                (create + 300_000, Decimal("97897.565"), Decimal("3.6904"), Decimal("1.790049"), None)]
+        with mock.patch.object(export, "metrics_rows", return_value=rows):
+            archive = {"BTCUSDT": comparison.archive_metrics(object(), "d", "BTCUSDT", START, START + MINUTE * 20)}
+        # An account ratio at a midpoint gives no alternative: its shown value is a quotient of rounded shares.
+        self.assertEqual([row[-1] for row in archive["BTCUSDT"]], [{"sum_toptrader_long_short_ratio": "1.79"}, {}])
+        at = [row[0] + comparison.METRICS_VISIBLE_NS for row in archive["BTCUSDT"]]
+
+        def differing(first: str, second: str) -> dict:
+            received = [{**metered(at[0], first), "count_toptrader_long_short_ratio": archive["BTCUSDT"][0][2],
+                         "count_long_short_ratio": archive["BTCUSDT"][0][4]}, metered(at[1], second)]
+            return comparison.compare_metrics(received, archive, at[1] + MINUTE)["BTCUSDT"]["differing"]
+
+        self.assertEqual(differing("1.7901", "1.79"), {})
+        self.assertEqual(differing("1.7900000000000000", "1.79"), {})  # the midpoint's other rounding
+        self.assertEqual(differing("1.7902", "1.79"),  # one unit off, but not the midpoint's other rounding
+                         {at[0]: {"sum_toptrader_long_short_ratio": ["1.7902", "1.7901"]}})
+        self.assertEqual(differing("1.7901", "1.7901"),  # one unit off a value not at a midpoint
+                         {at[1]: {"sum_toptrader_long_short_ratio": ["1.7901", "1.79"]}})
