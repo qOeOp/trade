@@ -22,6 +22,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (clock callbacks): a callback a source registers with `clock.set_timer_zoned` is guarded like those of
+  `set_timer` and `set_time_alert`. When it raises, the failure is recorded (`runtime_failures.jsonl`) and the run
+  fails, where the engine used to log one error line and the run passed. In Paper such a timer now counts as a user
+  timer, outside the recovery protocol, and in Live its callback no longer runs once the run is stopping, as with
+  the other timers. The change gives a new replay image; sources that do not use `set_timer_zoned` are unchanged
+  (doctor 20261114-35).
 - Breaking (order rules): a GTD order whose expiry is not a whole second is refused as `ORDER_RULE` in replay,
   Paper and Live. Nautilus's Binance USD-M client denies such an order before sending it, so a source that passed a
   replay and Paper failed at its first GTD order in Live. A replay's bars are stamped 1 ms before the minute, so

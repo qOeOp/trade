@@ -306,8 +306,8 @@ def guard_callback(name: str, method):
 
 # Clock APIs that register a callback, with the callback's position among their arguments
 # (nautilus_trader.common.Clock in the pinned version).
-CLOCK_CALLBACK_APIS = {"set_timer": 4, "set_timer_ns": 4, "set_time_alert": 2, "set_time_alert_ns": 2,
-                       "register_default_handler": 0}
+CLOCK_CALLBACK_APIS = {"set_timer": 4, "set_timer_ns": 4, "set_timer_zoned": 4, "set_time_alert": 2,
+                       "set_time_alert_ns": 2, "register_default_handler": 0}
 
 
 class GuardedClock:

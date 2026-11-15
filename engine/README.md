@@ -410,7 +410,7 @@ termination (or without one) is `DATA_ENDS_WITHOUT_TERMINATION`. Every finding s
 function at ingest.
 
 A strategy constructor, callback, callback registered on the clock (`set_timer`, `set_timer_ns`,
-`set_time_alert`, `set_time_alert_ns`, `register_default_handler`), `replay_diagnostics` or
+`set_timer_zoned`, `set_time_alert`, `set_time_alert_ns`, `register_default_handler`), `replay_diagnostics` or
 `replay_integrity_findings` that raises leaves a structured receipt in `runtime_failures.jsonl` before
 the exception goes on; the runner then exits nonzero even when the engine caught the exception and
 finished. So does any exception that ends the runner before its verdict, with its stage
