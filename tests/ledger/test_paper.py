@@ -145,6 +145,13 @@ class ReadingTests(unittest.TestCase):
                               {"EGRESS_DENIED"}, "invalid"),
             "nothing at all": ([], None, None, None, {"JOURNAL_MISSING", "SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"},
                                "invalid"),
+            "journal could not be written, no summary": (journal(), None, paper.JOURNAL_FAILED_EXIT, None,
+                                                         {"PAPER_JOURNAL_WRITE_FAILED", "SUMMARY_MISSING",
+                                                          "RUNNER_EXIT_NONZERO"}, "complete"),
+            "journal could not be written, summary kept": (
+                journal(), summary(stop_reason="PAPER_JOURNAL_WRITE_FAILED"), paper.JOURNAL_FAILED_EXIT, None,
+                {"PAPER_JOURNAL_WRITE_FAILED", "STOPPED:PAPER_JOURNAL_WRITE_FAILED", "RUNNER_EXIT_NONZERO"},
+                "complete"),
         }
         for name, (lines, found_summary, exit_code, egress, reasons, status) in cases.items():
             with self.subTest(name):
@@ -154,12 +161,19 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual((never["status"], set(never["reasons"])),
                          ("complete", {"START_FAILED", "JOURNAL_MISSING", "SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"}))
 
+    def test_the_runner_and_the_seal_agree_on_the_exit_status_of_a_failed_journal(self):
+        from engine import paper as runner
+        self.assertEqual(runner.JOURNAL_FAILED_EXIT, paper.JOURNAL_FAILED_EXIT)
+
     def test_a_runner_killed_from_outside_ends_as_a_stop_with_what_it_journaled(self):
         found = paper.readings(ROW, journal(), 0, None, 137, None)
         self.assertEqual((found["status"], found["reasons"], found["stop_reason"]), ("complete", [], "KILLED"))
         self.assertEqual(Decimal(found["final_equity_usdt"]), Decimal("100009.9"))  # 99990 + 20 open, less 0.1 funding
         self.assertEqual(found["stopped_ns"], START + 3 * MINUTE)
         self.assertIn("Killed from outside", found["limitations"][-1])
+        # It once counted the summary's open positions, which a run killed before writing one always read as 0.
+        self.assertNotIn("positions_open_at_stop", found)
+        self.assertNotIn("positions_open_at_stop", paper.readings(ROW, journal(), 0, summary(), 0, None))
         asked = journal() + [line("stop_requested", START + 4 * MINUTE, reason="STOP_FILE")]
         waiting = [line("started", START, source_sha256=SOURCE), line("waiting", START, until_ns=START + DAY)]
         cases = {

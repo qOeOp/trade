@@ -15,6 +15,7 @@ const components = new SourceTextModule(`
   export { LiveFrozenPlan } from "./components/LiveLaunchReview";
   export { LiveRunIdentity } from "./components/LiveRunIdentity";
   export { LiveRunCanvas } from "./widgets/live/LiveRunCanvas";
+  export { CoinChip } from "./components/CoinMenu";
 `, { identifier: resolve(src, "live-component-test.ts") });
 await components.link(loader({ stubs: {
   "state/shown": { useShown: () => ({ liveRun: canvasRun, version: null, trial: null }) },
@@ -147,9 +148,34 @@ test("the current run and its review expose the full copyable identity without e
     const visible = html.replace(/<details\b[\s\S]*?<\/details>/g, "");
     assert.match(visible, /<code[^>]*>web-0123456789abcdef012<\/code>/);
     assert.match(visible, /aria-label="Copy run ID"/);
-    assert.match(visible, /Status<\/dt><dd[^>]*><span[^>]*>running/);
+    assert.match(visible, /Status<\/dt><dd[^>]*><span[^>]*><span[^>]*>running/);
     assert.match(visible, /Phase<\/dt><dd[^>]*>Live execution/);
   }
+});
+
+test("a held run's failed stop check is red and short: no paragraph, a Stop check fact and the contract's own tag; covered holds keep their look", () => {
+  const body = "has a position with NO STOP at Binance: BTCUSDT LONG 0.002 (stops 0). Nothing will close it: the run only observes while it holds. Close it or place a stop at Binance now.";
+  const gap = { symbol: "BTCUSDT", side: "LONG", position: "0.002", stops: "0" };
+  const held = { ...run, id: "web-held", hostState: "running", host: [{ label: "Mode", value: "run" }],
+    heldNotice: `This run ${body}`, heldAlert: { word: "Holding, no stop", tone: "fail", body, gaps: [gap], note: null } };
+  canvasRun = held;
+  const page = render("LiveRunCanvas", {});
+  assert.doesNotMatch(page, /<p role="status" class="text-dense text-(fail|misses)-fg"/, "no block of text above the chart");
+  assert.match(page, /Status<\/dt><dd[^>]*><span class="inline-flex items-center gap-1"><span class="font-semibold text-fail-fg">Holding, no stop<\/span><\/span>/);
+  // The long sentence is the info icon's, read whole by a screen reader and shown in its tooltip.
+  assert.match(page, /Stop check<\/dt><dd[^>]*><span class="inline-flex items-center gap-1"><span class="text-fail-fg">BTCUSDT LONG 0\.002 · stops 0<\/span><span role="img" tabindex="0" aria-label="What the check found: This run has a position with NO STOP at Binance[^"]*Close it or place a stop at Binance now\."/);
+  const note = { ...held, heldAlert: { ...held.heldAlert, word: "Holding, cancelling entries", tone: "misses", gaps: [], note: "cancelling 1 inherited entry order(s)" } };
+  assert.match(render("LiveRunIdentity", { run: note, operation: true }), /Stop check<\/dt><dd[^>]*><span[^>]*><span class="text-misses-fg">cancelling 1 inherited entry order\(s\)<\/span>/);
+  // The contract's capsule says it too, in the failure hue, beside its side.
+  const chip = render("CoinChip", { coin: { symbol: "BTCUSDT", side: "LONG", warn: "No stop" } });
+  assert.match(chip, />LONG<\/span><span class="text-small font-medium text-fail-fg">No stop<\/span>/);
+  assert.doesNotMatch(render("CoinChip", { coin: { symbol: "BTCUSDT", side: "LONG" } }), /No stop/);
+  // Stops all in place: the amber paragraph and the plain host state it has had.
+  canvasRun = { ...held, heldAlert: null, heldNotice: "This run holds only positions that have their stop at Binance" };
+  assert.doesNotMatch(render("LiveRunCanvas", {}), /<p role="status" class="text-dense text-misses-fg"/, "the hold's explanation is an info icon, not a paragraph");
+  assert.match(render("LiveRunIdentity", { run: canvasRun, operation: true }), /Status<\/dt><dd[^>]*><span class="inline-flex items-center gap-1"><span class="inline-block first-letter:uppercase">running<\/span><span role="img" tabindex="0" aria-label="This run holds an inherited position: This run holds only positions/);
+  assert.doesNotMatch(render("LiveRunIdentity", { run: canvasRun, operation: true }), /Stop check/);
+  assert.doesNotMatch(render("LiveRunIdentity", { run: { ...canvasRun, heldNotice: null }, operation: true }), /role="img"/, "a run that does not hold has no hold note");
 });
 
 test("executed and reconciled runs show observation review instead of preparation controls", () => {
@@ -200,7 +226,7 @@ test("run review preserves action availability and names phases without inventin
     const observed = { ...run, hostState: null, host: [{ label: "Mode", value: mode }] };
     const html = wizard({ ...blank, runs: [observed] });
     assert.match(html, new RegExp(`Phase</dt><dd[^>]*>${label}`));
-    assert.match(html, /Status<\/dt><dd[^>]*><span[^>]*>Unknown/);
+    assert.match(html, /Status<\/dt><dd[^>]*><span[^>]*><span[^>]*>Unknown/);
     assert.match(html, /No observation received/);
     for (const action of ["Refresh observations", "Request stop"]) assert.match(html, new RegExp(`<button[^>]* disabled=""[^>]*>${action}</button>`));
   }

@@ -22,6 +22,75 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper seal (finding 20261114-38): `seal.json` no longer carries `positions_open_at_stop` (readings version
+  `paper-readings@2026-11-15`). It counted the summary's open positions, so a run killed before it wrote a summary
+  always read 0 whatever it held, while the final equity came from the journal's last snapshot. Nothing in the product
+  read it; the open positions of a run that wrote a summary stay in `summary.json` (`positions_at_stop`), and a run
+  killed with a position open still ends with the journal's last equity. Seals already stored keep their readings.
+- Breaking (replay inputs): an instance's `on_start` now runs after the data that arrives at its start T in every
+  replay. An instance whose T is the window's start (`--trade-start` equal to `--start`, and no declared history
+  moving T later) used to start before that data and receive through its subscriptions whatever arrived exactly at
+  T, such as a funding settlement stamped on the hour (twice for a source declaring `FUNDING`: in its history and
+  again as an update). It now receives none of it, as an instance starting later already did, so each settlement
+  reaches a source once: in its history when stamped at or before T, otherwise after `on_start`. A replay whose
+  window starts at T can therefore give a source different inputs and different orders than before; replays whose T
+  lies after the window's start are unchanged. Paper and Live follow: at a start on a settlement hour they give a
+  source only a settlement Binance stamped after the hour, no longer one stamped on it to a source without a funding
+  or intraday bar history (the user 2026-11-15).
+- Breaking (Paper end reason): a Paper run whose journal cannot be written (a full disk) now stops with
+  `PAPER_JOURNAL_WRITE_FAILED` and the runner exits with status 3; the seal's reasons say
+  `PAPER_JOURNAL_WRITE_FAILED` and `RUNNER_EXIT_NONZERO`, and `STOPPED:PAPER_JOURNAL_WRITE_FAILED` when the summary
+  could be written. The journal ends at the first refused write, and the source still receives every order and
+  position event, which a refused journal line used to skip (the run went on, its general `on_order_event` and
+  `on_position_event` callbacks missed events, and the seal read `complete` with no reason). A script that matches
+  seal reasons exactly sees a reason it did not know. Paper image only; the replay image is unchanged (doctor
+  20261114-43, the user 2026-11-15).
+- Paper and Live: after Binance changes a contract's funding interval, the next settlement is the one Binance makes,
+  as a replay streams it. A start's warm-up waits for the settlement the contract's interval now
+  (`fapi/v1/fundingInfo`) makes due at or before T; it used to predict it from the spacing of the last two, so a start
+  after a shortening (8 to 1 hours) could miss that settlement and a start after a lengthening (1 to 4 hours) waited
+  for one that never came, `WARMUP_TIMEOUT`. The live stream's estimate that moves the next funding time later before
+  the named time has come is no longer taken for a settlement at the named time. The change gives a new replay image;
+  replays are unchanged.
+- `live compare` (metrics): a top-trader position ratio the archive holds exactly at the midpoint of the 4th
+  decimal, about 1 row in 100, now also agrees when Live received its half-down rounding. REST rounds such a value
+  either way (350 up, 300 down on 650 rows of 8 contracts over 29 days) and no rule from the archive reproduced it,
+  so these rows were reported as `metrics` differences that were not real. Any other difference is reported as
+  before; the replay's values and the comparison format are unchanged.
+- Breaking (Paper end reason): a Paper run whose native cache process (the runner's Redis child) exits or stops
+  answering now ends with `PAPER_CACHE_UNAVAILABLE`: its working orders are canceled, positions stay open, and the
+  seal's reasons say `REFUSED:PAPER_CACHE_UNAVAILABLE` and `STOPPED:PAPER_CACHE_UNAVAILABLE`. Before, a run whose
+  source declared the recovery protocol stopped processing data without a word (its journal and checkpoint stopped,
+  STOP was ignored, `paper stop` ended in SIGKILL after 93 seconds and the seal had no reason), and any other run
+  traded on without its cache and took 92 seconds to stop. The cache's connections also fail fast now, and a
+  checkpoint that raises anything but a refusal is deferred instead of escaping its timer. A shell or script that
+  matches seal reasons exactly sees a reason it did not know. Paper image only; the replay image is unchanged
+  (doctor 20261114-34, the user 2026-11-15).
+- Live (evidence pack): when a source unsubscribes from a contract's metrics, Live records `metrics_unsubscribed`
+  in `evidence/market.jsonl`. `live compare` no longer counts the archive rows after it as missing; it expects rows
+  again from the first one the source receives after resubscribing. Paper and Live hand no metrics row to a source
+  after it unsubscribed, including one already read in the same tick. The change gives a new runtime image.
+- Breaking (`research history`): a closing history test's combined verdict needs every reading it is defined on.
+  A whole veto year whose run is invalid or missing, or lacks a reading, used to drop out of the veto's count, so
+  the other years, or the holdout alone when every year was invalid, could read `meets_targets` true; a row without
+  a control run was judged too. Now `meets_targets` and `judged_on` are null in those cases and the summary's new
+  `missing` names what is lacking (`veto YEAR`, `control`, `holdout`, `targets`). `whole_years` counts every whole
+  veto year replayed, invalid ones included. Nothing is stored and no history run changes; the History page shows
+  such a row's verdict as a dash (doctor 20261114-12).
+- Breaking (`line history`, `line close`, `research history`): the candidates of a line's closing history test are
+  its sources whose latest passed research run carries economic evidence, the read-time judgment `research status`
+  already applies. A source whose review failed, or whose run shows no real activity, used to be replayed, shown
+  with its development readings and judged like any other. It is now left out: not replayed, not a row, not counted
+  in `participants` or in the deflated Sharpe's trials, and `line close` no longer requires its segments. Both
+  commands name it in the new `without_economic_evidence` with its reasons and no reading; a source that loses its
+  evidence after its history runs moves there too. Nothing is stored and no history run changes (doctor
+  20261114-13).
+- Live (finding 20261114-29, the part about answers of the wrong shape): an answer from Binance with HTTP 200 that
+  lacks what Live's own read-only client reads from it (the server time, the instrument list) is now the refusal
+  `LIVE_ACCOUNT_RESPONSE`, where the client raised `KeyError` or `TypeError`. A periodic comparison or a held start's
+  read that gets such an answer is read again, where the run ended `unresolved` (`observer_failure`) with the node
+  stopped and its positions left open. An entry's read is refused under that code and ends the run on the STOP path
+  (before: under the code `KeyError`); the brake's read is lost as before. The client still makes each request once.
 - Breaking (precheck output): `replay precheck` returns `technical` (populations, the activity and plan checks, the
   order funnel) where it returned `metrics`, which carried annual return, drawdown, Sharpe, win rate and the cost
   slices to the author before the registration. Nothing stored changes; `replay report` and the run reports after
@@ -62,6 +131,15 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   with no stop gets its own message. The interruption and restart-limit notices say what the run did (closed nothing,
   cancelled no stop) instead of "open positions keep their exchange stops". A held start still places no stop,
   closes nothing and runs no drawdown brake.
+- Live page, held start (finding 20261114-24, the page half): a held run whose latest check found a position without
+  its stop, an inherited entry order Binance still holds, or an answer it could not read says so in its status word
+  (`Holding, no stop`, `Holding, entry not cancelled`, `Holding, unverified`) in the red of an unresolved run, and a
+  missing stop is marked on its own contract: the contract's capsule, a level at the position's entry on its chart,
+  the position's line on the phone, and a `Stop check` fact (`BTCUSDT LONG 0.002 · stops 0`). The Runs button and
+  tab dot turn red with it. While the run is still cancelling inherited entry orders it reads `Holding, cancelling
+  entries` in amber. A hold whose stops are all in place looks as before. The page's long notes (the hold's
+  explanation, the stop check's sentence, the events tables' reading notes) are the tooltip of an info icon instead
+  of a block of text above the chart or table.
 - Breaking (order rules): a GTD order of a type other than LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED is refused as
   `ORDER_RULE` in replay, Paper and Live: Nautilus's Binance USD-M client sends only those three GTD and denies any
   other. Before, rule 5 raised `AttributeError` on every GTD order but a LIMIT (a source failure, not a refusal), so
@@ -71,9 +149,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Breaking (Live restart rule, finding 20261114-23): a Live runner that ends by its own refusal or failure is no
   longer taken for an interruption and started again. Once armed, every such exit of a run records `unresolved`
   (the final account read after a completed native exit failing or not flat, a start again without its native cache
-  or with changed account modes, a clock outside the limits), and the control never restarts a runner that exited
-  with status 1 or 2. A killed runner and SIGTERM start again as before. Only a start again whose first account read
-  fails (`LIVE_ACCOUNT_UNAVAILABLE`) is retried, within the existing four run launches an hour.
+  or with changed account modes), and the control never restarts a runner that exited with status 1 or 2. A killed
+  runner and SIGTERM start again as before. Only a start again whose first account read fails
+  (`LIVE_ACCOUNT_UNAVAILABLE`), or shows this clock outside the limits (`LIVE_CLOCK`, the user 2026-11-15: a host
+  clock that steps aside comes back by itself), is retried, within the existing four run launches an hour; the
+  clock's limits are unchanged, and a first start over them is refused as before.
 - Paper: a recovery no longer drops or reuses the position IDs of resting limit entries. The Sandbox now leaves
   position IDs to the execution engine (`use_position_ids=False`, as Live), so a recovered run's new fills cannot
   collide with a cached position of another contract (entry stuck at ACCEPTED, no stop, no re-entry) or of the same

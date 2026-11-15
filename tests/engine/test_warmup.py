@@ -169,6 +169,8 @@ class FundingTests(unittest.TestCase):
         asked = []
 
         def get(url, proxy_url):
+            if url.endswith("/fapi/v1/fundingInfo"):
+                return [{"symbol": "AAAUSDT", "fundingIntervalHours": 8}]
             asked.append(url)
             query = dict(urllib.parse.parse_qsl(url.split("?")[1], strict_parsing=True))
             held = [at for at in times if at <= int(query["endTime"])][-int(query["limit"]):]
@@ -193,8 +195,10 @@ class FundingTests(unittest.TestCase):
     def test_a_start_at_a_settlement_hour_waits_until_binance_publishes_it(self):
         hour = 3_600_000
 
-        def binance_funding(times):
+        def binance_funding(times, interval_hours=8):
             def get(url, proxy_url):
+                if url.endswith("/fapi/v1/fundingInfo"):
+                    return [{"symbol": "AAAUSDT", "fundingIntervalHours": interval_hours}]
                 query = dict(urllib.parse.parse_qsl(url.split("?")[1], strict_parsing=True))
                 held = [at for at in times if at <= int(query["endTime"])][-int(query["limit"]):]
                 return [{"fundingTime": at, "fundingRate": "0.0001"} for at in held]
@@ -206,10 +210,10 @@ class FundingTests(unittest.TestCase):
             return tuple([update.ts_event // NS for update in part] for part in found)
         with self.assertRaises(history.FundingPending):
             history.settlements(IID, at, 3, None, binance_funding(published))
-        # The settlement of T's hour, stamped T: the last of the history, and the one a replay starting there streams.
+        # The settlement of T's hour, stamped T: the last of the history, and never streamed after on_start.
         on_the_hour = binance_funding([*published, base + 32 * hour])
         self.assertEqual(stamps(history.settlements(IID, at, 3, None, on_the_hour)),
-                         ([*published[-2:], base + 32 * hour], [base + 32 * hour]))
+                         ([*published[-2:], base + 32 * hour], []))
         # Stamped 13 ms after its hour, it is published but not yet known at T: it only follows the history.
         jittered = binance_funding([*published, base + 32 * hour + 13])
         self.assertEqual(stamps(history.settlements(IID, at, 3, None, jittered)),
@@ -218,10 +222,24 @@ class FundingTests(unittest.TestCase):
         with self.assertRaises(history.FundingPending):
             history.settlements(IID, at, 0, None, binance_funding(published))
         self.assertEqual(stamps(history.settlements(IID, at, 0, None, jittered)), ([], [base + 32 * hour + 13]))
-        self.assertEqual(stamps(history.settlements(IID, at, 0, None, on_the_hour)), ([], [base + 32 * hour]))
+        self.assertEqual(stamps(history.settlements(IID, at, 0, None, on_the_hour)), ([], []))
         # No settlement is due a minute before the hour.
         self.assertEqual(stamps(history.settlements(IID, at - 60_000 * NS, 3, None, binance_funding(published))),
                          (published[-3:], []))
+        # Binance shortens the interval to 1 hour after a settlement (HOTUSDT 2026-11-03 00:00, 8 hours before): a
+        # start at the next hour waits for that hour's settlement, which the last two's spacing does not make due.
+        shortened = binance_funding(published, 1)
+        with self.assertRaises(history.FundingPending):
+            history.settlements(IID, at - 7 * 3_600_000 * NS, 3, None, shortened)
+        self.assertEqual(stamps(history.settlements(IID, at - 7 * 3_600_000 * NS, 0, None,
+                                                    binance_funding([*published, base + 25 * hour + 2], 1))),
+                         ([], [base + 25 * hour + 2]))
+        # It lengthens the interval to 4 hours after a settlement (HOTUSDT 2026-11-12 20:00, 1 hour before): no
+        # settlement is due at the next hours, and a start there gets the history Binance holds.
+        hourly = [base + 20 * hour + index * hour for index in range(5)]
+        lengthened = binance_funding(hourly, 4)
+        self.assertEqual(stamps(history.settlements(IID, (base + 25 * hour) * NS, 2, None, lengthened)),
+                         (hourly[-2:], []))
 
 
 class ReplayWarmupTests(unittest.TestCase):
@@ -336,17 +354,32 @@ class ReplayWarmupTests(unittest.TestCase):
                 self.assertEqual(seen[started + 1][0], "funding")
                 self.assertEqual([event[1]["ts_event"] for event in seen if event[0] == "funding"],
                                  [stamp * NS for stamp in settlements[2:]])
-        # One stamped T itself is streamed after on_start only when the window starts at T (on_start then runs before
-        # the first data): the 00:00 settlement at the window's start, not the 08:00 one eight hours in.
-        for trade_start, first in ((START, 0), (START + 8 * 3_600_000, 2)):
-            with self.subTest(trade_start=trade_start):
-                window = parse_window(utc_text(START * NS), utc_text(trade_start * NS), utc_text(END * NS))
-                output = self.root / f"on-the-hour-{trade_start}"
-                output.mkdir()
-                finished, strategies, _ = run.replay(self.rows, window, loaded, self.universe, output)
-                finished.engine.dispose()
-                self.assertEqual([event[1]["ts_event"] for event in strategies["CCC"].seen if event[0] == "funding"],
-                                 [stamp * NS for stamp in settlements[first:]])
+
+    def test_a_settlement_stamped_t_reaches_a_source_once_whether_t_is_the_window_start_or_later(self):
+        """A settlement stamped T itself is in a declared funding history and never streamed after on_start, at the
+        window's start as at a later T (engine.history: on_start runs after the data stamped T). Each settlement thus
+        reaches the source once: in its history when stamped at or before T, otherwise after on_start."""
+        settlements = [START + hour * 3_600_000 for hour in range(0, 48, 8)]
+        contract(self.root / "on-the-hour", "CCCUSDT", np.arange(DAYS * 1440), settlements, seed=3)
+        self.rows = read_market(self.root / "on-the-hour", ["CCCUSDT"], "c" * 32, START * NS, END * NS)
+        self.universe = {"CCCUSDT": ((0, 10**20),)}
+        for declared, on_start in (({"15-MINUTE": 0}, "self.subscribe_funding_rates(self.iid)"),
+                                   ({"FUNDING": 1}, "pass")):
+            loaded = source(self.root, declared, on_start=on_start)
+            for at in (START, START + 8 * 3_600_000):  # the window's start, and eight hours in
+                with self.subTest(declared=declared, window_start=at == START):
+                    window = parse_window(utc_text(START * NS), utc_text(at * NS), utc_text(END * NS))
+                    output = self.root / f"on-the-hour-{at}-{loaded.content_hash[:8]}"
+                    output.mkdir()
+                    finished, strategies, _ = run.replay(self.rows, window, loaded, self.universe, output)
+                    finished.engine.dispose()
+                    seen = strategies["CCC"].seen
+                    self.assertIn(("start", at * NS), seen)
+                    history_stamps = [update["ts_event"] for event in seen if event[0] == "funding history"
+                                      for update in event[1]]
+                    streamed = [event[1]["ts_event"] for event in seen if event[0] == "funding"]
+                    self.assertEqual(history_stamps, [at * NS] if loaded.funding else [])
+                    self.assertEqual(streamed, [stamp * NS for stamp in settlements if stamp > at])
 
     def test_no_order_before_on_start_no_request_and_no_undeclared_aggregation(self):
         cases = (

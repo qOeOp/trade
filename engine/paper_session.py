@@ -76,7 +76,12 @@ class Session:
 
     @contextmanager
     def callback(self):
-        checkpoint.dirty(self.backend.output)
+        try:
+            checkpoint.dirty(self.backend.output)
+        except OSError as exc:
+            # A refused marker must not skip the callback: the source still gets the event, and the run stops
+            # (engine.paper.Journal.fail, finding 20261114-43).
+            self.journal.fail(exc)
         self.depth += 1
         try:
             yield
@@ -103,10 +108,15 @@ class Session:
         try:
             self.cut(cache)
             self.error = None
-        except checkpoint.Refusal as exc:
-            if str(exc) != self.error:
-                print(f"Paper checkpoint deferred: {exc}", flush=True)
-                self.error = str(exc)
+        except Exception as exc:
+            # Whatever the native cache raises (a dead child gives RuntimeError: broken pipe) is a deferred cut. An
+            # exception out of the timer callback that calls this stops rc7's dispatch for good: the journal and the
+            # checkpoint stopped, STOP was ignored and `paper stop` ended in SIGKILL (2026-11-15, finding 20261114-34).
+            found = exc if isinstance(exc, checkpoint.Refusal) else checkpoint.fail(
+                f"the native checkpoint failed: {type(exc).__name__}: {exc}")
+            if str(found) != self.error:
+                print(f"Paper checkpoint deferred: {found}", flush=True)
+                self.error = str(found)
 
     def restore_source(self, strategy, iid: str) -> None:
         saved = (self.saved or {}).get("sources", {}).get(iid)

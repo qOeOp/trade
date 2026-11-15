@@ -76,6 +76,11 @@ class Evidence:
             return
         self._append("metrics", **fields)
 
+    def metrics_unsubscribed(self, instrument_id: str) -> None:
+        """The source stopped following `instrument_id`'s metrics (engine.metrics.Feed._metrics_unfollow):
+        ``metrics_unsubscribed``. No row reaches it after wall_ns until it subscribes again."""
+        self._append("metrics_unsubscribed", instrument_id=str(instrument_id))
+
     def reports(self, cache, venue) -> None:
         """Every order, fill, position and account state in the native cache as a replay writes them, into
         ``reports-<observed_ns>/``. A reconciliation resumes the run's cache, so its reports hold the whole run; the

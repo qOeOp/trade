@@ -122,6 +122,145 @@ class TradeSubscriptionTests(unittest.TestCase):
                 journal.assert_called_once_with("refusal", code=code, subscriptions=[subscription])
 
 
+class JournalFailureTests(unittest.TestCase):
+    """A write the disk refuses stops the run without raising into a callback: the source still gets the event."""
+
+    FULL = OSError(28, "No space left on device")
+
+    def setUp(self):
+        shown = mock.patch("builtins.print")
+        self.shown = shown.start()
+        self.addCleanup(shown.stop)
+
+    @staticmethod
+    def refusing(journal, **calls):
+        """The journal's stream replaced by one whose given calls raise (the real one closed first)."""
+        journal._stream.close()
+        journal._stream = mock.Mock(close=mock.Mock(), **{name: mock.Mock(side_effect=error) for name, error in calls.items()})
+
+    def journal(self, stops: list):
+        import tempfile
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        journal = paper.Journal(Path(directory.name), on_failure=lambda: stops.append("stop"))
+        self.addCleanup(journal.close)
+        return journal
+
+    def test_the_first_refused_line_latches_the_failure_stops_the_run_once_and_nothing_follows_it(self):
+        stops: list = []
+        journal = self.journal(stops)
+        journal.write("bar")
+        self.refusing(journal, write=self.FULL)
+        journal.write("order")
+        journal.write("position")
+        self.assertEqual((stops, journal.failure), (["stop"], "OSError: [Errno 28] No space left on device"))
+        journal._stream.write.assert_called_once()  # nothing is written after the gap
+        self.shown.assert_called_once()
+        with self.assertRaises(OSError):
+            journal.sync()
+        journal.state({"positions": []})  # skipped, not raised
+        self.assertFalse((journal.output / "state.json").exists())
+
+    def test_a_refused_flush_or_state_file_is_the_same_failure(self):
+        for name in ("sync", "state"):
+            with self.subTest(name):
+                stops: list = []
+                journal = self.journal(stops)
+                if name == "sync":
+                    self.refusing(journal, flush=self.FULL)
+                    with self.assertRaises(OSError):
+                        journal.sync()
+                else:
+                    with mock.patch.object(Path, "write_text", side_effect=self.FULL):
+                        journal.state({})
+                self.assertEqual((stops, journal.failure is not None), (["stop"], True))
+
+    def test_a_source_still_gets_the_order_event_its_journal_line_could_not_be_written_for(self):
+        stops: list = []
+        journal = self.journal(stops)
+        self.refusing(journal, write=self.FULL)
+        seen: list = []
+
+        class Source:
+            def on_order_event(self, event):
+                seen.append(event)
+
+            def on_position_event(self, event):
+                seen.append(event)
+
+        instance = type("Journaled", (), {**paper.paper_callbacks(Source), "clock": None})()
+        instance._paper_released_ns = 0
+        event = type("OrderFilled", (), {"strategy_id": "R1-BTCUSDT", "client_order_id": "O-1", "ts_event": DAY})()
+        with mock.patch.object(paper, "JOURNAL", journal), mock.patch.object(paper, "_event_fields", return_value={}):
+            instance.on_order_event(event)
+            instance.on_position_event(event)
+        self.assertEqual(seen, [event, event])
+        self.assertEqual(stops, ["stop"])
+
+    def test_the_runs_own_disk_operations_latch_instead_of_raising_and_without_a_journal_they_raise(self):
+        stops: list = []
+        journal = self.journal(stops)
+
+        def full():
+            raise self.FULL
+        with mock.patch.object(paper, "JOURNAL", journal):
+            paper.disk(full)
+        self.assertEqual(stops, ["stop"])
+        with mock.patch.object(paper, "JOURNAL", None), self.assertRaises(OSError):
+            paper.disk(full)
+
+    def test_a_runner_whose_journal_failed_exits_with_the_status_the_seal_reads(self):
+        args = SimpleNamespace(symbols=[], strategy_file=Path("s.py"), strategy_class="C", strategy_sha256="x")
+        with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(paper, "parse", return_value=args), \
+                mock.patch.object(paper, "_main", return_value=True), mock.patch.object(paper, "Signals"):
+            with self.assertRaises(SystemExit) as raised:
+                paper.main([])
+        self.assertEqual(raised.exception.code, paper.JOURNAL_FAILED_EXIT)
+        with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(paper, "parse", return_value=args), \
+                mock.patch.object(paper, "_main", return_value=False), mock.patch.object(paper, "Signals"):
+            paper.main([])
+
+
+class CacheLivenessTests(unittest.TestCase):
+    """The native cache child is watched every second: a dead one ends the run with a reason, as a refused one."""
+
+    def test_a_dead_cache_stops_the_run_with_its_own_reason_and_a_live_one_does_not(self):
+        held = (paper.STOP, paper.STOP_REASON)
+        for value in held:
+            self.addCleanup(value.clear)
+        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
+        health = mock.Mock()
+        session = SimpleNamespace(backend=SimpleNamespace(health=health), ready=True, try_cut=mock.Mock())
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal") as journal, \
+                mock.patch.object(recorder, "_protection"), \
+                mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock):
+            recorder.on_stop_timer(None)
+            self.assertFalse(paper.STOP.is_set())
+            session.try_cut.assert_called_once()
+            health.side_effect = paper.CacheUnavailable("OSError: the native cache process exited with -9")
+            recorder.on_stop_timer(None)
+        self.assertEqual(paper.STOP_REASON, ["PAPER_CACHE_UNAVAILABLE"])
+        journal.assert_called_once_with("refusal", code="PAPER_CACHE_UNAVAILABLE",
+                                        reason="OSError: the native cache process exited with -9")
+
+    def test_a_run_already_stopping_is_not_probed(self):
+        self.addCleanup(paper.STOP.clear)
+        self.addCleanup(paper.STOP_REASON.clear)
+        paper.STOP.set()
+        paper.STOP_REASON.append("STOP_FILE")
+        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
+        health = mock.Mock(side_effect=paper.CacheUnavailable("gone"))
+        session = SimpleNamespace(backend=SimpleNamespace(health=health), ready=True, supported=False)
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal") as journal, \
+                mock.patch.object(recorder, "_protection"), \
+                mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock,
+                                  return_value=SimpleNamespace(orders_open=lambda: [])):
+            recorder.on_stop_timer(None)
+        health.assert_not_called()
+        self.assertEqual(paper.STOP_REASON, ["STOP_FILE"])
+        self.assertEqual([call.args[0] for call in journal.call_args_list], ["stop_requested"])
+
+
 class CredentialTests(unittest.TestCase):
     def test_credential_names_are_found_by_name(self):
         environ = {"BINANCE_API_KEY": "x", "OKX_SECRET": "x", "MY_API_SECRET": "x", "PATH": "/bin", "HOME": "/h"}
@@ -152,6 +291,22 @@ class CadenceTests(unittest.TestCase):
         assert settled is not None
         self.assertEqual((settled.ts_event, settled.ts_init, settled.next_funding_ns, settled.rate),
                          (settlement, settlement + 3, settlement, Decimal("0.0002")))
+
+    def test_a_settlement_binance_moves_later_before_it_is_due_is_not_one(self):
+        """Binance lengthens a funding interval (1 to 4 hours for HOTUSDT after 2026-11-12 20:00, its funding info
+        updated at 20:01): an estimate naming 21:00, the old interval's next, followed before 21:00 by ones naming
+        00:00 is no settlement at 21:00, and the replay streams none; the next is 00:00's."""
+        hour = 3600 * 10**9
+        cadence = Cadence()
+        self.assertIsNone(cadence.funding(estimate(DAY + 19 * hour + 5, DAY + 20 * hour)))
+        settled = cadence.funding(estimate(DAY + 20 * hour + 3, DAY + 21 * hour))
+        assert settled is not None
+        self.assertEqual(settled.ts_event, DAY + 20 * hour)
+        self.assertIsNone(cadence.funding(estimate(DAY + 20 * hour + MINUTE_NS, DAY + 24 * hour)))
+        self.assertIsNone(cadence.funding(estimate(DAY + 23 * hour, DAY + 24 * hour)))
+        settled = cadence.funding(estimate(DAY + 24 * hour + 4, DAY + 28 * hour))
+        assert settled is not None
+        self.assertEqual(settled.ts_event, DAY + 24 * hour)
 
 
 class PlanTests(unittest.TestCase):
@@ -238,3 +393,23 @@ class SandboxConfigTests(unittest.TestCase):
         configs = [call.args[2] for call in builder.mock_calls if call[0].endswith("add_simulated_exec_client")]
         self.assertEqual(len(configs), 1)
         self.assertFalse(configs[0].use_position_ids)
+
+
+    def test_the_sandbox_takes_the_contracts_matching_terms_a_replay_venue_takes(self):
+        """liquidity_consumption and queue_position come from the account contract, as in engine.run.add_venue, so
+        changing the contract changes Paper's Sandbox too (20261114-39); the contract's current values are the native
+        defaults, which a paired in-process replay confirmed give identical orders, fills, positions and account."""
+        def configured() -> SimpleNamespace:
+            builder = mock.MagicMock()
+            with mock.patch.object(paper.LiveNode, "builder", return_value=builder), \
+                    mock.patch.object(paper.history, "ACTORS", []):
+                paper.build_node([], SimpleNamespace(warmup=()), None, (Decimal("0.0002"), Decimal("0.0005")),
+                                 Path("/nonexistent"), "3", {})
+            return [call.args[2] for call in builder.mock_calls if call[0].endswith("add_simulated_exec_client")][0]
+
+        config = configured()
+        self.assertEqual((config.liquidity_consumption, config.queue_position),
+                         (paper.ACCOUNT_CONTRACT["liquidity_consumption"], paper.ACCOUNT_CONTRACT["queue_position"]))
+        with mock.patch.dict(paper.ACCOUNT_CONTRACT, {"liquidity_consumption": True, "queue_position": True}):
+            changed = configured()
+        self.assertEqual((changed.liquidity_consumption, changed.queue_position), (True, True))

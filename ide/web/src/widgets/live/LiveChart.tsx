@@ -4,6 +4,9 @@ import { Typing } from "../../components/Typing";
 import { fetchMinutes, type FetchedMinutes } from "../../lib/minutesApi";
 import type { JournalLine } from "../../lib/paperApi";
 import { liveChart } from "../../model/liveChart";
+import { heldGap } from "../../model/liveHeld";
+import type { Held } from "../../model/paper";
+import { liveHeld } from "../../model/phoneRuns";
 import type { LiveRun } from "../../model/liveTrading";
 import { CandleChart } from "../paper/CandleChart";
 
@@ -19,6 +22,13 @@ export function LiveChart({ run, symbol }: { run: LiveRun; symbol: string | null
   const [read, setRead] = useState<{ key: string; got: FetchedMinutes } | null>(null);
   // The last window read whole: kept drawn while the next is read, and when a read fails.
   const [drawn, setDrawn] = useState<{ head: string; bars: JournalLine[] } | null>(null);
+  // Live infers no position (its fills are drawn alone); the one level it draws is a position the latest check of the
+  // stops found without its stop, at the entry its native position event gives.
+  const held = useMemo<Held | null>(() => {
+    if (!plan) return null;
+    const mine = liveHeld(run).find((h) => h.symbol === plan.symbol && h.entry !== null), gap = mine && heldGap(run.heldAlert, mine.symbol, mine.long);
+    return mine && gap ? { long: mine.long, quantity: Number(gap.position) || mine.qty, average: mine.entry!, pnl: null, warn: "No stop" } : null;
+  }, [run.heldAlert, run.positions, plan?.symbol]);
   const key = plan ? `${plan.symbol}:${plan.from}:${plan.to}` : "", head = plan ? `${plan.symbol}:${plan.from}` : "";
   useEffect(() => {
     if (!plan?.running) return;
@@ -43,6 +53,6 @@ export function LiveChart({ run, symbol }: { run: LiveRun; symbol: string | null
   </div>;
   const note = `Binance public 1m · native fills, no equity series in Live${failed ? ` · last read failed: ${failed}` : ""}`;
   return <CandleChart remembers={`live:${run.id}:${plan.symbol}`} symbol={plan.symbol} bars={bars} lead={null} note={note} stretches={NONE}
-    places={plan.places} size={plan.size} fills={plan.fills} boxes={false} orders={NONE} held={null} events={NONE} live={plan.running}
+    places={plan.places} size={plan.size} fills={plan.fills} boxes={false} orders={NONE} held={held} events={NONE} live={plan.running}
     restarts={NONE} openFrom={null} started={null} fit={0} />;
 }

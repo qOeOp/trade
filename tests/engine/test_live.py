@@ -828,6 +828,30 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(self.events(), before)
         self.assertTrue(live.resumable(self.output))
 
+    def test_a_start_again_with_this_clock_outside_the_limits_gives_the_start_back(self):
+        """The user, 2026-11-15: a host clock that steps aside comes back by itself and the account may hold a
+        position, so a start again over the clock limit ends as one that could not read Binance does (exit status 3,
+        nothing written) and the control starts the run again within its hourly limit."""
+        args = self.armed_run()
+        before, files = self.events(), sorted(path.name for path in self.output.iterdir())
+        skewed = self.good_clock()
+        skewed[0]["server_ms"] += 3000  # this clock 3 s behind Binance: over the 2500 ms limit
+        with mock.patch.object(live.BinanceReadOnly, "clock", return_value=skewed), \
+                mock.patch.object(live, "build_node") as build:
+            for snapshot in (self.flat_snapshot(), self.held_snapshot()):  # with a position open as well
+                with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=snapshot):
+                    self.assertEqual(live.execute(args), live.INTERRUPTED)
+        build.assert_not_called()
+        self.assertEqual((self.events(), sorted(path.name for path in self.output.iterdir())), (before, files))
+        self.assertTrue(live.resumable(self.output))
+        # The limits are unchanged, and a reading with no usable server time is no clock offset: it ends the run.
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+                mock.patch.object(live.BinanceReadOnly, "clock", return_value=[]):
+            self.assertEqual(refused(live.execute, args, error=LiveRefusal).code, "LIVE_ACCOUNT_RESPONSE")
+        last = self.events()[-1]
+        self.assertEqual((last["event"], last["code"]), ("unresolved", "LIVE_ACCOUNT_RESPONSE"))
+        self.assertFalse(live.resumable(self.output))
+
     def test_a_start_after_one_that_ended_to_warm_up_again_may_retry_a_failed_warm_up_once(self):
         class Armed(BaseException):
             """Stops a start after it armed (or resumed), before it blocks this process's signals: a kill, which no

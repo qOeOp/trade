@@ -246,6 +246,11 @@ class CheckBundleTests(unittest.TestCase):
             "layout (nested check.json)": lambda b: (b / "frames/grid/check.json").write_text("{}"),
             "readable_json (media as page.json)": lambda b: (b / "probe/page.json").write_bytes(mp4_bytes[:4096]),
             "readable_json (non-finite)": replace("asr/transcript.json", '"end": 2.0', '"end": 1e999'),
+            "readable_json (NaN segment start)": replace("asr/transcript.json", '"start": 2.0, "end": 3.5', '"start": NaN, "end": 3.5'),
+            "readable_json (NaN compression_ratio)": replace("asr/transcript.json", '"compression_ratio": 1.1', '"compression_ratio": NaN'),
+            "readable_json (NaN word probability)": replace("asr/transcript.json", '"probability": 0.9', '"probability": NaN'),
+            "readable_json (Infinity word end)": replace("asr/transcript.json", '"end": 3.9, "probability"', '"end": Infinity, "probability"'),
+            "readable_json (duplicate key beside NaN avg_logprob)": replace("asr/transcript.json", '"text": "price 52.8",', '"avg_logprob": NaN, "text": "price 52.8", "text": "x",'),
             "png_plain (payload chunk)": payload_png,
             "png_plain (MP4 as crop)": mp4_crop,
             "row_shape (path traversal)": replace("frames/grid/grid.tsv", self.grid[1][0], "../../crops/c1.png"),
@@ -305,6 +310,26 @@ class CheckBundleTests(unittest.TestCase):
         for name, result in zip(bundles, self.in_parallel([lambda b=b: self.failed(b) for b in bundles.values()]), strict=True):
             with self.subTest(name):
                 self.assertEqual(result, (0, set()))
+
+    def test_non_finite_values_in_fields_the_checker_never_reads_do_not_refuse_the_bundle(self):
+        """mlx-whisper writes avg_logprob as NaN for a segment it scored no token for (20261114-40); the checker reads
+        start, end, text, compression_ratio and words, so only a non-finite value in one of those refuses the transcript."""
+        def unscored(b):
+            def change(d):
+                d["segments"][0]["avg_logprob"] = float("nan")  # the segment claim C1 cites
+                d["segments"][2]["avg_logprob"] = float("nan")
+                d["segments"][2]["no_speech_prob"] = float("inf")
+                d["segments"][1]["words"][0]["extra"] = [float("-inf")]
+            edit_json(b / "asr/transcript.json", change)
+            rebind(b)
+        bundle = self.variant(unscored)
+        self.assertIn(b"NaN", (bundle / "asr/transcript.json").read_bytes())
+        rc, stdout = self.run_checker(bundle)
+        result = json.loads(stdout)
+        self.assertEqual((rc, [c for c in result["checks"] if not c["ok"]]), (0, []))
+        self.assertEqual(result["flags"]["non_finite_unread"], {"avg_logprob": 2, "no_speech_prob": 1, "extra": 1})
+        self.assertEqual(result["flags"]["loops"], [])
+        self.assertNotIn("non_finite_unread", json.loads(self.run_checker(self.bundle)[1])["flags"])
 
     def test_numbers_to_verify_lists_the_numeral_it_flagged(self):  # 一 before a unit (一小时) is a number, not an empty entry
         bundle = self.variant(lambda b: (edit_json(b / "asr/transcript.json", lambda d: d["segments"][1].update(text="在一小时图上")), rebind(b)))

@@ -59,7 +59,7 @@ grid rows by identity; crops exist; sidecars resolve in `probe/page.json`; `expl
 frames and crops lie in the cited speech span ±0.5 s unless `visible_only`; a quote or value with a numeral (Arabic,
 Chinese or English words) has an in-span frame or crop, a sidecar or `asr_only`, and without a frame each number of
 its value is a whole number of the sidecar or the speech; a claim citing a flagged span records a limitation; an
-`exclusive_group` has 2+ claims.
+`exclusive_group` has 2+ claims. NaN or infinity in bundle JSON is refused, except in transcript fields no check reads (`non_finite_unread` counts them).
 
 ## Flags (heuristics for a reader)
 

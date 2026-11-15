@@ -76,7 +76,8 @@ aggregates to has 0 bars. An instance's start T is the later of `--trade-start` 
 while a declared history does not hold yet, the first whole minute at which it does. At T the runner requests,
 for each period P with n > 0 bars, `{id}-{P}-LAST-EXTERNAL` over [floor(T, P) - n P, floor(T, P) - 1 ms]. The
 source's `on_historical_bars` receives the n adjacent bars once per period, each stamped 1 ms before its bucket
-ends, and then its `on_start` runs. It sees no data stamped before T, and until `on_start` its orders are
+ends, and then its `on_start` runs, after the data that arrives at T itself (`ts_init` T), whether T is the window's
+start or later. It sees no data stamped before T nor any arriving at T, and until `on_start` its orders are
 `ORDER_RULE`. It cannot request data itself: a `request_*` call is `SUBSCRIPTION_OUTSIDE_CONTRACT`.
 
 `WARMUP` may also hold `"FUNDING": n`. Before `on_start`, the source's `on_historical_funding_rates` then receives
@@ -104,15 +105,18 @@ start (`history.py`). From T + 15 s (a just-closed Binance kline was final by th
 the history and the minutes of [floor(T, P), T) from Binance's public klines (`klines.py`, no credential) into a
 temporary Catalog and request them natively as a replay does, and read the declared funding settlements. The first live minute must close at T + 1 min.
 Binance stamps a settlement at its hour or some milliseconds after it. At a T on a settlement hour, a replay streams
-a settlement stamped after T to a source subscribed in `on_start`, and one stamped T itself only when its window
-starts at T (`on_start` then runs before the first data); the live stream passes both before a Paper or Live source
-subscribes. For a source that defines `on_funding_rate` and starts on a whole hour, the warm-up therefore reads the
-funding-rate history too (declared or not, with the same wait and deadline). When the source subscribed to its
-contract's funding by the end of `on_start`, a settlement stamped after T then goes to `on_funding_rate`, the
-replay's update at the replay's stamps and rate; so does one stamped T unless the source declares a funding history
-or a bar history other than daily bars, since the replay a run is compared with then starts before T. Later settlements
-come from the stream (`engine.cadence`): the settled rate, stamped at the settlement's hour where a replay stamps
-Binance's settlement time (0 to 7 ms later in the settlements of 2026-11 sampled, 13 ms in one of 2025-10).
+a settlement stamped after T to a source subscribed in `on_start`, and never one stamped T itself (a declared funding
+history holds it); the live stream passes it before a Paper or Live source subscribes. For a source that defines
+`on_funding_rate` and starts on a whole hour, the warm-up therefore reads the funding-rate history too (declared or
+not, with the same wait and deadline). When the source subscribed to its contract's funding by the end of `on_start`,
+a settlement stamped after T then goes to `on_funding_rate`, the replay's update at the replay's stamps and rate.
+Later settlements come from the stream (`engine.cadence`): the settled rate, stamped at the settlement's hour where a
+replay stamps Binance's settlement time (0 to 7 ms later in the settlements of 2026-11 sampled, 13 ms in one of
+2025-10).
+Binance changes a contract's funding interval between 1, 4 and 8 hours after a settlement and settles at its
+multiples. The warm-up waits for the settlement that the interval now (`fapi/v1/fundingInfo`) makes due at or before
+T, not the one the latest settlements' spacing predicts; in the stream, an estimate that names a later time before
+the named one has come is no settlement.
 Klines that miss or are not adjacent are `WARMUP_INSUFFICIENT` or `WARMUP_NOT_ADJACENT`, and a fetch or
 delivery not done by T + 45 s is `WARMUP_TIMEOUT`; no order can go out before the warm-up ends. Paper
 refuses the run and Live stops it. A live aggregation closes on a timer, but the bucket's last Binance minute
@@ -173,8 +177,9 @@ instant it describes (public REST's row of that timestamp), and `ts_init = creat
 REST's publication. Its values are the ones REST shows, which Paper and Live read: open interest as
 stored, the position ratio half-up to 4 decimals, each account ratio the quotient of its long share
 `r / (1 + r)` and short share `1 / (1 + r)`, each half-up to 4 decimals first, the quotient too
-(`docs/plans/binance-metrics-rest-parity.zh.md`; a position ratio the archive holds at a tie of the 4th
-decimal, about 1 row in 90, may differ by 0.0001). Both stamps are whole minutes, so in the bar environment an order the row prompts fills at the close
+(`docs/plans/binance-metrics-rest-parity.zh.md`). A position ratio the archive holds exactly at the midpoint
+of the 4th decimal (about 1 row in 100) is rounded either way by REST, and nothing in the archive tells which:
+`live compare` accepts the midpoint's half-down rounding there too, and no other difference. Both stamps are whole minutes, so in the bar environment an order the row prompts fills at the close
 of the bar that ends there, never at a price older than the decision. The receipt counts the rows
 (`counts.metrics`, present only then). The runner streams them as `CustomData(metrics_data_type(<id>),
 Metrics(...))`: `engine.strategy.Metrics` holds `instrument_id`, `sum_open_interest` (base asset), the three
@@ -188,7 +193,8 @@ configuration: the exported metrics files already carry it into the input identi
 the run does not stream is `METRICS_NOT_SERVED`. Paper and Live serve the metrics of every contract of the run
 (`engine.metrics.Feed`): at each row's `ts_init` they read REST's row of its `ts_event` (no credential) and hand it
 to `on_data` with the replay's stamps and values; what is not yet published is read again every 30 s until the
-next row is due, then a missing ratio is `None` and a row without open interest is skipped.
+next row is due, then a missing ratio is `None` and a row without open interest is skipped. After an unsubscribe
+no row reaches `on_data`, not even one read already.
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_day`, `universe_path`, `universe_sha256` (the membership file's bytes),
@@ -546,7 +552,8 @@ only container also on the outbound bridge and tunnels to `fapi.binance.com` and
 `paper stop` writes the run's `STOP` file and seals; SIGTERM comes only after a timeout, since on SIGTERM
 the node also shuts down by itself and the strategy misses its cancels. `paper seal` captures a run that
 ended by itself. How a run ended is a reason in `seal.json` (`RUNNER_EXIT_NONZERO`, `SUMMARY_MISSING`,
-`OUT_OF_MEMORY` for a kill at the memory limit) and leaves the status `complete`; only evidence that cannot be trusted
+`OUT_OF_MEMORY` for a kill at the memory limit, `REFUSED:<code>` and `STOPPED:<code>` for a refusal the runner journaled such as
+`PAPER_CACHE_UNAVAILABLE`, below, and `PAPER_JOURNAL_WRITE_FAILED`) and leaves the status `complete`; only evidence that cannot be trusted
 (`SOURCE_MISMATCH`, `LEVERAGE_MISMATCH`, `EGRESS_DENIED`, or a runner that started and left no journal) seals `invalid`
 (`ledger.paper.verdict`). The daemon resumes a run that paused (SIGTERM or SIGINT) or was interrupted before its summary
 and seals every other end. The seal stores the run's files (`paper_file`): the journal by UTC day, the summary, the
@@ -554,9 +561,22 @@ egress and runner logs and `seal.json`, whose readings add the funding the Sandb
 (`docs/plans/paper-run-storage-decision.zh.md`). Runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
 `docs/plans/paper-admission-by-memory.zh.md`), one per source at a time.
 
+A write the disk refuses (a full disk) stops the run the same way instead of leaving it trading unrecorded. The first
+failed write of the journal, `state.json`, the recovery marker or the failure receipts is latched and the run stops
+(`PAPER_JOURNAL_WRITE_FAILED`): nothing is written after the gap, and nothing raises into a callback, so the source still
+receives the order or position event whose journal line could not be written. The runner then ends with exit status 3,
+which the seal reads (`PAPER_JOURNAL_WRITE_FAILED`, `RUNNER_EXIT_NONZERO`, and `STOPPED:PAPER_JOURNAL_WRITE_FAILED` when
+the summary could still be written), since a full disk may take the summary too; the daemon seals a run that has a
+summary and tries to resume one that has none, which a dirty checkpoint refuses, so that run waits for `paper seal`.
+The journal ends at the gap; what the run did after it is not recorded.
+
 Paper recovery keeps the same unsealed run, pinned image and inputs. Each runner owns a loopback-only
-native Redis cache; immutable RDB originals and their exact journal cuts are retained. The daemon invokes
-`paper resume`, never a replacement `paper start`, after an interruption. Missing/dirty checkpoints,
+native Redis cache, whichever the source declares, and watches it every second: a child that exited or does not
+answer a PING ends the run with `PAPER_CACHE_UNAVAILABLE` (a `refusal` in the journal, then the stop of a refused
+run: working orders canceled, positions left open, summary written), since a run without its cache could not be
+recovered and would not say so. The cache's connections fail fast (one-second timeouts, no retries, as Live's), so a
+dead one cannot hold `paper stop` in `node.dispose()`. Immutable RDB originals and their exact journal cuts are
+retained. The daemon invokes `paper resume`, never a replacement `paper start`, after an interruption. Missing/dirty checkpoints,
 changed inputs, unhandled journal tails, unsupported strategy state or a missing original container refuse
 recovery and retain the account records. Explicit STOP/duration still seals. The original per-source limit
 is three actual recovery launches per hour, including failures before the runtime can journal.
@@ -823,10 +843,15 @@ then the control records `restart_limited` once and the user decides. A runner t
 failure is not interrupted, and its run is over: once armed, every such exit of a `run` records `unresolved` (with
 the refusal's `code`), whether the final account read after a completed native exit failed or was not flat, a start
 again found no native cache or changed account modes, or anything else raised; and the control never starts again a
-runner that exited with status 1 or 2, even where it could write no event. One refusal gives the start back
-instead: a start again whose first account read fails (`LIVE_ACCOUNT_UNAVAILABLE`, before anything is built) exits 3
-with no event, and the control starts the run again within the same hourly limit (finding 20261114-23, the user
-2026-11-15). Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
+runner that exited with status 1 or 2, even where it could write no event. Two refusals give the start back
+instead, before anything is built or written: a start again whose first account read fails
+(`LIVE_ACCOUNT_UNAVAILABLE`), or whose read shows this clock outside the limits (`LIVE_CLOCK`; the limits are
+unchanged), exits 3 with no event, and the control starts the run again within the same hourly limit (finding
+20261114-23, the user 2026-11-15). Both pass by themselves, a host clock that steps aside included, and the account
+may hold a position. While the clock stays outside the limits the run stays `interrupted`: nothing checks its
+positions and stops, the control records `restart_limited` each time the hourly limit keeps it from starting the
+run, and starts it again once the hour allows; `live logs` shows the refused start. A read with no usable server
+time (`LIVE_ACCOUNT_RESPONSE`) ends the run. Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
 start again checks the clock and account modes: on a flat account it builds the source, warms up and trades (event
 `resuming`); with anything open it holds (`resuming` with `held`): no source, no entries, the account read every 30
 seconds, until the account is flat (its stops, or a close at Binance), when `venue_flat_while_held` ends that start
@@ -891,9 +916,12 @@ Each Live run keeps what a replay of its source needs for comparison in `evidenc
 - `market.jsonl`, in Paper's journal shape: every bar the source received (`bar`; `historical_bar` for one a
   history request delivered), each funding settlement of its declared history (`historical_funding`: `ts_event`,
   `rate`) and each metrics row it received (`metrics`: `ts_event` and the four values, a missing ratio null; it
-  reached the source at `ts_event + 5 min`). What arrives after a stop request reaches neither the source nor the
+  reached the source at `ts_event + 5 min`), and each unsubscribe from a contract's metrics it followed
+  (`metrics_unsubscribed`: `instrument_id`). What arrives after a stop request reaches neither the source nor the
   file. Quotes, trades, MARKs and funding rates are not kept: `live compare` settles funding at Binance's published
-  rates, and compares the metrics rows with the archive's as a replay streams them.
+  rates, and compares the metrics rows with the archive's as a replay streams them, expecting none from an
+  unsubscribe's `wall_ns` until the source receives one again. Values must be equal, except a position ratio the
+  archive holds exactly at the midpoint of the 4th decimal, which may also be 0.0001 below the replay's.
 - `reports-<ns>/`, written when the node stops in `run` and `reconcile`: `orders.csv`, `fills.csv`,
   `positions.csv`, `account.csv` and `order_events.jsonl.gz` from the native cache, through the same writers a
   replay uses (`engine.write_reports`).

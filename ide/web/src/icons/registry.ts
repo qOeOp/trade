@@ -28,6 +28,7 @@ import chevronRight from "lucide-static/icons/chevron-right.svg?raw";
 import chevronsDownUp from "lucide-static/icons/chevrons-down-up.svg?raw";
 import chevronsUpDown from "lucide-static/icons/chevrons-up-down.svg?raw";
 import circleAlert from "lucide-static/icons/circle-alert.svg?raw";
+import info from "lucide-static/icons/info.svg?raw";
 import copy from "lucide-static/icons/copy.svg?raw";
 import monitor from "lucide-static/icons/monitor.svg?raw";
 import ellipsisVertical from "lucide-static/icons/ellipsis-vertical.svg?raw";
@@ -100,6 +101,7 @@ export const ICONS = {
   "tool.history": { svg: calendarRange },
   "tool.trades": { svg: arrowRightLeft },
   warning: { svg: triangleAlert },
+  info: { svg: info },
   // Run and stop drawn here as IntelliJ's new UI draws them: an outline at Lucide's stroke with a faint fill
   // of its own colour, so they sit with the outline icons beside them; the fill keeps the play from reading
   // as a media control and the square from reading as a checkbox.

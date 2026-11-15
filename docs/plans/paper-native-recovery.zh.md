@@ -202,3 +202,18 @@ PR #2207 已创建，首个提交43f6d16e4的全部CI检查通过。对应runtim
 
 没选另一种修法（新增 `PAPER_RECOVERY_UNAVAILABLE` 拒绝）：Sandbox 本就有这个配置，改用它即可让恢复在这类运行上正确，不必拒绝。
 
+
+## 缓存进程中途死掉（2026-11-15，发现 20261114-34）
+
+用户 2026-11-15 授权修复（新增存活检查与结束原因）。每个 Paper 运行都带一个 runner 容器内的 Redis 子进程（`engine/paper_redis.py`），不论源码有没有声明恢复协议。2026-11-15 在隔离 Paper 库、当前 `main` 的执行镜像上杀掉运行中的这个子进程，两种源码各实跑一次：
+
+- 声明恢复协议的源码：下一次 `try_cut`（每个回调之后一秒）里读回抛 `RuntimeError: broken pipe`。`try_cut` 只接 `Refusal`，异常从定时器回调里出去；此后事件日志不再前进，检查点不再更新，`STOP` 文件无人响应，容器仍在运行。运行器网络的接收字节仍在涨（行情仍被读进来，约 1.3 KB/s），所有 Python 线程都停在 futex 上：数据到了，回调不再执行。`paper stop` 用了 93 秒，靠 SIGKILL 收场，封存 `complete`、`reasons []`、`stop_reason KILLED`。
+- 没声明恢复协议的源码：`cut` 在到读回之前就以 `Refusal` 返回，没有异常；节点照常处理行情、照常进场成交，只是原生缓存的写全部丢了。`paper stop` 的 STOP 文件被处理、概要写出，但 `node.dispose()` 不返回（rc7 默认连接参数：20 秒超时、100 次重试，关闭时等写任务重试完），用了 92 秒，被强杀，封存 `RUNNER_EXIT_NONZERO`。
+
+处置，三件互相独立：
+
+1. 读写两侧用 Live 同样的快速失败参数（`NATIVE_CONNECTION`：超时 1 秒、不重试），死掉的缓存立即读写失败，`dispose` 不再等重试。
+2. 运行中每秒检查缓存子进程：进程已退出，或 2 秒内不答 `PING`，运行以 `PAPER_CACHE_UNAVAILABLE` 结束：事件日志记一条 `refusal`，停止序列照常（撤单、写概要，持仓留着），封存 `reasons` 里有 `REFUSED:PAPER_CACHE_UNAVAILABLE`、`STOPPED:PAPER_CACHE_UNAVAILABLE`，状态 `complete`。检查不写任何键，检查点的 RDB 里仍只有 Nautilus 自己的键。守护进程只对暂停和没有概要的中断续跑，这个结束有概要，所以只封存。
+3. `try_cut` 接住切点路径上的任何异常，非 `Refusal` 的转成 `PAPER_RECOVERY_UNAVAILABLE` 的推迟，同一条消息只打印一次；不再有异常从定时器回调里出去。
+
+已知的限度：检查是节点线程上的定时器。若节点线程自己因别的原因停住，检查也不会运行；本次查清的触发原因（定时器回调抛异常）已堵上，别的停住原因没有观察到。

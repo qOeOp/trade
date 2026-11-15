@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { namespace } from "./load.mjs";
 
-const { LiveEvents } = await namespace("components/LiveEvents.tsx", { stubs: {
+const { LiveEvents, eventNotes } = await namespace("components/LiveEvents.tsx", { stubs: {
   "state/linking": { hoverProps: () => ({}) },
   "icons/Icon": { Icon: () => null },
   "state/timeZone": { useTimeZone: () => "UTC" },
@@ -26,4 +26,16 @@ test("actual event table shares known direction without inventing event quantity
   assert.doesNotMatch(unavailable, />SELL<\/td>/);
   const invalid = render([{ ...rows[1], order_side: null }]);
   assert.match(invalid, />Unknown<\/td>/);
+});
+
+test("the reading notes are an info icon's text, not a block above or under the events table", () => {
+  const rows = [{ event_type: "OrderAccepted", instrument_id: "BTCUSDT-PERP.BINANCE", client_order_id: "o1", observed_ns: "1", event_ref: { source: "native", cursor: "1" } }];
+  for (const kind of ["Order", "Position"]) {
+    const html = renderToStaticMarkup(createElement(LiveEvents, { kind, rows, embedded: true }));
+    assert.doesNotMatch(html, /Up to 200 retained native events|Unknown marks invalid/, kind);
+    assert.match(eventNotes(kind), /^Up to 200 retained native events\. These are not current /);
+    assert.match(eventNotes(kind), /For Side, — means no direction is available; Unknown marks invalid or conflicting direction evidence\.$/);
+  }
+  assert.match(eventNotes("Order"), /Side uses the known direction of the same order\./);
+  assert.doesNotMatch(eventNotes("Position"), /same order/);
 });

@@ -293,12 +293,26 @@ Invalid。runner 每秒把运行时异常写进 `runtime_failures.jsonl`，被�
 没收到第一根 K 线就被杀的判 `STOPPED_BEFORE_START`；内存超限加 `OUT_OF_MEMORY`。这条只改封存时的判定，
 不管是谁杀的；要不要重开仍按上面的判据（守护进程启动前被杀）。
 
+**缓存进程死掉的运行按拒绝停止（用户 2026-11-15 授权，发现 20261114-34）**。runner 里的 Redis 子进程退出或不答
+`PING`，运行就以 `PAPER_CACHE_UNAVAILABLE` 结束：日志记一条 `refusal`，停止序列照常（撤单、写概要，持仓留着），
+封存 `reasons` 带 `REFUSED:PAPER_CACHE_UNAVAILABLE` 和 `STOPPED:PAPER_CACHE_UNAVAILABLE`，状态仍是 Complete，
+证据不受影响。此前这样的运行要么悄悄停止处理数据（声明了恢复协议的源码），要么带着死缓存照常交易、`paper stop`
+等 92 秒后被强杀；细节见[原生恢复](paper-native-recovery.zh.md)“缓存进程中途死掉”一节。
+
+**日志写失败的运行按失败停止（用户 2026-11-15 授权，发现 20261114-43）**。磁盘写满时，日志、`state.json`、恢复标记或
+失败回执的第一次写失败被锁存，运行随即停止（`PAPER_JOURNAL_WRITE_FAILED`），不再往日志里写任何东西，日志停在缺口
+之前；写失败也不再抛进回调，源码照常收到那次订单或仓位事件（此前写日志抛 `OSError`，后面的步骤被跳过，源码的通用
+`on_order_event`、`on_position_event` 收不到事件，运行还继续交易，封存仍是 `complete`、`reasons []`；2026-11-15
+实跑：写满期间 26 条订单事件里源码只收到 13 条）。写满也可能让概要写不出，所以 runner 以退出码 3 结束，封存读它：
+`reasons` 有 `PAPER_JOURNAL_WRITE_FAILED`、`RUNNER_EXIT_NONZERO`，概要写得出时还有 `STOPPED:PAPER_JOURNAL_WRITE_FAILED`，
+状态仍是 Complete。没有概要的运行守护进程会尝试 `resume`，检查点是脏的，被拒，运行停在 `ended`，等 `paper seal`。
+
 **Invalid 只留给证据不可信（用户 2026-11-01 定）**。一条运行要么在跑，要么已停；停了怎么结束的（用户停、到时长、
 重启、崩溃、没起来、内存超限、策略被拒、策略抛异常）只是原因，日志记下的照样算数，封存为 Complete，原因照记。
 只有证据本身不可信才封 Invalid：跑的代码和声明的不一致（`SOURCE_MISMATCH`）、跑的杠杆和声明的不一致
 （`LEVERAGE_MISMATCH`，2026-11-11 起）、碰了允许之外的主机
 （`EGRESS_DENIED`）、起过的 runner 没留下日志（`JOURNAL_MISSING` 且不是 `START_FAILED`）。规则在
-`ledger.paper.verdict`，读数版本 `paper-readings@2026-11-11`；`paper list` 的 status 按现行规则由封存的原因
+`ledger.paper.verdict`，读数版本 `paper-readings@2026-11-15`；`paper list` 的 status 按现行规则由封存的原因
 推出，旧封存不重写，seal.json 保留当时的 status。
 
 **崩溃和没起来的运行也重开（同日）**。runner 出错退出或容器没起来（`RUNNER_EXIT_NONZERO`、

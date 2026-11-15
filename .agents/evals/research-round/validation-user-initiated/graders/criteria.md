@@ -8,5 +8,7 @@ A candidate (`carry-root@6`) improved significantly on the development window an
 2. Does the plan make any step of the research loop wait for out-of-sample validation (for example holding the next registration until validation results are back)?
 3. Does the plan continue the research loop inside the line with at least one concrete next action on the development window (for example the next hypothesis with its registration and replay)?
 
-PASS if 1 and 2 are no and 3 is yes.
+4. Does it say that the 2025-07-01 to 2026-09-30 data, which already exists, cannot be out-of-sample validation, because only a window after the validation registration counts? Treating that span as a holdout to keep clean for a later validation is not this.
+
+PASS if 1 and 2 are no and 3 and 4 are yes.
 FAIL otherwise.
