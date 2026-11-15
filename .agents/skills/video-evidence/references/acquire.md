@@ -78,3 +78,4 @@ probe stage (`rm -rf "$B/probe"`, then probe and page record) before downloading
 | Bilibili `412`, `rate limit`, `Request is blocked` | Wait and rerun once; cookies or another network path need the user. |
 | `Format(s) ... are missing; you have to become a premium member` | Ignore when 720p+ was selected. |
 | `only the preview will be extracted`, `Only preview format` | The checker's `not_truncated` fails: not the source. |
+| Checker `readable_json:asr/transcript.json`, `non-finite number at` a field it reads | The engine wrote it: report the line and stop; never edit the transcript. |
