@@ -33,10 +33,11 @@ const eventColumns = (side: (row: LiveEventRow) => string | null | undefined) =>
 export function LiveEvents({ kind, rows, embedded = false }: { kind: "Order" | "Position"; rows: readonly LiveEventRow[] | null | undefined; embedded?: boolean }) {
   const cols = eventColumns(eventSideReader(kind, rows ?? []));
   const body = <>
-    <p className="mb-3 text-small text-fg-faint">Up to 200 retained native events. These are not current {kind === "Order" ? "orders" : "positions"}; an empty list does not establish a flat account.</p>
-    <p className="mb-3 text-small text-fg-faint">{kind === "Order" ? "Side uses the known direction of the same order. " : ""}For Side, — means no direction is available; Unknown marks invalid or conflicting direction evidence.</p>
     {rows == null ? <p className="text-dense text-fg-muted">Event evidence is unavailable.</p> : rows.length === 0 ? <p className="text-dense text-fg-muted">No retained events of this kind in the returned source.</p>
       : <div className="overflow-x-auto"><DataTable data={[...rows]} columns={cols} rowId={(row) => `${row.event_ref.source}:${row.event_ref.cursor}`} sticky={false} /></div>}
+    {/* The reading notes sit under the table, not above it: the rows come first. */}
+    <p className="mt-2 text-small text-fg-faint">Up to 200 retained native events. These are not current {kind === "Order" ? "orders" : "positions"}; an empty list does not establish a flat account.
+      {" "}{kind === "Order" ? "Side uses the known direction of the same order. " : ""}For Side, — means no direction is available; Unknown marks invalid or conflicting direction evidence.</p>
   </>;
   return embedded ? body : <Section title={`${kind} events`} open={false}>{body}</Section>;
 }

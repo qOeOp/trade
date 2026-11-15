@@ -27,3 +27,12 @@ test("actual event table shares known direction without inventing event quantity
   const invalid = render([{ ...rows[1], order_side: null }]);
   assert.match(invalid, />Unknown<\/td>/);
 });
+
+test("the reading notes sit under the events table, never above it", () => {
+  const rows = [{ event_type: "OrderAccepted", instrument_id: "BTCUSDT-PERP.BINANCE", client_order_id: "o1", observed_ns: "1", event_ref: { source: "native", cursor: "1" } }];
+  for (const kind of ["Order", "Position"]) {
+    const html = renderToStaticMarkup(createElement(LiveEvents, { kind, rows, embedded: true }));
+    assert.ok(html.indexOf("Up to 200 retained native events") > html.indexOf("</table>"), kind);
+    assert.ok(html.indexOf("<table") < html.indexOf("Unknown marks invalid"), kind);
+  }
+});
