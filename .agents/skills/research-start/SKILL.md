@@ -53,9 +53,8 @@ select`); its development period follows from the date and the start's contracts
   continue a stopped line, after an interruption included, or establish a Goal for it, and never
   offer keeping it open or leaving it as it is until the stop lifts.
 - A non-empty `runs_behind_image` (a new replay image) stops nothing and needs no choice from the
-  user: move a control with `replay reproduce` before a registration compares against it, and a
-  recommended run and its control before a recommendation (research-round's
-  [changes.md](../research-round/references/changes.md)).
+  user: its runs move with `replay reproduce` as research-round's
+  [changes.md](../research-round/references/changes.md) says.
 - A line stays open until it is closed; selecting another line leaves it open, and several open
   lines are normal. Close a line only when the user ends it, and never propose closing one; a
   stopped line stays open. First run its closing history
@@ -81,8 +80,7 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   the archive holds you import once its line is chosen (readiness.md), never an option to wait on.
   A frozen
   rule is tested again only by out-of-sample validation at the user's request (research-round's
-  validation), on a window after its registration, never on months already past, the holdout
-  included.
+  validation), never on months already past, the holdout included.
 - When no existing candidate can start a line, design two or three complete new starts yourself:
   each a source that has never run (a revision with a substantive change, or a root), marked not yet replayed, with its contract scope and why,
   market day, execution environment (research-round), readiness result and
@@ -157,13 +155,8 @@ kept only as evidence or split into changes of this line's source; the user choo
 
 ## Input checks inside an existing line
 
-A coverage/readiness question within a selected line is not a new research session: return
-[readiness.md](references/readiness.md)'s full coverage disposition, even after a completed replay.
+Read [readiness.md](references/readiness.md) before the first replay of a line or of a session,
+when `market coverage` shows a gap, zero-volume minutes or missing funding, and before using
+inferred quotes for a new contract, period or liquidation scenario. Within a selected line this is
+not a new research session: return its full coverage disposition, even after a completed replay.
 Keep the selected line and its existing authority; do not restart selection or Goal setup.
-
-## When to read the references
-
-- [readiness.md](references/readiness.md): before the first replay of a line or of a session,
-  when `market coverage` shows a gap, zero-volume minutes or missing funding
-  (including after a completed replay), and before using inferred quotes for a new contract, period
-  or liquidation scenario.
