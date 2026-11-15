@@ -15,6 +15,7 @@ const components = new SourceTextModule(`
   export { LiveFrozenPlan } from "./components/LiveLaunchReview";
   export { LiveRunIdentity } from "./components/LiveRunIdentity";
   export { LiveRunCanvas } from "./widgets/live/LiveRunCanvas";
+  export { HeldAlertNotice } from "./components/PhoneParts";
 `, { identifier: resolve(src, "live-component-test.ts") });
 await components.link(loader({ stubs: {
   "state/shown": { useShown: () => ({ liveRun: canvasRun, version: null, trial: null }) },
@@ -150,6 +151,26 @@ test("the current run and its review expose the full copyable identity without e
     assert.match(visible, /Status<\/dt><dd[^>]*><span[^>]*>running/);
     assert.match(visible, /Phase<\/dt><dd[^>]*>Live execution/);
   }
+});
+
+test("a held run's failed stop check is red and worded on the desktop's page and the phone's notice; covered holds keep their look", () => {
+  const body = "has a position with NO STOP at Binance: BTCUSDT LONG 0.002 (stops 0). Nothing will close it: the run only observes while it holds. Close it or place a stop at Binance now.";
+  const held = { ...run, id: "web-held", hostState: "running", host: [{ label: "Mode", value: "run" }],
+    heldNotice: `This run ${body}`, heldAlert: { word: "Holding, no stop", tone: "fail", body } };
+  canvasRun = held;
+  const page = render("LiveRunCanvas", {});
+  assert.match(page, /<p role="status" class="text-dense text-fail-fg"><span class="font-semibold">Holding, no stop\. <\/span>This run has a position with NO STOP at Binance: BTCUSDT LONG 0\.002 \(stops 0\)/);
+  assert.match(render("LiveRunIdentity", { run: held }), /Status<\/dt><dd[^>]*><span class="inline-block font-semibold text-fail-fg">Holding, no stop<\/span>/);
+  const phone = render("HeldAlertNotice", { run: held });
+  assert.match(phone, /color-mix\(in srgb, var\(--fail\) 8%/);
+  assert.match(phone, /<span class="font-semibold">Holding, no stop\.<\/span> Live run fixture-strategy@1 has a position with NO STOP at Binance: BTCUSDT LONG 0\.002 \(stops 0\)/);
+  const cancelling = { ...held, heldAlert: { word: "Holding, cancelling entries", tone: "misses", body: "has 1 inherited entry order(s) working at Binance and is cancelling them." } };
+  assert.match(render("HeldAlertNotice", { run: cancelling }), /var\(--misses\) 8%/);
+  // Stops all in place: the amber paragraph and the plain host state it has had.
+  canvasRun = { ...held, heldAlert: null, heldNotice: "This run holds only positions that have their stop at Binance" };
+  assert.match(render("LiveRunCanvas", {}), /<p role="status" class="text-dense text-misses-fg">This run holds only positions/);
+  assert.match(render("LiveRunIdentity", { run: canvasRun }), /Status<\/dt><dd[^>]*><span class="inline-block first-letter:uppercase">running/);
+  assert.equal(render("HeldAlertNotice", { run: canvasRun }), "");
 });
 
 test("executed and reconciled runs show observation review instead of preparation controls", () => {

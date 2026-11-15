@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { PhonePage } from "../../components/PhoneBar";
-import { Amount, Change, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
+import { Amount, Change, HeldAlertNotice, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
 import { FormButton } from "../../components/chat/Field";
 import { useNow } from "../../components/hooks/useNow";
 import { fixed, signed } from "../../lib/paperApi";
@@ -38,8 +38,9 @@ export function LivePage({ id }: { id: string }) {
       <PhoneTop back={back} aside="Live" />
       <PhonePage>
         {status.word === "Unresolved" && <div className="px-3 pt-3"><UnresolvedNotice run={run} /></div>}
+        {run.heldAlert && <div className="px-3 pt-3"><HeldAlertNotice run={run} /></div>}
         <div className="space-y-1 px-3 pt-3">
-          <p className="flex min-w-0 items-baseline gap-2 text-dense"><Version name={run.candidate} /><span className={`shrink-0 ${textClass(status.tone)}`}>{status.word}</span></p>
+          <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-dense"><Version name={run.candidate} /><span className={`shrink-0 ${textClass(status.tone)}`}>{status.word}</span></p>
           <p className="text-small text-fg-faint">{run.symbols?.join(", ") ?? MISSING}{first !== undefined && ` · since ${since(first * 1000, zone, now)}`}{seen !== null && ` · ${keep(`observed ${ago(seen, now)} ago`)}`}</p>
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1"><Amount value={money?.equity ?? null} /><Change amount={money?.result} ratio={money && money.result !== null ? money.result / money.start : null} /></p>
           {fill && <FillLine fill={fill} zone={zone} />}

@@ -1,5 +1,5 @@
 import type { LiveCandidateDto, LiveEvidenceReadDto, LiveHomeDto, LiveRunDto } from "../lib/liveTradingDto";
-import { heldNotice } from "./liveHeld";
+import { heldAlert, heldNotice } from "./liveHeld";
 import { refusalText } from "./liveLaunchText";
 import type { LiveAccountCheck, LiveEvidenceRead, LiveFact, LiveRun, LiveSource, LiveTradingView } from "./liveTrading";
 
@@ -101,7 +101,7 @@ function continuityOf(run: LiveRunDto, entries: LiveRun["entries"], compared: Li
 
 /** Preserve source distinctions and unknowns; no fill aggregation or account-state inference. */
 export function liveRunPresentation(run: LiveRunDto, review?: LiveRunDto): LiveRun {
-  const candidate = run.candidate, account = run.account, entries = entriesOf(run), compared = comparedOf(run);
+  const candidate = run.candidate, account = run.account, entries = entriesOf(run), compared = comparedOf(run), open = !ENDED.has(run.host.state ?? "");
   return {
     id: run.run_id, candidate: candidate.strategy_id ? `${candidate.strategy_id}${candidate.revision === null ? "" : `@${candidate.revision}`}` : "Candidate unknown",
     sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
@@ -119,7 +119,7 @@ export function liveRunPresentation(run: LiveRunDto, review?: LiveRunDto): LiveR
     evidence: run.evidence.map((item) => ({ source: item.source, cursor: item.cursor, observedNs: item.observed_ns, readNs: item.read_ns, complete: item.complete, state: item.state })),
     venue: account ? { canTrade: account.can_trade, hedgeMode: account.hedge_mode, multiAssets: account.multi_assets,
       wallet: account.usdt_wallet, available: account.usdt_available } : null,
-    hostState: run.host.state, accountOwned: run.host.account_owned, heldNotice: ENDED.has(run.host.state ?? "") ? null : heldNotice(run.restarts ?? []),
+    hostState: run.host.state, accountOwned: run.host.account_owned, heldNotice: open ? heldNotice(run.restarts ?? []) : null, heldAlert: open ? heldAlert(run.restarts ?? []) : null,
     entries, compared, continuity: run.host.mode === "run" ? continuityOf(run, entries, compared) : [],
     orders: run.orders, positions: run.positions, equity: equityOf(run), review: review?.review ?? run.review ?? null, reviewError: review?.review_error?.code ?? run.review_error?.code ?? null,
   };

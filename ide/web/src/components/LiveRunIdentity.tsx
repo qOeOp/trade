@@ -21,7 +21,9 @@ export function LiveRunId({ id }: { id: string }) {
 export function liveRunStatus(run: LiveRun): readonly (readonly [string, ReactNode])[] {
   const state = run.hostState;
   const mode = run.host.find((fact) => fact.label === "Mode")?.value;
-  return [["Status", <span className="inline-block first-letter:uppercase">{state?.replaceAll("_", " ") ?? "Unknown"}</span>],
+  const alert = run.heldAlert;
+  return [["Status", alert ? <span className={`inline-block font-semibold ${textClass(alert.tone)}`}>{alert.word}</span>
+      : <span className="inline-block first-letter:uppercase">{state?.replaceAll("_", " ") ?? "Unknown"}</span>],
     ["Phase", mode ? PHASES[mode] ?? mode : "Not reported"]];
 }
 

@@ -96,15 +96,16 @@ export function liveStatus(run: LiveRun): LiveStatus {
   const state = run.hostState, stopping = stopRequested(run);
   if (state === "unresolved") return { word: "Unresolved", tone: "fail" };
   if (run.running) return stopping ? { word: "Stopping", tone: "misses" }
+    : run.heldAlert ? { word: run.heldAlert.word, tone: run.heldAlert.tone }
     : run.heldNotice ? { word: "Holding", tone: "misses" } : { word: "Running", tone: "meets" };
   if (run.ended) return { word: "Ended", tone: "masked" };
   return { word: state ? state.replace(/_/g, " ") : "Unknown", tone: "misses" };
 }
 
-/** The Runs button's dot, on the desktop's stripe and the phone's tab: red while a Live run is unresolved or the
- *  paper daemon does not answer, green while a Live or paper run runs. */
+/** The Runs button's dot, on the desktop's stripe and the phone's tab: red while a Live run is unresolved or holds a
+ *  position it cannot show a stop for, or the paper daemon does not answer; green while a Live or paper run runs. */
 export const runsDot = (live: readonly LiveRun[], paper: Listing | null, service: string): "fail" | "meets" | undefined =>
-  service === "offline" || live.some((r) => liveStatus(r).word === "Unresolved") ? "fail"
+  service === "offline" || live.some((r) => liveStatus(r).word === "Unresolved" || r.heldAlert?.tone === "fail") ? "fail"
     : live.some((r) => r.running) || (paper?.running ?? 0) > 0 ? "meets" : undefined;
 
 /** When the run was last observed: its account observation, else its terminal event, in ms. */

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { fixed, signed } from "../lib/paperApi";
 import { Icon } from "../icons/Icon";
 import { pnlClass, textClass, wash, type DataRole } from "../theme/roles";
+import type { LiveRun } from "../model/liveTrading";
 import type { Held } from "../model/phoneRuns";
 import { MISSING, signedPct } from "../lib/format";
 
@@ -50,6 +51,13 @@ export function PhoneNotice({ tone, children }: { tone: "fail" | "misses"; child
       <span className="mt-0.5 shrink-0"><Icon name="warning" tone={tone} /></span><span className="min-w-0">{children}</span>
     </p>
   );
+}
+
+/** A Live run that holds around an inherited position and cannot show its stops at Binance: what is missing, as
+ *  Telegram says it (the same words as the desktop's notice), in the colour of how soon it needs the user. */
+export function HeldAlertNotice({ run }: { run: LiveRun }) {
+  const alert = run.heldAlert;
+  return alert && <PhoneNotice tone={alert.tone}><span className="font-semibold">{alert.word}.</span> Live run {run.candidate} {alert.body}</PhoneNotice>;
 }
 
 /** A section's heading on a page: its name, and what it counts or where it is from at the right. */
