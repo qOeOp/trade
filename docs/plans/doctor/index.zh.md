@@ -36,7 +36,7 @@
 | 20261114-21 | Paper 读版本默认合约的查询引用账本没有的列 `trial.instruments`，版本默认合约与不带合约的 Paper 启动在 main 上失败（-20 实施中发现） | fix | doctor | wrong output | fixed b656175d0 [#3001](https://github.com/qOeOp/trade/pull/3001) | 2026-11-14 | 2026-11-14 |
 | 20261114-12 | 整年否决回放无效或开发期对照缺失时，History 可显示留出单判达标 | authority（读时判定） | doctor | wrong output（夹具） | open [诊断](2026-11-14-external-research-workflow.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261114-13 | 失去源码审查资格的运行仍进 History 并显示经济读数 | authority（复用源码资格） | doctor | wrong output（隔离账本） | open [诊断](2026-11-14-external-research-workflow.zh.md) | 2026-11-14 | 2026-11-14 |
-| 20261114-14 | 技术预检默认向登记作者披露年化收益与最大回撤 | fix（技术输出） | doctor | unknown | open [诊断](2026-11-14-external-research-workflow.zh.md) | 2026-11-14 | 2026-11-14 |
+| 20261114-14 | 技术预检默认向登记作者披露年化收益与最大回撤 | fix（技术输出） | doctor | unknown | in PR [#3069](https://github.com/qOeOp/trade/pull/3069) | 2026-11-14 | 2026-11-14 |
 | 20261114-15 | History 页的留出判定和 DSR 未显示 API 已返回的重叠试验计数 | fix（呈现既有数据） | doctor | wrong output（信息遗漏） | open [诊断](2026-11-14-external-research-workflow.zh.md) | 2026-11-14 | 2026-11-14 |
 | 20261113-115 | Paper 与 Live 运行器各一套 Redis 子进程、信号等待与缓存报告写入（[瘦身审计](2026-11-13-whole-product-slimming-audit.zh.md)） | merge | doctor | none | fixed d41afa0d8 [#2955](https://github.com/qOeOp/trade/pull/2955) | 2026-11-13 | 2026-11-13 |
 | 20261113-116 | Live 策略构造三份、日志读取器四个、单调用包装与互相导入（接 20261105-31）（[瘦身审计](2026-11-13-whole-product-slimming-audit.zh.md)） | merge；remove | doctor | none | fixed 0c3dc8ba7 [#2958](https://github.com/qOeOp/trade/pull/2958) | 2026-11-13 | 2026-11-13 |

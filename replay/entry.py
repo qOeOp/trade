@@ -222,6 +222,16 @@ def _directory_report(directory: Path) -> dict:
                 "limitations": [runs.UNVERIFIED]}
 
 
+def _technical_report(directory: Path) -> dict:
+    """report.technical_directory_report; a directory whose reports cannot be read reports why instead of
+    refusing the replay (the problems list carries the failure)."""
+    from report import runs
+    try:
+        return runs.technical_directory_report(directory)
+    except Refusal as exc:
+        return {"directory": str(directory), "unreadable": f"{exc.code}: {exc.message}"}
+
+
 def _reports_complete(workdir: Path) -> bool:
     return all((workdir / REPORTS / name).is_file() and (workdir / REPORTS / name).stat().st_size > 0
                for name in execution.NATIVE_REPORTS)
@@ -457,7 +467,7 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
                 "export_sha256": exported["identity"]["export_content_sha256"],
                 "comparable_config_sha256": config_sha256,
                 "status": "passed" if not found else "failed", "problems": found, "path": str(output),
-                "metrics": _directory_report(output), "scope": PRECHECK_SCOPE,
+                "technical": _technical_report(output), "scope": PRECHECK_SCOPE,
                 "exposure_exemption": exposure}
     finally:
         registration_inputs.cleanup(exported)

@@ -22,6 +22,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (precheck output): `replay precheck` returns `technical` (populations, the activity and plan checks, the
+  order funnel) where it returned `metrics`, which carried annual return, drawdown, Sharpe, win rate and the cost
+  slices to the author before the registration. Nothing stored changes; `replay report` and the run reports after
+  registration are as before (doctor 20261114-14).
 - Breaking (clock callbacks): a callback a source registers with `clock.set_timer_zoned` is guarded like those of
   `set_timer` and `set_time_alert`. When it raises, the failure is recorded (`runtime_failures.jsonl`) and the run
   fails, where the engine used to log one error line and the run passed. In Paper such a timer now counts as a user
