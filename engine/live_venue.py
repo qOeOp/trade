@@ -83,7 +83,7 @@ class BinanceReadOnly:
             raise Refusal("LIVE_READ_PATH", "the account observer only accepts declared GET endpoints")
         headers = {}
         if path in self.PRIVATE:
-            params = {**params, "timestamp": self.get(self.TIME)["serverTime"], "recvWindow": 5000}
+            params = {**params, "timestamp": self.server_time(), "recvWindow": 5000}
             headers["X-MBX-APIKEY"] = self.credentials.api_key
         query = urllib.parse.urlencode(params)
         if path in self.PRIVATE:
@@ -102,6 +102,15 @@ class BinanceReadOnly:
             # Exception text can contain signed URLs; retain only the failure class.
             raise Refusal("LIVE_ACCOUNT_UNAVAILABLE", f"Binance GET {path} failed ({type(exc).__name__})") from None
 
+    def server_time(self):
+        """The venue's time. An answer that carries none (an error object sent with HTTP 200) is an incomplete
+        response, a refusal like every other unusable read, not a KeyError the callers do not expect."""
+        answer = self.get(self.TIME)
+        try:
+            return answer["serverTime"]
+        except (KeyError, TypeError) as exc:
+            raise Refusal("LIVE_ACCOUNT_RESPONSE", "the venue did not supply a usable server time") from exc
+
     def clock(self) -> list[dict]:
         """Signed reads here carry the venue's time, which would hide an offset native requests can still suffer.
 
@@ -110,7 +119,7 @@ class BinanceReadOnly:
         samples = []
         for _ in range(3):
             sent_ns = time.time_ns()
-            server_ms = self.get(self.TIME)["serverTime"]
+            server_ms = self.server_time()
             samples.append({"sent_ns": sent_ns, "server_ms": server_ms, "received_ns": time.time_ns()})
         return samples
 
@@ -127,7 +136,10 @@ class BinanceReadOnly:
         exchange = self.get("/fapi/v1/exchangeInfo")
         terms = {}
         for symbol in symbols:
-            rows = [row for row in exchange["symbols"] if row["symbol"] == symbol]
+            try:
+                rows = [row for row in exchange["symbols"] if row["symbol"] == symbol]
+            except (KeyError, TypeError) as exc:
+                raise Refusal("LIVE_ACCOUNT_RESPONSE", "the venue did not supply a complete instrument list") from exc
             if len(rows) != 1:
                 raise Refusal("LIVE_INSTRUMENT_UNKNOWN", f"Binance has no unique USD-M instrument {symbol}")
             terms[symbol] = {

@@ -22,6 +22,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Live (finding 20261114-29, the part about answers of the wrong shape): an answer from Binance with HTTP 200 that
+  lacks what Live's own read-only client reads from it (the server time, the instrument list) is now the refusal
+  `LIVE_ACCOUNT_RESPONSE`, where the client raised `KeyError` or `TypeError`. A periodic comparison or a held start's
+  read that gets such an answer is read again, where the run ended `unresolved` (`observer_failure`) with the node
+  stopped and its positions left open. An entry's read is refused under that code and ends the run on the STOP path
+  (before: under the code `KeyError`); the brake's read is lost as before. The client still makes each request once.
 - Breaking (precheck output): `replay precheck` returns `technical` (populations, the activity and plan checks, the
   order funnel) where it returned `metrics`, which carried annual return, drawdown, Sharpe, win rate and the cost
   slices to the author before the registration. Nothing stored changes; `replay report` and the run reports after

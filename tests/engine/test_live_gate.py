@@ -15,7 +15,7 @@ from nautilus_trader.model import BarType, InstrumentId, OrderSide, OrderStatus,
 from engine import live, live_commands as commands, live_connection, live_source
 from engine.live_errors import LiveRefusal
 from engine.live_records import strategy_ids
-from tests.engine.test_live_venue import fixture, venue_clock
+from tests.engine.test_live_venue import ERROR_ANSWER, answering_200, fixture, venue_clock
 
 SYMBOL = "BTCUSDT"
 BAR = BarType.from_str(f"{SYMBOL}-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")
@@ -399,6 +399,27 @@ class GateTests(unittest.TestCase):
         self.assertEqual([row["event"] for row in self.events() if row["event"].startswith("held_")],
                          ["held_uncovered"])
         self.assertFalse(self.session.held_flat)
+
+    def test_an_answer_of_the_wrong_shape_is_a_read_to_take_again_for_the_comparison_and_the_hold(self):
+        """20261114-29: HTTP 200 without the field read raised KeyError past both, into the Observer's own failure
+        path, which stops the node and closes nothing."""
+        state = self.session.connection
+        for wrong in ({"server_time": ERROR_ANSWER}, {"exchange_info": ERROR_ANSWER}):
+            with self.subTest(wrong=sorted(wrong)):
+                self.session.account_reader = answering_200(**wrong)
+                state.last_compare = 0
+                live_connection.tick(self.session, SimpleNamespace(cache=Cache()), 1000)
+                state.observation.result.exception(timeout=2)
+                live_connection.tick(self.session, SimpleNamespace(cache=Cache()), 1001)
+                self.assertEqual((self.events()[-1]["event"], self.events()[-1]["found"]),
+                                 ("comparison", {"observation": ["LIVE_ACCOUNT_RESPONSE"]}))
+                self.assertIsNone(state.observation)
+        self.session.mode, state.last_compare = "held", None
+        live_connection.held_tick(self.session, 0)  # no clock: the signed requests' own reading of the time
+        state.observation.result.exception(timeout=2)
+        live_connection.held_tick(self.session, 1)
+        self.assertIsNone(state.observation)
+        self.assertFalse(self.session.stopping or self.session.failed)
 
     def phantom_position(self):
         return SimpleNamespace(strategy_id=self.strategy, side=PositionSide.LONG, id="P-1", is_open=True,
