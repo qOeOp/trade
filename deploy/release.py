@@ -7,6 +7,7 @@ version's own control releases it (deploy/control.py). Git and Docker use no exi
 
 import argparse
 from contextlib import nullcontext
+from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
@@ -438,6 +439,28 @@ class GitSource:
 
 # The operator's checkout that two of the host's compose files come from (release_host.COMPOSE_FILES), and what of it
 # runs: the compose definition and the remote overlay, without their documentation.
+# A compose service a move put back (Release.move) is created after the routed Web, as one the operator recreated is.
+# Either is moved again once it is FOLLOW_RETRY_SECONDS old, while it was created within
+# (FOLLOW_ATTEMPTS - 1) * FOLLOW_RETRY_SECONDS of the Web: each undone move leaves a container at least that much
+# newer than the last, so a version tries at most FOLLOW_ATTEMPTS moves, an hour apart, and then leaves the service to
+# the next version with a drift notice (doctor 20261117-01). Nothing is stored: Docker's creation times are the count.
+FOLLOW_RETRY_SECONDS, FOLLOW_ATTEMPTS = 3600, 3
+
+
+def epoch(created: tuple[str, str]) -> float:
+    """A `moment` as seconds since the epoch (to the microsecond)."""
+    whole, fraction = created
+    return datetime.fromisoformat(f"{whole}.{fraction[:6]}").replace(tzinfo=timezone.utc).timestamp()
+
+
+def retry(since: tuple[str, str], created: tuple[str, str], now: float) -> str:
+    """For a service created after the routed Web (created `since`): "due" to be moved again, "wait" for its retry,
+    or "over" once this version's attempts are spent."""
+    if epoch(created) - epoch(since) >= (FOLLOW_ATTEMPTS - 1) * FOLLOW_RETRY_SECONDS:
+        return "over"
+    return "due" if now - epoch(created) >= FOLLOW_RETRY_SECONDS else "wait"
+
+
 CHECKOUT = Path("/opt/trade-app")
 CHECKOUT_PATHS = ("deploy/compose.yaml", "deploy/remote/")
 
@@ -465,14 +488,25 @@ def drift(host: DockerHost, github: GitSource, checkout: Path = CHECKOUT) -> dic
         facts[f"drift:checkout:{sha}"] = (
             f"The host checkout {checkout} differs from the active version {short} in {', '.join(differing)}. The "
             "release recreates ledger and market-import from these files; update the checkout to that version.")
+    since, now = host.created(WEB + sha), time.time()
     pin = github.docker_api(sha)
     running = host.inspect(DOCKER_API)["image"]
-    if running != pin and host.created(DOCKER_API) > host.created(WEB + sha):
-        # One created before the routed Web is moved by the release's next settled tick (Release.follow).
+    if running != pin and host.created(DOCKER_API) > since and retry(since, host.created(DOCKER_API), now) == "over":
+        # One created before the routed Web, or whose retries are not spent, is moved by a settled tick (Release.follow).
         facts[f"drift:docker-api:{pin}"] = (
             f"docker-api runs {running}, but the active version {short} pins {pin}. It was recreated after that "
-            "version was released (a move undone, or by hand), so the release leaves it until the next version; "
-            "recreate it from the updated checkout.")
+            "version was released (a move undone, or by hand) and the release's retries are spent, so it stays until "
+            "the next version; recreate it from the updated checkout.")
+    target = github.approved()
+    service = target["service"] if target["revision"] == sha else None
+    for name, container, _ in FOLLOWERS if service is not None else ():
+        found = host.follower(container)
+        if (found is not None and found["image"] != service and found["created"] > since
+                and retry(since, found["created"], now) == "over"):
+            facts[f"drift:{name}:{service}"] = (
+                f"{name} runs {found['image']}, but the active version {short} runs {service}. Its moves were undone "
+                "(or it was recreated by hand) and the release's retries are spent, so it stays until the next "
+                "version; journalctl -u trade-release.service names the reader that failed.")
     return facts
 
 
@@ -854,8 +888,9 @@ class Release:
         service digest, and docker-api to the digest its deploy/compose.yaml pins (the user, 2026-11-15 and
         2026-11-16, doctors 20261115-06 and 20261116-04; docs/plans/release-moves-ledger-mirror-20261116.zh.md),
         while no Paper operation is in progress and Live is idle. A running service created after the active Web was
-        already recreated since this version committed, by a move undone or by the operator, and stays until the next
-        version; one that is absent or stopped is the operator's and is never started."""
+        recreated since this version committed, by a move undone or by the operator: it is moved again under the same
+        conditions once `retry` says so, at most FOLLOW_ATTEMPTS moves per version, and then stays until the next version
+        (`drift` sends the notice). One that is absent or stopped is the operator's and is never started."""
         sha = revision(active)
         target = self.github.approved()
         service = target["service"]
@@ -863,15 +898,20 @@ class Release:
             return
         wanted = [(name, container, healthy, SERVICE_IMAGE, service) for name, container, healthy in FOLLOWERS]
         wanted.append(("docker-api", DOCKER_API, False, DOCKER_API_IMAGE, self.github.docker_api(sha)))
-        since = self.host.created(active)
+        since, now = self.host.created(active), time.time()
         moving = []
         for name, container, healthy, variable, image in wanted:
             found = self.host.follower(container)
             if found is None or found["image"] == image:
                 continue
-            if found["created"] > since:
-                print(f"{name} was recreated after {active}; it stays on {found['image']} until the next version",
-                      flush=True)
+            again = retry(since, found["created"], now) if found["created"] > since else "due"
+            if again == "over":
+                print(f"{name} was recreated after {active} and its retries are spent; it stays on {found['image']} "
+                      "until the next version", flush=True)
+                continue
+            if again == "wait":
+                print(f"{name} was recreated after {active} (a move undone, or by hand); the release moves it again "
+                      f"{FOLLOW_RETRY_SECONDS // 60} minutes after that", flush=True)
                 continue
             if not self.host.composes(name, variable, image):
                 # A checkout from before the image variable: compose would recreate it on what the checkout names.

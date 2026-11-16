@@ -15,7 +15,7 @@ from urllib.error import HTTPError
 
 from deploy.live_host import LIVE, LiveBusy
 from deploy import release
-from deploy.release import GitSource, Release, failure_summary
+from deploy.release import FOLLOW_RETRY_SECONDS, GitSource, Release, failure_summary
 from deploy.paper_host import CONTROLLER_PROBE, PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
 from deploy.paper_release import PaperRelease
@@ -909,6 +909,12 @@ PROXY, OLD_PROXY = ("ghcr.io/qoeop/trade-docker-api@sha256:" + digit * 64 for di
 WEB_CREATED, BEFORE, AFTER = ("2026-11-15T10:00:00Z", "2026-11-11T08:00:00.5Z", "2026-11-15T10:00:00.1Z")
 
 
+def hours_after_web(hours):
+    """A Docker creation time `hours` after the routed Web's, and the clock reading at it."""
+    return (moment(f"2026-11-15T{10 + int(hours):02d}:{int(hours % 1 * 60):02d}:00.1Z"),
+            release.epoch(moment(WEB_CREATED)) + hours * 3600 + 0.1)
+
+
 class FollowHost(Host):
     """The settled host of version A: Web, Paper controller and the compose services the release may move."""
 
@@ -925,6 +931,7 @@ class FollowHost(Host):
         self.recreated = []
         self.broken = set()
         self.during = None
+        self.stamp = moment(AFTER)  # the creation time of what recreate makes
 
     def created(self, name):
         assert name == WEB + A
@@ -945,7 +952,7 @@ class FollowHost(Host):
             self.during()
         self.recreated.append((service, image, healthy))
         self.variables.append(variable)
-        self.services[name] = {"image": image, "created": moment(AFTER)}
+        self.services[name] = {"image": image, "created": self.stamp}
         if self.after_move is not None:
             self.runs = self.after_move.pop(0) if isinstance(self.after_move, list) else self.after_move
         if service in self.broken and image in self.broken:
@@ -991,6 +998,10 @@ class FollowTests(unittest.TestCase):
         sleep = patch("deploy.release.time.sleep")
         sleep.start()
         self.addCleanup(sleep.stop)
+        self.now = release.epoch(moment(AFTER)) + 1  # just after what a move or its undo created
+        clock = patch("deploy.release.time.time", side_effect=lambda: self.now)
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def unfrozen(self):
         self.assertEqual((self.controller.disk, self.controller.live), (paper_route(PAPER + A),) * 2)
@@ -1123,6 +1134,34 @@ class FollowTests(unittest.TestCase):
         self.host.recreated.clear()
         self.release.follow(WEB + A)  # both are now newer than the active Web: no outage every tick
         self.assertEqual(self.host.recreated, [])
+
+    def test_an_undone_move_is_tried_again_an_hour_later_at_most_three_times_per_version(self):
+        # Doctor 20261117-01: the undo recreates both services after the routed Web, which read as the operator's
+        # recreation, so 0.4.1 never moved them again.
+        self.host.broken = {"ledger", TARGET["service"]}
+        del self.host.services[MARKET_IMPORT]  # untouched by a move that failed first on ledger
+        attempts = []
+        for hours in (0, 1, 2):
+            self.host.stamp, self.now = hours_after_web(hours + 0.01)
+            with self.assertRaises(RuntimeError) as raised:
+                self.release.follow(WEB + A)
+            self.assertEqual(failure_summary(raised.exception), "service move failed and was undone")
+            attempts.append(self.host.recreated[:])
+            self.host.recreated.clear()
+            self.now += FOLLOW_RETRY_SECONDS - 60
+            self.release.follow(WEB + A)
+            self.assertEqual(self.host.recreated, [], "not again within the hour: no outage every tick")
+            self.now += 120
+        self.assertEqual([moves[0] for moves in attempts], [("ledger", TARGET["service"], True)] * 3)
+        self.assertEqual(self.host.services[LEDGER]["image"], OLD_SERVICE)
+        self.now += 24 * 3600
+        self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated, [], "three attempts, then the next version")
+        self.host.broken = set()  # an operator's recreation on its own image within the window moves like an undo
+        self.host.services[LEDGER]["created"], self.now = hours_after_web(0.5)
+        self.now += FOLLOW_RETRY_SECONDS
+        self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated[0], ("ledger", TARGET["service"], True))
 
     def test_unreadable_readers_after_the_move_put_the_services_back(self):
         self.controller.health = Mock(side_effect=RuntimeError("Paper controller cannot read its database"))
@@ -1302,6 +1341,11 @@ class DriftTests(unittest.TestCase):
         self.host = Mock()
         self.host.disk_route.return_value = WEB + self.sha
         self.host.inspect.return_value = {"image": self.PIN}
+        self.host.follower.return_value = None  # no compose service, unless a test runs one
+        self.source.approved = Mock(return_value={**TARGET, "revision": self.sha})
+        clock = patch("deploy.release.time.time", return_value=hours_after_web(3)[1])
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def drift(self):
         return release.drift(self.host, self.source, self.checkout)
@@ -1326,7 +1370,22 @@ class DriftTests(unittest.TestCase):
         self.host.created.side_effect = created.get
         self.assertEqual(self.drift(), {}, "the next settled tick moves it (Release.follow)")
         created["trade-ide-docker-api-1"] = moment(AFTER)  # a move undone, or the operator's recreate
+        self.assertEqual(self.drift(), {}, "the release tries it again")
+        created["trade-ide-docker-api-1"] = hours_after_web(2.5)[0]  # the third undone move: retries spent
         facts = self.drift()
         self.assertEqual(list(facts), [f"drift:docker-api:{self.PIN}"])
         self.assertIn(f"docker-api runs {running}, but the active version {self.sha[:12]} pins {self.PIN}",
                       facts[f"drift:docker-api:{self.PIN}"])
+
+    def test_a_service_whose_retries_are_spent_is_named_once_per_version_image(self):
+        services = {LEDGER: {"image": OLD_SERVICE, "created": moment(AFTER)}}
+        self.host.follower.side_effect = services.get
+        self.host.created.return_value = moment(WEB_CREATED)
+        self.assertEqual(self.drift(), {}, "an undone move is tried again (Release.follow)")
+        services[LEDGER]["created"] = hours_after_web(2.5)[0]
+        facts = self.drift()
+        self.assertEqual(list(facts), [f"drift:ledger:{TARGET['service']}"])
+        self.assertIn(f"ledger runs {OLD_SERVICE}, but the active version {self.sha[:12]} runs {TARGET['service']}",
+                      facts[f"drift:ledger:{TARGET['service']}"])
+        services[LEDGER]["image"] = TARGET["service"]  # moved by hand: nothing to say
+        self.assertEqual(self.drift(), {})

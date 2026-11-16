@@ -100,7 +100,8 @@ go on: their runner and egress containers are the engine's own and never call th
 on the Paper page attaches its replay through the proxy and fails, as it does for a ledger move.
 Every tick compares that checkout's `deploy/compose.yaml` and `deploy/remote/` (documentation aside) with the routed
 version's, and sends a Telegram notice (below) while they differ, and the running docker-api with the digest that
-version pins once the release no longer moves it (it was recreated after the routed Web: a move undone, or by hand).
+version pins once the release no longer moves it (it was recreated after the routed Web, a move undone or by hand,
+and the release's retries below are spent).
 The release never changes the checkout: update it to the routed version as for `edge`.
 A service that is stopped or absent (market import before step 5 below) is never started.
 
@@ -116,11 +117,15 @@ the Web, Agent, Paper controller and Live control; the Paper database and the re
 fails and can be started again. After the move the routed Web and the Paper controller must answer within 3 minutes.
 
 On any failure every service it touched is recreated on the image it ran before and the tick fails (a Telegram notice
-as for any failed tick). They are then newer than the routed Web, so no later tick moves them again until the next
-version; to move them by hand, name the active version's images (`python3 -m deploy.images --revision <revision>
+as for any failed tick). They are then newer than the routed Web: a later tick moves such a service again under the
+same conditions once it is an hour old, as long as it was created within two hours of the routed Web, so a version
+makes at most three moves an hour apart. After the last a Telegram drift notice names each service left on another
+image, and it stays until the next version (no state is kept: the containers' creation times are the count). To move
+them by hand, name the active version's images (`python3 -m deploy.images --revision <revision>
 --env /etc/trade/remote.env`) and `compose up -d --no-deps ledger` (`--profile local-research-import` for market
 import; for docker-api, the checkout at that version and `compose up -d --no-deps docker-api`). An operator's own
-recreate of any of them after a release likewise keeps it until the next version.
+recreate of any of them after a release counts the same: within those two hours the release moves it again an hour
+later.
 
 Since the env file keeps the image of the host's install, name the routed version's images in it the same way before
 any whole-project `compose up`, or compose puts the ledger back on the older image.
