@@ -541,6 +541,52 @@ overlays (`deploy/remote/`), the same way. Started before the admitted version c
 bootstrap handoff refuses it (the admitted control does not import) and every tick fails until such a version is
 admitted.
 
+### When the running control fails before it hands over
+
+A tick runs, in order, `Config.installed()` and `DockerHost.prepare()` (`deploy/release.py` `main`, `tick`), then
+`Release.tick`: `recover()` (Paper's journal, then the Web's) and only then `handoff()`. A control whose code fails in
+any of those steps fails every tick before it can hand over, so it never installs the version that fixes it. This is
+the operator's way out; it changes no code and no recovery rule.
+
+1. Stop the timer and let a running tick finish: `sudo systemctl stop trade-release.timer`, then repeat
+   `systemctl show -p ActiveState --value trade-release.service` until it says `inactive` or `failed` (a running
+   oneshot tick shows `activating`). Do not kill a tick.
+2. Look for a pending transaction: `ls -l /var/lib/trade-release/transaction.json
+   /var/lib/trade-release/paper-transaction.json` (`Release.transaction`, `PaperRelease.transaction`; a leftover
+   `*.pending` file is an unfinished write, not a journal). If either exists, stop here: no step below is safe. A
+   pending journal is for the control that wrote it: the bootstrap copy refuses one (`Release.tick`), but any other
+   installed control `current` named would recover it with its own code, since `Release.tick` recovers whatever is
+   pending. Do not delete, edit or move a journal, and do not re-point `current` while one exists. The code as is has
+   no manual way out of this case: keep the timer stopped until it is decided.
+3. Wait until `deploy-ready` admits a version whose control is fixed: its `release.json` names that version's commit
+   with a non-null `image` (`git fetch origin deploy-ready && git show origin/deploy-ready:release.json` in any
+   checkout). Until then, every control hands over to the defective one again: a tick under the previous control
+   installs the admitted (defective) control, exits 3, and the launcher's second tick fails under it.
+4. Find the previous control: `ls -l /var/lib/trade-release/control`. `hand_off` (`deploy/control.py`) keeps only
+   `current`, the control it installed and the one that handed over, so the directory other than the one `current`
+   names is the previous control; it ran ticks without this failure.
+5. Point `current` at it the way `hand_off` does, a relative link swapped in by one rename:
+
+   ```sh
+   cd /var/lib/trade-release/control
+   ln -s <previous-revision> current.new
+   mv -T current.new current
+   sync
+   ```
+
+   If no previous directory exists (the defective control was the first one the bootstrap copy handed to), remove
+   `current` instead (`rm /var/lib/trade-release/control/current`): the launcher then runs the bootstrap copy in
+   `/opt/trade-release`, which only hands over, and refuses while a journal is pending. It is the code
+   `install-release.sh` last installed, possibly older than the previous control.
+6. Start the timer: `sudo systemctl start trade-release.timer`. The next tick runs under the control you chose,
+   recovers nothing (nothing is pending), and hands over to the fixed version (`Handed release control from … to …`,
+   `journalctl -u trade-release.service`); the launcher's second tick releases it under its own control. That handoff
+   removes the defective control's directory.
+
+Routes and containers stay as the defective control left them. If it failed from its first tick, it released nothing
+and the routed Web, Agent, Live control and Paper controller are still the previous version's; if it released its own
+version first, the fixed version is released over that one as usual.
+
 The release host holds the original private `account.lock` read-only over the service-image `live release-inspect`
 call and the transaction and route writes. The systemd service must open that file read-only, see the same
 regular-file inode as the Live control, and use a filesystem with local read-only-fd exclusive flock. The release
