@@ -20,7 +20,7 @@
 | 20261116-05 | 发布要求主机可用内存 ≥ 2 GiB，Paper 准入只留 1 GiB；开着的 Paper 运行可以挡住每次发布，tick 只报 "unclassified runtime failure"；market-import 没有内存上限 | `deploy/release_host.py` `memory_available`；`paper/runs.py` 的准入余量；`deploy/release.py` `failure_summary` 的已知消息表没有这条；`deploy/compose.yaml` market-import 无 `mem_limit`。各常驻容器上限合计约 7.0 GiB，主机 7.2 GiB | 修缺陷：失败摘要认出内存不足；给 market-import 设上限。对齐两个余量改动拒绝检查，要用户授权；先在主机上测量 | hours（发布静默卡住） | open |
 | 20261116-06 | 有缺陷的发布控制代码挡住自己的修复：一个 tick 先 `prepare`、`recover` 再 `handoff`，控制代码在前两步抛错时下一个版本永远到不了主机 | `deploy/release.py` tick 的调用顺序；`control.py` `hand_off` 只保留当前与前一个；README 写明没人手动装控制代码 | 文档：写明运维的手动退路。改成先交接再恢复会放宽"写事务的控制代码恢复它"这条拒绝，要用户授权 | hours（修复版本发不上去） | open |
 | 20261116-07 | 提交后的回滚只能向前（revert、CI、用户打标签），手动切回旧容器没有步骤，且下一个 tick 会重新选中新的坏版本 | `deploy/remote/README.md` 回滚一节；`release_host.py` 保留三个旧容器"供运维手动回去"；`release.py` `choose` 以祖先关系重选，除非写 `failed/<sha>` | 文档：写明手动回滚步骤（停 timer、写 `failed/<sha>`、改路由、持久化 `active.json`） | hours（90 秒后才出现的回归要等几小时） | open |
-| 20261116-08 | Paper runner 的内存上限依据 21 个合约 6 小时的峰值 324 MiB，运行 2 已到 522/640 MiB | `paper/runs.py` 的 `RUNNER_*` 注释；服务器 `docker stats`（2026-11-16 04:2x UTC） | 先测量运行时间更长时的内存曲线；改 `RUNNER_*` 改变 `PAPER_MEMORY_FULL` 的拒绝，要用户授权 | minutes（runner 被杀后用掉一次恢复机会并留下缺口） | open |
+| 20261116-08 | Paper runner 的内存上限依据 21 个合约 6 小时的峰值 324 MiB，运行 2 已到 522/640 MiB | `paper/runs.py` 的 `RUNNER_*` 注释；服务器 `docker stats`（2026-11-16 04:2x UTC） | 先测量运行时间更长时的内存曲线；改 `RUNNER_*` 改变 `PAPER_MEMORY_FULL` 的拒绝，要用户授权 | none（测量后：匿名内存稳定，见 Decisions） | rejected |
 | 20261116-09 | Agent 每次工具调用起一个 `cli.main` 子进程，并发无上限，容器 1 GiB；与 20261116-01 同型 | `ide/agent/src/tools.ts` `runProduct`（`execFile`，无并发限制） | 修缺陷：同样限制并发 | minutes | open |
 | 20261116-10 | 主机重启与 dockerd 重启从没演练过：发布创建的容器启动顺序无定义，timer 开机 30 秒就触发，Paper runner 可能没有重启策略，`live-restore` 未知 | `deploy/` 与 `docs/plans` 里没有重启的说明；`docker-api/check.go` 允许 runner 无重启策略；`trade-release.timer` | 演练一次重启并决定 `live-restore`，都要用户授权（主机重启、主机配置） | hours（推断） | open |
 
@@ -29,3 +29,5 @@
 - 2026-11-16 用户："我们这发版流水线也太脆弱了 发个版一堆问题"。无需授权的 -03、-04（通知部分）、-05（摘要与上限部分）、-06/-07（文档）、-09 由修复会话去做；需授权的部分已问用户。
 - 2026-11-16 用户答「都授权」，其中 -04 的后一半：发布也移动 docker-api。实现：与 ledger、market-import 同一步、同样条件（没有进行中的 Paper 操作、冻结 Paper 写入、Live 空闲），用活动版本 `deploy/compose.yaml` 钉的摘要经 `TRADE_DOCKER_API_IMAGE` 重建（不是重启），失败一起回退；检出的定义不读该变量时不动并说明。
 - 2026-11-16 用户对 -05 需授权的一半：「都授权」。Paper 准入在新 run 的上限之后留给主机的可用内存从 1 GiB 改为 2 GiB，与发布启动候选前要求的可用内存读同一个常量 `RELEASE_MEMORY_MIB`（`deploy/release_host.py`）；发布的 2 GiB 门槛不变。
+- 2026-11-16 用户授权 -04、-05、-06、-08、-10 的需授权部分并同意自动合并（"都授权 自动合并"）。
+- 20261116-08 测量后不改上限：05:03–05:53 UTC 每 5 分钟读运行 2 的 runner cgroup（运行 1–2 小时），匿名内存 370–383 MiB 不增长，文件缓存 199 MiB（可回收），`memory.current` 587 MiB、`memory.peak` 596 MiB，`memory.events` 的 high/max/oom 全为 0。522→574 MiB 的上升是页缓存，不是泄漏；匿名内存离 640 MiB 上限约 250 MiB。以 `rejected` 关闭；运行更久后若匿名内存增长再重开。

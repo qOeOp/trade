@@ -15,7 +15,6 @@
 | 20261116-05 | 发布要 2 GiB、Paper 只留 1 GiB，开着的 Paper 挡住发布且报 unclassified；market-import 无内存上限 | 修缺陷（摘要、上限已由 #3135 合入）；对齐余量（用户 2026-11-16 授权） | doctor | hours | in PR [#3137](https://github.com/qOeOp/trade/pull/3137) | 2026-11-16 | 2026-11-16 |
 | 20261116-06 | 有缺陷的发布控制代码挡住自己的修复 | 文档（手动退路）；先交接再恢复要授权 | doctor | hours | in PR [#3130](https://github.com/qOeOp/trade/pull/3130) | 2026-11-16 | 2026-11-16 |
 | 20261116-07 | 提交后手动回滚没有步骤，下一个 tick 会重选坏版本 | 文档（手动回滚步骤） | doctor | hours | in PR [#3132](https://github.com/qOeOp/trade/pull/3132) | 2026-11-16 | 2026-11-16 |
-| 20261116-08 | Paper runner 内存已到 522/640 MiB，超出上限依据的测量 | 测量；改上限要授权 | doctor | minutes | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-16 | 2026-11-16 |
 | 20261116-09 | Agent 工具调用子进程并发无上限 | 修缺陷（限制并发） | doctor | minutes | in PR [#3129](https://github.com/qOeOp/trade/pull/3129) | 2026-11-16 | 2026-11-16 |
 | 20261116-10 | 主机与 dockerd 重启从没演练 | 演练与 live-restore 决定，要授权 | doctor | hours | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-16 | 2026-11-16 |
 | 20261116-01 | Web 对每个产品读取起一个子进程且并发无上限，研究线页面的一批读取让容器内存超限 | 修缺陷（限制并发产品读取） | doctor | minutes | in PR [#3127](https://github.com/qOeOp/trade/pull/3127) | 2026-11-16 | 2026-11-16 |
@@ -81,6 +80,7 @@
 
 | id | 发现 | 来源 | 代价 | 状态 |
 |---|---|---|---|---|
+| 20261116-08 | Paper runner 内存已到 522/640 MiB，超出上限依据的测量 | doctor | none | rejected [记录](2026-11-16-release-weak-points.zh.md) |
 | 20261115-01 | 关线历史检验的 `holdout_prior_trials` 只数本账本：上一代账本在当前线留出期上的 2432 个试验（含同名一族 572 个）读不到（[后续](2026-11-15-pre-production-audit-followup.zh.md)） | doctor | unknown | rejected：用户 2026-11-15 定"不用把上一代账本的重叠试验数带进来"，研究在新账本上从头开始 |
 | 20261115-04 | `paper compare` 给回放的成员区间截在 Paper 运行的结束时刻，Paper 运行时的成员区间到月底：检查到期时刻也在成员区间内的源码（现行候选都这样写）在回放里跳过运行结束前一个订单有效期（660 秒）内的入场，这些组成了仅 Paper 一侧；只有最后一分钟内的归因 `window_end`，其余是 `unexplained` | doctor | minutes | verified `tests/replay/test_comparison.py::Replay::test_an_entry_in_the_windows_last_order_lifetime_is_inside_the_replays_membership`（没有修复会失败），另有审计运行 7、16 的重跑对账（原来的 `unexplained` 组变为一致）[#3114](https://github.com/qOeOp/trade/pull/3114)；对账回放的成员区间改到窗口所在月的月底，研究回放不变；原 open [回放与 Paper 对账](2026-11-15-replay-paper-reconciliation.zh.md) |
 | 20261113-119 | 非 ASCII 合约名：回放编码，Paper、Live、IDE 假定 ASCII（[瘦身审计](2026-11-13-whole-product-slimming-audit.zh.md)） | doctor | unknown | verified `tests/paper/test_serve.py`、`tests/live/test_web_control.py`、`tests/research_graph/test_serve.py`、`ide/web/scripts/liveLaunch.test.mjs` 的新增用例（没有修复会失败）[#3117](https://github.com/qOeOp/trade/pull/3117)；Paper、Live、IDE 改用回放的合约名规则 `market.sources.SYMBOL`，USDⓈ-M 现有 5 个非 ASCII 永续；Live 与 Paper 在这类合约上没有实跑；原 recurred [上线前审计](2026-11-14-pre-production-audit.zh.md) |
