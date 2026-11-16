@@ -13,7 +13,7 @@
 | 20261116-03 | 发布提交后没有东西看 Web 与各服务是否还在答，探测失败被吞掉 | 修缺陷（tick 探测健康并通知） | doctor | hours | in PR [#3133](https://github.com/qOeOp/trade/pull/3133) | 2026-11-16 | 2026-11-16 |
 | 20261116-04 | 主机 compose 定义与 docker-api 镜像不随版本移动，漂移没人发现 | 修缺陷（漂移通知）；移动 docker-api 要授权 | doctor | hours | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-16 | 2026-11-16 |
 | 20261116-05 | 发布要 2 GiB、Paper 只留 1 GiB，开着的 Paper 挡住发布且报 unclassified；market-import 无内存上限 | 修缺陷（摘要、上限）；对齐余量要授权 | doctor | hours | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-16 | 2026-11-16 |
-| 20261116-06 | 有缺陷的发布控制代码挡住自己的修复 | 文档（手动退路）；先交接再恢复要授权 | doctor | hours | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-16 | 2026-11-16 |
+| 20261116-06 | 有缺陷的发布控制代码挡住自己的修复 | 文档（手动退路）；先交接再恢复要授权 | doctor | hours | in PR [#3130](https://github.com/qOeOp/trade/pull/3130) | 2026-11-16 | 2026-11-16 |
 | 20261116-07 | 提交后手动回滚没有步骤，下一个 tick 会重选坏版本 | 文档（手动回滚步骤） | doctor | hours | in PR [#3132](https://github.com/qOeOp/trade/pull/3132) | 2026-11-16 | 2026-11-16 |
 | 20261116-08 | Paper runner 内存已到 522/640 MiB，超出上限依据的测量 | 测量；改上限要授权 | doctor | minutes | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-16 | 2026-11-16 |
 | 20261116-09 | Agent 工具调用子进程并发无上限 | 修缺陷（限制并发） | doctor | minutes | in PR [#3129](https://github.com/qOeOp/trade/pull/3129) | 2026-11-16 | 2026-11-16 |
