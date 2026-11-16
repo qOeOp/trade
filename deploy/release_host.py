@@ -203,19 +203,55 @@ class Config:
         return cls(data=data, domain=domain, paper_memory=memory)
 
 
-# Only selected public response facts cross the probe boundary. Never print a nonce, cookie or key.
-PROBE = """import json,sys,urllib.request
+# Only selected public response facts cross the probe boundary. Never print a nonce, cookie or key. A reader that
+# does not answer 200 gives its HTTP status, or the class of the error that stopped the read, never its body.
+PROBE = """import json,sys,urllib.error,urllib.request
 path,domain,host=sys.argv[1:]
-with urllib.request.urlopen(urllib.request.Request("http://"+host+":8765"+path,headers={"Host":domain}),timeout=15) as r:
- d=json.load(r)
- if path=="/api/lines": out={"status":r.status,"lines":d["lines"]}
- elif path=="/api/paper/runs": out={"status":r.status,"starting":len(d.get("starting",[])),"runs":[{"id":x["paper_id"],"candidate":x["candidate"],"state":x["state"],"containers":len(x.get("containers",[])),"last":x.get("readings",{}).get("last_bar_ns"),"recovery":(x.get("recovery") or {}).get("code")} for x in d["runs"]]}
- elif path=="/api/about": l=d.get("ledger"); out={"status":r.status,"ledger":l and {k:l.get(k) for k in ("unpublished","behind_seconds","diverged")}}
- elif path.startswith("/api/view"): out={"status":r.status,"ready":r.status==200 and bool(d.get("widgets")),"state":d.get("state")}
- elif path=="/api/agent/agents": out={"status":r.status,"valid":isinstance(d,list)}
- else: out={"status":r.status,"ok":d.get("ok",True)}
- print(json.dumps(out))
+try:
+ with urllib.request.urlopen(urllib.request.Request("http://"+host+":8765"+path,headers={"Host":domain}),timeout=15) as r:
+  d=json.load(r)
+  if path=="/api/lines": out={"status":r.status,"lines":d["lines"]}
+  elif path=="/api/paper/runs": out={"status":r.status,"starting":len(d.get("starting",[])),"runs":[{"id":x["paper_id"],"candidate":x["candidate"],"state":x["state"],"containers":len(x.get("containers",[])),"last":x.get("readings",{}).get("last_bar_ns"),"recovery":(x.get("recovery") or {}).get("code")} for x in d["runs"]]}
+  elif path=="/api/about": l=d.get("ledger"); out={"status":r.status,"ledger":l and {k:l.get(k) for k in ("unpublished","behind_seconds","diverged")}}
+  elif path.startswith("/api/view"): out={"status":r.status,"ready":r.status==200 and bool(d.get("widgets")),"state":d.get("state")}
+  elif path=="/api/agent/agents": out={"status":r.status,"valid":isinstance(d,list)}
+  else: out={"status":r.status,"ok":d.get("ok",True)}
+except urllib.error.HTTPError as e:
+ e.close(); out={"status":e.code}
+except Exception as e:
+ out={"status":None,"error":type(e).__name__}
+print(json.dumps(out))
 """
+ERROR_CLASS = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
+
+
+def answered(value: dict) -> str:
+    """What a probe that did not answer healthy says, bounded: `HTTP <status>` or the error class that stopped it."""
+    status, error = value.get("status"), value.get("error")
+    if type(status) is int:
+        return f"HTTP {status}"
+    return error if isinstance(error, str) and ERROR_CLASS.fullmatch(error) else "no answer"
+
+
+class ReaderFailure(RuntimeError):
+    """A reader of the release that did not answer healthy: which one (a fixed name), the path it was asked (no
+    query), and `answered`'s HTTP status or error class. failure_summary prints exactly these; never a body."""
+
+    def __init__(self, reader: str, path: str, answer: str):
+        super().__init__(reader, path.partition("?")[0], answer)
+        self.reader, self.path, self.answer = reader, path.partition("?")[0], answer
+
+    def __str__(self) -> str:
+        return f"{self.reader} {self.path}: {self.answer}"
+
+
+class DockerFailure(RuntimeError):
+    """A `docker` command that exited non-zero. Its stderr stays in the exception for a traceback by hand;
+    failure_summary prints only the subcommand and the exit status, since stderr can quote what a container printed."""
+
+    def __init__(self, command: str, status: int, stderr: str):
+        super().__init__(f"docker {command} failed: {stderr}")
+        self.command, self.status = command, status
 
 
 class DockerHost:
@@ -236,7 +272,7 @@ class DockerHost:
             env=None if env is None else {**os.environ, **env},
         )
         if check and result.returncode:
-            raise RuntimeError(f"docker {args[0]} failed: {result.stderr[-1200:]}")
+            raise DockerFailure(args[0], result.returncode, result.stderr[-1200:])
         return result.stdout.strip()
 
     def inspect(self, name: str) -> dict:
@@ -513,15 +549,22 @@ class DockerHost:
             )
         )
 
+    def answer(self, name: str, path: str, routed: bool = False) -> dict:
+        """`probe`'s facts when the Web answered 200; else ReaderFailure naming the Web, the path and what it said."""
+        value = self.probe(name, path, routed)
+        if value.get("status") != 200:
+            raise ReaderFailure("routed Web" if routed else "Web", path, answered(value))
+        return value
+
     def lines(self, name: str) -> list[str]:
         """The research lines a candidate draws before it serves: those of active Paper runs, else the newest.
         Empty while the research ledger it read has no line yet (a new ledger): there is no graph to warm."""
-        lines = self.probe(name, "/api/lines")["lines"]
+        lines = self.answer(name, "/api/lines")["lines"]
         if not lines:
             return []
         active = [
             run["candidate"]
-            for run in self.probe(name, "/api/paper/runs")["runs"]
+            for run in self.answer(name, "/api/paper/runs")["runs"]
             if run["state"] in {"running", "stopping", "ended", "unsealed"}
         ]
         found = {line["name"] for line in lines if any(candidate in line["versions"] for candidate in active)}
@@ -536,9 +579,8 @@ class DockerHost:
             "/api/agent/agents",
             *(["/api/live"] if routed and self.requires_live(name) else []),
         ]:
-            value = self.probe(name, path, routed)
-            if value["status"] != 200 or not value.get("ok", value.get("valid", True)):
-                raise RuntimeError(f"candidate endpoint is not healthy: {path}")
+            if not (value := self.answer(name, path, routed)).get("ok", value.get("valid", True)):
+                raise ReaderFailure("routed Web" if routed else "Web", path, "not ok")
         from urllib.parse import quote
 
         for line in lines:
@@ -564,7 +606,7 @@ class DockerHost:
     def observe(self, name: str, lines: list[str], protected: dict) -> None:
         before = {
             run["id"]: run["last"]
-            for run in self.probe(name, "/api/paper/runs", routed=True)["runs"]
+            for run in self.answer(name, "/api/paper/runs", routed=True)["runs"]
             if run["state"] == "running" and run["last"] is not None
         }
         deadline = time.monotonic() + self.config.observe_seconds
@@ -577,7 +619,7 @@ class DockerHost:
             if self.live_route() != name:
                 raise RuntimeError("loaded route changed during authentication probe")
             if time.monotonic() >= deadline:
-                after = self.probe(name, "/api/paper/runs", routed=True)["runs"]
+                after = self.answer(name, "/api/paper/runs", routed=True)["runs"]
                 if any(
                     run["id"] in before
                     and run["state"] == "running"

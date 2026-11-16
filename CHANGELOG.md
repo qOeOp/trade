@@ -26,6 +26,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Release (doctor 20261117-01): a release that cannot read the Web or the Paper controller now says which reader,
+  which path and what it answered: an HTTP status, or the class of the error that stopped the read (`TimeoutError`,
+  `URLError`, ...), never a response body. After a compose service move is undone, the journal names the reader
+  that failed (`Compose service move failed: Paper controller unhealthy at /api/paper/runs: HTTP 500`); until now it
+  said only `unclassified runtime failure (RuntimeError at deploy/release_host.py:239)`. A failed `docker` command
+  is named by its subcommand, exit status and the product line that ran it, still without what it printed, and a
+  service that did not start on its image is named. No refusal or admission changed.
+
 ## 0.4.1 (2026-11-17)
 
 A fix release for the release path and the production runtime after 0.4.0: the Web and Agent bound their product
