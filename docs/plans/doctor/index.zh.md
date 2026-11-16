@@ -10,6 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261117-01 | Paper 启动对话框写“1× leverage”，实际 Paper 与回放都按默认杠杆 3 运行 | fix（文字；从同一个默认值读出，不再手抄） | doctor | unknown | open [诊断](2026-11-17-paper-dialog-leverage.zh.md) | 2026-11-17 | 2026-11-17 |
 | 20261116-03 | 发布提交后没有东西看 Web 与各服务是否还在答，探测失败被吞掉 | 修缺陷（tick 探测健康并通知） | doctor | hours | in PR [#3133](https://github.com/qOeOp/trade/pull/3133) | 2026-11-16 | 2026-11-16 |
 | 20261116-04 | 主机 compose 定义与 docker-api 镜像不随版本移动，漂移没人发现 | 修缺陷（漂移通知，已合入 #3134）；移动 docker-api（用户 2026-11-16 授权） | doctor | hours | in PR [#3136](https://github.com/qOeOp/trade/pull/3136) | 2026-11-16 | 2026-11-16 |
 | 20261116-05 | 发布要 2 GiB、Paper 只留 1 GiB，开着的 Paper 挡住发布且报 unclassified；market-import 无内存上限 | 修缺陷（摘要、上限已由 #3135 合入）；对齐余量（用户 2026-11-16 授权） | doctor | hours | in PR [#3137](https://github.com/qOeOp/trade/pull/3137) | 2026-11-16 | 2026-11-16 |
