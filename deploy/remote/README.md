@@ -307,7 +307,8 @@ limits and 4-core/8-GB evaluation scope.
 ## Rolling back
 
 The release plane only moves forward along `main` (CI ignores a version behind the one admitted), so a rollback
-is a new commit and a new version, not a reselection:
+is a new commit and a new version, not a reselection. Until that version is admitted, the host can return to the
+previous version's kept containers by hand ([below](#returning-to-the-previous-version-by-hand)).
 
 1. Name what runs: the IDE's About (version and commit), or the Web container in
    `/var/lib/trade-release/router/active.json` (`trade-release-web-<commit>`).
@@ -325,6 +326,96 @@ version like any other ([Ledger mirror and market import](#ledger-mirror-and-mar
 may not read what a later one wrote; a revert that needs the ledger rewound is a destructive write for the user to decide.
 A target that failed stays in `/var/lib/trade-release/failed/`, and the three newest good Web, Agent and controller
 containers stay on the host for inspection.
+
+### Returning to the previous version by hand
+
+A regression that shows only after the release committed would otherwise run until the revert above is tagged and
+admitted. The host keeps the previous version's containers (`KEPT_RELEASES`, `Release.prune`), and the code already
+rolls a version back when it finds both journals open with the Web route on the candidate, the state of a crash
+just before the Web journal is removed (`Release._recover` after `PaperRelease.recover`; test
+`test_a_crash_before_the_web_journal_is_removed_rolls_both_back`). To return by hand, put the host in that state and
+let the next tick's recovery do the rest: it routes the previous Web, Agent, Live control and Paper controller back
+with its own health, authentication and lock checks, persists `router/active.json`, writes `failed/<revision>` so
+`GitSource.choose` never selects the version again, and stops the bad version's containers. Below, `NEW` is the bad
+version's commit and `OLD` the previous one.
+
+1. Stop the timer and let a running tick finish: `sudo systemctl stop trade-release.timer`, then repeat
+   `systemctl show -p ActiveState --value trade-release.service` until it says `inactive` or `failed`. Do not kill a
+   tick. If `/var/lib/trade-release/transaction.json` or `paper-transaction.json` exists, a release is still open:
+   start the timer, let the control recover it, and stop it again.
+2. Make sure Live is idle: no run is running or unresolved on the Live page (or in `live status`, [Live on this
+   host](#live-on-this-host)). The recovery takes the account lock but does not ask whether Live is idle, and then
+   stops the bad version's Live control (`Release.retire_live`); the previous control may not read a run a later
+   version prepared. Stop such a run from the Live page and wait until it is resolved.
+3. Name the two versions. `NEW` is the revision in `/var/lib/trade-release/router/active.json`
+   (`trade-release-web-NEW`). `OLD` is the newest other Web container whose revision has no marker in
+   `/var/lib/trade-release/failed/`:
+
+   ```sh
+   ls /var/lib/trade-release/failed
+   docker ps -a --filter name=trade-release-web- --format '{{.CreatedAt}}  {{.Names}}' | sort -r
+   docker ps -a --filter name=trade-release-agent- --format '{{.CreatedAt}}  {{.Names}}' | sort -r
+   ```
+
+   If `trade-release-agent-NEW` exists, the version replaced the Agent: `AGENT` is the newest other Agent container
+   whose revision has no failed marker. Otherwise the Agent was not replaced and stays.
+4. As root, from the running control's code, freeze new Paper starts on `NEW`'s controller and write the two journals
+   in the formats `PaperRelease.switch` and `Release.journal` write, after the checks `Release.journal` makes. Paper's
+   journal goes first: alone, the next tick rolls Paper forward again, since the Web route already names `NEW`
+   (`PaperRelease.web_committed`).
+
+   ```sh
+   cd "$(readlink -f /var/lib/trade-release/control/current)"
+   python3 - NEW OLD [AGENT] <<'EOF'
+   import fcntl, sys
+   from deploy.paper_host import PAPER, PaperHost
+   from deploy.release_host import AGENT, WEB, Config, DockerHost, durable_json
+   new, old, agent = sys.argv[1], sys.argv[2], (sys.argv[3:] or [None])[0]
+   config = Config.installed()
+   web, paper = DockerHost(config), PaperHost(config)
+   with (config.state / "lock").open("a") as lock:
+       fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)  # as deploy.release main: never beside a tick
+       for path in ("transaction.json", "paper-transaction.json"):
+           if (config.state / path).exists():
+               raise SystemExit(f"{path} exists: a release is still open")
+       if {web.disk_route(), web.live_route()} != {WEB + new} or {paper.disk_route(), paper.live_route()} != {PAPER + new}:
+           raise SystemExit("the routes do not name NEW")
+       web.checked(WEB + old)
+       paper.checked(PAPER + old)
+       if agent is not None:
+           web.checked(agent, AGENT)
+       paper.known({PAPER + new})
+       paper.persist_route(PAPER + new, "starts")
+       paper.switch(PAPER + new, "starts")
+       durable_json(config.state / "paper-transaction.json", {"candidate": PAPER + new, "previous": PAPER + old})
+       journal = {"candidate": WEB + new, "previous": WEB + old}
+       if agent is not None:
+           journal["agent_before"] = agent
+       durable_json(config.state / "transaction.json", journal)
+   print("Journals written; start trade-release.timer")
+   EOF
+   ```
+
+5. The commit retired `OLD`'s Live control with its restart policy turned off (`LiveHost.drain`); the recovery
+   starts it again but does not turn the policy back on. When `trade-release-live-OLD` exists, give it back what every
+   release container is created with (`contained`): `docker update --restart unless-stopped trade-release-live-OLD`.
+6. Start the timer: `sudo systemctl start trade-release.timer`. The next tick, under the same control, prints
+   `Restored Paper controller trade-release-paper-OLD`, `Rolling back uncommitted Web release NEW` (the code's word
+   for any open journal), `Restored previous Web release trade-release-web-OLD` and `Recovered a pending release
+   transaction`; the one after prints `No newer successful main image; keeping trade-release-web-OLD`. Check the
+   About dialog names `OLD`.
+
+If the recovery fails, both journals stay and every tick tries again, with a failure notice each time; read the
+reason in `journalctl -u trade-release.service`. Do not delete or edit a journal then: the code does not tell a
+half-done rollback from a half-done release, and it keeps the journal for exactly this. Do not delete
+`failed/NEW` later either: that retries `NEW` (see above).
+
+What it does not move back: the ledger mirror and market import stay on `NEW`'s service image, since they follow
+only the admitted version and only while it is the routed one (`Release.follow`); move them by hand as in [Ledger
+mirror and market import](#ledger-mirror-and-market-import) with `--revision OLD`. Paper and Live runs started under
+`NEW` keep running on what they started with, and `OLD` may not read what `NEW` wrote. `control/current` stays
+`NEW`'s control, which ran the recovery and hands over to the next admitted version; the fix still ships as a new
+version, as above, and `GitSource.choose` releases it over `OLD`.
 
 ## Live on this host
 
