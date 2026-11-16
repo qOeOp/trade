@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from deploy.live_host import LIVE, LiveBusy
+from deploy import release
 from deploy.release import GitSource, Release, failure_summary
 from deploy.paper_host import PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
@@ -1104,3 +1105,55 @@ class RecreateTests(unittest.TestCase):
         self.assertLess(moment("2026-11-15T10:00:00Z"), moment("2026-11-15T10:00:00.1Z"))
         self.assertLess(moment("2026-11-15T10:00:00.45Z"), moment("2026-11-15T10:00:00.5Z"))
         self.assertLess(moment("2026-11-11T08:00:00.999999999Z"), moment("2026-11-15T10:00:00Z"))
+
+
+class DriftTests(unittest.TestCase):
+    """The host checkout and docker-api against the active version, read from a real local Git repository."""
+
+    PIN = "ghcr.io/qoeop/trade-docker-api@sha256:" + "1" * 64
+    FILES = {"deploy/compose.yaml": f"services:\n  docker-api:\n    image: {PIN}  # moved only by a pull request\n",
+             "deploy/remote/compose.yaml": "services: {}\n", "deploy/remote/README.md": "how\n",
+             "deploy/release.py": "outside what is compared\n"}
+
+    def setUp(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        self.checkout, self.source = root / "checkout", GitSource(root / "state")
+        for path, text in self.FILES.items():
+            (self.checkout / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.checkout / path).write_text(text)
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+               "--git-dir", str(self.source.repo), "--work-tree", str(self.checkout)]
+        subprocess.run(["git", "init", "-q", "--bare", str(self.source.repo)], env=env, check=True)
+        subprocess.run([*git, "add", "-A"], env=env, check=True)
+        subprocess.run([*git, "commit", "-qm", "version"], env=env, check=True)
+        self.sha = subprocess.run([*git, "rev-parse", "HEAD"], env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+        self.host = Mock()
+        self.host.disk_route.return_value = WEB + self.sha
+        self.host.inspect.return_value = {"image": self.PIN}
+
+    def drift(self):
+        return release.drift(self.host, self.source, self.checkout)
+
+    def test_a_checkout_and_docker_api_that_follow_the_active_version_say_nothing(self):
+        (self.checkout / "deploy/remote/README.md").write_text("documentation only\n")
+        (self.checkout / "deploy/release.py").unlink()
+        self.assertEqual(self.drift(), {})
+        self.host.inspect.assert_called_once_with("trade-ide-docker-api-1")
+
+    def test_a_changed_or_missing_compose_file_is_one_fact_of_this_version(self):
+        (self.checkout / "deploy/compose.yaml").write_text(self.FILES["deploy/compose.yaml"] + "# edited\n")
+        (self.checkout / "deploy/remote/compose.yaml").unlink()
+        facts = self.drift()
+        self.assertEqual(list(facts), [f"drift:checkout:{self.sha}"])
+        self.assertIn("in deploy/compose.yaml, deploy/remote/compose.yaml.", facts[f"drift:checkout:{self.sha}"])
+
+    def test_a_docker_api_on_another_digest_than_the_version_pins_is_named(self):
+        running = "ghcr.io/qoeop/trade-docker-api@sha256:" + "2" * 64
+        self.host.inspect.return_value = {"image": running}
+        facts = self.drift()
+        self.assertEqual(list(facts), [f"drift:docker-api:{self.PIN}"])
+        self.assertIn(f"docker-api runs {running}, but the active version {self.sha[:12]} pins {self.PIN}",
+                      facts[f"drift:docker-api:{self.PIN}"])

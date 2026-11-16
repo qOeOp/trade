@@ -250,6 +250,26 @@ class Notices(unittest.TestCase):
         self.assertEqual(len(self.call.texts()), 6)
 
 
+    def test_drift_is_sent_once_while_it_lasts_and_an_unreadable_one_clears_nothing(self):
+        def tick(read):
+            notices = release.Notices(self.state, self.call)
+            notices.drifted(read)
+            notices.send()
+
+        def unreadable():
+            raise RuntimeError("git ls-tree failed")
+
+        drifted = {"drift:checkout:" + "a" * 40: "The host checkout differs."}
+        tick(lambda: drifted)
+        tick(lambda: drifted)
+        tick(unreadable)
+        tick(lambda: drifted)
+        self.assertEqual(self.call.texts(), ["The host checkout differs."])
+        tick(dict)
+        tick(lambda: drifted)
+        self.assertEqual(len(self.call.texts()), 2)
+
+
 class Tick(unittest.TestCase):
     def test_a_failed_tick_is_noticed_and_still_raises_and_the_routed_web_is_read_either_way(self):
         host = Mock(state=Path("/never"))
@@ -272,3 +292,7 @@ class Tick(unittest.TestCase):
         probe("/api/agent/health", routed=True)
         host.probe.assert_called_with("trade-release-web-" + "a" * 40, "/api/agent/health", True)
         self.assertEqual(condition, host.condition)
+        self.assertEqual(notices.drifted.call_count, 2)
+        with patch.object(release, "drift", return_value={}) as drift, patch.object(release, "GitSource") as source:
+            notices.drifted.call_args.args[0]()
+        drift.assert_called_once_with(host, source.return_value)

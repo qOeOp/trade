@@ -87,6 +87,10 @@ created before the routed Web is recreated on that version's admitted service di
 `install-release.sh` names and `TRADE_SERVICE_IMAGE` passed in the environment: `/etc/trade/remote.env` is not
 written. The ledger must pass its health check within 10 minutes; market import must still run 30 seconds later. Only
 the image changes: their command and mounts stay those of `/opt/trade-app`, which the operator updates as for `edge`.
+Every tick compares that checkout's `deploy/compose.yaml` and `deploy/remote/` (documentation aside) with the routed
+version's, and the running docker-api with the digest that version pins, and sends a Telegram notice (below) while
+either differs. The release moves neither: update the checkout, and recreate docker-api from it
+([Updating](../README.md#updating)).
 A service that is stopped or absent (market import before step 5 below) is never started.
 
 It waits, and the tick says why, until no Paper operation is in progress and Live is idle: no Paper run is starting,
