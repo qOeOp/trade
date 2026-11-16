@@ -31,7 +31,8 @@ Five services on one Docker engine:
   compose config `market`, mounted at `/run/trade/market-import.json`. It reaches `data.binance.vision` and `fapi.binance.com` for bars. Its archive cache
   (kept, about 3 GB of aggTrades a month) and status file stay in the `trade-market-import` volume.
   `docker compose ps market-import` shows unhealthy while anything is stopped or lagging, and
-  `docker compose logs market-import` gives each round; restarting it retries what stopped.
+  `docker compose logs market-import` gives each round; restarting it retries what stopped. Its memory is capped at
+  `TRADE_MARKET_IMPORT_MEMORY` (default `3g`, sized from the code in `compose.yaml`, not measured at its peak).
 - **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. It writes its runs into
   the `paper` database (`ledger/paper.sql`), which ledger makes beside the research ledger at a start that lacks
   it; that database is never published, and the research ledger holds no Paper record. It reads candidates and

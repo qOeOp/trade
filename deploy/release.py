@@ -106,6 +106,11 @@ def failure_summary(error: Exception) -> str:
             "Agent changed during rollback admission": "rollback Agent identity changed",
             "ledger or market import did not move; previous images restored": "service move failed and was undone",
             "ledger or market import did not move nor return; left for the operator": "service move and its undo failed",
+            # DockerHost.memory_available refused (doctor 20261116-05): nothing was journaled, the next tick asks again.
+            "insufficient memory for a standby Paper controller":
+                "host memory below the 2 GiB a standby Paper controller needs; the release waits",
+            "insufficient candidate memory headroom; keep current release":
+                "host memory below the 2 GiB a candidate Web needs; the release waits",
         }
         message = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str else None
         if message is None:
