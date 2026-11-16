@@ -121,7 +121,9 @@ compose 若已建好新容器，它比活动 Web 新，不再动；若 ledger �
 - 用 `docker run` 绕过 compose 重建：操作员下一次 `compose up` 会把它换回去，而且丢了 compose 的标签。
 - 失败标记：第一版写 `failed/<revision>`，审阅指出它改变清理对已提交版本容器的计数，也是新的主机存储状态；改用
   容器创建时间（Docker 已有的事实）。
-- Docker API 代理照旧由 PR 改摘要，不随版本。
+- Docker API 代理照旧由 PR 改摘要，不随版本。（后改：用户 2026-11-16 授权 doctor 20261116-04 的后一半，发布在同一步、
+  同样条件下把 docker-api 换到活动版本 `deploy/compose.yaml` 钉的摘要，经 `TRADE_DOCKER_API_IMAGE` 传入；见
+  `deploy/remote/README.md` 同名一节。）
 
 没有新增存储字段，也不改任何拒绝或审计检查：受保护容器检查照旧只管事务期间；空闲条件是用户决定的等待，不是
 放宽或收紧已有检查；探测多读的两个字段是 Paper 接口已有的。主机配置（单元、`remote.env`、compose 文件内容）

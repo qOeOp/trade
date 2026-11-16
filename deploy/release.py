@@ -26,8 +26,11 @@ from .paper_release import PaperRelease
 from .release_host import (
     AGENT,
     DOCKER_API,
+    DOCKER_API_IMAGE,
+    DOCKER_API_REF,
     FOLLOWERS,
     IMAGE_REF,
+    SERVICE_IMAGE,
     SERVICE_REF,
     RUNTIME_REF,
     REVISION,
@@ -51,6 +54,8 @@ OUTSIDE_IMAGE_FILES = frozenset({"deploy/README.md", "deploy/compose.yaml"})
 # What the Agent never loads, beside those paths: it runs ide/agent and the product's Python but never the browser,
 # the overview or deploy's host modules; deploy/Dockerfile, which builds its image, is a change.
 AGENT_UNCHANGED = ("ide/web/", "ide/overview/", "deploy/")
+# What a version's deploy/compose.yaml pins docker-api to, with or without TRADE_DOCKER_API_IMAGE around it.
+DOCKER_API_PIN = re.compile(r"ghcr\.io/qoeop/trade-docker-api@sha256:[0-9a-f]{64}")
 
 
 def outside_image(path: str) -> bool:
@@ -104,8 +109,8 @@ def failure_summary(error: Exception) -> str:
             "Agent changed before commit": "Agent identity changed",
             "Agent changed during final account admission": "Agent identity changed",
             "Agent changed during rollback admission": "rollback Agent identity changed",
-            "ledger or market import did not move; previous images restored": "service move failed and was undone",
-            "ledger or market import did not move nor return; left for the operator": "service move and its undo failed",
+            "compose services did not move; previous images restored": "service move failed and was undone",
+            "compose services did not move nor return; left for the operator": "service move and its undo failed",
             # DockerHost.memory_available refused (doctor 20261116-05): nothing was journaled, the next tick asks again.
             "insufficient memory for a standby Paper controller":
                 "host memory below the 2 GiB a standby Paper controller needs; the release waits",
@@ -353,6 +358,15 @@ class GitSource:
                 found[path] = facts.split(" ")[2]
         return found
 
+    def docker_api(self, sha: str) -> str:
+        """The docker-api digest `sha`'s deploy/compose.yaml pins: a version's proxy, which CI does not admit."""
+        if not REVISION.fullmatch(sha):
+            raise RuntimeError("invalid docker-api revision")
+        pins = set(DOCKER_API_PIN.findall(self.git("show", f"{sha}:deploy/compose.yaml")))
+        if len(pins) != 1:
+            raise RuntimeError("the version pins no single docker-api digest")
+        return pins.pop()
+
     def runtime_inputs(self, sha: str) -> tuple:
         if not REVISION.fullmatch(sha):
             raise RuntimeError("invalid runtime input revision")
@@ -407,7 +421,6 @@ class GitSource:
 # runs: the compose definition and the remote overlay, without their documentation.
 CHECKOUT = Path("/opt/trade-app")
 CHECKOUT_PATHS = ("deploy/compose.yaml", "deploy/remote/")
-DOCKER_API_PIN = re.compile(r"ghcr\.io/qoeop/trade-docker-api@sha256:[0-9a-f]{64}")
 
 
 def blob(path: Path) -> str | None:
@@ -422,7 +435,8 @@ def blob(path: Path) -> str | None:
 def drift(host: DockerHost, github: GitSource, checkout: Path = CHECKOUT) -> dict[str, str]:
     """What on the host does not follow the active version (doctor 20261116-04): the checkout's compose definition
     and remote overlay against the version's own files, and the running docker-api against the digest the version
-    pins. A release moves neither; the operator does (deploy/README.md and deploy/remote/README.md, Updating)."""
+    pins once the release no longer moves it. The checkout is the operator's (deploy/remote/README.md, Ledger mirror,
+    market import and docker-api)."""
     sha = revision(host.disk_route())
     short = sha[:12]
     facts = {}
@@ -432,15 +446,14 @@ def drift(host: DockerHost, github: GitSource, checkout: Path = CHECKOUT) -> dic
         facts[f"drift:checkout:{sha}"] = (
             f"The host checkout {checkout} differs from the active version {short} in {', '.join(differing)}. The "
             "release recreates ledger and market-import from these files; update the checkout to that version.")
-    pins = set(DOCKER_API_PIN.findall(github.git("show", f"{sha}:deploy/compose.yaml")))
-    if len(pins) != 1:
-        raise RuntimeError("the active version pins no single docker-api digest")
-    pin = pins.pop()
+    pin = github.docker_api(sha)
     running = host.inspect(DOCKER_API)["image"]
-    if running != pin:
+    if running != pin and host.created(DOCKER_API) > host.created(WEB + sha):
+        # One created before the routed Web is moved by the release's next settled tick (Release.follow).
         facts[f"drift:docker-api:{pin}"] = (
-            f"docker-api runs {running}, but the active version {short} pins {pin}. A release does not move "
-            "docker-api; recreate it from the updated checkout.")
+            f"docker-api runs {running}, but the active version {short} pins {pin}. It was recreated after that "
+            "version was released (a move undone, or by hand), so the release leaves it until the next version; "
+            "recreate it from the updated checkout.")
     return facts
 
 
@@ -805,33 +818,45 @@ class Release:
             print("A Paper run's recovery still fails after the service move; the notice reports it", flush=True)
 
     def follow(self, active: str) -> None:
-        """Move the compose services of the service image, the ledger mirror and market-import, to the committed
-        version's admitted service digest, while no Paper operation is in progress and Live is idle (the user,
-        2026-11-15 and 2026-11-16, doctor 20261115-06; docs/plans/release-moves-ledger-mirror-20261116.zh.md). A running service created after the
-        active Web was already recreated since this version committed, by a move undone or by the operator, and
-        stays until the next version; one that is absent or stopped is the operator's and is never started."""
+        """Move the compose services to the committed version: the ledger mirror and market-import to its admitted
+        service digest, and docker-api to the digest its deploy/compose.yaml pins (the user, 2026-11-15 and
+        2026-11-16, doctors 20261115-06 and 20261116-04; docs/plans/release-moves-ledger-mirror-20261116.zh.md),
+        while no Paper operation is in progress and Live is idle. A running service created after the active Web was
+        already recreated since this version committed, by a move undone or by the operator, and stays until the next
+        version; one that is absent or stopped is the operator's and is never started."""
         sha = revision(active)
         target = self.github.approved()
         service = target["service"]
         if target["revision"] != sha or service is None:
             return
+        wanted = [(name, container, healthy, SERVICE_IMAGE, service) for name, container, healthy in FOLLOWERS]
+        wanted.append(("docker-api", DOCKER_API, False, DOCKER_API_IMAGE, self.github.docker_api(sha)))
         since = self.host.created(active)
         moving = []
-        for name, container, healthy in FOLLOWERS:
+        for name, container, healthy, variable, image in wanted:
             found = self.host.follower(container)
-            if found is None or found["image"] == service:
+            if found is None or found["image"] == image:
                 continue
             if found["created"] > since:
                 print(f"{name} was recreated after {active}; it stays on {found['image']} until the next version",
                       flush=True)
                 continue
-            moving.append((name, container, healthy, found["image"]))
+            if not self.host.composes(name, variable, image):
+                # A checkout from before the image variable: compose would recreate it on what the checkout names.
+                print(f"The host's compose definition of {name} does not take its image from {variable}; it stays "
+                      f"on {found['image']} until the checkout is updated", flush=True)
+                continue
+            moving.append((name, container, healthy, variable, image, found["image"]))
         if not moving:
             return
         if self.paper_quiet(active) is None:
-            print("The ledger mirror and market import wait until no Paper operation is in progress", flush=True)
+            print("The compose services wait until no Paper operation is in progress", flush=True)
             return
-        self.host.pull(service, SERVICE_REF, sha)
+        for _, _, _, variable, image, _ in moving:
+            if variable == DOCKER_API_IMAGE:
+                self.host.pull(image, DOCKER_API_REF)  # this repository and amd64, built from an earlier commit
+            else:
+                self.host.pull(image, SERVICE_REF, sha)
         paper = self.paper().host
         controller = paper.disk_route()
         paper.switch(controller, "all")  # new Paper writes wait; recover() unfreezes it after a crash
@@ -841,46 +866,49 @@ class Release:
             time.sleep(PAPER_LISTING_SECONDS)
             before = self.paper_quiet(active)
             if before is None:
-                print("A Paper operation began; the ledger mirror and market import wait", flush=True)
+                print("A Paper operation began; the compose services wait", flush=True)
                 return
             live = self.live.barrier(active, idle=True) if self.host.requires_live(active) else nullcontext(lambda: None)
             with live as held:
                 held()
-                self.move(active, controller, moving, service, held)
+                self.move(active, controller, moving, held)
         except LiveBusy as busy:
-            print(f"{busy}; the ledger mirror and market import wait until Live is idle", flush=True)
+            print(f"{busy}; the compose services wait until Live is idle", flush=True)
             return
         finally:
             paper.normalize()
         self.recovered(active, before)
 
-    def move(self, web: str, controller: str, moving: list, service: str, held) -> None:
-        """Recreate each service on `service`, then check what reads them; on any failure put back every one it
-        touched on its previous image and fail the tick."""
+    def move(self, web: str, controller: str, moving: list, held) -> None:
+        """Recreate each service on its image, then check what reads them; on any failure put back every one it
+        touched on its previous image and fail the tick. docker-api is recreated, never only restarted, so it also
+        mounts what the definition names now. While it is down the Paper controller's Docker calls fail (its listing,
+        start, stop, resume and seal refuse with RUNTIME_UNAVAILABLE) and running runs, whose containers the engine
+        runs, go on."""
         touched = []
         try:
-            for name, container, healthy, _ in moving:
+            for name, container, healthy, variable, image, _ in moving:
                 touched.append(name)
-                print(f"Moving {name} to {service}", flush=True)
-                self.host.recreate(name, container, service, healthy)
+                print(f"Moving {name} to {image}", flush=True)
+                self.host.recreate(name, container, image, healthy, variable=variable)
                 held()
 
             def readers() -> None:
                 self.host.health(web, [], routed=True)
-                self.paper().host.health(controller)
+                self.paper().host.health(controller)  # its listing reads Docker through docker-api
 
             until_ready(readers, 180, 5, errors=(RuntimeError, ValueError, KeyError, subprocess.SubprocessError))
         except Exception as error:
             report_failure("services", error)
             try:
-                for name, container, healthy, previous in reversed(moving):
+                for name, container, healthy, variable, _, previous in reversed(moving):
                     if name in touched:
-                        self.host.recreate(name, container, previous, healthy, pull=True)
+                        self.host.recreate(name, container, previous, healthy, pull=True, variable=variable)
             except Exception as undo:
                 report_failure("services", undo)
-                raise RuntimeError("ledger or market import did not move nor return; left for the operator") from undo
-            raise RuntimeError("ledger or market import did not move; previous images restored") from error
-        print(f"Moved {', '.join(touched)} to {service}", flush=True)
+                raise RuntimeError("compose services did not move nor return; left for the operator") from undo
+            raise RuntimeError("compose services did not move; previous images restored") from error
+        print(f"Moved {', '.join(touched)}", flush=True)
 
 
 def main() -> None:

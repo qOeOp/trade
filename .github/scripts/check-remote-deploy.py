@@ -95,3 +95,17 @@ with tempfile.TemporaryDirectory() as temporary:
     capped = {key: followed["market-import"].get(key) for key in ("mem_limit", "memswap_limit")}
     assert capped == {"mem_limit": str(3 * 1024 ** 3), "memswap_limit": str(3 * 1024 ** 3)}, capped
     print("market-import is capped at 3 GiB unless TRADE_MARKET_IMPORT_MEMORY names another size")
+
+    # docker-api runs its pin unless a release names a version's pin (deploy/release_host.py DockerHost.recreate).
+    pin = subprocess.run(["sed", "-nE", r"s/.*(ghcr\.io\/qoeop\/trade-docker-api@sha256:[0-9a-f]{64}).*/\1/p",
+                          "deploy/compose.yaml"], capture_output=True, text=True, check=True).stdout.strip()
+    assert execution["docker-api"]["image"] == pin, "docker-api defaults to the digest compose.yaml pins"
+    proxy = f"ghcr.io/qoeop/trade-docker-api@sha256:{'2' * 64}"
+    moved_proxy = subprocess.run(["docker", "compose", "--env-file", str(env_file), "-f", "deploy/compose.yaml",
+                                  "-f", "deploy/remote/compose.yaml", "-f", "deploy/remote/cd.compose.yaml",
+                                  "-f", "deploy/remote/paper-cd.compose.yaml", "--profile", "local-research-import",
+                                  "config", "--format", "json", "docker-api"],
+                                 env={**os.environ, "TRADE_DOCKER_API_IMAGE": proxy}, capture_output=True, text=True,
+                                 check=True)
+    assert json.loads(moved_proxy.stdout)["services"]["docker-api"] == {**execution["docker-api"], "image": proxy}
+    print("A release's docker-api pin reaches docker-api without the env file changing")

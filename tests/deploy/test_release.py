@@ -16,7 +16,8 @@ from deploy.release import GitSource, Release, failure_summary
 from deploy.paper_host import PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
 from deploy.paper_release import PaperRelease
-from deploy.release_host import (AGENT, COMPOSE_FILES, KEPT_RELEASES, LEDGER, MARKET_IMPORT, WEB, Config, DockerHost,
+from deploy.release_host import (AGENT, COMPOSE_FILES, DOCKER_API, DOCKER_API_REF, KEPT_RELEASES, LEDGER, MARKET_IMPORT, WEB, Config,
+                                 DockerHost,
                                  moment, revision, route_config, route_name)
 from tests.deploy.test_paper_release import Host as PaperStandIn
 
@@ -894,6 +895,7 @@ class RetryTests(unittest.TestCase):
 
 
 OLD_SERVICE = "ghcr.io/qoeop/trade-service@sha256:" + "0" * 64
+PROXY, OLD_PROXY = ("ghcr.io/qoeop/trade-docker-api@sha256:" + digit * 64 for digit in "34")
 WEB_CREATED, BEFORE, AFTER = ("2026-11-15T10:00:00Z", "2026-11-11T08:00:00.5Z", "2026-11-15T10:00:00.1Z")
 
 
@@ -903,7 +905,11 @@ class FollowHost(Host):
     def __init__(self, state):
         super().__init__(state)
         self.services = {LEDGER: {"image": OLD_SERVICE, "created": moment(BEFORE)},
-                         MARKET_IMPORT: {"image": OLD_SERVICE, "created": moment(BEFORE)}}
+                         MARKET_IMPORT: {"image": OLD_SERVICE, "created": moment(BEFORE)},
+                         DOCKER_API: {"image": PROXY, "created": moment(BEFORE)}}  # already on A's pin
+        self.variables = []
+        self.definitions = set()  # services whose compose definition does not read their image variable
+        self.pulled = []
         self.runs = {"starting": 0, "runs": [{"id": 1, "state": "sealed", "containers": 0, "recovery": None}]}
         self.after_move = None  # the listing once the services moved, when it differs
         self.recreated = []
@@ -917,10 +923,18 @@ class FollowHost(Host):
     def follower(self, name):
         return self.services.get(name)
 
-    def recreate(self, service, name, image, healthy, pull=False):
+    def composes(self, service, variable, image):
+        return service not in self.definitions
+
+    def pull(self, reference, pattern, sha=None):
+        self.pulled.append((reference, pattern.pattern, sha))
+        return sha
+
+    def recreate(self, service, name, image, healthy, pull=False, variable="TRADE_SERVICE_IMAGE"):
         if self.during:
             self.during()
         self.recreated.append((service, image, healthy))
+        self.variables.append(variable)
         self.services[name] = {"image": image, "created": moment(AFTER)}
         if self.after_move is not None:
             self.runs = self.after_move.pop(0) if isinstance(self.after_move, list) else self.after_move
@@ -960,6 +974,7 @@ class FollowTests(unittest.TestCase):
         self.host = FollowHost(Path(temporary.name))
         self.github = Mock()
         self.github.approved.return_value = {**TARGET, "revision": A}  # version A is the committed one
+        self.github.docker_api.return_value = PROXY  # what A's deploy/compose.yaml pins
         self.live = RecordingLive(self.host)
         self.release = Release(self.host, self.github, live=self.live, paper=paper_release(self.host))
         self.controller = self.release.paper().host
@@ -984,6 +999,43 @@ class FollowTests(unittest.TestCase):
         self.host.recreated.clear()
         self.release.follow(WEB + A)
         self.assertEqual(self.host.recreated, [], "nothing moves twice")
+
+    def test_docker_api_moves_to_the_pin_of_the_version_under_the_same_conditions(self):
+        # Doctor 20261116-04, the user 2026-11-16: a version whose Paper controller passes runtime options its own
+        # proxy allows must not wait for a pull request to move docker-api on the host.
+        self.host.services[DOCKER_API]["image"] = OLD_PROXY
+        seen = []
+        self.host.during = lambda: seen.append((self.controller.live, list(self.live.held)))
+        self.release.follow(WEB + A)
+        self.github.docker_api.assert_called_with(A)
+        self.assertEqual(self.host.recreated, [("ledger", TARGET["service"], True),
+                                               ("market-import", TARGET["service"], False),
+                                               ("docker-api", PROXY, False)])
+        self.assertEqual(self.host.variables, ["TRADE_SERVICE_IMAGE"] * 2 + ["TRADE_DOCKER_API_IMAGE"])
+        self.assertIn((PROXY, DOCKER_API_REF.pattern, None), self.host.pulled, "checked, then --pull never")
+        self.assertEqual(seen, [(paper_route(PAPER + A, "all"), [(WEB + A, True)])] * 3)
+        self.unfrozen()
+        self.host.recreated.clear()
+        self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated, [], "nothing moves twice")
+
+    def test_docker_api_waits_for_a_checkout_whose_definition_names_its_image_variable(self):
+        self.host.services[DOCKER_API]["image"] = OLD_PROXY
+        self.host.definitions = {"docker-api"}  # a checkout from before TRADE_DOCKER_API_IMAGE: compose ignores it
+        self.release.follow(WEB + A)
+        self.assertEqual([service for service, _, _ in self.host.recreated], ["ledger", "market-import"])
+        self.assertNotIn(PROXY, [reference for reference, _, _ in self.host.pulled])
+
+    def test_a_failed_docker_api_move_puts_every_service_back(self):
+        self.host.services[DOCKER_API]["image"] = OLD_PROXY
+        self.host.broken = {"docker-api", PROXY}
+        with self.assertRaises(RuntimeError) as raised:
+            self.release.follow(WEB + A)
+        self.assertEqual(failure_summary(raised.exception), "service move failed and was undone")
+        self.assertEqual(self.host.recreated[3:], [("docker-api", OLD_PROXY, False),
+                                                   ("market-import", OLD_SERVICE, False), ("ledger", OLD_SERVICE, True)])
+        self.assertEqual(self.host.variables[3], "TRADE_DOCKER_API_IMAGE")
+        self.unfrozen()
 
     def test_open_paper_runs_and_their_containers_do_not_hold_the_move_back(self):
         # The user, 2026-11-16 (「放宽」): runners never reach the ledger, so only a Paper operation in progress waits.
@@ -1108,6 +1160,26 @@ class RecreateTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "did not start"):
                 host.recreate("market-import", MARKET_IMPORT, TARGET["service"], False)
 
+    def test_docker_api_takes_the_pin_in_its_own_variable_and_its_definition_is_read_with_it(self):
+        host = DockerHost(Config(state=Path(tempfile.mkdtemp())))
+        self.addCleanup(shutil.rmtree, host.state)
+        config = subprocess.CompletedProcess([], 0, json.dumps({"services": {"docker-api": {"image": PROXY}}}), "")
+        with patch("deploy.release_host.subprocess.run", return_value=config) as run:
+            self.assertTrue(host.composes("docker-api", "TRADE_DOCKER_API_IMAGE", PROXY))
+            self.assertFalse(host.composes("docker-api", "TRADE_DOCKER_API_IMAGE", OLD_PROXY))
+        command = run.call_args.args[0]
+        self.assertEqual(run.call_args.kwargs["env"]["TRADE_DOCKER_API_IMAGE"], OLD_PROXY)
+        self.assertEqual(command[command.index("config"):], ["config", "--format", "json", "docker-api"])
+        done = subprocess.CompletedProcess([], 0, "", "")
+        with patch("deploy.release_host.subprocess.run", return_value=done) as run, \
+                patch("deploy.release_host.time.sleep"), \
+                patch.object(DockerHost, "inspect", return_value={"image": PROXY, "running": True, "restarts": 0}):
+            host.recreate("docker-api", DOCKER_API, PROXY, False, variable="TRADE_DOCKER_API_IMAGE")
+        self.assertEqual(run.call_args.kwargs["env"]["TRADE_DOCKER_API_IMAGE"], PROXY)
+        self.assertNotIn("TRADE_SERVICE_IMAGE", {key for key in run.call_args.kwargs["env"]
+                                                 if run.call_args.kwargs["env"][key] == PROXY})
+        self.assertEqual(run.call_args.args[0][-1], "docker-api")
+
     def test_creation_times_compare_whatever_fraction_docker_trims(self):
         self.assertLess(moment("2026-11-15T10:00:00Z"), moment("2026-11-15T10:00:00.1Z"))
         self.assertLess(moment("2026-11-15T10:00:00.45Z"), moment("2026-11-15T10:00:00.5Z"))
@@ -1157,9 +1229,13 @@ class DriftTests(unittest.TestCase):
         self.assertEqual(list(facts), [f"drift:checkout:{self.sha}"])
         self.assertIn("in deploy/compose.yaml, deploy/remote/compose.yaml.", facts[f"drift:checkout:{self.sha}"])
 
-    def test_a_docker_api_on_another_digest_than_the_version_pins_is_named(self):
+    def test_a_docker_api_the_release_no_longer_moves_is_named_and_one_it_will_move_is_not(self):
         running = "ghcr.io/qoeop/trade-docker-api@sha256:" + "2" * 64
         self.host.inspect.return_value = {"image": running}
+        created = {WEB + self.sha: moment(WEB_CREATED), "trade-ide-docker-api-1": moment(BEFORE)}
+        self.host.created.side_effect = created.get
+        self.assertEqual(self.drift(), {}, "the next settled tick moves it (Release.follow)")
+        created["trade-ide-docker-api-1"] = moment(AFTER)  # a move undone, or the operator's recreate
         facts = self.drift()
         self.assertEqual(list(facts), [f"drift:docker-api:{self.PIN}"])
         self.assertIn(f"docker-api runs {running}, but the active version {self.sha[:12]} pins {self.PIN}",
