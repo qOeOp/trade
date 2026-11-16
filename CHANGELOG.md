@@ -26,6 +26,16 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+## 0.4.1 (2026-11-17)
+
+A fix release for the release path and the production runtime after 0.4.0: the Web and Agent bound their product
+processes, the Market overview and chat service restart inside the Web container, each release tick watches the routed
+Web and the compose services, the ledger mirror, market import and docker-api follow each version, Paper admission
+keeps the memory a release needs, and a newer release control takes over before recovering (doctor 20261115-05,
+20261115-06, 20261116-01 to -07, -09). No ledger, run or profile format changes. The memory limit for market import
+and the docker-api image variable take effect on the host only once `/opt/trade-app` is updated to this version; until
+then each tick sends a drift notice and docker-api stays where it is.
+
 - Release (fix): a release stops the previous Web once the candidate commits, after its observation window. Until
   now it kept running beside the routed one until the next release's admission stopped it (388 MiB on the host
   2026-11-16), memory Paper admission counted as used. Nothing reads a Web the router left; a rollback, automatic
