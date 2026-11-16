@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--market", help="market profile the Runs page's daily bars are read from (default: the active one)")
     command.add_argument("--product", default=str(Path(__file__).resolve().parents[2]),
                          help="product checkout whose command line is run (default: this one)")
+    command.add_argument("--reads", type=int, default=None,
+                         help="product processes run at once; more reads wait (default: 3, for a 1.5 GiB container)")
     command.add_argument("--host", default="127.0.0.1", help="address to listen on")
     command.add_argument("--port", type=int, default=8765)
     command.add_argument("--allow-host", action="append", default=[], dest="hosts",
@@ -50,7 +52,8 @@ def main(argv: list[str] | None = None) -> int:
         build = subprocess.run(["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True,
                                check=True).stdout.strip()
         version = tomllib.loads((product / "pyproject.toml").read_text())["project"]["version"]
-        serve.serve(serve.Product(product, args.ledger, args.market), build, args.host, args.port, args.hosts, args.agent,
+        serve.serve(serve.Product(product, args.ledger, args.market,
+                                  **({} if args.reads is None else {"reads": args.reads})), build, args.host, args.port, args.hosts, args.agent,
                     args.paper, Path(args.market_import) if args.market_import else None, args.overview, args.research,
                     args.setup, live_socket=args.live_socket, live_router=args.live_router, version=version)
         return 0

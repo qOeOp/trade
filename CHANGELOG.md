@@ -41,6 +41,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   keeps dying within a minute, up to 60 s). Before, when the kernel killed the overview on the container's memory
   limit, nothing restarted it and `/api/overview/*` answered 502 until the container was restarted. `serve` stays
   the container's main process, so stopping the container is unchanged and the loops end with it.
+- IDE (fix): the research graph service runs at most 3 product processes at once (`ide.py serve --reads=N` to
+  change it); further reads wait their turn and get the same answer. A research line page's burst of reads used to
+  start one process each (220-390 MB apiece), which pushed the Web container past its 1.5 GiB limit and also killed
+  the Market page's overview service (doctor 20261116-01). A read's 600 s limit starts when its process starts.
 - Release (doctor 20261115-06): the release host's ledger mirror and market import now follow each version. On the
   first tick after a version commits, while no Paper operation is in progress (running Paper runs are allowed) and
   Live is idle, the release recreates the compose

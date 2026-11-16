@@ -788,6 +788,42 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.get("/api/agent/health").status, 404)
 
 
+class ProductReadsTests(unittest.TestCase):
+    def test_no_more_than_the_bound_of_product_processes_run_at_once_and_every_read_is_answered(self):
+        product = serve.Product(Path("/nowhere"), "copy", reads=3)
+        lock, running, peak, release = threading.Lock(), [0], [0], threading.Event()
+
+        def process(argv, **options):
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+            release.wait(5)
+            with lock:
+                running[0] -= 1
+            return serve.subprocess.CompletedProcess(argv, 0, stdout=json.dumps({"read": argv[-1]}), stderr="")
+
+        answers: list[dict] = []
+        with mock.patch.object(serve.subprocess, "run", side_effect=process):
+            threads = [threading.Thread(target=lambda n=n: answers.append(product.run("ledger", "sql", str(n))))
+                       for n in range(12)]
+            for thread in threads:
+                thread.start()
+            deadline = time.monotonic() + 5
+            while running[0] < 3 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            time.sleep(0.05)  # an unbounded run would start the other nine here
+            self.assertEqual(running[0], 3)
+            release.set()
+            for thread in threads:
+                thread.join(5)
+        self.assertEqual(peak[0], 3)
+        self.assertEqual(sorted(answer["read"] for answer in answers), sorted(str(n) for n in range(12)))
+
+    def test_a_bound_below_one_is_refused(self):
+        with self.assertRaises(ValueError):
+            serve.Product(Path("/nowhere"), "copy", reads=0)
+
+
 class MarketImportTests(unittest.TestCase):
     def setUp(self):
         self.status = Path(tempfile.mkdtemp()) / "status.json"

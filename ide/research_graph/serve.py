@@ -7,7 +7,8 @@ opens (`/api/comparison`, at a full ledger commit), `research state --without-im
 review readings (`/api/state`, at a full ledger commit), `replay report --tables` for a trial's report (the Runs
 page's backtest, `/api/trial`, at a full ledger commit) and `market bars --timeframe 1d` for a contract's
 daily bars (its backtest candles, `/api/bars`, whole UTC days at a market day, YYYY-MM-DD, on the market
-profile given or the active one), so this module imports no product package. While
+profile given or the active one), so this module imports no product package. At most `READS` product processes
+(`--reads`) run at once and further reads wait their turn, so a page's burst of reads fits the container's memory. While
 a page without `at` is open the head is read every `poll` seconds (a research mirror's from its controller, the
 only place a Sync moves it, so no product process runs per read); when it moves, each open page's
 graph is fetched once at the new head, the latest only. One fetch runs at a time. Up to 8 successful views stay in memory, keyed
@@ -89,6 +90,8 @@ BARS = 16
 COMPARISONS = 64
 COUNTS = 16
 STATES = 8
+# Product processes run at once: each holds 220-390 MB, and the Web container (1.5 GiB) also runs two Node services.
+READS = 3
 # What the line menu reads of `research state`; the judgments and their facts stay with the Agent's tool.
 STATE_KEYS = ("ledger_commit", "gates", "review_every", "undistinguished_runs", "unreviewed_trials")
 HISTORIES = 4
@@ -148,16 +151,26 @@ def _days(start: str, end: str) -> bool:
 
 @dataclass
 class Product:
-    """The product's command line on one ledger profile and a market profile (None: the active one)."""
+    """The product's command line on one ledger profile and a market profile (None: the active one). At most `reads`
+    product processes run at once (each holds a few hundred MB); the rest wait their turn, and the 600 s a process
+    is given starts when it starts, so waiting changes neither an answer nor a refusal."""
 
     root: Path
     ledger: str
     market: str | None = None
+    reads: int = READS
+    slots: threading.Semaphore = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.reads < 1:
+            raise ValueError(f"reads must be at least 1, not {self.reads}")
+        self.slots = threading.Semaphore(self.reads)
 
     def run(self, *arguments: str) -> dict:
         argv = ["uv", "run", "--frozen", "--project", str(self.root), "python", "-m", "cli.main", *arguments]
         try:
-            done = subprocess.run(argv, cwd=self.root, capture_output=True, text=True, timeout=600, check=False)
+            with self.slots:
+                done = subprocess.run(argv, cwd=self.root, capture_output=True, text=True, timeout=600, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ProductError(_failure("PRODUCT_UNAVAILABLE", f"{' '.join(arguments[:2])}: {exc}")) from exc
         try:
