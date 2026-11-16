@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
+from deploy import release_host
 from ledger import db, strategies
 from shared.errors import Refusal
 from paper import runs
@@ -50,7 +51,7 @@ class AdmissionTests(unittest.TestCase):
 
     def test_free_memory_is_the_budget_less_running_limits_and_the_hosts_headroom(self):
         self.assertEqual(self.state(1024, None)["free"], 2048)
-        self.assertEqual(self.state(1024, 2500)["free"], 2500 - runs.HEADROOM_MIB)
+        self.assertEqual(self.state(1024, 2500)["free"], 2500 - release_host.RELEASE_MEMORY_MIB)
         self.assertEqual(self.state(4096, 8000)["free"], 0)
         self.assertEqual(self.state(0, None, "2g")["budget"], 2048)
 
@@ -60,6 +61,19 @@ class AdmissionTests(unittest.TestCase):
         with mock.patch.object(runs, "limits", return_value=0), \
                 mock.patch.object(runs, "_host_available", return_value=None):
             runs.admit(768, RUNNING)
+
+    def test_an_admitted_run_leaves_the_host_what_a_release_needs(self):
+        # 2500 MiB available less a 768 MiB run leaves 1732 MiB: below what a release needs, so the run is refused.
+        self.assertIn("host has 2500 MiB available", self.refused(768, 0, 2500))
+        host = release_host.RELEASE_MEMORY_MIB + 768
+        with mock.patch.object(runs, "limits", return_value=0), \
+                mock.patch.object(runs, "_host_available", return_value=host):
+            runs.admit(768, RUNNING)
+        with tempfile.TemporaryDirectory() as root:
+            meminfo = Path(root) / "meminfo"
+            meminfo.write_text(f"MemAvailable:    {(host - 768) * 1024} kB\n")
+            with mock.patch.object(release_host, "MEMINFO", meminfo):
+                self.assertTrue(object.__new__(release_host.DockerHost).memory_available())
 
     def test_the_host_reading_is_meminfo_available_or_none(self):
         with tempfile.TemporaryDirectory() as root:

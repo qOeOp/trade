@@ -66,7 +66,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "nothing",
         "runs [{paper_id, op_id, candidate, source_sha256, symbols, state (running, ended, unsealed or sealed), "
         "containers, created_at, image_ref, market_day, config, status, reasons, total_return, max_drawdown, seal}], "
-        "running, memory {budget, reserved, host_available, free, smallest}",
+        "running, memory {budget, reserved, host_available, headroom, free, smallest}",
         "RUNTIME_UNAVAILABLE (docker did not answer)"),
     ("paper", "serve"): (
         "the paper runs, their seals and files (reader); a candidate's last research replay in the research ledger "

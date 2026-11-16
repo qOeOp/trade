@@ -16,7 +16,8 @@ end. Its working directory lives beside the Paper database's service
 read from. Sealing a sealed run again removes whatever of its containers, network or directory is still there.
 One run per source at a time. A run is admitted by memory, not by count (docs/plans/paper-admission-by-memory.zh.md):
 its containers' limits, sized by its contracts, are its reservation; this ledger's running reservations stay within
-the deployment's budget (TRADE_PAPER_MEMORY), and the host keeps HEADROOM_MIB available after the new one.
+the deployment's budget (TRADE_PAPER_MEMORY), and the host keeps RELEASE_MEMORY_MIB available after the new one: what a
+release needs before it starts a candidate (deploy/release_host.py), so starting a run never takes the host below it.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ import subprocess
 import time
 import uuid
 
+from deploy.release_host import RELEASE_MEMORY_MIB
 from engine.config import ACCOUNT_CONTRACT, Refusal as RuntimeRefusal, leverage_of
 from ledger import db, paper as records, strategies
 from shared.refusals import refuse
@@ -50,7 +52,6 @@ RUNNER_CPUS = "0.5"
 EGRESS_MEMORY = "64m"
 BUDGET_ENV = "TRADE_PAPER_MEMORY"
 BUDGET_DEFAULT = "3584m"
-HEADROOM_MIB = 1024
 MEMINFO = Path("/proc/meminfo")
 EGRESS_PORT = 3128
 STOP_SECONDS = 60  # the STOP file to SIGTERM: the runner cancels its orders and writes its summary
@@ -122,13 +123,14 @@ def limits(names_: list[str]) -> int:
 
 def memory_state(present: list[dict]) -> dict:
     """This ledger's paper memory in MiB, from its containers `present`: the budget, what its running containers
-    reserve (their limits), the host's available memory, what a new run may reserve (`free`) and the least a run
-    needs (`smallest`)."""
+    reserve (their limits), the host's available memory and what it keeps (`headroom`), what a new run may reserve
+    (`free`) and the least a run needs (`smallest`)."""
     total = budget()
     reserved = limits([item["name"] for item in present if item["running"]])
     host = _host_available()
-    free = total - reserved if host is None else min(total - reserved, host - HEADROOM_MIB)
-    return {"budget": total, "reserved": reserved, "host_available": host, "free": max(free, 0),
+    free = total - reserved if host is None else min(total - reserved, host - RELEASE_MEMORY_MIB)
+    return {"budget": total, "reserved": reserved, "host_available": host, "headroom": RELEASE_MEMORY_MIB,
+            "free": max(free, 0),
             "smallest": mib(runner_memory(1)) + mib(EGRESS_MEMORY)}
 
 
@@ -138,8 +140,8 @@ def admit(need: int, present: list[dict]) -> None:
     if need <= state["free"]:
         return
     host = state["host_available"]
-    if host is not None and host - HEADROOM_MIB < state["budget"] - state["reserved"]:
-        why = f"the host has {host} MiB available and keeps {HEADROOM_MIB} MiB free"
+    if host is not None and host - RELEASE_MEMORY_MIB < state["budget"] - state["reserved"]:
+        why = f"the host has {host} MiB available and keeps {RELEASE_MEMORY_MIB} MiB free"
     else:
         why = f"running runs reserve {state['reserved']} of the {state['budget']} MiB paper budget"
     raise refuse("PAPER_MEMORY_FULL", f"this run needs {need} MiB; {why}; stop a run first",

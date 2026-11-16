@@ -38,6 +38,10 @@ MANIFESTS = ", ".join(f"application/vnd.{kind}" for kind in (
     "oci.image.index.v1+json", "docker.distribution.manifest.list.v2+json", "oci.image.manifest.v1+json",
     "docker.distribution.manifest.v2+json"))
 KEPT_RELEASES = 3  # per kind of container: the newest good ones, so an operator can return by hand
+# A release needs this much MemAvailable before it starts a candidate (its Web's cap plus 512 MiB). Paper admission
+# keeps the same amount free after a new run's limit (paper/runs.py): starting a run never takes the host below it.
+RELEASE_MEMORY_MIB = 2048
+MEMINFO = Path("/proc/meminfo")
 
 
 def revision(name: str, prefix: str = WEB) -> str:
@@ -629,7 +633,7 @@ class DockerHost:
     def memory_available(self) -> bool:
         values = {
             line.split(":")[0]: int(line.split()[1])
-            for line in Path("/proc/meminfo").read_text().splitlines()
+            for line in MEMINFO.read_text().splitlines()
             if line.startswith("MemAvailable:")
         }
-        return values["MemAvailable"] >= 2 * 1024 * 1024  # candidate cap plus 512 MiB headroom
+        return values["MemAvailable"] >= RELEASE_MEMORY_MIB * 1024
