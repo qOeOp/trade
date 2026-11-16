@@ -109,6 +109,14 @@ services:
   # while anything is stopped or lagging, or when its status is a day old.
   market-import:
     <<: *product
+    # A cap so an import cannot take the memory of ledger, paper and the Web; over it the import is killed and
+    # restarts, and redoes the month it was writing. Sized from the code, not measured at its peak (it used about
+    # 0.45 GiB in the sizes table of README.md here): a contract's month of quotes is derived in this process holding
+    # the whole stored aggTrades files it reads (the month's and the eve's, a few hundred MB each for BTCUSDT) plus
+    # one decoded day and its states; aggTrades go one worker process per contract, each streaming 100,000-row
+    # batches into a 1,000,000-row row group.
+    mem_limit: ${TRADE_MARKET_IMPORT_MEMORY:-3g}
+    memswap_limit: ${TRADE_MARKET_IMPORT_MEMORY:-3g}
     # TRADE_MARKET_ARGS in .env is this deployment's range, split by the shell (deploy/README.md); unset,
     # `market follow` refuses and the container keeps restarting rather than downloading a range nobody chose.
     command: ["sh", "-c", "exec python -m cli.main market follow --market /run/trade/market-import.json $$TRADE_MARKET_ARGS"]

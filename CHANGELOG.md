@@ -36,6 +36,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   version for `deploy/compose.yaml` and `deploy/remote/` (documentation aside), and the running docker-api with the
   digest that version's `deploy/compose.yaml` pins, and sends a Telegram notice while either differs, once per
   version or pin. The release still moves neither; the operator updates the checkout and recreates docker-api.
+- Release and deployment (doctor 20261116-05): a release tick refused for host memory (less than 2 GiB available
+  for a standby Paper controller or a candidate Web) now says so in its journal line and Telegram notice instead of
+  "unclassified runtime failure"; the threshold and Paper's admission headroom are unchanged. `market-import` gets a
+  memory cap without swap, `TRADE_MARKET_IMPORT_MEMORY` (default `3g`, sized from the code, not measured at its
+  peak). On the release host it takes effect once `/opt/trade-app` is updated and the service is recreated from it.
 - Agent (doctor 20261116-09): the IDE's chat Agent runs at most two product commands at once; further tool calls
   wait in order and start when one finishes. Each command is a Python process of its own and the Agent container has
   1 GiB, so a reply that called many tools together could run out of memory. A command's 180-second timeout counts

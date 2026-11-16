@@ -91,3 +91,7 @@ with tempfile.TemporaryDirectory() as temporary:
     assert followed["ledger"] == {**execution["ledger"], "image": moved}
     assert followed["docker-api"] == execution["docker-api"]
     print("A release's service digest reaches the ledger mirror and market import without the env file changing")
+    # market-import has a memory cap without swap (doctor 20261116-05); the env file may leave it empty.
+    capped = {key: followed["market-import"].get(key) for key in ("mem_limit", "memswap_limit")}
+    assert capped == {"mem_limit": str(3 * 1024 ** 3), "memswap_limit": str(3 * 1024 ** 3)}, capped
+    print("market-import is capped at 3 GiB unless TRADE_MARKET_IMPORT_MEMORY names another size")

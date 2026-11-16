@@ -393,12 +393,19 @@ class JointReleaseTests(unittest.TestCase):
         def mismatched_runtime():
             self.paper.source.require_runtime.side_effect = RuntimeError("runtime build inputs differ")
 
-        for refuse in (low_memory, mismatched_runtime):
+        def low_web_memory():
+            self.host.memory_available = lambda: False
+
+        summaries = {low_memory: "host memory below the 2 GiB a standby Paper controller needs; the release waits",
+                     low_web_memory: "host memory below the 2 GiB a candidate Web needs; the release waits"}
+        for refuse in (low_memory, mismatched_runtime, low_web_memory):
             with self.subTest(refusal=refuse.__name__):
                 self.setUp()
                 refuse()
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises(RuntimeError) as raised:
                     self.release.apply(TARGET)
+                if refuse in summaries:  # what the tick's notice says (doctor 20261116-05)
+                    self.assertEqual(failure_summary(raised.exception), summaries[refuse])
                 self.settled(A)
                 self.assertNotIn(WEB + B, self.host.containers)
                 self.assertNotIn(PAPER + B, self.controller.running)
