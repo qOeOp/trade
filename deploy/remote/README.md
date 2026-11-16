@@ -159,9 +159,11 @@ its token. The control binds the one private chat that messaged the bot and keep
 daily summary at the first check after 00:00 UTC, from the control container to `api.telegram.org` over the backend
 network. Each run notice ends with the run's page, `https://<TRADE_DOMAIN>/?live=<run_id>`, which a phone opens as
 that run's page. `LIVE_ROOT/notify/state.json` records what was sent, so a restart or a second control does not resend.
-The release tick sends to the same chat, from the host, what fails outside Live: a tick that failed, a Paper run
-that stopped and could not resume, and a research ledger whose publish has failed for 30 minutes or whose origin
-history changed elsewhere (read through the routed Web). Each is sent once while it lasts and again only after it
+The release tick sends to the same chat, from the host, what fails outside Live: a tick that failed; a routed Web
+that does not answer, or whose Market overview, Agent or Paper controller health fails through the router; a
+`ledger` or `market-import` container that is unhealthy, whose last exit was out of memory, or that restarted (sent
+at 1, 2, 4, ... restarts); a Paper run that stopped and could not resume; and a research ledger whose publish has
+failed for 30 minutes or whose origin history changed elsewhere (read through the routed Web). Each is sent once while it lasts and again only after it
 cleared; `/var/lib/trade-release/notices.json` records what was sent. It reads the token file under `LIVE_ROOT`;
 without a saved token nothing is sent.
 

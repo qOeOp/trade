@@ -17,6 +17,7 @@ from deploy import release, telegram
 
 
 TOKEN = "123456789:" + "A" * 35
+HEALTHY = {path: {"status": 200, "ok": True} for path, _ in release.WEB_HEALTH}
 
 
 class Telegram:
@@ -104,17 +105,29 @@ class Notices(unittest.TestCase):
         self.saved.chmod(0o600)
         self.call = Telegram()
 
-    def tick(self, error=None, runs=None, ledger=None, call=None):
-        """One tick: its own outcome, then what the routed Web showed (None: the probe failed)."""
-        def probe(path):
+    def tick(self, error=None, runs=None, ledger=None, call=None, web=HEALTHY, services=None):
+        """One tick: its own outcome, then what the routed Web showed (None: the probe failed), and the compose
+        services' containers by name (absent when not named; None: Docker could not be read)."""
+        def probe(path, routed=False):
+            if path in dict(release.WEB_HEALTH):
+                self.assertTrue(routed)
+                if web.get(path) is None:
+                    raise RuntimeError("probe failed")
+                return web[path]
+            self.assertFalse(routed)
             value = runs if path == "/api/paper/runs" else ledger
             if value is None:
                 raise RuntimeError("probe failed")
             return {"runs": value} if path == "/api/paper/runs" else {"ledger": value}
 
+        def condition(container):
+            if services is None:
+                raise RuntimeError("docker inspect failed")
+            return services.get(container)
+
         notices = release.Notices(self.state, call or self.call)
         notices.released(error)
-        notices.watch(probe)
+        notices.watch(probe, condition)
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             notices.send()
@@ -198,6 +211,45 @@ class Notices(unittest.TestCase):
         self.assertEqual(len(self.call.texts()), 1)
 
 
+    def test_a_routed_web_that_does_not_answer_is_one_notice_and_each_unhealthy_part_its_own(self):
+        agent = {**HEALTHY, "/api/agent/health": {"status": 502, "ok": True}}
+        self.tick(web=agent)
+        self.tick(web=agent)
+        self.assertEqual(self.call.texts(), ["The Agent does not answer healthy through the routed Web "
+                                             "(/api/agent/health); its part of the IDE is unavailable."])
+        self.tick(web={**HEALTHY, "/api/overview/health": {"status": 200, "ok": False}})
+        self.assertIn("The Market overview does not answer healthy", self.call.texts()[-1])
+        self.tick(web={})  # nothing answers: the Web itself, not three parts
+        self.assertEqual(len(self.call.texts()), 3)
+        self.assertIn("The routed Web does not answer on the host", self.call.texts()[-1])
+        self.tick(web={})
+        self.tick()  # answering again clears it
+        self.tick(web={})
+        self.assertEqual(len(self.call.texts()), 4)
+
+    def test_an_unhealthy_out_of_memory_or_restarted_service_is_named_and_restarts_only_as_they_double(self):
+        ledger, market = "trade-ide-ledger-1", "trade-ide-market-import-1"
+        well = {"running": True, "health": "healthy", "oom": False, "restarts": 0}
+        self.tick(services={ledger: well, market: {**well, "health": "starting"}})
+        self.tick(services={ledger: {**well, "health": None}})  # market-import is not deployed here
+        self.assertEqual(self.call.texts(), [])
+        self.tick(services={ledger: {**well, "health": "unhealthy"}, market: {**well, "oom": True, "restarts": 1}})
+        self.assertEqual(self.call.texts(), [
+            "The ledger service reports unhealthy: its check cannot read the research ledger.",
+            "The market-import container was killed out of memory at its last exit.",
+            "The market-import container has restarted 1 times since it was created; the next notice comes at 2."])
+        for restarts in (2, 3, 3, 4, 7):
+            self.tick(services={ledger: {**well, "health": "unhealthy"}, market: {**well, "restarts": restarts}})
+        self.assertEqual(len(self.call.texts()), 5)
+        self.assertIn("restarted 4 times", self.call.texts()[-1])
+        self.tick(services=None)  # Docker was not read: unknown, nothing clears
+        self.tick(services={ledger: {**well, "health": "unhealthy"}, market: {**well, "restarts": 7}})
+        self.assertEqual(len(self.call.texts()), 5)
+        self.tick(services={ledger: well, market: well})  # recreated: cleared
+        self.tick(services={ledger: {**well, "health": "unhealthy"}, market: well})
+        self.assertEqual(len(self.call.texts()), 6)
+
+
 class Tick(unittest.TestCase):
     def test_a_failed_tick_is_noticed_and_still_raises_and_the_routed_web_is_read_either_way(self):
         host = Mock(state=Path("/never"))
@@ -214,6 +266,9 @@ class Tick(unittest.TestCase):
             release.tick(host, notices)
             notices.released.assert_called_with(None)
         self.assertEqual(notices.send.call_count, 2)
-        probe = notices.watch.call_args.args[0]
+        probe, condition = notices.watch.call_args.args
         probe("/api/about")
-        host.probe.assert_called_with("trade-release-web-" + "a" * 40, "/api/about")
+        host.probe.assert_called_with("trade-release-web-" + "a" * 40, "/api/about", False)
+        probe("/api/agent/health", routed=True)
+        host.probe.assert_called_with("trade-release-web-" + "a" * 40, "/api/agent/health", True)
+        self.assertEqual(condition, host.condition)

@@ -244,6 +244,15 @@ class DockerHost:
         found = self.inspect(name)
         return {"image": found["image"], "created": self.created(name)} if found["running"] else None
 
+    def condition(self, name: str) -> dict | None:
+        """A compose service's container as Docker last saw it: running, its health check's status (None without
+        one), whether its last exit was out of memory, and its restarts; None when it is absent."""
+        if not self.exists(name):
+            return None
+        template = ('{"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}'
+                    '{{else}}null{{end}},"oom":{{json .State.OOMKilled}},"restarts":{{json .RestartCount}}}')
+        return json.loads(self.docker("inspect", "--format", template, name))
+
     def recreate(self, service: str, name: str, image: str, healthy: bool, pull: bool = False) -> None:
         """Recreate one compose service on `image` from the host's own compose definition: the digest is passed in
         the process environment, which compose reads over the env file, so the env file is not written."""
