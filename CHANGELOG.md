@@ -35,7 +35,8 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   it left 1 GiB. A release needs that much available before it starts a candidate, and both now read one constant
   (`deploy.release_host.RELEASE_MEMORY_MIB`), so starting Paper runs can no longer take the host below what a release
   needs and hold every release back. A start the host cannot fit is refused as before with `PAPER_MEMORY_FULL`,
-  naming the 2 GiB it keeps; on the 7.2 GiB host this admits about 1 GiB less of runs while the budget is not the
+  naming the 2 GiB it keeps; the Paper listing reports it as `memory.headroom`, which the page's "memory full"
+  explanation now names instead of a fixed 1 GiB. On the 7.2 GiB host this admits about 1 GiB less of runs while the budget is not the
   limit. The user authorized changing the refusal (2026-11-16).
 - Release (doctor 20261116-03): every release tick now watches what runs after a version commits, and sends what
   fails through the same Telegram chat as its other notices, once while it lasts. It probes `/api/overview/health`,

@@ -8,6 +8,6 @@ const gib = (mib: number) => `${(mib / 1024).toFixed(1)} GiB`;
 export function full(memory: PaperMemory | undefined): string | null {
   if (!memory || memory.free >= memory.smallest) return null;
   return memory.host_available !== null && memory.free < memory.budget - memory.reserved
-    ? `The host has ${gib(memory.host_available)} available and keeps 1 GiB free, too little for another paper run`
+    ? `The host has ${gib(memory.host_available)} available and keeps ${gib(memory.headroom)} free, too little for another paper run`
     : `Running paper runs reserve ${gib(memory.reserved)} of the ${gib(memory.budget)} paper memory, too little for another`;
 }

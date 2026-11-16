@@ -44,7 +44,7 @@ export type PaperRun = {
 };
 /** The ledger's paper memory in MiB (paper/runs.py memory_state): the budget, what running runs reserve, the
  *  host's available memory (null where unread), what a new run may reserve and the least one needs. */
-export type PaperMemory = { budget: number; reserved: number; host_available: number | null; free: number; smallest: number };
+export type PaperMemory = { budget: number; reserved: number; host_available: number | null; headroom: number; free: number; smallest: number };
 export type Listing = { runs: PaperRun[]; running: number; memory: PaperMemory; starting: string[] };
 
 /** One journal line (engine/paper.py): its kind, wall clock and the kind's own fields. */

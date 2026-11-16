@@ -123,13 +123,14 @@ def limits(names_: list[str]) -> int:
 
 def memory_state(present: list[dict]) -> dict:
     """This ledger's paper memory in MiB, from its containers `present`: the budget, what its running containers
-    reserve (their limits), the host's available memory, what a new run may reserve (`free`) and the least a run
-    needs (`smallest`)."""
+    reserve (their limits), the host's available memory and what it keeps (`headroom`), what a new run may reserve
+    (`free`) and the least a run needs (`smallest`)."""
     total = budget()
     reserved = limits([item["name"] for item in present if item["running"]])
     host = _host_available()
     free = total - reserved if host is None else min(total - reserved, host - RELEASE_MEMORY_MIB)
-    return {"budget": total, "reserved": reserved, "host_available": host, "free": max(free, 0),
+    return {"budget": total, "reserved": reserved, "host_available": host, "headroom": RELEASE_MEMORY_MIB,
+            "free": max(free, 0),
             "smallest": mib(runner_memory(1)) + mib(EGRESS_MEMORY)}
 
 
