@@ -131,12 +131,20 @@ NOTICE_TEXT = re.compile(r"[A-Za-z0-9_.@:-]{1,80}\Z")
 PAPER_OPERATIONS = frozenset({"stopping", "ended", "unsealed"})
 PAPER_LISTING_SECONDS = 3  # past the Paper controller's listing cache (paper/serve.py LIST_SECONDS)
 LEDGER_LAG_SECONDS = 1800  # the ledger service retries a publish every 5 minutes: six retries have failed
+# What the routed Web serves beside its own pages, each read through the router every tick (doctor 20261116-03).
+WEB_HEALTH = (("/api/overview/health", "The Market overview"), ("/api/agent/health", "The Agent"),
+              ("/api/paper/health", "The Paper controller"))
+# What an unhealthy compose service's own health check says (deploy/compose.yaml).
+UNHEALTHY = {"ledger": "its check cannot read the research ledger",
+             "market-import": "an import is stopped or lagging, or its status is a day old"}
 
 
 class Notices:
     """Failures outside Live, sent to the chat the Live page bound (deploy/telegram.py): a release tick that
-    failed, a Paper run that stopped and could not resume, and a research ledger whose publish has failed for
-    LEDGER_LAG_SECONDS or whose origin history changed elsewhere.
+    failed; a routed Web that does not answer, or whose overview, Agent or Paper controller is not healthy behind
+    it; a ledger or market-import container that is unhealthy, was killed out of memory or restarted; a Paper run
+    that stopped and could not resume; and a research ledger whose publish has failed for LEDGER_LAG_SECONDS or
+    whose origin history changed elsewhere.
 
     Each kind the tick observed replaces that kind's facts; one it could not observe keeps what was sent. A fact
     is sent when it first appears and again only after it has cleared. Without a saved token nothing is sent
@@ -157,8 +165,46 @@ class Notices:
                                   "each stay on the route they last committed; see journalctl -u "
                                   "trade-release.service."})
 
-    def watch(self, probe) -> None:
-        """Read Paper runs and the ledger's publication through the routed Web; `probe(path)` is its facts."""
+    def watch(self, probe, condition) -> None:
+        """Read the routed Web's health, then Paper runs and the ledger's publication from the active Web, and the
+        compose services' containers. `probe(path, routed=False)` is the active Web's facts at `path`, read through
+        the router when `routed`; `condition(container)` is DockerHost.condition."""
+        failing = {}
+        for path, name in WEB_HEALTH:
+            try:
+                value = probe(path, routed=True)
+                healthy = value["status"] == 200 and bool(value.get("ok", True))
+            except Exception:
+                healthy = False  # a Web that does not answer is the fact, not an unknown
+            if not healthy:
+                failing[f"web:{path}"] = (f"{name} does not answer healthy through the routed Web ({path}); its "
+                                          "part of the IDE is unavailable.")
+        if len(failing) == len(WEB_HEALTH):
+            failing = {"web:unreachable": "The routed Web does not answer on the host: its overview, Agent and "
+                                          "Paper health probes all fail, so the IDE is unavailable. See docker ps "
+                                          "and the active Web container's log."}
+        self.observe("web", failing)
+        try:
+            services = {}
+            for service, container, _ in FOLLOWERS:
+                found = condition(container)
+                if found is None:
+                    continue  # not deployed on this host
+                if found["health"] == "unhealthy":
+                    services[f"service:{service}:unhealthy"] = (
+                        f"The {service} service reports unhealthy: {UNHEALTHY[service]}.")
+                if found["oom"] is True:
+                    services[f"service:{service}:oom"] = (
+                        f"The {service} container was killed out of memory at its last exit.")
+                restarts = found["restarts"]
+                if type(restarts) is int and restarts > 0:
+                    step = 1 << (restarts.bit_length() - 1)  # 1, 2, 4, ...: a restart loop is not sent every tick
+                    services[f"service:{service}:restarted:{step}"] = (
+                        f"The {service} container has restarted {restarts} times since it was created; the next "
+                        f"notice comes at {2 * step}.")
+            self.observe("services", services)
+        except Exception:
+            pass  # unknown this tick: what was sent stays sent
         try:
             paper = {}
             for run in probe("/api/paper/runs")["runs"]:
@@ -807,7 +853,7 @@ def tick(host: DockerHost, notices: Notices) -> bool:
         notices.released(error)
         raise
     finally:
-        notices.watch(lambda path: host.probe(host.disk_route(), path))
+        notices.watch(lambda path, routed=False: host.probe(host.disk_route(), path, routed), host.condition)
         notices.send()
 
 

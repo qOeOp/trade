@@ -26,6 +26,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Release (doctor 20261116-03): every release tick now watches what runs after a version commits, and sends what
+  fails through the same Telegram chat as its other notices, once while it lasts. It probes `/api/overview/health`,
+  `/api/agent/health` and `/api/paper/health` through the router; a routed Web that answers none of them is one
+  notice of its own, where before a failed probe was dropped. It reads the `ledger` and `market-import` containers'
+  health status, last-exit out-of-memory flag and restart count (a restart notice at 1, 2, 4, ... restarts). No
+  release refusal or admission changed.
 - Agent (doctor 20261116-09): the IDE's chat Agent runs at most two product commands at once; further tool calls
   wait in order and start when one finishes. Each command is a Python process of its own and the Agent container has
   1 GiB, so a reply that called many tools together could run out of memory. A command's 180-second timeout counts
