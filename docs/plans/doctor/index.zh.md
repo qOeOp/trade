@@ -10,7 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261117-01 | 发布移动 ledger 镜像与 market-import 失败后退回，原因没留下，本版本内不再重试 | 修缺陷（记读取者与状态；退回不算运维重建） | doctor | hours | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-17 | 2026-11-17 |
+| 20261117-01 | 发布移动 ledger 镜像与 market-import 失败后退回，原因没留下，本版本内不再重试 | 修缺陷（记读取者与状态；退回不算运维重建） | doctor | hours | in PR [#3144](https://github.com/qOeOp/trade/pull/3144)（记读取者）；重试另一个 PR | 2026-11-17 | 2026-11-17 |
 | 20261117-02 | 工作站 compose 服务停在 11-11 镜像，market-import 不跟进六个合约的 metrics，市场最新日卡住 | 用户授权后升级工作站服务 | doctor | hours | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-17 | 2026-11-17 |
 | 20261117-01 | Paper 启动对话框写“1× leverage”，实际 Paper 与回放都按默认杠杆 3 运行 | fix（文字；从同一个默认值读出，不再手抄） | doctor | unknown | open [诊断](2026-11-17-paper-dialog-leverage.zh.md) | 2026-11-17 | 2026-11-17 |
 | 20261116-03 | 发布提交后没有东西看 Web 与各服务是否还在答，探测失败被吞掉 | 修缺陷（tick 探测健康并通知） | doctor | hours | in PR [#3133](https://github.com/qOeOp/trade/pull/3133) | 2026-11-16 | 2026-11-16 |
