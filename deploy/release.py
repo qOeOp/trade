@@ -8,6 +8,7 @@ version's own control releases it (deploy/control.py). Git and Docker use no exi
 import argparse
 from contextlib import nullcontext
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,7 @@ from .paper_host import PAPER, PaperHost
 from .paper_release import PaperRelease
 from .release_host import (
     AGENT,
+    DOCKER_API,
     FOLLOWERS,
     IMAGE_REF,
     SERVICE_REF,
@@ -143,8 +145,9 @@ class Notices:
     """Failures outside Live, sent to the chat the Live page bound (deploy/telegram.py): a release tick that
     failed; a routed Web that does not answer, or whose overview, Agent or Paper controller is not healthy behind
     it; a ledger or market-import container that is unhealthy, was killed out of memory or restarted; a Paper run
-    that stopped and could not resume; and a research ledger whose publish has failed for LEDGER_LAG_SECONDS or
-    whose origin history changed elsewhere.
+    that stopped and could not resume; a research ledger whose publish has failed for LEDGER_LAG_SECONDS or whose
+    origin history changed elsewhere; and a host checkout or docker-api that does not follow the active version
+    (`drift`).
 
     Each kind the tick observed replaces that kind's facts; one it could not observe keeps what was sent. A fact
     is sent when it first appears and again only after it has cleared. Without a saved token nothing is sent
@@ -234,6 +237,13 @@ class Notices:
                 self.observe("ledger", facts)
         except Exception:
             pass
+
+    def drifted(self, read) -> None:
+        """What on the host does not follow the active version: `read()` is `drift`'s facts."""
+        try:
+            self.observe("drift", read())
+        except Exception:
+            pass  # unknown this tick: what was sent stays sent
 
     def send(self) -> None:
         try:
@@ -327,6 +337,17 @@ class GitSource:
         return any(path == "deploy/Dockerfile" or not (outside_image(path) or path.startswith(AGENT_UNCHANGED))
                    for path in paths)
 
+    def blobs(self, sha: str, paths: tuple[str, ...]) -> dict[str, str]:
+        """{path: blob identity} of the files under `paths` at `sha`, from its trees alone (no blob is fetched)."""
+        if not REVISION.fullmatch(sha):
+            raise RuntimeError("invalid checkout revision")
+        found = {}
+        for row in self.git("ls-tree", "-r", "-z", sha, "--", *paths, raw=True).split("\0"):
+            if row:
+                facts, path = row.split("\t", 1)
+                found[path] = facts.split(" ")[2]
+        return found
+
     def runtime_inputs(self, sha: str) -> tuple:
         if not REVISION.fullmatch(sha):
             raise RuntimeError("invalid runtime input revision")
@@ -375,6 +396,47 @@ class GitSource:
     def ensure(self, target: dict) -> None:
         if self.approved() != target:
             raise RuntimeError("CI eligibility was withdrawn or superseded during preparation")
+
+
+# The operator's checkout that two of the host's compose files come from (release_host.COMPOSE_FILES), and what of it
+# runs: the compose definition and the remote overlay, without their documentation.
+CHECKOUT = Path("/opt/trade-app")
+CHECKOUT_PATHS = ("deploy/compose.yaml", "deploy/remote/")
+DOCKER_API_PIN = re.compile(r"ghcr\.io/qoeop/trade-docker-api@sha256:[0-9a-f]{64}")
+
+
+def blob(path: Path) -> str | None:
+    """Git's blob identity of a file's bytes; None when it is absent."""
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def drift(host: DockerHost, github: GitSource, checkout: Path = CHECKOUT) -> dict[str, str]:
+    """What on the host does not follow the active version (doctor 20261116-04): the checkout's compose definition
+    and remote overlay against the version's own files, and the running docker-api against the digest the version
+    pins. A release moves neither; the operator does (deploy/README.md and deploy/remote/README.md, Updating)."""
+    sha = revision(host.disk_route())
+    short = sha[:12]
+    facts = {}
+    differing = [path for path, identity in github.blobs(sha, CHECKOUT_PATHS).items()
+                 if not path.endswith(".md") and blob(checkout / path) != identity]
+    if differing:
+        facts[f"drift:checkout:{sha}"] = (
+            f"The host checkout {checkout} differs from the active version {short} in {', '.join(differing)}. The "
+            "release recreates ledger and market-import from these files; update the checkout to that version.")
+    pins = set(DOCKER_API_PIN.findall(github.git("show", f"{sha}:deploy/compose.yaml")))
+    if len(pins) != 1:
+        raise RuntimeError("the active version pins no single docker-api digest")
+    pin = pins.pop()
+    running = host.inspect(DOCKER_API)["image"]
+    if running != pin:
+        facts[f"drift:docker-api:{pin}"] = (
+            f"docker-api runs {running}, but the active version {short} pins {pin}. A release does not move "
+            "docker-api; recreate it from the updated checkout.")
+    return facts
 
 
 class Release:
@@ -854,6 +916,7 @@ def tick(host: DockerHost, notices: Notices) -> bool:
         raise
     finally:
         notices.watch(lambda path, routed=False: host.probe(host.disk_route(), path, routed), host.condition)
+        notices.drifted(lambda: drift(host, GitSource(host.state)))
         notices.send()
 
 

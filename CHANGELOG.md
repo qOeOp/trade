@@ -32,6 +32,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   notice of its own, where before a failed probe was dropped. It reads the `ledger` and `market-import` containers'
   health status, last-exit out-of-memory flag and restart count (a restart notice at 1, 2, 4, ... restarts). No
   release refusal or admission changed.
+- Release (doctor 20261116-04): every release tick compares the host checkout `/opt/trade-app` with the routed
+  version for `deploy/compose.yaml` and `deploy/remote/` (documentation aside), and the running docker-api with the
+  digest that version's `deploy/compose.yaml` pins, and sends a Telegram notice while either differs, once per
+  version or pin. The release still moves neither; the operator updates the checkout and recreates docker-api.
 - Agent (doctor 20261116-09): the IDE's chat Agent runs at most two product commands at once; further tool calls
   wait in order and start when one finishes. Each command is a Python process of its own and the Agent container has
   1 GiB, so a reply that called many tools together could run out of memory. A command's 180-second timeout counts
