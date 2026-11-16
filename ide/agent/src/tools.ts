@@ -12,6 +12,9 @@ export type Run = (argv: string[]) => Promise<{ code: number; stdout: string; st
 export type ToolOutput = { command: string; ok: boolean; output: unknown; truncated: number | null };
 
 export const LIMIT = 20_000;  // characters of output the model sees from one call
+// Product commands running at once. Each is a Python process of its own and the Agent container
+// has 1 GiB, so a reply that asks for many tools at once must not start them all together.
+export const CONCURRENT = 2;
 
 const ref = z.string().regex(/^[\w./@-]{1,100}$/).refine((s) => !s.startsWith("-"), "must not start with -");
 const at = ref.optional().describe("ledger commit, tag or branch (default: the head)");
@@ -149,8 +152,29 @@ export function outcome(command: string, done: { code: number; stdout: string; s
   return { command, ok: done.code === 0, output: shrunk ?? compact.slice(0, LIMIT), truncated: compact.length };
 }
 
+/**
+ * `run` with at most `slots` calls running at once; the rest wait in arrival order. A call's own
+ * timeout starts when it starts, so waiting does not use it up, and every answer is unchanged.
+ */
+export function limited(run: Run, slots: number): Run {
+  let running = 0;
+  const waiting: (() => void)[] = [];
+  return async (args) => {
+    if (running < slots) running += 1;
+    else await new Promise<void>((start) => waiting.push(start));  // a finishing call hands over its slot
+    try {
+      return await run(args);
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else running -= 1;
+    }
+  };
+}
+
 export function productTools(product: Product, run: Run = runProduct(product)): ToolSet {
   const tools: ToolSet = {};
+  const runLimited = limited(run, CONCURRENT);
   for (const name of Object.keys(COMMANDS) as ToolName[]) {
     const spec = COMMANDS[name];
     tools[name] = tool({
@@ -158,7 +182,7 @@ export function productTools(product: Product, run: Run = runProduct(product)): 
       inputSchema: spec.input as z.ZodType<Record<string, unknown>>,
       execute: async (input) => {
         const args = argv(product, name, input as never);
-        return outcome(args.join(" "), await run(args));
+        return outcome(args.join(" "), await runLimited(args));
       },
     });
   }
