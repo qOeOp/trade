@@ -8,7 +8,8 @@ and updates it by hand, or forks the repository and changes those names in the f
 
 The [continuous Web release plane](../../docs/plans/remote-continuous-delivery.zh.md) runs the Web, its
 single Agent writer, its Live control and the Paper controller, and publishes admitted versions without recreating Paper
-runs, the ledger or strategy containers. A merge to `main` is not a release: only a version tag
+runs or strategy containers; the ledger mirror and market import follow each version while no Paper operation is in progress and Live is idle
+([Ledger mirror and market import](#ledger-mirror-and-market-import)). A merge to `main` is not a release: only a version tag
 ([`CHANGELOG.md`](../../CHANGELOG.md)) moves this host, and each version is released by its own control code
 ([Release control code](#release-control-code)). Bootstrap the plane once on a new host with
 `sh deploy/remote/install-release.sh`, after the whole-project `up` below (step 6). It hands control to the newest
@@ -76,6 +77,37 @@ again pulls it by digest. Running containers, the active routes, runs, ledger re
 A whole-project `compose up` starts only the ledger, the Docker API proxy, OAuth2 Proxy and `edge` (its `ide` and `paper`
 services are workstation-only); it never updates the Web or Paper. The release control code changes only with an
 admitted version ([Release control code](#release-control-code)).
+
+### Ledger mirror and market import
+
+The compose services `ledger` (`ledger mirror`) and `market-import` run the service image too, and follow the version
+the release committed ([design](../../docs/plans/release-moves-ledger-mirror-20261116.zh.md)). On the first settled
+tick after a version commits (never in the tick that releases it), each of the two that runs another image and was
+created before the routed Web is recreated on that version's admitted service digest, with the compose files
+`install-release.sh` names and `TRADE_SERVICE_IMAGE` passed in the environment: `/etc/trade/remote.env` is not
+written. The ledger must pass its health check within 10 minutes; market import must still run 30 seconds later. Only
+the image changes: their command and mounts stay those of `/opt/trade-app`, which the operator updates as for `edge`.
+A service that is stopped or absent (market import before step 5 below) is never started.
+
+It waits, and the tick says why, until no Paper operation is in progress and Live is idle: no Paper run is starting,
+stopping, or ended or unsealed and so about to be resumed or sealed (the Paper controller does those in the Paper
+database, which shares the ledger's Dolt process), and Live answers idle inside the account lock, which it holds
+during the move. Running Paper runs do not hold it back: their runners never reach the ledger, and a run that ends
+during the restart is resumed or sealed on the controller's next round without using up a recovery attempt; the
+move then waits up to 3 minutes for such a run's recovery failure to clear before the tick's notices read it. Paper's writes are paused for the move, as in a
+release, and lifecycle operations already admitted finish first. The restart is a short outage of ledger reads for
+the Web, Agent, Paper controller and Live control; the Paper database and the research mirror live in
+`$TRADE_DATA/dolt` and the `trade-dolt-data` volume and survive it. A comparison already running on the Paper page
+fails and can be started again. After the move the routed Web and the Paper controller must answer within 3 minutes.
+
+On any failure every service it touched is recreated on the image it ran before and the tick fails (a Telegram notice
+as for any failed tick). Both are then newer than the routed Web, so no later tick moves them again until the next
+version; to move them by hand, name the active version's images (`python3 -m deploy.images --revision <revision>
+--env /etc/trade/remote.env`) and `compose up -d --no-deps ledger` (`--profile local-research-import` for market
+import). An operator's own recreate of either after a release likewise keeps it until the next version.
+
+Since the env file keeps the image of the host's install, name the routed version's images in it the same way before
+any whole-project `compose up`, or compose puts the ledger back on the older image.
 
 ### Live control pairing
 
@@ -288,7 +320,8 @@ is a new commit and a new version, not a reselection:
 4. Check the About dialog names the new commit, and `journalctl -u trade-release.service` shows it routed.
 
 What a rollback does not undo: ledger records and the market directory only grow, and running Paper and Live runs
-keep the runtime image and controller they started with. 0.x keeps no compatibility between versions, so a revision
+keep the runtime image and controller they started with. The ledger mirror and market import follow the reverted
+version like any other ([Ledger mirror and market import](#ledger-mirror-and-market-import)). 0.x keeps no compatibility between versions, so a revision
 may not read what a later one wrote; a revert that needs the ledger rewound is a destructive write for the user to decide.
 A target that failed stays in `/var/lib/trade-release/failed/`, and the three newest good Web, Agent and controller
 containers stay on the host for inspection.

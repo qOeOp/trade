@@ -68,6 +68,9 @@ Web 照旧保守回滚，所以 Paper 也回滚。每个 tick 先恢复 Paper、
 `paper-failed/` 目录与独立的 Paper tick 删除；0.x 不读旧标记，升级时主机上残留的 `paper-failed/` 不再生效
 （见 `CHANGELOG.md`）。内存余量仍是两侧各自的同一个 2 GiB 检查，没有为两个候选同时运行另加要求。
 
+事务里 ledger 仍是受保护容器。整对提交之后，后面的 tick 在没有进行中的 Paper 操作、Live 空闲时把 ledger 镜像与 market-import
+换到该版本的服务镜像，期间同样冻结 Paper 写入并排空生命周期锁（`release-moves-ledger-mirror-20261116.zh.md`）。
+
 ## 新状态的独立审阅
 
 AGENTS.md 要求添加存储字段前独立审阅。只读子代理 `/root/paper_release_state_review`

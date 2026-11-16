@@ -17,6 +17,7 @@ WEB = "trade-release-web-"
 AGENT = "trade-release-agent-"
 # What compose (project `trade-ide`, deploy/compose.yaml and deploy/remote/) names: fixed, not settings.
 LEDGER = "trade-ide-ledger-1"
+MARKET_IMPORT = "trade-ide-market-import-1"
 ROUTER = "trade-ide-ide-router-1"
 DOCKER_API = "trade-ide-docker-api-1"
 DOCKER_API_NETWORK = "trade-ide_docker-api"
@@ -129,6 +130,22 @@ def sync_directory(path: Path) -> None:
 
 
 ENV_FILE = Path("/etc/trade/remote.env")
+# The compose files of the host's whole project, as install-release.sh names them: the operator's checkout and the
+# installed release overlays. The release recreates two services of the service image from them, changing only
+# TRADE_SERVICE_IMAGE (docs/plans/release-moves-ledger-mirror-20261116.zh.md).
+COMPOSE_FILES = ("/opt/trade-app/deploy/compose.yaml", "/opt/trade-app/deploy/remote/compose.yaml",
+                 "/opt/trade-release/deploy/remote/cd.compose.yaml",
+                 "/opt/trade-release/deploy/remote/paper-cd.compose.yaml")
+# What follows a version: each compose service, its container, and whether its health check says the image works
+# (market-import's says whether the data lags, so it is only seen running).
+FOLLOWERS = (("ledger", LEDGER, True), ("market-import", MARKET_IMPORT, False))
+FOLLOW_WAIT_SECONDS, FOLLOW_SETTLE_SECONDS = 600, 30
+
+
+def moment(created: str) -> tuple[str, str]:
+    """Docker's RFC 3339 creation time (UTC, trailing zeros of the fraction trimmed) in an order that compares."""
+    whole, _, fraction = created.removesuffix("Z").partition(".")
+    return whole, fraction.ljust(9, "0")
 
 
 def deployment_env(path: Path, run=subprocess.run) -> dict[str, str]:
@@ -169,7 +186,7 @@ path,domain,host=sys.argv[1:]
 with urllib.request.urlopen(urllib.request.Request("http://"+host+":8765"+path,headers={"Host":domain}),timeout=15) as r:
  d=json.load(r)
  if path=="/api/lines": out={"status":r.status,"lines":d["lines"]}
- elif path=="/api/paper/runs": out={"status":r.status,"runs":[{"id":x["paper_id"],"candidate":x["candidate"],"state":x["state"],"last":x.get("readings",{}).get("last_bar_ns"),"recovery":(x.get("recovery") or {}).get("code")} for x in d["runs"]]}
+ elif path=="/api/paper/runs": out={"status":r.status,"starting":len(d.get("starting",[])),"runs":[{"id":x["paper_id"],"candidate":x["candidate"],"state":x["state"],"containers":len(x.get("containers",[])),"last":x.get("readings",{}).get("last_bar_ns"),"recovery":(x.get("recovery") or {}).get("code")} for x in d["runs"]]}
  elif path=="/api/about": l=d.get("ledger"); out={"status":r.status,"ledger":l and {k:l.get(k) for k in ("unpublished","behind_seconds","diverged")}}
  elif path.startswith("/api/view"): out={"status":r.status,"ready":r.status==200 and bool(d.get("widgets")),"state":d.get("state")}
  elif path=="/api/agent/agents": out={"status":r.status,"valid":isinstance(d,list)}
@@ -183,7 +200,7 @@ class DockerHost:
         self.config = config
         self.state = config.state
 
-    def docker(self, *args: str, check: bool = True, timeout: int = 120) -> str:
+    def docker(self, *args: str, check: bool = True, timeout: int = 120, env: dict[str, str] | None = None) -> str:
         # Empty private Docker configuration: public pulls do not read a host credential helper.
         root = self.state / "docker"
         root.mkdir(parents=True, exist_ok=True)
@@ -193,6 +210,7 @@ class DockerHost:
             text=True,
             timeout=timeout,
             check=False,
+            env=None if env is None else {**os.environ, **env},
         )
         if check and result.returncode:
             raise RuntimeError(f"docker {args[0]} failed: {result.stderr[-1200:]}")
@@ -215,6 +233,30 @@ class DockerHost:
 
     def exists(self, name: str) -> bool:
         return name in self.docker("ps", "-a", "--format", "{{.Names}}").splitlines()
+
+    def created(self, name: str) -> tuple[str, str]:
+        return moment(json.loads(self.docker("inspect", "--format", "{{json .Created}}", name)))
+
+    def follower(self, name: str) -> dict | None:
+        """A running compose service's image and creation time; None when it is absent or stopped."""
+        if not self.exists(name):
+            return None
+        found = self.inspect(name)
+        return {"image": found["image"], "created": self.created(name)} if found["running"] else None
+
+    def recreate(self, service: str, name: str, image: str, healthy: bool, pull: bool = False) -> None:
+        """Recreate one compose service on `image` from the host's own compose definition: the digest is passed in
+        the process environment, which compose reads over the env file, so the env file is not written."""
+        files = [arg for path in COMPOSE_FILES for arg in ("-f", path)]
+        wait = ["--wait", "--wait-timeout", str(FOLLOW_WAIT_SECONDS)] if healthy else []
+        self.docker("compose", "--env-file", str(ENV_FILE), *files, "--profile", "local-research-import", "up",
+                    "--detach", "--no-deps", "--timeout", "60", "--pull", "missing" if pull else "never", *wait,
+                    service, timeout=FOLLOW_WAIT_SECONDS + 180, env={"TRADE_SERVICE_IMAGE": image})
+        if not healthy:
+            time.sleep(FOLLOW_SETTLE_SECONDS)
+        found = self.inspect(name)
+        if found["image"] != image or not found["running"] or found["restarts"]:
+            raise RuntimeError(f"compose service did not start on its image: {service}")
 
     def discard_failed(self, name: str, prefix: str) -> None:
         """Remove what an earlier attempt at this revision left, before creating it again: the operator deleted

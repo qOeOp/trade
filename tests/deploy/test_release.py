@@ -10,12 +10,13 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from deploy.live_host import LIVE
-from deploy.release import GitSource, Release
+from deploy.live_host import LIVE, LiveBusy
+from deploy.release import GitSource, Release, failure_summary
 from deploy.paper_host import PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
 from deploy.paper_release import PaperRelease
-from deploy.release_host import AGENT, KEPT_RELEASES, WEB, Config, DockerHost, revision, route_config, route_name
+from deploy.release_host import (AGENT, COMPOSE_FILES, KEPT_RELEASES, LEDGER, MARKET_IMPORT, WEB, Config, DockerHost,
+                                 moment, revision, route_config, route_name)
 from tests.deploy.test_paper_release import Host as PaperStandIn
 
 # The keys of a `line list` entry DockerHost.lines reads besides `versions` (graph.line_list), written out: the
@@ -611,9 +612,10 @@ class PruneTests(unittest.TestCase):
             host.managed.return_value = []
             host.disk_route.return_value = WEB + A
             host.requires_live.return_value = False
+            host.follower.return_value = None  # no compose service of the service image to move
             github = Mock()
-            github.approved.return_value = {"revision": A, "image": TARGET["image"]}  # the running control's
-            github.choose.return_value = None
+            github.approved.return_value = {"revision": A, "image": TARGET["image"], "service": TARGET["service"]}
+            github.choose.return_value = None  # the running control's version is the admitted one
             with patch("deploy.release.running", return_value=A):
                 self.assertFalse(Release(host, github, live=IdleLive(host)).tick())
             host.prune.assert_called_once()
@@ -881,3 +883,224 @@ class RetryTests(unittest.TestCase):
         host, removed = self.host({})
         host.discard_failed(WEB + B, WEB)
         self.assertEqual(removed, [])
+
+
+OLD_SERVICE = "ghcr.io/qoeop/trade-service@sha256:" + "0" * 64
+WEB_CREATED, BEFORE, AFTER = ("2026-11-15T10:00:00Z", "2026-11-11T08:00:00.5Z", "2026-11-15T10:00:00.1Z")
+
+
+class FollowHost(Host):
+    """The settled host of version A: Web, Paper controller and the compose services the release may move."""
+
+    def __init__(self, state):
+        super().__init__(state)
+        self.services = {LEDGER: {"image": OLD_SERVICE, "created": moment(BEFORE)},
+                         MARKET_IMPORT: {"image": OLD_SERVICE, "created": moment(BEFORE)}}
+        self.runs = {"starting": 0, "runs": [{"id": 1, "state": "sealed", "containers": 0, "recovery": None}]}
+        self.after_move = None  # the listing once the services moved, when it differs
+        self.recreated = []
+        self.broken = set()
+        self.during = None
+
+    def created(self, name):
+        assert name == WEB + A
+        return moment(WEB_CREATED)
+
+    def follower(self, name):
+        return self.services.get(name)
+
+    def recreate(self, service, name, image, healthy, pull=False):
+        if self.during:
+            self.during()
+        self.recreated.append((service, image, healthy))
+        self.services[name] = {"image": image, "created": moment(AFTER)}
+        if self.after_move is not None:
+            self.runs = self.after_move.pop(0) if isinstance(self.after_move, list) else self.after_move
+        if service in self.broken and image in self.broken:
+            raise RuntimeError("compose service did not start on its image: " + service)
+
+    def probe(self, name, path, routed=False):
+        assert (name, path, routed) == (WEB + A, "/api/paper/runs", True)
+        return json.loads(json.dumps(self.runs))
+
+    def requires_live(self, name):
+        return True
+
+
+class RecordingLive(IdleLive):
+    def __init__(self, host):
+        super().__init__(host)
+        self.held = []
+        self.busy = False
+
+    @contextmanager
+    def barrier(self, name, service=None, *, idle=False, wait_for_lock=False):
+        if self.busy:
+            raise LiveBusy("Live has a running run")
+        self.held.append((name, idle))
+        yield lambda: None
+        self.held.append("released")
+
+
+class FollowTests(unittest.TestCase):
+    """A version moves the ledger mirror and market-import to its service image, only while Paper and Live are idle
+    (doctor 20261115-06): without it they stay on the image of the host's install."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.host = FollowHost(Path(temporary.name))
+        self.github = Mock()
+        self.github.approved.return_value = {**TARGET, "revision": A}  # version A is the committed one
+        self.live = RecordingLive(self.host)
+        self.release = Release(self.host, self.github, live=self.live, paper=paper_release(self.host))
+        self.controller = self.release.paper().host
+        sleep = patch("deploy.release.time.sleep")
+        sleep.start()
+        self.addCleanup(sleep.stop)
+
+    def unfrozen(self):
+        self.assertEqual((self.controller.disk, self.controller.live), (paper_route(PAPER + A),) * 2)
+
+    def test_both_services_move_to_the_version_service_digest_with_paper_frozen_and_live_held(self):
+        seen = []
+        self.host.during = lambda: seen.append((self.controller.live, list(self.live.held)))
+        self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated, [("ledger", TARGET["service"], True),
+                                               ("market-import", TARGET["service"], False)])
+        frozen = paper_route(PAPER + A, "all")
+        self.assertEqual(seen, [(frozen, [(WEB + A, True)])] * 2, "Paper writes wait and Live is held idle")
+        self.assertIn(("held",), self.controller.calls, "lifecycle operations already admitted drained first")
+        self.assertEqual(self.live.held[-1], "released")
+        self.unfrozen()
+        self.host.recreated.clear()
+        self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated, [], "nothing moves twice")
+
+    def test_open_paper_runs_and_their_containers_do_not_hold_the_move_back(self):
+        # The user, 2026-11-16 (「放宽」): runners never reach the ledger, so only a Paper operation in progress waits.
+        self.host.runs = {"starting": 0, "runs": [
+            {"id": 1, "state": "running", "containers": 2, "recovery": None},
+            {"id": 2, "state": "sealed", "containers": 1, "recovery": None}]}
+        self.release.follow(WEB + A)
+        self.assertEqual([service for service, _, _ in self.host.recreated], ["ledger", "market-import"])
+        self.unfrozen()
+
+    def test_a_paper_operation_in_progress_or_an_unreadable_listing_waits(self):
+        for runs in ({"starting": 1, "runs": []},
+                     *({"starting": 0, "runs": [{"id": 1, "state": state, "containers": 2, "recovery": None}]}
+                       for state in ("stopping", "ended", "unsealed")),
+                     {"runs": []}):
+            with self.subTest(runs=runs):
+                self.host.runs = runs
+                self.release.follow(WEB + A)
+                self.assertEqual(self.host.recreated, [])
+                self.assertEqual(self.live.held, [])
+                self.unfrozen()
+
+    def test_a_recovery_failure_from_the_restart_is_waited_out_and_a_lasting_one_does_not_undo_the_move(self):
+        failing = {"starting": 0, "runs": [{"id": 1, "state": "ended", "containers": 2, "recovery": "LEDGER_START"}]}
+        cleared = {"starting": 0, "runs": [{"id": 1, "state": "running", "containers": 2, "recovery": None}]}
+        self.host.after_move = failing  # the restart failed a resume of a run that ended meanwhile
+        polled = []
+
+        def ready(check, *args, **kwargs):
+            if check.__name__ != "cleared":
+                return check()
+            with self.assertRaises(RuntimeError):  # what the tick's notices would report as a lost run
+                check()
+            polled.append(True)
+            self.host.runs = cleared  # the controller's next round resumes it
+            return check()
+
+        with patch("deploy.release.until_ready", side_effect=ready):
+            self.release.follow(WEB + A)
+        self.assertEqual(polled, [True], "the move waits for the controller's retry before the tick's notices")
+        self.assertEqual(len(self.host.recreated), 2)
+        self.host.services = {LEDGER: {"image": OLD_SERVICE, "created": moment(BEFORE)}}
+        self.host.recreated.clear()
+        self.host.after_move = failing  # a recovery failure that lasts: reported by the tick's notices, not undone
+        with patch("deploy.release.until_ready", side_effect=lambda check, *args, **kwargs: check()):
+            self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated, [("ledger", TARGET["service"], True)])
+
+    def test_busy_live_waits_and_unfreezes_paper(self):
+        self.live.busy = True
+        self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated, [])
+        self.unfrozen()
+
+    def test_only_the_committed_version_moves_them_and_never_a_service_recreated_since_or_not_running(self):
+        self.github.approved.return_value = TARGET  # B is admitted but not released yet: it moves them later
+        self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated, [])
+        self.github.approved.return_value = {**TARGET, "revision": A}
+        self.host.services[LEDGER]["created"] = moment(AFTER)  # a move undone, or the operator's recreate
+        del self.host.services[MARKET_IMPORT]  # the operator does not run it
+        self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated, [])
+        self.assertEqual(self.live.held, [])
+
+    def test_a_failed_move_puts_back_every_service_it_touched_and_fails_the_tick_once(self):
+        self.host.broken = {"market-import", TARGET["service"]}
+        with self.assertRaises(RuntimeError) as raised:
+            self.release.follow(WEB + A)
+        self.assertEqual(failure_summary(raised.exception), "service move failed and was undone")
+        self.assertEqual(self.host.recreated, [("ledger", TARGET["service"], True),
+                                               ("market-import", TARGET["service"], False),
+                                               ("market-import", OLD_SERVICE, False), ("ledger", OLD_SERVICE, True)])
+        self.unfrozen()
+        self.host.recreated.clear()
+        self.release.follow(WEB + A)  # both are now newer than the active Web: no outage every tick
+        self.assertEqual(self.host.recreated, [])
+
+    def test_unreadable_readers_after_the_move_put_the_services_back(self):
+        self.controller.health = Mock(side_effect=RuntimeError("Paper controller cannot read its database"))
+        with patch("deploy.release.until_ready", side_effect=lambda check, *args, **kwargs: check()):
+            with self.assertRaises(RuntimeError):
+                self.release.follow(WEB + A)
+        self.assertEqual([image for _, image, _ in self.host.recreated][-2:], [OLD_SERVICE, OLD_SERVICE])
+
+    def test_a_release_tick_leaves_the_services_to_the_next_tick(self):
+        self.github.choose.return_value = TARGET
+        with patch("deploy.release.running", return_value=A), patch.object(Release, "apply") as apply, \
+                patch.object(Release, "follow") as follow, patch.object(Release, "prune"), \
+                patch.object(Release, "recover"):
+            Release(self.host, self.github, live=self.live).tick()
+            apply.assert_called_once_with(TARGET)
+            follow.assert_not_called()
+            self.github.choose.return_value = None
+            Release(self.host, self.github, live=self.live).tick()
+            follow.assert_called_once_with(WEB + A)
+
+
+class RecreateTests(unittest.TestCase):
+    def test_compose_recreates_one_service_from_the_host_definition_with_the_digest_in_its_environment(self):
+        host = DockerHost(Config(state=Path(tempfile.mkdtemp())))
+        self.addCleanup(shutil.rmtree, host.state)
+        done = subprocess.CompletedProcess([], 0, "", "")
+        with patch("deploy.release_host.subprocess.run", return_value=done) as run, \
+                patch.object(DockerHost, "inspect", return_value={"image": TARGET["service"], "running": True,
+                                                                  "restarts": 0}):
+            host.recreate("ledger", LEDGER, TARGET["service"], True)
+        command, env = run.call_args.args[0], run.call_args.kwargs["env"]
+        self.assertEqual(env["TRADE_SERVICE_IMAGE"], TARGET["service"])
+        self.assertEqual(command[:5], ["docker", "--config", str(host.state / "docker"), "--host",
+                                       "unix:///var/run/docker.sock"])
+        self.assertEqual(command[5:8], ["compose", "--env-file", "/etc/trade/remote.env"])
+        self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == "-f"], list(COMPOSE_FILES))
+        self.assertEqual(command[-1], "ledger")
+        for flag in ("--no-deps", "--wait", "--detach"):
+            self.assertIn(flag, command)
+        self.assertEqual(command[command.index("--pull") + 1], "never", "the release pulled and checked it")
+        with patch("deploy.release_host.subprocess.run", return_value=done), \
+                patch("deploy.release_host.time.sleep"), \
+                patch.object(DockerHost, "inspect", return_value={"image": OLD_SERVICE, "running": True,
+                                                                  "restarts": 0}):
+            with self.assertRaisesRegex(RuntimeError, "did not start"):
+                host.recreate("market-import", MARKET_IMPORT, TARGET["service"], False)
+
+    def test_creation_times_compare_whatever_fraction_docker_trims(self):
+        self.assertLess(moment("2026-11-15T10:00:00Z"), moment("2026-11-15T10:00:00.1Z"))
+        self.assertLess(moment("2026-11-15T10:00:00.45Z"), moment("2026-11-15T10:00:00.5Z"))
+        self.assertLess(moment("2026-11-11T08:00:00.999999999Z"), moment("2026-11-15T10:00:00Z"))

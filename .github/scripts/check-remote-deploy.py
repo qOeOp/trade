@@ -76,3 +76,18 @@ with tempfile.TemporaryDirectory() as temporary:
     assert execution["ledger"] == services["ledger"]
     assert execution["docker-api"] == services["docker-api"]
     print("Paper release router exposes no port and does not recreate the execution/ledger configuration")
+
+    # A release moves the ledger mirror and market-import to its service digest by passing it in the process
+    # environment, over the env file it leaves unchanged (deploy/release_host.py DockerHost.recreate).
+    moved = f"ghcr.io/qoeop/trade-service@sha256:{'1' * 64}"
+    follow = subprocess.run(["docker", "compose", "--env-file", str(env_file), "-f", "deploy/compose.yaml",
+                             "-f", "deploy/remote/compose.yaml", "-f", "deploy/remote/cd.compose.yaml",
+                             "-f", "deploy/remote/paper-cd.compose.yaml", "--profile", "local-research-import",
+                             "config", "--format", "json"],
+                            env={**os.environ, "TRADE_SERVICE_IMAGE": moved}, capture_output=True, text=True,
+                            check=True)
+    followed = json.loads(follow.stdout)["services"]
+    assert followed["ledger"]["image"] == followed["market-import"]["image"] == moved
+    assert followed["ledger"] == {**execution["ledger"], "image": moved}
+    assert followed["docker-api"] == execution["docker-api"]
+    print("A release's service digest reaches the ledger mirror and market import without the env file changing")
