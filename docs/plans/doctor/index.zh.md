@@ -19,7 +19,7 @@
 | 20261116-09 | Agent 工具调用子进程并发无上限 | 修缺陷（限制并发） | doctor | minutes | in PR [#3129](https://github.com/qOeOp/trade/pull/3129) | 2026-11-16 | 2026-11-16 |
 | 20261116-10 | 主机与 dockerd 重启从没演练 | 演练与 live-restore 决定，要授权 | doctor | hours | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-16 | 2026-11-16 |
 | 20261116-01 | Web 对每个产品读取起一个子进程且并发无上限，研究线页面的一批读取让容器内存超限 | 修缺陷（限制并发产品读取） | doctor | minutes | open [记录](2026-11-16-web-oom-overview.zh.md) | 2026-11-16 | 2026-11-16 |
-| 20261116-02 | Market 概览进程在 Web 容器里无人监督，死后一直 502 | 修缺陷（监督概览进程） | doctor | minutes | open [记录](2026-11-16-web-oom-overview.zh.md) | 2026-11-16 | 2026-11-16 |
+| 20261116-02 | Market 概览进程在 Web 容器里无人监督，死后一直 502 | 修缺陷（监督概览进程） | doctor | minutes | in PR [#3131](https://github.com/qOeOp/trade/pull/3131) | 2026-11-16 | 2026-11-16 |
 | 20261115-05 | 账本历史被替换后，研究图服务与页面仍显示旧账本画的同名研究线的图 | 修缺陷（Hub 与页面丢掉不属于本账本的视图） | doctor | minutes | fixed 7aeb88e89 [#3123](https://github.com/qOeOp/trade/pull/3123) | 2026-11-15 | 2026-11-15 |
 | 20261115-06 | 服务器的 ledger 镜像服务与 market-import 不随版本发布，镜像自动同步从没上过生产 | 改发布设计（用户定：随版本更新）；先写设计记录 | doctor | hours | fixed 6cd885f66 [#3124](https://github.com/qOeOp/trade/pull/3124) | 2026-11-15 | 2026-11-15 |
 | 20261114-22 | Live 入场在派发环节被拒时不走 STOP 平仓路径，直接停节点，仓位留在账户里 | fix（改回已定设计；改变真实仓位上的平仓行为，合并前告知用户） | doctor | unknown | fixed aadf691f8 [#3022](https://github.com/qOeOp/trade/pull/3022) | 2026-11-14 | 2026-11-14 |

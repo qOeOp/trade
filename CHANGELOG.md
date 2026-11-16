@@ -30,6 +30,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   wait in order and start when one finishes. Each command is a Python process of its own and the Agent container has
   1 GiB, so a reply that called many tools together could run out of memory. A command's 180-second timeout counts
   from its own start, and answers are unchanged.
+- IDE (fix, doctor 20261116-02): the IDE image's entrypoint keeps the Market overview and the chat service running.
+  Each runs in a restart loop that logs its exit status and starts it again after a pause (1 s, doubling while it
+  keeps dying within a minute, up to 60 s). Before, when the kernel killed the overview on the container's memory
+  limit, nothing restarted it and `/api/overview/*` answered 502 until the container was restarted. `serve` stays
+  the container's main process, so stopping the container is unchanged and the loops end with it.
 - Release (doctor 20261115-06): the release host's ledger mirror and market import now follow each version. On the
   first tick after a version commits, while no Paper operation is in progress (running Paper runs are allowed) and
   Live is idle, the release recreates the compose
