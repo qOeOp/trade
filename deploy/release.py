@@ -38,7 +38,9 @@ from .release_host import (
     WEB,
     Config,
     DockerHost,
+    JOURNAL_FORMAT,
     durable_json,
+    read_journal,
     revision,
     sync_directory,
     until_ready,
@@ -116,6 +118,8 @@ def failure_summary(error: Exception) -> str:
                 "host memory below the 2 GiB a standby Paper controller needs; the release waits",
             "insufficient candidate memory headroom; keep current release":
                 "host memory below the 2 GiB a candidate Web needs; the release waits",
+            JOURNAL_FORMAT: "pending journal not in this control's format",
+            "a pending release transaction waits for an admitted control": "pending journal waits for a control",
         }
         message = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str else None
         if message is None:
@@ -521,7 +525,7 @@ class Release:
     def _recover(self) -> None:
         if not self.transaction.exists():
             return
-        transaction = json.loads(self.transaction.read_text())
+        transaction = read_journal(self.transaction, frozenset({"candidate", "previous"}), frozenset({"agent_before"}))
         candidate, previous = transaction["candidate"], transaction["previous"]
         sha = revision(candidate)
         self.host.checked(previous)
@@ -767,22 +771,26 @@ class Release:
         return True
 
     def tick(self) -> bool:
-        """One release step under the running control; True when it handed control over instead."""
+        """One release step under the running control; True when it handed control over instead.
+
+        A newer admitted control takes over first, before this one prepares or recovers anything, so a control
+        whose own preparation or recovery fails cannot keep out the version that fixes it (doctor 20261116-06,
+        the user 2026-11-16). A pending transaction is then recovered by whichever control runs, the newer one
+        included, which reads the journal only in exactly its own format (`read_journal`)."""
         control = running(self.state)
-        pending = self.transaction.exists() or (self.state / "paper-transaction.json").exists()
-        if control is None:
-            # The bootstrap copy only hands over: a transaction is recovered by the control that wrote it.
-            if pending:
-                raise RuntimeError("a pending release transaction waits for the control that wrote it")
-        else:
-            self.recover()
-            if pending:
-                print("Recovered a pending release transaction; the next tick goes on from there", flush=True)
-                return False
         if self.handoff(control):
             return True
         if control is None:
+            # The bootstrap copy only hands over: it has no revision and recovers nothing.
+            if self.transaction.exists() or (self.state / "paper-transaction.json").exists():
+                raise RuntimeError("a pending release transaction waits for an admitted control")
             print("No admitted version to hand release control to", flush=True)
+            return False
+        self.host.prepare()
+        pending = self.transaction.exists() or (self.state / "paper-transaction.json").exists()
+        self.recover()
+        if pending:
+            print("Recovered a pending release transaction; the next tick goes on from there", flush=True)
             return False
         active = self.host.disk_route()
         self.host.checked(active)
@@ -949,8 +957,7 @@ def main() -> None:
 def tick(host: DockerHost, notices: Notices) -> bool:
     """One timer tick, then the failure notices of what it and the routed Web saw; True when it handed control over."""
     try:
-        host.prepare()
-        handed = Release(host, GitSource(host.state)).tick()
+        handed = Release(host, GitSource(host.state)).tick()  # it prepares the host after any handoff
         notices.released(None)
         return handed
     except Exception as error:

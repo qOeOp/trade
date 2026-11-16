@@ -125,6 +125,23 @@ def durable_json(path: Path, value: dict, mode: int | None = None) -> None:
     sync_directory(path.parent)
 
 
+JOURNAL_FORMAT = "pending release journal is not in this control's format; left for the operator"
+
+
+def read_journal(path: Path, keys: frozenset[str], optional: frozenset[str] = frozenset()) -> dict[str, str]:
+    """A pending release journal, read only when it has exactly the shape this control writes: `keys`, any of
+    `optional`, and string values. A newer control may recover an older one's journal (Release.tick); until 1.0 no
+    version reads another's format (CHANGELOG.md), so one this control did not write is refused, never guessed."""
+    try:
+        value = json.loads(path.read_text())
+    except ValueError:
+        raise RuntimeError(JOURNAL_FORMAT) from None
+    if (not isinstance(value, dict) or not keys <= value.keys() <= keys | optional
+            or not all(isinstance(item, str) for item in value.values())):
+        raise RuntimeError(JOURNAL_FORMAT)
+    return value
+
+
 def sync_directory(path: Path) -> None:
     fd = os.open(path, os.O_RDONLY)
     try:

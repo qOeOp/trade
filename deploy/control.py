@@ -2,8 +2,8 @@
 
 The host runs `deploy/remote/trade-release-tick`, which starts `python3 -m deploy.release tick` in
 `/var/lib/trade-release/control/current`, or in the bootstrap copy `install-release.sh` put at `/opt/trade-release`
-until the first handoff. A settled tick whose admitted `deploy-ready` revision differs from the running control's
-copies `/opt/trade/deploy/*.py` out of that version's service image, which CI built and `deploy-ready` pins by digest,
+until the first handoff. A tick whose admitted `deploy-ready` revision is newer than the running control's, first and
+even with a release transaction pending (deploy/release.py Release.tick), copies `/opt/trade/deploy/*.py` out of that version's service image, which CI built and `deploy-ready` pins by digest,
 without running the image, then points `current` at it and ends; the launcher runs the tick again under it.
 
 Every later version's handoff runs through this code of the version before it: keep it small and keep its

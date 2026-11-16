@@ -90,6 +90,9 @@ class Host:
         self.rollback_fails = False
         self.protected_identity = {"paper-worker": {"id": "original", "started": "original"}}
 
+    def prepare(self):
+        pass
+
     def checked(self, name, prefix=WEB):
         revision(name, prefix)
         return self.inspect(name)
