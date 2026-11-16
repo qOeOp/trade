@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { argv, COMMANDS, LIMIT, outcome, productTools, type ToolName } from "./tools.ts";
+import { argv, COMMANDS, CONCURRENT, LIMIT, outcome, productTools, type ToolName } from "./tools.ts";
 
 const product = { root: "/opt/trade", ledger: "research", market: "market" };
 
@@ -61,4 +61,28 @@ test("a refusal reaches the model as the product's refusal JSON", async () => {
   const tools = productTools(product, async () => ({ code: 2, stdout: "", stderr: '{"code": "LEDGER_UNAVAILABLE", "message": "down"}' }));
   const result = await tools.research_status.execute!({}, { toolCallId: "1", messages: [] } as never);
   assert.deepEqual(result, { command: "research status --ledger=research", ok: false, output: { code: "LEDGER_UNAVAILABLE", message: "down" }, truncated: null });
+});
+
+test("at most CONCURRENT product commands run at once; the rest wait and keep their answers", async () => {
+  let running = 0;
+  let most = 0;
+  const release: (() => void)[] = [];
+  const tools = productTools(product, async (args) => {
+    running += 1;
+    most = Math.max(most, running);
+    await new Promise<void>((done) => release.push(done));
+    running -= 1;
+    return { code: 0, stdout: JSON.stringify({ trial: args.at(-1) }), stderr: "" };
+  });
+  const calls = Array.from({ length: 6 }, (_, i) =>
+    tools.replay_report.execute!({ trial_id: i + 1 }, { toolCallId: String(i), messages: [] } as never));
+  for (let released = 0; released < 6; released += 1) {
+    while (release.length === 0) await new Promise((tick) => setImmediate(tick));
+    assert.ok(running <= CONCURRENT, `${running} commands running at once`);
+    release.shift()!();
+  }
+  const results = await Promise.all(calls);
+  assert.equal(most, CONCURRENT);
+  assert.deepEqual(results.map((r) => (r as { output: unknown }).output),
+    Array.from({ length: 6 }, (_, i) => ({ trial: `--trial-id=${i + 1}` })));
 });

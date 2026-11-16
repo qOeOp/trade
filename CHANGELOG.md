@@ -26,6 +26,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Agent (doctor 20261116-09): the IDE's chat Agent runs at most two product commands at once; further tool calls
+  wait in order and start when one finishes. Each command is a Python process of its own and the Agent container has
+  1 GiB, so a reply that called many tools together could run out of memory. A command's 180-second timeout counts
+  from its own start, and answers are unchanged.
 - Release (doctor 20261115-06): the release host's ledger mirror and market import now follow each version. On the
   first tick after a version commits, while no Paper operation is in progress (running Paper runs are allowed) and
   Live is idle, the release recreates the compose
