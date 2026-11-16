@@ -10,8 +10,9 @@ import unittest
 from unittest.mock import Mock, patch
 
 from deploy.control import CONTROLS, CURRENT, EXTRACTOR, HANDOFF, IMAGE_DEPLOY, hand_off, running
-from deploy.release import Release
-from deploy.release_host import SOURCE, Config, DockerHost
+from deploy.paper_release import PaperRelease
+from deploy.release import Release, failure_summary
+from deploy.release_host import JOURNAL_FORMAT, SOURCE, Config, DockerHost
 
 A, B, C = (letter * 40 for letter in "abc")
 SERVICE = "ghcr.io/qoeop/trade-service@sha256:" + "e" * 64
@@ -142,34 +143,65 @@ class TickTests(unittest.TestCase):
 
     def test_a_settled_tick_hands_a_different_admitted_revision_its_own_control_and_releases_nothing(self):
         self.assertTrue(self.tick(A))
-        self.paper.return_value.recover.assert_called_once()  # under the control that may have written it
         self.assertEqual(os.readlink(self.state / CONTROLS / CURRENT), B)
         self.assertEqual(self.docker.verbs(), ["pull", "image inspect", "rm", "create", "cp", "rm"])
         self.assertFalse((self.state / "router").exists())
+        self.assertFalse((self.state / "profiles").exists(), "the host is prepared by the control that runs next")
         self.github.choose.assert_not_called()
         self.paper.return_value.tick.assert_not_called()
 
-    def test_a_pending_transaction_is_recovered_by_its_control_and_that_tick_hands_nothing_over(self):
-        for journal in ("transaction.json", "paper-transaction.json"):
-            with self.subTest(journal=journal):
-                (self.state / journal).write_text("{}")
-                settle = lambda *_: (self.state / journal).unlink(missing_ok=True)  # noqa: E731
-                self.paper.return_value.recover.side_effect = settle
-                with patch.object(Release, "recover", settle):
-                    self.assertFalse(self.tick(A))
-                self.assertFalse((self.state / journal).exists())
-                self.github.approved.assert_not_called()
-                self.assertEqual(self.docker.calls, [])
-                self.assertFalse((self.state / CONTROLS).exists())
-
-    def test_the_bootstrap_copy_leaves_a_pending_transaction_to_its_writer_and_otherwise_only_hands_over(self):
+    def test_a_control_that_fails_to_prepare_or_recover_still_hands_over_to_the_newer_one(self):
+        # Doctor 20261116-06, the user 2026-11-16: a defective control must not keep out the version that fixes it.
         (self.state / "transaction.json").write_text("{}")
-        with self.assertRaisesRegex(RuntimeError, "control that wrote it"):
+        with patch.object(Docker, "prepare", side_effect=RuntimeError("defective")), \
+                patch.object(Release, "recover", side_effect=RuntimeError("defective")):
+            self.assertTrue(self.tick(A))
+        self.assertEqual(os.readlink(self.state / CONTROLS / CURRENT), B)
+        self.assertTrue((self.state / "transaction.json").exists(), "the newer control recovers it next")
+
+    def test_a_pending_transaction_is_recovered_by_the_newest_control_and_that_tick_goes_no_further(self):
+        for control in (A, B):  # the control that wrote it, or the newer one it handed over to
+            for journal in ("transaction.json", "paper-transaction.json"):
+                with self.subTest(control=control, journal=journal):
+                    self.github.approved.return_value = {**TARGET, "revision": control}
+                    (self.state / journal).write_text("{}")
+                    settle = lambda *_: (self.state / journal).unlink(missing_ok=True)  # noqa: E731
+                    with patch.object(Release, "recover", side_effect=settle) as recover:
+                        self.assertFalse(self.tick(control))
+                    recover.assert_called_once()
+                    self.assertFalse((self.state / journal).exists())
+                    self.github.choose.assert_not_called()
+                    self.assertEqual(self.docker.calls, [])
+                    self.assertFalse((self.state / CONTROLS).exists())
+
+    def test_a_journal_not_in_the_recovering_controls_format_is_refused_and_left_in_place(self):
+        web = {"candidate": "trade-release-web-" + A, "previous": "trade-release-web-" + C}
+        for name, value in (("transaction.json", {**web, "agent": "trade-release-agent-" + C}),
+                            ("transaction.json", {"candidate": web["candidate"]}),
+                            ("transaction.json", {**web, "previous": 7}),
+                            ("paper-transaction.json", {**web, "agent_before": "trade-release-agent-" + C}),
+                            ("paper-transaction.json", ["not", "an", "object"])):
+            with self.subTest(name=name, value=value):
+                path = self.state / name
+                path.write_text(json.dumps(value))
+                recovering = (Release(self.docker, self.github, live=Mock()) if name == "transaction.json"
+                              else PaperRelease(Mock(state=self.state), self.github))
+                with self.assertRaisesRegex(RuntimeError, re.escape(JOURNAL_FORMAT)) as raised:
+                    recovering.recover()
+                self.assertEqual(failure_summary(raised.exception), "pending journal not in this control's format")
+                self.assertEqual(json.loads(path.read_text()), value)
+                self.assertEqual(self.docker.calls, [])
+                path.unlink()
+
+    def test_the_bootstrap_copy_recovers_nothing_and_only_hands_over(self):
+        (self.state / "transaction.json").write_text("{}")
+        self.github.approved.return_value = {**TARGET, "image": None}
+        with self.assertRaisesRegex(RuntimeError, "waits for an admitted control"):
             self.tick(None)
         self.paper.return_value.recover.assert_not_called()
         self.assertEqual(self.docker.calls, [])
-        (self.state / "transaction.json").unlink()
-        self.assertTrue(self.tick(None))
+        self.github.approved.return_value = TARGET
+        self.assertTrue(self.tick(None))  # the admitted control recovers the pending transaction
         self.paper.return_value.recover.assert_not_called()
         self.assertEqual(os.readlink(self.state / CONTROLS / CURRENT), B)
 

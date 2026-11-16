@@ -11,9 +11,8 @@ Otherwise it rolls back to the previous controller, before the Web rolls back, a
 """
 
 import os
-import json
 from .paper_host import PAPER, PaperHost
-from .release_host import SERVICE_REF, RUNTIME_REF, WEB, durable_json, revision, sync_directory
+from .release_host import SERVICE_REF, RUNTIME_REF, WEB, durable_json, read_journal, revision, sync_directory
 
 
 class PaperRelease:
@@ -43,7 +42,7 @@ class PaperRelease:
         if not self.transaction.exists():
             self.host.normalize()  # commit may have preceded unfreezing starts
             return
-        value = json.loads(self.transaction.read_text())
+        value = read_journal(self.transaction, frozenset({"candidate", "previous"}))
         candidate, previous = value["candidate"], value["previous"]
         revision(candidate, PAPER)
         if self.web_committed(candidate):

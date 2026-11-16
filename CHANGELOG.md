@@ -38,6 +38,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   naming the 2 GiB it keeps; the Paper listing reports it as `memory.headroom`, which the page's "memory full"
   explanation now names instead of a fixed 1 GiB. On the 7.2 GiB host this admits about 1 GiB less of runs while the budget is not the
   limit. The user authorized changing the refusal (2026-11-16).
+- Release (doctor 20261116-06, the user 2026-11-16): a release tick hands control to a newer admitted version first,
+  before it prepares the host or recovers a pending transaction, so a control whose own preparation or recovery fails
+  no longer keeps out the version that fixes it. The newer control then recovers the pending Web or Paper
+  transaction an older one wrote; until now only the control that wrote a transaction recovered it, and the bootstrap
+  copy refused one. A control reads a journal only in exactly its own format: one it did not write fails the tick as
+  `pending journal not in this control's format` and stays for the operator, unread. The operator's way out
+  ([deploy/remote/README.md](deploy/remote/README.md), When the running control fails before it hands over) is now
+  needed only for a control that fails before or inside the handoff.
 - Release (doctor 20261116-03): every release tick now watches what runs after a version commits, and sends what
   fails through the same Telegram chat as its other notices, once while it lasts. It probes `/api/overview/health`,
   `/api/agent/health` and `/api/paper/health` through the router; a routed Web that answers none of them is one

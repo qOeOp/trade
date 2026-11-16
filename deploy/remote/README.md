@@ -512,9 +512,9 @@ fetched checkout or from `main`, and no one installs control code by hand.
 
 `trade-release.service` starts the fixed launcher `/opt/trade-release/trade-release-tick`. It runs the tick
 (`python3 -m deploy.release tick`) in `/var/lib/trade-release/control/current`, a symlink to `control/<revision>`,
-the directory whose name is the running control's revision. A tick first recovers a pending Web or Paper
-transaction under the control that wrote it; a tick that recovered ends there. In a settled state, when the admitted
-`deploy-ready` revision differs from the running control's, the control hands over before releasing anything:
+the directory whose name is the running control's revision. When the admitted `deploy-ready` revision is newer than
+the running control's, a tick first hands over, before it prepares the host or recovers anything, so a control whose
+own preparation or recovery fails cannot keep out the version that fixes it:
 
 1. it pulls the admitted service image by digest and checks it as for a release (this repository, that revision,
    amd64, the admitted digest);
@@ -526,15 +526,20 @@ transaction under the control that wrote it; a tick that recovered ends there. I
    `Handed release control from … to …` and exits with status 3.
 
 The launcher then runs the tick once more under the new control, which releases its own version; it never runs a
-third. A handoff touches no route and no release container. A refused handoff (an image that differs from
+third. A tick that does not hand over recovers a pending Web or Paper transaction, whichever control wrote it, and
+ends there. A newer control reads an older one's journal only when it has exactly the shape the newer control writes
+(`deploy/release_host.py` `read_journal`): until 1.0 no version reads another's format, so a journal it did not write
+fails every tick as `pending journal not in this control's format` and stays, with the routes and containers, for the
+operator; nothing is guessed. A handoff touches no route and no release container. A refused handoff (an image that differs from
 admission, a control that does not import) leaves `current` where it was, fails the tick and is noticed like any
 release failure. A version later marked failed keeps its control, and that control hands the next admitted version
 over. `deploy/control.py` is the handoff every next version passes through: keep it small and its contract stable
 (`deploy.release` and `deploy.control` importable with the host's `python3`, exit status 3).
 
 `install-release.sh` installs the launcher, the unit and timer, the compose overlays and a bootstrap copy of
-`deploy/*.py` in `/opt/trade-release`. The bootstrap copy has no revision: it recovers nothing, refuses a pending
-transaction (the control that wrote it must recover it) and only hands over to the admitted version. On a new host
+`deploy/*.py` in `/opt/trade-release`. The bootstrap copy has no revision: it recovers nothing and only hands over
+to the admitted version, whose control then recovers a pending transaction; with no admitted version to hand over to,
+it refuses one. On a new host
 the installer runs that handoff itself (`python3 -m deploy.release handoff`) before the first release.
 
 **A host installed before the handoff** (its unit runs `python3 -m deploy.release tick` in `/opt/trade-release`)
@@ -559,21 +564,23 @@ admitted.
 
 ### When the running control fails before it hands over
 
-A tick runs, in order, `Config.installed()` and `DockerHost.prepare()` (`deploy/release.py` `main`, `tick`), then
-`Release.tick`: `recover()` (Paper's journal, then the Web's) and only then `handoff()`. A control whose code fails in
-any of those steps fails every tick before it can hand over, so it never installs the version that fixes it. This is
-the operator's way out; it changes no code and no recovery rule.
+A tick runs, in order, `Config.installed()` (`deploy/release.py` `main`), then `Release.tick`: `handoff()` first, and
+only when it does not hand over `DockerHost.prepare()` and `recover()` (Paper's journal, then the Web's). A control
+whose preparation or recovery fails therefore still hands over to the next admitted version, and that version's
+control recovers whatever is pending (in its own journal format only, see above): nothing below is needed then. Only a
+control that fails before or inside `handoff()` (reading the env file, importing, reading `deploy-ready`, the handoff
+itself) fails every tick before it can hand over, so it never installs the version that fixes it. This is the
+operator's way out; it changes no code and no recovery rule.
 
 1. Stop the timer and let a running tick finish: `sudo systemctl stop trade-release.timer`, then repeat
    `systemctl show -p ActiveState --value trade-release.service` until it says `inactive` or `failed` (a running
    oneshot tick shows `activating`). Do not kill a tick.
 2. Look for a pending transaction: `ls -l /var/lib/trade-release/transaction.json
    /var/lib/trade-release/paper-transaction.json` (`Release.transaction`, `PaperRelease.transaction`; a leftover
-   `*.pending` file is an unfinished write, not a journal). If either exists, stop here: no step below is safe. A
-   pending journal is for the control that wrote it: the bootstrap copy refuses one (`Release.tick`), but any other
-   installed control `current` named would recover it with its own code, since `Release.tick` recovers whatever is
-   pending. Do not delete, edit or move a journal, and do not re-point `current` while one exists. The code as is has
-   no manual way out of this case: keep the timer stopped until it is decided.
+   `*.pending` file is an unfinished write, not a journal). Do not delete, edit or move a journal. With one pending,
+   point `current` only at a control that hands over before it recovers (any version after 0.4.0): it hands over to
+   the fixed version, whose control recovers the journal. A control of 0.4.0 or earlier recovers first with its own
+   code; with a journal pending, keep the timer stopped rather than point `current` at one.
 3. Wait until `deploy-ready` admits a version whose control is fixed: its `release.json` names that version's commit
    with a non-null `image` (`git fetch origin deploy-ready && git show origin/deploy-ready:release.json` in any
    checkout). Until then, every control hands over to the defective one again: a tick under the previous control
@@ -592,12 +599,13 @@ the operator's way out; it changes no code and no recovery rule.
 
    If no previous directory exists (the defective control was the first one the bootstrap copy handed to), remove
    `current` instead (`rm /var/lib/trade-release/control/current`): the launcher then runs the bootstrap copy in
-   `/opt/trade-release`, which only hands over, and refuses while a journal is pending. It is the code
-   `install-release.sh` last installed, possibly older than the previous control.
-6. Start the timer: `sudo systemctl start trade-release.timer`. The next tick runs under the control you chose,
-   recovers nothing (nothing is pending), and hands over to the fixed version (`Handed release control from … to …`,
-   `journalctl -u trade-release.service`); the launcher's second tick releases it under its own control. That handoff
-   removes the defective control's directory.
+   `/opt/trade-release`, which only hands over (and recovers nothing). It is the code `install-release.sh` last
+   installed, possibly older than the previous control; one installed from 0.4.0 or earlier refuses while a journal
+   is pending.
+6. Start the timer: `sudo systemctl start trade-release.timer`. The next tick runs under the control you chose and
+   hands over to the fixed version (`Handed release control from … to …`, `journalctl -u trade-release.service`); the
+   launcher's second tick recovers a pending transaction or releases the fixed version under its own control. That
+   handoff removes the defective control's directory.
 
 Routes and containers stay as the defective control left them. If it failed from its first tick, it released nothing
 and the routed Web, Agent, Live control and Paper controller are still the previous version's; if it released its own
