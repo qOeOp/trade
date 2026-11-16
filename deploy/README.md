@@ -155,7 +155,8 @@ A deployment runs images by digest, so a pull cannot change what it runs. A tag 
   which holds every checked `main` build. The author's Mac compose follows `main-ready` as staging. It needs
   Python 3.12 or newer (`python3 -m deploy.images` on a server, always the default channel). It reads public data
   with no credential and pulls nothing.
-- **docker-api**: the digest in `compose.yaml`, moved only by a pull request.
+- **docker-api**: the digest in `compose.yaml`, moved only by a pull request (and on the release host by the release
+  of the version that carries it).
 - **Replays**: `trade-runtime:main` finds the current replay image, and the ledger records the digest it resolved to.
 
 During 0.x a version reads no other version's state, so a deployment never goes back to an earlier version's
@@ -183,8 +184,11 @@ docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}'
   "$(docker inspect -f '{{.Image}}' trade-ide-paper-1)"
 ```
 
-docker-api runs the digest in `compose.yaml`, and no pull moves it. A change to `docker-api/` takes two pull requests:
+docker-api runs the digest in `compose.yaml` (the default of `TRADE_DOCKER_API_IMAGE`, which only the release host's
+release sets), and no pull moves it. A change to `docker-api/` takes two pull requests:
 the change, then, after its `main` build, the digest of `ghcr.io/qoeop/trade-docker-api:sha-<commit>` in `compose.yaml`.
+On a workstation, `docker compose -f deploy/compose.yaml up -d --no-deps docker-api` then recreates it; the release
+host's release moves it with each version ([remote/README.md](remote/README.md#ledger-mirror-and-market-import)).
 Reverting that line goes back to the previous proxy. A `main` build warns while the source is ahead of the pin.
 
 Each restart takes seconds; what it interrupts decides when to make it:

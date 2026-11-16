@@ -35,12 +35,22 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Release (doctor 20261116-04): every release tick compares the host checkout `/opt/trade-app` with the routed
   version for `deploy/compose.yaml` and `deploy/remote/` (documentation aside), and the running docker-api with the
   digest that version's `deploy/compose.yaml` pins, and sends a Telegram notice while either differs, once per
-  version or pin. The release still moves neither; the operator updates the checkout and recreates docker-api.
+  version or pin. The release does not change the checkout; the operator updates it.
 - Release and deployment (doctor 20261116-05): a release tick refused for host memory (less than 2 GiB available
   for a standby Paper controller or a candidate Web) now says so in its journal line and Telegram notice instead of
   "unclassified runtime failure"; the threshold and Paper's admission headroom are unchanged. `market-import` gets a
   memory cap without swap, `TRADE_MARKET_IMPORT_MEMORY` (default `3g`, sized from the code, not measured at its
   peak). On the release host it takes effect once `/opt/trade-app` is updated and the service is recreated from it.
+- Release (doctor 20261116-04, the user 2026-11-16): the release host's release now moves the Docker API proxy with
+  each version, on the same settled tick and under the same conditions as the ledger mirror and market import (no
+  Paper operation in progress, Paper writes paused, Live idle, undone with them on failure). It pulls the digest the
+  routed version's `deploy/compose.yaml` pins and recreates `docker-api` with it in `TRADE_DOCKER_API_IMAGE`; the
+  compose file now reads `${TRADE_DOCKER_API_IMAGE:-<pin>}`, so anything that does not set the variable still runs
+  the pin. Until now the proxy moved only when the operator recreated it, so a version whose Paper controller used
+  container options its proxy did not admit had its Paper starts refused. While the proxy is recreated the Paper
+  page's list, starts, stops and seals fail for those seconds; running runs go on. The checkout must be at a version
+  with the variable (this one or later) before the release moves the proxy; with an older one it keeps the proxy and
+  says why. The docker-api drift notice now names only a proxy the release will not move until the next version.
 - Agent (doctor 20261116-09): the IDE's chat Agent runs at most two product commands at once; further tool calls
   wait in order and start when one finishes. Each command is a Python process of its own and the Agent container has
   1 GiB, so a reply that called many tools together could run out of memory. A command's 180-second timeout counts

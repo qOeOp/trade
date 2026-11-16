@@ -87,10 +87,21 @@ created before the routed Web is recreated on that version's admitted service di
 `install-release.sh` names and `TRADE_SERVICE_IMAGE` passed in the environment: `/etc/trade/remote.env` is not
 written. The ledger must pass its health check within 10 minutes; market import must still run 30 seconds later. Only
 the image changes: their command and mounts stay those of `/opt/trade-app`, which the operator updates as for `edge`.
+The Docker API proxy follows the same way, on the same tick and under the same conditions, to the digest the routed
+version's `deploy/compose.yaml` pins (the user, 2026-11-16): a version's Paper controller creates runs only with the
+container options its own proxy's `docker-api/check.go` admits. The release pulls that digest (this repository,
+amd64), then recreates `docker-api` with `TRADE_DOCKER_API_IMAGE` passed in the environment, so compose makes the
+container and its mounts anew, as after a moved data directory, where a restart would not; it must still run 30
+seconds later, and the Paper controller's listing, which reads Docker through it, must answer. It moves only when the
+checkout's definition takes its image from that variable (`compose config`); an older checkout keeps it, and the tick
+says why. While it is recreated the Paper controller's Docker calls are refused (`RUNTIME_UNAVAILABLE`): the Paper
+page's run list, starts, stops, resumes and seals fail for those seconds and its seal loop skips a round. Running runs
+go on: their runner and egress containers are the engine's own and never call the proxy. A comparison already running
+on the Paper page attaches its replay through the proxy and fails, as it does for a ledger move.
 Every tick compares that checkout's `deploy/compose.yaml` and `deploy/remote/` (documentation aside) with the routed
-version's, and the running docker-api with the digest that version pins, and sends a Telegram notice (below) while
-either differs. The release moves neither: update the checkout, and recreate docker-api from it
-([Updating](../README.md#updating)).
+version's, and sends a Telegram notice (below) while they differ, and the running docker-api with the digest that
+version pins once the release no longer moves it (it was recreated after the routed Web: a move undone, or by hand).
+The release never changes the checkout: update it to the routed version as for `edge`.
 A service that is stopped or absent (market import before step 5 below) is never started.
 
 It waits, and the tick says why, until no Paper operation is in progress and Live is idle: no Paper run is starting,
@@ -105,10 +116,11 @@ the Web, Agent, Paper controller and Live control; the Paper database and the re
 fails and can be started again. After the move the routed Web and the Paper controller must answer within 3 minutes.
 
 On any failure every service it touched is recreated on the image it ran before and the tick fails (a Telegram notice
-as for any failed tick). Both are then newer than the routed Web, so no later tick moves them again until the next
+as for any failed tick). They are then newer than the routed Web, so no later tick moves them again until the next
 version; to move them by hand, name the active version's images (`python3 -m deploy.images --revision <revision>
 --env /etc/trade/remote.env`) and `compose up -d --no-deps ledger` (`--profile local-research-import` for market
-import). An operator's own recreate of either after a release likewise keeps it until the next version.
+import; for docker-api, the checkout at that version and `compose up -d --no-deps docker-api`). An operator's own
+recreate of any of them after a release likewise keeps it until the next version.
 
 Since the env file keeps the image of the host's install, name the routed version's images in it the same way before
 any whole-project `compose up`, or compose puts the ledger back on the older image.

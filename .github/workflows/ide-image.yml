@@ -388,7 +388,7 @@ jobs:
       - name: Warn when the pinned Docker API proxy is behind its source
         if: github.event_name == 'push'
         run: |
-          pinned="$(sed -nE 's/^ *image: (ghcr\.io\/[^ ]*trade-docker-api@sha256:[0-9a-f]{64}).*/\1/p' deploy/compose.yaml)"
+          pinned="$(sed -nE 's/^ *image: (\$\{TRADE_DOCKER_API_IMAGE:-)?(ghcr\.io\/[^ }]*trade-docker-api@sha256:[0-9a-f]{64}).*/\2/p' deploy/compose.yaml)"
           if revision="$(docker buildx imagetools inspect --format '{{json .Image}}' "$pinned" \
               | jq -er '."linux/amd64".config.Labels."org.opencontainers.image.revision"')" \
               && git fetch --quiet --depth=1 origin "$revision"; then

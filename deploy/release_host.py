@@ -139,6 +139,8 @@ COMPOSE_FILES = ("/opt/trade-app/deploy/compose.yaml", "/opt/trade-app/deploy/re
 # What follows a version: each compose service, its container, and whether its health check says the image works
 # (market-import's says whether the data lags, so it is only seen running).
 FOLLOWERS = (("ledger", LEDGER, True), ("market-import", MARKET_IMPORT, False))
+# The variables deploy/compose.yaml takes those services' images from, and docker-api's (which defaults to its pin).
+SERVICE_IMAGE, DOCKER_API_IMAGE = "TRADE_SERVICE_IMAGE", "TRADE_DOCKER_API_IMAGE"
 FOLLOW_WAIT_SECONDS, FOLLOW_SETTLE_SECONDS = 600, 30
 
 
@@ -253,14 +255,24 @@ class DockerHost:
                     '{{else}}null{{end}},"oom":{{json .State.OOMKilled}},"restarts":{{json .RestartCount}}}')
         return json.loads(self.docker("inspect", "--format", template, name))
 
-    def recreate(self, service: str, name: str, image: str, healthy: bool, pull: bool = False) -> None:
+    def composes(self, service: str, variable: str, image: str) -> bool:
+        """Whether the host's compose definition runs `service` on `image` when `variable` names it."""
+        files = [arg for path in COMPOSE_FILES for arg in ("-f", path)]
+        found = json.loads(self.docker("compose", "--env-file", str(ENV_FILE), *files, "--profile",
+                                       "local-research-import", "config", "--format", "json", service,
+                                       timeout=60, env={variable: image}))
+        return found["services"][service]["image"] == image
+
+    def recreate(self, service: str, name: str, image: str, healthy: bool, pull: bool = False,
+                 variable: str = SERVICE_IMAGE) -> None:
         """Recreate one compose service on `image` from the host's own compose definition: the digest is passed in
-        the process environment, which compose reads over the env file, so the env file is not written."""
+        the process environment as `variable`, which compose reads over the env file, so the env file is not
+        written. Compose recreates a service whose image changed, so its mounts are made anew."""
         files = [arg for path in COMPOSE_FILES for arg in ("-f", path)]
         wait = ["--wait", "--wait-timeout", str(FOLLOW_WAIT_SECONDS)] if healthy else []
         self.docker("compose", "--env-file", str(ENV_FILE), *files, "--profile", "local-research-import", "up",
                     "--detach", "--no-deps", "--timeout", "60", "--pull", "missing" if pull else "never", *wait,
-                    service, timeout=FOLLOW_WAIT_SECONDS + 180, env={"TRADE_SERVICE_IMAGE": image})
+                    service, timeout=FOLLOW_WAIT_SECONDS + 180, env={variable: image})
         if not healthy:
             time.sleep(FOLLOW_SETTLE_SECONDS)
         found = self.inspect(name)
