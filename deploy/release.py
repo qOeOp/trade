@@ -123,8 +123,8 @@ def failure_summary(error: Exception) -> str:
 
 def report_failure(phase: str, error: Exception) -> None:
     labels = {"primary": "Primary release failure", "recovery": "Release recovery failure",
-              "retired": "Retired Live controller retained", "cleanup": "Release cleanup skipped",
-              "release": "Release tick failed"}
+              "retired": "Retired Live controller retained", "previous": "Previous Web left running",
+              "cleanup": "Release cleanup skipped", "release": "Release tick failed"}
     try:
         print(f"{labels.get(phase, 'Release failure')}: {failure_summary(error)}",
               file=sys.stderr, flush=True)
@@ -552,12 +552,17 @@ class Release:
         self.retire_live()
         print(f"Restored previous Web release {previous}", flush=True)
 
+    def retire_webs(self, routed: str) -> None:
+        """Stop every Web but the routed one. Nothing reads a Web the router left: a rollback starts the previous
+        one again (`_recover`), as it does the Paper controller and the Agent."""
+        for name in self.host.managed(WEB, running_only=True):
+            if name != routed:
+                self.host.stop(name)
+
     def cleared(self, previous: str) -> None:
         """Stop stale Webs and check headroom, inside the release's account admission and before its journal: a
         transient refusal journals nothing, so it never marks the version failed."""
-        for name in self.host.managed(WEB, running_only=True):
-            if name != previous:
-                self.host.stop(name)
+        self.retire_webs(previous)
         if not self.host.memory_available():
             raise RuntimeError("insufficient candidate memory headroom; keep current release")
 
@@ -663,6 +668,10 @@ class Release:
             report_failure("primary", error)
             self.recover()
             raise
+        try:
+            self.retire_webs(candidate)  # the previous Web held its memory until the next release
+        except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+            report_failure("previous", error)  # the next release's admission stops it
         self.retire_live()
 
     def paper(self) -> PaperRelease:

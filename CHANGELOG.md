@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Release (fix): a release stops the previous Web once the candidate commits, after its observation window. Until
+  now it kept running beside the routed one until the next release's admission stopped it (388 MiB on the host
+  2026-11-16), memory Paper admission counted as used. Nothing reads a Web the router left; a rollback, automatic
+  or by hand, starts it again, as it already does the previous Paper controller and Agent. A failed stop is reported
+  and leaves the next release's admission to stop it, as before.
 - Release (doctor 20261116-03): every release tick now watches what runs after a version commits, and sends what
   fails through the same Telegram chat as its other notices, once while it lasts. It probes `/api/overview/health`,
   `/api/agent/health` and `/api/paper/health` through the router; a routed Web that answers none of them is one

@@ -203,11 +203,14 @@ class ReleaseTests(unittest.TestCase):
 
     def test_success_switches_only_after_readiness_and_commits_disk_route(self):
         before = self.host.protected()
+        running = []
+        self.host.on_observe = lambda: running.append(self.host.containers[WEB + A])
         self.release.apply(TARGET)
         self.assertEqual(self.host.live, WEB + B)
         self.assertEqual(self.host.disk, WEB + B)
         self.assertFalse(self.release.transaction.exists())
-        self.assertTrue(self.host.containers[WEB + A], "keep previous Web alive during and after observation")
+        self.assertEqual(running, [True], "keep the previous Web alive during observation")
+        self.assertFalse(self.host.containers[WEB + A], "stop the previous Web once the candidate committed")
         self.assertEqual(self.host.agent(), AGENT + B)
         self.assertEqual(self.host.protected(), before)
         self.assertTrue(all(name.startswith((WEB, AGENT)) for _, name in self.host.calls))
