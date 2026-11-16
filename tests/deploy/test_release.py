@@ -1,23 +1,26 @@
 """Deployment control tests use temporary files and stand-ins, never an active ledger or engine."""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 from deploy.live_host import LIVE, LiveBusy
 from deploy import release
 from deploy.release import GitSource, Release, failure_summary
-from deploy.paper_host import PAPER, PaperHost
+from deploy.paper_host import CONTROLLER_PROBE, PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
 from deploy.paper_release import PaperRelease
 from deploy.release_host import (AGENT, COMPOSE_FILES, DOCKER_API, DOCKER_API_REF, KEPT_RELEASES, LEDGER, MARKET_IMPORT, WEB, Config,
-                                 DockerHost,
+                                 PROBE, DockerHost, ReaderFailure,
                                  moment, revision, route_config, route_name)
 from tests.deploy.test_paper_release import Host as PaperStandIn
 
@@ -823,10 +826,11 @@ class SelectionTests(unittest.TestCase):
             return dict(zip(HOST_LINE_KEYS, (name, created_at), strict=True), versions=[version])
 
         lines = [listed("old", "v1", "2026-01-01T00:00:00"), listed("new", "v2", "2026-02-01T00:00:00")]
-        runs = {"runs": [{"candidate": "v1", "state": "running"}]}
-        host.probe = Mock(side_effect=lambda name, path: {"lines": lines} if path == "/api/lines" else runs)
+        runs = {"status": 200, "runs": [{"candidate": "v1", "state": "running"}]}
+        host.probe = Mock(side_effect=lambda name, path, routed=False:
+                          {"status": 200, "lines": lines} if path == "/api/lines" else runs)
         self.assertEqual(host.lines(WEB + B), ["old"])
-        runs = {"runs": [{"candidate": "from-an-earlier-ledger", "state": "running"}]}
+        runs = {"status": 200, "runs": [{"candidate": "from-an-earlier-ledger", "state": "running"}]}
         self.assertEqual(host.lines(WEB + B), ["new"])
         lines = []
         self.assertEqual(host.lines(WEB + B), [], "a new ledger has no graph to warm")
@@ -839,7 +843,7 @@ class SelectionTests(unittest.TestCase):
         host.ensure_protected = Mock()
         host.health = Mock()
         host.auth_denied = Mock()
-        host.probe = Mock(return_value={"runs": []})
+        host.probe = Mock(return_value={"status": 200, "runs": []})
         host.live_route = Mock(side_effect=[WEB + B, WEB + C])
         with self.assertRaisesRegex(RuntimeError, "authentication probe"):
             host.observe(WEB + B, [], {})
@@ -850,11 +854,11 @@ class SelectionTests(unittest.TestCase):
         host.health = Mock()
         host.auth_denied = Mock()
         host.live_route = Mock(return_value=WEB + B)
-        before = {"runs": [{"id": 3, "state": "running", "last": 100}]}
+        before = {"status": 200, "runs": [{"id": 3, "state": "running", "last": 100}]}
         host.probe = Mock(return_value=before)
         with self.assertRaisesRegex(RuntimeError, "did not advance"):
             host.observe(WEB + B, [], {})
-        host.probe = Mock(side_effect=[before, {"runs": [{"id": 3, "state": "running", "last": 101}]}])
+        host.probe = Mock(side_effect=[before, {"status": 200, "runs": [{"id": 3, "state": "running", "last": 101}]}])
         host.observe(WEB + B, [], {})
 
 
@@ -1138,6 +1142,86 @@ class FollowTests(unittest.TestCase):
             self.github.choose.return_value = None
             Release(self.host, self.github, live=self.live).tick()
             follow.assert_called_once_with(WEB + A)
+
+
+class ReaderDiagnosisTests(unittest.TestCase):
+    """Doctor 20261117-01: a reader that failed after a service move left only "unclassified runtime failure
+    (RuntimeError at deploy/release_host.py:239)". It names the reader, the path and the HTTP status or error class,
+    never a response body or what docker printed."""
+
+    SECRET = "fake-paper-token-in-a-body"
+
+    def run_probe(self, script, argv, urlopen):
+        out = io.StringIO()
+        with patch("urllib.request.urlopen", urlopen), patch.object(sys, "argv", ["-c", *argv]), \
+                redirect_stdout(out):
+            exec(script, {})
+        self.assertNotIn(self.SECRET, out.getvalue())
+        return json.loads(out.getvalue())
+
+    def test_probes_give_the_status_or_error_class_of_a_reader_that_did_not_answer_200(self):
+        def refused(request, timeout):
+            raise HTTPError(request.full_url, 502, self.SECRET, {}, io.BytesIO(self.SECRET.encode()))
+
+        def hung(request, timeout):
+            raise TimeoutError(self.SECRET)
+
+        for script, argv in ((PROBE, ["/api/paper/health", "trade.example.com", "ide-router"]),
+                             (CONTROLLER_PROBE, ["/api/paper/runs"])):
+            with self.subTest(argv=argv):
+                self.assertEqual(self.run_probe(script, argv, refused), {"status": 502})
+                self.assertEqual(self.run_probe(script, argv, hung), {"status": None, "error": "TimeoutError"})
+
+    def test_a_routed_web_health_failure_names_the_reader_path_and_status(self):
+        host = DockerHost(Config())
+        host.agent = Mock()
+        host.requires_live = Mock(return_value=False)
+        host.probe = Mock(side_effect=lambda name, path, routed=False:
+                          {"status": 503} if path == "/api/agent/health" else {"status": 200, "ok": True})
+        with self.assertRaises(RuntimeError) as raised:
+            host.health(WEB + A, [], routed=True)
+        self.assertEqual(failure_summary(raised.exception), "routed Web unhealthy at /api/agent/health: HTTP 503")
+
+    def test_a_paper_controller_failure_names_its_path_and_error_class(self):
+        controller = PaperHost(Config(state=Path(tempfile.mkdtemp())))
+        self.addCleanup(shutil.rmtree, controller.state)
+        answers = {"/api/paper/runs": {"status": None, "error": "URLError"}}
+        controller.docker = Mock(side_effect=lambda *args, **kwargs: json.dumps(answers[args[-1]]))
+        with self.assertRaises(RuntimeError) as raised:
+            controller.health(PAPER + A)
+        self.assertEqual(failure_summary(raised.exception), "Paper controller unhealthy at /api/paper/runs: URLError")
+        answers["/api/paper/runs"] = {"status": 200, "runs": True}
+        answers["/api/paper/health"] = {"status": 200, "runtime": "another", "active": True}
+        controller.runtime = Mock(return_value=TARGET["runtime"])
+        with self.assertRaises(RuntimeError) as raised:
+            controller.health(PAPER + A)
+        self.assertEqual(failure_summary(raised.exception),
+                         "Paper controller unhealthy at /api/paper/health: another runtime")
+
+    def test_a_failed_docker_command_names_its_subcommand_status_and_caller_without_stderr(self):
+        host = DockerHost(Config(state=Path(tempfile.mkdtemp())))
+        self.addCleanup(shutil.rmtree, host.state)
+        failed = subprocess.CompletedProcess([], 1, "", self.SECRET)
+        with patch("deploy.release_host.subprocess.run", return_value=failed):
+            try:
+                host.exists(LEDGER)
+            except RuntimeError as error:  # assertRaises drops the traceback the caller's line is read from
+                summary = failure_summary(error)
+        self.assertNotIn(self.SECRET, summary)
+        self.assertRegex(summary, r"\Adocker ps exited 1 \(called at deploy/release_host\.py:\d+\)\Z")
+
+    def test_an_undone_move_reports_which_reader_failed(self):
+        test = FollowTests()
+        test.setUp()
+        self.addCleanup(test.doCleanups)
+        test.controller.health = Mock(side_effect=ReaderFailure("Paper controller", "/api/paper/runs", "HTTP 500"))
+        output = io.StringIO()
+        with patch("deploy.release.until_ready", side_effect=lambda check, *args, **kwargs: check()), \
+                redirect_stderr(output), self.assertRaises(RuntimeError) as raised:
+            test.release.follow(WEB + A)
+        self.assertEqual(failure_summary(raised.exception), "service move failed and was undone")
+        self.assertIn("Compose service move failed: Paper controller unhealthy at /api/paper/runs: HTTP 500",
+                      output.getvalue())
 
 
 class RecreateTests(unittest.TestCase):

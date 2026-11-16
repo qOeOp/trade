@@ -29,6 +29,8 @@ from .release_host import (
     DOCKER_API_IMAGE,
     DOCKER_API_REF,
     FOLLOWERS,
+    DockerFailure,
+    ReaderFailure,
     IMAGE_REF,
     SERVICE_IMAGE,
     SERVICE_REF,
@@ -64,16 +66,22 @@ def outside_image(path: str) -> bool:
     return path.startswith(OUTSIDE_IMAGE) or path in OUTSIDE_IMAGE_FILES or ("/" not in path and path.endswith(".md"))
 
 
-def failure_origin(error: BaseException) -> str:
-    """The exception class and the innermost product source line it passed, never its payload."""
-    kind = type(error)
-    name = kind.__qualname__ if kind.__module__ == "builtins" else f"{kind.__module__}.{kind.__qualname__}"
+def source_line(error: BaseException, outside: str | None = None) -> str | None:
+    """The innermost product source line the exception passed outside the function named `outside`."""
     root = Path(__file__).resolve().parent.parent
     where = None
     for frame, line in traceback.walk_tb(error.__traceback__):
         path = Path(frame.f_code.co_filename).resolve()
-        if path.is_relative_to(root) and "site-packages" not in path.parts:
+        if path.is_relative_to(root) and "site-packages" not in path.parts and frame.f_code.co_name != outside:
             where = f"{path.relative_to(root)}:{line}"
+    return where
+
+
+def failure_origin(error: BaseException) -> str:
+    """The exception class and the innermost product source line it passed, never its payload."""
+    kind = type(error)
+    name = kind.__qualname__ if kind.__module__ == "builtins" else f"{kind.__module__}.{kind.__qualname__}"
+    where = source_line(error)
     return f"{name} at {where}" if where else name
 
 
@@ -95,6 +103,10 @@ def failure_summary(error: Exception) -> str:
         return "filesystem or operating-system operation failed"
     if isinstance(error, AssertionError):
         return "invariant check failed"
+    if isinstance(error, ReaderFailure):  # doctor 20261117-01: which reader, which path, what it answered
+        return f"{error.reader} unhealthy at {error.path}: {error.answer}"
+    if isinstance(error, DockerFailure):  # its stderr can quote what a container printed
+        return f"docker {error.command} exited {error.status} (called at {source_line(error, 'docker')})"
     if isinstance(error, (ValueError, KeyError, TypeError)):
         return "release metadata unavailable"
     if type(error) is RuntimeError:
@@ -126,6 +138,8 @@ def failure_summary(error: Exception) -> str:
             return f"unclassified runtime failure ({failure_origin(error)})"
         if message.startswith("protected container changed during release: "):
             return "protected container changed"  # a ledger, Docker API or Paper container restarted mid-release
+        if message.startswith("compose service did not start on its image: "):  # DockerHost.recreate: a fixed name
+            return f"{message.rpartition(': ')[2]} did not start on its image"
         return known.get(message) or f"unclassified runtime failure ({failure_origin(error)})"
     return f"unexpected release failure ({failure_origin(error)})"
 
@@ -133,7 +147,8 @@ def failure_summary(error: Exception) -> str:
 def report_failure(phase: str, error: Exception) -> None:
     labels = {"primary": "Primary release failure", "recovery": "Release recovery failure",
               "retired": "Retired Live controller retained", "previous": "Previous Web left running",
-              "cleanup": "Release cleanup skipped", "release": "Release tick failed"}
+              "cleanup": "Release cleanup skipped", "release": "Release tick failed",
+              "services": "Compose service move failed"}
     try:
         print(f"{labels.get(phase, 'Release failure')}: {failure_summary(error)}",
               file=sys.stderr, flush=True)

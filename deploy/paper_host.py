@@ -13,6 +13,8 @@ from .release_host import (
     Config,
     DockerHost,
     RUNTIME_REF,
+    ReaderFailure,
+    answered,
     contained,
     limits,
     durable_json,
@@ -23,6 +25,19 @@ from .release_host import (
     upstream,
 )
 
+# Like release_host.PROBE: selected public facts, the HTTP status or the error class, never a body.
+CONTROLLER_PROBE = """import json,sys,urllib.error,urllib.request
+path=sys.argv[1]
+try:
+ with urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8767"+path,headers={"Host":"paper-router:8767"}),timeout=20) as r:
+  d=json.load(r)
+  out={"status":r.status,"runs":isinstance(d.get("runs"),list)} if path.endswith("/runs") else {"status":r.status,"runtime":d.get("runtime"),"active":d.get("active")}
+except urllib.error.HTTPError as e:
+ e.close(); out={"status":e.code}
+except Exception as e:
+ out={"status":None,"error":type(e).__name__}
+print(json.dumps(out))
+"""
 PAPER = "trade-release-paper-"
 PAPER_ROUTER = "trade-ide-paper-router-1"
 CONTROLLERS = "trade-ide_trade-paper-controller"
@@ -211,28 +226,22 @@ class PaperHost(DockerHost):
         return runtime_default(json.loads(self.docker("inspect", "--format", "{{json .Config.Cmd}}", name)))
 
     def health(self, name: str) -> None:
-        code = (
-            "import json,urllib.request;"
-            'r=urllib.request.Request("http://127.0.0.1:8767/api/paper/runs",headers={"Host":"paper-router:8767"});'
-            'd=json.load(urllib.request.urlopen(r,timeout=20));assert isinstance(d["runs"],list)'
-        )
-        self.docker("exec", name, "python", "-c", code, timeout=30)
-        check = (
-            "import json,urllib.request,sys;"
-            'r=urllib.request.Request("http://127.0.0.1:8767/api/paper/health",headers={"Host":"paper-router:8767"});'
-            "d=json.load(urllib.request.urlopen(r,timeout=15));"
-            'assert d["runtime"]==sys.argv[1] and d["active"]==(sys.argv[2]=="yes")'
-        )
-        self.docker(
-            "exec",
-            name,
-            "python",
-            "-c",
-            check,
-            self.runtime(name),
-            "yes" if self.disk_route() == name else "no",
-            timeout=25,
-        )
+        """Its runs listing (which reads the Paper database on the ledger service and Docker through docker-api),
+        then its health: the runtime default and whether it is the routed controller. A failure is ReaderFailure."""
+        if self.reply(name, "/api/paper/runs").get("runs") is not True:
+            raise ReaderFailure("Paper controller", "/api/paper/runs", "no run list")
+        found = self.reply(name, "/api/paper/health")
+        if found.get("runtime") != self.runtime(name):
+            raise ReaderFailure("Paper controller", "/api/paper/health", "another runtime")
+        if found.get("active") is not (self.disk_route() == name):
+            raise ReaderFailure("Paper controller", "/api/paper/health", "another active state")
+
+    def reply(self, name: str, path: str) -> dict:
+        """CONTROLLER_PROBE's facts at `path` when the controller answered 200; else ReaderFailure."""
+        value = json.loads(self.docker("exec", name, "python", "-c", CONTROLLER_PROBE, path, timeout=30))
+        if value.get("status") != 200:
+            raise ReaderFailure("Paper controller", path, answered(value))
+        return value
 
     def warm(self, name: str, protected: dict) -> None:
         until_ready(lambda: self.health(name), 180, 3, lambda: self.ensure_protected(protected))
