@@ -37,10 +37,22 @@ def native(order) -> Order:
                  order.leaves_qty.as_decimal())
 
 
+def orders_of(cache, position_id) -> list:
+    """The native orders submitted for one position: Cache.orders_for_position, and every other order the cache links
+    to it (Cache.position_id). A cache loaded from its database (Paper's recovery, Live's restart) rebuilds
+    orders_for_position from the position's fills alone, so a stop or target that has not filled is only in the
+    order's own link (rc7 Cache.build_index; docs/plans/paper-recovery-open-orders-20261117.zh.md). Both consumers
+    count only unfinished orders, so only open and in-flight ones are looked up there."""
+    found = {order.client_order_id: order for order in cache.orders_for_position(position_id)}
+    for order in [*cache.orders_open(), *cache.orders_inflight()]:
+        if order.client_order_id not in found and cache.position_id(order.client_order_id) == position_id:
+            found[order.client_order_id] = order
+    return list(found.values())
+
+
 def of_position(cache, position) -> list[Order]:
-    """The coverage fields of the native orders submitted for `position` (Cache.orders_for_position) on its
-    contract."""
-    return [native(order) for order in cache.orders_for_position(position.id)
+    """The coverage fields of the native orders submitted for `position` (orders_of) on its contract."""
+    return [native(order) for order in orders_of(cache, position.id)
             if order.instrument_id == position.instrument_id]
 
 

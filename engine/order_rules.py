@@ -43,7 +43,7 @@ from typing import Any, Callable
 from nautilus_trader.model import ClientId, Currency, OrderType, Price, TimeInForce, Venue
 from nautilus_trader.trading import Strategy
 
-from engine.protection import STOP_TYPES
+from engine.protection import STOP_TYPES, orders_of
 
 CODE = "ORDER_RULE"
 ENTRY_EQUITY_MULTIPLE = 3  # user, 2026-11-09 (multiple) and 2026-11-10 (of equity, not a fixed USDT cap)
@@ -129,9 +129,9 @@ def violation(source, order, position_id=None, client_id=None, params=None) -> s
 
 
 def stops_held(cache, position_id, order=None) -> Decimal:
-    """The unfilled quantity of the open reduce-only stop orders of one position (Cache.orders_for_position), other
+    """The unfilled quantity of the open reduce-only stop orders of one position (engine.protection.orders_of), other
     than `order`."""
-    return sum((found.leaves_qty.as_decimal() for found in cache.orders_for_position(position_id)
+    return sum((found.leaves_qty.as_decimal() for found in orders_of(cache, position_id)
                 if not found.is_closed and found.is_reduce_only and found.order_type.name in STOP_TYPES
                 and (order is None or found.client_order_id != order.client_order_id)), Decimal(0))
 
