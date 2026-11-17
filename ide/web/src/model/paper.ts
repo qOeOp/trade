@@ -11,7 +11,7 @@ export const CATEGORY_LABEL: Record<Category, string> = {
 };
 const KIND: Record<string, Category> = {
   started: "system", waiting: "system", socket: "system", stop_requested: "system", stopping: "system",
-  summary_written: "system", stopped_before_start: "system", data_gap: "data", late_bar: "data", order: "order",
+  summary_written: "system", stopped_before_start: "system", data_gap: "data", order: "order",
   position: "position", funding_settlement: "account", protection_gap: "strategy", refusal: "strategy",
   instrument_status: "lifecycle", restart: "system",
 };
@@ -63,7 +63,6 @@ export function describe(line: JournalLine, digits: ReadonlyMap<string, Precisio
       return `${what} ${word(f.side).toLowerCase()} ${fixed(Math.abs(amount(f.signed_qty) ?? 0), d.size)}${f.avg_px_open ? ` · avg ${fixed(f.avg_px_open, d.price)}` : ""}`;
     }
     case "data_gap": return `${f.missing_bars} one-minute bars missing`;
-    case "late_bar": return `Bar ${Math.round(Number(f.late_ns) / 1e9)} s late`;
     case "socket": return `${String(f.endpoint ?? "").replace(/^binance-futures-/, "Binance ").replace(/-/g, " ")} ${word(f.state).toLowerCase()}`;
     case "funding_settlement": return `Funding settled at ${f.stream_rate}, mark ${f.mark ?? "unknown"}`;
     case "protection_gap": return `Position ${f.position} exceeds its stop orders (${f.stop_quantity})`;
