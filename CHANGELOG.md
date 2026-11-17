@@ -26,6 +26,8 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+## 0.4.2 (2026-11-17)
+
 - Paper: a run whose source does not declare `PAPER_RECOVERY` is now held after an interruption while it holds a
   position, as Live holds (user 2026-11-17). SIGTERM pauses it without cancelling, and it checkpoints the native cache
   alone while a position is open; its resume starts no source but a holder under the source's strategy ID, which checks
