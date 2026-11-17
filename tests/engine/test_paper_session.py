@@ -9,11 +9,15 @@ import unittest
 from unittest import mock
 
 from nautilus_trader.common import Cache
+from nautilus_trader.model import (ContingencyType, OrderSide, OrderStatus, OrderType, Price, TimeInForce,
+                                   TriggerType)
 from nautilus_trader.trading import Strategy
 
 from engine import strategy as strategy_runtime
 from engine import paper_checkpoint as checkpoint
 from engine.cadence import Cadence
+from engine.config import MINUTE_NS
+from engine import paper_session
 from engine.paper_session import Session
 
 
@@ -29,6 +33,32 @@ class Hooks(Strategy):
 
 class Empty(Strategy):
     PAPER_RECOVERY = 1
+
+
+IID = "BTCUSDT-PERP.BINANCE"
+T = 1_767_225_600_000_000_000  # a recovery's T, a whole minute
+LAST = T - 4 * MINUTE_NS - 1_000_000  # the journal's last bar closed four minutes before T
+
+
+def order(kind="STOP_MARKET", status="ACCEPTED", side="SELL", trigger="99000.0", price="99000.0", tif="GTC",
+          expire_time=None, trigger_type="DEFAULT", is_closed=False, **fields):
+    """A cached order as the checkpoint and the recovery check read it."""
+    return SimpleNamespace(**{
+        "client_order_id": "O-1", "instrument_id": IID, "order_type": getattr(OrderType, kind),
+        "status": getattr(OrderStatus, status), "side": getattr(OrderSide, side), "trigger_price": Price.from_str(trigger),
+        "price": Price.from_str(price), "time_in_force": getattr(TimeInForce, tif), "expire_time": expire_time,
+        "trigger_type": getattr(TriggerType, trigger_type), "is_closed": is_closed, "is_emulated": False,
+        "emulation_trigger": None, "contingency_type": None, "parent_order_id": None, "linked_order_ids": None,
+        **fields})
+
+
+def minutes(*ranges: tuple[str, str]) -> list:
+    """The interruption's one-minute bars after LAST, (low, high) each, closing a minute apart up to T."""
+    return [SimpleNamespace(ts_event=LAST + (index + 1) * MINUTE_NS, low=Price.from_str(low), high=Price.from_str(high))
+            for index, (low, high) in enumerate(ranges)]
+
+
+QUIET = minutes(*[("99500.0", "100500.0")] * 4)
 
 
 class SessionTests(unittest.TestCase):
@@ -117,14 +147,38 @@ class SessionTests(unittest.TestCase):
         session.backend.snapshot.assert_not_called()
         self.assertTrue((session.backend.root / "dirty").is_file())
 
-    def test_initialized_and_working_orders_refuse_even_if_not_in_open_orders(self):
-        session = self.session()
-        for status in ("INITIALIZED", "SUBMITTED", "ACCEPTED", "PARTIALLY_FILLED"):
-            with self.subTest(status=status):
-                cache = SimpleNamespace(orders=lambda: [SimpleNamespace(status=status, is_closed=False)])
-                with self.assertRaises(checkpoint.Refusal):
+    def test_a_checkpoint_holds_the_working_orders_the_sandbox_restores_and_defers_for_any_other(self):
+        """docs/plans/paper-recovery-open-orders-20261117.zh.md: an accepted order (a triggered STOP_LIMIT too) is
+        restored by the Sandbox's start as it was; one in flight, emulated, contingent or linked, a trailing stop, a
+        partial fill or another triggered order is not, and defers the cut."""
+        restorable = (order(), order(kind="LIMIT", price="98000.0"), order(kind="STOP_LIMIT", status="TRIGGERED"),
+                      order(kind="LIMIT_IF_TOUCHED"), order(is_closed=True, status="CANCELED"))
+        unrestorable = {"INITIALIZED": order(status="INITIALIZED"), "SUBMITTED": order(status="SUBMITTED"),
+                        "PENDING_UPDATE": order(status="PENDING_UPDATE"),
+                        "PENDING_CANCEL": order(status="PENDING_CANCEL"),
+                        "PARTIALLY_FILLED": order(kind="LIMIT", status="PARTIALLY_FILLED"),
+                        "triggered LIMIT_IF_TOUCHED": order(kind="LIMIT_IF_TOUCHED", status="TRIGGERED"),
+                        "emulated": order(is_emulated=True),
+                        "OTO": order(contingency_type=ContingencyType.OTO),
+                        "parent": order(parent_order_id="O-0"), "linked": order(linked_order_ids=["O-2"]),
+                        "trailing": order(kind="TRAILING_STOP_MARKET")}
+        strategy = self.strategy()
+        strategy._paper_cadence = Cadence()
+        for name, found in (("restorable", restorable), *((key, (value,)) for key, value in unrestorable.items())):
+            with self.subTest(name), mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
+                session = self.session()
+                cache = SimpleNamespace(orders=lambda found=found: list(found))
+                if name == "restorable":
                     session.cut(cache)
-        session.backend.snapshot.assert_not_called()
+                    session.backend.snapshot.assert_called_once()
+                    session.before_stop(cache)
+                    self.assertIsNone(session.pause_error)
+                else:
+                    with self.assertRaises(checkpoint.Refusal):
+                        session.cut(cache)
+                    session.backend.snapshot.assert_not_called()
+                    session.before_stop(cache)
+                    self.assertIn("cannot be restored", session.pause_error)
 
     def test_pending_held_callback_or_source_timer_refuses(self):
         session = self.session()
@@ -158,7 +212,7 @@ class SessionTests(unittest.TestCase):
         session.backend.snapshot.assert_not_called()
 
     def test_native_stop_cannot_hide_a_source_timer_or_cancelled_order(self):
-        for orders, timers in (([SimpleNamespace(is_closed=False)], []), ([], ["source-timer"])):
+        for orders, timers in (([order(status="PENDING_CANCEL")], []), ([], ["source-timer"])):
             session = self.session()
             strategy = self.strategy()
             strategy.clock.timer_names = lambda: timers
@@ -222,3 +276,93 @@ class SessionTests(unittest.TestCase):
         with mock.patch("engine.paper_session.time.time_ns", return_value=101):
             with self.assertRaises(checkpoint.Refusal):
                 session._same_bucket()
+
+
+class InterruptionTests(unittest.TestCase):
+    """A recovery restores the working orders only when the interruption's minutes prove none was touched
+    (docs/plans/paper-recovery-open-orders-20261117.zh.md): Nautilus matched nothing while the run was down."""
+
+    session = SessionTests.session
+
+    @staticmethod
+    def check(found, bars=QUIET):
+        return paper_session.touched([found], {IID: bars}, {IID: LAST}, T)
+
+    def test_an_order_the_interruption_did_not_reach_is_restored(self):
+        for found in (order(side="SELL", trigger="99000.0"), order(side="BUY", trigger="101000.0"),
+                      order(kind="STOP_LIMIT", side="SELL", trigger="99000.0", price="98900.0"),
+                      order(kind="LIMIT", side="BUY", price="99000.0"),
+                      order(kind="LIMIT", side="SELL", price="101000.0"),
+                      order(kind="STOP_LIMIT", status="TRIGGERED", side="SELL", trigger="99600.0", price="101000.0"),
+                      order(kind="LIMIT_IF_TOUCHED", side="BUY", trigger="99000.0"),
+                      order(kind="LIMIT_IF_TOUCHED", side="SELL", trigger="101000.0"),
+                      order(trigger_type="LAST_PRICE"), order(tif="GTD", expire_time=T + 1),
+                      order(status="CANCELED", kind="MARKET_IF_TOUCHED", is_closed=True)):
+            with self.subTest(kind=found.order_type, side=found.side, status=found.status):
+                self.assertIsNone(self.check(found))
+        self.assertIsNone(paper_session.touched([], {}, {}, T), "no restored order needs no minute")
+
+    def test_an_order_the_interruption_touched_refuses_the_recovery_naming_the_order_and_minute(self):
+        touching = minutes(("99500.0", "100500.0"), ("99000.0", "101000.0"), ("99500.0", "100500.0"),
+                           ("99500.0", "100500.0"))
+        for found in (order(side="SELL", trigger="99000.0"), order(side="BUY", trigger="101000.0"),
+                      order(kind="STOP_LIMIT", side="BUY", trigger="101000.0", price="101100.0"),
+                      order(kind="LIMIT", side="BUY", price="99000.0"),
+                      order(kind="LIMIT", side="SELL", price="101000.0"),
+                      order(kind="STOP_LIMIT", status="TRIGGERED", side="BUY", trigger="101000.0", price="99000.0"),
+                      order(kind="LIMIT_IF_TOUCHED", side="BUY", trigger="99000.0"),
+                      order(kind="LIMIT_IF_TOUCHED", side="SELL", trigger="101000.0")):
+            with self.subTest(kind=found.order_type, side=found.side, status=found.status):
+                reason = self.check(found, touching)
+                self.assertIn("O-1", reason)
+                self.assertIn("touched in the interruption", reason)
+                self.assertIn("2025-12-31 23:58:00", reason)  # the minute closing two minutes after LAST's
+
+    def test_what_the_minutes_cannot_prove_untouched_refuses(self):
+        cases = {"a GTD expiring in the interruption": (order(tif="GTD", expire_time=T - MINUTE_NS), QUIET),
+                 "a GTD expiring at T": (order(tif="GTD", expire_time=T), QUIET),
+                 "a MARK trigger": (order(trigger_type="MARK_PRICE"), QUIET),
+                 "a BID_ASK trigger": (order(trigger_type="BID_ASK"), QUIET),
+                 "a MARKET_IF_TOUCHED": (order(kind="MARKET_IF_TOUCHED"), QUIET),
+                 "a triggered LIMIT_IF_TOUCHED": (order(kind="LIMIT_IF_TOUCHED", status="TRIGGERED"), QUIET),
+                 "a MARKET": (order(kind="MARKET"), QUIET),
+                 "a minute missing": (order(), QUIET[:2] + QUIET[3:]),
+                 "the last minute missing": (order(), QUIET[:-1])}
+        for name, (found, bars) in cases.items():
+            with self.subTest(name):
+                self.assertIsNotNone(self.check(found, bars))
+        self.assertIsNotNone(paper_session.touched([order()], {}, {IID: LAST}, T), "no minute read")
+        self.assertIsNotNone(paper_session.touched([order()], {IID: QUIET}, {}, T), "no journalled bar")
+
+    def test_the_reader_asks_for_the_minutes_from_the_journals_last_bar_up_to_the_one_closing_at_t(self):
+        session = self.session(saved={"sources": {}, "cut_ns": 0})
+        session.last_bar = {IID: LAST}
+        asked = []
+
+        def get(url, proxy_url):
+            asked.append((url, proxy_url))
+            # Binance's rows: open time, open, high, low, close, volume, close time (ms).
+            return [[(LAST + 1_000_000 + index * MINUTE_NS) // 1_000_000, "100000", "100500", "99500", "100000", "1",
+                     (LAST + (index + 1) * MINUTE_NS) // 1_000_000] for index in range(4)]
+        session.read_downtime(IID, T, (1, 3), "http://proxy", get)
+        session.read_downtime("ETHUSDT-PERP.BINANCE", T, (2, 3), "http://proxy", get)
+        self.assertEqual(len(asked), 1, "a contract without a journalled bar reads nothing, so its orders refuse")
+        self.assertIn(f"startTime={(LAST + 1_000_000) // 1_000_000}", asked[0][0])
+        self.assertIn(f"endTime={(T - MINUTE_NS) // 1_000_000}", asked[0][0])
+        self.assertEqual(asked[0][1], "http://proxy")
+        self.assertEqual([bar.ts_event for bar in session.downtime[IID]],
+                         [LAST + index * MINUTE_NS for index in range(1, 5)])
+
+    def test_a_touched_order_starts_no_source_and_leaves_the_refusal_for_the_runner(self):
+        account = SimpleNamespace(to_dict=lambda: {"calculate_account_state": True})
+        for bars, refused in ((QUIET, False), (minutes(*[("98000.0", "100500.0")] * 4), True)):
+            with self.subTest(refused=refused):
+                session = self.session(saved={"sources": {}, "cut_ns": 0})
+                session.ready, session.expected_starts, session.warm_at = False, 2, T
+                session.last_bar, session.downtime = {IID: LAST}, {IID: bars}
+                session.cache = SimpleNamespace(account_for_venue=lambda _: account, orders=lambda: [order()])
+                seen: list = []
+                session.start(lambda: seen.append("recorder"))
+                session.start(lambda: seen.append("BTC"))
+                self.assertEqual((seen, session.ready, bool(getattr(session, "refused", None))),
+                                 ([], False, True) if refused else (["recorder", "BTC"], True, False))

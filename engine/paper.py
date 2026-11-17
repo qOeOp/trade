@@ -50,9 +50,12 @@ and the sealing step settles each one Binance published, at its rate and the MAR
 positions the journal held then (ledger.paper.settlements).
 
 Explicit STOP/duration cancels working orders and stops the node. For a recovery-capable source, SIGTERM/
-SIGINT instead pauses without calling the source terminal stop hook. Only terminal-order, timer-free,
-completed callbacks can publish a native checkpoint. A dirty or incomplete point refuses recovery and
-retains its original journal; no new account is substituted.
+SIGINT instead pauses without calling the source terminal stop hook and without cancelling: it waits for the orders
+in flight to be answered, then publishes a checkpoint holding the working orders. Only restorable orders
+(engine.paper_session.unrestorable), no timer and completed callbacks can publish a native checkpoint. A dirty or
+incomplete point refuses recovery and retains its original journal; no new account is substituted. A recovery refused
+before its sources start (one whose interruption may have touched a restored order, engine.paper_session.touched)
+journals a ``refusal`` and stops as a pause does, leaving the restored orders as they were; it is then sealed.
 """
 
 from __future__ import annotations
@@ -102,7 +105,7 @@ from engine import paper_checkpoint as checkpoint, protection
 from engine.order_rules import OrderRules
 from engine.fill import fill_model
 from engine.paper_redis import CacheUnavailable, NativeCache
-from engine.paper_session import Session
+from engine.paper_session import Session, in_flight
 from engine.paper_signals import Signals
 from engine.cadence import Cadence
 from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, instrument_id, leverage_of,
@@ -237,7 +240,16 @@ def mutation(callback):
 
 
 def pausing() -> bool:
-    return bool(SESSION and SESSION.supported and STOP_REASON and STOP_REASON[0] in ("SIGTERM", "SIGINT"))
+    """Whether the stop leaves the working orders as they are: the pause of a recovery-capable source (SIGTERM,
+    SIGINT), or any stop but STOP and the duration of a recovery that did not start its sources (a refused one), whose
+    working orders are the restored ones: cancelling them would record cancels the interrupted market never made
+    (docs/plans/paper-recovery-open-orders-20261117.zh.md). Such a recovery publishes no checkpoint (it is not ready)
+    and its stop reason is not a pause, so the daemon seals it."""
+    if not (SESSION and STOP_REASON):
+        return False
+    if SESSION.saved and not SESSION.ready and STOP_REASON[0] not in ("STOP_FILE", "DURATION"):
+        return True
+    return SESSION.supported and STOP_REASON[0] in ("SIGTERM", "SIGINT")
 
 
 def journal(kind: str, **fields) -> None:
@@ -302,7 +314,8 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
         strategy_runtime.declare(self, declared)
         self._warming_setup(kwargs["strategy_id"], args[0], inputs.warm_at, declared,
                             vars(type(self))["_runner_funding"], FETCH[0] if FETCH else None,
-                            follows=vars(type(self))["_runner_reads_funding"])
+                            follows=vars(type(self))["_runner_reads_funding"],
+                            reads=bool(SESSION and SESSION.saved))
         self._metrics_setup(READ_METRICS[0] if READ_METRICS else None)
         super().__init__(*args, **kwargs)
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
@@ -377,6 +390,16 @@ class PaperInputs:
 # (engine.metrics.read), set by _main.
 FETCH: list = []
 READ_METRICS: list = []
+
+
+def fetch_at(instrument_id, at: int, declared, precisions: tuple[int, int], *, catalog: Path, proxy_url: str | None,
+             session: Session | None, **kwargs):
+    """engine.history.fetch, and for a recovery the contract's klines of the interruption on the same reader thread
+    (engine.paper_session.Session.read_downtime)."""
+    found = history.fetch(instrument_id, at, declared, precisions, catalog, proxy_url, **kwargs)
+    if session is not None and session.saved:
+        session.read_downtime(instrument_id, at, precisions, proxy_url)
+    return found
 
 
 def _begin(source) -> None:
@@ -713,9 +736,11 @@ class Recorder(DataActor):
                 journal("refusal", code="PAPER_CACHE_UNAVAILABLE", reason=str(exc))
                 request_stop("PAPER_CACHE_UNAVAILABLE")
                 return  # the next tick runs the stop sequence
-        if SESSION and not SESSION.ready and time.monotonic() >= SESSION.restore_deadline and not STOP.is_set():
+        if SESSION and not SESSION.ready and not STOP.is_set() and (
+                SESSION.refused or time.monotonic() >= SESSION.restore_deadline):
             checkpoint.dirty(SESSION.backend.output)
-            journal("refusal", code="PAPER_RECOVERY_UNAVAILABLE", reason="native initialization did not complete")
+            journal("refusal", code="PAPER_RECOVERY_UNAVAILABLE",
+                    reason=SESSION.refused or "native initialization did not complete")
             request_stop("PAPER_RECOVERY_UNAVAILABLE")
         found = strategy_runtime.breaches()
         if found is not None and not STOP.is_set():
@@ -735,7 +760,10 @@ class Recorder(DataActor):
                 for iid, strategy in strategy_runtime.STRATEGIES.items():
                     strategy.cancel_all_orders(InstrumentId.from_str(iid))
             return
-        pending = any(strategy._paper_held for strategy in strategy_runtime.STRATEGIES.values()) if pausing() else open_orders
+        # A pause keeps the working orders but waits for those in flight: Sandbox `stop()` refuses the commands still
+        # queued, and a checkpoint cannot hold an order the venue has not answered (engine.paper_session.unrestorable).
+        pending = (any(strategy._paper_held for strategy in strategy_runtime.STRATEGIES.values())
+                   or any(in_flight(order) for order in self.cache.orders())) if pausing() else open_orders
         if self.handle is None or pending and time.monotonic() - self.stopping_since < STOP_CANCEL_SECONDS:
             return
         if pausing() and SESSION:
@@ -970,7 +998,7 @@ def _main(args) -> bool:
                     **strategy_metadata(loaded))
             journal("waiting", until_ns=start_ns)
         planned = plan(list(args.symbols), membership, start_ns, warm_at, args.universe.parent / membership_months.MONTHS)
-        FETCH[:] = [functools.partial(history.fetch, catalog=catalog, proxy_url=args.proxy_url)]
+        FETCH[:] = [functools.partial(fetch_at, catalog=catalog, proxy_url=args.proxy_url, session=SESSION)]
         READ_METRICS[:] = [functools.partial(metrics.read, proxy_url=args.proxy_url)]
         strategy_runtime.STRATEGIES.clear()
         for served in strategy_runtime.SERVED.values():
