@@ -209,41 +209,48 @@ def unprotected(lines: list[dict], since: int | None) -> list[dict]:
     return list(found.values())
 
 
+def entry_class(lines: list[dict]) -> str | None:
+    """The entry class the run's runner loaded, as its journal's `started` line records it (engine.strategy_metadata),
+    or None before that line."""
+    return next((line.get("strategy_entry_class") for line in lines if line["kind"] == "started"), None)
+
+
 @lru_cache(maxsize=256)
-def declares_recovery(source: bytes) -> bool | None:
-    """Whether the source declares Paper recovery as the runner checks it (engine.paper_session Session.supported): a
-    class that has PAPER_RECOVERY = 1 and, with the classes of the same file it derives from, defines on_save and
-    on_load. Read from the source text, never run; None when the text does not parse. Without it an interruption
-    ends the run, or holds it while a position is open (engine/README.md)."""
+def declares_recovery(source: bytes, entry: str | None) -> bool | None:
+    """Whether the run's entry class `entry` declares Paper recovery as the runner checks it (engine.paper_session
+    Session.supported): it has PAPER_RECOVERY = 1 and, with the classes of the same file it derives from, defines
+    on_save and on_load. Read from the source text, never run; None when that cannot be told: the entry class is not
+    known yet (`entry_class`), is not a class of the file, or the text does not parse. A base imported from elsewhere
+    is not read. Without the protocol an interruption ends the run, or holds it while a position is open
+    (engine/README.md)."""
     try:
         tree = ast.parse(source)
     except (SyntaxError, ValueError):
         return None
     classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+    if entry not in classes:
+        return None
 
     def lineage(node: ast.ClassDef, seen: frozenset = frozenset()) -> list[ast.ClassDef]:
         bases = [classes[base.id] for base in node.bases if isinstance(base, ast.Name) and base.id in classes
                  and base.id not in seen]
         return [node, *(found for base in bases for found in lineage(base, seen | {node.name}))]
 
-    for node in classes.values():
-        hooks: set[str] = set()
-        flag = None
-        for owner in lineage(node):
-            for statement in owner.body:
-                if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    hooks.add(statement.name)
-                if isinstance(statement, ast.Assign):
-                    targets, value = statement.targets, statement.value
-                elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
-                    targets, value = [statement.target], statement.value
-                else:
-                    continue
-                if flag is None and any(isinstance(t, ast.Name) and t.id == "PAPER_RECOVERY" for t in targets):
-                    flag = value.value if isinstance(value, ast.Constant) else False
-        if flag == 1 and {"on_save", "on_load"} <= hooks:
-            return True
-    return False
+    hooks: set[str] = set()
+    flag = None
+    for owner in lineage(classes[entry]):
+        for statement in owner.body:
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                hooks.add(statement.name)
+            if isinstance(statement, ast.Assign):
+                targets, value = statement.targets, statement.value
+            elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+                targets, value = [statement.target], statement.value
+            else:
+                continue
+            if flag is None and any(isinstance(t, ast.Name) and t.id == "PAPER_RECOVERY" for t in targets):
+                flag = value.value if isinstance(value, ast.Constant) else False
+    return flag == 1 and {"on_save", "on_load"} <= hooks
 
 
 def _read_bytes(path: Path) -> bytes | None:
@@ -627,7 +634,8 @@ class Daemon:
                 run["readings"]["exceptions"] = sum(item["count"] for item in failure_records(failures))
                 # Whether an interruption can resume it: read from its strategy input, not stored.
                 source = _read_bytes(directory.parent / "inputs" / "strategy.py")
-                run["recovery_declared"] = None if source is None else declares_recovery(source)
+                run["recovery_declared"] = None if source is None else declares_recovery(
+                    source, entry_class(journal.lines))
                 # Held after an interruption, and its positions without a working stop (user 2026-11-17: keep it
                 # held, notify at once): derived from the journal, not stored.
                 since = None if source is None else compare.held_since(journal.lines, source)

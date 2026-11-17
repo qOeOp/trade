@@ -89,22 +89,25 @@ class Compare(unittest.TestCase):
         entry, so an entry only the replay made after the first `resumed` is the hold's, not a look-ahead suspect;
         one before it, or a run whose source declares recovery, stays unexplained (user 2026-11-17)."""
         held = START + 2 * MINUTE
-        lines = journal([], 5) + [{"kind": "resumed", "wall_ns": held}]
+        started = {"kind": "started", "strategy_entry_class": "S"}  # the entry class the runner loaded
+        lines = [started, *journal([], 5), {"kind": "resumed", "wall_ns": held}]
         undeclared = b"class S(Strategy):\n    def on_bar(self, bar):\n        pass\n"
         declared = (b"class S(Strategy):\n    PAPER_RECOVERY = 1\n    def on_save(self):\n        return {}\n"
                     b"    def on_load(self, state):\n        pass\n")
         self.assertEqual(compare.held_since(lines, undeclared), held)
         self.assertIsNone(compare.held_since(lines, declared))
-        self.assertIsNone(compare.held_since(journal([], 5), undeclared), "never resumed")
+        self.assertIsNone(compare.held_since([started, *journal([], 5)], undeclared), "never resumed")
+        self.assertIsNone(compare.held_since(lines[1:], undeclared), "no entry class, nothing taken as held")
         # A source with the protocol is held from a recovery that crossed a funding settlement: the runner follows
         # `resumed` with a refusal at once and goes on; a refused recovery stops without another bar.
-        fell = [{"kind": "resumed", "wall_ns": held},
+        fell = [started, {"kind": "resumed", "wall_ns": held},
                 {"kind": "refusal", "code": "PAPER_RECOVERY_UNAVAILABLE", "reason": "funding"}]
         bar = {"kind": "bar", "instrument_id": "BTCUSDT-PERP.BINANCE", "ts_event": close_of(4)}
         self.assertEqual(compare.held_since(fell + [bar], declared), held)
         self.assertIsNone(compare.held_since(fell, declared), "refused and stopped")
         self.assertIsNone(compare.held_since(fell + [{"kind": "resumed", "wall_ns": held + 1}, bar], declared))
-        self.assertIsNone(compare.held_since([fell[0], bar, fell[1], bar], declared), "a refusal that came later")
+        self.assertIsNone(compare.held_since([started, fell[1], bar, fell[2], bar], declared),
+                          "a refusal that came later")
         for at, since, cause in ((close_of(3), held, "held"), (close_of(1), held, "unexplained"),
                                  (close_of(3), None, "unexplained")):
             with self.subTest(at=at, since=since):

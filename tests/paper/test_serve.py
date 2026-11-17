@@ -339,12 +339,21 @@ class RestartTests(unittest.TestCase):
         hooks = "    def on_save(self):\n        return {}\n\n    def on_load(self, state):\n        pass\n"
         declared = f"class S(Strategy):\n    PAPER_RECOVERY = 1\n\n{hooks}"
         inherited = f"class Base(Strategy):\n{hooks}\n\nclass S(Base):\n    PAPER_RECOVERY = 1\n"
-        self.assertTrue(serve.declares_recovery(declared.encode()))
-        self.assertTrue(serve.declares_recovery(inherited.encode()), "hooks from a base in the same file count")
-        self.assertFalse(serve.declares_recovery(f"class S(Strategy):\n{hooks}".encode()), "no declaration")
-        self.assertFalse(serve.declares_recovery(b"class S(Strategy):\n    PAPER_RECOVERY = 1\n"), "no hooks")
-        self.assertFalse(serve.declares_recovery(declared.replace("= 1", "= 2").encode()))
-        self.assertIsNone(serve.declares_recovery(b"class S(:\n"))
+        self.assertTrue(serve.declares_recovery(declared.encode(), "S"))
+        self.assertTrue(serve.declares_recovery(inherited.encode(), "S"), "hooks from a base in the same file count")
+        self.assertFalse(serve.declares_recovery(f"class S(Strategy):\n{hooks}".encode(), "S"), "no declaration")
+        self.assertFalse(serve.declares_recovery(b"class S(Strategy):\n    PAPER_RECOVERY = 1\n", "S"), "no hooks")
+        self.assertFalse(serve.declares_recovery(declared.replace("= 1", "= 2").encode(), "S"))
+        self.assertIsNone(serve.declares_recovery(b"class S(:\n", "S"))
+        # Only the run's entry class, as its journal's `started` line names it, and the bases it derives from count:
+        # another class of the file declaring it does not make the run recoverable.
+        other = f"{declared}\n\nclass Entry(Strategy):\n    pass\n"
+        self.assertFalse(serve.declares_recovery(other.encode(), "Entry"))
+        self.assertTrue(serve.declares_recovery(other.encode(), "S"))
+        self.assertIsNone(serve.declares_recovery(declared.encode(), None), "before the `started` line")
+        self.assertIsNone(serve.declares_recovery(declared.encode(), "Imported"), "not a class of the file")
+        self.assertEqual(serve.entry_class([{"kind": "waiting"}, {"kind": "started", "strategy_entry_class": "S"}]), "S")
+        self.assertIsNone(serve.entry_class([{"kind": "waiting"}]))
 
     def test_the_listing_names_a_held_runs_positions_without_a_working_stop_until_they_close(self):
         """User 2026-11-17 (keep it held, notify at once): a position whose `protection_gap` was journalled after the
@@ -352,7 +361,8 @@ class RestartTests(unittest.TestCase):
         that declares recovery are not."""
         gap = lambda key, at: {"kind": "protection_gap", "wall_ns": at, "position_id": key,  # noqa: E731
                                "instrument_id": "BTCUSDT-PERP.BINANCE", "since_ns": at - 5}
-        lines = [gap("P-0", 10), {"kind": "resumed", "wall_ns": 20}, gap("P-1", 30), gap("P-2", 31),
+        lines = [{"kind": "started", "strategy_entry_class": "S"}, gap("P-0", 10), {"kind": "resumed", "wall_ns": 20},
+                 gap("P-1", 30), gap("P-2", 31),
                  {"kind": "position", "wall_ns": 40, "position_id": "P-2", "type": "PositionClosed"},
                  {"kind": "position", "wall_ns": 41, "position_id": "P-1", "type": "PositionChanged",
                   "side": "LONG", "quantity": "0.5"}]
