@@ -20,7 +20,9 @@ carries JSON, which a page elsewhere cannot send without a preflight this server
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass, field
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -158,6 +160,43 @@ def held(directory: Path) -> dict | None:
         return None
     return {"minute_ns": state.get("minute_ns"), "positions": state.get("positions") or [],
             "orders": state.get("orders") or []}
+
+
+@lru_cache(maxsize=256)
+def declares_recovery(source: bytes) -> bool | None:
+    """Whether the source declares Paper recovery as the runner checks it (engine.paper_session Session.supported): a
+    class that has PAPER_RECOVERY = 1 and, with the classes of the same file it derives from, defines on_save and
+    on_load. Read from the source text, never run; None when the text does not parse. Without it an interruption
+    ends the run (engine/README.md)."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return None
+    classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+
+    def lineage(node: ast.ClassDef, seen: frozenset = frozenset()) -> list[ast.ClassDef]:
+        bases = [classes[base.id] for base in node.bases if isinstance(base, ast.Name) and base.id in classes
+                 and base.id not in seen]
+        return [node, *(found for base in bases for found in lineage(base, seen | {node.name}))]
+
+    for node in classes.values():
+        hooks: set[str] = set()
+        flag = None
+        for owner in lineage(node):
+            for statement in owner.body:
+                if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    hooks.add(statement.name)
+                if isinstance(statement, ast.Assign):
+                    targets, value = statement.targets, statement.value
+                elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+                    targets, value = [statement.target], statement.value
+                else:
+                    continue
+                if flag is None and any(isinstance(t, ast.Name) and t.id == "PAPER_RECOVERY" for t in targets):
+                    flag = value.value if isinstance(value, ast.Constant) else False
+        if flag == 1 and {"on_save", "on_load"} <= hooks:
+            return True
+    return False
 
 
 def _read_bytes(path: Path) -> bytes | None:
@@ -535,6 +574,9 @@ class Daemon:
                 run["readings"]["held"] = held(directory)
                 # How often the strategy raised so far; the runner rewrites the file at each power of two.
                 run["readings"]["exceptions"] = sum(item["count"] for item in failure_records(failures))
+                # Whether an interruption can resume it: read from its strategy input, not stored.
+                source = _read_bytes(directory.parent / "inputs" / "strategy.py")
+                run["recovery_declared"] = None if source is None else declares_recovery(source)
         found["starting"] = sorted(self.starting)
         self.listed = (time.monotonic(), found)
         return found
