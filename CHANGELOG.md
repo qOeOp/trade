@@ -26,6 +26,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper (doctor 20261117-01): the Run paper dialog named the account as "1× leverage"; a page start runs with the
+  replay default, leverage 3. The dialog now shows the margin and leverage the Paper controller names
+  (`/api/paper/defaults`, from `ACCOUNT_CONTRACT`).
+
 ## 0.4.3 (2026-11-17)
 
 - Release (doctor 20261117-02): moving the ledger mirror, market-import and docker-api with a version no longer
