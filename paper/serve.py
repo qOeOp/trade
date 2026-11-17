@@ -38,6 +38,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from engine import paper_checkpoint as checkpoint
 from engine.config import ACCOUNT_CONTRACT, instrument_id
+from engine.kline_events import LATE_NS
 from ledger import db, paper as records, strategies
 from market.sources import SYMBOL  # a contract named as the market holds it, as replay takes it
 from shared.errors import Refusal
@@ -98,14 +99,22 @@ def read_lines(path: Path, offset: int) -> tuple[int, list[dict], int]:
     return offset + end, lines, unreadable
 
 
+NOT_LISTED = ("bar", "kline_event")  # kept as counts (a bar) or matched to their bar (engine.kline_events), not listed
+
+
 @dataclass
 class Journal:
-    """A run's journal read so far: its lines except bars (kept as a count)."""
+    """A run's journal read so far: its lines except bars (kept as a count) and kline events (matched to their bar:
+    the late bars, engine.kline_events)."""
     offset: int = 0
     lines: list[dict] = field(default_factory=list)
     bars: int = 0
     last_bar_ns: int | None = None
     unreadable: int = 0
+    late_bars: int = 0
+    # (contract, close) of a bar or kline event still waiting for the other: the bar's ts_init, the event's event_ns
+    receipts: dict[tuple[str, int], int] = field(default_factory=dict)
+    sent: dict[tuple[str, int], int] = field(default_factory=dict)
 
     def read(self, path: Path) -> None:
         self.offset, lines, unreadable = read_lines(path, self.offset)
@@ -114,8 +123,25 @@ class Journal:
             if line["kind"] == "bar":
                 self.bars += 1
                 self.last_bar_ns = max(self.last_bar_ns or 0, line.get("ts_event") or 0)
+                if isinstance(line.get("ts_init"), int):
+                    self._bar((str(line.get("instrument_id")), line.get("ts_event") or 0), line["ts_init"])
+            elif line["kind"] == "kline_event":
+                if isinstance(line.get("event_ns"), int):
+                    self._sent((str(line.get("instrument_id")), line.get("ts_event") or 0), line["event_ns"])
             else:
                 self.lines.append(line)
+
+    def _bar(self, key: tuple[str, int], receipt: int) -> None:
+        if key in self.sent:
+            self.late_bars += receipt - self.sent.pop(key) > LATE_NS
+        else:
+            self.receipts[key] = receipt
+
+    def _sent(self, key: tuple[str, int], sent: int) -> None:
+        if key in self.receipts:
+            self.late_bars += self.receipts.pop(key) - sent > LATE_NS
+        else:
+            self.sent.setdefault(key, sent)  # the first event of a close stands
 
 
 def readings(row: dict, journal: Journal) -> dict:
@@ -125,7 +151,7 @@ def readings(row: dict, journal: Journal) -> dict:
     return {key: found[key] for key in ("total_return", "max_drawdown", "final_equity_usdt", "funding_usdt",
                                         "fills", "orders_submitted", "positions_closed", "missing_bars",
                                         "late_bars", "protection_gaps", "started_ns")} | {
-        "bars": journal.bars, "last_bar_ns": journal.last_bar_ns,
+        "bars": journal.bars, "last_bar_ns": journal.last_bar_ns, "late_bars": journal.late_bars,
         "input_start_ns": next((line.get("until_ns") for line in journal.lines if line["kind"] == "waiting"), None),
         "starting_balance_usdt": found["starting_balance_usdt"],
         "equity": [[minute, float(equity)] for minute, equity in path]}
@@ -242,7 +268,7 @@ def resumed(lines: list[dict], resume: Resume) -> list[dict] | None:
     journal is not this one (it holds more lines, or its last was written at another time)."""
     start = 0
     if resume.lines:
-        seen = [at for at, line in enumerate(lines) if line["kind"] != "bar"]
+        seen = [at for at, line in enumerate(lines) if line["kind"] not in NOT_LISTED]
         if len(seen) < resume.lines or abs(int(lines[seen[resume.lines - 1]].get("wall_ns") or 0) - resume.last) > PRECISION:
             return None
         start = seen[resume.lines - 1] + 1
@@ -251,7 +277,7 @@ def resumed(lines: list[dict], resume: Resume) -> list[dict] | None:
 
 
 def _wanted(line: dict, instrument: str | None) -> bool:
-    return line["kind"] != "bar" or line.get("instrument_id") == instrument
+    return line["kind"] == "bar" and line.get("instrument_id") == instrument or line["kind"] not in NOT_LISTED
 
 
 def closes(lines: list[dict]) -> dict[str, list[list]]:

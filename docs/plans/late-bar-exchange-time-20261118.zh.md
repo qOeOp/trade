@@ -113,7 +113,11 @@
   7. 字段：`wall_ns`、`kind` 是外壳，`ts_event` 要存，每个（合约，`k.T`）只记第一条。
 - 初稿的错误：办法 C 写成"Paper 不新增存储"不对，也漏了它不用旁路连接这个优点；已改正。
 
-## 待用户决定
+## 用户决定
+
+2026-11-18 用户授权（原话「授权 (Recommended)」），按上文"字段"实施：Paper 的 `events.jsonl` 和 Live 的 `market.jsonl` 新增 `kline_event` 行，旁路连接取 E，迟到 = `ts_init − E > 2 秒`，对不上的计为未知，运行时不再写 `late_bar` 行，Binance 的推送延迟只作证据。旁路连接手写，不加依赖；出网白名单不变。
+
+## 当时待用户决定的
 
 - 是否授权新增 `kline_event` 行（`instrument_id`、`ts_event`、`event_ns`），写进 Paper 日志和 Live 证据包。
 - 授权的话，同时意味着：每次 Paper 和 Live 运行多一条到 `fstream.binance.com` 的 websocket 连接；可能加一个 websocket 依赖；运行时不再写 `late_bar` 行，`late_bars` 改为封存时推出；比较多出"未知"和 Binance 推送延迟两项证据。

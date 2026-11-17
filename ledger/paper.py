@@ -30,6 +30,7 @@ import shutil
 import tempfile
 
 from engine.config import ACCOUNT_CONTRACT, instrument_id, symbol_of
+from engine.kline_events import received
 from ledger import db, metrics, strategies
 from shared.refusals import refuse
 
@@ -441,6 +442,13 @@ def killed(lines: list[dict], summary: dict | None, exit_code: int | None, oom_k
     return exit_code == KILLED_EXIT and summary is None and not oom_killed and not asked
 
 
+def late_bars(lines: list[dict]) -> int:
+    """The bars the run received more than engine.kline_events.LATE_NS after Binance sent them (its kline_event)."""
+    found = received([line for line in lines if line["kind"] == "bar"],
+                     [line for line in lines if line["kind"] == "kline_event"])
+    return sum(len(item["late"]) for item in found.values())
+
+
 def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None, exit_code: int | None,
              egress: bytes | None, start_failed: bool = False, oom_killed: bool = False, failures: int = 0,
              path_and_funding: tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]] | None = None,
@@ -535,7 +543,7 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         "positions_closed": sum(1 for line in lines if line["kind"] == "position" and line.get("type") == "PositionClosed"),
         "bars": kinds.get("bar", 0),
         "missing_bars": sum(int(line.get("missing_bars") or 0) for line in lines if line["kind"] == "data_gap"),
-        "late_bars": kinds.get("late_bar", 0), "protection_gaps": kinds.get("protection_gap", 0),
+        "late_bars": late_bars(lines), "protection_gaps": kinds.get("protection_gap", 0),
         "socket_events": kinds.get("socket", 0), "egress_denied": denied, "unreadable_journal_lines": unreadable,
         "audit": audited,
         "limitations": ["Sandbox settles no funding: equity adds each settlement Binance published, at its rate and "

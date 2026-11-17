@@ -49,13 +49,20 @@ def archived(minutes: int, closes: dict[int, str] | None = None) -> list[list]:
              (closes or {}).get(i, "100.0"), "5"] for i in range(minutes)]
 
 
+def sent(i: int, delay: int = 10**6) -> dict:
+    """The kline_event of bar `i`: Binance sent it `delay` after its close's last millisecond."""
+    return {"kind": "kline_event", "instrument_id": BTC, "ts_event": close_of(i), "event_ns": close_of(i) + 10**6 + delay}
+
+
 def compared(run_events: list[dict], replay_events: list[dict], minutes: int = 40, *, skip: tuple[int, ...] = (),
              closes: dict[int, str] | None = None, late: tuple[int, ...] = (), early: tuple[int, ...] = (),
-             **context) -> dict:
-    bars = [bar(i, (closes or {}).get(i, "100.0"), close_of(i) + 5 * 10**9 if i in late else None)
-            | {"ts_init": close_of(i) - 10**6 if i in early else close_of(i) + 10**7}
+             unknown: tuple[int, ...] = (), **context) -> dict:
+    bars = [bar(i, (closes or {}).get(i, "100.0"))
+            | {"ts_init": close_of(i) - 10**6 if i in early else close_of(i) + 5 * 10**9 if i in late else close_of(i) + 10**7}
             for i in range(minutes) if i not in skip]
-    run = {"bars": bars, "events": run_events, **{key: context.pop(key) for key in ("warmup", "terms", "fees", "settlements",
+    events = [sent(i) for i in range(minutes) if i not in unknown]
+    run = {"bars": bars, "kline_events": events, "events": run_events,
+           **{key: context.pop(key) for key in ("warmup", "terms", "fees", "settlements",
                                                                                    "gate", "metrics") if key in context}}
     return comparison.compare(run, replay_events, {"BTCUSDT": archived(minutes)}, None, START, START + minutes * MINUTE,
                              **context)
@@ -209,11 +216,37 @@ class Attribution(unittest.TestCase):
                          skip=(5,))["groups"][1]
         self.assertEqual((group["class"], group["cause"], group["look_ahead_suspect"]), ("replay_only", "missing_bar", False))
 
-    def test_a_late_bar_reaches_the_source_more_than_two_seconds_after_its_close(self):
-        found = comparison.bars([bar(0, wall_ns=close_of(0) + 10**6 + comparison.LATE_NS),
-                                bar(1, wall_ns=close_of(1) + 10**6 + comparison.LATE_NS + 1)],
-                               {"BTCUSDT": archived(2)}, START, START + 2 * MINUTE)
-        self.assertEqual(found["BTCUSDT"]["late"], [close_of(1)])
+    def test_a_late_bar_reached_the_run_more_than_two_seconds_after_binance_sent_it(self):
+        """User 2026-11-18 (「按 Binance 发出时间算」): only the run's own delay makes a bar late. Binance sending a bar
+        late is shown, never a cause; a bar with no kline_event is unknown."""
+        late = comparison.LATE_NS
+        bars = [bar(0) | {"ts_init": close_of(0) + 10**6 + 3 * 10**9 + late},  # Binance 3 s late, the run then 2 s
+                bar(1) | {"ts_init": close_of(1) + 10**6 + 3 * 10**9 + 50 * 10**6},  # Binance 3 s late, the run on time
+                bar(2) | {"ts_init": close_of(2) + 10**6 + late + 1},  # Binance on time, the run 2 s late
+                bar(3) | {"ts_init": close_of(3) + 10**7}]  # no kline_event
+        events = [sent(0, 3 * 10**9), sent(1, 3 * 10**9), sent(2, 0), sent(2, 5 * 10**9)]  # the first of a close stands
+        found = comparison.bars(bars, {"BTCUSDT": archived(4)}, START, START + 4 * MINUTE, events)["BTCUSDT"]
+        self.assertEqual((found["late"], found["unknown"]), ([close_of(2)], [close_of(3)]))
+        self.assertEqual(found["sent"], {close_of(0): 3 * 10**9, close_of(1): 3 * 10**9, close_of(2): 0})
+        result = compared([], bracket("r", close_of(5), close_of(5), "R"), unknown=(2,), late=(3,))
+        self.assertEqual({key: result["summary"][key] for key in ("late_bars", "unknown_bars", "published_late_bars")},
+                         {"late_bars": 1, "unknown_bars": 1, "published_late_bars": 0})
+        self.assertEqual(result["inputs"]["BTCUSDT"]["bars"]["unknown"], [utc_text(close_of(2))])
+        group = result["groups"][0]
+        self.assertEqual((group["cause"], group["evidence"]["unknown_bars"]), ("late_bar", 1))
+
+    def test_binance_sending_a_bar_late_is_shown_beside_a_difference_and_is_no_cause(self):
+        events = [sent(i, 3 * 10**9 if i == 2 else 10**6) for i in range(40)]
+        bars = [bar(i) | {"ts_init": close_of(i) + 10**6 + (3 * 10**9 if i == 2 else 10**6) + 10**7} for i in range(40)]
+        run = {"bars": bars, "kline_events": events, "events": []}
+        result = comparison.compare(run, bracket("r", close_of(5), close_of(5), "R"), {"BTCUSDT": archived(40)}, None,
+                                    START, START + 40 * MINUTE)
+        group = result["groups"][0]
+        self.assertEqual((group["cause"], group["look_ahead_suspect"]), ("unexplained", True))
+        self.assertEqual((group["evidence"]["published_late_bars"], group["evidence"]["publication_delay_ms"],
+                          result["summary"]["published_late_bars"], result["summary"]["late_bars"]), (1, "3000", 1, 0))
+        self.assertEqual(result["inputs"]["BTCUSDT"]["bars"]["published_late"],
+                         [{"close": utc_text(close_of(2)), "delay_ms": "3000"}])
 
     def test_an_early_bar_is_shown_beside_a_difference_and_is_no_cause(self):
         """Found on a two-contract Paper run (2026-11-13): the clock behind the venue's stamped bars before their
