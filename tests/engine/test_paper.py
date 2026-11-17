@@ -547,6 +547,29 @@ class PauseTests(unittest.TestCase):
                 paper.STOP_REASON[:] = [reason]
                 self.assertFalse(paper.pausing(), "the user's stop and the duration cancel")
 
+    def test_a_held_pause_whose_last_position_closes_while_it_waits_cancels_what_is_left(self):
+        """Its cut needs an open position, so it would end with the entry and the target still working: once flat it
+        cancels them and stops as a flat stop does, publishing no checkpoint."""
+        self.orders[:] = [self.working("ACCEPTED", "LIMIT"), self.working("SUBMITTED")]
+        self.positions[:] = ["P-1"]
+        session = self.unprotocolled()
+        handle = self.recorder.handle
+        self.stop(session)
+        self.assertTrue(session.holding)
+        self.cancel.assert_not_called()
+        self.positions.clear()  # the stop filled while the pause waited for the order in flight
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
+            self.recorder.on_stop_timer(None)
+            self.assertFalse(session.holding)
+            self.assertFalse(paper.pausing())
+            self.cancel.assert_called_once_with(self.source, IID)
+            self.recorder.on_stop_timer(None)
+            handle.stop.assert_not_called()  # the cancels have not been answered
+            self.orders.clear()
+            self.recorder.on_stop_timer(None)
+        handle.stop.assert_called_once()
+        session.before_stop.assert_not_called()
+
     def test_a_held_run_ends_once_flat_and_cancels_what_is_left(self):
         session = self.unprotocolled(held=True, saved={"sources": {}})
         self.positions[:] = ["P-1"]
