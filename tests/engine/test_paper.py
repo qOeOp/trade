@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from nautilus_trader.model import FundingRateUpdate, InstrumentId, MarkPriceUpdate, Price
+from nautilus_trader.model import FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderStatus, Price
 
 from engine import membership as membership_months, paper
 from engine.cadence import Cadence
@@ -352,7 +352,7 @@ class CacheLivenessTests(unittest.TestCase):
         paper.STOP_REASON.append("STOP_FILE")
         recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
         health = mock.Mock(side_effect=paper.CacheUnavailable("gone"))
-        session = SimpleNamespace(backend=SimpleNamespace(health=health), ready=True, supported=False)
+        session = SimpleNamespace(backend=SimpleNamespace(health=health), ready=True, supported=False, saved=None)
         with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal") as journal, \
                 mock.patch.object(recorder, "_protection"), \
                 mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock,
@@ -361,6 +361,106 @@ class CacheLivenessTests(unittest.TestCase):
         health.assert_not_called()
         self.assertEqual(paper.STOP_REASON, ["STOP_FILE"])
         self.assertEqual([call.args[0] for call in journal.call_args_list], ["stop_requested"])
+
+
+class PauseTests(unittest.TestCase):
+    """A pause and a refused recovery leave the working orders as they are (docs/plans/
+    paper-recovery-open-orders-20261117.zh.md); a pause first waits for the orders in flight."""
+
+    def setUp(self):
+        for value in (paper.STOP, paper.STOP_REASON):
+            self.addCleanup(value.clear)
+        self.recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
+        self.recorder.handle = mock.Mock()
+        self.source = mock.Mock(_paper_held=[])
+        self.orders: list = []
+        for patcher in (mock.patch.object(self.recorder, "_protection"),
+                        mock.patch.dict(paper.strategy_runtime.STRATEGIES, {str(IID): self.source}, clear=True),
+                        mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock,
+                                          return_value=SimpleNamespace(orders=lambda: list(self.orders),
+                                                                       orders_open=lambda: list(self.orders))),
+                        mock.patch.object(paper.checkpoint, "dirty")):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def working(status: str):
+        return SimpleNamespace(is_closed=False, status=getattr(OrderStatus, status))
+
+    def test_a_refused_recovery_journals_why_and_stops_without_cancelling_the_restored_orders(self):
+        self.orders.append(self.working("ACCEPTED"))
+        reason = "O-1 (SELL STOP_MARKET at 99000.0) was touched in the interruption"
+        session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock(), output=Path("out")), ready=False,
+                                  refused=reason, restore_deadline=float("inf"), supported=True,
+                                  saved={"sources": {}}, before_stop=mock.Mock(), try_cut=mock.Mock())
+        handle = self.recorder.handle
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal") as journal:
+            self.recorder.on_stop_timer(None)
+            self.recorder.on_stop_timer(None)
+        self.assertEqual(paper.STOP_REASON, ["PAPER_RECOVERY_UNAVAILABLE"])
+        self.assertEqual(journal.call_args_list[0], mock.call("refusal", code="PAPER_RECOVERY_UNAVAILABLE",
+                                                              reason=reason))
+        self.source.cancel_all_orders.assert_not_called()
+        handle.stop.assert_called_once()
+        session.try_cut.assert_not_called()
+
+    def test_a_pause_waits_for_the_orders_in_flight_then_stops_without_cancelling(self):
+        self.orders.extend([self.working("ACCEPTED"), self.working("SUBMITTED")])
+        session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock()), ready=True, refused=None,
+                                  supported=True, saved=None, before_stop=mock.Mock(), try_cut=mock.Mock())
+        handle = self.recorder.handle
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
+            paper.request_stop("SIGTERM")
+            self.recorder.on_stop_timer(None)
+            self.recorder.on_stop_timer(None)
+            handle.stop.assert_not_called()
+            self.orders[1] = self.working("ACCEPTED")  # the venue answered
+            self.recorder.on_stop_timer(None)
+        session.before_stop.assert_called_once()
+        handle.stop.assert_called_once()
+        self.source.cancel_all_orders.assert_not_called()
+
+    def test_an_explicit_stop_of_an_unstarted_recovery_still_cancels(self):
+        session = SimpleNamespace(ready=False, supported=True, saved={"sources": {}})
+        with mock.patch.object(paper, "SESSION", session):
+            for reason, pausing in (("STOP_FILE", False), ("DURATION", False), ("WARMUP_TIMEOUT", True),
+                                    ("SIGTERM", True)):
+                paper.STOP_REASON[:] = [reason]
+                self.assertEqual(paper.pausing(), pausing, reason)
+
+
+class InterruptionReadTests(unittest.TestCase):
+    def test_a_recovery_reads_the_interruption_on_the_warm_up_reader_even_without_a_warm_up_request(self):
+        from engine import history, order_rules
+        self.addCleanup(history.clear)
+        self.addCleanup(order_rules.WARMING.discard, "R1-BTCUSDT")
+        self.addCleanup(order_rules.CONTRACTS.pop, "R1-BTCUSDT", None)
+        at = DAY + 10 * MINUTE_NS
+        fetch = mock.Mock(return_value=([], [], []))
+        source = history.Warming()
+        history.Warming._warming_setup(source, "R1-BTCUSDT", IID, at, (), 0, fetch, reads=True)
+        state = history.STATES["R1-BTCUSDT"]
+        clock = mock.Mock(timestamp_ns=mock.Mock(return_value=at - MINUTE_NS))
+        source._warming_state, source._warming_clock = (lambda: state), (lambda: clock)  # type: ignore[method-assign]
+        source._warming_request = mock.Mock()  # type: ignore[method-assign]
+        source.on_start()
+        clock.set_time_alert_ns.assert_called_once_with("runner-warmup", at + history.SETTLE_NS, source._warming_go)
+        instrument = SimpleNamespace(price_precision=1, size_precision=3)
+        cache = SimpleNamespace(__get__=lambda *_: SimpleNamespace(instrument=lambda _: instrument))
+        with mock.patch.object(history, "Strategy", SimpleNamespace(cache=cache)):
+            source._warming_go()
+        state["thread"].join(5)
+        fetch.assert_called_once_with(IID, at, (), (1, 3), funding=0, follow=False)
+
+        # Only a contract holding a restored working order reads them (engine.paper.build_node sets `working`).
+        for working, reads in ((set(), False), ({str(IID)}, True)):
+            session = SimpleNamespace(saved={"sources": {}}, working=working, read_downtime=mock.Mock())
+            with mock.patch.object(paper.history, "fetch", return_value=([], [], [])) as read:
+                paper.fetch_at(IID, at, (), (1, 3), catalog=Path("c"), proxy_url="http://proxy", session=session,
+                               funding=0, follow=False)
+            read.assert_called_once_with(IID, at, (), (1, 3), Path("c"), "http://proxy", funding=0, follow=False)
+            self.assertEqual(session.read_downtime.call_args_list,
+                             [mock.call(IID, at, (1, 3), "http://proxy")] if reads else [])
 
 
 class CredentialTests(unittest.TestCase):

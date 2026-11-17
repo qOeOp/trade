@@ -169,17 +169,19 @@ class Warming:
 
     def _warming_setup(self, strategy_id, instrument_id, at: int, declared, funding: int = 0,
                        fetch: Callable[..., tuple[list[list], list, list]] | None = None,
-                       settlements: list | None = None, follows: bool = False) -> None:
+                       settlements: list | None = None, follows: bool = False, reads: bool = False) -> None:
         """`fetch(instrument_id, at, declared, precisions, funding=funding, follow=...)` fills the run's Catalog and
         reads the settlements (Paper and Live; see fetch); a replay gives the `settlements` of its export instead.
-        `follows`: the Paper or Live source reads funding (on_funding_rate)."""
+        `follows`: the Paper or Live source reads funding (on_funding_rate). `reads`: `fetch` reads at T even without a
+        request (a Paper recovery's interruption klines, engine.paper_session.Session.read_downtime)."""
         order_rules.WARMING.add(str(strategy_id))
         order_rules.CONTRACTS[str(strategy_id)] = instrument_id
         STATES[str(strategy_id)] = {
             "at": at, "instrument_id": instrument_id, "declared": declared, "funding": funding, "fetch": fetch,
             "settlements": settlements if fetch is None else None, "pending": set(), "received": {}, "expected": {},
             "delivered": {}, "result": None, "thread": None, "fetched_ns": None, "requested": False, "done": False,
-            "follow": fetch is not None and follows and at % HOUR_NS == 0, "subscribed": False, "following": []}
+            "follow": fetch is not None and follows and at % HOUR_NS == 0, "subscribed": False, "following": [],
+            "reads": fetch is not None and reads}
 
     def _warming_state(self) -> dict:
         return STATES[str(Strategy.strategy_id.__get__(self, type(self)))]
@@ -189,7 +191,8 @@ class Warming:
 
     def on_start(self):
         state = self._warming_state()
-        fetching = state["fetch"] and (requests(state["at"], state["declared"]) or state["funding"] or state["follow"])
+        fetching = state["fetch"] and (requests(state["at"], state["declared"]) or state["funding"] or state["follow"]
+                                       or state["reads"])
         when = state["at"] + (SETTLE_NS if fetching else 0)
         clock = self._warming_clock()
         if clock.timestamp_ns() > when:
@@ -200,7 +203,7 @@ class Warming:
     def _warming_go(self, _event=None) -> None:
         state = self._warming_state()
         planned = requests(state["at"], state["declared"])
-        if state["fetch"] is None or not planned and not state["funding"] and not state["follow"]:
+        if state["fetch"] is None or not (planned or state["funding"] or state["follow"] or state["reads"]):
             return self._warming_request(planned, None)
         instrument = Strategy.cache.__get__(self, type(self)).instrument(state["instrument_id"])
         if instrument is None:
