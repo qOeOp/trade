@@ -281,6 +281,60 @@ class SessionTests(unittest.TestCase):
                 session._same_bucket()
 
 
+class HeldTests(unittest.TestCase):
+    """A source without the recovery protocol is held after an interruption (docs/plans/
+    paper-recovery-open-orders-20261117.zh.md, 保持模式): its checkpoint holds the native cache and the recorder alone,
+    and only while a position is open."""
+
+    session = SessionTests.session
+
+    @staticmethod
+    def cache(positions=("P-1",), orders=None):
+        return SimpleNamespace(orders=lambda: list(orders if orders is not None else [order()]),
+                               positions_open=lambda: list(positions))
+
+    def test_a_held_checkpoint_has_no_source_state_and_needs_an_open_position(self):
+        source = SimpleNamespace(_paper_held=[], clock=SimpleNamespace(timer_names=lambda: ["a-source-timer"]))
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": source}, clear=True):
+            session = self.session(Empty)
+            self.assertFalse(session.held, "a first run is not held")
+            session.cut(self.cache())
+            self.assertEqual(session.backend.snapshot.call_args.args[1]["sources"], {})
+            for name, cache in (("flat", self.cache(positions=())),
+                                ("an order in flight", self.cache(orders=[order(status="SUBMITTED")]))):
+                with self.subTest(name):
+                    session = self.session(Empty)
+                    with self.assertRaises(checkpoint.Refusal):
+                        session.cut(cache)
+                    session.backend.snapshot.assert_not_called()
+            source._paper_held = [object()]
+            session = self.session(Empty)
+            with self.assertRaises(checkpoint.Refusal):
+                session.cut(self.cache())
+            source._paper_held = []
+            # A pause keeps a held checkpoint whatever timers the source had: no source is restored.
+            session = self.session(Empty)
+            session.before_stop(self.cache())
+            self.assertIsNone(session.pause_error)
+            session = self.session()
+            session.before_stop(self.cache())
+            self.assertIn("timer", session.pause_error, "a recovery-capable source's timer still refuses")
+
+    def test_a_recovery_of_a_source_without_the_protocol_is_held_and_refuses_no_funding_crossing(self):
+        saved = {"sources": {}, "cut_ns": 0, "recorder": {"funding": {IID: 100}}}
+        session = self.session(Empty, saved=saved)
+        self.assertTrue(session.held)
+        self.assertFalse(self.session(saved=saved).held, "a recovery-capable source is restored, not held")
+        account = SimpleNamespace(to_dict=lambda: {"calculate_account_state": True})
+        session.ready, session.expected_starts, session.warm_at = False, 2, T
+        session.cache = SimpleNamespace(account_for_venue=lambda _: account, orders=lambda: [])
+        seen: list = []
+        with mock.patch("engine.paper_session.time.time_ns", return_value=101):
+            session.start(lambda: seen.append("recorder"))
+            session.start(lambda: seen.append("holder"))
+        self.assertEqual((seen, session.ready), (["recorder", "holder"], True))
+
+
 class InterruptionTests(unittest.TestCase):
     """A recovery restores the working orders only when the interruption's minutes prove none was touched
     (docs/plans/paper-recovery-open-orders-20261117.zh.md): Nautilus matched nothing while the run was down."""

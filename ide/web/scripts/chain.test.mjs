@@ -252,6 +252,8 @@ test("how a run ended reads from its seal, Invalid only by the listing's verdict
   assert.equal(ended({ stop_reason: "STOP_FILE", bars: 0, reasons: ["STOPPED_BEFORE_START"] }).text, "Stopped", "stopped by the user before its first bar");
   assert.equal(ended({ stop_reason: "DURATION" }).text, "Finished");
   assert.equal(ended({ stop_reason: "SIGTERM" }).text, "Interrupted");
+  const flat = ended({ stop_reason: "HELD_FLAT" });
+  assert.deepEqual([flat.kind, flat.text, flat.gap, flat.lead], ["ended", "Held until flat", "offline", "held after a restart until its positions closed"]);
   assert.equal(ended({ stop_reason: "KILLED", runner_exit_code: 137 }).text, "Interrupted");
   assert.equal(ended({ stop_reason: "KILLED", bars: 0, reasons: ["STOPPED_BEFORE_START"] }).text, "Didn't start");
   assert.equal(ended({ stop_reason: "KILLED", bars: undefined, reasons: ["STOPPED_BEFORE_START"] }).text, "Didn't start", "a seal without a bar count");
@@ -404,6 +406,7 @@ test("trades read a joined journal run by run: the same ids in two runs never me
 
 test("Events name who stopped a run and count contracts in words", () => {
   assert.equal(paper.describe(line("stop_requested", T0, { reason: "STOP_FILE", open_orders: 0 })), "Stop requested by you, 0 working orders");
+  assert.equal(paper.describe(line("stop_requested", T0, { reason: "HELD_FLAT", open_orders: 1 })), "Stop requested once its held positions closed, 1 working order");
   assert.equal(paper.describe(line("stop_requested", T0, { reason: "DURATION", open_orders: 1 })), "Stop requested at its set duration, 1 working order");
   assert.equal(paper.describe(line("summary_written", T0, { stop_reason: "STOP_FILE" })), "Summary written");
   assert.equal(paper.describe(line("started", T0, { symbols: ["BTCUSDT"] })), "Started on 1 contract");

@@ -177,7 +177,9 @@ def containers(profile: db.LedgerProfile) -> list[dict]:
 
 
 def _source_running(present: list[dict], source_sha256: str) -> bool:
-    """A runner of this source is running among the containers `present`."""
+    """A runner of this source is running among the containers `present`. A held run (engine.paper: a source without
+    the recovery protocol, resumed holding a position) is one, so the source starts no other run until it is flat,
+    however long its stops and targets take."""
     return any(item["source_sha256"] == source_sha256 for item in present
                if item["role"] == "runner" and item["running"])
 

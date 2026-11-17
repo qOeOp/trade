@@ -43,7 +43,8 @@ export type PaperRun = {
   /** Why the daemon's last resume or seal of this ended run was refused (paper/serve.py recovery_failures). */
   recovery?: { code: string; message: string };
   /** Whether the run's source declares Paper recovery (PAPER_RECOVERY = 1 with on_save and on_load), read from its
-   *  strategy input while it is not sealed; null where that is unreadable. Without it an interruption ends the run. */
+   *  strategy input while it is not sealed; null where that is unreadable. Without it an interruption ends the run, or
+   *  holds it while a position is open (engine/paper.py, HELD_FLAT). */
   recovery_declared?: boolean | null;
 };
 /** The ledger's paper memory in MiB (paper/runs.py memory_state): the budget, what running runs reserve, the

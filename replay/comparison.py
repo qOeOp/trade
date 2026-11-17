@@ -25,7 +25,9 @@ in the order they were sent, so a scale-out's second target meets the other side
 Each group's first difference since its contract's previous agreeing group takes its cause from what the product
 knows, in this order (user 2026-11-12): a live bar missing, a live bar late, a live bar unlike the archive's, a
 warm-up unlike the archive's (while the difference falls within the warm-up's reach), contract terms or fee rates
-unlike the replay's, or a lone group at the window's end. Only when none applies is it unexplained, and only an
+unlike the replay's, a lone group at the window's end, Live's entry gate, or a Paper run held after an interruption
+(its source without the recovery protocol: from the first `resumed` on it sends no entry and withdraws those it had;
+user 2026-11-17) while the group was open. Only when none applies is it unexplained, and only an
 unexplained difference that the replay made alone (a group or an order only the replay had) is a look-ahead
 suspect. Once the paths part, the positions they trade from differ, so each later difference up to the next
 agreeing group is a consequence of that first one.
@@ -65,7 +67,7 @@ ROLES = {"ENTRY": "entry", "STOP_LOSS": "stop", "TAKE_PROFIT": "target"}
 BAR_FIELDS = ("open", "high", "low", "close", "volume")
 MINUTE_BAR = "1-MINUTE-LAST-EXTERNAL"
 CAUSES = ("missing_bar", "late_bar", "bar_mismatch", "metrics", "warmup", "contract_terms", "window_end",
-          "entry_gate")  # in this order
+          "entry_gate", "held")  # in this order
 METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
                   "count_long_short_ratio")
 METRICS_VISIBLE_NS = 5 * MINUTE_NS  # a metrics row reaches the source 5 minutes after ts_event (market.export)
@@ -630,9 +632,11 @@ def _gated(group: Mapping, gate: Mapping) -> bool:
 
 def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[str, dict],
               contract: Mapping[str, dict], start: int, end: int, gate: Mapping | None = None,
-              metered: Mapping[str, dict] | None = None) -> list[dict]:
+              metered: Mapping[str, dict] | None = None, held: int | None = None) -> list[dict]:
     """Each group pair with its cause when it differs (CAUSES, in order; else unexplained), whether it is a
-    look-ahead suspect, or the earlier difference it follows."""
+    look-ahead suspect, or the earlier difference it follows. `held`: when a Paper run of a source without the
+    recovery protocol was first held (engine.paper_session; its first `resumed`): from then on it sent no entry and
+    withdrew those it had, so a group that reaches past it may differ for that."""
     agreed: dict[str, int] = {}  # the decision of the contract's latest agreeing group
     parted: dict[str, int] = {}  # the contract's first difference since its previous agreeing group
     empty: dict = {"missing": [], "late": [], "early": {}, "differing": {}}
@@ -670,7 +674,8 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
                  "metrics": evidence["missing_metrics"] + evidence["late_metrics"] + evidence["differing_metrics"] > 0,
                  "warmup": evidence["warmup"],
                  "contract_terms": bool(evidence["terms"]),
-                 "window_end": _alone(group, ("run_only", "replay_only")) and last >= end - MINUTE_NS, "entry_gate": _gated(group, gate or {})}
+                 "window_end": _alone(group, ("run_only", "replay_only")) and last >= end - MINUTE_NS, "entry_gate": _gated(group, gate or {}),
+                 "held": held is not None and last >= held}
         cause = next((name for name in CAUSES if known[name]), "unexplained")
         early = [inputs["early"][close] for close in _within(inputs["early"], since, last)]
         evidence |= {"early_bars": len(early), "early_lead_ms": text(Decimal(max(early)) / MILLISECOND_NS) if early else None}
@@ -790,7 +795,7 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
         replay_orders = orders(replay_events)
         mine, theirs = run_funding(run.get("settlements") or []), replay_funding(reports)
         compared = attribute([compare_group(a, b, mine, theirs) for a, b in pair(groups(run_orders), groups(replay_orders))],
-                             found, warmed, contract, start, end, run.get("gate"), metered)
+                             found, warmed, contract, start, end, run.get("gate"), metered, run.get("held"))
         summary |= {"replay_orders": len(replay_orders),
                     "replay_fills": sum(bool(item["filled"]) for item in replay_orders),
                     "groups": len(compared),

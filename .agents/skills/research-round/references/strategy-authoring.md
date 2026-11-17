@@ -63,8 +63,9 @@ header template, the entry class, the two hooks and a sizing helper.
   position or a working order left at a termination without a settlement price.
 - Paper resumes an interrupted run (a release, `docker stop`, a restart, a crash) only if the source
   declares `PAPER_RECOVERY = 1` and implements `on_save` and `on_load` (the protocol is in Paper
-  trading, `engine/README.md`); a source written to these rules does not, so an interruption ends its
-  run. With the protocol a run resumes with its positions and working orders, unless the market
+  trading, `engine/README.md`); a source written to these rules does not, so after an interruption its
+  run sends no new entry: holding a position, it keeps its stops and targets working until flat, then ends; flat, it
+  ends at once. With the protocol a run resumes with its positions and working orders, unless the market
   reached one of them or a GTD expired while it was down; a trailing stop, a MARKET_IF_TOUCHED or a
   trigger on another price than the last makes every interruption end the run. The restored orders are working before `on_start`: find a position's with
   `cache.position_id(order)` (after a recovery `orders_for_position` lists only filled orders), and

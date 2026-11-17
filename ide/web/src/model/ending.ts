@@ -39,6 +39,9 @@ export function ending(run: { status: PaperRun["status"]; seal?: Seal | null }):
   if (has("START_FAILED") || (bars === 0 && stop !== "STOP_FILE")) return offline("unstarted", "Didn't start");
   if (stop === "STOP_FILE") return paused("stopped", "Stopped", "by you", (span) => `Continued after you paused it for ${span}`);
   if (stop === "DURATION") return paused("finished", "Finished", "at its set duration", (span) => `Continued ${span} after its set duration`);
+  // A source without Paper recovery, interrupted while it held a position: only its stops and targets worked on
+  // afterwards, and the run ended once they had closed every position (engine/paper.py, HELD_FLAT).
+  if (stop === "HELD_FLAT") return offline("ended", "Held until flat", null, "held after a restart until its positions closed");
   if (RESTART.has(stop) || seal?.runner_exit_code === KILLED_EXIT) return offline("interrupted", "Interrupted", null, "Docker or host restart");
   if (reasons.some((r) => /^(RUNNER_EXIT_|SUMMARY_MISSING|STOPPED:)/.test(r))) return offline("crashed", "Crashed");
   return offline("ended", "Ended");

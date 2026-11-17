@@ -10,7 +10,7 @@ const POLL_MS = 3000;
 /** An order pair's first difference: its stage and class (replay/comparison.py _row). */
 export type Stage = "decision" | "fill" | "fee" | "funding";
 export type RowClass = "same" | "time" | "type" | "quantity" | "price" | "amount" | "run_only" | "replay_only";
-export type Cause = "missing_bar" | "late_bar" | "bar_mismatch" | "metrics" | "warmup" | "contract_terms" | "window_end" | "entry_gate" | "unexplained" | "consequence";
+export type Cause = "missing_bar" | "late_bar" | "bar_mismatch" | "metrics" | "warmup" | "contract_terms" | "window_end" | "entry_gate" | "held" | "unexplained" | "consequence";
 type Fill = { ts: string; ts_ns: number; qty: string; px: string; commission: string };
 type OrderSide = { order: string; type: string; init: string; init_ns: number; qty: string; price: string | null; trigger: string | null; status: string; fill: Fill | null };
 export type OrderRow = {

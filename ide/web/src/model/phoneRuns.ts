@@ -6,7 +6,7 @@ import type { LiveEventRow } from "../lib/liveTradingDto";
 import { plural } from "../lib/format";
 import { amount, symbolOf, type Listing, type PaperRun } from "../lib/paperApi";
 import { START } from "./chain";
-import { endsOnInterruption, ENDS_ON_RESTART } from "./recovery";
+import { heldOnInterruption, HELD_ON_RESTART } from "./recovery";
 import type { LiveRun } from "./liveTrading";
 import type { Coin } from "./market";
 
@@ -132,7 +132,7 @@ export function paperIssues(run: PaperRun): { text: string; tone: "misses" | "fa
   if (l.missing_bars) issues.push({ text: plural(l.missing_bars, "missing bar"), tone: "misses" });
   if (l.late_bars) issues.push({ text: plural(l.late_bars, "late bar"), tone: "misses" });
   if (l.exceptions) issues.push({ text: plural(l.exceptions, "exception"), tone: "fail" });
-  if (endsOnInterruption(run)) issues.push({ text: ENDS_ON_RESTART, tone: "misses" });
+  if (heldOnInterruption(run)) issues.push({ text: HELD_ON_RESTART, tone: "misses" });
   return issues;
 }
 

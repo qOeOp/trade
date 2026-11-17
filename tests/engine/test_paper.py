@@ -9,7 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from nautilus_trader.model import FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderStatus, Price
+from nautilus_trader.model import (FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderStatus, OrderType, Price,
+                                   TriggerType)
 
 from engine import membership as membership_months, paper
 from engine.cadence import Cadence
@@ -332,7 +333,7 @@ class CacheLivenessTests(unittest.TestCase):
             self.addCleanup(value.clear)
         recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
         health = mock.Mock()
-        session = SimpleNamespace(backend=SimpleNamespace(health=health), ready=True, try_cut=mock.Mock())
+        session = SimpleNamespace(backend=SimpleNamespace(health=health), ready=True, held=False, try_cut=mock.Mock())
         with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal") as journal, \
                 mock.patch.object(recorder, "_protection"), \
                 mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock):
@@ -352,11 +353,12 @@ class CacheLivenessTests(unittest.TestCase):
         paper.STOP_REASON.append("STOP_FILE")
         recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
         health = mock.Mock(side_effect=paper.CacheUnavailable("gone"))
-        session = SimpleNamespace(backend=SimpleNamespace(health=health), ready=True, supported=False, saved=None)
+        session = SimpleNamespace(backend=SimpleNamespace(health=health), ready=True, supported=False, saved=None,
+                                  held=False, holding=False)
         with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal") as journal, \
                 mock.patch.object(recorder, "_protection"), \
                 mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock,
-                                  return_value=SimpleNamespace(orders_open=lambda: [])):
+                                  return_value=SimpleNamespace(orders_open=lambda: [], positions_open=lambda: [])):
             recorder.on_stop_timer(None)
         health.assert_not_called()
         self.assertEqual(paper.STOP_REASON, ["STOP_FILE"])
@@ -374,24 +376,27 @@ class PauseTests(unittest.TestCase):
         self.recorder.handle = mock.Mock()
         self.source = mock.Mock(_paper_held=[])
         self.orders: list = []
+        self.positions: list = []
         for patcher in (mock.patch.object(self.recorder, "_protection"),
                         mock.patch.dict(paper.strategy_runtime.STRATEGIES, {str(IID): self.source}, clear=True),
                         mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock,
                                           return_value=SimpleNamespace(orders=lambda: list(self.orders),
-                                                                       orders_open=lambda: list(self.orders))),
+                                                                       orders_open=lambda: list(self.orders),
+                                                                       positions_open=lambda: list(self.positions))),
                         mock.patch.object(paper.checkpoint, "dirty")):
             patcher.start()
             self.addCleanup(patcher.stop)
 
     @staticmethod
-    def working(status: str):
-        return SimpleNamespace(is_closed=False, status=getattr(OrderStatus, status))
+    def working(status: str, kind: str = "STOP_MARKET"):
+        return SimpleNamespace(is_closed=False, status=getattr(OrderStatus, status), client_order_id="O-1",
+                               order_type=getattr(OrderType, kind), trigger_type=TriggerType.DEFAULT)
 
     def test_a_refused_recovery_journals_why_and_stops_without_cancelling_the_restored_orders(self):
         self.orders.append(self.working("ACCEPTED"))
         reason = "O-1 (SELL STOP_MARKET at 99000.0) was touched in the interruption"
         session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock(), output=Path("out")), ready=False,
-                                  refused=reason, restore_deadline=float("inf"), supported=True,
+                                  refused=reason, restore_deadline=float("inf"), supported=True, held=False,
                                   saved={"sources": {}}, before_stop=mock.Mock(), try_cut=mock.Mock())
         handle = self.recorder.handle
         with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal") as journal:
@@ -404,9 +409,20 @@ class PauseTests(unittest.TestCase):
         handle.stop.assert_called_once()
         session.try_cut.assert_not_called()
 
+    def test_a_recovery_refused_at_its_deadline_stays_refused_for_a_start_that_completes_later(self):
+        """A holder's read or a warm-up that ends after the deadline must not start anything: the run is already
+        stopping as a pause, and a late start would cancel the restored entries (Session.maybe_begin)."""
+        session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock(), output=Path("out")), ready=False,
+                                  refused=None, restore_deadline=0.0, supported=False, held=True,
+                                  saved={"sources": {}}, before_stop=mock.Mock(), try_cut=mock.Mock())
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
+            self.recorder.on_stop_timer(None)
+        self.assertEqual(session.refused, "native initialization did not complete")
+        self.assertEqual(paper.STOP_REASON, ["PAPER_RECOVERY_UNAVAILABLE"])
+
     def test_a_pause_waits_for_the_orders_in_flight_then_stops_without_cancelling(self):
         self.orders.extend([self.working("ACCEPTED"), self.working("SUBMITTED")])
-        session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock()), ready=True, refused=None,
+        session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock()), ready=True, refused=None, held=False,
                                   supported=True, saved=None, before_stop=mock.Mock(), try_cut=mock.Mock())
         handle = self.recorder.handle
         with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
@@ -427,6 +443,128 @@ class PauseTests(unittest.TestCase):
                                     ("SIGTERM", True)):
                 paper.STOP_REASON[:] = [reason]
                 self.assertEqual(paper.pausing(), pausing, reason)
+
+    def stop(self, session, reason: str = "SIGTERM") -> None:
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
+            paper.request_stop(reason)
+            self.recorder.on_stop_timer(None)
+            self.recorder.on_stop_timer(None)
+
+    @staticmethod
+    def unprotocolled(**fields):
+        return SimpleNamespace(**{"backend": SimpleNamespace(health=mock.Mock()), "ready": True, "refused": None,
+                                  "held": False, "holding": False, "supported": False, "saved": None,
+                                  "before_stop": mock.Mock(), "try_cut": mock.Mock(), **fields})
+
+    def test_a_source_without_the_protocol_pauses_on_sigterm_only_while_it_holds_a_position(self):
+        """It is then held after the interruption (engine.paper_session): its stops and targets must not be
+        canceled. A flat one cancels its entries and ends as before, so no ACCEPTED entry is left in its seal."""
+        # A trailing stop is one a checkpoint cannot hold: that run cancels and ends as before.
+        for positions, kind, paused in ((["P-1"], "STOP_MARKET", True), ([], "LIMIT", False),
+                                        (["P-1"], "TRAILING_STOP_MARKET", False)):
+            with self.subTest(positions=positions, kind=kind):
+                paper.STOP.clear()
+                paper.STOP_REASON.clear()
+                self.recorder.stopping_since, self.recorder.handle = None, mock.Mock()
+                self.source.reset_mock()
+                self.orders[:] = [self.working("ACCEPTED", kind)]
+                self.positions[:] = positions
+                session, handle = self.unprotocolled(), self.recorder.handle
+                self.stop(session)
+                self.assertEqual(session.holding, paused)
+                self.assertEqual(self.source.cancel_all_orders.called, not paused)
+                self.assertEqual(session.before_stop.called, paused)
+                self.assertEqual(handle.stop.called, paused, "a cancel waits for its answers before the stop")
+        for reason in ("STOP_FILE", "DURATION"):
+            with self.subTest(reason=reason), mock.patch.object(paper, "SESSION", self.unprotocolled(holding=True)):
+                paper.STOP_REASON[:] = [reason]
+                self.assertFalse(paper.pausing(), "the user's stop and the duration cancel")
+
+    def test_a_held_run_ends_once_flat_and_cancels_what_is_left(self):
+        session = self.unprotocolled(held=True, saved={"sources": {}})
+        self.positions[:] = ["P-1"]
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
+            self.recorder.on_stop_timer(None)
+            self.assertFalse(paper.STOP.is_set())
+            session.try_cut.assert_called_once()
+            self.positions.clear()
+            self.recorder.on_stop_timer(None)
+            self.assertEqual(paper.STOP_REASON, ["HELD_FLAT"])
+            handle = self.recorder.handle
+            self.recorder.on_stop_timer(None)
+            self.recorder.on_stop_timer(None)
+        self.source.cancel_all_orders.assert_called_once_with(IID)
+        session.before_stop.assert_not_called()
+        handle.stop.assert_called_once()
+        # Another SIGTERM while held pauses it again.
+        paper.STOP.clear()
+        paper.STOP_REASON.clear()
+        self.recorder.stopping_since, self.recorder.handle = None, mock.Mock()
+        self.source.reset_mock()
+        self.positions[:] = ["P-1"]
+        self.stop(session)
+        self.source.cancel_all_orders.assert_not_called()
+        session.before_stop.assert_called_once()
+
+
+class HolderTests(unittest.TestCase):
+    """A held start builds no source: a holder per contract under the source's strategy ID reads the interruption,
+    joins the start barrier and withdraws the entries it inherits, leaving every reduce-only order working."""
+
+    def setUp(self):
+        self.addCleanup(paper.strategy_runtime.STRATEGIES.clear)
+        self.inputs = paper.PaperInputs(str(IID), DAY, DAY, "R1-BTCUSDT", None, DAY)  # type: ignore[arg-type]
+        self.orders: list = []
+        self.clock = mock.Mock(timestamp_ns=mock.Mock(return_value=DAY))
+        instrument = SimpleNamespace(price_precision=1, size_precision=3)
+        cache = SimpleNamespace(orders_open=lambda: list(self.orders), instrument=lambda _: instrument)
+        for patcher in (mock.patch.object(paper.Holder, "cache", new_callable=mock.PropertyMock, return_value=cache,
+                                          create=True),
+                        mock.patch.object(paper.Holder, "clock", new_callable=mock.PropertyMock,
+                                          return_value=self.clock, create=True),
+                        mock.patch.object(paper.checkpoint, "dirty")):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def session(self, working: set):
+        return SimpleNamespace(working=working, warm_at=DAY, start=mock.Mock(), read_downtime=mock.Mock(),
+                               callback=paper.nullcontext, backend=SimpleNamespace(output=Path("out")))
+
+    def test_a_holder_takes_the_sources_identity_and_registers_for_the_stop(self):
+        holder = paper.Holder(self.inputs, "http://proxy")
+        self.assertEqual(str(holder.strategy_id), "R1-BTCUSDT")
+        self.assertEqual(holder.config.oms_type, paper.OmsType.HEDGING)
+        self.assertIs(paper.strategy_runtime.STRATEGIES[str(IID)], holder)
+        self.assertEqual(holder._paper_held, [])
+
+    def test_a_contract_with_restored_orders_reads_the_interruption_at_t_before_it_joins_the_start(self):
+        holder = paper.Holder(self.inputs, "http://proxy")
+        session = self.session({str(IID)})
+        with mock.patch.object(paper, "SESSION", session):
+            holder.on_start()
+            self.clock.set_time_alert_ns.assert_called_once_with("held-read", DAY + paper.history.SETTLE_NS,
+                                                                 holder._held_read)
+            holder._held_read()
+            holder._paper_reader.join(5)
+            holder._held_wait()
+        session.read_downtime.assert_called_once_with(str(IID), DAY, (1, 3), "http://proxy")
+        self.clock.cancel_timer.assert_called_once_with("held-read-wait")
+        session.start.assert_called_once_with(holder._held_begin)
+        other = self.session(set())
+        with mock.patch.object(paper, "SESSION", other):
+            holder.on_start()
+        other.start.assert_called_once_with(holder._held_begin)
+        other.read_downtime.assert_not_called()
+
+    def test_the_held_start_withdraws_the_inherited_entries_of_its_contract_only(self):
+        holder = paper.Holder(self.inputs)
+        holder.cancel_order = mock.Mock()
+        self.orders[:] = [SimpleNamespace(instrument_id=IID, is_reduce_only=False, client_order_id="entry"),
+                          SimpleNamespace(instrument_id=IID, is_reduce_only=True, client_order_id="stop"),
+                          SimpleNamespace(instrument_id="ETHUSDT-PERP.BINANCE", is_reduce_only=False,
+                                          client_order_id="other")]
+        holder._held_begin()
+        holder.cancel_order.assert_called_once_with("entry")
 
 
 class InterruptionReadTests(unittest.TestCase):
@@ -596,6 +734,37 @@ class SandboxConfigTests(unittest.TestCase):
         self.assertEqual(len(configs), 1)
         self.assertFalse(configs[0].use_position_ids)
 
+
+    def test_a_checkpoint_without_source_state_restores_only_a_source_without_the_protocol_as_held(self):
+        """`sources` empty is a held checkpoint exactly when the source is not Session.supported; a held start adds a
+        holder per contract, never the source."""
+        account = SimpleNamespace(id="SANDBOX-001", balance_total=lambda _: paper.Money(Decimal(1000),
+                                                                                       paper.Currency.from_str("USDT")))
+        planned = [paper.PaperInputs(str(IID), DAY, DAY, "R1-BTCUSDT", None, DAY)]  # type: ignore[arg-type]
+        self.addCleanup(paper.strategy_runtime.STRATEGIES.clear)
+        for supported, sources, refused in ((False, {}, False), (True, {}, True), (False, {"BTC": {}}, True),
+                                            (True, {"BTC": {}}, False)):
+            with self.subTest(supported=supported, sources=sources):
+                session = SimpleNamespace(
+                    supported=supported, saved={"sources": sources}, held=not supported, working=set(),
+                    backend=SimpleNamespace(config=None, accounts=lambda: {"a": account},
+                                            open_contracts=lambda: set()))
+                builder = mock.MagicMock()
+                with mock.patch.object(paper.LiveNode, "builder", return_value=builder), \
+                        mock.patch.object(paper.history, "ACTORS", []), \
+                        mock.patch.object(paper.strategy_runtime, "configure_strategy") as configure:
+                    if refused:
+                        with self.assertRaises(paper.checkpoint.Refusal):
+                            paper.build_node(planned, SimpleNamespace(warmup=()), None,
+                                             (Decimal("0.0002"), Decimal("0.0005")), Path("/nonexistent"), "3", {},
+                                             session)
+                        continue
+                    node = paper.build_node(planned, SimpleNamespace(warmup=()), None,
+                                            (Decimal("0.0002"), Decimal("0.0005")), Path("/nonexistent"), "3", {},
+                                            session)
+                added = node.add_strategy.call_args.args[0]
+                self.assertEqual(isinstance(added, paper.Holder), not supported)
+                self.assertEqual(configure.called, supported)
 
     def test_the_sandbox_takes_the_contracts_matching_terms_a_replay_venue_takes(self):
         """liquidity_consumption and queue_position come from the account contract, as in engine.run.add_venue, so
