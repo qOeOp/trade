@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: a run held after an interruption with a position that no working stop protects stays held and is now flagged
+  (user 2026-11-17). Its recovery journals that position's `protection_gap` again after `resumed`, which a restored
+  gap state used to suppress. The runs listing derives `held_since` and `unprotected` from the journal, so nothing new
+  is stored. The Paper page marks the run "Unprotected position" in red on desktop and phone, and the release tick
+  sends a Telegram notice once per unprotected position.
 - Paper: a minute's snapshot now values the open positions at that minute's last mark. It is taken at the next
   minute's first mark, which it used for that contract, so the equity path stood one mark late against the replay's
   MARK close (audit runs 52 and 54: 0.02 USDT on 0.004 BTC). Runs sealed before keep their journals.

@@ -175,9 +175,9 @@ class Notices:
     """Failures outside Live, sent to the chat the Live page bound (deploy/telegram.py): a release tick that
     failed; a routed Web that does not answer, or whose overview, Agent or Paper controller is not healthy behind
     it; a ledger or market-import container that is unhealthy, was killed out of memory or restarted; a Paper run
-    that stopped and could not resume; a research ledger whose publish has failed for LEDGER_LAG_SECONDS or whose
-    origin history changed elsewhere; and a host checkout or docker-api that does not follow the active version
-    (`drift`).
+    that stopped and could not resume, or that is held with a position no working stop protects (paper.serve
+    unprotected); a research ledger whose publish has failed for LEDGER_LAG_SECONDS or whose origin history changed
+    elsewhere; and a host checkout or docker-api that does not follow the active version (`drift`).
 
     Each kind the tick observed replaces that kind's facts; one it could not observe keeps what was sent. A fact
     is sent when it first appears and again only after it has cleared. Without a saved token nothing is sent
@@ -241,14 +241,20 @@ class Notices:
         try:
             paper = {}
             for run in probe("/api/paper/runs")["runs"]:
+                candidate, paper_id = run.get("candidate"), int(run["id"])
+                named = f" ({candidate})" if isinstance(candidate, str) and NOTICE_TEXT.fullmatch(candidate) else ""
                 code = run.get("recovery")
                 if code is not None:
                     code = code if isinstance(code, str) and NOTICE_TEXT.fullmatch(code) else "other"
-                    candidate = run.get("candidate")
-                    named = f" ({candidate})" if isinstance(candidate, str) and NOTICE_TEXT.fullmatch(candidate) else ""
-                    paper[f"paper:{int(run['id'])}:{code}"] = (
-                        f"Paper run {int(run['id'])}{named} stopped and could not resume: {code}. It stays stopped "
+                    paper[f"paper:{paper_id}:{code}"] = (
+                        f"Paper run {paper_id}{named} stopped and could not resume: {code}. It stays stopped "
                         "with its account and originals; see the Paper page.")
+                for position in run.get("unprotected") or ():
+                    # Held after an interruption with no working stop: kept held, named at once (user 2026-11-17).
+                    position = position if isinstance(position, str) and NOTICE_TEXT.fullmatch(position) else "other"
+                    paper[f"paper:{paper_id}:unprotected:{position}"] = (
+                        f"Paper run {paper_id}{named} is held after an interruption and its position {position} has "
+                        "no working stop. It stays held until its other orders or a stop close it; see the Paper page.")
             self.observe("paper", paper)
         except Exception:
             pass  # unknown this tick: what was sent stays sent

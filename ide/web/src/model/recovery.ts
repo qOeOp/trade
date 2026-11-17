@@ -22,3 +22,12 @@ export const heldOnInterruption = (run: PaperRun): boolean => run.state === "run
 export const NO_RECOVERY = "The source does not declare Paper recovery; after an interruption the source does not run again: an open position keeps only its stops and targets until it is flat, and this source cannot start another run until then";
 /** That mark in a few words, in the warning tone wherever it shows (run row, phone). */
 export const HELD_ON_RESTART = "Held on restart";
+
+/** The positions of a held run that no working stop protects (paper/serve.py unprotected): it stays held, and the
+ *  release names each in a Telegram notice (user 2026-11-17). Empty for every other run. */
+export const unprotected = (run: PaperRun): string[] => (run.unprotected ?? []).map((item) => item.position_id);
+/** That mark in a few words, in the fail tone wherever it shows (run row, run page, phone). */
+export const UNPROTECTED = "Unprotected position";
+/** What the mark means, naming the positions. */
+export const unprotectedText = (ids: readonly string[]): string =>
+  `Held after an interruption, and no working stop protects ${ids.join(", ")}: the run stays held until its remaining orders close it or you stop it`;
