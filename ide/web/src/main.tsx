@@ -10,7 +10,7 @@ import type { DetailWidget, LineageWidget, View } from "./model/types";
 import { detectAgentService } from "./state/agent";
 import { firstRun } from "./state/firstRun";
 import { detectOverview } from "./state/market";
-import { detectPublicCopy } from "./state/about";
+import { detectStatus } from "./state/about";
 import { detectMarketImport } from "./state/marketImport";
 import { detectLiveTrading, liveTrading } from "./state/liveTrading";
 import { detectPaperService, paperRuns } from "./state/paper";
@@ -79,7 +79,7 @@ void begin();
 void detectAgentService();
 void detectPaperService();
 void detectMarketImport();
-detectPublicCopy();
+detectStatus();
 void detectOverview();
 void detectLiveTrading();
 

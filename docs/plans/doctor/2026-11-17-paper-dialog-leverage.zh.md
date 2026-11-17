@@ -13,7 +13,7 @@
 
 | id | Finding | Evidence (session or norm; current product; consumer and decision) | Action | Cost | Status |
 |---|---|---|---|---|---|
-| 20261117-01 | Paper 启动对话框写“Same as the replay: 100,000 USDT margin, 1× leverage”，实际 Paper 与回放都按默认杠杆 3 运行 | `PaperDialogs.tsx:50` 手写 `1× leverage`；页面启动经 `paper/serve.py` 调 `paper start` 时不传 `--leverage`，`cli/paper_commands.py:115` 取 `ACCOUNT_CONTRACT["default_leverage"]`，即 `engine/config.py:118` 的 `"3"`；研究回放同样默认 3。读者是在页面上启动 Paper 的用户，据此判断这次运行的保证金与风险；读到 1× 会低估三倍。只是显示错，运行本身与回放一致 | fix（文字；对话框写出实际杠杆，最好从同一个默认值读出，不再手抄） | unknown | open |
+| 20261117-01 | Paper 启动对话框写“Same as the replay: 100,000 USDT margin, 1× leverage”，实际 Paper 与回放都按默认杠杆 3 运行 | `PaperDialogs.tsx:50` 手写 `1× leverage`；页面启动经 `paper/serve.py` 调 `paper start` 时不传 `--leverage`，`cli/paper_commands.py:115` 取 `ACCOUNT_CONTRACT["default_leverage"]`，即 `engine/config.py:118` 的 `"3"`；研究回放同样默认 3。读者是在页面上启动 Paper 的用户，据此判断这次运行的保证金与风险；读到 1× 会低估三倍。只是显示错，运行本身与回放一致 | fix（文字；对话框写出实际杠杆，最好从同一个默认值读出，不再手抄） | unknown | in PR [#3163](https://github.com/qOeOp/trade/pull/3163)：对话框从 `/api/paper/defaults` 读 `ACCOUNT_CONTRACT` 的保证金与杠杆 |
 
 ## Removal list
 

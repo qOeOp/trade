@@ -8,6 +8,7 @@ import copy
 from datetime import UTC, datetime, timedelta
 import gzip
 import http.client
+import io
 import json
 import re
 from pathlib import Path
@@ -542,6 +543,27 @@ class HubTests(unittest.TestCase):
             self.hub.resolve(None, "b" * 32)
 
 
+class ReleasedTests(unittest.TestCase):
+    def test_the_latest_release_is_read_once_an_interval_and_a_failed_read_keeps_the_last(self):
+        answers = [b'{"tag_name": "v0.4.3"}', OSError("offline"), b'{"tag_name": "nightly"}']
+        calls = []
+
+        def opener(request, timeout):
+            calls.append(request.full_url)
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return io.BytesIO(answer)
+
+        released = serve.Released("https://example.invalid/latest", every=0, opener=opener)
+        self.assertEqual([released(), released(), released()], ["0.4.3", "0.4.3", "0.4.3"])
+        self.assertEqual(len(calls), 3)
+        answers.append(b'{"tag_name": "v1.0.0"}')
+        hourly = serve.Released("https://example.invalid/latest", every=3600, opener=opener)
+        self.assertEqual((hourly(), hourly()), ("1.0.0", "1.0.0"))
+        self.assertEqual(len(calls), 4, "the second read waits for the interval")
+
+
 class HttpTests(unittest.TestCase):
     def setUp(self):
         self.hub = serve.Hub(FakeProduct(), "build", poll=0.05, version="1.2.3")
@@ -560,7 +582,7 @@ class HttpTests(unittest.TestCase):
     def test_about_names_the_version_the_build_and_the_ledger_or_the_refusal_reading_it(self):
         self.hub.product.service = lambda: {"running": True, "remote": "https://r/o/l", "ledger_commit": "abc", "pid": 7}
         self.assertEqual(json.loads(self.get("/api/about").read()),
-                         {"version": "1.2.3", "build": "build", "ledger": {"running": True, "remote": "https://r/o/l", "unpublished": False,
+                         {"version": "1.2.3", "build": "build", "released": None, "ledger": {"running": True, "remote": "https://r/o/l", "unpublished": False,
                                                        "behind_seconds": None, "diverged": False, "commit": "abc"}})
         self.hub.product.service = lambda: {"running": False, "address": None}
         self.assertEqual(json.loads(self.get("/api/about").read())["ledger"],
@@ -572,7 +594,7 @@ class HttpTests(unittest.TestCase):
         self.hub.product.service = refused
         answer = self.get("/api/about")
         self.assertEqual((answer.status, json.loads(answer.read())),
-                         (200, {"version": "1.2.3", "build": "build", "ledger": None,
+                         (200, {"version": "1.2.3", "build": "build", "released": None, "ledger": None,
                                 "refusal": {"code": "LEDGER_UNKNOWN", "message": "no accounts"}}))
 
     def test_a_browser_keeps_the_page_and_asks_for_it_again_at_each_open(self):
