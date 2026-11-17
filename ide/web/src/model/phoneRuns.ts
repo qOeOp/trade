@@ -6,7 +6,7 @@ import type { LiveEventRow } from "../lib/liveTradingDto";
 import { plural } from "../lib/format";
 import { amount, symbolOf, type Listing, type PaperRun } from "../lib/paperApi";
 import { START } from "./chain";
-import { heldOnInterruption, HELD_ON_RESTART } from "./recovery";
+import { heldOnInterruption, HELD_ON_RESTART, unprotected, UNPROTECTED } from "./recovery";
 import type { LiveRun } from "./liveTrading";
 import type { Coin } from "./market";
 
@@ -128,6 +128,7 @@ export function paperHeld(run: PaperRun): Held[] {
 export function paperIssues(run: PaperRun): { text: string; tone: "misses" | "fail" }[] {
   const l = run.readings, issues: { text: string; tone: "misses" | "fail" }[] = [];
   if (!l) return issues;
+  if (unprotected(run).length) issues.push({ text: UNPROTECTED, tone: "fail" });
   if (l.protection_gaps) issues.push({ text: plural(l.protection_gaps, "protection gap"), tone: "fail" });
   if (l.missing_bars) issues.push({ text: plural(l.missing_bars, "missing bar"), tone: "misses" });
   if (l.late_bars) issues.push({ text: plural(l.late_bars, "late bar"), tone: "misses" });

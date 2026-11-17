@@ -1231,6 +1231,20 @@ class ReaderDiagnosisTests(unittest.TestCase):
                 self.assertEqual(self.run_probe(script, argv, refused), {"status": 502})
                 self.assertEqual(self.run_probe(script, argv, hung), {"status": None, "error": "TimeoutError"})
 
+    def test_the_runs_probe_passes_a_held_runs_unprotected_position_ids_only(self):
+        listing = {"runs": [{"paper_id": 3, "candidate": "c@1", "state": "running", "unprotected": [
+            {"position_id": "P-1", "instrument_id": "BTCUSDT-PERP.BINANCE", "since_ns": 1}]},
+                            {"paper_id": 4, "candidate": None, "state": "sealed"}], "starting": []}
+
+        class Reply(io.BytesIO):
+            status = 200
+
+        def answered(request, timeout):
+            return Reply(json.dumps(listing).encode())
+
+        found = self.run_probe(PROBE, ["/api/paper/runs", "trade.example.com", "ide-router"], answered)
+        self.assertEqual([run["unprotected"] for run in found["runs"]], [["P-1"], []])
+
     def test_a_routed_web_health_failure_names_the_reader_path_and_status(self):
         host = DockerHost(Config())
         host.agent = Mock()

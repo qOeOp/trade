@@ -667,6 +667,15 @@ another SIGTERM pauses it again and it resumes held. Held, the run is still runn
 run until it is flat (`paper/runs.py`). `paper compare` attributes a difference reaching past the first `resumed` of
 such a run to `held` when nothing earlier in its cause order explains it, rather than `unexplained`.
 
+A held position with no working stop stays held (user 2026-11-17). The held recovery forgets which gaps the checkpoint
+had already reported, so the recorder journals a `protection_gap` again after `resumed` for every position its stops
+still do not cover. The Paper listing derives `held_since` and `unprotected` from the journal: each position with
+such a line after the held start and no later close (`paper/serve.py`). The page marks the run "Unprotected
+position" in the fail tone, and the release tick sends one Telegram notice per position
+(`paper:{id}:unprotected:{position}`, `deploy/release.py` Notices). The holder places no order, so coverage cannot
+come back while the run is held. A position whose quantity later falls within its remaining stops stays named until
+it closes.
+
 `paper compare --preliminary` (the page offers it when the market does not hold the run's minutes yet; user
 2026-11-17) compares a run before Binance archives its day: `replay.preliminary` makes a market directory under the
 comparison's `--output` whose files link to the market's, and rewrites there only the months the window reaches past

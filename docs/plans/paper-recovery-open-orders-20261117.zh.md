@@ -295,3 +295,60 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 15 个运行器进程的 50 组同一时刻的 bar，8 种顺序都出现，只有 5 组与补齐顺序相同；同一进程里哪个合约的 bar 先到逐桶变化（rc7 每个聚合器的定时器是独立的 tokio 任务，`crates/common/src/live/timer.rs:391`）；同一根 bar 先给哪个订阅者在进程内固定、跨进程变化（订阅者按模式、再按 handler id 排序，`typed_router.rs:64-69`，id 含随机 UUID，`typed_handler.rs:269-272`）。所以补齐的顺序是一个固定顺序，不是"实时的顺序"；决定依赖同一时刻 bar 先后的源码，连续跑本身也不可复现。文档按此写。rc7 对第二个订阅者记一条 "Aggregator … is currently in use, subscription can't be started" 警告，两个订阅者实时和补齐都收到了每根 bar。
 
 覆盖范围：一个确定的行情脚本、一个 A、一个聚合周期（3 分钟）、两个合约；与顺序无关的源码。
+
+
+## 跟踪止损、MARKET_IF_TOUCHED、按 MARK 触发的单（2026-11-17 调研与原生探针；只是提案，放宽拒绝要用户授权）
+
+现在这三种工作单都推迟切点（`unrestorable`），持有它们的运行中断即结束。本节查清 rc7 怎样恢复它们、停机期间能否用公开数据判定"没碰到"，并提出设计；没有改代码。
+
+### 原生事实（rc7）
+
+- 恢复路径对所有类型一样：Sandbox `start()` 调 `load_open_orders()`（`crates/adapters/sandbox/src/execution.rs:946-990`），按 `ts_init` 交给 `restore_open_order`（mod.rs:3455-3496）；撮合核心条目的 `is_activated` 取自订单本身：跟踪止损用 `o.is_activated`，其他一律为真（mod.rs:6551-6584）。
+- Redis 里的订单是事件列表，读回由 `OrderAny::from_events` 重建（`crates/infrastructure/src/redis/cache.rs:900-945`）。跟踪止损：每次上移的触发价（止损限价单还有限价）是 `OrderUpdated`，会恢复；**激活不是事件**（`crates/execution/src/trailing.rs:245-268`，原文 "Activation is not an order event"），激活时补上的激活价也不落库。所以恢复后每张跟踪止损都是未激活。
+- 恢复后第一步：`core.last` 为空，第一根 bar 总处理开盘一步（mod.rs:1993-2004）；不带激活价的跟踪止损这一步还没激活，不能被触发，撮合后维护时才重新激活。
+- 按 MARK 触发：Sandbox 不订阅标记价（`execution.rs:314-320`），撮合引擎遇到 MARK 类型的 bar 直接返回（mod.rs:1931-1937）；bar 撮合时每一步都是合成成交，bid = ask = last（mod.rs:2085-2116，`matching_core.rs:580-597`）。**Paper 与回放里按 MARK 触发的单实际按 LAST bar 的价格触发**，与 DEFAULT/LAST 一样。这是 Paper/回放与 Live（Binance `workingType=MARK_PRICE`）之间已有的差异，与恢复无关，另记为一条发现。
+- MARKET_IF_TOUCHED：条目为激活状态，触发价在初始化事件里，按触碰触发（mod.rs:4033-4064、6871），与 LIMIT_IF_TOUCHED 一样原样恢复。按订单规则它只能是只减仓的 GTC 出场单。
+- 风控：没有触发价的跟踪止损，rc7 风控只看缓存里的 trade/quote，Paper 与回放只有 bar，于是以 `MARKET_PRICE_UNAVAILABLE` 拒单（`crates/risk/src/engine/mod.rs:2123-2131`、2283-2403）。所以能被受理的跟踪止损都带初始触发价；不带激活价的受理后第一次撮合就激活。"切点时未激活"只会出现在带激活价、价格还没到过激活价的跟踪止损上。
+
+### 原生探针（`exec-main` 镜像，`--network none`，回环假服务器，Sandbox 配置同 `build_node`）
+
+脚本：`/private/tmp/claude-501/-Users-vx-WebstormProjects-trade/0660267b-ae67-4c05-b258-d74244daae37/scratchpad/item4/`（`node.py`、`run.py`、`summarize.py`、`replay_trailing.py`；输出 `out/run-1794927608`）。第 0 根 bar 开 6 个 0.010 多仓，各挂一张只减仓出场单：TS1 跟踪止损市价（偏移 500，DEFAULT，初始触发 99500，无激活价）、TS2 跟踪止损市价（偏移 300，LAST，激活价 101000，初始触发 100700）、TS3 跟踪止损限价（40/50 bp，LAST）、MIT 卖 101500、MARK1 STOP_MARKET MARK 99700、MARK2 STOP_MARKET MARK 99000；每根 bar 后推标记价 98000（若按标记价触发，两张 MARK 都会立即成交）。first 跑到第 4 根后停节点、不撤单、SAVE；resume 跑 5–9；gap 变体第 5 根开盘跳到 100500；first3/resume3 在第 2 根后切（TS2 尚未激活）。
+
+切点时与恢复后读回（触发价 / 激活价 / is_activated）：TS1 100700 / 99950 / 真 → 100700 / None / **假**；TS2 100900 / 101000 / 真 → 100900 / 101000 / **假**；TS3 同 TS1 的形态；MIT、MARK1、MARK2 不变。
+
+| 单 | base | resume | base_gap | resume_gap | resume3（切点时 TS2 未激活） |
+|---|---|---|---|---|---|
+| TS1 | 100700 | 100700 | **100500** | **100700** | 100700 |
+| TS2 | **100900**（第 5 根） | **101300**（第 8 根） | 100500 | 101300 | 100900 |
+| TS3 | 101600 | 101600 | 100850 | 100850 | 101600 |
+| MIT | 101500 | 101500 | 101500 | 101500 | 101500 |
+| MARK1 | 99700（LAST 低点触发） | 99700 | 99700 | 99700 | 99700 |
+| MARK2 | 未触发 | 未触发 | 未触发 | 未触发 | 未触发 |
+| 期末 total | 100038.478 | **100042.476** | 100024.98475 | **100034.97975** | **100038.478** |
+
+- 已激活、带激活价的 TS2 恢复后未激活，晚三根 bar、在不同价位成交。
+- 已激活、无激活价的 TS1：开盘不跳空时相同；跳空穿过触发价时连续跑按开盘 100500 成交，恢复后按触发价 100700。
+- 切点时未激活的跟踪止损（resume3）逐笔相同，账户相同。
+- MIT 与两张 MARK 止损在所有跑法里相同；标记价 98000 推了 10 次，MARK2 始终没触发。
+- 回放对照（BacktestEngine + 产品的 `engine.run.add_venue`，只喂 bar）：不带触发价的跟踪止损 `OrderDenied MARKET_PRICE_UNAVAILABLE`；带触发价的照常上移、成交，标记价不影响。
+
+### 停机期间的判定
+
+- MARK 触发与 MIT：Sandbox 只看 bar 各步的价格，停机用同一份 LAST 1 分钟 klines 判定"碰到"。止损类（含按 MARK 触发）：买 high ≥ 触发价、卖 low ≤ 触发价；MIT 同 LIT：买 low ≤ 触发价、卖 high ≥ 触发价。不读 markPriceKlines（Sandbox 不用它）。
+- 未激活、带激活价的跟踪止损：激活前它的状态只因价格碰到激活价而变；卖单每分钟 high < 激活价、买单每分钟 low > 激活价即证明不变。激活价在初始化事件里；"切点时未激活"由切点那一刻读 `order.is_activated`。恢复后读回一律未激活，所以只能由切点把已激活的推迟，切点里的跟踪止损就都是未激活的：不需要新存储的值。
+- 已激活的跟踪止损：停机这一半可以证明，但原生恢复本身不精确（TS1、TS2），后者发生在 T 之后，无法事先证明，照样推迟。
+
+### 提案（放宽 `unrestorable`，要用户授权）
+
+| `engine/paper_session.py` | 现在 | 提案 |
+|---|---|---|
+| 触发类型（`TRIGGERS`、`unrestorable`、`_level`） | 只认 DEFAULT/LAST_PRICE | 加 MARK_PRICE，停机检查用同一份 LAST klines；理由依赖 bar 撮合、L1_MBP、不向 Sandbox 提供 quotes/trades/订单簿 |
+| MARKET_IF_TOUCHED | 推迟切点 | 已受理的放行；`_level` 按 LIT 判 |
+| 跟踪止损（两种） | 一律推迟切点 | 已受理、`is_activated` 为假、带激活价的放行；恢复时卖单任一分钟 high ≥ 激活价、买单任一分钟 low ≤ 激活价即拒绝（按暂停停下、不撤单，同现有规则） |
+| 已激活的跟踪止损、已触发的跟踪止损限价单 | 推迟切点 | 不变；原因写成"激活状态不进缓存（rc7 trailing.rs:245），恢复后不能原样撮合"；已触发的那种没有探针覆盖 |
+
+- 改后允许：持有按 MARK 触发的止损、MIT 止盈、还在等激活的跟踪止损的运行，中断后也能恢复。
+- 仍然推迟：已激活的跟踪止损，中断即结束（无协议源码照今天保持或结束）。
+- 不变：不新增存储字段、不加日志行；停机检查只多读同一个 LAST 1 分钟接口。
+- 实施时的成对验收：用 `engine.paper.main` 跑连续与中断—恢复，覆盖 MIT、MARK 止损、未激活的跟踪止损；拒绝路径各一条（停机碰到激活价、已激活的在切点推迟）；已触发的跟踪止损限价单单独探一次再决定。技能文字（`strategy-authoring.md`）按 `.agents/README.md` 同步：跟踪止损必须给初始触发价，否则回放与 Paper 以 `MARKET_PRICE_UNAVAILABLE` 拒单。
+- 上游（可选，对外发帖要用户点头）：rc7 跟踪止损的激活状态不持久化，带 `load_state` 重启后已激活的跟踪止损变成未激活；Live 带缓存重启同样受影响（止损在交易所工作，但缓存里的订单状态会丢）。

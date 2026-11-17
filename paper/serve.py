@@ -44,7 +44,7 @@ from market.sources import SYMBOL  # a contract named as the market holds it, as
 from shared.errors import Refusal
 from shared.failures import FAILURES, failure_records
 from shared.refusals import refuse
-from paper import runs
+from paper import compare, runs
 from replay import comparison
 from runtime import container
 
@@ -186,6 +186,27 @@ def held(directory: Path) -> dict | None:
         return None
     return {"minute_ns": state.get("minute_ns"), "positions": state.get("positions") or [],
             "orders": state.get("orders") or []}
+
+
+def unprotected(lines: list[dict], since: int | None) -> list[dict]:
+    """The positions of a run held since `since` (paper.compare.held_since) that have no working protective stop: a
+    `protection_gap` journalled after the held start (engine.paper_session journals one still open again then), with no
+    later event closing that position. Derived from the journal, never stored. The holder places no order, so a
+    position's stops only shrink while it is held; one whose quantity later fell within its remaining stops is still
+    named here until it closes."""
+    if since is None:
+        return []
+    found: dict[str, dict] = {}
+    for line in lines:
+        if (line.get("wall_ns") or 0) < since:
+            continue
+        key = line.get("position_id")
+        if line["kind"] == "protection_gap" and key:
+            found[key] = {"position_id": key, "instrument_id": line.get("instrument_id"), "since_ns": line.get("since_ns")}
+        elif line["kind"] == "position" and key in found and (
+                line.get("type") == "PositionClosed" or not records.signed_quantity(line)):
+            del found[key]
+    return list(found.values())
 
 
 @lru_cache(maxsize=256)
@@ -597,7 +618,8 @@ class Daemon:
             if run["state"] == "sealed":
                 self.journals.pop(run["paper_id"], None)
             else:
-                run["readings"] = readings(run, self.journal(run["paper_id"]))
+                journal = self.journal(run["paper_id"])
+                run["readings"] = readings(run, journal)
                 directory = runs.run_dir(self.profile, run["paper_id"]) / "out"
                 failures = _read_bytes(directory / FAILURES)
                 run["readings"]["held"] = held(directory)
@@ -606,6 +628,10 @@ class Daemon:
                 # Whether an interruption can resume it: read from its strategy input, not stored.
                 source = _read_bytes(directory.parent / "inputs" / "strategy.py")
                 run["recovery_declared"] = None if source is None else declares_recovery(source)
+                # Held after an interruption, and its positions without a working stop (user 2026-11-17: keep it
+                # held, notify at once): derived from the journal, not stored.
+                since = None if source is None else compare.held_since(journal.lines, source)
+                run["held_since"], run["unprotected"] = since, unprotected(journal.lines, since)
         found["starting"] = sorted(self.starting)
         self.listed = (time.monotonic(), found)
         return found

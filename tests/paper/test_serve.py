@@ -346,6 +346,36 @@ class RestartTests(unittest.TestCase):
         self.assertFalse(serve.declares_recovery(declared.replace("= 1", "= 2").encode()))
         self.assertIsNone(serve.declares_recovery(b"class S(:\n"))
 
+    def test_the_listing_names_a_held_runs_positions_without_a_working_stop_until_they_close(self):
+        """User 2026-11-17 (keep it held, notify at once): a position whose `protection_gap` was journalled after the
+        held start and which has not closed since is unprotected; a gap before it, a closed position and a source
+        that declares recovery are not."""
+        gap = lambda key, at: {"kind": "protection_gap", "wall_ns": at, "position_id": key,  # noqa: E731
+                               "instrument_id": "BTCUSDT-PERP.BINANCE", "since_ns": at - 5}
+        lines = [gap("P-0", 10), {"kind": "resumed", "wall_ns": 20}, gap("P-1", 30), gap("P-2", 31),
+                 {"kind": "position", "wall_ns": 40, "position_id": "P-2", "type": "PositionClosed"},
+                 {"kind": "position", "wall_ns": 41, "position_id": "P-1", "type": "PositionChanged",
+                  "side": "LONG", "quantity": "0.5"}]
+        undeclared = b"class S(Strategy):\n    pass\n"
+        declared = (b"class S(Strategy):\n    PAPER_RECOVERY = 1\n    def on_save(self):\n        return {}\n"
+                    b"    def on_load(self, state):\n        pass\n")
+        for text, since, named in ((undeclared, 20, ["P-1"]), (declared, None, [])):
+            daemon = self.daemon(Path("/nonexistent"))
+            daemon.stopping, daemon.starting, daemon.journals, daemon.listed = set(), set(), {}, None
+            daemon.recovery_failures = {}
+            daemon.journal = mock.Mock(return_value=serve.Journal(lines=list(lines)))
+            with tempfile.TemporaryDirectory() as name, \
+                    mock.patch.object(runs, "listing", return_value={"runs": [{"paper_id": 1, "state": "running"}]}), \
+                    mock.patch.object(runs, "run_dir", return_value=Path(name)), \
+                    mock.patch.object(serve, "readings", side_effect=lambda row, journal: {}):
+                (Path(name) / "inputs").mkdir()
+                (Path(name) / "inputs" / "strategy.py").write_bytes(text)
+                run = serve.Daemon._runs(daemon)["runs"][0]
+            self.assertEqual(run["held_since"], since)
+            self.assertEqual([item["position_id"] for item in run["unprotected"]], named)
+        self.assertEqual(serve.unprotected(lines, 20)[0], {"position_id": "P-1", "instrument_id": "BTCUSDT-PERP.BINANCE",
+                                                           "since_ns": 25})
+
     def test_only_a_pause_or_a_missing_summary_resumes_every_other_end_seals(self):
         """A runner refusal (TERMS_CHANGED, a breach, a failed restore) or a node that stopped on its own leaves a
         dirty checkpoint that resume refuses; sealing captures its recovery originals instead of retrying forever."""

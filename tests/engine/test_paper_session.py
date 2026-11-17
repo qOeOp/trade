@@ -17,7 +17,7 @@ from engine import strategy as strategy_runtime
 from engine import paper_checkpoint as checkpoint
 from engine.cadence import Cadence
 from engine.config import MINUTE_NS
-from engine import paper_session
+from engine import paper_session, protection
 from engine.paper_session import Session
 
 
@@ -562,6 +562,20 @@ class HeldTests(unittest.TestCase):
             session.start(lambda: seen.append("recorder"))
             session.start(lambda: seen.append("holder"))
         self.assertEqual((seen, session.ready), (["recorder", "holder"], True))
+
+    def test_a_held_recovery_journals_a_gap_still_open_again_and_a_restored_one_does_not(self):
+        """User 2026-11-17 (keep it held, notify at once): a held position without a working stop is journalled after
+        `resumed`, where the Paper page and the release's notice read it; a recovery that restores its source keeps
+        the gap it already journalled."""
+        saved = {"sources": {}, "cut_ns": 0, "recorder": {
+            "minute": 1, "marks": {}, "funding": {}, "protection": {"since": {"P-1": 0}, "reported": ["P-1"]}}}
+        for cls, again in ((Empty, ["P-1"]), (Hooks, [])):
+            with self.subTest(cls=cls.__name__):
+                recorder = SimpleNamespace(gaps=protection.Gaps(), cadence={})
+                self.session(cls, saved=saved).restore_recorder(recorder)
+                self.assertEqual(recorder.gaps.since, {"P-1": 0})
+                self.assertEqual(recorder.gaps.update(T, ["P-1"]), again)
+                self.assertEqual(recorder.gaps.update(T + 1, ["P-1"]), [], "once per gap")
 
 
 class InterruptionTests(unittest.TestCase):
