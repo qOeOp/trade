@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loader } from "./load.mjs";
 
-const { unresumable, heldOnInterruption } = await loader().namespace("model/recovery.ts");
+const recovery = await loader().namespace("model/recovery.ts"), { unresumable, heldOnInterruption } = recovery;
 const { paperIssues } = await loader().namespace("model/phoneRuns.ts");
 const refused = (message, code = "PAPER_RECOVERY_UNAVAILABLE") => ({ state: "ended", recovery: { code, message } });
 
@@ -25,4 +25,16 @@ test("only a running run whose source is read as not declaring recovery is marke
   assert.equal(heldOnInterruption({ state: "ended", recovery_declared: false }), false);
   const readings = { protection_gaps: 0, missing_bars: 0, late_bars: 0, exceptions: 0 };
   assert.deepEqual(paperIssues({ state: "running", recovery_declared: false, readings }), [{ text: "Held on restart", tone: "misses" }]);
+});
+
+test("a held run with a position no working stop protects is marked first in the fail tone (user 2026-11-17)", () => {
+  const { unprotected, unprotectedText } = recovery;
+  const readings = { protection_gaps: 1, missing_bars: 0, late_bars: 0, exceptions: 0 };
+  const held = { state: "running", recovery_declared: false, readings, held_since: 1,
+    unprotected: [{ position_id: "P-1", instrument_id: "BTCUSDT-PERP.BINANCE", since_ns: 1 }] };
+  assert.deepEqual(unprotected(held), ["P-1"]);
+  assert.match(unprotectedText(unprotected(held)), /no working stop protects P-1/);
+  assert.deepEqual(paperIssues(held), [{ text: "Unprotected position", tone: "fail" }, { text: "1 protection gap", tone: "fail" },
+    { text: "Held on restart", tone: "misses" }]);
+  assert.deepEqual(unprotected({ state: "running", readings }), [], "a listing without the fact marks nothing");
 });

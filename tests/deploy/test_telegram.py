@@ -169,6 +169,22 @@ class Notices(unittest.TestCase):
         self.tick(runs=runs[:1])
         self.assertEqual(len(self.call.texts()), 3)
 
+    def test_a_held_runs_unprotected_position_is_sent_once_while_it_lasts(self):
+        """User 2026-11-17: a held position with no working stop stays held and is named at once."""
+        runs = [{"id": 7, "candidate": "rsi2@3", "state": "running", "recovery": None, "unprotected": ["P-1", "<b>"]}]
+        self.tick(runs=runs)
+        self.tick(runs=runs)
+        self.assertEqual(self.call.texts(), [
+            "Paper run 7 (rsi2@3) is held after an interruption and its position P-1 has no working stop. It stays "
+            "held until its other orders or a stop close it; see the Paper page.",
+            "Paper run 7 (rsi2@3) is held after an interruption and its position other has no working stop. It "
+            "stays held until its other orders or a stop close it; see the Paper page."])
+        self.tick(runs=[{**runs[0], "unprotected": ["P-1", "<b>", "P-2"]}])
+        self.assertEqual(len(self.call.texts()), 3, "a new unprotected position is its own notice")
+        self.tick(runs=[{**runs[0], "unprotected": []}])
+        self.tick(runs=[{**runs[0], "unprotected": ["P-1"]}])
+        self.assertEqual(len(self.call.texts()), 4, "again only after it cleared")
+
     def test_the_ledger_is_named_once_its_publish_has_failed_for_half_an_hour_or_its_origin_diverged(self):
         self.tick(ledger={"unpublished": True, "behind_seconds": 600, "diverged": False})
         self.tick(ledger={"unpublished": True, "behind_seconds": None, "diverged": False})

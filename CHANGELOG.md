@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: a run held after an interruption with a position that no working stop protects stays held and is now flagged
+  (user 2026-11-17). Its recovery journals that position's `protection_gap` again after `resumed`, which a restored
+  gap state used to suppress. The runs listing derives `held_since` and `unprotected` from the journal, so nothing new
+  is stored. The Paper page marks the run "Unprotected position" in red on desktop and phone, and the release tick
+  sends a Telegram notice once per unprotected position.
 - Late bars on Binance's own time (user 2026-11-18, 「按 Binance 发出时间算」; the field authorized after review,
   `docs/plans/late-bar-exchange-time-20261118.zh.md`): a bar is late when the run received it (`ts_init`) more than
   2 s after Binance sent it, so Binance's own delay after the close no longer counts as the run's. Nautilus drops
