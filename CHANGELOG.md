@@ -26,6 +26,17 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: a recovery of a `PAPER_RECOVERY` source whose interruption crossed a funding settlement is now held instead
+  of refused (user 2026-11-17, 「资金费结算被错过时转托管」): no source starts, the holder keeps the stops and targets
+  working until flat. The runner journals `refusal` `PAPER_RECOVERY_UNAVAILABLE` right after `resumed`, so the seal
+  carries `REFUSED:PAPER_RECOVERY_UNAVAILABLE`; later recoveries of the run are held too (a protocol checkpoint with
+  the account and no source state, formerly refused as inconsistent, now means held). `paper compare` takes the held
+  start from that `resumed`. Nothing new is stored.
+- Paper: a `PAPER_RECOVERY` source may subscribe to the declared aggregations of the run's other contracts (user
+  2026-11-17, 「允许」); a cut no longer defers for it, and a recovery's back-fill hands those contracts' missed bars
+  to every subscriber, at one instant by the run's order of contracts (the live node has no fixed order there). An
+  order sent on a back-filled bar is checked against its own contract's minutes and its minute closing the bucket; one
+  on another contract than the source's refuses the recovery.
 - Paper: a run held after an interruption with a position that no working stop protects stays held and is now flagged
   (user 2026-11-17). Its recovery journals that position's `protection_gap` again after `resumed`, which a restored
   gap state used to suppress. The runs listing derives `held_since` and `unprotected` from the journal, so nothing new
@@ -78,12 +89,6 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## 0.4.2 (2026-11-17)
 
-- Paper: a recovery of a `PAPER_RECOVERY` source whose interruption crossed a funding settlement is now held instead
-  of refused (user 2026-11-17, 「资金费结算被错过时转托管」): no source starts, the holder keeps the stops and targets
-  working until flat. The runner journals `refusal` `PAPER_RECOVERY_UNAVAILABLE` right after `resumed`, so the seal
-  carries `REFUSED:PAPER_RECOVERY_UNAVAILABLE`; later recoveries of the run are held too (a protocol checkpoint with
-  the account and no source state, formerly refused as inconsistent, now means held). `paper compare` takes the held
-  start from that `resumed`. Nothing new is stored.
 - Paper: a run whose source does not declare `PAPER_RECOVERY` is now held after an interruption while it holds a
   position, as Live holds (user 2026-11-17). SIGTERM pauses it without cancelling, and it checkpoints the native cache
   alone while a position is open; its resume starts no source but a holder under the source's strategy ID, which checks
