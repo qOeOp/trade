@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, the author of a source meant for a weeks-long Paper run knows the run resumes after an interruption only when the source declares PAPER_RECOVERY = 1 with on_save and on_load, and that with it a run holding a position resumes with its working stop unless the market reached the stop while the run was down.
+description: Rule check — with the skill, the author of a source meant for a weeks-long Paper run knows the run resumes trading after an interruption only when the source declares PAPER_RECOVERY = 1 with on_save and on_load, and that with it a run holding a position resumes with its working stop unless the market reached the stop while the run was down.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
