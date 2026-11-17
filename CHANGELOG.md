@@ -26,6 +26,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+## 0.4.3 (2026-11-17)
+
+- Release (doctor 20261117-02): moving the ledger mirror, market-import and docker-api with a version no longer
+  fails and undoes itself on a host that requires Live. The move holds the Live account lock, and its readers check
+  asked the routed Web for `/api/live`, whose listing waits on that lock, so every probe timed out (0.4.1 and 0.4.2).
+  The readers check after a move now leaves `/api/live` out; Paper, overview and Agent readers stay.
+
 ## 0.4.2 (2026-11-17)
 
 - Paper: a run whose source does not declare `PAPER_RECOVERY` is now held after an interruption while it holds a
