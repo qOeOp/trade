@@ -101,8 +101,8 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 | 切点（声明聚合） | — | 加：某个声明聚合的桶已结束、它的聚合 bar 还没交给源码时推迟 |
 | `build_node`（恢复时） | 有账户而 `sources` 为空 → 拒 | 只对 supported 源码拒；不 supported 的源码按保持启动 |
 | 补齐时源码新下的单 | — | 碰到 (bar 结束, T] 的 1 分钟行情或那根 bar 的收盘价（提交时即可成交，含 MARKET）→ 拒，按暂停停下 |
-| `paper compare`（审计） | 保持后回放独有的差异会判为 `unexplained` / `look_ahead_suspect` | 加一个归因"保持"（由首个 `resumed` 与源码不 supported 推出）；这是放宽一项审计，需用户确认（见"第二次独立评审"） |
-| `ledger/paper.py` `CLEAN_STOPS`（审计） | 不含 `HELD_FLAT` | 加 `HELD_FLAT`；只给新取值归类，不放宽已有结束原因；需用户确认 |
+| `paper compare`（审计） | 保持后回放独有的差异会判为 `unexplained` / `look_ahead_suspect` | 加一个归因"保持"（由首个 `resumed` 与源码不 supported 推出）；这是放宽一项审计，用户已允许（见"用户决定"） |
+| `ledger/paper.py` `CLEAN_STOPS`（审计） | 不含 `HELD_FLAT` | 加 `HELD_FLAT`；只给新取值归类，不放宽已有结束原因；用户已允许 |
 
 ### 与回放的一致（`paper compare`）
 
@@ -126,6 +126,8 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 - 第 4 条停机检查拒绝之后：不撤恢复出来的工作单（本设计原案）；无协议源码的情形由保持模式接管。
 - 第 5 条跟踪止损：在策略编写指引里写明它会让切点存不下。
 - `orders_for_position` 的索引缺陷单独修，单独一个 PR，带不修就失败的测试；Live 重启同样受影响。上游 nautechsystems/nautilus_trader 按 `orders_for_position`、`position_orders`、缓存重启后的索引检索 issue 与 PR，没有找到报过这个问题的（#4688 "Fix orderless position cache indexing" 修的是另一处）；develop 分支的 `Cache.build_index` 仍只由 `position.client_order_ids()` 建 `position_orders`。没有替用户去上游开 issue（对外发帖要用户点头）。
+
+- 第二次评审后的三个问题（2026-11-17，用户在主会话的选择题里作答，经协调会话转达）：`paper compare` 把保持开始之后的差异归到新原因"保持"而不是 `unexplained`——「允许 (Recommended)」；`HELD_FLAT` 加进 `ledger/paper.py` 的 `CLEAN_STOPS`——「允许 (Recommended)」；就 `orders_for_position` 的索引缺陷向 nautechsystems/nautilus_trader 提公开 issue（只含最小、自足的复现，不含账户数据、项目名、路径、订单号或本仓库链接，提之前再查一次有无现成 issue）——「提 (Recommended)」。
 
 ## 保持模式：无恢复协议的源码（「要，和 Live 一致」）
 
@@ -152,7 +154,7 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 - **恢复（保持启动）**：源码不 supported（见上）的运行，恢复一律是保持启动（不存标志，由封存的源码推出）。校验原件、`with_load_state`、起始余额取缓存账户、`with_reconciliation(True)`；Sandbox 自己恢复工作单。每个实例不构建源码，换成运行器自己的保持策略（同一个 `source_config`、同一个策略 ID，原生事件按策略 ID 路由，探针已证），不预热、不补齐聚合；资金费结算检查不适用：拒绝它是因为源码看不到那次结算，保持中没有源码；钱的一面本来就由封存按 Binance 公布的结算、对日志里当时的持仓结算（`ledger.paper.settlements`），停机期间的也算到。停机行情检查照做：在 T（`history.start_at`）用同一个读取线程取 klines，碰到即拒、按暂停停下不撤单，运行结束。通过后保持策略在启动时撤掉继承来的入场单（非只减仓的工作单，与 Live 一致），止损和目标留着；Recorder 照常订阅 1 分钟 bar 并写日志（`bar`、`order`、`position`、`data_gap` 行），保护缺口判定照常。
 - **保持分支要绕开的现有调用**：概要里的 `replay_integrity_findings`、`diagnostics` 是源码类的方法，保持策略没有，跳过（否则封存多一条 `RUNTIME_FAILURES`）；`cut` 里逐个源码读的 `_paper_*` 状态与 `save()` 不适用，保持切点只查订单、回调与运行时失败；STOP 的撤单照遍历 `STRATEGIES`（保持策略同名注册、同样的撤单接口）。停机行情由保持策略在 T 用自己的读取线程取（同 #3154 的 `engine.klines.bars` 与重试、期限），不经源码预热。
 - **结束**：所有仓位都平了，保持策略撤掉剩下的工作单并请求停止（`stop_reason` = `HELD_FLAT`），写概要，守护进程照常封存。保持中用户 STOP 照 STOP（撤单、结束）；保持中再 SIGTERM 又是暂停，恢复后继续保持。保持期间同一源码不能另起新运行（`paper/runs.py` 的 `_source_running`），保持可能持续很久，页面要说清这一点。
-- **记录**：日志不加新行或新字段；哪段是保持由已有的 `resumed` 行加源码不 supported 推出。`paper compare` 要把首个 `resumed` 之后的差异另归一类（"保持"），否则保持中不再入场、回放里的源码会，这些差异会判成 `unexplained` 或 `look_ahead_suspect`。这是一项审计的放宽，实施前请用户确认。
+- **记录**：日志不加新行或新字段；哪段是保持由已有的 `resumed` 行加源码不 supported 推出。`paper compare` 要把首个 `resumed` 之后的差异另归一类（"保持"），否则保持中不再入场、回放里的源码会，这些差异会判成 `unexplained` 或 `look_ahead_suspect`。这是一项审计的放宽，用户已允许（见"用户决定"）。
 - **有协议源码的恢复被拒后要不要也转保持**（用户默认里"若第 1 条覆盖则适用保持"）：本设计的第 1 条按用户原话覆盖的是无协议源码。有协议源码被拒的原因里，停机检查命中、GTD 落在停机期间、取不到 klines 这几种，转保持也不诚实（停机期间本该发生的成交补不回来，resume_gap 探针），所以照原案：按暂停停下、不撤单、运行结束。剩下的资金费结算拒绝，转保持在经济上说得通，但要让之后的每次恢复都知道"这次是保持"：有协议源码的切点 `sources` 为空本身分不清是保持还是尚未启动，得新存一个值或从日志推（如 `resumed` 之后的 `refusal` 行），这需要另行设计，本次不做，列为待办。
 
 ## 跨聚合桶边界：补齐后继续（「放宽，补齐后继续」）
@@ -229,4 +231,4 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 | 9 | 补齐探针只跨了一个桶；保持探针没跑到 `HELD_FLAT`、保持中再次恢复 | 次要 | 采纳：列入实施的成对验收（跨 ≥2 个桶、跨桶前有实时断线、`HELD_FLAT`、保持中二次恢复） |
 | 10–13 | 资金费说法属实；读缓存的做法有 rc7 源码与探针支持，不是平行聚合器；kill -9 与按策略 ID 路由属实；没有新存储字段 | — | 无需改动 |
 
-按协调会话转达的要求（评审发现阻塞即停下报告），本记录的 PR 不开自动合并；补齐与保持两个实施 PR 等用户确认第 5、8 条的审计改动后再做。
+按协调会话转达的要求（评审发现阻塞即停下报告），阻塞项改完后先停下报告；用户随后允许了第 5、8 条的审计改动（见"用户决定"），补齐与保持两个实施 PR 随后开始。
