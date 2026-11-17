@@ -46,6 +46,8 @@ type ContractMetrics = { archive: number; live: number; missing_metrics: number;
 /** comparison.json (run-comparison@2026-11-15); `groups` is null when the replay wrote no order events. */
 type Result = {
   kind: "paper" | "live"; paper_id?: number; window: { start: string; end: string }; market_day: string; image_ref: string;
+  /** "rest": a preliminary comparison, the minutes after `preliminary.market_day` read from Binance's public REST. */
+  data_source?: "archive" | "rest"; preliminary?: { market_day: string | null; until: string } | null;
   replay: { status: "passed" | "invalid"; problems: { code?: string; message?: string }[] };
   summary: Summary; groups: Group[] | null;
   inputs: Record<string, { bars: ContractBars; metrics: ContractMetrics | null; warmup: { same: boolean } | null;
@@ -84,11 +86,12 @@ export function followComparison(paperId: number | null): void {
   if (paperId !== null) void read(paperId);
 }
 
-/** Replays a sealed run on the archive and compares it; the result is read back as it lands. */
-export async function compare(paperId: number): Promise<void> {
+/** Replays a sealed run on the archive and compares it (`preliminary`: on Binance's REST where the archive does not
+ *  reach yet); the result is read back as it lands. */
+export async function compare(paperId: number, preliminary = false): Promise<void> {
   comparison.set({ paper_id: paperId, state: "comparing" });
   try {
-    await paperApi(`/runs/${paperId}/compare`, { method: "POST", body: {} });
+    await paperApi(`/runs/${paperId}/compare`, { method: "POST", body: preliminary ? { preliminary: true } : {} });
   } catch (error) {
     comparison.set({ paper_id: paperId, state: "failed", error: error instanceof ApiError ? { code: error.code, message: error.message } : { code: "PAPER_FAILED", message: String(error) } });
     return;

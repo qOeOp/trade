@@ -899,7 +899,7 @@ def replay(market: dict, market_day: str, source: bytes, entry_class: str, image
 def replay_and_compare(run: Mapping, market: dict, market_day: str, archived: Mapping[str, list[list]], source: bytes,
                        entry_class: str, image_ref: str, symbols: list[str], start: int, end: int, leverage: str,
                        starting_balance: str, output: Path, name: str,
-                       timeout: float | None) -> tuple[Path, dict, dict]:
+                       timeout: float | None, existing: bool = False) -> tuple[Path, dict, dict]:
     """(the new temporary directory, the replay's status, the comparison): the run's source replayed into
     `output`/replay on the warm-up the run received, and `run` compared with it against the `archived` minutes, the
     contract terms at `market_day`, the warm-up and metrics the archive gives and the fees the market assumes."""
@@ -917,8 +917,9 @@ def replay_and_compare(run: Mapping, market: dict, market_day: str, archived: Ma
                                                           firsts.get(symbol_of(row["instrument_id"]), end))
     archived_metrics = {symbol: archive_metrics(opened, market_day, symbol, first, end)
                         for symbol, first in firsts.items()}
-    output = paths.temporary_path(output)
-    output.mkdir(mode=0o700, parents=True)
+    if not existing:  # a preliminary comparison made its directory for its market (replay.preliminary)
+        output = paths.temporary_path(output)
+        output.mkdir(mode=0o700, parents=True)
     replayed, events, reports = replay(market, market_day, source, entry_class, image_ref, symbols, start, end,
                                        leverage, starting_balance, output / "replay", name, timeout, received)
     return output, replayed, compare(run, events, archived, reports, start, end, archived_warmup=archived_warmup,

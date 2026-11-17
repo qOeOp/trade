@@ -81,15 +81,19 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "start, stop and seal refusals"),
     ("paper", "compare"): (
         "the sealed paper run, its source and its files (reader); the market at --market-day (default the newest day), exported "
-        "into a reused cache under the temporary directory; the run's own runtime image",
-        "nothing in any database (no trial, no exposure); the new --output directory (replay/ with the native "
-        "reports and audit, comparison.json)",
-        "path, summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, differs, run_only, "
+        "into a reused cache under the temporary directory; the run's own runtime image; with --preliminary, Binance's "
+        "public REST (klines, markPriceKlines, fundingRate and, for a source that read metrics, futures/data) for "
+        "what the market does not hold yet, paced, stopping at the first rate limit",
+        "nothing in any database (no trial, no exposure) and nothing in the market directory; the new --output "
+        "directory (replay/ with the native reports and audit, comparison.json; with --preliminary, market/: the "
+        "market's files linked and the months REST extends rewritten)",
+        "path, data_source (archive, or rest: preliminary), summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, differs, run_only, "
         "replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, early_bars, differing_bars, "
         "warmup_differs, terms_differ, equity_max_difference}, replay {status, problems, path}",
         "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (not sealed); PAPER_COMPARE_EMPTY (no interval); "
         "PAPER_COMPARE_UNCOVERED (the market lacks the interval's minutes); NOT_TEMPORARY_PATH, PATH_EXISTS "
-        "(--output); RUNTIME_UNAVAILABLE; REPLAY_TIMEOUT (--timeout-seconds)"),
+        "(--output); RUNTIME_UNAVAILABLE; REPLAY_TIMEOUT (--timeout-seconds); SOURCE_UNREACHABLE (--preliminary: "
+        "REST refused, a rate limit included)"),
 }
 
 
@@ -147,6 +151,10 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command.add_argument("--timeout-seconds", type=float, help="stop the replay after this long")
+    command.add_argument("--preliminary", action="store_true",
+                         help="read the minutes, funding and metrics the market does not hold yet from Binance's public "
+                              "REST into a working copy under --output: a preliminary result (data_source rest) before "
+                              "the day's archive; the comparison on the archive is the one that counts")
     command = verb(paper, "serve", "serve the Paper database's runs to the trade IDE's Paper panel")
     command.epilog = ("Listens on loopback only, or inside a container on its own address with TMPDIR a host directory "
                       "mounted at its own path (paper.serve); the IDE service reaches it with --paper. Starts, stops and "
@@ -194,7 +202,7 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if args.verb == "compare":
         from paper import compare
         return compare.compare(profile, profiles.market(args.market), args.market_day, args.paper_id, Path(args.output),
-                               args.timeout_seconds), 0
+                               args.timeout_seconds, args.preliminary), 0
     if args.verb == "serve":
         from paper import serve
         serve.serve(args.ledger, args.market, args.host, args.port, args.hosts, Path(__file__).resolve().parents[1],

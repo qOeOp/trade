@@ -26,6 +26,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- `paper compare --preliminary` (user 2026-11-17, 「加初步对账」): a same-day comparison before Binance archives the
+  run's day. The minutes, funding and metrics the market lacks are read from Binance's public REST into a working
+  copy of the market under `--output` (files linked, only the extended months rewritten; nothing enters the market
+  directory), paced, stopping at the first rate limit. The result carries `data_source: rest` and what REST added;
+  the Paper page offers it when the market does not cover the run yet and labels its result preliminary. The archive
+  comparison stays authoritative.
+
 ## 0.4.3 (2026-11-17)
 
 - Release (doctor 20261117-02): moving the ledger mirror, market-import and docker-api with a version no longer
