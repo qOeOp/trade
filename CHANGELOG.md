@@ -31,6 +31,17 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   gap state used to suppress. The runs listing derives `held_since` and `unprotected` from the journal, so nothing new
   is stored. The Paper page marks the run "Unprotected position" in red on desktop and phone, and the release tick
   sends a Telegram notice once per unprotected position.
+- Late bars on Binance's own time (user 2026-11-18, 「按 Binance 发出时间算」; the field authorized after review,
+  `docs/plans/late-bar-exchange-time-20261118.zh.md`): a bar is late when the run received it (`ts_init`) more than
+  2 s after Binance sent it, so Binance's own delay after the close no longer counts as the run's. Nautilus drops
+  the kline message's event time, so Paper and Live keep a second public websocket to the same kline streams
+  (`engine.kline_events`, through the run's proxy; the egress allow-list is unchanged) and write a `kline_event`
+  line per contract and minute (`instrument_id`, `ts_event`, `event_ns`) to Paper's `events.jsonl` and Live's
+  `market.jsonl`. Paper no longer writes `late_bar` lines: the sealed and live `late_bars` reading is derived from
+  `bar` and `kline_event` lines. `paper compare` and `live compare` add `unknown_bars` (bars with no
+  `kline_event`, neither late nor on time) and `published_late_bars` (Binance sent them more than 2 s after the
+  close; with each first difference's longest such delay, `publication_delay_ms`), both evidence, never a cause.
+  Runs sealed before have no `kline_event`: their bars compare as unknown.
 - Paper: a minute's snapshot now values the open positions at that minute's last mark. It is taken at the next
   minute's first mark, which it used for that contract, so the equity path stood one mark late against the replay's
   MARK close (audit runs 52 and 54: 0.02 USDT on 0.004 BTC). Runs sealed before keep their journals.

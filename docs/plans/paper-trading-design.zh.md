@@ -439,7 +439,7 @@ rc7 源码给出原因：Sandbox 以优先级 10 订阅 K 线，先于策略撮�
 
 - **重叠的部分**：Paper 日志的 `order`、`position`、`bar` 行，Live 日志的 `order`、`position` 行，以及证据包的 `bar`、`mark` 行，记的都是 Nautilus 自己的事件和行情。原生流按 `NautilusRecordType`（订单、持仓、账户事件）和 `NautilusDataType`（K 线、MARK 等）也能写出来。
 - **原生流给不了的**：运行器自己的事实。
-  - Paper：`started`、`resumed`、`waiting`、`stop_requested`、`stopping`、`summary_written`、`refusal`、`warmup`、`socket`、`data_gap`、`late_bar`、`protection_gap`。
+  - Paper：`started`、`resumed`、`waiting`、`stop_requested`、`stopping`、`summary_written`、`refusal`、`warmup`、`socket`、`data_gap`、`protection_gap`；以及 Nautilus 丢掉的 Binance K 线推送时间 `kline_event`（2026-11-18 起取代运行时的 `late_bar` 行，见 `late-bar-exchange-time-20261118.zh.md`）。
   - Sandbox 不结算的 `funding_settlement`，以及含未实现盈亏的每分钟 `snapshot`。
   - Live：`connecting`、`entry_verified`、保护和亏损检查、`unresolved`、各种终止事件。
   - 证据包的"每分钟第一个 MARK"是按回放节奏挑出来的。
