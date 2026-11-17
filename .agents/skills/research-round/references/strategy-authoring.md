@@ -66,13 +66,15 @@ header template, the entry class, the two hooks and a sizing helper.
   trading, `engine/README.md`); a source written to these rules does not, so after an interruption its
   run sends no new entry: holding a position, it keeps its stops and targets working until flat, then ends; flat, it
   ends at once. With the protocol a run resumes with its positions and working orders, unless the market
-  reached one of them or a GTD expired while it was down; a trailing stop, a MARKET_IF_TOUCHED or a
+  reached one of them while it was down (a GTD that expired meanwhile: before its expiry), and is held as
+  above if the interruption crossed a funding settlement; a trailing stop, a MARKET_IF_TOUCHED or a
   trigger on another price than the last makes every interruption end the run. The restored orders are working before `on_start`: find a position's with
   `cache.position_id(order)` (after a recovery `orders_for_position` lists only filled orders), and
   do not submit its stop again, which breaches the stop rule below. A resume past a bucket end of a
-  declared aggregation hands the aggregated bars it missed to `on_bar` after `on_start`, before any
-  live bar; an order sent on one ends the run if it is a MARKET order or `close_position`, or if
-  that bar's close or the minutes up to the resume reached it. Meanwhile the clock reads the resume
+  declared aggregation hands the aggregated bars it missed (also those of another contract of the run
+  it subscribed to) to `on_bar` after `on_start`, before any live bar; an order sent on one ends the
+  run if it is a MARKET order, `close_position` or on another contract, or if its contract's close at
+  that bar's end or the minutes up to the resume reached it. Meanwhile the clock reads the resume
   time and the cache already holds the later missed bars: decide from the bar handed in and saved
   state.
 
