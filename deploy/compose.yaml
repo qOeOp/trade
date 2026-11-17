@@ -1,6 +1,6 @@
 # The whole deployment, the same on a workstation and a server whose Docker engine is linux/arm64 or linux/amd64
 # (.github/workflows/ide-image.yml, Dockerfile): docker compose -f deploy/compose.yaml
-# up -d, then open http://127.0.0.1:8765/. Updating runs named services (README.md here, Updating).
+# up -d, then open http://127.0.0.1:8765/. A workstation follows versions with deploy/update.sh (README.md here, Updating).
 # .env beside this file names TRADE_UID, TRADE_GID and TRADE_DATA, and the images by digest (README.md here,
 # Image versions); the host directories are mounted at their own paths, since service.json, the profiles, backups and run
 # directories name them (docs/plans/paper-compose-deployment.zh.md §4.3, ledger-compose-service.zh.md §4.2).

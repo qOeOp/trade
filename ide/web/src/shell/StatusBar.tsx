@@ -19,7 +19,7 @@ import { MarketImportStatus } from "../components/MarketImportStatus";
 import { PaperStartStatus } from "../components/PaperStartStatus";
 import { Tip } from "../components/Tip";
 import { UpdateStatus } from "../components/UpdateStatus";
-import { PublicCopyStatus } from "../components/About";
+import { PublicCopyStatus, ReleaseStatus } from "../components/About";
 import { ResearchSyncStatus } from "../components/ResearchSync";
 import { VersionLine } from "../components/VersionLine";
 
@@ -82,6 +82,7 @@ export function StatusBar() {
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
         {runs && !live && gapped > 0 && <span className="text-misses-fg">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
         <PublicCopyStatus />
+        <ReleaseStatus />
         <MarketImportStatus />
         <ResearchSyncStatus />
         <UpdateStatus />

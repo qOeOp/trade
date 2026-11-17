@@ -2,7 +2,9 @@
 
 The channel admits amd64 digests. This host may be arm64, so each admitted digest must sit in its
 build's published platform manifest, and the env file gets this CPU's image from that manifest.
-Everything read is public and read with no credential. Nothing is pulled or recreated.
+Everything read is public and read with no credential. Nothing is pulled or recreated. With `--compose`, the
+admitted revision's own `deploy/compose.yaml` is written too, so a workstation recreates its services from the
+definition of the version it runs (deploy/update.sh).
 The default channel, deploy-ready, admits versions (production; a server runs this too); main-ready admits
 every checked main build (staging).
 """
@@ -121,7 +123,11 @@ def write_env(path: Path, values: dict) -> None:
     """Replace these keys in one step and leave every other line as it is."""
     lines = path.read_text().splitlines() if path.exists() else []
     kept = [line for line in lines if line.split("=", 1)[0].strip() not in values]
-    text = "\n".join([*kept, *(f"{key}={value}" for key, value in values.items())]) + "\n"
+    write_file(path, "\n".join([*kept, *(f"{key}={value}" for key, value in values.items())]) + "\n")
+
+
+def write_file(path: Path, text: str) -> None:
+    """Replace `path` with `text` in one step, keeping its mode (0600 for a new file)."""
     temporary = path.with_name(path.name + ".pending")
     with temporary.open("w") as out:
         out.write(text)
@@ -157,6 +163,7 @@ def main() -> None:
     parser.add_argument("--channel", choices=tuple(CHANNELS), default="deploy",
                         help="deploy: the admitted versions (default); main: every checked main build, for staging")
     parser.add_argument("--arch", choices=("arm64", "amd64"), help="the Docker engine's CPU (default: this machine's)")
+    parser.add_argument("--compose", type=Path, help="also write the admitted revision's deploy/compose.yaml here")
     args = parser.parse_args()
     architecture = args.arch or ARCHITECTURES.get(platform.machine().lower())
     if architecture is None:
@@ -168,6 +175,8 @@ def main() -> None:
         if branch != CHANNELS["deploy"]:  # refresh fetches only the host's refs, main and deploy-ready
             source.git("fetch", "--filter=blob:none", "origin", f"refs/heads/{branch}:refs/heads/{branch}")
         sha, values = resolve(source, Registry(), architecture, args.revision, branch)
+        if args.compose:
+            write_file(args.compose, source.git("show", f"{sha}:deploy/compose.yaml", raw=True))
     write_env(args.env, values)
     print(json.dumps({"revision": sha, "channel": branch, "architecture": architecture, **values}, indent=2))
 

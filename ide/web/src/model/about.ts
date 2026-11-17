@@ -4,6 +4,8 @@ type Refusal = { code: string; message?: string };
 export type About = {
   version: string | null;
   build: string;
+  /** The product's newest released version, or null while it is unknown. */
+  released: string | null;
   ledger: {
     running: boolean; remote: string | null; unpublished: boolean; commit: string | null;
     behind_seconds: number | null; diverged: boolean;
@@ -53,6 +55,24 @@ export function publicCopyFault(about: About): { short: string; long: string } |
   return {
     short: `Public copy: behind${age}`,
     long: `Behind this ledger${age && ` by${age}`}: publishing keeps failing. The ledger service retries every 5 minutes; ledger publish shows why.`,
+  };
+}
+
+const parts = (version: string) => version.split(".").map(Number);
+const newer = (a: string, b: string) => {
+  const [x, y] = [parts(a), parts(b)];
+  const at = x.findIndex((n, i) => n !== y[i]);
+  return at >= 0 && x[at]! > (y[at] ?? 0);
+};
+
+/** A newer version than this deployment runs, when one is released: a workstation updates itself with one
+ *  command, the release host at its next release tick. The short text is the status bar's, the long one the About panel's. */
+export function releaseBehind(about: About): { short: string; long: string } | null {
+  if (!about.version || !about.released || !newer(about.released, about.version)) return null;
+  return {
+    short: `Behind v${about.released}`,
+    long: `Version ${about.released} is released and this deployment runs ${about.version}. On a workstation, run deploy/update.sh `
+      + "from the checkout (Deployment guide, Updating); the release host moves at its next release tick.",
   };
 }
 
