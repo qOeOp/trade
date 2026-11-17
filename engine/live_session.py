@@ -216,8 +216,8 @@ class Session:
         return bool(exposed)
 
     def record_minute(self, cache, minute_ns: int, prices: dict) -> None:
-        """The run's result from native fills at a minute's first mark price (contract -> price), or when the run
-        stops, for the chart of its account: only read and journalled, no check, stop or order follows from it.
+        """The run's result from native fills at the end of minute `minute_ns` (contract -> its last mark price), or
+        when the run stops, for the chart of its account: only read and journalled, no check, stop or order follows from it.
         Unknown while a position is open without a price of its contract, or when it cannot be read."""
         result = None
         try:

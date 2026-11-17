@@ -562,8 +562,7 @@ class InterruptionTests(unittest.TestCase):
                 self.assertIn("2025-12-31 23:58:00", reason)  # the minute closing two minutes after LAST's
 
     def test_what_the_minutes_cannot_prove_untouched_refuses(self):
-        cases = {"a GTD expiring in the interruption": (order(tif="GTD", expire_time=T - MINUTE_NS), QUIET),
-                 "a GTD expiring at T": (order(tif="GTD", expire_time=T), QUIET),
+        cases = {"a GTD without its expiry": (order(tif="GTD"), QUIET),
                  "a MARK trigger": (order(trigger_type="MARK_PRICE"), QUIET),
                  "a BID_ASK trigger": (order(trigger_type="BID_ASK"), QUIET),
                  "a MARKET_IF_TOUCHED": (order(kind="MARKET_IF_TOUCHED"), QUIET),
@@ -579,6 +578,34 @@ class InterruptionTests(unittest.TestCase):
                 self.assertIsNotNone(self.check(found, bars))
         self.assertIsNotNone(paper_session.touched([order()], {}, {IID: LAST}, T), "no minute read")
         self.assertIsNotNone(paper_session.touched([order()], {IID: QUIET}, {}, T), "no journalled bar")
+
+    def test_a_gtd_that_expired_in_the_interruption_needs_only_the_minutes_up_to_its_expiry(self):
+        """The uninterrupted run matched each minute that opened before the expiry and then expired the order unfilled
+        (rc7 matches a bar before it expires); the Sandbox expires the restored one on the first live bar after it
+        matched that bar's open, which follows the last minute's close (native probe 2026-11-17)."""
+        buy = dict(kind="LIMIT", side="BUY", price="99000.0", tif="GTD")
+        touching = ("98900.0", "100500.0")
+        # The minutes close at LAST + 1, 2, 3, 4 minutes (+ 1 ms); the second closes at E.
+        expiry = LAST + 2 * MINUTE_NS + 1_000_000
+        quiet = ("99500.0", "100500.0")
+        cases = {
+            "untouched up to its expiry, touched after it": (expiry, minutes(quiet, quiet, touching, quiet), None),
+            # The first live bar opens where the last minute closed: the recovery matches it there before it expires.
+            "the last minute reaching it": (expiry, minutes(quiet, quiet, quiet, touching), "touched"),
+            "an expiry inside a minute that touched it": (expiry - 30 * 10**9, minutes(
+                ("99500.0", "100500.0"), touching, ("99500.0", "100500.0"), ("99500.0", "100500.0")), "touched"),
+            "the minute it expired at the close of, touched": (expiry, minutes(
+                ("99500.0", "100500.0"), touching, ("99500.0", "100500.0"), ("99500.0", "100500.0")), "touched"),
+            "an expiry at T": (T, minutes(quiet, quiet, touching, quiet), "touched"),
+            "a minute missing after its expiry still fails": (expiry, QUIET[:3], "could not all be read"),
+        }
+        for name, (expire_time, bars, reason) in cases.items():
+            with self.subTest(name):
+                found = self.check(order(**buy, expire_time=expire_time), bars)
+                if reason is None:
+                    self.assertIsNone(found)
+                else:
+                    self.assertIn(reason, found)
 
     def test_the_reader_asks_for_the_minutes_from_the_journals_last_bar_up_to_the_one_closing_at_t(self):
         session = self.session(saved={"sources": {}, "cut_ns": 0})

@@ -287,7 +287,10 @@ class NativeEntryTests(unittest.TestCase):
                 # The minute's first mark journals the run's result for its chart; a reconciliation has none.
                 self.assertEqual(len(self.read_events("minute_result")) - rows, int(expected))
 
-    def test_the_runs_result_is_journalled_at_each_minutes_first_mark_and_at_the_stop(self):
+    def test_the_runs_result_is_journalled_for_the_minute_that_ended_and_at_the_stop(self):
+        """A minute's first mark journals the minute before it at the marks it ended with, as a replay values a minute
+        at its close; the replay's minute M is after M's close, so a row stamped with the minute just begun stood a
+        minute out of step (2026-11-17)."""
         self.owned_position()  # Long 0.500 at 100.
         observer = SimpleNamespace(session=self.session, cache=self.engine.cache, minute=None,
                                    clock=SimpleNamespace(timestamp_ns=lambda: 3 * MINUTE_NS + 5, cancel_timer=Mock()),
@@ -299,8 +302,8 @@ class NativeEntryTests(unittest.TestCase):
         mark("96.00", 2 * MINUTE_NS)
         live_lifecycle.Observer.on_stop(observer)
         rows = [(row["minute_ns"], row["result"]) for row in self.read_events("minute_result")]
-        self.assertEqual(rows, [(MINUTE_NS, "-2.50000000"), (2 * MINUTE_NS, "-2.00000000"),
-                                (3 * MINUTE_NS, "-2.00000000")])
+        # The first row is what the run inherited (no earlier mark: the first one's price).
+        self.assertEqual(rows, [(0, "-2.50000000"), (MINUTE_NS, "-5.00000000"), (3 * MINUTE_NS, "-2.00000000")])
         self.assertFalse(self.session.stopping)
         self.assertFalse(self.session.failed)
 

@@ -633,8 +633,12 @@ a declared aggregation's bucket has ended and its bar is not yet in the native c
 invented: on the warm-up's reader at T (T + 15 s, when the Binance kline closing at T is final), the recovery reads
 the one-minute klines of each contract holding a restored order from the journal's last bar up to the minute closing
 at T, and before any source starts it requires every restored order to be untouched by them (a stop's trigger, a
-limit's price, a LIMIT_IF_TOUCHED's trigger not reached by the minutes' high or low), a GTD's expiry after T, and a
-trigger on the last price. Any other order type or state, or a minute missing, fails too. A
+limit's price, a LIMIT_IF_TOUCHED's trigger not reached by the minutes' high or low) and a trigger on the last price.
+A GTD that expired while the run was down needs only the minutes up to its expiry and the last one: rc7's matching
+engine matches a bar before it expires what it holds, so the uninterrupted run matched it up to the minute its expiry
+fell in and then expired it unfilled, and the recovery's Sandbox matches it once more, on the first live bar's open
+(which follows the last minute's close), before it expires it there. Its `OrderExpired` then comes at that bar, not
+at the expiry. Any other order type or state, or a minute missing, fails too. A
 failed check journals a `refusal` (`PAPER_RECOVERY_UNAVAILABLE`, naming the order and the minute) and stops the run as
 a pause stops, leaving the restored orders as they were, without a new checkpoint; the daemon seals it. So does a
 refused back-fill (orders it already sent stay as they are) and any other stop of a recovery before it is ready, but
@@ -666,6 +670,15 @@ checkpoints have the account and no source state, which a source with the protoc
 every later recovery of the run is held too. `paper compare` takes the held start from that `resumed`, followed at once
 by the refusal and later by a bar (a refused recovery stops without one). A settlement that falls due after the runner
 started, once its node already runs the source, still refuses.
+
+`paper compare --preliminary` (the page offers it when the market does not hold the run's minutes yet; user
+2026-11-17) compares a run before Binance archives its day: `replay.preliminary` makes a market directory under the
+comparison's `--output` whose files link to the market's, and rewrites there only the months the window reaches past
+it, adding after each contract's last stored minute, settlement and (for a source that read metrics) metrics row what
+Binance's public REST gives (klines, markPriceKlines, fundingRate, futures/data), paced and stopping at the first rate
+limit (HTTP 403, 418, 429 or 451) instead of waiting it out. Nothing reaches the market directory. The result says
+`data_source: rest` and what REST added (`preliminary`), and the page labels it preliminary; the comparison on the
+archive stays the one that counts, so replay again once the market covers the run.
 
 A seal stores the exact journal bytes as `events/native.jsonl.gz`, including any interrupted final line, plus
 current and actually-used recovery originals. Verification hashes the decompressed byte prefix; parsed UI

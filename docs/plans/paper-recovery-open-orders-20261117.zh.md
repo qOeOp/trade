@@ -122,7 +122,7 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 
 - 待决定第 1 条（无恢复协议的源码像 Live 一样保持）：「要，和 Live 一致」。
 - 待决定第 3 条（聚合桶边界的拒绝）：「放宽，补齐后继续」。
-- 第 2 条 GTD 到期落在停机期间：拒绝恢复（本设计原案）。
+- 第 2 条 GTD 到期落在停机期间：拒绝恢复（本设计原案）。2026-11-17 用户改为不拒绝，见"GTD 在停机期间到期：不再拒绝"一节。
 - 第 4 条停机检查拒绝之后：不撤恢复出来的工作单（本设计原案）；无协议源码的情形由保持模式接管。
 - 第 5 条跟踪止损：在策略编写指引里写明它会让切点存不下。
 - `orders_for_position` 的索引缺陷单独修，单独一个 PR，带不修就失败的测试；Live 重启同样受影响。上游 nautechsystems/nautilus_trader 按 `orders_for_position`、`position_orders`、缓存重启后的索引检索 issue 与 PR，没有找到报过这个问题的（#4688 "Fix orderless position cache indexing" 修的是另一处）；develop 分支的 `Cache.build_index` 仍只由 `position.client_order_ids()` 建 `position_orders`。没有替用户去上游开 issue（对外发帖要用户点头）。
@@ -240,6 +240,31 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 | 10–13 | 资金费说法属实；读缓存的做法有 rc7 源码与探针支持，不是平行聚合器；kill -9 与按策略 ID 路由属实；没有新存储字段 | — | 无需改动 |
 
 按协调会话转达的要求（评审发现阻塞即停下报告），阻塞项改完后先停下报告；用户随后允许了第 5、8 条的审计改动（见"用户决定"），补齐与保持两个实施 PR 随后开始。
+
+## GTD 在停机期间到期：不再拒绝（2026-11-17 用户决定「GTD 在停机期间到期不再拒绝」）
+
+原案（用户决定第 2 条）把"恢复时 GTD 已到期"一律拒绝。用户改为：停机期间到期、且停机的 1 分钟行情表明到期之前没碰到它的 GTD，按已到期处理，继续恢复，结果要与连续跑相同。
+
+### 原生事实（rc7 `crates/execution/src/matching_engine/mod.rs`）
+
+`iterate_with_mode` 先撮合（`iterate_bids`/`iterate_asks` 的 FillLimit、TriggerStop），之后才对撮合后维护集合里的订单做 `post_match_order_action`：`timestamp_ns >= expire_time` 才发 OrderExpired（7742–7767）。时间戳是 bar 到达时的墙钟。所以：连续跑在到期之前到达的每根 bar 上都撮合它，到期所在那分钟（到达晚于到期）的开盘一步也撮合，之后才到期；恢复后 Sandbox 在第一根实时 bar 的开盘一步还会撮合一次（重启后 `core.last` 为空，开盘按市价一步，见上文 resume_gap），然后才到期。
+
+### 探针（`exec-main` 镜像，`--network none`，回环假服务器，Sandbox 配置同 `build_node`）
+
+脚本：`/private/tmp/claude-501/-Users-vx-WebstormProjects-trade/0660267b-ae67-4c05-b258-d74244daae37/scratchpad/gtd/`（`node.py`、`run.py`、`summarize.py`；输出 `out2/run-1794928203`）。第 0 根 bar：市价多 0.010 @ 100000 并挂只减仓止损 98000，另挂两张 GTD 买限价 G1 99000、G2 99800，到期 = 墙钟 + 6 秒。bar 都是 100000/100100/99900/100000；cross 变体的第 4 根开盘 99700（穿过 G2，不到 G1）。baseline 连续推 0–7，第 3 根在到期 1.5 秒后才推；first 推 0–2 后停节点、不撤单、SAVE；停 8 秒（到期落在其间）；resume 从 RDB 起，推 4–7（第 3 根是停机）。
+
+| 跑法 | G1、G2 | 期末 total / locked / free |
+|---|---|---|
+| baseline | 第 3 根（到期后第一根）OrderExpired，未成交 | 99999.50 / 33.33 / 99966.17 |
+| resume | 恢复后第一根（第 4 根）OrderExpired，未成交 | 相同 |
+| baseline_cross | 第 3 根 OrderExpired；第 4 根开盘 99700 时已到期 | 99999.50 / 33.33 / 99966.17 |
+| resume_cross | 第 4 根开盘先撮合：**G2 成交 @ 99800**，G1 到期 | 99999.3004 / 66.60 / 99932.7004 |
+
+### 规则（`engine/paper_session.py` `touched`、`expiring`）
+
+停机期间到期（到期 ≤ T）的恢复单，判"没碰到"用的分钟是：开盘早于到期的每一分钟（含到期所在那分钟，到达晚于收盘时再多一分钟，宁可多拒），加上停机的最后一分钟（收于 T）——第一根实时 bar 的开盘紧接它的收盘，resume_cross 说明那一步会撮合。规则同其他恢复单（碰到即拒）；分钟必须取全。到期之后、最后一分钟之前碰到它不拒：连续跑那时已到期，恢复后 Sandbox 在第一根实时 bar 把它到期。补齐时源码新下的 GTD 若在 T 之前到期，照旧拒。
+
+与连续跑的差别：OrderExpired 的时间是恢复后第一根实时 bar，不是到期后第一根（`paper compare` 里这组订单的差异落在停机的 `missing_bar` 区间内）；中间这段时间入场单的保证金仍锁着（停机期间没有记录）。剩下的风险与所有恢复单相同：T 之后到第一根实时 bar 之间的行情没人查，第一根实时 bar 的开盘若跳过它的价位，就会像 resume_cross 那样成交，而连续跑不会。保持中的运行在启动时撤掉继承来的入场单（非只减仓），GTD 入场单因此不会走到这一步。
 
 ## 资金费结算被错过时转保持（2026-11-17 用户决定「资金费结算被错过时转托管」）
 

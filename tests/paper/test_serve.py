@@ -115,7 +115,12 @@ class GateTests(unittest.TestCase):
         json_body = {"Content-Type": "application/json"}
         self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/compare", b"{}", **json_body),
                          (202, {"paper_id": 3, "state": "comparing"}))
-        self.daemon.compare.assert_called_once_with(3)
+        self.daemon.compare.assert_called_once_with(3, False)
+        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/compare", b'{"preliminary": true}', **json_body),
+                         (202, {"paper_id": 3, "state": "comparing"}))
+        self.daemon.compare.assert_called_with(3, True)
+        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/compare", b'{"preliminary": 1}', **json_body),
+                         (400, mock.ANY))
         self.assertEqual(request(self.port, "GET", "/api/paper/runs/3/compare"), (200, {"paper_id": 3, "state": "none"}))
 
     def test_a_delete_reaches_the_daemon(self):

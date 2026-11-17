@@ -98,10 +98,11 @@ def _drop(host: str) -> None:
         connection.close()
 
 
-def _get(url: str, path: Path | None = None) -> bytes:
+def _get(url: str, path: Path | None = None, patient: bool = True) -> bytes:
     """GET with backoff on throttling, server errors and dropped connections. 404 is _NotPublished,
     400 from REST is SOURCE_UNKNOWN_SYMBOL, exhaustion is SOURCE_UNREACHABLE. With `path`, a 200 body
-    goes to that file in bounded chunks instead of memory."""
+    goes to that file in bounded chunks instead of memory. Not `patient`: Binance's rate limits (403, 418,
+    429) are SOURCE_UNREACHABLE at once, not waited out."""
     parts = urllib.parse.urlsplit(url)
     target = parts.path + (f"?{parts.query}" if parts.query else "")
     delay = 1.0
@@ -133,7 +134,8 @@ def _get(url: str, path: Path | None = None) -> bytes:
             raise _NotPublished(url)
         if status == 400 and url.startswith(REST):
             raise _bad_request(url, body)
-        if status not in (403, 418, 429, 500, 502, 503, 504) or attempt == ATTEMPTS - 1:
+        if status not in (403, 418, 429, 500, 502, 503, 504) or attempt == ATTEMPTS - 1 or (
+                not patient and status in (403, 418, 429)):
             raise _refuse(f"{url}: HTTP {status}", "SOURCE_UNREACHABLE", missing=(url,))
         # 403 (WAF), 418 and 429 are Binance's rate limits: wait them out.
         retry_after = headers.get("Retry-After")
@@ -405,18 +407,21 @@ _LAST_REST: dict[str, float] = {}
 # klines weigh 10 against 2400 a minute; fundingRate has its own 500 per 5 minutes.
 REST_INTERVAL = 0.25
 FUNDING_INTERVAL = 0.7
+# futures/data allows 1000 requests per 5 minutes per IP, shared with a Paper or Live run's metrics reads.
+METRICS_INTERVAL = 0.6
 PAGE = {"/fapi/v1/klines": 1500, "/fapi/v1/markPriceKlines": 1500, "/fapi/v1/fundingRate": 1000}
 
 
-def _rest(path: str, params: dict):
-    interval = FUNDING_INTERVAL if path == "/fapi/v1/fundingRate" else REST_INTERVAL
+def _rest(path: str, params: dict, patient: bool = True):
+    interval = (FUNDING_INTERVAL if path == "/fapi/v1/fundingRate" else METRICS_INTERVAL
+                if path.startswith("/futures/data/") else REST_INTERVAL)
     with _THROTTLE:
         wait = _LAST_REST.get(path, 0.0) + interval - time.monotonic()
         if wait > 0:
             time.sleep(wait)
         _LAST_REST[path] = time.monotonic()
     try:
-        return json.loads(_get(f"{REST}{path}?{urllib.parse.urlencode(params)}"))
+        return json.loads(_get(f"{REST}{path}?{urllib.parse.urlencode(params)}", patient=patient))
     except _NotPublished as exc:
         raise _refuse(f"{path} answered 404", "SOURCE_UNREACHABLE", missing=(path,)) from exc
     except ValueError as exc:
@@ -424,7 +429,7 @@ def _rest(path: str, params: dict):
 
 
 def rest_klines(price_type: str, symbol: str, interval: str, start_ms: int, end_ms: int,
-                now_ms: int | None = None) -> list[tuple]:
+                now_ms: int | None = None, patient: bool = True) -> list[tuple]:
     """market.rest_klines: closed klines with open_time in [start_ms, end_ms) from the public endpoint,
     (open_time, open, high, low, close, volume, close_time, quote_volume) with decimal strings."""
     if price_type not in KIND_OF or interval not in STEP_MS or not isinstance(start_ms, int) \
@@ -438,7 +443,7 @@ def rest_klines(price_type: str, symbol: str, interval: str, start_ms: int, end_
     rows, cursor = [], start_ms
     while cursor < end_ms:
         page = _rest(path, {"symbol": symbol, "interval": interval, "startTime": cursor, "endTime": end_ms - 1,
-                            "limit": PAGE[path]})
+                            "limit": PAGE[path]}, patient)
         if not isinstance(page, list):
             raise _refuse(f"{path} for {symbol} did not answer a list", "SOURCE_SHAPE", missing=(symbol,))
         if not page:
@@ -459,7 +464,7 @@ def _off_grid(ms: int, interval: str) -> bool:
     return ms % STEP_MS[interval] != 0
 
 
-def rest_funding(symbol: str, start_ms: int, end_ms: int) -> list[tuple[int, str]]:
+def rest_funding(symbol: str, start_ms: int, end_ms: int, patient: bool = True) -> list[tuple[int, str]]:
     """market.rest_funding: (funding_time_ms, rate) settled in [start_ms, end_ms), in settlement order."""
     if not isinstance(start_ms, int) or not isinstance(end_ms, int) or start_ms >= end_ms:
         raise _refuse(f"funding interval [{start_ms}, {end_ms}) is empty", "SOURCE_SHAPE", missing=("interval",))
@@ -467,7 +472,7 @@ def rest_funding(symbol: str, start_ms: int, end_ms: int) -> list[tuple[int, str
     rows, cursor = [], start_ms
     while cursor < end_ms:
         page = _rest("/fapi/v1/fundingRate", {"symbol": symbol, "startTime": cursor, "endTime": end_ms - 1,
-                                              "limit": PAGE["/fapi/v1/fundingRate"]})
+                                              "limit": PAGE["/fapi/v1/fundingRate"]}, patient)
         if not isinstance(page, list):
             raise _refuse(f"fundingRate for {symbol} did not answer a list", "SOURCE_SHAPE", missing=(symbol,))
         if not page:
@@ -483,6 +488,49 @@ def rest_funding(symbol: str, start_ms: int, end_ms: int) -> list[tuple[int, str
             break
         cursor = following
     return rows
+
+
+# The metrics table's columns and the public endpoint (and its field) each comes from, as engine.metrics reads them.
+METRICS_ENDPOINTS = {"sum_open_interest": ("openInterestHist", "sumOpenInterest"),
+                     "count_toptrader_long_short_ratio": ("topLongShortAccountRatio", "longShortRatio"),
+                     "sum_toptrader_long_short_ratio": ("topLongShortPositionRatio", "longShortRatio"),
+                     "count_long_short_ratio": ("globalLongShortAccountRatio", "longShortRatio")}
+METRICS_PAGE = 500
+METRICS_DESCRIBES_MS = 5 * MINUTE  # REST stamps a row at the archive's create_time + 5 min (engine.metrics)
+
+
+def rest_metrics(symbol: str, start_ms: int, end_ms: int, patient: bool = True) -> list[tuple]:
+    """market.rest_metrics: the rows with create_time in [start_ms, end_ms) from the public futures/data endpoints
+    (the last 30 days only), as market.metrics.rows gives an archive's: (symbol, create_time, open interest, the three
+    ratios) as decimal texts, a ratio REST lacks None; a row without open interest is left out, as no archive row
+    lacks it."""
+    check_symbol(symbol)
+    found: dict[int, dict[str, str]] = {}
+    for name, (endpoint, field) in METRICS_ENDPOINTS.items():
+        cursor, last = start_ms + METRICS_DESCRIBES_MS, end_ms + METRICS_DESCRIBES_MS - 1
+        while cursor <= last:
+            page = _rest(f"/futures/data/{endpoint}", {"symbol": symbol, "period": "5m", "startTime": cursor,
+                                                        "endTime": last, "limit": METRICS_PAGE}, patient)
+            if not isinstance(page, list):
+                raise _refuse(f"{endpoint} for {symbol} did not answer a list", "SOURCE_SHAPE", missing=(symbol,))
+            if not page:
+                break
+            for item in page:
+                if not isinstance(item, dict) or not str(item.get("timestamp", "")).isdigit():
+                    raise _refuse(f"{endpoint} for {symbol}: {item!r} has no timestamp", "SOURCE_SHAPE",
+                                  missing=(symbol,))
+                created = int(item["timestamp"]) - METRICS_DESCRIBES_MS
+                if start_ms <= created < end_ms and item.get(field) not in (None, ""):
+                    found.setdefault(created, {})[name] = str(item[field])
+            following = int(page[-1]["timestamp"]) + 1
+            if following <= cursor:
+                break
+            cursor = following
+    from market import metrics
+    return [(symbol, created, metrics.exact(values["sum_open_interest"], f"{symbol} sum_open_interest"),
+             *(metrics.exact(values[name], f"{symbol} {name}") if name in values else None
+               for name in metrics.RATIOS))
+            for created, values in sorted(found.items()) if "sum_open_interest" in values]
 
 
 def rest_exchange_info() -> tuple[int, list[dict]]:

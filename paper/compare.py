@@ -18,6 +18,7 @@ from pathlib import Path
 from engine.config import ACCOUNT_CONTRACT, utc_text
 from ledger import db, paper as records
 from replay import comparison as shared
+from shared import paths
 from shared.refusals import refuse
 
 
@@ -82,8 +83,10 @@ def _journal(conn: db.LedgerConnection, paper_id: int) -> list[dict]:
 
 
 def compare(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: int, output: Path,
-            timeout: float | None = None) -> dict:
-    """paper compare: replay a sealed paper run's interval on the archive and write comparison.json."""
+            timeout: float | None = None, preliminary: bool = False) -> dict:
+    """paper compare: replay a sealed paper run's interval on the archive and write comparison.json. `preliminary`:
+    on the market with the minutes it does not hold yet read from Binance's public REST (replay.preliminary), in
+    `output`/market; the result says so (`data_source` rest, `preliminary`)."""
     from market import files, instrument
     from paper import runs
     with db.connect(profile, "reader") as conn:
@@ -95,21 +98,31 @@ def compare(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: i
         lines = _journal(conn, paper_id)
     start, end = window(lines, seal)
     symbols = list(row["symbols"])
-    market_day, archived = shared.archive(market, at, symbols, start, end, "PAPER_COMPARE_UNCOVERED")
     opened = files.open_market(market, "reader")
     run = run_record(lines, records.settlements(lines, records.published_settlements(lines, seal.get("stopped_ns"))),
                      # Each contract's terms at the run's market day, and the account's one rate on each.
                      {symbol: instrument.terms(opened, str(row["market_day"]), symbol) for symbol in symbols},
                      {symbol: row["config"]["fees"] for symbol in symbols} if row["config"].get("fees") else None,
                      held_since(lines, candidate["source"]))
+    fetched = None
+    if preliminary:
+        from replay import preliminary as rest
+        output = paths.temporary_path(output)
+        output.mkdir(mode=0o700, parents=True)
+        market, fetched = rest.overlay(market, symbols, shared.history_start(start, run["warmup"]), end,
+                                       bool(run["metrics"]), output / "market")
+        at = None
+    market_day, archived = shared.archive(market, at, symbols, start, end, "PAPER_COMPARE_UNCOVERED")
     output, replayed, compared = shared.replay_and_compare(
         run, market, market_day, archived, candidate["source"], candidate["entry_class"], row["image_ref"], symbols,
         start, end,
         row["config"]["leverage"], ACCOUNT_CONTRACT["starting_balance_usdt"],
-        output, f"trade-paper-compare-{runs.ledger_key(profile)}-{paper_id}", timeout)
+        output, f"trade-paper-compare-{runs.ledger_key(profile)}-{paper_id}", timeout, existing=preliminary)
     result = {"format": shared.FORMAT, "kind": "paper", "paper_id": paper_id, "candidate": row["config"]["candidate"],
               "source_sha256": row["source_sha256"], "image_ref": row["image_ref"], "market_day": market_day,
               "window": {"start": utc_text(start), "end": utc_text(end)}, "fees": row["config"].get("fees"),
+              "data_source": "rest" if preliminary else "archive", "preliminary": fetched,
               "replay": replayed, **compared}
     (output / "comparison.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
-    return {"path": str(output / "comparison.json"), "summary": result["summary"], "replay": result["replay"]}
+    return {"path": str(output / "comparison.json"), "data_source": result["data_source"], "summary": result["summary"],
+            "replay": result["replay"]}
