@@ -26,6 +26,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper and Live: a position's working stops and targets are found by the order's own link to its position
+  (`Cache.position_id`) as well as `Cache.orders_for_position`. A cache loaded from its database (a Paper recovery,
+  a Live restart) lists only a position's filled orders in `orders_for_position` (Nautilus 2.0.0rc7
+  `Cache.build_index`, still so upstream; no upstream issue found), so after one the protection check reported a
+  covered position as uncovered and order rule 3 did not see the stops already working. An uninterrupted run is
+  unchanged: both lookups agree there.
 - Paper (doctor 20261117-04): the daemon seals a run that SIGTERM or SIGINT ended without a clean recovery checkpoint
   (a source without `PAPER_RECOVERY`, which cancels its orders and cuts none) instead of trying `resume` every 15 s
   forever while it stayed ended and unsealed. A pause that published its checkpoint still resumes.
