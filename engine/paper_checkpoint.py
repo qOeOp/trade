@@ -68,6 +68,14 @@ def dirty(output: Path) -> None:
         atomic(path, b"an input or callback is not checkpointed\n")
 
 
+def paused(output: Path) -> bool:
+    """Whether the runner's last act was a checkpoint: a complete cut and no later dirty marker. A pause of a source
+    with the recovery protocol publishes one as the runner stops; every other end leaves the marker (or no cut)."""
+    root = output / "recovery"
+    return (not root.is_symlink() and (root / "current.json").is_file()
+            and not (root / "current.json").is_symlink() and not (root / "dirty").exists())
+
+
 def read(output: Path, identity: str) -> dict:
     root = output / "recovery"
     path = root / "current.json"

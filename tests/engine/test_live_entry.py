@@ -1165,6 +1165,7 @@ class NativeEntryTests(unittest.TestCase):
                 cache.positions_open.return_value = [position]
                 found = SimpleNamespace(**{**fields, **changed})
                 cache.orders_for_position.return_value = [found]
+                cache.orders_open.return_value = cache.orders_inflight.return_value = []
                 self.session.protection_gaps = {}
                 self.session.check_protection(cache, 0)
                 self.assertEqual(list(self.session.protection_gaps), [str(position.id)] if changed else [])

@@ -13,10 +13,12 @@ from unittest.mock import Mock
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
-from nautilus_trader.model import FundingRateUpdate, MarkPriceUpdate, Price, TraderId
+from nautilus_trader.model import (ClientOrderId, FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderSide,
+                                   OrderStatus, OrderType, PositionId, Price, Quantity, TraderId)
 
 from engine import live, live_source as live_source_runtime, paper, strategy as strategy_runtime
-from engine.protection import ALLOWANCE_NS, Gaps, Order, stop_quantity
+from engine.order_rules import stops_held
+from engine.protection import ALLOWANCE_NS, Gaps, Order, of_position, stop_quantity
 from engine.run import ACCOUNT_CONTRACT, add_venue
 from tests.engine import test_fill_model as fixture
 from tests.engine.test_order_rules import Probe
@@ -27,6 +29,39 @@ MINUTE_NS = 60_000_000_000
 
 def stop(side="SELL", kind="STOP_MARKET", reduce_only=True, status="ACCEPTED", leaves="1"):
     return Order(side, kind, reduce_only, status, Decimal(leaves))
+
+
+class RestoredCacheTests(unittest.TestCase):
+    """A cache loaded from its database (Paper's recovery, Live's restart) lists only a position's filled orders in
+    orders_for_position (rc7 Cache.build_index; native probe 2026-11-17,
+    docs/plans/paper-recovery-open-orders-20261117.zh.md): its unfilled stop is linked by Cache.position_id alone."""
+
+    @staticmethod
+    def restored():
+        iid = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
+        position = SimpleNamespace(id=PositionId("P-1"), instrument_id=iid)
+        entry = SimpleNamespace(client_order_id=ClientOrderId("entry"), instrument_id=iid, side=OrderSide.BUY,
+                                order_type=OrderType.LIMIT, is_reduce_only=False, status=OrderStatus.FILLED,
+                                leaves_qty=Quantity.from_str("0"), is_closed=True)
+        stop_order = SimpleNamespace(client_order_id=ClientOrderId("stop"), instrument_id=iid, side=OrderSide.SELL,
+                                     order_type=OrderType.STOP_MARKET, is_reduce_only=True,
+                                     status=OrderStatus.ACCEPTED, leaves_qty=Quantity.from_str("1"), is_closed=False)
+        other = SimpleNamespace(client_order_id=ClientOrderId("other"))
+        links = {"entry": position.id, "stop": position.id, "other": PositionId("P-2")}
+        cache = Mock()
+        cache.orders_for_position.return_value = [entry]
+        cache.orders_open.return_value = [stop_order, other]
+        cache.orders_inflight.return_value = []
+        cache.position_id.side_effect = lambda client_order_id: links.get(str(client_order_id))
+        return cache, position
+
+    def test_an_unfilled_stop_linked_to_its_position_covers_it(self):
+        cache, position = self.restored()
+        self.assertEqual(stop_quantity(Decimal(1), of_position(cache, position)), Decimal(1))
+
+    def test_order_rule_3_counts_the_restored_stop(self):
+        cache, position = self.restored()
+        self.assertEqual(stops_held(cache, position.id), Decimal(1))
 
 
 class JudgmentTests(unittest.TestCase):

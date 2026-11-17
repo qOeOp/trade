@@ -33,7 +33,9 @@ class CheckpointTests(unittest.TestCase):
             checkpoint.read(self.output, "b" * 64)
 
     def test_a_callback_after_the_cut_is_not_silently_discarded(self):
+        self.assertTrue(checkpoint.paused(self.output), "a published cut is what a pause leaves")
         checkpoint.dirty(self.output)
+        self.assertFalse(checkpoint.paused(self.output), "the serve daemon seals such an end (20261117-04)")
         self.refuses()
 
     def test_both_complete_and_partial_journal_tails_are_retained_and_refused(self):

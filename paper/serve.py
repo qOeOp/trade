@@ -36,6 +36,7 @@ import threading
 import time
 from urllib.parse import parse_qs, urlsplit
 
+from engine import paper_checkpoint as checkpoint
 from engine.config import instrument_id
 from ledger import db, paper as records, strategies
 from market.sources import SYMBOL  # a contract named as the market holds it, as replay takes it
@@ -510,9 +511,12 @@ class Daemon:
                 summary = json.loads((output / "summary.json").read_bytes())
             except (FileNotFoundError, ValueError):
                 summary = None
-            # Only a pause (SIGTERM/SIGINT) or an interruption before the summary leaves a run to continue;
-            # every other end (STOP, duration, a runner refusal, the node stopping by itself) is sealed.
-            paused = summary is None or summary.get("stop_reason") in ("SIGTERM", "SIGINT")
+            # Only a pause or an interruption before the summary leaves a run to continue. A pause is SIGTERM/SIGINT
+            # that left a clean checkpoint: a source without the recovery protocol cancels its orders on SIGTERM and
+            # cuts none, so `resume` would refuse it forever (finding 20261117-04). Every other end (STOP, duration, a
+            # runner refusal, the node stopping by itself, a signal without a checkpoint) is sealed.
+            paused = summary is None or (summary.get("stop_reason") in ("SIGTERM", "SIGINT")
+                                         and checkpoint.paused(output))
             action = "resume" if paused and not (output / "STOP").exists() else "seal"
             try:
                 self.cli(action, "--paper-id", str(run["paper_id"]), *(self.market_args() if action == "resume" else []))

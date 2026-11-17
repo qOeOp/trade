@@ -3,10 +3,19 @@
 Protocol 1 is deliberately limited to credential-free perpetuals, explicit strategy save/load
 hooks, minute bars and the aggregations WARMUP declares, and no strategy timers. An unrepresentable cut stays dirty.
 
+A checkpoint holds the working orders the Sandbox restores from the native cache as they were (its start loads the
+cache's open orders into its matching engines; docs/plans/paper-recovery-open-orders-20261117.zh.md): accepted, not
+in flight, not emulated, not contingent or linked, a LIMIT, STOP_MARKET, STOP_LIMIT or LIMIT_IF_TOUCHED triggered by
+the last price (`unrestorable`). Any other unfinished order defers the cut.
+
 A recovery warms each source again at its own T (engine.history): the declared history and the aggregations'
 current buckets are read from Binance's klines, the history goes to on_historical_bars, then the source's on_load
 gets its saved state and its on_start runs. A recovery that crossed a bucket boundary of a declared aggregation, or a
-funding settlement, is refused: the source would never see that aggregated bar or settlement as it happened.
+funding settlement, is refused: the source would never see that aggregated bar or settlement as it happened. So is
+one whose interruption may have changed a restored working order (`touched`): for each contract holding one, the
+warm-up's reader also reads the one-minute klines from the journal's last bar up to T, and before any source starts
+every restored order must be proven untouched by them and unexpired at T. Nothing is matched or invented for the
+interruption.
 """
 
 from __future__ import annotations
@@ -21,16 +30,95 @@ import time
 from nautilus_trader.model import Price, Venue
 from nautilus_trader.trading import Strategy
 
-from engine import history, paper_checkpoint as checkpoint, strategy as strategy_runtime, warmup
+from engine import history, klines, paper_checkpoint as checkpoint, strategy as strategy_runtime, warmup
 from engine.cadence import Cadence
-from engine.config import ACCOUNT_CONTRACT
+from engine.config import ACCOUNT_CONTRACT, MINUTE_NS
+
+# An order the venue has not yet answered: a checkpoint could restore neither its command nor its answer.
+IN_FLIGHT = {"INITIALIZED", "SUBMITTED", "PENDING_UPDATE", "PENDING_CANCEL"}
+TRIGGERS = ("DEFAULT", "LAST_PRICE")  # the triggers LAST klines show
+
+
+def _name(value) -> str | None:
+    return None if value is None else getattr(value, "name", str(value))
+
+
+def in_flight(order) -> bool:
+    return not order.is_closed and _name(order.status) in IN_FLIGHT
+
+
+def unrestorable(order) -> str | None:
+    """Why an unfinished order cannot be in a checkpoint, or None. The Sandbox restores an accepted order (a triggered
+    STOP_LIMIT too) into its matching engine as it was, but neither a command in flight nor the state a matching
+    engine keeps outside the cache (an emulated order, a contingent or linked one, a trailing stop's trailing price),
+    nor what a recovery cannot prove untouched (`touched`: another order type, a trigger other than the last price);
+    a partial fill was not proven by a probe."""
+    if order.is_closed:
+        return None
+    status, kind = _name(order.status), _name(order.order_type)
+    if status in IN_FLIGHT:
+        return f"{order.client_order_id} is in flight ({status})"
+    if getattr(order, "is_emulated", False) or _name(getattr(order, "emulation_trigger", None)) not in (None,
+                                                                                                         "NO_TRIGGER"):
+        return f"{order.client_order_id} is emulated"
+    if (_name(getattr(order, "contingency_type", None)) not in (None, "NO_CONTINGENCY")
+            or getattr(order, "parent_order_id", None) or getattr(order, "linked_order_ids", None)):
+        return f"{order.client_order_id} is contingent or linked"
+    if str(kind).startswith("TRAILING_STOP"):
+        return f"{order.client_order_id} is a trailing stop"
+    if not (status == "ACCEPTED" or status == "TRIGGERED" and kind == "STOP_LIMIT"):
+        return f"{order.client_order_id} is {status}"
+    # What a recovery could not prove untouched (`touched`) would only be refused there.
+    if kind not in ("LIMIT", "STOP_MARKET", "STOP_LIMIT", "LIMIT_IF_TOUCHED"):
+        return f"{order.client_order_id} is a {kind}, which a recovery cannot check"
+    if status == "ACCEPTED" and kind != "LIMIT" and _name(getattr(order, "trigger_type", None)) not in TRIGGERS:
+        return f"{order.client_order_id} triggers on {_name(order.trigger_type)}, which a recovery cannot check"
+    return None
+
+
+def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int) -> str | None:
+    """Why the interruption may have changed one of the restored working `orders`, or None when every one is proven
+    untouched. `downtime` holds each contract's one-minute bars from the minute after its journal's last bar (closing
+    at `last_bar`) up to the one closing at T (`at`). A stop (STOP_MARKET, an untriggered STOP_LIMIT) is touched by a
+    high at or above its buy trigger or a low at or below its sell trigger, a limit (LIMIT, a triggered STOP_LIMIT) by
+    a low at or below its buy price or a high at or above its sell price, a LIMIT_IF_TOUCHED by a low at or below its
+    buy trigger or a high at or above its sell trigger; a GTD expiring at or before T fails. Touching, not the fill
+    model's crossing, so it refuses more, never less. Any other order type, state or trigger type (LAST klines cannot
+    show a MARK or BID_ASK trigger) and any minute missing fail: only an order proven untouched passes."""
+    for order in orders:
+        if order.is_closed:
+            continue
+        name, iid = order.client_order_id, str(order.instrument_id)
+        kind, status, side = _name(order.order_type), _name(order.status), _name(order.side)
+        expiry = getattr(order, "expire_time", None)
+        if _name(order.time_in_force) == "GTD" and (expiry is None or expiry <= at):
+            return f"{name}: its GTD expiry {history.utc(expiry or 0)} is at or before {history.utc(at)}"
+        if kind in ("STOP_MARKET", "LIMIT_IF_TOUCHED", "STOP_LIMIT") and status == "ACCEPTED":
+            trigger = _name(getattr(order, "trigger_type", None))
+            if trigger not in TRIGGERS:
+                return f"{name}: its {trigger} trigger cannot be checked on LAST klines"
+            # The side whose order a high touches: a buy stop above the market, a sell LIMIT_IF_TOUCHED.
+            level, by_high = order.trigger_price.as_decimal(), "SELL" if kind == "LIMIT_IF_TOUCHED" else "BUY"
+        elif kind == "LIMIT" and status == "ACCEPTED" or kind == "STOP_LIMIT" and status == "TRIGGERED":
+            level, by_high = order.price.as_decimal(), "SELL"
+        else:
+            return f"{name}: a {status} {kind} order cannot be checked for the interruption"
+        bars, last = downtime.get(iid), last_bar.get(iid)
+        if bars is None or last is None or [bar.ts_event for bar in bars] != list(
+                range(last + MINUTE_NS, at, MINUTE_NS)):
+            return f"{name}: the {iid} minutes of the interruption up to {history.utc(at)} could not all be read"
+        for bar in bars:
+            if bar.high.as_decimal() >= level if side == by_high else bar.low.as_decimal() <= level:
+                return (f"{name} ({side} {kind} at {level}) was touched in the interruption by the {iid} minute "
+                        f"closing at {history.utc(bar.ts_event + warmup.MILLISECOND_NS)}")
+    return None
 
 
 class Session:
     def __init__(self, backend, journal, loaded, saved: dict | None, started_ns: int, input_start_ns: int,
                  warm_at: int):
         self.backend, self.journal, self.loaded, self.saved = backend, journal, loaded, saved
-        self.started_ns, self.input_start_ns = started_ns, input_start_ns
+        self.started_ns, self.input_start_ns, self.warm_at = started_ns, input_start_ns, warm_at
         self.depth = 0
         source_bases = loaded.strategy_class.__mro__[:loaded.strategy_class.__mro__.index(Strategy)]
         hooks = {name for base in source_bases for name, value in vars(base).items() if callable(value)}
@@ -43,6 +131,9 @@ class Session:
         self.expected_starts = 0
         self.error: str | None = None
         self.pause_error: str | None = None
+        self.refused: str | None = None  # why the recovery was refused before its sources started (touched)
+        self.downtime: dict[str, list] = {}  # contract: the one-minute klines of the interruption (read_downtime)
+        self.working: set[str] = set()  # the contracts of the restored unfinished orders (engine.paper.build_node)
         # The sources start once warmed: T, its settling and its deadline (engine.history), and some slack.
         self.restore_deadline = (time.monotonic() + max(0, warm_at - time.time_ns()) / history.SECOND_NS
                                  + (history.DEADLINE_NS + history.SETTLE_NS) / history.SECOND_NS)
@@ -92,12 +183,28 @@ class Session:
         self.starts.append(callback)
         self.maybe_begin()
 
+    def read_downtime(self, instrument_id, at: int, precisions: tuple[int, int], proxy_url: str | None,
+                      get=klines.get_json) -> None:
+        """On the warm-up's reader thread at T: the contract's one-minute klines from the minute after the journal's
+        last bar up to the one closing at T, for `touched`. A contract without a journalled bar reads none, so an order
+        of it fails the check."""
+        last = self.last_bar.get(str(instrument_id))
+        if last is not None:
+            self.downtime[str(instrument_id)] = klines.bars(instrument_id, "1-MINUTE", last + warmup.MILLISECOND_NS,
+                                                            at - warmup.MILLISECOND_NS, precisions, proxy_url, get)
+
     def maybe_begin(self) -> None:
-        if not self.ready and len(self.starts) == self.expected_starts:
+        if not self.ready and not self.refused and len(self.starts) == self.expected_starts:
             self._same_bucket()
             account = self.cache.account_for_venue(Venue(ACCOUNT_CONTRACT["venue"]))
             if account is None or account.to_dict().get("calculate_account_state") is not True:
                 raise checkpoint.fail("native account initialization did not restore Sandbox calculation mode")
+            if self.saved:
+                # No source starts; the runner's stop timer journals the refusal and stops the run without cancelling
+                # the restored orders (engine.paper.pausing).
+                self.refused = touched(self.cache.orders(), self.downtime, self.last_bar, self.warm_at)
+                if self.refused:
+                    return
             for callback in self.starts:
                 callback()
             self.ready = True
@@ -155,8 +262,7 @@ class Session:
         if cache is not None:
             if not self.supported or not self.ready:
                 raise checkpoint.fail("the source has not completed its recovery protocol")
-            if any(not order.is_closed for order in cache.orders()):
-                raise checkpoint.fail("orders are not all terminal at the checkpoint")
+            self._restorable(cache)
             for iid, native in strategy_runtime.STRATEGIES.items():
                 strategy = cast(Any, native)
                 required = {f"{iid}-1-MINUTE-LAST-EXTERNAL"} | {f"{iid}-{period}-LAST-INTERNAL@1-MINUTE-EXTERNAL"
@@ -173,11 +279,12 @@ class Session:
                     raise checkpoint.fail("strategy save hooks must return string-to-bytes state")
                 sources[iid] = {"state": {key: base64.b64encode(value).decode() for key, value in source_state.items()},
                                 "cadence": asdict(strategy._paper_cadence)}
-            if (self.depth or strategy_runtime.FAILURES or any(not order.is_closed for order in cache.orders())
+            self._restorable(cache)
+            if (self.depth or strategy_runtime.FAILURES
                     or any(cast(Any, source)._paper_held or source.clock.timer_names()
                            or cast(Any, source)._paper_user_timers
                            for source in strategy_runtime.STRATEGIES.values())):
-                raise checkpoint.fail("saving hooks failed or left an order, callback or timer pending")
+                raise checkpoint.fail("saving hooks failed or left a callback or timer pending")
         recorder = self.recorder
         value = {"started_ns": self.started_ns, "input_start_ns": self.input_start_ns,
                  "cut_ns": cut_ns, "sources": sources,
@@ -190,10 +297,17 @@ class Session:
         self.journal.sync()
         return self.backend.snapshot(cache, value)
 
+    @staticmethod
+    def _restorable(cache) -> None:
+        found = next(filter(None, map(unrestorable, cache.orders())), None)
+        if found:
+            raise checkpoint.fail(f"an order cannot be restored from the checkpoint: {found}")
+
     def before_stop(self, cache) -> None:
         # Native component stop cancels clocks. Checking only after node.run returned
         # would hide a user timer which existed when the pause was requested.
-        if any(not order.is_closed for order in cache.orders()):
-            self.pause_error = "the pause had a nonterminal order; its original state is retained"
+        found = next(filter(None, map(unrestorable, cache.orders())), None)
+        if found:
+            self.pause_error = f"the pause had an order that cannot be restored ({found}); its original state is retained"
         if any(source.clock.timer_names() for source in strategy_runtime.STRATEGIES.values()):
             self.pause_error = "the pause had a source timer; no timer state was checkpointed"

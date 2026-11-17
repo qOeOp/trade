@@ -225,6 +225,7 @@ class RestartTests(unittest.TestCase):
             for i in (1, 2, 3):
                 (root / str(i) / "out").mkdir(parents=True)
             (root / "1/out/summary.json").write_text(json.dumps({"stop_reason": "SIGTERM"}))
+            paused(root / "1/out")
             (root / "2/out/STOP").touch()
             (root / "3/out/summary.json").write_text(json.dumps({"stop_reason": "DURATION"}))
             with mock.patch.object(runs, "run_dir", side_effect=lambda _, i: root / str(i)):
@@ -327,10 +328,40 @@ class RestartTests(unittest.TestCase):
                 (root / str(i) / "out").mkdir(parents=True)
                 if reason:
                     (root / str(i) / "out/summary.json").write_text(json.dumps({"stop_reason": reason}))
+            paused(root / "1/out")
             with mock.patch.object(runs, "run_dir", side_effect=lambda _, i: root / str(i)):
                 daemon.seal_found()
             self.assertEqual([call.args[0] for call in daemon.cli.call_args_list],
                              ["resume", "resume", "seal", "seal", "seal", "seal"])
+
+    def test_a_signal_end_without_a_clean_checkpoint_is_sealed_not_resumed_forever(self):
+        """A source without PAPER_RECOVERY cancels its orders on SIGTERM and cuts no checkpoint, so `resume` refuses
+        it before counting an attempt; it was retried every tick and never sealed (finding 20261117-04). A pause
+        that published its checkpoint still resumes."""
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            daemon = self.daemon(root)
+            daemon.stopping = set()
+            daemon.runs.return_value = {"runs": [{"paper_id": i, "state": "ended"} for i in range(1, 5)]}
+            for i in range(1, 5):
+                (root / str(i) / "out").mkdir(parents=True)
+                (root / str(i) / "out/summary.json").write_text(json.dumps({"stop_reason": "SIGTERM"}))
+            paused(root / "1/out")  # the recovery source's pause: a published cut, no marker
+            (root / "3/out/recovery").mkdir()  # no recovery protocol: the marker and no cut
+            (root / "3/out/recovery/dirty").touch()
+            paused(root / "4/out")  # an earlier cut, then a callback the stop did not checkpoint
+            (root / "4/out/recovery/dirty").touch()
+            with mock.patch.object(runs, "run_dir", side_effect=lambda _, i: root / str(i)):
+                daemon.seal_found()
+            self.assertEqual([call.args[:3] for call in daemon.cli.call_args_list],
+                             [("resume", "--paper-id", "1"), ("seal", "--paper-id", "2"),
+                              ("seal", "--paper-id", "3"), ("seal", "--paper-id", "4")])
+
+
+def paused(output: Path) -> None:
+    """What the runner leaves when it pauses: a published checkpoint and no dirty marker (paper_checkpoint)."""
+    (output / "recovery").mkdir(parents=True, exist_ok=True)
+    (output / "recovery/current.json").write_text("{}")
 
 
 def events(response) -> tuple[str, object]:

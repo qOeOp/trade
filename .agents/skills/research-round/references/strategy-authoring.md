@@ -64,7 +64,11 @@ header template, the entry class, the two hooks and a sizing helper.
 - Paper resumes an interrupted run (a release, `docker stop`, a restart, a crash) only if the source
   declares `PAPER_RECOVERY = 1` and implements `on_save` and `on_load` (the protocol is in Paper
   trading, `engine/README.md`); a source written to these rules does not, so an interruption ends its
-  run. A run with any order not final, a working stop included, is not resumed even then.
+  run. With the protocol a run resumes with its positions and working orders, unless the market
+  reached one of them or a GTD expired while it was down; a trailing stop, a MARKET_IF_TOUCHED or a
+  trigger on another price than the last makes every interruption end the run. The restored orders are working before `on_start`: find a position's with
+  `cache.position_id(order)` (after a recovery `orders_for_position` lists only filled orders), and
+  do not submit its stop again, which breaches the stop rule below.
 
 ## Causal clock
 

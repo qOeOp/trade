@@ -113,6 +113,10 @@ class NativeCache:
     def accounts(self) -> dict:
         return self.reader.load_all()["accounts"]
 
+    def open_contracts(self) -> set[str]:
+        """The contracts of the checkpoint's unfinished orders, which a recovery checks (engine.paper_session.touched)."""
+        return {str(order.instrument_id) for order in self.reader.load_all()["orders"].values() if not order.is_closed}
+
     def snapshot(self, cache, state: dict) -> dict:
         """The owner must already be at a quiescent cut and keep callbacks stopped until this returns."""
         marker = json.dumps({"nonce": uuid.uuid4().hex, "state": state}, sort_keys=True).encode()
