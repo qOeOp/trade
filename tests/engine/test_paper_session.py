@@ -239,12 +239,30 @@ class SessionTests(unittest.TestCase):
         session.start(lambda: seen.append("ETH"))
         self.assertEqual(seen, ["recorder", "BTC", "ETH"])
 
-    def test_missed_funding_is_not_filled_with_a_later_estimate(self):
-        session = self.session()
-        session.saved = {"sources": {"BTC": {"cadence": {"next_funding_ns": 100}}}, "cut_ns": 1}
-        with mock.patch("engine.paper_session.time.time_ns", return_value=101):
-            with self.assertRaises(checkpoint.Refusal):
-                session._no_settlement_missed()
+    def test_a_recovery_that_crossed_a_funding_settlement_is_held_instead(self):
+        """The source would never see the settlement as it happened (user decision 2026-11-17): the run is held, as one
+        of a source without the protocol, and no aggregation is back-filled for it."""
+        saved = {"sources": {IID: {"cadence": {"next_funding_ns": T - MINUTE_NS}}}, "cut_ns": T - 20 * MINUTE_NS,
+                 "recorder": {"funding": {}}}
+        for now, held in ((T - 2 * MINUTE_NS, False), (T, True)):
+            with self.subTest(held=held), mock.patch("engine.paper_session.time.time_ns", return_value=now):
+                session = self.session(saved=saved)
+                self.assertEqual((session.held, session.supported, session.declared), (held, not held, True))
+                self.assertEqual(session.fallen, "the recovery crossed an unobserved funding settlement" if held
+                                 else None)
+        with mock.patch("engine.paper_session.time.time_ns", return_value=T):
+            session = SessionTests.session(self, saved=saved)
+            session.loaded = SimpleNamespace(strategy_class=Hooks, warmup=(("15-MINUTE", 3),))
+            self.assertEqual(session.crossed(T), (T, {}), "a held recovery back-fills nothing")
+            self.assertFalse(session.missed_settlement(), "a held recovery has no source to miss it")
+        # One due after the process started, once the node runs the source, still refuses.
+        with mock.patch("engine.paper_session.time.time_ns", return_value=T - 2 * MINUTE_NS):
+            session = self.session(saved=saved)
+        session.ready, session.expected_starts = False, 1
+        session.cache = SimpleNamespace(account_for_venue=lambda _: SimpleNamespace(
+            to_dict=lambda: {"calculate_account_state": True}))
+        with mock.patch("engine.paper_session.time.time_ns", return_value=T), self.assertRaises(checkpoint.Refusal):
+            session.start(lambda: None)
 
 
 QUARTER = 15 * MINUTE_NS

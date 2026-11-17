@@ -610,7 +610,8 @@ LIMIT_IF_TOUCHED triggered by the last price; any other unfinished order (a trai
 trigger) defers the checkpoint, so a source holding one cannot be resumed. A source must
 not rely on native account event-count/history representation or unsaved cache history. A recovery warms the
 source again at its own T as a start does (history, then the unfinished buckets from their minutes), then
-calls `on_load` with the saved state and then `on_start`. It resumes only before an unobserved funding settlement.
+calls `on_load` with the saved state and then `on_start`. A recovery that crossed a funding settlement the source
+would not see is held instead (below).
 A recovery that crossed a bucket boundary of a declared aggregation back-fills the aggregation: its warm-up starts at
 the bucket the checkpoint was cut in (and its declared history ends just before that bucket), the native aggregator
 builds the buckets completed since, which rc7 puts only into the native cache, and after `on_start` and before any
@@ -666,6 +667,15 @@ ordinary end the daemon seals (the page says "Held until flat"). STOP and the du
 another SIGTERM pauses it again and it resumes held. Held, the run is still running, so its source starts no other
 run until it is flat (`paper/runs.py`). `paper compare` attributes a difference reaching past the first `resumed` of
 such a run to `held` when nothing earlier in its cause order explains it, rather than `unexplained`.
+
+A recovery of a `PAPER_RECOVERY` source whose interruption crossed a funding settlement its source or recorder was
+following is held the same way instead of refused (user 2026-11-17): the source would never see that settlement as it
+happened. Its runner journals a `refusal` (`PAPER_RECOVERY_UNAVAILABLE`, the reason naming the settlement and the hold)
+right after `resumed`, so the seal says the source's recovery was refused, and from then on the run is a held one: its
+checkpoints have the account and no source state, which a source with the protocol has only after such a fall-back, so
+every later recovery of the run is held too. `paper compare` takes the held start from that `resumed`, followed at once
+by the refusal and later by a bar (a refused recovery stops without one). A settlement that falls due after the runner
+started, once its node already runs the source, still refuses.
 
 A held position with no working stop stays held (user 2026-11-17). The held recovery forgets which gaps the checkpoint
 had already reported, so the recorder journals a `protection_gap` again after `resumed` for every position its stops

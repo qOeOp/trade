@@ -11,6 +11,7 @@ reports and comparison.json stay in a new temporary directory (docs/plans/paper-
 from __future__ import annotations
 
 from collections.abc import Mapping
+import itertools
 import json
 from pathlib import Path
 
@@ -37,13 +38,26 @@ def window(lines: list[dict], seal: Mapping) -> tuple[int, int]:
 
 
 def held_since(lines: list[dict], source: bytes) -> int | None:
-    """When the run was first held: the wall time of its first `resumed`, for a source without the recovery protocol
-    (engine.paper_session, held; read from its text as the page reads it, paper.serve.declares_recovery). Derived,
-    never stored; a source whose text does not parse is not taken as held."""
+    """When the run was first held (engine.paper_session, held): the wall time of its first `resumed` for a source
+    without the recovery protocol (read from its text as the page reads it, paper.serve.declares_recovery), and for
+    one with it the first `resumed` the runner followed at once with a PAPER_RECOVERY_UNAVAILABLE `refusal` and then
+    went on (a later `bar`): a recovery that crossed a funding settlement (Session.hold). A refused recovery stops
+    without a bar. Derived, never stored; a source whose text does not parse is not taken as held."""
     from paper.serve import declares_recovery
-    if declares_recovery(source) is not False:
+    declared = declares_recovery(source)
+    if declared is None:
         return None
-    return next((line["wall_ns"] for line in lines if line["kind"] == "resumed"), None)
+    for index, line in enumerate(lines):
+        if line["kind"] != "resumed":
+            continue
+        if declared is False:
+            return line["wall_ns"]
+        following = lines[index + 1:]
+        if (following and following[0]["kind"] == "refusal" and following[0].get("code") == "PAPER_RECOVERY_UNAVAILABLE"
+                and any(item["kind"] == "bar" for item in itertools.takewhile(
+                    lambda item: item["kind"] != "resumed", following))):
+            return line["wall_ns"]
+    return None
 
 
 def run_record(lines: list[dict], settled: list[dict], terms: Mapping | None = None,
