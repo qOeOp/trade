@@ -610,16 +610,34 @@ LIMIT_IF_TOUCHED triggered by the last price; any other unfinished order (a trai
 trigger) defers the checkpoint, so a source holding one cannot be resumed. A source must
 not rely on native account event-count/history representation or unsaved cache history. A recovery warms the
 source again at its own T as a start does (history, then the unfinished buckets from their minutes), then
-calls `on_load` with the saved state and then `on_start`. It resumes only within the same bucket of every
-declared aggregation and before an unobserved funding settlement. No downtime trades or settlements are
+calls `on_load` with the saved state and then `on_start`. It resumes only before an unobserved funding settlement.
+A recovery that crossed a bucket boundary of a declared aggregation back-fills the aggregation: its warm-up starts at
+the bucket the checkpoint was cut in (and its declared history ends just before that bucket), the native aggregator
+builds the buckets completed since, which rc7 puts only into the native cache, and after `on_start` and before any
+live data each of those bars goes to the source's `on_bar` in time order, as a live bar goes (held, then released).
+No OHLCV is computed outside Nautilus. T moves on by a minute while it would end a crossed bucket, since a request's
+aggregator builds a bucket only once a later minute arrives. An order the source submits on a back-filled bar must be
+proven untouched by the minutes from that bar's bucket end up to T, by the same rules as a restored order, and must
+not be marketable at the bar's close (a buy limit at or above it, a sell limit at or below it, a stop the close has
+reached, any MARKET order, a position close among them); otherwise it is not sent and the recovery is refused as
+below. After that no order, cancel or close of the source is sent; those sent earlier, also earlier in the same
+callback, stand.
+While back-filled bars are handed over, the source's clock reads T, the native cache already holds every back-filled
+bar (also those after the one in hand), and an order sent on an earlier back-filled bar may still be in flight; bars of
+several aggregations ending at the same instant go in the order the sources were registered. A source that relies on
+none of these makes the decisions the uninterrupted run made, which then differ only in their submit and accept times.
+So that the checkpoint's cut time tells the bars a source has had from those a recovery back-fills, a cut waits while
+a declared aggregation's bucket has ended and its bar is not yet in the native cache, and a pause waits for that bar
+(up to the same ten seconds); a pause's final cut is the instant the node stopped. No downtime trades or settlements are
 invented: on the warm-up's reader at T (T + 15 s, when the Binance kline closing at T is final), the recovery reads
 the one-minute klines of each contract holding a restored order from the journal's last bar up to the minute closing
 at T, and before any source starts it requires every restored order to be untouched by them (a stop's trigger, a
 limit's price, a LIMIT_IF_TOUCHED's trigger not reached by the minutes' high or low), a GTD's expiry after T, and a
 trigger on the last price. Any other order type or state, or a minute missing, fails too. A
 failed check journals a `refusal` (`PAPER_RECOVERY_UNAVAILABLE`, naming the order and the minute) and stops the run as
-a pause stops, leaving the restored orders as they were, without a new checkpoint; the daemon seals it. So does any
-other stop of a recovery before its sources started, but STOP and the duration, which cancel. The interruption shows
+a pause stops, leaving the restored orders as they were, without a new checkpoint; the daemon seals it. So does a
+refused back-fill (orders it already sent stay as they are) and any other stop of a recovery before it is ready, but
+STOP and the duration, which cancel. The interruption shows
 in the journal as the `resumed` line and the first live bar's `data_gap`. Native Redis readback checks orders,
 positions and account events (the last carrying balances and margins) before the atomic cut is published; margins
 Nautilus sets only in memory are recomputed from the positions on restore and are not compared.

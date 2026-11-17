@@ -54,8 +54,12 @@ SIGINT instead pauses without calling the source terminal stop hook and without 
 in flight to be answered, then publishes a checkpoint holding the working orders. Only restorable orders
 (engine.paper_session.unrestorable), no timer and completed callbacks can publish a native checkpoint. A dirty or
 incomplete point refuses recovery and retains its original journal; no new account is substituted. A recovery refused
-before its sources start (one whose interruption may have touched a restored order, engine.paper_session.touched)
-journals a ``refusal`` and stops as a pause does, leaving the restored orders as they were; it is then sealed.
+before it is ready (one whose interruption may have touched a restored order, engine.paper_session.touched, or whose
+back-filled aggregated bars led the source to an order the interruption may have touched,
+engine.paper_session.Session.submitted) journals a ``refusal`` and stops as a pause does, leaving the restored orders
+as they were; it is then sealed. A recovery that crossed a bucket boundary of a declared aggregation hands the source
+the aggregated bars it missed, built by the native aggregator from Binance's minutes, after its on_start and before
+any live data (engine.paper_session.Session.backfill).
 
 A source without the protocol is held, as Live holds (docs/plans/paper-recovery-open-orders-20261117.zh.md): SIGTERM/
 SIGINT while a position is open pauses it the same way and publishes a checkpoint of the native cache alone (a flat
@@ -323,7 +327,8 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
         self._warming_setup(kwargs["strategy_id"], args[0], inputs.warm_at, declared,
                             vars(type(self))["_runner_funding"], FETCH[0] if FETCH else None,
                             follows=vars(type(self))["_runner_reads_funding"],
-                            reads=bool(SESSION and inputs.instrument_id in SESSION.working))
+                            reads=bool(SESSION and inputs.instrument_id in SESSION.working),
+                            since=SESSION.since if SESSION else None)
         self._metrics_setup(READ_METRICS[0] if READ_METRICS else None)
         super().__init__(*args, **kwargs)
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
@@ -339,13 +344,40 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
 
     def submit_order(self, order, position_id=None, client_id=None, params=None):
         """An entry of a contract outside its membership now is not sent and the journal records it; the run goes
-        on and the contract only reduces (coverage U9). The order rules see every other order."""
+        on and the contract only reduces (coverage U9). An order on a back-filled bar that cannot wait for T is not
+        sent either: the recovery is refused (engine.paper_session.Session.submitted). The order rules see every
+        other order."""
         now = NOW()
         if not order.is_reduce_only and not self._paper_membership.member_at(now):
             journal("entry_not_sent", code="PAPER_NOT_A_MEMBER", instrument_id=self._paper_instrument_id,
                     client_order_id=str(order.client_order_id), ts_ns=now)
             return None
+        if SESSION and SESSION.submitted(order):
+            return None
         return super().submit_order(order, position_id=position_id, client_id=client_id, params=params)
+
+    def cancel_order(self, client_order_id, client_id=None, params=None):
+        if SESSION and SESSION.commanded():
+            return None
+        return super().cancel_order(client_order_id, client_id, params)
+
+    def cancel_orders(self, client_order_ids, client_id=None, params=None):
+        if SESSION and SESSION.commanded():
+            return None
+        return super().cancel_orders(client_order_ids, client_id, params)
+
+    def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
+        if SESSION and SESSION.commanded():
+            return None
+        return super().cancel_all_orders(instrument_id, order_side, client_id, strategy_only, params)
+
+    def close_position(self, position, client_id=None, tags=None, time_in_force=None, reduce_only=None,
+                       quote_quantity=None, params=None):
+        """A close on a back-filled bar is a MARKET order the recovery refuses; after a refusal no cancel or close is
+        sent (engine.paper_session.Session.commanded)."""
+        if SESSION and SESSION.commanded(close=True):
+            return None
+        return super().close_position(position, client_id, tags, time_in_force, reduce_only, quote_quantity, params)
 
     def subscribe_bars(self, bar_type, *args, **kwargs):
         if SESSION and (SESSION.ready or args or kwargs):
@@ -850,13 +882,23 @@ class Recorder(DataActor):
                     unrestorable(order) and not in_flight(order) for order in self.cache.orders())
             journal("stop_requested", reason=STOP_REASON[0] if STOP_REASON else None, open_orders=len(open_orders))
             if not pausing():
+                # The runner's own cancel, past the gate on the source's commands (Session.commanded): a STOP
+                # cancels even after a refused back-fill whose refusal has not been journalled yet. A held run's
+                # holder is the runner's own strategy, without that gate.
                 for iid, strategy in strategy_runtime.STRATEGIES.items():
-                    strategy.cancel_all_orders(InstrumentId.from_str(iid))
+                    if isinstance(strategy, Holder):
+                        strategy.cancel_all_orders(InstrumentId.from_str(iid))
+                    else:
+                        OrderRules.cancel_all_orders(strategy, InstrumentId.from_str(iid))
             return
         # A pause keeps the working orders but waits for those in flight: Sandbox `stop()` refuses the commands still
         # queued, and a checkpoint cannot hold an order the venue has not answered (engine.paper_session.unrestorable).
+        # It also waits for the bar of a declared aggregation's bucket that has ended: the final cut cannot be published
+        # before that bar reached the source (engine.paper_session.Session.due).
         pending = (any(strategy._paper_held for strategy in strategy_runtime.STRATEGIES.values())
-                   or any(in_flight(order) for order in self.cache.orders())) if pausing() else open_orders
+                   or any(in_flight(order) for order in self.cache.orders())
+                   or bool(SESSION and SESSION.ready and SESSION.due(self.cache, time.time_ns()))
+                   ) if pausing() else open_orders
         if self.handle is None or pending and time.monotonic() - self.stopping_since < STOP_CANCEL_SECONDS:
             return
         if pausing() and SESSION:
@@ -1078,9 +1120,11 @@ def _main(args) -> bool:
     JOURNAL = Journal(args.output, on_failure=lambda: request_stop(JOURNAL_WRITE_FAILED))
     catalog = Path(tempfile.mkdtemp(prefix="paper-warmup-"))
     try:
-        SESSION = Session(backend, JOURNAL, loaded, saved, started_ns, start_ns, warm_at) if backend else None
+        SESSION = (Session(backend, JOURNAL, loaded, saved, started_ns, start_ns, warm_at, release=release_before)
+                   if backend else None)
         if SESSION:
             checkpoint.dirty(args.output)
+            warm_at = SESSION.warm_at  # a recovery that back-fills an aggregation may move it (Session.crossed)
         if saved:
             assert backend is not None
             # Preserve per-attempt originals before the conventional latest files are replaced.

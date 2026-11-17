@@ -377,7 +377,9 @@ class PauseTests(unittest.TestCase):
         self.source = mock.Mock(_paper_held=[])
         self.orders: list = []
         self.positions: list = []
+        self.cancel = mock.Mock()
         for patcher in (mock.patch.object(self.recorder, "_protection"),
+                        mock.patch.object(paper.OrderRules, "cancel_all_orders", self.cancel),
                         mock.patch.dict(paper.strategy_runtime.STRATEGIES, {str(IID): self.source}, clear=True),
                         mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock,
                                           return_value=SimpleNamespace(orders=lambda: list(self.orders),
@@ -405,7 +407,7 @@ class PauseTests(unittest.TestCase):
         self.assertEqual(paper.STOP_REASON, ["PAPER_RECOVERY_UNAVAILABLE"])
         self.assertEqual(journal.call_args_list[0], mock.call("refusal", code="PAPER_RECOVERY_UNAVAILABLE",
                                                               reason=reason))
-        self.source.cancel_all_orders.assert_not_called()
+        self.cancel.assert_not_called()
         handle.stop.assert_called_once()
         session.try_cut.assert_not_called()
 
@@ -423,7 +425,8 @@ class PauseTests(unittest.TestCase):
     def test_a_pause_waits_for_the_orders_in_flight_then_stops_without_cancelling(self):
         self.orders.extend([self.working("ACCEPTED"), self.working("SUBMITTED")])
         session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock()), ready=True, refused=None, held=False,
-                                  supported=True, saved=None, before_stop=mock.Mock(), try_cut=mock.Mock())
+                                  supported=True, saved=None, before_stop=mock.Mock(), try_cut=mock.Mock(),
+                                  due=mock.Mock(return_value=None))
         handle = self.recorder.handle
         with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
             paper.request_stop("SIGTERM")
@@ -434,7 +437,70 @@ class PauseTests(unittest.TestCase):
             self.recorder.on_stop_timer(None)
         session.before_stop.assert_called_once()
         handle.stop.assert_called_once()
-        self.source.cancel_all_orders.assert_not_called()
+        self.cancel.assert_not_called()
+
+    def test_a_pause_waits_for_a_declared_aggregations_bar_due_now(self):
+        """The final cut cannot be published while a bucket ended and its bar has not reached the source
+        (engine.paper_session.Session.due): the pause waits for it, within STOP_CANCEL_SECONDS."""
+        due = mock.Mock(side_effect=["the 15-MINUTE bar of the bucket ending at 12:15 has not reached the source",
+                                     None])
+        session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock()), ready=True, refused=None, held=False,
+                                  supported=True, saved=None, before_stop=mock.Mock(), try_cut=mock.Mock(), due=due)
+        handle = self.recorder.handle
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
+            paper.request_stop("SIGTERM")
+            self.recorder.on_stop_timer(None)
+            self.recorder.on_stop_timer(None)
+            handle.stop.assert_not_called()
+            self.recorder.on_stop_timer(None)
+        handle.stop.assert_called_once()
+        self.cancel.assert_not_called()
+
+    def test_an_order_a_back_filled_bar_cannot_wait_for_is_not_sent(self):
+        """engine.paper_session.Session.submitted refused the recovery: the order never reaches the venue."""
+        source = SimpleNamespace(_paper_membership=SimpleNamespace(member_at=lambda _: True))
+        session = SimpleNamespace(submitted=mock.Mock(return_value="O-1 is a MARKET order"))
+        found = SimpleNamespace(is_reduce_only=False)
+        with mock.patch.object(paper, "SESSION", session):
+            self.assertIsNone(paper._PaperConfigured.submit_order(source, found))  # type: ignore[arg-type]
+        session.submitted.assert_called_once_with(found)
+        # Nor does a cancel or a position close the session refuses.
+        session = SimpleNamespace(commanded=mock.Mock(return_value="refused"))
+        with mock.patch.object(paper, "SESSION", session):
+            for name, args in (("cancel_order", ("O-1",)), ("cancel_orders", (["O-1"],)),
+                               ("cancel_all_orders", (IID,)), ("close_position", (object(),))):
+                self.assertIsNone(getattr(paper._PaperConfigured, name)(source, *args), name)
+        self.assertEqual(session.commanded.call_args_list[-1], mock.call(close=True))
+        self.assertEqual(session.commanded.call_count, 4)
+
+    def test_a_stop_cancels_past_the_gate_on_the_sources_commands(self):
+        """A STOP that comes before a refused back-fill's refusal is journalled still cancels: the runner's cancel is
+        not the source's (engine.paper_session.Session.commanded)."""
+        self.orders.append(self.working("ACCEPTED"))
+        paper.STOP.set()
+        paper.STOP_REASON[:] = ["STOP_FILE"]
+        session = SimpleNamespace(ready=True, supported=True, held=False, saved={"sources": {}},
+                                  refused="an order cannot wait for T",
+                                  commanded=mock.Mock(return_value="an order cannot wait for T"))
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
+            self.recorder.on_stop_timer(None)
+        self.cancel.assert_called_once_with(self.source, IID)
+        session.commanded.assert_not_called()
+
+    def test_a_held_runs_stop_cancels_through_its_holder(self):
+        """A holder is the runner's own strategy, not an OrderRules source: the stop cancels through it (the
+        unbound OrderRules.cancel_all_orders refuses an instance outside its class)."""
+        holder = mock.Mock(spec=paper.Holder)
+        self.orders.append(self.working("ACCEPTED"))
+        paper.STOP.set()
+        paper.STOP_REASON[:] = ["HELD_FLAT"]
+        session = SimpleNamespace(ready=True, supported=False, held=True, holding=False, saved={"sources": {}},
+                                  refused=None)
+        with mock.patch.dict(paper.strategy_runtime.STRATEGIES, {str(IID): holder}, clear=True), \
+                mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
+            self.recorder.on_stop_timer(None)
+        holder.cancel_all_orders.assert_called_once_with(IID)
+        self.cancel.assert_not_called()
 
     def test_an_explicit_stop_of_an_unstarted_recovery_still_cancels(self):
         session = SimpleNamespace(ready=False, supported=True, saved={"sources": {}})
@@ -454,7 +520,8 @@ class PauseTests(unittest.TestCase):
     def unprotocolled(**fields):
         return SimpleNamespace(**{"backend": SimpleNamespace(health=mock.Mock()), "ready": True, "refused": None,
                                   "held": False, "holding": False, "supported": False, "saved": None,
-                                  "before_stop": mock.Mock(), "try_cut": mock.Mock(), **fields})
+                                  "before_stop": mock.Mock(), "try_cut": mock.Mock(),
+                                  "due": mock.Mock(return_value=None), **fields})
 
     def test_a_source_without_the_protocol_pauses_on_sigterm_only_while_it_holds_a_position(self):
         """It is then held after the interruption (engine.paper_session): its stops and targets must not be
@@ -466,13 +533,13 @@ class PauseTests(unittest.TestCase):
                 paper.STOP.clear()
                 paper.STOP_REASON.clear()
                 self.recorder.stopping_since, self.recorder.handle = None, mock.Mock()
-                self.source.reset_mock()
+                self.cancel.reset_mock()
                 self.orders[:] = [self.working("ACCEPTED", kind)]
                 self.positions[:] = positions
                 session, handle = self.unprotocolled(), self.recorder.handle
                 self.stop(session)
                 self.assertEqual(session.holding, paused)
-                self.assertEqual(self.source.cancel_all_orders.called, not paused)
+                self.assertEqual(self.cancel.called, not paused)
                 self.assertEqual(session.before_stop.called, paused)
                 self.assertEqual(handle.stop.called, paused, "a cancel waits for its answers before the stop")
         for reason in ("STOP_FILE", "DURATION"):
@@ -493,17 +560,17 @@ class PauseTests(unittest.TestCase):
             handle = self.recorder.handle
             self.recorder.on_stop_timer(None)
             self.recorder.on_stop_timer(None)
-        self.source.cancel_all_orders.assert_called_once_with(IID)
+        self.cancel.assert_called_once_with(self.source, IID)
         session.before_stop.assert_not_called()
         handle.stop.assert_called_once()
         # Another SIGTERM while held pauses it again.
         paper.STOP.clear()
         paper.STOP_REASON.clear()
         self.recorder.stopping_since, self.recorder.handle = None, mock.Mock()
-        self.source.reset_mock()
+        self.cancel.reset_mock()
         self.positions[:] = ["P-1"]
         self.stop(session)
-        self.source.cancel_all_orders.assert_not_called()
+        self.cancel.assert_not_called()
         session.before_stop.assert_called_once()
 
 
@@ -588,7 +655,7 @@ class InterruptionReadTests(unittest.TestCase):
         with mock.patch.object(history, "Strategy", SimpleNamespace(cache=cache)):
             source._warming_go()
         state["thread"].join(5)
-        fetch.assert_called_once_with(IID, at, (), (1, 3), funding=0, follow=False)
+        fetch.assert_called_once_with(IID, at, (), (1, 3), funding=0, follow=False, since={})
 
         # Only a contract holding a restored working order reads them (engine.paper.build_node sets `working`).
         for working, reads in ((set(), False), ({str(IID)}, True)):
