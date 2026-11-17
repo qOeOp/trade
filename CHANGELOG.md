@@ -32,6 +32,15 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   directory), paced, stopping at the first rate limit. The result carries `data_source: rest` and what REST added;
   the Paper page offers it when the market does not cover the run yet and labels its result preliminary. The archive
   comparison stays authoritative.
+- Paper (doctor 20261117-01): the Run paper dialog named the account as "1× leverage"; a page start runs with the
+  replay default, leverage 3. The dialog now shows the margin and leverage the Paper controller names
+  (`/api/paper/defaults`, from `ACCOUNT_CONTRACT`).
+- Deployment (doctor 20261117-03): a workstation follows released versions. `deploy/update.sh` names the newest
+  admitted version's images in `.env`, takes that version's own `compose.yaml` (`deploy/images.py --compose`), pulls
+  and runs `docker compose up -d`, which recreates what changed, docker-api included; the release host refuses it.
+  `/api/about` names the newest released version (the latest GitHub release, read at most hourly), and the IDE's
+  status bar and About panel say "Behind vX.Y.Z" while the deployment runs an older one. The README no longer
+  updates services one by one by name.
 
 ## 0.4.3 (2026-11-17)
 

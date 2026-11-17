@@ -882,14 +882,13 @@ class Recorder(DataActor):
                     unrestorable(order) and not in_flight(order) for order in self.cache.orders())
             journal("stop_requested", reason=STOP_REASON[0] if STOP_REASON else None, open_orders=len(open_orders))
             if not pausing():
-                # The runner's own cancel, past the gate on the source's commands (Session.commanded): a STOP
-                # cancels even after a refused back-fill whose refusal has not been journalled yet. A held run's
-                # holder is the runner's own strategy, without that gate.
-                for iid, strategy in strategy_runtime.STRATEGIES.items():
-                    if isinstance(strategy, Holder):
-                        strategy.cancel_all_orders(InstrumentId.from_str(iid))
-                    else:
-                        OrderRules.cancel_all_orders(strategy, InstrumentId.from_str(iid))
+                self._cancel_all()
+            return
+        if SESSION and SESSION.holding and not SESSION.supported and not self.cache.positions_open():
+            # The held pause's last position closed while it waited for the orders in flight: nothing is left to hold
+            # and its cut needs an open position, so it cancels what is left and ends as a flat stop does.
+            SESSION.holding = False
+            self._cancel_all()
             return
         # A pause keeps the working orders but waits for those in flight: Sandbox `stop()` refuses the commands still
         # queued, and a checkpoint cannot hold an order the venue has not answered (engine.paper_session.unrestorable).
@@ -906,6 +905,17 @@ class Recorder(DataActor):
         journal("stopping", open_orders=len(open_orders))
         self.handle.stop()
         self.handle = None
+
+    @staticmethod
+    def _cancel_all() -> None:
+        """The runner's own cancel, past the gate on the source's commands (Session.commanded): a STOP cancels even
+        after a refused back-fill whose refusal has not been journalled yet. A held run's holder is the runner's own
+        strategy, without that gate."""
+        for iid, strategy in strategy_runtime.STRATEGIES.items():
+            if isinstance(strategy, Holder):
+                strategy.cancel_all_orders(InstrumentId.from_str(iid))
+            else:
+                OrderRules.cancel_all_orders(cast(Any, strategy), InstrumentId.from_str(iid))
 
 
 # The run

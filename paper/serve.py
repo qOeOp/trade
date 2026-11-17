@@ -37,7 +37,7 @@ import time
 from urllib.parse import parse_qs, urlsplit
 
 from engine import paper_checkpoint as checkpoint
-from engine.config import instrument_id
+from engine.config import ACCOUNT_CONTRACT, instrument_id
 from ledger import db, paper as records, strategies
 from market.sources import SYMBOL  # a contract named as the market holds it, as replay takes it
 from shared.errors import Refusal
@@ -645,7 +645,10 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                 elif url.path == f"{PREFIX}/runs":
                     self.json(200, listing(daemon.runs()))
                 elif url.path == f"{PREFIX}/defaults":
-                    self.json(200, {"last": daemon.last_config(query.get("candidate", ""))})
+                    # a page start passes no --leverage, so the run takes the account defaults named here
+                    self.json(200, {"last": daemon.last_config(query.get("candidate", "")),
+                                    "account": {"starting_balance_usdt": ACCOUNT_CONTRACT["starting_balance_usdt"],
+                                                "leverage": ACCOUNT_CONTRACT["default_leverage"]}})
                 elif url.path == f"{PREFIX}/starts":
                     self.json(200, daemon.start_result(query.get("op_id", "")))
                 elif (found := STREAM.fullmatch(url.path)) and found[2] == "stream":

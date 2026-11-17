@@ -152,7 +152,7 @@ A deployment runs images by digest, so a pull cannot change what it runs. A tag 
   Compose refuses to run without them. `deploy/images.py` writes them from a channel branch
   where CI records a commit once every check of it has passed: by default `deploy-ready`, which holds only versions
   ([`CHANGELOG.md`](../CHANGELOG.md)) and is what the author's host releases; with `--channel main`, `main-ready`,
-  which holds every checked `main` build. The author's Mac compose follows `main-ready` as staging. It needs
+  which holds every checked `main` build (staging). A workstation follows versions with `deploy/update.sh` (Updating). It needs
   Python 3.12 or newer (`python3 -m deploy.images` on a server, always the default channel). It reads public data
   with no credential and pulls nothing.
 - **docker-api**: the digest in `compose.yaml`, moved only by a pull request (and on the release host by the release
@@ -166,17 +166,23 @@ Images of pull requests share the packages and are never deployed.
 
 ## Updating
 
-`.env` moves only when you run `deploy/images.py`. One value names the image of ledger, paper and market-import, so after
-it moves `docker compose up -d` recreates all three, ledger included. Update only the services a change reaches, by name:
+A workstation follows released versions with one command, run from a checkout when no Paper start, stop or comparison
+is under way (the list below says what each restart interrupts):
 
 ```bash
-uv run --frozen python -m deploy.images --env deploy/.env   # staging adds --channel main
-docker compose -f deploy/compose.yaml pull ide paper
-docker compose -f deploy/compose.yaml up -d --no-deps --wait ide paper
+deploy/update.sh   # staging: deploy/update.sh --channel main
 ```
 
-A service needs it when the commits since its image's revision change code it runs or its entry here
-(`docker-api/` for docker-api). The revision is the image label
+It names the newest admitted version's images in `.env` (`deploy/images.py`), takes that version's own `compose.yaml`
+(not the checkout's, which may be ahead of the images), pulls, and runs `docker compose -p trade-ide up -d`, which
+recreates every service whose image or definition changed, docker-api included, and leaves the others and Paper's run
+containers alone. `TRADE_ENV` names another env file; other arguments go to `deploy/images.py`. The workstation has no
+Live control. The IDE's status bar says "Behind vX.Y.Z" while a newer version is released than the page's own (read
+from GitHub at most hourly); `.env` and the services move only when you run the command. The release host refuses it:
+its release tick moves it ([remote/README.md](remote/README.md)).
+
+A version's images are admitted some minutes after its tag, once CI has checked it; until then the command resolves the
+version before, and the status bar keeps saying behind. A service's revision is the image label
 `org.opencontainers.image.revision`:
 
 ```bash
@@ -187,8 +193,8 @@ docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}'
 docker-api runs the digest in `compose.yaml` (the default of `TRADE_DOCKER_API_IMAGE`, which only the release host's
 release sets), and no pull moves it. A change to `docker-api/` takes two pull requests:
 the change, then, after its `main` build, the digest of `ghcr.io/qoeop/trade-docker-api:sha-<commit>` in `compose.yaml`.
-On a workstation, `docker compose -f deploy/compose.yaml up -d --no-deps docker-api` then recreates it; the release
-host's release moves it with each version ([remote/README.md](remote/README.md#ledger-mirror-and-market-import)).
+The next version moves it on a workstation (`deploy/update.sh`) and on the release host
+([remote/README.md](remote/README.md#ledger-mirror-and-market-import)).
 Reverting that line goes back to the previous proxy. A `main` build warns while the source is ahead of the pin.
 
 Each restart takes seconds; what it interrupts decides when to make it:
