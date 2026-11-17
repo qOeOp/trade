@@ -21,9 +21,10 @@ A recovery that crossed a bucket boundary of a declared aggregation back-fills i
 docs/plans/paper-recovery-open-orders-20261117.zh.md): the native aggregator is warmed from the start of the bucket
 the checkpoint was cut in (`since`), the aggregation's declared history ends just before that bucket, and the
 aggregated bars the request completed, which rc7 puts only into the cache, go to the source's on_bar in time order
-after its on_start and before any live data. An order the source submits on one must be proven untouched by the minutes
-from that bar's bucket end up to T and not marketable at its close (`submitted`), or the recovery is refused as a
-touched one is. A cut waits while a declared aggregation's bucket has ended and its bar has not reached the source
+after its on_start and before any live data; a source subscribed to another contract's declared aggregation (one of
+the run's) gets that contract's back-filled bars too. An order the source submits on one must be proven untouched by
+the minutes of its contract from that bar's bucket end up to T and not marketable at its contract's close of that
+minute (`submitted`), or the recovery is refused as a touched one is. A cut waits while a declared aggregation's bucket has ended and its bar has not reached the source
 (`due`), so the checkpoint's cut time separates the bars a source has had from those a recovery back-fills. T moves on
 by a minute while it would close a crossed bucket: the native aggregator builds a request's bucket only once a later
 minute arrives.
@@ -185,7 +186,7 @@ class Session:
         self.downtime: dict[str, list] = {}  # contract: the one-minute klines of the interruption (read_downtime)
         self.working: set[str] = set()  # the contracts of the restored unfinished orders (engine.paper.build_node)
         self.stopped_ns: int | None = None  # when a pause stopped the node (before_stop)
-        self.handing: tuple | None = None  # (period, aggregated bar, its minutes up to T) while backfill hands one
+        self.handing: tuple | None = None  # (period, aggregated bar, the receiver's minutes up to T, its contract)
         # A recovery's T, and the start of the bucket the checkpoint was cut in of each aggregation it back-fills.
         self.warm_at, self.since = self.crossed(warm_at)
         # The sources start once warmed: T, its settling and its deadline (engine.history), and some slack.
@@ -292,22 +293,33 @@ class Session:
         if not self.since:
             return None
         assert self.saved is not None and self.release is not None
-        handed = []
-        for index, (iid, strategy) in enumerate(strategy_runtime.STRATEGIES.items()):
-            minutes = cast(Any, strategy)._warming_state()["expected"]
+        contracts = list(strategy_runtime.STRATEGIES)
+        built: dict[tuple[str, str], list] = {}
+        for iid in contracts:  # each instance warmed its own contract's aggregations
             for period, first in self.since.items():
                 step = warmup.period_ns(period)
-                built = self.cache.bars(warmup.aggregated_type(iid, period).standard()) or []
-                found = sorted((bar for bar in built if self.saved["cut_ns"] < self.bucket_end(bar) <= self.warm_at),
+                cached = self.cache.bars(warmup.aggregated_type(iid, period).standard()) or []
+                found = sorted((bar for bar in cached if self.saved["cut_ns"] < self.bucket_end(bar) <= self.warm_at),
                                key=lambda bar: bar.ts_event)
                 ends = list(range(first + step, self.warm_at + 1, step))
                 if [self.bucket_end(bar) for bar in found] != ends:
                     return (f"the native aggregator built {len(found)} of the {len(ends)} {iid} {period} bars ending "
                             f"from {history.utc(ends[0])} to {history.utc(ends[-1])}")
-                handed += [(bar.ts_event, index, strategy, period, bar, minutes.get(("warm", period)) or [])
-                           for bar in found]
-        for _, _, strategy, period, bar, minutes in sorted(handed, key=lambda item: item[:2]):
-            self.handing = (period, bar, minutes)
+                built[(iid, period)] = found
+        handed = []
+        # By time, then each contract's bar in the run's order of contracts, each to its subscribers in that order.
+        # A fixed order: the live node has none for bars ending at the same instant (rc7 fires each aggregator's
+        # timer as its own task and breaks subscriber ties by a random handler id; 2026-11-18 native probe).
+        for index, (iid, strategy) in enumerate(strategy_runtime.STRATEGIES.items()):
+            minutes = cast(Any, strategy)._warming_state()["expected"]
+            subscribed = cast(Any, strategy)._paper_subscriptions
+            for order, other in enumerate(contracts):
+                for period in self.since:
+                    if other == iid or self.subscription(other, period) in subscribed:
+                        handed += [(bar.ts_event, order, index, strategy, period, bar,
+                                    minutes.get(("warm", period)) or [], iid) for bar in built[(other, period)]]
+        for *_, strategy, period, bar, minutes, iid in sorted(handed, key=lambda item: item[:3]):
+            self.handing = (period, bar, minutes, iid)
             try:
                 strategy.on_bar(bar)
                 self.release(None)
@@ -318,31 +330,50 @@ class Session:
         return None
 
     @staticmethod
+    def subscription(iid: str, period: str) -> str:
+        """The bar type a source subscribes to for a declared aggregation of a contract."""
+        return f"{iid}-{period}-LAST-INTERNAL@1-MINUTE-EXTERNAL"
+
+    def subscriptions(self, iid: str) -> tuple[set[str], set[str]]:
+        """(required, allowed) subscriptions of the instance of `iid` at a cut: its own minute bars and declared
+        aggregations, and also the declared aggregations of the run's other contracts (user decision 2026-11-17):
+        each other instance warms and back-fills its own, and the back-fill hands them to every subscriber."""
+        own = {f"{iid}-1-MINUTE-LAST-EXTERNAL"} | {self.subscription(iid, period) for period in self.aggregated}
+        return own, own | {self.subscription(other, period) for other in strategy_runtime.STRATEGIES
+                           for period in self.aggregated}
+
+    @staticmethod
     def bucket_end(bar) -> int:
         """The end of an aggregated bar's bucket: rc7 stamps it BUILD_DELAY_US after it (engine.history)."""
         return bar.ts_event - history.BUILD_DELAY_US * 1000
 
     def submitted(self, order) -> str | None:
         """Why an order the source submits on a back-filled bar refuses the recovery, or None. In the uninterrupted run
-        it would have worked from that bar's close; here it works from T. Only one the minutes from the bar's bucket
-        end up to T prove untouched (`touched`, as an accepted order) and the bar's close does not make marketable
-        (it would have matched at once on that L1; a MARKET always) passes: then its first match is the one the
+        it would have worked from that bar's close; here it works from T. Only one the minutes of its contract from
+        the bar's bucket end up to T prove untouched (`touched`, as an accepted order) and the close of its contract's
+        minute ending the bucket (the bar's own close when the bar is of its contract) does not make marketable (it
+        would have matched at once on that L1; a MARKET always) passes: then its first match is the one the
         uninterrupted run made. Once the recovery is refused, nothing more is sent (`commanded`)."""
         if self.refused or self.handing is None:
             return self.refused
-        period, bar, minutes = self.handing
+        period, bar, minutes, own = self.handing
         end = self.bucket_end(bar)
         if order is None or _name(order.order_type) == "MARKET":
             found: str | None = "a position close is a MARKET order" if order is None else (
                 f"{order.client_order_id} is a MARKET order")
+        elif str(order.instrument_id) != own:
+            found = f"{order.client_order_id} is on {order.instrument_id}, whose minutes the {own} source did not read"
         else:
             iid = str(order.instrument_id)
             found = touched([order], {iid: [minute for minute in minutes if minute.ts_event > end]},
                             {iid: end - warmup.MILLISECOND_NS}, self.warm_at, status="ACCEPTED")
         if found is None:
             level, by_high = cast(tuple, _level(order, "ACCEPTED"))
-            close = bar.close.as_decimal()
-            if close >= level if _name(order.side) == by_high else close <= level:
+            ending = next((minute for minute in minutes if minute.ts_event == end - warmup.MILLISECOND_NS), None)
+            close = None if ending is None else ending.close.as_decimal()
+            if close is None:
+                found = f"{order.client_order_id}: its contract's minute closing at {history.utc(end)} was not read"
+            elif close >= level if _name(order.side) == by_high else close <= level:
                 found = (f"{order.client_order_id} ({_name(order.side)} {_name(order.order_type)} at {level}) is "
                          f"marketable at the close {close}")
         if found:
@@ -450,11 +481,10 @@ class Session:
             self._restorable(cache)
             for iid, native in strategy_runtime.STRATEGIES.items():
                 strategy = cast(Any, native)
-                required = {f"{iid}-1-MINUTE-LAST-EXTERNAL"} | {f"{iid}-{period}-LAST-INTERNAL@1-MINUTE-EXTERNAL"
-                                                                 for period in self.aggregated}
-                if strategy._paper_subscription_changes or strategy._paper_subscriptions != required:
+                required, allowed = self.subscriptions(iid)
+                if strategy._paper_subscription_changes or not required <= strategy._paper_subscriptions <= allowed:
                     raise checkpoint.fail("recovery requires fixed subscriptions to the minute bars and every declared "
-                                          "aggregation, without custom routing")
+                                          "aggregation (also of the run's other contracts), without custom routing")
                 if strategy._paper_user_timers:
                     raise checkpoint.fail("the source registered timers outside the recovery protocol")
                 if strategy._paper_held or strategy.clock.timer_names():

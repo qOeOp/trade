@@ -256,8 +256,9 @@ def aggregated(end: int, close="100000.0"):
     return SimpleNamespace(ts_event=end + DELAY, close=Price.from_str(close), bar_type="BTCUSDT-15-MINUTE")
 
 
-def minute(close: int, low="99500.0", high="100500.0"):
-    return SimpleNamespace(ts_event=close - 1_000_000, low=Price.from_str(low), high=Price.from_str(high))
+def minute(close: int, low="99500.0", high="100500.0", price="100000.0"):
+    return SimpleNamespace(ts_event=close - 1_000_000, low=Price.from_str(low), high=Price.from_str(high),
+                           close=Price.from_str(price))
 
 
 class BackfillTests(unittest.TestCase):
@@ -306,8 +307,9 @@ class BackfillTests(unittest.TestCase):
         with mock.patch("engine.paper_session.time.time_ns", return_value=warm_at):
             session = self.recovery(warm_at)
         handed: list = []
-        strategy = SimpleNamespace(_warming_state=lambda: {"expected": {("warm", "15-MINUTE"): minutes or [
-            minute(close) for close in range(T - 4 * QUARTER + MINUTE_NS, warm_at + 1, MINUTE_NS)]}})
+        strategy = SimpleNamespace(_paper_subscriptions=set(), _warming_state=lambda: {"expected": {
+            ("warm", "15-MINUTE"): minutes or [minute(close) for close in range(
+                T - 4 * QUARTER + MINUTE_NS, warm_at + 1, MINUTE_NS)]}})
 
         def on_bar(bar):
             handed.append(("held", bar.ts_event))
@@ -382,16 +384,75 @@ class BackfillTests(unittest.TestCase):
             self.assertIsNone(self.recovery(T + MINUTE_NS).submitted(order(kind="MARKET")),
                               "outside the back-fill nothing is checked")
             session = self.recovery(T + MINUTE_NS)
-        session.handing, session.refused = ("15-MINUTE", bars[2], {}), "an earlier order's refusal"
+        session.handing, session.refused = ("15-MINUTE", bars[2], {}, IID), "an earlier order's refusal"
         self.assertEqual(session.submitted(quiet), "an earlier order's refusal", "after a refusal nothing more is sent")
         session.handing = None
         self.assertEqual((session.submitted(quiet), session.commanded(), session.commanded(close=True)),
                          ("an earlier order's refusal",) * 3, "nor on a live bar, nor a cancel or close")
         # A position close on a back-filled bar is a MARKET order; a cancel there is sent.
-        session.handing, session.refused = ("15-MINUTE", bars[2], {}), None
+        session.handing, session.refused = ("15-MINUTE", bars[2], {}, IID), None
         self.assertIsNone(session.commanded())
         self.assertIn("a position close is a MARKET order", session.commanded(close=True))
         self.assertIn("back-filled 15-MINUTE bar", session.refused)
+
+    def test_a_source_subscribed_to_another_contracts_aggregation_gets_its_back_filled_bars_too(self):
+        """User decision 2026-11-17: such subscriptions are recoverable. Each bar goes, by time and in the run's order
+        of contracts, to every subscriber; an order a source submits on one is checked on its own contract's minutes
+        and close, and one on another contract, whose minutes it did not read, refuses."""
+        other = "ETHUSDT-PERP.BINANCE"
+        with mock.patch("engine.paper_session.time.time_ns", return_value=T + MINUTE_NS):
+            session = self.recovery(T + MINUTE_NS)
+        ends = [T - 3 * QUARTER, T - 2 * QUARTER, T - QUARTER, T]
+        # The other contract's bars close far from this one's minutes, and this one's bar at 100000 above its minute
+        # closing the bucket: the check reads its own contract's minute.
+        built = {IID: [aggregated(end) for end in ends], other: [aggregated(end, close="3000.0") for end in ends]}
+        session.cache = SimpleNamespace(bars=lambda bar_type: built[next(i for i in built if str(bar_type).startswith(i))])
+        handed: list = []
+
+        def source(iid, subscriptions, orders):
+            strategy = SimpleNamespace(_paper_subscriptions=subscriptions, _warming_state=lambda: {"expected": {
+                ("warm", "15-MINUTE"): [minute(close, low="99960.0", high="99990.0",
+                                               price="99900.0" if close == T - QUARTER else "99970.0")
+                                        for close in range(T - 4 * QUARTER + MINUTE_NS, T + 2 * MINUTE_NS, MINUTE_NS)]}})
+
+            def on_bar(bar):
+                handed.append((iid, "ETH" if bar.close.as_decimal() < 10000 else "BTC", bar.ts_event - DELAY))
+                found = orders.get((bar.close.as_decimal() < 10000, bar.ts_event - DELAY))
+                if found is not None:
+                    handed.append(("submitted", session.submitted(found)))
+            strategy.on_bar = on_bar
+            return strategy
+
+        quiet = order(kind="LIMIT", side="BUY", price="99000.0")
+        # Each submitted by the BTC source on the ETH bar of the bucket ending at T - QUARTER.
+        cases = {
+            "an untouched order on its own contract": ({(True, T - QUARTER): quiet}, None),
+            "a buy limit marketable at its contract's close": (
+                {(True, T - QUARTER): order(kind="LIMIT", side="BUY", price="99950.0")}, "marketable at the close 99900"),
+            "an order on the other contract": (
+                {(True, T - QUARTER): order(kind="LIMIT", side="BUY", price="2000.0", instrument_id=other)},
+                f"is on {other}"),
+        }
+        for name, (orders, reason) in cases.items():
+            with self.subTest(name):
+                handed.clear()
+                session.refused = None
+                strategies = {IID: source(IID, {Session.subscription(other, "15-MINUTE")}, orders),
+                              other: source(other, set(), {})}
+                with mock.patch.dict(strategy_runtime.STRATEGIES, strategies, clear=True):
+                    refused = session.backfill()
+                if reason is None:
+                    self.assertIsNone(refused)
+                    self.assertEqual([item for item in handed if item[0] != "submitted"], [
+                        step for end in ends for step in ((IID, "BTC", end), (IID, "ETH", end), (other, "ETH", end))])
+                    self.assertIn(("submitted", None), handed)
+                else:
+                    self.assertIn(reason, refused)
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: object(), other: object()}, clear=True):
+            required, allowed = session.subscriptions(IID)
+        self.assertEqual(required, {f"{IID}-1-MINUTE-LAST-EXTERNAL", Session.subscription(IID, "15-MINUTE")})
+        self.assertEqual(allowed - required, {Session.subscription(other, "15-MINUTE")},
+                         "another contract's minutes, or an aggregation it did not declare, stay refused")
 
     def test_a_refused_back_fill_starts_the_sources_but_leaves_the_recovery_unready(self):
         with mock.patch("engine.paper_session.time.time_ns", return_value=T):

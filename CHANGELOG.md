@@ -53,6 +53,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## 0.4.2 (2026-11-17)
 
+- Paper: a `PAPER_RECOVERY` source may subscribe to the declared aggregations of the run's other contracts (user
+  2026-11-17, 「允许」); a cut no longer defers for it, and a recovery's back-fill hands those contracts' missed bars
+  to every subscriber, at one instant by the run's order of contracts (the live node has no fixed order there). An
+  order sent on a back-filled bar is checked against its own contract's minutes and its minute closing the bucket; one
+  on another contract than the source's refuses the recovery.
 - Paper: a run whose source does not declare `PAPER_RECOVERY` is now held after an interruption while it holds a
   position, as Live holds (user 2026-11-17). SIGTERM pauses it without cancelling, and it checkpoints the native cache
   alone while a position is open; its resume starts no source but a holder under the source's strategy ID, which checks
