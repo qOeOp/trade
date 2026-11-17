@@ -43,6 +43,9 @@ nothing, so nothing but a read reaches it.
 With a market-import status file (the one `market follow` writes, mounted read-only), `/api/market-import`
 answers it as it is, read at each request, with whether it is stale by `market.follow.check()`'s rule.
 
+`/api/about` also names the newest released version, the product's latest GitHub release read anonymously at
+most once an hour, so a deployment that does not follow versions is told it is behind.
+
 An answer goes gzipped to a browser that takes it: every JSON answer of at least 1 KB, and what the paper
 and overview services send, streams included. The page alone may be kept: it carries an ETag and is asked
 for again at each open, so an unchanged page costs a 304. Everything else stays `no-store`.
@@ -67,6 +70,7 @@ import threading
 import time
 from typing import NamedTuple
 from urllib.parse import parse_qs, urlsplit
+from urllib.request import Request, urlopen
 import zlib
 
 from . import layout
@@ -100,6 +104,38 @@ SYMBOL = re.compile(r"[^\W_]+\Z")  # market.sources.SYMBOL: a contract as the ma
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")  # a UTC day
 COMMIT = re.compile(r"[0-9a-v]{32}")  # a Dolt commit hash in full
 STALE = timedelta(hours=26)  # market.follow.STALE: a status older than this is a stuck command
+# The product's newest version is its latest GitHub release (CHANGELOG.md: a version is released with
+# `gh release create vX.Y.Z`); a deployment whose version is older is told so (`/api/about`).
+RELEASES = "https://api.github.com/repos/qOeOp/trade/releases/latest"
+RELEASE_SECONDS = 3600.0
+VERSION = re.compile(r"v(\d+\.\d+\.\d+)")
+
+
+class Released:
+    """The newest released version ("0.4.3"), read anonymously from GitHub at most once every RELEASE_SECONDS by
+    whichever request comes due; None until a read succeeds, and a failed read keeps the last one. A request never
+    waits on another's read."""
+
+    def __init__(self, url: str = RELEASES, every: float = RELEASE_SECONDS, opener: Callable = urlopen):
+        self.url, self.every, self.opener = url, every, opener
+        self.value: str | None = None
+        self.due = 0.0
+        self.lock = threading.Lock()
+
+    def __call__(self) -> str | None:
+        if time.monotonic() >= self.due and self.lock.acquire(blocking=False):
+            try:
+                self.due = time.monotonic() + self.every
+                request = Request(self.url, headers={"Accept": "application/vnd.github+json", "User-Agent": "trade-ide"})
+                with self.opener(request, timeout=10) as response:
+                    found = VERSION.fullmatch(str(json.load(response).get("tag_name")))
+                if found:
+                    self.value = found[1]
+            except Exception:
+                pass  # unknown this hour: the page says nothing rather than something wrong
+            finally:
+                self.lock.release()
+        return self.value
 
 
 class ProductError(Exception):
@@ -282,8 +318,9 @@ class Hub:
     """Heads, fetches, cached views and the open pages' states."""
 
     def __init__(self, product: Product, build: str, poll: float = 5.0, mirror: Callable[[], str] | None = None,
-                 version: str | None = None):
+                 version: str | None = None, released: Callable[[], str | None] = lambda: None):
         self.product, self.build, self.poll, self.mirror, self.version = product, build, poll, mirror, version
+        self.released = released
         self.line_index = Pinned[str](product.lines)
         self.history = Pinned[str](product.history, HISTORIES)
         self.readings = Pinned[str](product.readings, READINGS)
@@ -860,14 +897,15 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             self.events(Client(line, since, at, have))
 
         def about(self) -> None:
-            """What this deployment runs: the product version and the page's build, and the ledger's state or the
-            refusal reading it."""
+            """What this deployment runs: the product version and the page's build, the newest released version
+            (null while unknown), and the ledger's state or the refusal reading it."""
+            runs = {"version": hub.version, "build": hub.build, "released": hub.released()}
             try:
                 found = hub.product.service()
             except ProductError as exc:
-                self.json(200, {"version": hub.version, "build": hub.build, "ledger": None, "refusal": exc.body})
+                self.json(200, {**runs, "ledger": None, "refusal": exc.body})
                 return
-            self.json(200, {"version": hub.version, "build": hub.build, "ledger": {"running": found["running"], "remote": found.get("remote"),
+            self.json(200, {**runs, "ledger": {"running": found["running"], "remote": found.get("remote"),
                                                            "unpublished": bool(found.get("unpublished")),
                                                            "behind_seconds": found.get("behind_seconds"),
                                                            "diverged": bool(found.get("diverged")),
@@ -946,7 +984,7 @@ def serve(product: Product, build: str, host: str, port: int, hosts: list[str],
           agent: str | None = None, paper: str | None = None, status: Path | None = None,
           overview: str | None = None, research: str | None = None, setup: str | None = None, *,
           live_socket: Path | None = None, live_router: str | None = None, version: str | None = None) -> None:
-    hub = Hub(product, build, mirror=mirror_head(research) if research else None, version=version)
+    hub = Hub(product, build, mirror=mirror_head(research) if research else None, version=version, released=Released())
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
                                           status, overview, research, setup,
                                           live_socket=live_socket, live_router=live_router))

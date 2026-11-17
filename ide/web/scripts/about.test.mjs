@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { namespace } from "./load.mjs";
 
-const { ledgerGap, paperLine, placeOf, publicCopyFault, runtimeDigest } = await namespace("model/about.ts", { sources: [], packages: [] });
+const { ledgerGap, paperLine, placeOf, publicCopyFault, releaseBehind, runtimeDigest } = await namespace("model/about.ts", { sources: [], packages: [] });
 
 test("a DoltHub remote is named by its repository and links to its page; another stays as it is", () => {
   assert.deepEqual(placeOf("https://doltremoteapi.dolthub.com/owner/ledger"),
@@ -35,4 +35,14 @@ test("the paper line gives the daemon's memory budget and the image its digest's
   assert.equal(paperLine({ memory_budget: 3072, runtime: null }), "Runs reserve up to 3.0 GiB");
   assert.equal(runtimeDigest(`ghcr.io/x/runtime@sha256:${"ab".repeat(32)}`), "sha256:abababab");
   assert.equal(runtimeDigest("local-tag"), "local-tag");
+});
+
+test("a deployment is behind only when a newer version is released, compared part by part", () => {
+  const at = (version, released) => ({ build: "b", ledger: null, version, released });
+  assert.equal(releaseBehind(at("0.4.1", "0.4.3")).short, "Behind v0.4.3");
+  assert.equal(releaseBehind(at("0.4.9", "0.4.10")).short, "Behind v0.4.10");
+  assert.equal(releaseBehind(at("0.4.3", "0.4.3")), null);
+  assert.equal(releaseBehind(at("0.10.0", "0.9.9")), null);
+  assert.equal(releaseBehind(at("0.4.3", null)), null);
+  assert.equal(releaseBehind(at(null, "0.4.3")), null);
 });

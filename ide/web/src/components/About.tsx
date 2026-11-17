@@ -2,10 +2,10 @@ import { useEffect, type ReactNode } from "react";
 import { Dialog } from "radix-ui";
 import { Icon } from "../icons/Icon";
 import { shortSha } from "../lib/format";
-import { commitHref, guideHref, releaseHref, ledgerGap, paperLine, placeOf, runtimeDigest, type About } from "../model/about";
+import { commitHref, guideHref, releaseBehind, releaseHref, ledgerGap, paperLine, placeOf, runtimeDigest, type About } from "../model/about";
 import { summary } from "../model/marketImport";
 import { useAgentService } from "../state/agent";
-import { copyFault, readAbout, useAbout, usePaperHealth, usePublicCopy } from "../state/about";
+import { copyFault, readAbout, useAbout, usePaperHealth, usePublicCopy, useReleaseBehind } from "../state/about";
 import { useOverviewService } from "../state/market";
 import { useMarketImport } from "../state/marketImport";
 import { usePaperService } from "../state/paper";
@@ -67,9 +67,17 @@ export function PublicCopyStatus() {
   </span>;
 }
 
+/** The status bar's item for a newer released version than this deployment runs; nothing otherwise. */
+export function ReleaseStatus() {
+  const behind = useReleaseBehind();
+  return behind && <span role="status" title={behind.long} className="flex min-w-0 items-center gap-1.5 text-fg-muted">
+    <Icon name="warning" size={12} tone="misses" /><span className="truncate">{behind.short}</span>
+  </span>;
+}
+
 /** What this deployment runs and where to go next. It only reads: every value is changed in the deployment. */
 function AboutBody() {
-  const reading = useAbout();
+  const reading = useAbout(), behind = reading.kind === "ready" ? releaseBehind(reading.about) : null;
   return (
     <div className="space-y-3 text-dense">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
@@ -78,6 +86,7 @@ function AboutBody() {
             {reading.about.version && <><External href={releaseHref(reading.about.version)}><Mono>{reading.about.version}</Mono></External> · </>}
             <External href={commitHref(reading.about.build)}><Mono>{shortSha(reading.about.build)}</Mono></External>
           </Row>
+          {behind && <Row name="Released"><Fault tone="misses">{behind.long}</Fault></Row>}
           <Ledger about={reading.about} />
         </>}
         {reading.kind === "reading" && <Row name="Ledger">Reading…</Row>}
