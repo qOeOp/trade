@@ -115,7 +115,12 @@ class GateTests(unittest.TestCase):
         json_body = {"Content-Type": "application/json"}
         self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/compare", b"{}", **json_body),
                          (202, {"paper_id": 3, "state": "comparing"}))
-        self.daemon.compare.assert_called_once_with(3)
+        self.daemon.compare.assert_called_once_with(3, False)
+        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/compare", b'{"preliminary": true}', **json_body),
+                         (202, {"paper_id": 3, "state": "comparing"}))
+        self.daemon.compare.assert_called_with(3, True)
+        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/compare", b'{"preliminary": 1}', **json_body),
+                         (400, mock.ANY))
         self.assertEqual(request(self.port, "GET", "/api/paper/runs/3/compare"), (200, {"paper_id": 3, "state": "none"}))
 
     def test_a_delete_reaches_the_daemon(self):
@@ -181,6 +186,33 @@ class JournalTests(unittest.TestCase):
                          (sealed["total_return"], sealed["max_drawdown"], sealed["fills"]))
         self.assertEqual([minute for minute, _ in live["equity"]], [START, START + MINUTE, START + 2 * MINUTE])
         self.assertAlmostEqual(live["equity"][-1][1], 100009.9)  # 99990 + 20 open, less 0.1 funding
+
+    def test_late_bars_count_the_runs_own_delay_after_binance_sent_each_bar_as_the_seal_does(self):
+        """User 2026-11-18: a bar is late when received (ts_init) more than 2 s after Binance sent it (its kline_event,
+        engine.kline_events), Binance's own delay aside; neither line kind is listed for the page."""
+        iid, late = "BTCUSDT-PERP.BINANCE", 2 * 10**9
+        closes = [START + i * MINUTE - 10**6 for i in (1, 2, 3, 4)]
+        sent = [close + 10**6 + 3 * 10**9 for close in closes]  # Binance sent every bar 3 s after its close
+        lines = [line("started", START, source_sha256="s"),
+                 line("bar", 0, instrument_id=iid, ts_event=closes[0], ts_init=sent[0] + late),  # on time
+                 line("kline_event", 0, instrument_id=iid, ts_event=closes[0], event_ns=sent[0]),
+                 line("kline_event", 0, instrument_id=iid, ts_event=closes[1], event_ns=sent[1]),  # before its bar
+                 line("bar", 0, instrument_id=iid, ts_event=closes[1], ts_init=sent[1] + late + 1),  # late
+                 line("bar", 0, instrument_id=iid, ts_event=closes[2], ts_init=sent[2] + late + 1),  # unknown
+                 line("bar", 0, instrument_id=iid, ts_event=closes[3], ts_init=sent[3] + late + 1),
+                 line("kline_event", 0, instrument_id=iid, ts_event=closes[3], event_ns=sent[3])]  # late
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root, "events.jsonl")
+            write(path, lines)
+            found = serve.Journal()
+            found.read(path)
+        self.assertEqual([item["kind"] for item in found.lines], ["started"])
+        self.assertEqual((serve.readings(ROW, found)["late_bars"], records.readings(ROW, lines, 0, None, None, None)["late_bars"]),
+                         (2, 2))
+        self.assertEqual([item["kind"] for item in lines if serve._wanted(item, iid)], ["started", "bar", "bar", "bar", "bar"])
+        # A page holding the one listed line and the bars resumes with nothing new.
+        self.assertEqual([item for item in serve.resumed(lines, serve.Resume(1, START, closes[3])) or [None]
+                          if serve._wanted(item, iid)], [])
 
     def test_waiting_input_boundary_is_derived_from_the_existing_journal(self):
         found = serve.Journal(lines=[line("started", START, input_start_ns=START + 1440 * MINUTE),

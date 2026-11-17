@@ -667,6 +667,15 @@ another SIGTERM pauses it again and it resumes held. Held, the run is still runn
 run until it is flat (`paper/runs.py`). `paper compare` attributes a difference reaching past the first `resumed` of
 such a run to `held` when nothing earlier in its cause order explains it, rather than `unexplained`.
 
+`paper compare --preliminary` (the page offers it when the market does not hold the run's minutes yet; user
+2026-11-17) compares a run before Binance archives its day: `replay.preliminary` makes a market directory under the
+comparison's `--output` whose files link to the market's, and rewrites there only the months the window reaches past
+it, adding after each contract's last stored minute, settlement and (for a source that read metrics) metrics row what
+Binance's public REST gives (klines, markPriceKlines, fundingRate, futures/data), paced and stopping at the first rate
+limit (HTTP 403, 418, 429 or 451) instead of waiting it out. Nothing reaches the market directory. The result says
+`data_source: rest` and what REST added (`preliminary`), and the page labels it preliminary; the comparison on the
+archive stays the one that counts, so replay again once the market covers the run.
+
 A seal stores the exact journal bytes as `events/native.jsonl.gz`, including any interrupted final line, plus
 current and actually-used recovery originals. Verification hashes the decompressed byte prefix; parsed UI
 events are not recovery originals. Details, storage review and bounded native evidence are in

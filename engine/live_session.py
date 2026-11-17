@@ -87,11 +87,18 @@ class Session:
     marks: dict[str, tuple[float, Any]] = field(default_factory=dict)  # contract -> when its latest mark arrived, its value
     exposed_since: dict[str, float] = field(default_factory=dict)  # contract -> since when the run holds a position on it
     warmup_catalog: Path | None = None  # the run's temporary Catalog of warm-up bars (engine.history)
+    kline_events: Any = None  # a run's closed-kline event times (engine.kline_events.KlineEvents)
     evidence: Evidence = field(init=False)
 
     def __post_init__(self):
         self.evidence = Evidence(self.output, lambda part, failure: self.event(
             "evidence_unavailable", strict=False, part=part, failure_type=failure))
+
+    def record_kline_events(self) -> None:
+        """The closed klines' event times read since the last call, into the evidence pack."""
+        if self.kline_events is not None:
+            for iid, close, sent in self.kline_events.drain():
+                self.evidence.kline_event(iid, close, sent)
 
     def catalog(self) -> Path:
         """The run's temporary Catalog of warm-up bars (engine.history), made once."""
@@ -216,8 +223,8 @@ class Session:
         return bool(exposed)
 
     def record_minute(self, cache, minute_ns: int, prices: dict) -> None:
-        """The run's result from native fills at a minute's first mark price (contract -> price), or when the run
-        stops, for the chart of its account: only read and journalled, no check, stop or order follows from it.
+        """The run's result from native fills at the end of minute `minute_ns` (contract -> its last mark price), or
+        when the run stops, for the chart of its account: only read and journalled, no check, stop or order follows from it.
         Unknown while a position is open without a price of its contract, or when it cannot be read."""
         result = None
         try:

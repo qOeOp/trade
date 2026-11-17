@@ -26,6 +26,17 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Late bars on Binance's own time (user 2026-11-18, 「按 Binance 发出时间算」; the field authorized after review,
+  `docs/plans/late-bar-exchange-time-20261118.zh.md`): a bar is late when the run received it (`ts_init`) more than
+  2 s after Binance sent it, so Binance's own delay after the close no longer counts as the run's. Nautilus drops
+  the kline message's event time, so Paper and Live keep a second public websocket to the same kline streams
+  (`engine.kline_events`, through the run's proxy; the egress allow-list is unchanged) and write a `kline_event`
+  line per contract and minute (`instrument_id`, `ts_event`, `event_ns`) to Paper's `events.jsonl` and Live's
+  `market.jsonl`. Paper no longer writes `late_bar` lines: the sealed and live `late_bars` reading is derived from
+  `bar` and `kline_event` lines. `paper compare` and `live compare` add `unknown_bars` (bars with no
+  `kline_event`, neither late nor on time) and `published_late_bars` (Binance sent them more than 2 s after the
+  close; with each first difference's longest such delay, `publication_delay_ms`), both evidence, never a cause.
+  Runs sealed before have no `kline_event`: their bars compare as unknown.
 - Paper: a minute's snapshot now values the open positions at that minute's last mark. It is taken at the next
   minute's first mark, which it used for that contract, so the equity path stood one mark late against the replay's
   MARK close (audit runs 52 and 54: 0.02 USDT on 0.004 BTC). Runs sealed before keep their journals.
@@ -34,6 +45,15 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   when a fill both sides made counts in the minute on one side only (the replay fills at its bar's close, Paper once
   that bar reached it, after its snapshot: the 0.10 to 0.12 USDT of audit runs 52 to 54), else `unexplained`. Which
   groups differ and why is unchanged.
+- `paper compare --preliminary` (user 2026-11-17, 「加初步对账」): a same-day comparison before Binance archives the
+  run's day. The minutes, funding and metrics the market lacks are read from Binance's public REST into a working
+  copy of the market under `--output` (files linked, only the extended months rewritten; nothing enters the market
+  directory), paced, stopping at the first rate limit. The result carries `data_source: rest` and what REST added;
+  the Paper page offers it when the market does not cover the run yet and labels its result preliminary. The archive
+  comparison stays authoritative.
+- Live: a minute's result (`minute_result`) is now stamped with the minute that ended, valued at the marks it ended
+  with. It was stamped with the minute just begun, so `live compare` set the end of minute m against the replay's
+  end of m+1, a minute out of step. Earlier evidence packs keep their stamps.
 - Paper (doctor 20261117-01): the Run paper dialog named the account as "1× leverage"; a page start runs with the
   replay default, leverage 3. The dialog now shows the margin and leverage the Paper controller names
   (`/api/paper/defaults`, from `ACCOUNT_CONTRACT`).

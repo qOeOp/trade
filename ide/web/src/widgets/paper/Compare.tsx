@@ -12,21 +12,22 @@ import { compare, type Cause, type Comparison, type Group, type OrderRow, type R
 const STAGE: Record<Stage, string> = { decision: "Order", fill: "Fill", fee: "Fee", funding: "Funding" };
 const KIND: Record<RowClass, string> = { same: "same", time: "time", type: "type", quantity: "size", price: "price", amount: "amount", run_only: "only on paper", replay_only: "only in the replay" };
 const CAUSE: Record<Exclude<Cause, "consequence">, string> = {
-  missing_bar: "a live bar was missing", late_bar: "a live bar arrived late", bar_mismatch: "a live bar differed from the archive",
+  missing_bar: "a live bar was missing", late_bar: "a live bar reached the run late", bar_mismatch: "a live bar differed from the archive",
   metrics: "the metrics received differed from the archive", entry_gate: "Live's entry gate held or withdrew the entry",
   held: "the run was held after a restart: no new entries, its own withdrawn",
   warmup: "the warm-up differed from the archive", contract_terms: "the contract terms or fee rates differed", window_end: "at the stop", unexplained: "unexplained" };
 const ROLE: Record<string, string> = { entry: "entry", stop: "stop", target: "target" };
+const WRAPPING = CELL.replace("whitespace-nowrap", "whitespace-normal");  // the Result cell: its clauses wrap between them
 
 /** The head's right side on Comparison: the interval replayed (the last day of market data under the pointer),
  *  and "Replay again". */
 export function CompareTools({ r, paperId }: { r: Comparison | null; paperId: number }) {
   const zone = useTimeZone();
   if (r?.state !== "done" || !r.result) return null;
-  const { window: w, market_day: day } = r.result;
+  const { window: w, market_day: day, data_source: source, preliminary } = r.result;
   return (
     <>
-      <Tip content={<>Replayed with market {marketThrough(day)}</>}>
+      <Tip content={source === "rest" ? <>Preliminary: {preliminary?.market_day ? <>market {marketThrough(preliminary.market_day)}, then </> : null}Binance REST</> : <>Replayed with market {marketThrough(day)}</>}>
         <span className="whitespace-nowrap tabular-nums">{dateTime(utcInstant(w.start), zone, "minute")} → {dateTime(utcInstant(w.end), zone, "minute")}</span>
       </Tip>
       <TextButton onClick={() => void compare(paperId)}>Replay again</TextButton>
@@ -70,25 +71,30 @@ function Row({ g, row, i, only, p }: { g: Group; row: OrderRow; i: number; only:
       <td className={`${CELL} text-right`}>{price(row.replay)}</td>
       <td className={`${CELL} text-right text-fg-muted`}>{delay == null ? "" : `${delay >= 0 ? "+" : "−"}${Math.abs(delay) < 1000 ? `${Math.abs(delay)} ms` : `${(Math.abs(delay) / 1000).toFixed(1)} s`}`}</td>
       <td className={`${CELL} text-right ${bps ? "" : "text-fg-faint"}`}>{bps == null ? "" : bps === 0 ? "0" : `${bps > 0 ? "+" : "−"}${Math.abs(bps).toFixed(1)}`}</td>
-      <td className={`${CELL} text-left`}>
+      <td className={`${WRAPPING} text-left`}>
         {same || (!lead && row.class === "same") ? <span className="text-fg-faint">Same</span> : !lead ? <span className="text-fg-muted">{STAGE[row.stage ?? "decision"]} {KIND[row.class]}</span> : <>
-          <Dot tone={suspect ? "bg-fail" : follows ? "bg-fg-muted" : "bg-misses"} />
-          <span className={suspect ? "text-fail-fg" : follows ? "text-fg-muted" : "text-misses-fg"}>{differs(g)}</span>
-          {row.class === "quantity" && <span className="text-fg-muted"> {fixed(row.run?.fill?.qty ?? row.run?.qty, p.size) ?? MISSING} vs {fixed(row.replay?.fill?.qty ?? row.replay?.qty, p.size) ?? MISSING}</span>}
-          {g.cause && <span className="text-fg-muted"> · {suspect ? "look-ahead suspect"
-            : g.cause === "consequence" ? `after the difference at ${g.follows ? dateTime(utcInstant(g.follows), zone) : MISSING}` : CAUSE[g.cause]}</span>}
-          {!!g.evidence?.early_bars && <span className="text-fg-muted"> · {plural(g.evidence.early_bars, "bar")} early, up to {Number(g.evidence.early_lead_ms).toFixed(1)} ms: the run's clock was behind</span>}
+          <span className="whitespace-nowrap"><Dot tone={suspect ? "bg-fail" : follows ? "bg-fg-muted" : "bg-misses"} />
+          <span className={suspect ? "text-fail-fg" : follows ? "text-fg-muted" : "text-misses-fg"}>{differs(g)}</span></span>
+          {row.class === "quantity" && <>{" "}<span className="whitespace-nowrap text-fg-muted">{fixed(row.run?.fill?.qty ?? row.run?.qty, p.size) ?? MISSING} vs {fixed(row.replay?.fill?.qty ?? row.replay?.qty, p.size) ?? MISSING}</span></>}
+          {g.cause && <>{" "}<span className="whitespace-nowrap text-fg-muted">· {suspect ? "look-ahead suspect"
+            : g.cause === "consequence" ? `after the difference at ${g.follows ? dateTime(utcInstant(g.follows), zone) : MISSING}` : CAUSE[g.cause]}</span></>}
+          {!!g.evidence?.early_bars && <>{" "}<span className="whitespace-nowrap text-fg-muted">· {plural(g.evidence.early_bars, "bar")} early, up to {Number(g.evidence.early_lead_ms).toFixed(1)} ms: the run's clock was behind</span></>}
+          {!!g.evidence?.published_late_bars && <>{" "}<span className="whitespace-nowrap text-fg-muted">· {plural(g.evidence.published_late_bars, "bar")} sent late by Binance{g.evidence.publication_delay_ms ? `, up to ${(Number(g.evidence.publication_delay_ms) / 1000).toFixed(1)} s` : ""}</span></>}
+          {!!g.evidence?.unknown_bars && <>{" "}<span className="whitespace-nowrap text-fg-muted">· {plural(g.evidence.unknown_bars, "bar")} with no Binance send time</span></>}
         </>}
       </td>
     </tr>
   );
 }
 
-function Prompt({ children, action, label }: { children: ReactNode; action?: () => void; label?: string }) {
+function Prompt({ children, action, label, extra }: { children: ReactNode; action?: () => void; label?: string; extra?: ReactNode }) {
   return (
     <div className="flex h-full min-h-24 flex-col items-center justify-center gap-3 px-3 text-center text-dense text-fg-muted">
       <p className="max-w-[52ch] text-pretty">{children}</p>
-      {action && <FormButton primary icon="run" onClick={action}>{label}</FormButton>}
+      {(action || extra) && <div className="flex flex-wrap items-center justify-center gap-2">
+        {action && <FormButton primary icon="run" onClick={action}>{label}</FormButton>}
+        {extra}
+      </div>}
     </div>
   );
 }
@@ -108,19 +114,23 @@ export function Compare({ r, paperId, only, digits }: {
   if (r.state === "comparing") return <Prompt>Replaying on the archive… a run of an hour takes about half a minute.</Prompt>;
   if (r.state === "failed" || !r.result) {
     const uncovered = r.error?.code === "PAPER_COMPARE_UNCOVERED";
-    return <Prompt action={() => void compare(paperId)} label="Try again">
+    return <Prompt action={() => void compare(paperId)} label="Try again"
+      extra={uncovered && <TextButton size="form" onClick={() => void compare(paperId, true)}>Compare now on Binance REST</TextButton>}>
       <span className={uncovered ? "" : "text-fail-fg"}>{uncovered ? "The market does not hold this run's minutes yet. " : `${r.error?.code ?? "Failed"}: `}</span>{r.error?.message}
     </Prompt>;
   }
   const { groups, inputs, replay } = r.result;
   const barsOf = (only ? [inputs[only]].filter(Boolean) : Object.values(inputs)).map((c) => c!.bars);
   const missing = barsOf.reduce((n, b) => n + b.missing_bars, 0), late = barsOf.reduce((n, b) => n + b.late_bars, 0);
-  const early = barsOf.reduce((n, b) => n + b.early_bars, 0);
+  const early = barsOf.reduce((n, b) => n + b.early_bars, 0), unknown = barsOf.reduce((n, b) => n + b.unknown_bars, 0);
   const unlike = barsOf.reduce((n, b) => n + b.differing_bars, 0);
-  const barCounts = <span className="text-fg-faint">{plural(missing, "live bar")} missing, {late} late, {early} early, {unlike} unlike the archive</span>;
+  const sentLate = barsOf.reduce((n, b) => n + b.published_late_bars, 0);
+  const barCounts = <span className="text-fg-faint">{plural(missing, "live bar")} missing, {late} late to the run, {early} early, {unlike} unlike the archive{sentLate ? `, ${sentLate} sent late by Binance` : ""}{unknown ? `, ${unknown} with no Binance send time` : ""}</span>;
   const invalid = replay.status === "invalid" && <p className="px-3 pb-2 text-dense text-fail-fg">The replay is invalid: {replay.problems.map((p) => p.code ?? p.message).join(", ")}</p>;
+  const prelim = r.result.data_source === "rest" && <p className="px-3 pt-2 text-dense text-misses-fg">Preliminary: {r.result.preliminary?.market_day ? `market ${marketThrough(r.result.preliminary.market_day)}, later minutes` : "every minute"} from Binance REST, not the archive. Replay again once the archive covers the run.</p>;
   if (!groups) return (
     <div className="flex flex-col">
+      {prelim}
       <p className="flex flex-wrap gap-x-2 gap-y-1 px-3 py-2 text-dense tabular-nums text-fg-muted">
         <span className="text-fail-fg">The replay wrote no order events, so its orders cannot be compared</span>
         <span className="text-fg-faint">·</span>{barCounts}
@@ -137,6 +147,7 @@ export function Compare({ r, paperId, only, digits }: {
   const shown = differ.length || open ? [...differ, ...same] : differ;
   return (
     <div className="flex flex-col">
+      {prelim}
       <p className="flex flex-wrap gap-x-2 gap-y-1 px-3 py-2 text-dense tabular-nums text-fg-muted">
         {[
           <span key="same"><span className="text-fg">{same.length}</span> of {plural(mine.length, "trade")} the same</span>,
