@@ -618,7 +618,9 @@ No OHLCV is computed outside Nautilus. T moves on by a minute while it would end
 aggregator builds a bucket only once a later minute arrives. An order the source submits on a back-filled bar must be
 proven untouched by the minutes from that bar's bucket end up to T, by the same rules as a restored order, and must
 not be marketable at the bar's close (a buy limit at or above it, a sell limit at or below it, a stop the close has
-reached, any MARKET order); otherwise it is not sent, nothing more is sent, and the recovery is refused as below.
+reached, any MARKET order, a position close among them); otherwise it is not sent and the recovery is refused as
+below. After that no order, cancel or close of the source is sent; those sent earlier, also earlier in the same
+callback, stand.
 While back-filled bars are handed over, the source's clock reads T, the native cache already holds every back-filled
 bar (also those after the one in hand), and an order sent on an earlier back-filled bar may still be in flight; bars of
 several aggregations ending at the same instant go in the order the sources were registered. A source that relies on

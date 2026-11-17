@@ -30,8 +30,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   aggregation from the bucket the checkpoint was cut in, its declared history ends just before that bucket, and the
   aggregated bars the native aggregator completed go to the source's `on_bar` after `on_start` and before any live
   data; T moves on by a minute while it would end a crossed bucket. An order the source submits on one of them must be
-  untouched by the minutes from that bar up to T and not marketable at its close (no MARKET), or it is not sent and the
-  recovery is refused (`PAPER_RECOVERY_UNAVAILABLE`) and stops without cancelling. A checkpoint waits while a declared
+  untouched by the minutes from that bar up to T and not marketable at its close (no MARKET, no position close), or it
+  is not sent, no later order, cancel or close of the source is, and the recovery is refused
+  (`PAPER_RECOVERY_UNAVAILABLE`) and stops without cancelling. A checkpoint waits while a declared
   aggregation's bucket has ended and its bar has not reached the source, and a pause waits for that bar. A recovery
   across an unobserved funding settlement is still refused. (`docs/plans/paper-recovery-open-orders-20261117.zh.md`.)
 - Paper (doctor 20261117-05): an ended run whose resume was refused now reads "Cannot resume" (red) or, when a retry

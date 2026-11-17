@@ -446,6 +446,14 @@ class PauseTests(unittest.TestCase):
         with mock.patch.object(paper, "SESSION", session):
             self.assertIsNone(paper._PaperConfigured.submit_order(source, found))  # type: ignore[arg-type]
         session.submitted.assert_called_once_with(found)
+        # Nor does a cancel or a position close the session refuses.
+        session = SimpleNamespace(commanded=mock.Mock(return_value="refused"))
+        with mock.patch.object(paper, "SESSION", session):
+            for name, args in (("cancel_order", ("O-1",)), ("cancel_orders", (["O-1"],)),
+                               ("cancel_all_orders", (IID,)), ("close_position", (object(),))):
+                self.assertIsNone(getattr(paper._PaperConfigured, name)(source, *args), name)
+        self.assertEqual(session.commanded.call_args_list[-1], mock.call(close=True))
+        self.assertEqual(session.commanded.call_count, 4)
 
     def test_an_explicit_stop_of_an_unstarted_recovery_still_cancels(self):
         session = SimpleNamespace(ready=False, supported=True, saved={"sources": {}})

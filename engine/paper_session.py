@@ -293,17 +293,16 @@ class Session:
         it would have worked from that bar's close; here it works from T. Only one the minutes from the bar's bucket
         end up to T prove untouched (`touched`, as an accepted order) and the bar's close does not make marketable
         (it would have matched at once on that L1; a MARKET always) passes: then its first match is the one the
-        uninterrupted run made. Once the recovery is refused, nothing more is sent."""
-        if self.handing is None:
-            return None
-        if self.refused:
+        uninterrupted run made. Once the recovery is refused, nothing more is sent (`commanded`)."""
+        if self.refused or self.handing is None:
             return self.refused
         period, bar, minutes = self.handing
         end = self.bucket_end(bar)
-        iid = str(order.instrument_id)
-        if _name(order.order_type) == "MARKET":
-            found: str | None = f"{order.client_order_id} is a MARKET order"
+        if order is None or _name(order.order_type) == "MARKET":
+            found: str | None = "a position close is a MARKET order" if order is None else (
+                f"{order.client_order_id} is a MARKET order")
         else:
+            iid = str(order.instrument_id)
             found = touched([order], {iid: [minute for minute in minutes if minute.ts_event > end]},
                             {iid: end - warmup.MILLISECOND_NS}, self.warm_at, status="ACCEPTED")
         if found is None:
@@ -316,6 +315,13 @@ class Session:
             self.refused = self.refused or (f"an order submitted on the back-filled {period} bar of the bucket ending "
                                             f"at {history.utc(end)} cannot wait for T: {found}")
         return found
+
+    def commanded(self, close: bool = False) -> str | None:
+        """Why a cancel, or a position close (`close`), the source sends is not sent, or None: nothing is once the
+        recovery is refused, and a close on a back-filled bar is a MARKET order (`submitted`)."""
+        if close:
+            return self.submitted(None)
+        return self.refused
 
     def due(self, cache, now: int) -> str | None:
         """Why a cut at `now` could not tell whether a declared aggregation's latest bar reached the source, or None:
@@ -389,6 +395,11 @@ class Session:
             found = self.due(cache, cut_ns)
             if found:
                 raise checkpoint.fail(f"{found}; a recovery could not tell whether to hand it over")
+            for iid in strategy_runtime.STRATEGIES:
+                for period in self.aggregated:
+                    latest = cache.bar(warmup.aggregated_type(iid, period).standard())
+                    if latest is not None:  # a bar dispatched while the node shut down is one the source has had
+                        cut_ns = max(cut_ns, self.bucket_end(latest))
             self._restorable(cache)
             for iid, native in strategy_runtime.STRATEGIES.items():
                 strategy = cast(Any, native)

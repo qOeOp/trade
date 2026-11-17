@@ -384,6 +384,14 @@ class BackfillTests(unittest.TestCase):
             session = self.recovery(T + MINUTE_NS)
         session.handing, session.refused = ("15-MINUTE", bars[2], {}), "an earlier order's refusal"
         self.assertEqual(session.submitted(quiet), "an earlier order's refusal", "after a refusal nothing more is sent")
+        session.handing = None
+        self.assertEqual((session.submitted(quiet), session.commanded(), session.commanded(close=True)),
+                         ("an earlier order's refusal",) * 3, "nor on a live bar, nor a cancel or close")
+        # A position close on a back-filled bar is a MARKET order; a cancel there is sent.
+        session.handing, session.refused = ("15-MINUTE", bars[2], {}), None
+        self.assertIsNone(session.commanded())
+        self.assertIn("a position close is a MARKET order", session.commanded(close=True))
+        self.assertIn("back-filled 15-MINUTE bar", session.refused)
 
     def test_a_refused_back_fill_starts_the_sources_but_leaves_the_recovery_unready(self):
         with mock.patch("engine.paper_session.time.time_ns", return_value=T):
@@ -434,6 +442,11 @@ class BackfillTests(unittest.TestCase):
             with mock.patch("engine.paper_session.time.time_ns", return_value=T + 2 * QUARTER + 1):
                 session.cut(cache)
             self.assertEqual(session.backend.snapshot.call_args.args[1]["cut_ns"], T + 2 * QUARTER - 1)
+            # A bar the node still dispatched while it shut down is one the source has had: the cut is not before it.
+            cache.bar = lambda _: aggregated(T + 2 * QUARTER)
+            with mock.patch("engine.paper_session.time.time_ns", return_value=T + 2 * QUARTER + DELAY):
+                session.cut(cache)
+            self.assertEqual(session.backend.snapshot.call_args.args[1]["cut_ns"], T + 2 * QUARTER)
 
 
 class InterruptionTests(unittest.TestCase):
