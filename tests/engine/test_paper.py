@@ -374,7 +374,9 @@ class PauseTests(unittest.TestCase):
         self.recorder.handle = mock.Mock()
         self.source = mock.Mock(_paper_held=[])
         self.orders: list = []
+        self.cancel = mock.Mock()
         for patcher in (mock.patch.object(self.recorder, "_protection"),
+                        mock.patch.object(paper.OrderRules, "cancel_all_orders", self.cancel),
                         mock.patch.dict(paper.strategy_runtime.STRATEGIES, {str(IID): self.source}, clear=True),
                         mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock,
                                           return_value=SimpleNamespace(orders=lambda: list(self.orders),
@@ -400,7 +402,7 @@ class PauseTests(unittest.TestCase):
         self.assertEqual(paper.STOP_REASON, ["PAPER_RECOVERY_UNAVAILABLE"])
         self.assertEqual(journal.call_args_list[0], mock.call("refusal", code="PAPER_RECOVERY_UNAVAILABLE",
                                                               reason=reason))
-        self.source.cancel_all_orders.assert_not_called()
+        self.cancel.assert_not_called()
         handle.stop.assert_called_once()
         session.try_cut.assert_not_called()
 
@@ -419,7 +421,7 @@ class PauseTests(unittest.TestCase):
             self.recorder.on_stop_timer(None)
         session.before_stop.assert_called_once()
         handle.stop.assert_called_once()
-        self.source.cancel_all_orders.assert_not_called()
+        self.cancel.assert_not_called()
 
     def test_a_pause_waits_for_a_declared_aggregations_bar_due_now(self):
         """The final cut cannot be published while a bucket ended and its bar has not reached the source
@@ -436,7 +438,7 @@ class PauseTests(unittest.TestCase):
             handle.stop.assert_not_called()
             self.recorder.on_stop_timer(None)
         handle.stop.assert_called_once()
-        self.source.cancel_all_orders.assert_not_called()
+        self.cancel.assert_not_called()
 
     def test_an_order_a_back_filled_bar_cannot_wait_for_is_not_sent(self):
         """engine.paper_session.Session.submitted refused the recovery: the order never reaches the venue."""
@@ -454,6 +456,19 @@ class PauseTests(unittest.TestCase):
                 self.assertIsNone(getattr(paper._PaperConfigured, name)(source, *args), name)
         self.assertEqual(session.commanded.call_args_list[-1], mock.call(close=True))
         self.assertEqual(session.commanded.call_count, 4)
+
+    def test_a_stop_cancels_past_the_gate_on_the_sources_commands(self):
+        """A STOP that comes before a refused back-fill's refusal is journalled still cancels: the runner's cancel is
+        not the source's (engine.paper_session.Session.commanded)."""
+        self.orders.append(self.working("ACCEPTED"))
+        paper.STOP.set()
+        paper.STOP_REASON[:] = ["STOP_FILE"]
+        session = SimpleNamespace(ready=True, supported=True, saved={"sources": {}}, refused="an order cannot wait for T",
+                                  commanded=mock.Mock(return_value="an order cannot wait for T"))
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
+            self.recorder.on_stop_timer(None)
+        self.cancel.assert_called_once_with(self.source, IID)
+        session.commanded.assert_not_called()
 
     def test_an_explicit_stop_of_an_unstarted_recovery_still_cancels(self):
         session = SimpleNamespace(ready=False, supported=True, saved={"sources": {}})

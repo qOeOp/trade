@@ -789,8 +789,10 @@ class Recorder(DataActor):
             self.stopping_since = time.monotonic()
             journal("stop_requested", reason=STOP_REASON[0] if STOP_REASON else None, open_orders=len(open_orders))
             if not pausing():
+                # The runner's own cancel, past the gate on the source's commands (Session.commanded): a STOP
+                # cancels even after a refused back-fill whose refusal has not been journalled yet.
                 for iid, strategy in strategy_runtime.STRATEGIES.items():
-                    strategy.cancel_all_orders(InstrumentId.from_str(iid))
+                    OrderRules.cancel_all_orders(strategy, InstrumentId.from_str(iid))
             return
         # A pause keeps the working orders but waits for those in flight: Sandbox `stop()` refuses the commands still
         # queued, and a checkpoint cannot hold an order the venue has not answered (engine.paper_session.unrestorable).
