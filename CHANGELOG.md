@@ -78,6 +78,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## 0.4.2 (2026-11-17)
 
+- Paper: a recovery of a `PAPER_RECOVERY` source whose interruption crossed a funding settlement is now held instead
+  of refused (user 2026-11-17, 「资金费结算被错过时转托管」): no source starts, the holder keeps the stops and targets
+  working until flat. The runner journals `refusal` `PAPER_RECOVERY_UNAVAILABLE` right after `resumed`, so the seal
+  carries `REFUSED:PAPER_RECOVERY_UNAVAILABLE`; later recoveries of the run are held too (a protocol checkpoint with
+  the account and no source state, formerly refused as inconsistent, now means held). `paper compare` takes the held
+  start from that `resumed`. Nothing new is stored.
 - Paper: a run whose source does not declare `PAPER_RECOVERY` is now held after an interruption while it holds a
   position, as Live holds (user 2026-11-17). SIGTERM pauses it without cancelling, and it checkpoints the native cache
   alone while a position is open; its resume starts no source but a holder under the source's strategy ID, which checks

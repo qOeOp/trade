@@ -96,6 +96,15 @@ class Compare(unittest.TestCase):
         self.assertEqual(compare.held_since(lines, undeclared), held)
         self.assertIsNone(compare.held_since(lines, declared))
         self.assertIsNone(compare.held_since(journal([], 5), undeclared), "never resumed")
+        # A source with the protocol is held from a recovery that crossed a funding settlement: the runner follows
+        # `resumed` with a refusal at once and goes on; a refused recovery stops without another bar.
+        fell = [{"kind": "resumed", "wall_ns": held},
+                {"kind": "refusal", "code": "PAPER_RECOVERY_UNAVAILABLE", "reason": "funding"}]
+        bar = {"kind": "bar", "instrument_id": "BTCUSDT-PERP.BINANCE", "ts_event": close_of(4)}
+        self.assertEqual(compare.held_since(fell + [bar], declared), held)
+        self.assertIsNone(compare.held_since(fell, declared), "refused and stopped")
+        self.assertIsNone(compare.held_since(fell + [{"kind": "resumed", "wall_ns": held + 1}, bar], declared))
+        self.assertIsNone(compare.held_since([fell[0], bar, fell[1], bar], declared), "a refusal that came later")
         for at, since, cause in ((close_of(3), held, "held"), (close_of(1), held, "unexplained"),
                                  (close_of(3), None, "unexplained")):
             with self.subTest(at=at, since=since):
