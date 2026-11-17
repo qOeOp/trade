@@ -424,7 +424,8 @@ class PauseTests(unittest.TestCase):
     def test_a_pause_waits_for_a_declared_aggregations_bar_due_now(self):
         """The final cut cannot be published while a bucket ended and its bar has not reached the source
         (engine.paper_session.Session.due): the pause waits for it, within STOP_CANCEL_SECONDS."""
-        due = mock.Mock(side_effect=["a 15-MINUTE bucket ends at 12:15", None])
+        due = mock.Mock(side_effect=["the 15-MINUTE bar of the bucket ending at 12:15 has not reached the source",
+                                     None])
         session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock()), ready=True, refused=None,
                                   supported=True, saved=None, before_stop=mock.Mock(), try_cut=mock.Mock(), due=due)
         handle = self.recorder.handle
@@ -434,7 +435,6 @@ class PauseTests(unittest.TestCase):
             self.recorder.on_stop_timer(None)
             handle.stop.assert_not_called()
             self.recorder.on_stop_timer(None)
-        self.assertEqual(due.call_args.args[2], paper.PAUSE_AHEAD_NS)
         handle.stop.assert_called_once()
         self.source.cancel_all_orders.assert_not_called()
 

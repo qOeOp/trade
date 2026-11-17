@@ -618,11 +618,14 @@ No OHLCV is computed outside Nautilus. T moves on by a minute while it would end
 aggregator builds a bucket only once a later minute arrives. An order the source submits on a back-filled bar must be
 proven untouched by the minutes from that bar's bucket end up to T, by the same rules as a restored order, and must
 not be marketable at the bar's close (a buy limit at or above it, a sell limit at or below it, a stop the close has
-reached, any MARKET order); otherwise it is not sent and the recovery is refused as below. Such an order differs from
-the uninterrupted run only in its submit and accept times. So that the checkpoint's cut time tells the bars a source
-has had from those a recovery back-fills, a cut waits while a declared aggregation's bucket has ended and its bar is
-not yet in the native cache, and a pause waits for that bar (up to the same ten seconds), also for a bucket ending
-within three seconds. No downtime trades or settlements are
+reached, any MARKET order); otherwise it is not sent, nothing more is sent, and the recovery is refused as below.
+While back-filled bars are handed over, the source's clock reads T, the native cache already holds every back-filled
+bar (also those after the one in hand), and an order sent on an earlier back-filled bar may still be in flight; bars of
+several aggregations ending at the same instant go in the order the sources were registered. A source that relies on
+none of these makes the decisions the uninterrupted run made, which then differ only in their submit and accept times.
+So that the checkpoint's cut time tells the bars a source has had from those a recovery back-fills, a cut waits while
+a declared aggregation's bucket has ended and its bar is not yet in the native cache, and a pause waits for that bar
+(up to the same ten seconds); a pause's final cut is the instant the node stopped. No downtime trades or settlements are
 invented: on the warm-up's reader at T (T + 15 s, when the Binance kline closing at T is final), the recovery reads
 the one-minute klines of each contract holding a restored order from the journal's last bar up to the minute closing
 at T, and before any source starts it requires every restored order to be untouched by them (a stop's trigger, a

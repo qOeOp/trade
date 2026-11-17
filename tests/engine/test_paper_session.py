@@ -381,6 +381,9 @@ class BackfillTests(unittest.TestCase):
         with mock.patch("engine.paper_session.time.time_ns", return_value=T):
             self.assertIsNone(self.recovery(T + MINUTE_NS).submitted(order(kind="MARKET")),
                               "outside the back-fill nothing is checked")
+            session = self.recovery(T + MINUTE_NS)
+        session.handing, session.refused = ("15-MINUTE", bars[2], {}), "an earlier order's refusal"
+        self.assertEqual(session.submitted(quiet), "an earlier order's refusal", "after a refusal nothing more is sent")
 
     def test_a_refused_back_fill_starts_the_sources_but_leaves_the_recovery_unready(self):
         with mock.patch("engine.paper_session.time.time_ns", return_value=T):
@@ -406,7 +409,6 @@ class BackfillTests(unittest.TestCase):
             self.assertIn("has not reached the source", session.due(cache, T + QUARTER + 1))
             latest[0] = aggregated(T + QUARTER)
             self.assertIsNone(session.due(cache, T + QUARTER + DELAY))
-            self.assertIn("bucket ends at", session.due(cache, T + 2 * QUARTER - 1_000_000_000, 3_000_000_000))
             # A bucket ending at or before T is the warm-up's: its bar is back-filled or was never the source's.
             latest[0] = None
             self.assertIsNone(session.due(cache, T + 2 * MINUTE_NS))
@@ -426,6 +428,12 @@ class BackfillTests(unittest.TestCase):
             with mock.patch("engine.paper_session.time.time_ns", return_value=T + QUARTER + DELAY):
                 session.cut(cache)
             session.backend.snapshot.assert_called_once()
+            # A paused node's final cut is the instant it stopped: a bucket ending while it shuts down has no bar due.
+            with mock.patch("engine.paper_session.time.time_ns", return_value=T + 2 * QUARTER - 1):
+                session.before_stop(cache)
+            with mock.patch("engine.paper_session.time.time_ns", return_value=T + 2 * QUARTER + 1):
+                session.cut(cache)
+            self.assertEqual(session.backend.snapshot.call_args.args[1]["cut_ns"], T + 2 * QUARTER - 1)
 
 
 class InterruptionTests(unittest.TestCase):

@@ -129,7 +129,6 @@ VENUE = ACCOUNT_CONTRACT["venue"]
 LOADER_MARGIN = Decimal("0.1")
 LATE_BAR_NS = 2_000_000_000  # a bar arriving later than this after its close is a late-bar event
 STOP_CANCEL_SECONDS = 10
-PAUSE_AHEAD_NS = 3_000_000_000  # a pause stopping the node this soon before a bucket ends waits for its bar
 # The runner's exit status after its journal failed (ledger.paper.JOURNAL_FAILED_EXIT reads it: with a full disk the
 # summary is as likely missing as the journal's last lines, and the exit status is what the seal still has).
 JOURNAL_FAILED_EXIT = 3
@@ -772,11 +771,11 @@ class Recorder(DataActor):
             return
         # A pause keeps the working orders but waits for those in flight: Sandbox `stop()` refuses the commands still
         # queued, and a checkpoint cannot hold an order the venue has not answered (engine.paper_session.unrestorable).
-        # It also waits for a declared aggregation's bar of a bucket ended or ending within PAUSE_AHEAD_NS: the final
-        # cut cannot be published before that bar reached the source (engine.paper_session.Session.due).
+        # It also waits for the bar of a declared aggregation's bucket that has ended: the final cut cannot be published
+        # before that bar reached the source (engine.paper_session.Session.due).
         pending = (any(strategy._paper_held for strategy in strategy_runtime.STRATEGIES.values())
                    or any(in_flight(order) for order in self.cache.orders())
-                   or bool(SESSION and SESSION.ready and SESSION.due(self.cache, time.time_ns(), PAUSE_AHEAD_NS))
+                   or bool(SESSION and SESSION.ready and SESSION.due(self.cache, time.time_ns()))
                    ) if pausing() else open_orders
         if self.handle is None or pending and time.monotonic() - self.stopping_since < STOP_CANCEL_SECONDS:
             return

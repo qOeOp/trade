@@ -155,6 +155,7 @@ class Session:
         self.refused: str | None = None  # why the recovery was refused before it was ready (touched, backfill)
         self.downtime: dict[str, list] = {}  # contract: the one-minute klines of the interruption (read_downtime)
         self.working: set[str] = set()  # the contracts of the restored unfinished orders (engine.paper.build_node)
+        self.stopped_ns: int | None = None  # when a pause stopped the node (before_stop)
         self.handing: tuple | None = None  # (period, aggregated bar, its minutes up to T) while backfill hands one
         # A recovery's T, and the start of the bucket the checkpoint was cut in of each aggregation it back-fills.
         self.warm_at, self.since = self.crossed(warm_at)
@@ -292,9 +293,11 @@ class Session:
         it would have worked from that bar's close; here it works from T. Only one the minutes from the bar's bucket
         end up to T prove untouched (`touched`, as an accepted order) and the bar's close does not make marketable
         (it would have matched at once on that L1; a MARKET always) passes: then its first match is the one the
-        uninterrupted run made, and only its submit and accept times differ."""
+        uninterrupted run made. Once the recovery is refused, nothing more is sent."""
         if self.handing is None:
             return None
+        if self.refused:
+            return self.refused
         period, bar, minutes = self.handing
         end = self.bucket_end(bar)
         iid = str(order.instrument_id)
@@ -314,16 +317,13 @@ class Session:
                                             f"at {history.utc(end)} cannot wait for T: {found}")
         return found
 
-    def due(self, cache, now: int, ahead: int = 0) -> str | None:
+    def due(self, cache, now: int) -> str | None:
         """Why a cut at `now` could not tell whether a declared aggregation's latest bar reached the source, or None:
         a bucket ended after T and its bar is not in the native cache yet (rc7 builds it BUILD_DELAY_US after the
-        end, caches it and dispatches it in one step; a held callback then defers the cut until it ran). `ahead`: a
-        bucket also ending within that long (a pause before it stops the node)."""
+        end, caches it and dispatches it in one step; a held callback then defers the cut until it ran)."""
         for iid in strategy_runtime.STRATEGIES:
             for period in self.aggregated:
                 end = warmup.bucket_start(now, period)
-                if warmup.bucket_start(now + ahead, period) != end:
-                    return f"a {period} bucket ends at {history.utc(warmup.bucket_start(now + ahead, period))}"
                 if end <= self.warm_at:
                     continue
                 latest = cache.bar(warmup.aggregated_type(iid, period).standard())
@@ -379,7 +379,9 @@ class Session:
             raise checkpoint.fail(self.pause_error)
         if self.depth or strategy_runtime.FAILURES:
             raise checkpoint.fail("callbacks are active or failed; no consistent checkpoint is available")
-        cut_ns = time.time_ns()
+        # A paused node dispatches nothing after its stop: the final cut is that instant's, so a bucket ending while
+        # the node shuts down is not one whose bar the source should have had (`due`).
+        cut_ns = self.stopped_ns or time.time_ns()
         sources: dict[str, dict] = {}
         if cache is not None:
             if not self.supported or not self.ready:
@@ -429,6 +431,7 @@ class Session:
             raise checkpoint.fail(f"an order cannot be restored from the checkpoint: {found}")
 
     def before_stop(self, cache) -> None:
+        self.stopped_ns = time.time_ns()
         # Native component stop cancels clocks. Checking only after node.run returned
         # would hide a user timer which existed when the pause was requested.
         found = next(filter(None, map(unrestorable, cache.orders())), None)
