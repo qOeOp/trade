@@ -5,16 +5,17 @@ hooks, minute bars and the aggregations WARMUP declares, and no strategy timers.
 
 A checkpoint holds the working orders the Sandbox restores from the native cache as they were (its start loads the
 cache's open orders into its matching engines; docs/plans/paper-recovery-open-orders-20261117.zh.md): accepted, not
-in flight, not emulated, not contingent or linked, not trailing (`unrestorable`). Any other unfinished order defers the
-cut.
+in flight, not emulated, not contingent or linked, a LIMIT, STOP_MARKET, STOP_LIMIT or LIMIT_IF_TOUCHED triggered by
+the last price (`unrestorable`). Any other unfinished order defers the cut.
 
 A recovery warms each source again at its own T (engine.history): the declared history and the aggregations'
 current buckets are read from Binance's klines, the history goes to on_historical_bars, then the source's on_load
 gets its saved state and its on_start runs. A recovery that crossed a bucket boundary of a declared aggregation, or a
 funding settlement, is refused: the source would never see that aggregated bar or settlement as it happened. So is
-one whose interruption may have changed a restored working order (`touched`): the warm-up's reader also reads the
-one-minute klines from the journal's last bar of each contract up to T, and before any source starts every restored
-order must be proven untouched by them and unexpired at T. Nothing is matched or invented for the interruption.
+one whose interruption may have changed a restored working order (`touched`): for each contract holding one, the
+warm-up's reader also reads the one-minute klines from the journal's last bar up to T, and before any source starts
+every restored order must be proven untouched by them and unexpired at T. Nothing is matched or invented for the
+interruption.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from engine.config import ACCOUNT_CONTRACT, MINUTE_NS
 
 # An order the venue has not yet answered: a checkpoint could restore neither its command nor its answer.
 IN_FLIGHT = {"INITIALIZED", "SUBMITTED", "PENDING_UPDATE", "PENDING_CANCEL"}
+TRIGGERS = ("DEFAULT", "LAST_PRICE")  # the triggers LAST klines show
 
 
 def _name(value) -> str | None:
@@ -48,7 +50,8 @@ def in_flight(order) -> bool:
 def unrestorable(order) -> str | None:
     """Why an unfinished order cannot be in a checkpoint, or None. The Sandbox restores an accepted order (a triggered
     STOP_LIMIT too) into its matching engine as it was, but neither a command in flight nor the state a matching
-    engine keeps outside the cache (an emulated order, a contingent or linked one, a trailing stop's trailing price);
+    engine keeps outside the cache (an emulated order, a contingent or linked one, a trailing stop's trailing price),
+    nor what a recovery cannot prove untouched (`touched`: another order type, a trigger other than the last price);
     a partial fill was not proven by a probe."""
     if order.is_closed:
         return None
@@ -65,6 +68,11 @@ def unrestorable(order) -> str | None:
         return f"{order.client_order_id} is a trailing stop"
     if not (status == "ACCEPTED" or status == "TRIGGERED" and kind == "STOP_LIMIT"):
         return f"{order.client_order_id} is {status}"
+    # What a recovery could not prove untouched (`touched`) would only be refused there.
+    if kind not in ("LIMIT", "STOP_MARKET", "STOP_LIMIT", "LIMIT_IF_TOUCHED"):
+        return f"{order.client_order_id} is a {kind}, which a recovery cannot check"
+    if status == "ACCEPTED" and kind != "LIMIT" and _name(getattr(order, "trigger_type", None)) not in TRIGGERS:
+        return f"{order.client_order_id} triggers on {_name(order.trigger_type)}, which a recovery cannot check"
     return None
 
 
@@ -85,9 +93,9 @@ def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int
         expiry = getattr(order, "expire_time", None)
         if _name(order.time_in_force) == "GTD" and (expiry is None or expiry <= at):
             return f"{name}: its GTD expiry {history.utc(expiry or 0)} is at or before {history.utc(at)}"
-        if kind in ("STOP_MARKET", "LIMIT_IF_TOUCHED") or kind == "STOP_LIMIT" and status == "ACCEPTED":
+        if kind in ("STOP_MARKET", "LIMIT_IF_TOUCHED", "STOP_LIMIT") and status == "ACCEPTED":
             trigger = _name(getattr(order, "trigger_type", None))
-            if trigger not in ("DEFAULT", "LAST_PRICE"):
+            if trigger not in TRIGGERS:
                 return f"{name}: its {trigger} trigger cannot be checked on LAST klines"
             # The side whose order a high touches: a buy stop above the market, a sell LIMIT_IF_TOUCHED.
             level, by_high = order.trigger_price.as_decimal(), "SELL" if kind == "LIMIT_IF_TOUCHED" else "BUY"
@@ -125,6 +133,7 @@ class Session:
         self.pause_error: str | None = None
         self.refused: str | None = None  # why the recovery was refused before its sources started (touched)
         self.downtime: dict[str, list] = {}  # contract: the one-minute klines of the interruption (read_downtime)
+        self.working: set[str] = set()  # the contracts of the restored unfinished orders (engine.paper.build_node)
         # The sources start once warmed: T, its settling and its deadline (engine.history), and some slack.
         self.restore_deadline = (time.monotonic() + max(0, warm_at - time.time_ns()) / history.SECOND_NS
                                  + (history.DEADLINE_NS + history.SETTLE_NS) / history.SECOND_NS)

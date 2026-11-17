@@ -315,7 +315,7 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
         self._warming_setup(kwargs["strategy_id"], args[0], inputs.warm_at, declared,
                             vars(type(self))["_runner_funding"], FETCH[0] if FETCH else None,
                             follows=vars(type(self))["_runner_reads_funding"],
-                            reads=bool(SESSION and SESSION.saved))
+                            reads=bool(SESSION and inputs.instrument_id in SESSION.working))
         self._metrics_setup(READ_METRICS[0] if READ_METRICS else None)
         super().__init__(*args, **kwargs)
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
@@ -394,10 +394,10 @@ READ_METRICS: list = []
 
 def fetch_at(instrument_id, at: int, declared, precisions: tuple[int, int], *, catalog: Path, proxy_url: str | None,
              session: Session | None, **kwargs):
-    """engine.history.fetch, and for a recovery the contract's klines of the interruption on the same reader thread
-    (engine.paper_session.Session.read_downtime)."""
+    """engine.history.fetch, and for a recovery of a contract with working orders the contract's klines of the
+    interruption on the same reader thread (engine.paper_session.Session.read_downtime)."""
     found = history.fetch(instrument_id, at, declared, precisions, catalog, proxy_url, **kwargs)
-    if session is not None and session.saved:
+    if session is not None and str(instrument_id) in session.working:
         session.read_downtime(instrument_id, at, precisions, proxy_url)
     return found
 
@@ -842,6 +842,8 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
         # A second, independently saved strategy state would not define the same cut.
         builder.with_save_state(False)
         accounts = session.backend.accounts()
+        if session.saved:
+            session.working = session.backend.open_contracts()
         if accounts:
             if len(accounts) != 1 or not (session.saved or {}).get("sources"):
                 raise checkpoint.fail("native accounts and checkpoint strategy state disagree")

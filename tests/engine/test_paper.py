@@ -452,12 +452,15 @@ class InterruptionReadTests(unittest.TestCase):
         state["thread"].join(5)
         fetch.assert_called_once_with(IID, at, (), (1, 3), funding=0, follow=False)
 
-        session = SimpleNamespace(saved={"sources": {}}, read_downtime=mock.Mock())
-        with mock.patch.object(paper.history, "fetch", return_value=([], [], [])) as read:
-            paper.fetch_at(IID, at, (), (1, 3), catalog=Path("c"), proxy_url="http://proxy", session=session,
-                           funding=0, follow=False)
-        read.assert_called_once_with(IID, at, (), (1, 3), Path("c"), "http://proxy", funding=0, follow=False)
-        session.read_downtime.assert_called_once_with(IID, at, (1, 3), "http://proxy")
+        # Only a contract holding a restored working order reads them (engine.paper.build_node sets `working`).
+        for working, reads in ((set(), False), ({str(IID)}, True)):
+            session = SimpleNamespace(saved={"sources": {}}, working=working, read_downtime=mock.Mock())
+            with mock.patch.object(paper.history, "fetch", return_value=([], [], [])) as read:
+                paper.fetch_at(IID, at, (), (1, 3), catalog=Path("c"), proxy_url="http://proxy", session=session,
+                               funding=0, follow=False)
+            read.assert_called_once_with(IID, at, (), (1, 3), Path("c"), "http://proxy", funding=0, follow=False)
+            self.assertEqual(session.read_downtime.call_args_list,
+                             [mock.call(IID, at, (1, 3), "http://proxy")] if reads else [])
 
 
 class CredentialTests(unittest.TestCase):

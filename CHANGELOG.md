@@ -27,14 +27,16 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 ## Unreleased
 
 - Paper: a run of a `PAPER_RECOVERY` source now survives an interruption while it holds positions with working stops
-  and targets. Its checkpoint holds the working orders the Sandbox restores as they were (accepted, a STOP_LIMIT also
-  triggered; not in flight, emulated, contingent, linked, trailing or partly filled), where any unfinished order used to
-  defer it; a pause waits up to ten seconds for the orders in flight to be answered. At the resume, before any source
-  starts, the one-minute klines of each contract from the journal's last bar up to T must show that no restored order
-  was touched, that no GTD expired and that every trigger is on the last price; otherwise the recovery is refused
+  and targets. Its checkpoint holds the working orders the Sandbox restores as they were and a resume can check
+  (accepted, a STOP_LIMIT also triggered; a LIMIT, STOP_MARKET, STOP_LIMIT or LIMIT_IF_TOUCHED on the last price; not
+  in flight, emulated, contingent, linked or partly filled), where any unfinished order used to defer it; a pause waits
+  up to ten seconds for the orders in flight to be answered. At the resume, before any source starts, the one-minute
+  klines of each contract holding a restored order, from the journal's last bar up to T, must show that no restored
+  order was touched and that no GTD expired; otherwise the recovery is refused
   (`PAPER_RECOVERY_UNAVAILABLE`, naming the order and the minute) and the run stops without cancelling the restored
   orders and is sealed. A recovery stopped before its sources started for any other reason but STOP and the duration
-  also no longer cancels them. A source holding a trailing stop still ends at an interruption.
+  also no longer cancels them. A source holding a trailing stop, a MARKET_IF_TOUCHED or a MARK trigger still ends at
+  an interruption.
   (`docs/plans/paper-recovery-open-orders-20261117.zh.md`.)
 - Paper and Live: a position's working stops and targets are found by the order's own link to its position
   (`Cache.position_id`) as well as `Cache.orders_for_position`. A cache loaded from its database (a Paper recovery,

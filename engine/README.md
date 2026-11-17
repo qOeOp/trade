@@ -603,17 +603,19 @@ IDs, which the paired comparison masks.
 `PAPER_RECOVERY = 1` is an explicit source protocol: reviewed `on_save/on_load` hooks own all private state;
 `on_start` re-establishes the minute subscription and the aggregations `WARMUP` declares, without custom
 routing or dynamic changes. User timers are outside this protocol. A checkpoint holds the positions and the working
-orders the Sandbox restores into its matching engines as they were: accepted (a STOP_LIMIT also triggered), not in
-flight, not emulated, contingent or linked, not a trailing stop, not partly filled; any other unfinished order defers
-the checkpoint, so a source holding a trailing stop cannot be resumed. A source must
+orders the Sandbox restores into its matching engines as they were and a recovery can check: accepted (a STOP_LIMIT
+also triggered), not in flight, emulated, contingent or linked, not partly filled, a LIMIT, STOP_MARKET, STOP_LIMIT or
+LIMIT_IF_TOUCHED triggered by the last price; any other unfinished order (a trailing stop, a MARKET_IF_TOUCHED, a MARK
+trigger) defers the checkpoint, so a source holding one cannot be resumed. A source must
 not rely on native account event-count/history representation or unsaved cache history. A recovery warms the
 source again at its own T as a start does (history, then the unfinished buckets from their minutes), then
 calls `on_load` with the saved state and then `on_start`. It resumes only within the same bucket of every
 declared aggregation and before an unobserved funding settlement. No downtime trades or settlements are
-invented: on the warm-up's reader at T, the recovery reads each contract's one-minute klines from the journal's last
-bar up to the minute closing at T, and before any source starts it requires every restored order to be untouched by
-them (a stop's trigger, a limit's price, a LIMIT_IF_TOUCHED's trigger not reached by the minutes' high or low), a GTD's
-expiry after T, and a trigger on the last price. Any other order type or state, or a minute missing, fails too. A
+invented: on the warm-up's reader at T (T + 15 s, when the Binance kline closing at T is final), the recovery reads
+the one-minute klines of each contract holding a restored order from the journal's last bar up to the minute closing
+at T, and before any source starts it requires every restored order to be untouched by them (a stop's trigger, a
+limit's price, a LIMIT_IF_TOUCHED's trigger not reached by the minutes' high or low), a GTD's expiry after T, and a
+trigger on the last price. Any other order type or state, or a minute missing, fails too. A
 failed check journals a `refusal` (`PAPER_RECOVERY_UNAVAILABLE`, naming the order and the minute) and stops the run as
 a pause stops, leaving the restored orders as they were, without a new checkpoint; the daemon seals it. So does any
 other stop of a recovery before its sources started, but STOP and the duration, which cancel. The interruption shows

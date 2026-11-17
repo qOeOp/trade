@@ -161,7 +161,10 @@ class SessionTests(unittest.TestCase):
                         "emulated": order(is_emulated=True),
                         "OTO": order(contingency_type=ContingencyType.OTO),
                         "parent": order(parent_order_id="O-0"), "linked": order(linked_order_ids=["O-2"]),
-                        "trailing": order(kind="TRAILING_STOP_MARKET")}
+                        "trailing": order(kind="TRAILING_STOP_MARKET"),
+                        # What the recovery's check could not decide (touched) defers the cut instead.
+                        "MARKET_IF_TOUCHED": order(kind="MARKET_IF_TOUCHED"),
+                        "MARK trigger": order(trigger_type="MARK_PRICE")}
         strategy = self.strategy()
         strategy._paper_cadence = Cadence()
         for name, found in (("restorable", restorable), *((key, (value,)) for key, value in unrestorable.items())):
@@ -324,7 +327,10 @@ class InterruptionTests(unittest.TestCase):
                  "a MARK trigger": (order(trigger_type="MARK_PRICE"), QUIET),
                  "a BID_ASK trigger": (order(trigger_type="BID_ASK"), QUIET),
                  "a MARKET_IF_TOUCHED": (order(kind="MARKET_IF_TOUCHED"), QUIET),
-                 "a triggered LIMIT_IF_TOUCHED": (order(kind="LIMIT_IF_TOUCHED", status="TRIGGERED"), QUIET),
+                 "a triggered LIMIT_IF_TOUCHED": (order(kind="LIMIT_IF_TOUCHED", status="TRIGGERED", side="BUY"),
+                                                  QUIET),
+                 "a triggered STOP_MARKET": (order(status="TRIGGERED"), QUIET),
+                 "a partly filled LIMIT": (order(kind="LIMIT", status="PARTIALLY_FILLED", side="BUY"), QUIET),
                  "a MARKET": (order(kind="MARKET"), QUIET),
                  "a minute missing": (order(), QUIET[:2] + QUIET[3:]),
                  "the last minute missing": (order(), QUIET[:-1])}
