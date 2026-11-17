@@ -104,7 +104,7 @@ def failure_summary(error: Exception) -> str:
         return "filesystem or operating-system operation failed"
     if isinstance(error, AssertionError):
         return "invariant check failed"
-    if isinstance(error, ReaderFailure):  # doctor 20261117-01: which reader, which path, what it answered
+    if isinstance(error, ReaderFailure):  # doctor 20261117-02: which reader, which path, what it answered
         return f"{error.reader} unhealthy at {error.path}: {error.answer}"
     if isinstance(error, DockerFailure):  # its stderr can quote what a container printed
         return f"docker {error.command} exited {error.status} (called at {source_line(error, 'docker')})"
@@ -443,7 +443,7 @@ class GitSource:
 # Either is moved again once it is FOLLOW_RETRY_SECONDS old, while it was created within
 # (FOLLOW_ATTEMPTS - 1) * FOLLOW_RETRY_SECONDS of the Web: each undone move leaves a container at least that much
 # newer than the last, so a version tries at most FOLLOW_ATTEMPTS moves, an hour apart, and then leaves the service to
-# the next version with a drift notice (doctor 20261117-01). Nothing is stored: Docker's creation times are the count.
+# the next version with a drift notice (doctor 20261117-02). Nothing is stored: Docker's creation times are the count.
 FOLLOW_RETRY_SECONDS, FOLLOW_ATTEMPTS = 3600, 3
 
 

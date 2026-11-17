@@ -26,14 +26,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
-- Release (doctor 20261117-01): a release that cannot read the Web or the Paper controller now says which reader,
+- Release (doctor 20261117-02): a release that cannot read the Web or the Paper controller now says which reader,
   which path and what it answered: an HTTP status, or the class of the error that stopped the read (`TimeoutError`,
   `URLError`, ...), never a response body. After a compose service move is undone, the journal names the reader
   that failed (`Compose service move failed: Paper controller unhealthy at /api/paper/runs: HTTP 500`); until now it
   said only `unclassified runtime failure (RuntimeError at deploy/release_host.py:239)`. A failed `docker` command
   is named by its subcommand, exit status and the product line that ran it, still without what it printed, and a
   service that did not start on its image is named. No refusal or admission changed.
-- Release (doctor 20261117-01): a compose service move that was undone is tried again. The undo recreates the ledger
+- Release (doctor 20261117-02): a compose service move that was undone is tried again. The undo recreates the ledger
   mirror, market import or docker-api after the routed Web, which until now read as the operator's own recreation, so
   no later tick moved it (0.4.1 stayed on the 11-11 service image). A service created after the routed Web is now moved
   again under the same conditions once it is an hour old, while it was created within two hours of the routed Web: at
