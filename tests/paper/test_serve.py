@@ -187,6 +187,33 @@ class JournalTests(unittest.TestCase):
         self.assertEqual([minute for minute, _ in live["equity"]], [START, START + MINUTE, START + 2 * MINUTE])
         self.assertAlmostEqual(live["equity"][-1][1], 100009.9)  # 99990 + 20 open, less 0.1 funding
 
+    def test_late_bars_count_the_runs_own_delay_after_binance_sent_each_bar_as_the_seal_does(self):
+        """User 2026-11-18: a bar is late when received (ts_init) more than 2 s after Binance sent it (its kline_event,
+        engine.kline_events), Binance's own delay aside; neither line kind is listed for the page."""
+        iid, late = "BTCUSDT-PERP.BINANCE", 2 * 10**9
+        closes = [START + i * MINUTE - 10**6 for i in (1, 2, 3, 4)]
+        sent = [close + 10**6 + 3 * 10**9 for close in closes]  # Binance sent every bar 3 s after its close
+        lines = [line("started", START, source_sha256="s"),
+                 line("bar", 0, instrument_id=iid, ts_event=closes[0], ts_init=sent[0] + late),  # on time
+                 line("kline_event", 0, instrument_id=iid, ts_event=closes[0], event_ns=sent[0]),
+                 line("kline_event", 0, instrument_id=iid, ts_event=closes[1], event_ns=sent[1]),  # before its bar
+                 line("bar", 0, instrument_id=iid, ts_event=closes[1], ts_init=sent[1] + late + 1),  # late
+                 line("bar", 0, instrument_id=iid, ts_event=closes[2], ts_init=sent[2] + late + 1),  # unknown
+                 line("bar", 0, instrument_id=iid, ts_event=closes[3], ts_init=sent[3] + late + 1),
+                 line("kline_event", 0, instrument_id=iid, ts_event=closes[3], event_ns=sent[3])]  # late
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root, "events.jsonl")
+            write(path, lines)
+            found = serve.Journal()
+            found.read(path)
+        self.assertEqual([item["kind"] for item in found.lines], ["started"])
+        self.assertEqual((serve.readings(ROW, found)["late_bars"], records.readings(ROW, lines, 0, None, None, None)["late_bars"]),
+                         (2, 2))
+        self.assertEqual([item["kind"] for item in lines if serve._wanted(item, iid)], ["started", "bar", "bar", "bar", "bar"])
+        # A page holding the one listed line and the bars resumes with nothing new.
+        self.assertEqual([item for item in serve.resumed(lines, serve.Resume(1, START, closes[3])) or [None]
+                          if serve._wanted(item, iid)], [])
+
     def test_waiting_input_boundary_is_derived_from_the_existing_journal(self):
         found = serve.Journal(lines=[line("started", START, input_start_ns=START + 1440 * MINUTE),
                                      line("waiting", START, until_ns=START + 1440 * MINUTE)])
@@ -318,6 +345,36 @@ class RestartTests(unittest.TestCase):
         self.assertFalse(serve.declares_recovery(b"class S(Strategy):\n    PAPER_RECOVERY = 1\n"), "no hooks")
         self.assertFalse(serve.declares_recovery(declared.replace("= 1", "= 2").encode()))
         self.assertIsNone(serve.declares_recovery(b"class S(:\n"))
+
+    def test_the_listing_names_a_held_runs_positions_without_a_working_stop_until_they_close(self):
+        """User 2026-11-17 (keep it held, notify at once): a position whose `protection_gap` was journalled after the
+        held start and which has not closed since is unprotected; a gap before it, a closed position and a source
+        that declares recovery are not."""
+        gap = lambda key, at: {"kind": "protection_gap", "wall_ns": at, "position_id": key,  # noqa: E731
+                               "instrument_id": "BTCUSDT-PERP.BINANCE", "since_ns": at - 5}
+        lines = [gap("P-0", 10), {"kind": "resumed", "wall_ns": 20}, gap("P-1", 30), gap("P-2", 31),
+                 {"kind": "position", "wall_ns": 40, "position_id": "P-2", "type": "PositionClosed"},
+                 {"kind": "position", "wall_ns": 41, "position_id": "P-1", "type": "PositionChanged",
+                  "side": "LONG", "quantity": "0.5"}]
+        undeclared = b"class S(Strategy):\n    pass\n"
+        declared = (b"class S(Strategy):\n    PAPER_RECOVERY = 1\n    def on_save(self):\n        return {}\n"
+                    b"    def on_load(self, state):\n        pass\n")
+        for text, since, named in ((undeclared, 20, ["P-1"]), (declared, None, [])):
+            daemon = self.daemon(Path("/nonexistent"))
+            daemon.stopping, daemon.starting, daemon.journals, daemon.listed = set(), set(), {}, None
+            daemon.recovery_failures = {}
+            daemon.journal = mock.Mock(return_value=serve.Journal(lines=list(lines)))
+            with tempfile.TemporaryDirectory() as name, \
+                    mock.patch.object(runs, "listing", return_value={"runs": [{"paper_id": 1, "state": "running"}]}), \
+                    mock.patch.object(runs, "run_dir", return_value=Path(name)), \
+                    mock.patch.object(serve, "readings", side_effect=lambda row, journal: {}):
+                (Path(name) / "inputs").mkdir()
+                (Path(name) / "inputs" / "strategy.py").write_bytes(text)
+                run = serve.Daemon._runs(daemon)["runs"][0]
+            self.assertEqual(run["held_since"], since)
+            self.assertEqual([item["position_id"] for item in run["unprotected"]], named)
+        self.assertEqual(serve.unprotected(lines, 20)[0], {"position_id": "P-1", "instrument_id": "BTCUSDT-PERP.BINANCE",
+                                                           "since_ns": 25})
 
     def test_only_a_pause_or_a_missing_summary_resumes_every_other_end_seals(self):
         """A runner refusal (TERMS_CHANGED, a breach, a failed restore) or a node that stopped on its own leaves a

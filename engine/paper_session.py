@@ -432,6 +432,10 @@ class Session:
         recorder.marks = {iid: (value[0], Price.from_str(value[1])) for iid, value in saved["marks"].items()}
         found = saved.get("protection") or {}
         recorder.gaps.since, recorder.gaps.reported = dict(found.get("since", {})), set(found.get("reported", []))
+        if self.held:
+            # A held run's stops are all it has (the holder places none): a gap still open is journalled again after
+            # its `resumed`, which the Paper page and the release's notice read as an unprotected position.
+            recorder.gaps.reported = set()
         for iid, following in saved["funding"].items():
             recorder.cadence[iid] = Cadence(next_funding_ns=following)
         recorder.last_bar = dict(self.last_bar)

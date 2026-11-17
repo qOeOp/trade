@@ -46,6 +46,10 @@ export type PaperRun = {
    *  strategy input while it is not sealed; null where that is unreadable. Without it an interruption ends the run, or
    *  holds it while a position is open (engine/paper.py, HELD_FLAT). */
   recovery_declared?: boolean | null;
+  /** When the run was first held (paper/compare.py held_since, wall ns), and the positions held since then with no
+   *  working stop (paper/serve.py unprotected); derived from the journal while it is not sealed. */
+  held_since?: number | null;
+  unprotected?: { position_id: string; instrument_id: string | null; since_ns: number | null }[];
 };
 /** The ledger's paper memory in MiB (paper/runs.py memory_state): the budget, what running runs reserve, the
  *  host's available memory (null where unread), what a new run may reserve and the least one needs. */

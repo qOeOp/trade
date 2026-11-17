@@ -115,6 +115,7 @@ class Observer(Strategy):
 
     def tick(self, _event):
         try:
+            self.session.record_kline_events()
             self.observe()
         except Exception as exc:
             self.session.failed = True

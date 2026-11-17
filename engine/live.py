@@ -43,6 +43,7 @@ from engine.live_source import source_for_run
 from engine import live_brake, live_connection
 from engine.live_lifecycle import source_outcome
 from engine.live_node import build_node
+from engine.kline_events import KlineEvents
 
 
 INTERRUPTED = 3  # the exit status of a run that starts again as itself
@@ -286,6 +287,9 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
     node = None
     try:
         node = build_node(session, credentials, cache.config, loaded, source_module=__name__)
+        if session.mode == "run":
+            session.kline_events = KlineEvents(manifest["symbols"], manifest["config"].get("proxy_url"))
+            session.kline_events.start()
         session.event("connecting", mode=args.mode)
         node.run()
         source_outcome(session, node.cache)
@@ -302,6 +306,10 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
         raise
     finally:
         try:
+            if session.kline_events is not None:
+                session.kline_events.stop()
+                session.record_kline_events()
+                session.kline_events = None
             if node is not None:
                 session.evidence.reports(node.cache, Venue("BINANCE"))
                 node.dispose()

@@ -20,7 +20,7 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.persistence import DataCatalogConfig
 
-from engine import history, live, live_source as live_source_runtime, warmup
+from engine import history, live, live_lifecycle, live_source as live_source_runtime, warmup
 from engine.config import Refusal
 from engine.live_evidence import EVIDENCE, MARKET, Evidence
 from engine.report import ORDER_EVENTS, write_order_events, write_reports
@@ -176,6 +176,22 @@ class LiveEvidenceTests(unittest.TestCase):
             source = engine = None
             gc.collect()
             live.strategy_runtime.clear_failures()
+
+    def test_binances_time_for_each_closed_kline_goes_to_the_pack_each_observer_tick(self):
+        """The side connection's events (engine.kline_events) reach market.jsonl on the node's thread, as Paper
+        journals them, so `live compare` reads late bars by the same rule."""
+        session, _ = self.session()
+        session.kline_events = SimpleNamespace(drain=Mock(side_effect=[[("AAAUSDT-PERP.BINANCE", 59_999_000_000,
+                                                                         60_005_000_000)], []]))
+        observer = live_lifecycle.Observer(session)
+        observer.observe = Mock()
+        observer.tick(None)
+        observer.tick(None)
+        self.assertEqual([{key: row[key] for key in ("kind", "instrument_id", "ts_event", "event_ns")}
+                          for row in rows(self.output)],
+                         [{"kind": "kline_event", "instrument_id": "AAAUSDT-PERP.BINANCE", "ts_event": 59_999_000_000,
+                           "event_ns": 60_005_000_000}])
+        self.assertEqual(observer.observe.call_count, 2)
 
     def test_live_warms_its_source_at_t_from_binance_klines_before_on_start(self):
         def klines(instrument_id, period, first_open, end, precisions, proxy_url, get=None):

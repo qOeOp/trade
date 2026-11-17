@@ -324,6 +324,26 @@ class JournalFailureTests(unittest.TestCase):
             paper.main([])
 
 
+class KlineEventTests(unittest.TestCase):
+    """Binance's time for each closed kline (engine.kline_events) is journalled on the node's thread, each second
+    before the checkpoint cut, so a cut's journal bytes hold every line written before it."""
+
+    def test_the_timer_journals_the_closed_klines_before_it_cuts(self):
+        self.addCleanup(paper.STOP.clear)
+        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
+        calls = mock.Mock()
+        klines = SimpleNamespace(drain=lambda: [(str(IID), 59_999_000_000, 60_005_000_000)])
+        session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock()), ready=True, held=False,
+                                  try_cut=calls.try_cut)
+        with mock.patch.object(paper, "KLINES", klines), mock.patch.object(paper, "SESSION", session), \
+                mock.patch.object(paper, "journal", calls.journal), mock.patch.object(recorder, "_protection"), \
+                mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock):
+            recorder.on_stop_timer(None)
+        self.assertEqual(calls.mock_calls[:2], [
+            mock.call.journal("kline_event", instrument_id=str(IID), ts_event=59_999_000_000, event_ns=60_005_000_000),
+            mock.call.try_cut(mock.ANY)])
+
+
 class CacheLivenessTests(unittest.TestCase):
     """The native cache child is watched every second: a dead one ends the run with a reason, as a refused one."""
 

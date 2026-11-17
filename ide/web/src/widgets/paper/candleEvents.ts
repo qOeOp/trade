@@ -1,7 +1,7 @@
 import { dateTime, type TimeZone } from "../../lib/time";
 // What a contract chart marks of the run's events besides its trades: a flag along the pane's foot under
-// the candle each happened in (one flag a candle, its letters the kinds there: G a gap in the bars, L a
-// late bar, F a funding settlement, P a position its stops do not cover, R a refusal, X a rejected or
+// the candle each happened in (one flag a candle, its letters the kinds there: G a gap in the bars, F a
+// funding settlement, P a position its stops do not cover, R a refusal, X a rejected or
 // denied order, S a socket's state, I the instrument's status), in the events' blue where something
 // went wrong; and each gap in the bars as a hatched band from the last candle before it to the first
 // after. The tooltips say the same in words: a flag's events, and an arrow's fills with what each paid
@@ -18,8 +18,8 @@ export type Flag = { time: number; letters: string; warn: boolean; lines: readon
 export type Gap = { from: number; to: number };
 export type Tip = { x: number; y: number; title: string; rows: readonly { text: string; faint?: boolean }[] };
 
-const LETTER: Record<string, string> = { data_gap: "G", late_bar: "L", funding_settlement: "F", protection_gap: "P", refusal: "R", socket: "S", instrument_status: "I" };
-const ORDER = "GPRXLFSI";  // a flag's letters in this order, the warnings first
+const LETTER: Record<string, string> = { data_gap: "G", funding_settlement: "F", protection_gap: "P", refusal: "R", socket: "S", instrument_status: "I" };
+const ORDER = "GPRXFSI";  // a flag's letters in this order, the warnings first
 const failed = (l: JournalLine) => l.kind === "order" && /Rejected|Denied/.test(String(l.type));
 const letterOf = (l: JournalLine) => (failed(l) ? "X" : LETTER[l.kind]);
 const warns = (letter: string) => "GPRX".includes(letter);
