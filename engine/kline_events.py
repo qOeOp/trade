@@ -10,7 +10,11 @@ A bar is late when the client received it more than LATE_NS after Binance sent i
 side's delay. How long after the close Binance sent it is evidence, never a cause. A bar with no ``kline_event`` (this
 connection was down, or the run started or resumed in that minute) is unknown, neither late nor on time.
 
-The connection never stops the run: a failure reconnects after a pause, and the minutes it missed are unknown.
+The connection never stops the run: a failure reconnects after a pause. Each change of its state is journalled as a
+``kline_socket`` line (``state``: ``up`` or ``down``; ``at_ns``: the host's time it was up from, or last shown alive
+at: its last frame; ``reason`` on a ``down``: closed, silent, refused or error), and a process begins with it down
+(``starting``) until its first ``up``. A bar with no ``kline_event`` while it was down counts apart from the unknown
+ones, with the reason (docs/plans/late-bar-exchange-time-20261118.zh.md).
 """
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ import socket
 import ssl
 import struct
 import threading
+import time
 from urllib.parse import urlsplit
 
 from engine.config import instrument_id
@@ -33,6 +38,11 @@ LATE_NS = 2 * 10**9  # a bar the client received more than this after Binance se
 MILLISECOND_NS = 1_000_000
 SILENCE_SECONDS = 30  # a kline stream pushes several times a second; this long without a frame is a dead link
 RETRY_SECONDS = (1, 2, 5, 10, 30)
+STARTING = "starting"  # the reason a process's side connection is down before its first up: derived, never stored
+
+
+class Refused(ConnectionError):
+    """The proxy refused the tunnel or the stream the upgrade."""
 
 
 def closed(message: Mapping) -> tuple[str, int, int] | None:
@@ -48,11 +58,40 @@ def closed(message: Mapping) -> tuple[str, int, int] | None:
     return symbol, close * MILLISECOND_NS, sent * MILLISECOND_NS
 
 
-def received(bars: Iterable[Mapping], events: Iterable[Mapping]) -> dict[str, dict]:
+def _timeline(sockets: Iterable[Mapping], starts: Iterable[int]) -> list[tuple[int, str | None]]:
+    """The side connection's states by time: (from, None while up, else the reason it was down). Each process start
+    makes it down (STARTING) until the next ``up``; before any line or start it was up as far as is recorded."""
+    found: list[tuple[int, int, str | None]] = [(at, 0, STARTING) for at in starts if isinstance(at, int)]
+    for line in sockets:
+        at = line.get("at_ns")
+        if isinstance(at, int) and line.get("state") in ("up", "down"):
+            found.append((at, 1, None if line["state"] == "up" else str(line.get("reason") or "error")))
+    return [(at, reason) for at, _, reason in sorted(found, key=lambda item: item[:2])]
+
+
+def _down(timeline: list[tuple[int, str | None]], first: int, last: int) -> str | None:
+    """The reason the side connection was down at the first moment of [first, last] it was, else None."""
+    reason = None
+    for at, state in timeline:
+        if at > last:
+            break
+        if at <= first:
+            reason = state
+        elif reason is None and state is not None:
+            return state
+    return reason
+
+
+def received(bars: Iterable[Mapping], events: Iterable[Mapping], sockets: Iterable[Mapping] = (),
+             starts: Iterable[int] = ()) -> dict[str, dict]:
     """Per contract, its one-minute bars by when Binance sent them: {late: closes the client received more than
-    LATE_NS after Binance sent them, unknown: closes with no kline_event, sent: {close: ns from the close (its last
-    millisecond) to Binance sending it}}. `bars`: journal ``bar`` lines (instrument_id, ts_event, ts_init); `events`:
-    ``kline_event`` lines, the first of a close standing."""
+    LATE_NS after Binance sent them, unknown: closes with no kline_event while the side connection was up, side_down:
+    {close: why the side connection was down} for those with none while it was down at some moment from the close to
+    LATE_NS after the client received the bar (it reads the same message about when the client does), sent: {close:
+    ns from the close (its last millisecond) to Binance sending it}}. `bars`: journal ``bar`` lines (instrument_id,
+    ts_event, ts_init); `events`: ``kline_event`` lines, the first of a close standing; `sockets`: ``kline_socket``
+    lines; `starts`: when each of the run's processes began (its side connection down until its first ``up``)."""
+    timeline = _timeline(sockets, starts)
     sent: dict[tuple[str, int], int] = {}
     for line in events:
         close = line.get("ts_event")
@@ -63,10 +102,15 @@ def received(bars: Iterable[Mapping], events: Iterable[Mapping]) -> dict[str, di
         iid, close = str(line.get("instrument_id")), line.get("ts_event")
         if not isinstance(close, int):
             continue
-        item = found.setdefault(iid, {"late": [], "unknown": [], "sent": {}})
+        item = found.setdefault(iid, {"late": [], "unknown": [], "side_down": {}, "sent": {}})
         at = sent.get((iid, close))
         if at is None or not isinstance(line.get("ts_init"), int):
-            item["unknown"].append(close)
+            receipt = line.get("ts_init")
+            why = _down(timeline, close, (receipt if isinstance(receipt, int) else close) + LATE_NS)
+            if why is None:
+                item["unknown"].append(close)
+            else:
+                item["side_down"][close] = why
             continue
         item["sent"][close] = at - (close + MILLISECOND_NS)
         if line["ts_init"] - at > LATE_NS:
@@ -105,7 +149,7 @@ def connect(symbols: Iterable[str], proxy_url: str | None, timeout: float = SILE
         status = _read_head(raw).split(b"\r\n", 1)[0].split(b" ")
         if len(status) < 2 or status[1] != b"200":
             raw.close()
-            raise ConnectionError(f"the proxy refused the tunnel: {b' '.join(status[:3]).decode('latin-1')}")
+            raise Refused(f"the proxy refused the tunnel: {b' '.join(status[:3]).decode('latin-1')}")
     else:
         raw = socket.create_connection((HOST, PORT), timeout=timeout)
     context = ssl.create_default_context()
@@ -119,7 +163,7 @@ def connect(symbols: Iterable[str], proxy_url: str | None, timeout: float = SILE
     status = _read_head(stream).split(b"\r\n", 1)[0].split(b" ")
     if len(status) < 2 or status[1] != b"101":
         stream.close()
-        raise ConnectionError(f"the stream refused the upgrade: {b' '.join(status[:3]).decode('latin-1')}")
+        raise Refused(f"the stream refused the upgrade: {b' '.join(status[:3]).decode('latin-1')}")
     return stream
 
 
@@ -167,6 +211,8 @@ class KlineEvents:
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._found: list[tuple[str, int, int]] = []
+        self._states: list[tuple[str, int, str | None]] = []
+        self._reason: str | None = STARTING  # why it is down now, None while up
         self._last: dict[str, int] = {}  # symbol -> the latest close taken: the first message of a close stands
         self._thread: threading.Thread | None = None
         self.failures = 0
@@ -185,6 +231,20 @@ class KlineEvents:
             found, self._found = self._found, []
         return found
 
+    def drain_states(self) -> list[tuple[str, int, str | None]]:
+        """(state, at_ns, reason) of each change of the connection's state since the last drain."""
+        with self._lock:
+            found, self._states = self._states, []
+        return found
+
+    def _state(self, reason: str | None, at: int) -> None:
+        """Keep a change: up (reason None), down, or down for another reason than the one kept."""
+        if reason == self._reason:
+            return
+        self._reason = reason
+        with self._lock:
+            self._states.append(("up", at, None) if reason is None else ("down", at, reason))
+
     def take(self, message: Mapping) -> None:
         found = closed(message)
         if found is None or found[0] not in self.symbols or found[1] <= self._last.get(found[0], -1):
@@ -198,20 +258,31 @@ class KlineEvents:
         attempt = 0
         while not self._stop.is_set():
             stream = None
+            alive: int | None = None  # up: the last moment the link was shown alive
+            began = time.time_ns()
+            reason: str | None = "closed"  # the server's close frame
             try:
                 stream = self._open(self.symbols, self.proxy_url)
+                alive = time.time_ns()
+                self._state(None, alive)
                 attempt = 0
                 for text in frames(stream):
+                    alive = time.time_ns()
                     if self._stop.is_set():
                         break
                     self.take(json.loads(text))
-            except Exception:  # noqa: BLE001 - any failure of this connection only leaves its minutes unknown
+            except Exception as exc:  # noqa: BLE001 - any failure of this connection only leaves its minutes without E
                 self.failures += 1
+                reason = ("refused" if isinstance(exc, Refused)
+                          else "silent" if alive is not None and isinstance(exc, TimeoutError)
+                          else "closed" if alive is not None and isinstance(exc, ConnectionError) else "error")
             finally:
                 if stream is not None:
                     try:
                         stream.close()
                     except OSError:
                         pass
+            if not self._stop.is_set():  # a stop is no gap: no bar comes after it
+                self._state(reason, began if alive is None else alive)
             self._stop.wait(RETRY_SECONDS[min(attempt, len(RETRY_SECONDS) - 1)])
             attempt += 1

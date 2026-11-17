@@ -40,7 +40,8 @@ taker rates the run is given (``--maker-fee``, ``--taker-fee``: the market's ass
 reads from its export receipts).
 
 Its own record is ``<output>/events.jsonl``: bars, Binance's time for each closed one-minute kline (``kline_event``,
-from a second connection to the same public streams: engine.kline_events), data gaps, socket state, orders, positions, funding
+from a second connection to the same public streams, and that connection's state, ``kline_socket``:
+engine.kline_events), data gaps, socket state, orders, positions, funding
 settlements, the account totals once a minute (at the next minute's first mark, its open positions valued at the
 minute's last mark, as a replay values a minute at its MARK bar's close), protection gaps, and the metrics rows the source was handed with
 its unsubscribes from them (``paper compare`` checks them, replay.comparison.compare_metrics). ``<output>/state.json`` holds the latest
@@ -234,8 +235,11 @@ KLINES: KlineEvents | None = None
 
 
 def record_kline_events() -> None:
-    """Journal the closed klines' event times read since the last call (engine.kline_events), on the node's thread."""
+    """Journal the side connection's state changes and the closed klines' event times read since the last call
+    (engine.kline_events), on the node's thread."""
     if KLINES is not None:
+        for state, at, reason in KLINES.drain_states():
+            journal("kline_socket", state=state, at_ns=at, **({"reason": reason} if reason else {}))
         for iid, close, sent in KLINES.drain():
             journal("kline_event", instrument_id=iid, ts_event=close, event_ns=sent)
 

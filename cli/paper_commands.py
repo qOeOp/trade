@@ -88,7 +88,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "directory (replay/ with the native reports and audit, comparison.json; with --preliminary, market/: the "
         "market's files linked and the months REST extends rewritten)",
         "path, data_source (archive, or rest: preliminary), summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, differs, run_only, "
-        "replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, unknown_bars, published_late_bars, early_bars, differing_bars, "
+        "replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, unknown_bars, side_down_bars, published_late_bars, early_bars, differing_bars, "
         "warmup_differs, terms_differ, equity_max_difference, equity_unexplained_minutes}, replay {status, problems, path}",
         "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (not sealed); PAPER_COMPARE_EMPTY (no interval); "
         "PAPER_COMPARE_UNCOVERED (the market lacks the interval's minutes); NOT_TEMPORARY_PATH, PATH_EXISTS "

@@ -122,3 +122,76 @@
 - 是否授权新增 `kline_event` 行（`instrument_id`、`ts_event`、`event_ns`），写进 Paper 日志和 Live 证据包。
 - 授权的话，同时意味着：每次 Paper 和 Live 运行多一条到 `fstream.binance.com` 的 websocket 连接；可能加一个 websocket 依赖；运行时不再写 `late_bar` 行，`late_bars` 改为封存时推出；比较多出"未知"和 Binance 推送延迟两项证据。
 - 不授权的话，可选 B（改门槛，也要授权）或维持现状 A。
+
+# 旁路连接的断线与重连：存储字段审阅
+
+2026-11-18。`kline_event` 实施后（#3172）留下一个缺口：旁路连接自己的断线、重连不记录。旁路连接掉线时，Binance 推送的 K 线没有 `kline_event`，这些 K 线在比较里只显示"没有 Binance 发出时间"，看不出是旁路断了，还是连接正常而某条消息没到。
+
+## 结论
+
+新增一种日志行 `kline_socket`，按审阅意见修改后的设计见下文"字段"。审阅认为需要；用户已授权（见"用户决定"），据此实施。
+
+## 字段
+
+一种新的日志行 `kline_socket`，Paper 和 Live 相同，只在旁路连接的状态变化时写：
+
+| 字段 | 含义 |
+|---|---|
+| `state` | `up`：Binance 答应了升级（101），开始收消息；`down`：连接不在 |
+| `at_ns` | 主机时钟，在旁路线程上取。`up`：升级成功的时刻。`down`：这条连接最后一次被证明活着的时刻，即最后一次收到帧的时刻（连上后没收到过帧则是 `up` 的时刻）；这次进程里还没连上过，则是这次尝试开始的时刻 |
+| `reason` | 只在 `down` 上，有界分类，见下表 |
+
+`reason` 与旁路连接代码的对应：
+
+| `reason` | 何时 |
+|---|---|
+| `closed` | 已经 `up` 后，服务端发来关闭帧，或连接被对端断开、读到流结束（含 Binance 每 24 小时的断开） |
+| `silent` | 已经 `up` 后，30 秒没有任何帧（读超时） |
+| `refused` | 代理拒绝隧道，或流拒绝升级（单独的异常类型） |
+| `error` | 其他一切，包括连上之前的超时 |
+
+- 写在哪里：Paper 运行目录的 `events.jsonl`，在节点线程上和 `kline_event` 一起每秒取出写入；Live 证据包的 `market.jsonl`。都是执行记录，不进研究账本、DoltHub 或 Git。
+- 只写变化：`up` 之后的第一次失败写一条 `down`；已经 `down` 时，只有 `reason` 变了才再写一条（重试间隔最长 30 秒）。停机时不写：停机后没有 K 线。
+- `wall_ns`、`kind` 是外壳。`at_ns` 要单独存：这一行每秒取出一次才写，`wall_ns` 晚于事件；`silent` 要在最后一帧之后 30 秒才发现，用 `wall_ns` 会把这 30 秒算成"连着"。改写 `wall_ns` 也不行，日志会不按时间排序，封存按 `wall_ns` 分日。
+
+### 进程开始：推出，不存
+
+每个进程开始时旁路连接还没连上，从进程开始到它第一条 `up` 都算断开，原因显示为"还没连上"（`starting`，不存）。进程开始由已有的数据给出：
+
+- Paper：同一个 `events.jsonl` 里的 `started` 和每条 `resumed` 的 `wall_ns`，它们都在旁路线程开始之前写。
+- Live：`live compare` 一次只比较一个进程（一个交易启动），取这个进程第一条日志的 `observed_ns`，`market.jsonl` 也只取这个进程的行。
+
+所以恢复或重启后、新连接连上前的那段时间，不会被算进上一个进程的 `up`。
+
+### 谁读它
+
+- `replay.comparison.bars`（`paper compare` 和 `live compare` 共用，经 `engine.kline_events.received`）：一根没有 `kline_event` 的 K 线，如果从它的收盘到 Nautilus 收到它之后 2 秒（`bar.ts_init + LATE_NS`）之间，旁路连接有任何时刻不是 `up`，就计为"旁路断开"，带上那时断开的原因；其余没有 `kline_event` 的才是"未知"。窗口延到 `ts_init` 之后，因为旁路收到同一条消息的时刻可能比 Nautilus 晚几十毫秒；窗口从收盘开始，在收盘之后、E 之前恢复的断开也算，这对这些不知道 E 的 K 线可以接受。
+- 比较结果：汇总和每个合约各有 `side_down_bars`；每个合约列出前几根（收盘、原因）；每个差异旁的证据有 `side_down_bars` 和 `side_down_reasons`。和"未知"一样只是证据，不是原因，不改变归因或前视嫌疑。比较格式改为 `run-comparison@2026-11-18.1`，旧格式的缓存结果会重新比较。
+- IDE 比较视图：计数行和每个差异旁的证据，把"旁路断开时没有发出时间的 K 线"（带原因）和"没有 Binance 发出时间的 K 线"分开显示。
+- IDE 运行日志列表：这一行显示为发出时间连接的状态。
+
+### 已有数据为什么表达不了
+
+- `kline_event` 只在收到消息时写。缺一条时，无法区分旁路断了还是连接正常而这条消息没到，这正是要区分的。
+- Paper 的 `socket` 行、Live 的 `socket_state` 事件是 Nautilus 自己数据连接的状态，不是旁路连接。复用 `socket` 行（换一个 `endpoint`）会把旁路的状态算进封存读数 `socket_events`，IDE 也把 `socket` 行当作 Nautilus 的端点显示。
+- `KlineEvents.failures` 只在内存里，不写任何地方。
+- 出网日志只记 CONNECT 尝试，没有断开和时长，分不出旁路和 Nautilus 的连接（都连 `fstream.binance.com:443`），封存里只留尾部，而且只有 Paper 有。
+- 从 `kline_event` 的间隔推断（某个收盘所有合约都缺 E 就当作断开）：只有一个合约时推不出；Binance 没发某个收盘与连接断开无法区分；断开的原因完全丢失；断开的起止落在分钟中间时对不准。
+- 进程开始可以由 `started`、`resumed` 和 Live 的进程分段推出，所以不存（见上）；其他断开推不出。
+
+## 审阅
+
+一个独立子代理只读审阅了初稿和相关代码（`engine/kline_events.py`、`engine/paper.py`、`engine/live.py`、`engine/live_session.py`、`engine/live_evidence.py`、`engine/live_lifecycle.py`、`engine/egress.py`、`replay/comparison.py`、`paper/compare.py`、`live/compare.py`、`ledger/paper.py`、`paper/serve.py`、IDE 的 `Compare.tsx` 和 `model/paper.ts`）。
+
+- 结论：需要，三处小改。
+- 谁读它：成立。两种比较已经把这些 K 线一并列为"没有 Binance 发出时间"，拆开正是用户指出的缺口。`at_ns` 和 `ts_init` 都是主机时钟，可以比较。
+- 独立事实：成立。旁路连接的状态哪里都没有记录（`failures` 只在内存，`socket`/`socket_state` 是 Nautilus 的连接，出网日志分不出两条连接）。
+- 已有数据为什么表达不了：成立；`at_ns` 必要（理由同上）；`reason` 可以保留，它是最弱的字段，只用于显示，但能区分处理办法不同的几种断开。
+- 要求的修改（均已写进上文）：
+  1. 去掉初稿里存的 `start` 原因：进程开始由 Paper 的 `started`/`resumed` 和 Live 的进程分段推出；
+  2. 窗口终点从 `ts_init` 改为 `ts_init + LATE_NS`，否则旁路比 Nautilus 晚几十毫秒收到最后一帧、随即静默时，会把这根 K 线误计为"未知"；
+  3. 写明原因与代码的对应：关闭帧或流结束为 `closed`，`up` 之后的读超时为 `silent`，代理或升级被拒为 `refused`（要单独的异常类型），其余包括连上之前的超时为 `error`。
+
+## 用户决定
+
+2026-11-18 用户授权加字段（原话「第二个限制我授权加字段 你走评审吧」），要求先走审阅；审阅认为需要，按上文"字段"实施。
