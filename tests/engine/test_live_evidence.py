@@ -182,15 +182,18 @@ class LiveEvidenceTests(unittest.TestCase):
         journals them, so `live compare` reads late bars by the same rule."""
         session, _ = self.session()
         session.kline_events = SimpleNamespace(drain=Mock(side_effect=[[("AAAUSDT-PERP.BINANCE", 59_999_000_000,
-                                                                         60_005_000_000)], []]))
+                                                                         60_005_000_000)], []]),
+                                               drain_states=Mock(side_effect=[[("up", 58_000_000_000, None)],
+                                                                              [("down", 61_000_000_000, "closed")]]))
         observer = live_lifecycle.Observer(session)
         observer.observe = Mock()
         observer.tick(None)
         observer.tick(None)
-        self.assertEqual([{key: row[key] for key in ("kind", "instrument_id", "ts_event", "event_ns")}
-                          for row in rows(self.output)],
-                         [{"kind": "kline_event", "instrument_id": "AAAUSDT-PERP.BINANCE", "ts_event": 59_999_000_000,
-                           "event_ns": 60_005_000_000}])
+        self.assertEqual([{key: value for key, value in row.items() if key != "wall_ns"} for row in rows(self.output)],
+                         [{"kind": "kline_socket", "state": "up", "at_ns": 58_000_000_000},
+                          {"kind": "kline_event", "instrument_id": "AAAUSDT-PERP.BINANCE", "ts_event": 59_999_000_000,
+                           "event_ns": 60_005_000_000},
+                          {"kind": "kline_socket", "state": "down", "at_ns": 61_000_000_000, "reason": "closed"}])
         self.assertEqual(observer.observe.call_count, 2)
 
     def test_live_warms_its_source_at_t_from_binance_klines_before_on_start(self):

@@ -63,6 +63,7 @@ export function describe(line: JournalLine, digits: ReadonlyMap<string, Precisio
       return `${what} ${word(f.side).toLowerCase()} ${fixed(Math.abs(amount(f.signed_qty) ?? 0), d.size)}${f.avg_px_open ? ` · avg ${fixed(f.avg_px_open, d.price)}` : ""}`;
     }
     case "data_gap": return `${f.missing_bars} one-minute bars missing`;
+    case "kline_socket": return f.state === "up" ? "Binance send-time stream connected" : `Binance send-time stream ${f.reason === "error" ? "failed" : String(f.reason ?? "down")}`;
     case "socket": return `${String(f.endpoint ?? "").replace(/^binance-futures-/, "Binance ").replace(/-/g, " ")} ${word(f.state).toLowerCase()}`;
     case "funding_settlement": return `Funding settled at ${f.stream_rate}, mark ${f.mark ?? "unknown"}`;
     case "protection_gap": return `Position ${f.position} exceeds its stop orders (${f.stop_quantity})`;

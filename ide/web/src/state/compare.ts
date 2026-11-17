@@ -24,7 +24,8 @@ export type Group = {
   funding: { run: string | null; replay: string | null };
   class: "same" | "differs" | "run_only" | "replay_only"; stage: Stage | null; first: number | null;
   cause?: Cause; look_ahead_suspect?: boolean; follows?: string;
-  evidence?: { missing_bars: number; late_bars: number; unknown_bars: number; published_late_bars: number;
+  evidence?: { missing_bars: number; late_bars: number; unknown_bars: number; side_down_bars: number; side_down_reasons: SideDown[];
+               published_late_bars: number;
                publication_delay_ms: string | null; early_bars: number; early_lead_ms: string | null; differing_bars: number;
                missing_metrics: number; late_metrics: number; differing_metrics: number; first: string | null; warmup: boolean; terms: string[] };
 };
@@ -32,21 +33,25 @@ export type Group = {
 type Summary = {
   run_orders: number; run_fills: number; replay_orders: number | null; replay_fills: number | null; groups: number | null;
   same: number | null; differs: number | null; run_only: number | null; replay_only: number | null; consequences: number | null;
-  look_ahead_suspects: number | null; missing_bars: number; late_bars: number; unknown_bars: number; published_late_bars: number;
+  look_ahead_suspects: number | null; missing_bars: number; late_bars: number; unknown_bars: number; side_down_bars: number;
+  published_late_bars: number;
   early_bars: number; differing_bars: number;
   missing_metrics: number; late_metrics: number; differing_metrics: number;
   warmup_differs: number; terms_differ: number; equity_max_difference: string | null;
 };
 /** A contract's bars: complete counts, and the first of each kind listed. */
-type ContractBars = { archive: number; live: number; missing_bars: number; late_bars: number; unknown_bars: number;
+/** Why the side connection that reads Binance's send times was down (engine/kline_events.py): "starting" before a
+ *  process's first connection. */
+export type SideDown = "starting" | "closed" | "silent" | "refused" | "error";
+type ContractBars = { archive: number; live: number; missing_bars: number; late_bars: number; unknown_bars: number; side_down_bars: number;
                       published_late_bars: number; early_bars: number; differing_bars: number; missing: string[]; late: string[];
-                      unknown: string[]; published_late: { close: string; delay_ms: string }[]; early: { close: string; lead_ms: string }[]; live_only: string[];
+                      unknown: string[]; side_down: { close: string; reason: SideDown }[]; published_late: { close: string; delay_ms: string }[]; early: { close: string; lead_ms: string }[]; live_only: string[];
                       differing: { close: string; fields: Record<string, [string, string]> }[] };
 /** A contract's metrics in a Paper or Live comparison: complete counts, and the first of each kind listed. */
 type ContractMetrics = { archive: number; live: number; missing_metrics: number; late_metrics: number; differing_metrics: number;
                          live_only_metrics: number; missing: string[]; late: string[]; live_only: string[];
                          differing: { at: string; fields: Record<string, [string | null, string | null]> }[] };
-/** comparison.json (run-comparison@2026-11-18); `groups` is null when the replay wrote no order events. */
+/** comparison.json (run-comparison@2026-11-18.1); `groups` is null when the replay wrote no order events. */
 type Result = {
   kind: "paper" | "live"; paper_id?: number; window: { start: string; end: string }; market_day: string; image_ref: string;
   /** "rest": a preliminary comparison, the minutes after `preliminary.market_day` read from Binance's public REST. */

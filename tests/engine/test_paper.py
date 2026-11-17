@@ -332,14 +332,18 @@ class KlineEventTests(unittest.TestCase):
         self.addCleanup(paper.STOP.clear)
         recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
         calls = mock.Mock()
-        klines = SimpleNamespace(drain=lambda: [(str(IID), 59_999_000_000, 60_005_000_000)])
+        klines = SimpleNamespace(drain=lambda: [(str(IID), 59_999_000_000, 60_005_000_000)],
+                                 drain_states=lambda: [("up", 58_000_000_000, None),
+                                                       ("down", 61_000_000_000, "silent")])
         session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock()), ready=True, held=False,
                                   try_cut=calls.try_cut)
         with mock.patch.object(paper, "KLINES", klines), mock.patch.object(paper, "SESSION", session), \
                 mock.patch.object(paper, "journal", calls.journal), mock.patch.object(recorder, "_protection"), \
                 mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock):
             recorder.on_stop_timer(None)
-        self.assertEqual(calls.mock_calls[:2], [
+        self.assertEqual(calls.mock_calls[:4], [
+            mock.call.journal("kline_socket", state="up", at_ns=58_000_000_000),
+            mock.call.journal("kline_socket", state="down", at_ns=61_000_000_000, reason="silent"),
             mock.call.journal("kline_event", instrument_id=str(IID), ts_event=59_999_000_000, event_ns=60_005_000_000),
             mock.call.try_cut(mock.ANY)])
 

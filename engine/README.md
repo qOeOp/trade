@@ -602,8 +602,8 @@ cached position of the same or of another contract. A replay's venue keeps the d
 IDs, which the paired comparison masks.
 
 `PAPER_RECOVERY = 1` is an explicit source protocol: reviewed `on_save/on_load` hooks own all private state;
-`on_start` re-establishes the minute subscription and the aggregations `WARMUP` declares, without custom
-routing or dynamic changes. User timers are outside this protocol. A checkpoint holds the positions and the working
+`on_start` re-establishes the minute subscription and the aggregations `WARMUP` declares, and may subscribe to those
+aggregations of the run's other contracts, without custom routing or dynamic changes. User timers are outside this protocol. A checkpoint holds the positions and the working
 orders the Sandbox restores into its matching engines as they were and a recovery can check: accepted (a STOP_LIMIT
 also triggered), not in flight, emulated, contingent or linked, not partly filled, a LIMIT, STOP_MARKET, STOP_LIMIT or
 LIMIT_IF_TOUCHED triggered by the last price; any other unfinished order (a trailing stop, a MARKET_IF_TOUCHED, a MARK
@@ -615,17 +615,23 @@ would not see is held instead (below).
 A recovery that crossed a bucket boundary of a declared aggregation back-fills the aggregation: its warm-up starts at
 the bucket the checkpoint was cut in (and its declared history ends just before that bucket), the native aggregator
 builds the buckets completed since, which rc7 puts only into the native cache, and after `on_start` and before any
-live data each of those bars goes to the source's `on_bar` in time order, as a live bar goes (held, then released).
+live data each of those bars goes to the source's `on_bar` in time order, as a live bar goes (held, then released);
+a source subscribed to another contract's declared aggregation (one of the run's contracts and periods; user
+2026-11-17) gets that contract's back-filled bars too.
 No OHLCV is computed outside Nautilus. T moves on by a minute while it would end a crossed bucket, since a request's
 aggregator builds a bucket only once a later minute arrives. An order the source submits on a back-filled bar must be
-proven untouched by the minutes from that bar's bucket end up to T, by the same rules as a restored order, and must
-not be marketable at the bar's close (a buy limit at or above it, a sell limit at or below it, a stop the close has
-reached, any MARKET order, a position close among them); otherwise it is not sent and the recovery is refused as
+proven untouched by the minutes of its own contract from that bar's bucket end up to T, by the same rules as a
+restored order, and must not be marketable at the close of its contract's minute ending that bucket (a buy limit at or above it, a sell limit at or below it, a stop the close has
+reached, any MARKET order, a position close among them, an order on another contract than the source's own);
+otherwise it is not sent and the recovery is refused as
 below. After that no order, cancel or close of the source is sent; those sent earlier, also earlier in the same
 callback, stand.
 While back-filled bars are handed over, the source's clock reads T, the native cache already holds every back-filled
-bar (also those after the one in hand), and an order sent on an earlier back-filled bar may still be in flight; bars of
-several aggregations ending at the same instant go in the order the sources were registered. A source that relies on
+bar (also those after the one in hand), and an order sent on an earlier back-filled bar may still be in flight; bars
+ending at the same instant go by the run's order of contracts, each to its subscribers in that order, while the live
+node gives them no fixed order (rc7 fires each aggregator's timer as its own task and breaks ties between subscribers
+by a random handler id), so an uninterrupted run is not reproducible for a source whose decisions depend on it either.
+A source that relies on
 none of these makes the decisions the uninterrupted run made, which then differ only in their submit and accept times.
 So that the checkpoint's cut time tells the bars a source has had from those a recovery back-fills, a cut waits while
 a declared aggregation's bucket has ended and its bar is not yet in the native cache, and a pause waits for that bar

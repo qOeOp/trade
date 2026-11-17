@@ -230,6 +230,9 @@ def run_record(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dic
          and row.get("result") is not None), key=lambda point: point[0]), settled)
     return {"bars": [row for row in pack["market"] if row.get("kind") == "bar"], "gate": gate(pack["events"]),
             "kline_events": [row for row in pack["market"] if row.get("kind") == "kline_event"],
+            # One process (segment): its side connection is down from its first journal line to its first up.
+            "kline_sockets": [row for row in pack["market"] if row.get("kind") == "kline_socket"],
+            "side_starts": [row["observed_ns"] for row in pack["events"][:1] if isinstance(row.get("observed_ns"), int)],
             "warmup": shared.received_warmup(row for row in pack["market"]
                                              if row.get("kind") in ("historical_bar", "historical_funding")),
             "metrics": [row for row in pack["market"] if row.get("kind") in ("metrics", "metrics_unsubscribed")],
