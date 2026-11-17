@@ -10,12 +10,22 @@ the last price (`unrestorable`). Any other unfinished order defers the cut.
 
 A recovery warms each source again at its own T (engine.history): the declared history and the aggregations'
 current buckets are read from Binance's klines, the history goes to on_historical_bars, then the source's on_load
-gets its saved state and its on_start runs. A recovery that crossed a bucket boundary of a declared aggregation, or a
-funding settlement, is refused: the source would never see that aggregated bar or settlement as it happened. So is
-one whose interruption may have changed a restored working order (`touched`): for each contract holding one, the
-warm-up's reader also reads the one-minute klines from the journal's last bar up to T, and before any source starts
-every restored order must be proven untouched by them and unexpired at T. Nothing is matched or invented for the
-interruption.
+gets its saved state and its on_start runs. A recovery that crossed a funding settlement is refused: the source would
+never see that settlement as it happened. So is one whose interruption may have changed a restored working order
+(`touched`): for each contract holding one, the warm-up's reader also reads the one-minute klines from the journal's
+last bar up to T, and before any source starts every restored order must be proven untouched by them and unexpired at
+T. Nothing is matched or invented for the interruption.
+
+A recovery that crossed a bucket boundary of a declared aggregation back-fills it (`backfill`;
+docs/plans/paper-recovery-open-orders-20261117.zh.md): the native aggregator is warmed from the start of the bucket
+the checkpoint was cut in (`since`), the aggregation's declared history ends just before that bucket, and the
+aggregated bars the request completed, which rc7 puts only into the cache, go to the source's on_bar in time order
+after its on_start and before any live data. An order the source submits on one must be proven untouched by the minutes
+from that bar's bucket end up to T and not marketable at its close (`submitted`), or the recovery is refused as a
+touched one is. A cut waits while a declared aggregation's bucket has ended and its bar has not reached the source
+(`due`), so the checkpoint's cut time separates the bars a source has had from those a recovery back-fills. T moves on
+by a minute while it would close a crossed bucket: the native aggregator builds a request's bucket only once a later
+minute arrives.
 """
 
 from __future__ import annotations
@@ -76,7 +86,22 @@ def unrestorable(order) -> str | None:
     return None
 
 
-def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int) -> str | None:
+def _level(order, status: str):
+    """(the price that touches the order, the side whose order a high touches), or why the order cannot be checked."""
+    kind = _name(order.order_type)
+    if kind in ("STOP_MARKET", "LIMIT_IF_TOUCHED", "STOP_LIMIT") and status == "ACCEPTED":
+        trigger = _name(getattr(order, "trigger_type", None))
+        if trigger not in TRIGGERS:
+            return f"{order.client_order_id}: its {trigger} trigger cannot be checked on LAST klines"
+        # The side whose order a high touches: a buy stop above the market, a sell LIMIT_IF_TOUCHED.
+        return order.trigger_price.as_decimal(), "SELL" if kind == "LIMIT_IF_TOUCHED" else "BUY"
+    if kind == "LIMIT" and status == "ACCEPTED" or kind == "STOP_LIMIT" and status == "TRIGGERED":
+        return order.price.as_decimal(), "SELL"
+    return f"{order.client_order_id}: a {status} {kind} order cannot be checked for the interruption"
+
+
+def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int,
+            status: str | None = None) -> str | None:
     """Why the interruption may have changed one of the restored working `orders`, or None when every one is proven
     untouched. `downtime` holds each contract's one-minute bars from the minute after its journal's last bar (closing
     at `last_bar`) up to the one closing at T (`at`). A stop (STOP_MARKET, an untriggered STOP_LIMIT) is touched by a
@@ -84,25 +109,20 @@ def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int
     a low at or below its buy price or a high at or above its sell price, a LIMIT_IF_TOUCHED by a low at or below its
     buy trigger or a high at or above its sell trigger; a GTD expiring at or before T fails. Touching, not the fill
     model's crossing, so it refuses more, never less. Any other order type, state or trigger type (LAST klines cannot
-    show a MARK or BID_ASK trigger) and any minute missing fail: only an order proven untouched passes."""
+    show a MARK or BID_ASK trigger) and any minute missing fail: only an order proven untouched passes. `status`
+    checks every order as one in that status (an order a back-filled bar is submitting, `Session.submitted`)."""
     for order in orders:
-        if order.is_closed:
+        if order.is_closed and status is None:
             continue
-        name, iid = order.client_order_id, str(order.instrument_id)
-        kind, status, side = _name(order.order_type), _name(order.status), _name(order.side)
+        name, iid, side = order.client_order_id, str(order.instrument_id), _name(order.side)
         expiry = getattr(order, "expire_time", None)
         if _name(order.time_in_force) == "GTD" and (expiry is None or expiry <= at):
             return f"{name}: its GTD expiry {history.utc(expiry or 0)} is at or before {history.utc(at)}"
-        if kind in ("STOP_MARKET", "LIMIT_IF_TOUCHED", "STOP_LIMIT") and status == "ACCEPTED":
-            trigger = _name(getattr(order, "trigger_type", None))
-            if trigger not in TRIGGERS:
-                return f"{name}: its {trigger} trigger cannot be checked on LAST klines"
-            # The side whose order a high touches: a buy stop above the market, a sell LIMIT_IF_TOUCHED.
-            level, by_high = order.trigger_price.as_decimal(), "SELL" if kind == "LIMIT_IF_TOUCHED" else "BUY"
-        elif kind == "LIMIT" and status == "ACCEPTED" or kind == "STOP_LIMIT" and status == "TRIGGERED":
-            level, by_high = order.price.as_decimal(), "SELL"
-        else:
-            return f"{name}: a {status} {kind} order cannot be checked for the interruption"
+        found = _level(order, status or str(_name(order.status)))
+        if isinstance(found, str):
+            return found
+        level, by_high = found
+        kind = _name(order.order_type)
         bars, last = downtime.get(iid), last_bar.get(iid)
         if bars is None or last is None or [bar.ts_event for bar in bars] != list(
                 range(last + MINUTE_NS, at, MINUTE_NS)):
@@ -116,9 +136,10 @@ def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int
 
 class Session:
     def __init__(self, backend, journal, loaded, saved: dict | None, started_ns: int, input_start_ns: int,
-                 warm_at: int):
+                 warm_at: int, release=None):
         self.backend, self.journal, self.loaded, self.saved = backend, journal, loaded, saved
-        self.started_ns, self.input_start_ns, self.warm_at = started_ns, input_start_ns, warm_at
+        self.started_ns, self.input_start_ns = started_ns, input_start_ns
+        self.release = release  # engine.paper.release_before: runs the held data callbacks (backfill)
         self.depth = 0
         source_bases = loaded.strategy_class.__mro__[:loaded.strategy_class.__mro__.index(Strategy)]
         hooks = {name for base in source_bases for name, value in vars(base).items() if callable(value)}
@@ -131,11 +152,15 @@ class Session:
         self.expected_starts = 0
         self.error: str | None = None
         self.pause_error: str | None = None
-        self.refused: str | None = None  # why the recovery was refused before its sources started (touched)
+        self.refused: str | None = None  # why the recovery was refused before it was ready (touched, backfill)
         self.downtime: dict[str, list] = {}  # contract: the one-minute klines of the interruption (read_downtime)
         self.working: set[str] = set()  # the contracts of the restored unfinished orders (engine.paper.build_node)
+        self.stopped_ns: int | None = None  # when a pause stopped the node (before_stop)
+        self.handing: tuple | None = None  # (period, aggregated bar, its minutes up to T) while backfill hands one
+        # A recovery's T, and the start of the bucket the checkpoint was cut in of each aggregation it back-fills.
+        self.warm_at, self.since = self.crossed(warm_at)
         # The sources start once warmed: T, its settling and its deadline (engine.history), and some slack.
-        self.restore_deadline = (time.monotonic() + max(0, warm_at - time.time_ns()) / history.SECOND_NS
+        self.restore_deadline = (time.monotonic() + max(0, self.warm_at - time.time_ns()) / history.SECOND_NS
                                  + (history.DEADLINE_NS + history.SETTLE_NS) / history.SECOND_NS)
         self.last_bar: dict[str, int] = {}
         if saved:
@@ -145,21 +170,31 @@ class Session:
                     if value["kind"] == "bar":
                         self.last_bar[value["instrument_id"]] = value["ts_event"]
         if saved and saved.get("sources"):
-            self._same_bucket()
+            self._no_settlement_missed()
 
     @property
     def aggregated(self) -> list[str]:
         """The aggregations the source's WARMUP declares (engine.warmup)."""
         return [period for period, _ in self.loaded.warmup if period != "1-MINUTE"]
 
-    def _same_bucket(self) -> None:
+    def crossed(self, at: int) -> tuple[int, dict[str, int]]:
+        """T and, for each declared aggregation whose bucket holding the checkpoint's cut has ended by T, that bucket's
+        start (engine.history.requests). A waiting checkpoint has started no aggregator. T moves on by a minute while it
+        is the end of a crossed bucket: a request builds a bucket only once a minute after it arrives (rc7's time-bar
+        aggregator closes a request's bucket on its own clock, which only the request's later bars move), and after the
+        request the live aggregator would put that bucket's minutes into the next bucket's bar."""
         if not self.saved or not self.saved.get("sources"):
-            return  # a waiting checkpoint has not started an aggregator or settlement cadence
-        crossed = [period for period in self.aggregated if warmup.bucket_start(time.time_ns(), period)
-                   != warmup.bucket_start(self.saved["cut_ns"], period)]
-        if crossed:
-            raise checkpoint.fail(f"recovery crossed a {crossed[-1]} aggregation boundary; the original point is "
-                                  "retained")
+            return at, {}
+        while True:
+            since = {period: warmup.bucket_start(self.saved["cut_ns"], period) for period in self.aggregated}
+            since = {period: start for period, start in since.items() if start + warmup.period_ns(period) <= at}
+            if not any(at % warmup.period_ns(period) == 0 for period in since):
+                return at, since
+            at += MINUTE_NS
+
+    def _no_settlement_missed(self) -> None:
+        if not self.saved or not self.saved.get("sources"):
+            return  # a waiting checkpoint has not started a settlement cadence
         following = list((self.saved.get("recorder") or {}).get("funding", {}).values())
         following.extend(value["cadence"].get("next_funding_ns") for value in self.saved["sources"].values())
         if any(value is not None and time.time_ns() >= value for value in following):
@@ -195,7 +230,7 @@ class Session:
 
     def maybe_begin(self) -> None:
         if not self.ready and not self.refused and len(self.starts) == self.expected_starts:
-            self._same_bucket()
+            self._no_settlement_missed()
             account = self.cache.account_for_venue(Venue(ACCOUNT_CONTRACT["venue"]))
             if account is None or account.to_dict().get("calculate_account_state") is not True:
                 raise checkpoint.fail("native account initialization did not restore Sandbox calculation mode")
@@ -207,7 +242,100 @@ class Session:
                     return
             for callback in self.starts:
                 callback()
+            # Until the back-filled bars are handed over and their orders checked, the recovery is not ready: a refusal
+            # stops it as a pause, without cancelling (engine.paper.pausing), and publishes no checkpoint.
+            self.refused = self.backfill()
+            if self.refused:
+                return
             self.ready = True
+
+    def backfill(self) -> str | None:
+        """Hand each source the aggregated bars its recovery's warm-up completed (`since`), in time order, through the
+        held data callbacks live bars take (engine.paper._hold), each released at once: nothing it does reaches the
+        Sandbox before the next, and no live data is dispatched before all have run. rc7 delivers a request's bars
+        only through the cache, under the bar's standard type, which is the type a live aggregated bar has. The bars
+        must be those of every bucket ending after the checkpoint's cut and by T, or the recovery is refused."""
+        if not self.since:
+            return None
+        assert self.saved is not None and self.release is not None
+        handed = []
+        for index, (iid, strategy) in enumerate(strategy_runtime.STRATEGIES.items()):
+            minutes = cast(Any, strategy)._warming_state()["expected"]
+            for period, first in self.since.items():
+                step = warmup.period_ns(period)
+                built = self.cache.bars(warmup.aggregated_type(iid, period).standard()) or []
+                found = sorted((bar for bar in built if self.saved["cut_ns"] < self.bucket_end(bar) <= self.warm_at),
+                               key=lambda bar: bar.ts_event)
+                ends = list(range(first + step, self.warm_at + 1, step))
+                if [self.bucket_end(bar) for bar in found] != ends:
+                    return (f"the native aggregator built {len(found)} of the {len(ends)} {iid} {period} bars ending "
+                            f"from {history.utc(ends[0])} to {history.utc(ends[-1])}")
+                handed += [(bar.ts_event, index, strategy, period, bar, minutes.get(("warm", period)) or [])
+                           for bar in found]
+        for _, _, strategy, period, bar, minutes in sorted(handed, key=lambda item: item[:2]):
+            self.handing = (period, bar, minutes)
+            try:
+                strategy.on_bar(bar)
+                self.release(None)
+            finally:
+                self.handing = None
+            if self.refused:
+                return self.refused
+        return None
+
+    @staticmethod
+    def bucket_end(bar) -> int:
+        """The end of an aggregated bar's bucket: rc7 stamps it BUILD_DELAY_US after it (engine.history)."""
+        return bar.ts_event - history.BUILD_DELAY_US * 1000
+
+    def submitted(self, order) -> str | None:
+        """Why an order the source submits on a back-filled bar refuses the recovery, or None. In the uninterrupted run
+        it would have worked from that bar's close; here it works from T. Only one the minutes from the bar's bucket
+        end up to T prove untouched (`touched`, as an accepted order) and the bar's close does not make marketable
+        (it would have matched at once on that L1; a MARKET always) passes: then its first match is the one the
+        uninterrupted run made. Once the recovery is refused, nothing more is sent (`commanded`)."""
+        if self.refused or self.handing is None:
+            return self.refused
+        period, bar, minutes = self.handing
+        end = self.bucket_end(bar)
+        if order is None or _name(order.order_type) == "MARKET":
+            found: str | None = "a position close is a MARKET order" if order is None else (
+                f"{order.client_order_id} is a MARKET order")
+        else:
+            iid = str(order.instrument_id)
+            found = touched([order], {iid: [minute for minute in minutes if minute.ts_event > end]},
+                            {iid: end - warmup.MILLISECOND_NS}, self.warm_at, status="ACCEPTED")
+        if found is None:
+            level, by_high = cast(tuple, _level(order, "ACCEPTED"))
+            close = bar.close.as_decimal()
+            if close >= level if _name(order.side) == by_high else close <= level:
+                found = (f"{order.client_order_id} ({_name(order.side)} {_name(order.order_type)} at {level}) is "
+                         f"marketable at the close {close}")
+        if found:
+            self.refused = self.refused or (f"an order submitted on the back-filled {period} bar of the bucket ending "
+                                            f"at {history.utc(end)} cannot wait for T: {found}")
+        return found
+
+    def commanded(self, close: bool = False) -> str | None:
+        """Why a cancel, or a position close (`close`), the source sends is not sent, or None: nothing is once the
+        recovery is refused, and a close on a back-filled bar is a MARKET order (`submitted`)."""
+        if close:
+            return self.submitted(None)
+        return self.refused
+
+    def due(self, cache, now: int) -> str | None:
+        """Why a cut at `now` could not tell whether a declared aggregation's latest bar reached the source, or None:
+        a bucket ended after T and its bar is not in the native cache yet (rc7 builds it BUILD_DELAY_US after the
+        end, caches it and dispatches it in one step; a held callback then defers the cut until it ran)."""
+        for iid in strategy_runtime.STRATEGIES:
+            for period in self.aggregated:
+                end = warmup.bucket_start(now, period)
+                if end <= self.warm_at:
+                    continue
+                latest = cache.bar(warmup.aggregated_type(iid, period).standard())
+                if latest is None or latest.ts_event < end:
+                    return f"the {iid} {period} bar of the bucket ending at {history.utc(end)} has not reached the source"
+        return None
 
     def try_cut(self, cache) -> None:
         if not (self.backend.root / "dirty").exists() or not self.ready:
@@ -257,11 +385,21 @@ class Session:
             raise checkpoint.fail(self.pause_error)
         if self.depth or strategy_runtime.FAILURES:
             raise checkpoint.fail("callbacks are active or failed; no consistent checkpoint is available")
-        cut_ns = time.time_ns()
+        # A paused node dispatches nothing after its stop: the final cut is that instant's, so a bucket ending while
+        # the node shuts down is not one whose bar the source should have had (`due`).
+        cut_ns = self.stopped_ns or time.time_ns()
         sources: dict[str, dict] = {}
         if cache is not None:
             if not self.supported or not self.ready:
                 raise checkpoint.fail("the source has not completed its recovery protocol")
+            found = self.due(cache, cut_ns)
+            if found:
+                raise checkpoint.fail(f"{found}; a recovery could not tell whether to hand it over")
+            for iid in strategy_runtime.STRATEGIES:
+                for period in self.aggregated:
+                    latest = cache.bar(warmup.aggregated_type(iid, period).standard())
+                    if latest is not None:  # a bar dispatched while the node shut down is one the source has had
+                        cut_ns = max(cut_ns, self.bucket_end(latest))
             self._restorable(cache)
             for iid, native in strategy_runtime.STRATEGIES.items():
                 strategy = cast(Any, native)
@@ -304,6 +442,7 @@ class Session:
             raise checkpoint.fail(f"an order cannot be restored from the checkpoint: {found}")
 
     def before_stop(self, cache) -> None:
+        self.stopped_ns = time.time_ns()
         # Native component stop cancels clocks. Checking only after node.run returned
         # would hide a user timer which existed when the pause was requested.
         found = next(filter(None, map(unrestorable, cache.orders())), None)

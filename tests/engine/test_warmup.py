@@ -466,6 +466,23 @@ class FetchTests(unittest.TestCase):
             self.assertEqual(len(catalog.query_bars([f"{IID}-1-MINUTE-LAST-EXTERNAL"])), 7)
             self.assertEqual(len(catalog.query_bars([f"{IID}-15-MINUTE-LAST-EXTERNAL"])), 2)
 
+    def test_a_paper_recovery_back_filling_warms_from_the_bucket_of_its_cut_and_its_history_ends_before_it(self):
+        """docs/plans/paper-recovery-open-orders-20261117.zh.md: the native aggregator builds the buckets the
+        interruption completed from the minutes since the bucket the checkpoint was cut in; the source knew the history
+        before that bucket."""
+        day = 1_767_225_600_000 * NS
+        at, cut_bucket = day + 37 * 60_000 * NS, day  # T in the third quarter, the cut in the first
+        since = {"15-MINUTE": cut_bucket}
+        planned = history.requests(at, self.DECLARED, since)
+        self.assertEqual(planned, [("warm", "15-MINUTE", cut_bucket, at - NS), ("warm", "1-DAY", day, at - NS),
+                                   ("history", "1-MINUTE", *warmup.history_range(at, "1-MINUTE", 3)),
+                                   ("history", "15-MINUTE", *warmup.history_range(cut_bucket, "15-MINUTE", 2))])
+        self.assertEqual(history.requests(at, self.DECLARED)[0], ("warm", "15-MINUTE", day + 30 * 60_000 * NS, at - NS))
+        with tempfile.TemporaryDirectory() as root:
+            answers, _, _ = history.fetch(IID, at, self.DECLARED, (2, 3), Path(root), None, binance()[0], since=since)
+        self.assertEqual([bar.ts_event for bar in answers[0]], list(range(cut_bucket + 60_000 * NS - NS, at, 60_000 * NS)))
+        self.assertEqual([bar.ts_event for bar in answers[3]], [cut_bucket - 15 * 60_000 * NS - NS, cut_bucket - NS])
+
     def test_a_history_binance_lacks_is_refused(self):
         at = 1_767_225_600_000 * NS + 7 * 60_000 * NS
         get, _ = binance(gaps={at // NS - 2 * 60_000})  # the second of the three minutes
