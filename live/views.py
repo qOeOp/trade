@@ -259,7 +259,8 @@ def _native_rows(rows, sample: _Sample, kind: str):
 
 
 def _minute_results(rows):
-    """The run's result at each minute's first mark and when it stopped (engine.live record_minute), as
+    """The run's result at the end of each minute (at the next one's first mark) and when it stopped
+    (engine.live_lifecycle, record_minute), as
     [minute_ns, result] in journal order; a damaged row is left out, an unknown result stays unknown."""
     if rows is None:
         return None

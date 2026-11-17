@@ -26,6 +26,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Live: a minute's result (`minute_result`) is now stamped with the minute that ended, valued at the marks it ended
+  with. It was stamped with the minute just begun, so `live compare` set the end of minute m against the replay's
+  end of m+1, a minute out of step. Earlier evidence packs keep their stamps.
+
 - Paper (doctor 20261117-01): the Run paper dialog named the account as "1× leverage"; a page start runs with the
   replay default, leverage 3. The dialog now shows the margin and leverage the Paper controller names
   (`/api/paper/defaults`, from `ACCOUNT_CONTRACT`).

@@ -103,13 +103,15 @@ class Observer(Strategy):
 
     def on_mark_price(self, update):
         symbol = symbol_of(update.instrument_id)
-        self.session.marks[symbol] = (time.monotonic(), update.value)
         minute = update.ts_event // MINUTE_NS
         if self.minute is None or minute > self.minute:
-            # The run's result once a minute, at the first mark of the minute and each other contract's latest.
+            # The run's result once a minute: a minute's first mark ends the minute before it, valued at the marks it
+            # ended with (this contract's own when it had none), as a replay values a minute after its close.
+            prices = {name: value for name, (_, value) in self.session.marks.items()}
+            prices.setdefault(symbol, update.value)
             self.minute = minute
-            self.session.record_minute(self.cache, minute * MINUTE_NS,
-                                       {name: value for name, (_, value) in self.session.marks.items()})
+            self.session.record_minute(self.cache, (minute - 1) * MINUTE_NS, prices)
+        self.session.marks[symbol] = (time.monotonic(), update.value)
 
     def tick(self, _event):
         try:
