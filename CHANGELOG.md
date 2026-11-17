@@ -40,6 +40,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   directory), paced, stopping at the first rate limit. The result carries `data_source: rest` and what REST added;
   the Paper page offers it when the market does not cover the run yet and labels its result preliminary. The archive
   comparison stays authoritative.
+- Live: a minute's result (`minute_result`) is now stamped with the minute that ended, valued at the marks it ended
+  with. It was stamped with the minute just begun, so `live compare` set the end of minute m against the replay's
+  end of m+1, a minute out of step. Earlier evidence packs keep their stamps.
 - Paper (doctor 20261117-01): the Run paper dialog named the account as "1× leverage"; a page start runs with the
   replay default, leverage 3. The dialog now shows the margin and leverage the Paper controller names
   (`/api/paper/defaults`, from `ACCOUNT_CONTRACT`).
