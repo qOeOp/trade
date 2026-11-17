@@ -76,6 +76,11 @@ class Evidence:
             return
         self._append("metrics", **fields)
 
+    def kline_event(self, instrument_id: str, close: int, sent: int) -> None:
+        """Binance's time for a closed one-minute kline (engine.kline_events): ``kline_event`` with its close
+        (``ts_event``, as the bar is stamped) and Binance's event time (``event_ns``)."""
+        self._append("kline_event", instrument_id=instrument_id, ts_event=close, event_ns=sent)
+
     def metrics_unsubscribed(self, instrument_id: str) -> None:
         """The source stopped following `instrument_id`'s metrics (engine.metrics.Feed._metrics_unfollow):
         ``metrics_unsubscribed``. No row reaches it after wall_ns until it subscribes again."""

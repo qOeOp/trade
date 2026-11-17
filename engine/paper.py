@@ -39,7 +39,8 @@ The Sandbox matches with the replay's terms: its fill model, book type and bar o
 taker rates the run is given (``--maker-fee``, ``--taker-fee``: the market's assumed rates, which a replay
 reads from its export receipts).
 
-Its own record is ``<output>/events.jsonl``: bars, data gaps, socket state, orders, positions, funding
+Its own record is ``<output>/events.jsonl``: bars, Binance's time for each closed one-minute kline (``kline_event``,
+from a second connection to the same public streams: engine.kline_events), data gaps, socket state, orders, positions, funding
 settlements, the account totals once a minute (at the next minute's first mark, its open positions valued at the
 minute's last mark, as a replay values a minute at its MARK bar's close), protection gaps, and the metrics rows the source was handed with
 its unsubscribes from them (``paper compare`` checks them, replay.comparison.compare_metrics). ``<output>/state.json`` holds the latest
@@ -113,6 +114,7 @@ from nautilus_trader.model import (
 from nautilus_trader.trading import Strategy
 
 from engine import history, metrics, strategy as strategy_runtime
+from engine.kline_events import KlineEvents
 from engine import paper_checkpoint as checkpoint, protection
 from engine.order_rules import OrderRules
 from engine.fill import fill_model
@@ -135,7 +137,6 @@ VENUE = ACCOUNT_CONTRACT["venue"]
 # the Sandbox's leverage is --leverage x this rate, and a loaded contract with other rates stops the run
 # (TERMS_CHANGED; docs/plans/r1-2d-leverage-terms-20261111.zh.md).
 LOADER_MARGIN = Decimal("0.1")
-LATE_BAR_NS = 2_000_000_000  # a bar arriving later than this after its close is a late-bar event
 STOP_CANCEL_SECONDS = 10
 # The runner's exit status after its journal failed (ledger.paper.JOURNAL_FAILED_EXIT reads it: with a full disk the
 # summary is as likely missing as the journal's last lines, and the exit status is what the seal still has).
@@ -229,6 +230,14 @@ class Journal:
 
 JOURNAL: Journal | None = None
 SESSION: Session | None = None
+KLINES: KlineEvents | None = None
+
+
+def record_kline_events() -> None:
+    """Journal the closed klines' event times read since the last call (engine.kline_events), on the node's thread."""
+    if KLINES is not None:
+        for iid, close, sent in KLINES.drain():
+            journal("kline_event", instrument_id=iid, ts_event=close, event_ns=sent)
 
 
 def disk(action) -> None:
@@ -739,9 +748,6 @@ class Recorder(DataActor):
             journal("data_gap", instrument_id=iid, missing_bars=missing, after_ts=self.last_bar[iid],
                     before_ts=bar.ts_event)
         self.last_bar[iid] = bar.ts_event
-        late = time.time_ns() - (bar.ts_event + 1_000_000)
-        if late > LATE_BAR_NS:
-            journal("late_bar", instrument_id=iid, ts_event=bar.ts_event, late_ns=late)
         journal("bar", instrument_id=iid, ts_event=bar.ts_event, open=str(bar.open), high=str(bar.high),
                 low=str(bar.low), close=str(bar.close), volume=str(bar.volume), ts_init=bar.ts_init)
         if not self.checked_account:
@@ -842,6 +848,7 @@ class Recorder(DataActor):
                     stop_quantity=str(stops), since_ns=self.gaps.since[key])
 
     def on_stop_timer(self, _event):
+        record_kline_events()
         self._protection()
         if SESSION and not STOP.is_set():
             try:
@@ -1104,7 +1111,7 @@ def main(argv: list[str] | None = None) -> None:
 
 def _main(args) -> bool:
     """Run the node to its end; whether the journal failed on the way (the runner then exits JOURNAL_FAILED_EXIT)."""
-    global JOURNAL, SESSION
+    global JOURNAL, SESSION, KLINES
     strategy_runtime.clear_failures()
     strategy_runtime.FAILURE_PATH = args.output / "runtime_failures.jsonl"
     loaded = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256)
@@ -1187,9 +1194,13 @@ def _main(args) -> bool:
                 STOP.wait(1)
 
         threading.Thread(target=watch, daemon=True).start()
+        KLINES = KlineEvents(args.symbols, args.proxy_url)
+        KLINES.start()
         try:
             node.run()
         finally:
+            KLINES.stop()
+            record_kline_events()
             if SESSION:
                 disk(lambda: checkpoint.dirty(args.output))
             result = summary(args, loaded, planned, recorder, node, started_ns)
@@ -1211,6 +1222,7 @@ def _main(args) -> bool:
         if backend:
             backend.close()
         SESSION = None
+        KLINES = None
         FETCH.clear()
         READ_METRICS.clear()
         shutil.rmtree(catalog, ignore_errors=True)
