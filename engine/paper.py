@@ -40,7 +40,8 @@ taker rates the run is given (``--maker-fee``, ``--taker-fee``: the market's ass
 reads from its export receipts).
 
 Its own record is ``<output>/events.jsonl``: bars, data gaps, socket state, orders, positions, funding
-settlements, the account totals once a minute, protection gaps, and the metrics rows the source was handed with
+settlements, the account totals once a minute (at the next minute's first mark, its open positions valued at the
+minute's last mark, as a replay values a minute at its MARK bar's close), protection gaps, and the metrics rows the source was handed with
 its unsubscribes from them (``paper compare`` checks them, replay.comparison.compare_metrics). ``<output>/state.json`` holds the latest
 totals with the open positions and orders, ``<output>/runtime_failures.jsonl`` is rewritten within a second of
 each runtime failure, and ``<output>/summary.json`` and ``<output>/reports/`` (the native cache's reports and order
@@ -749,13 +750,12 @@ class Recorder(DataActor):
     @mutation
     def on_mark_price(self, update):
         release_before(update)
-        iid = str(update.instrument_id)
-        self.marks[iid] = (update.ts_event, update.value)
         minute = update.ts_event // MINUTE_NS
         if self.minute is None or minute > self.minute:
             if self.minute is not None:
-                self._snapshot()
+                self._snapshot()  # at the minute's own marks: this one belongs to the next minute
             self.minute = minute
+        self.marks[str(update.instrument_id)] = (update.ts_event, update.value)
 
     @mutation
     def on_funding_rate(self, update):

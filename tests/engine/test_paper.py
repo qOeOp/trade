@@ -682,6 +682,25 @@ class CredentialTests(unittest.TestCase):
         self.assertNotIn("never-read", str(raised.exception))
 
 
+class SnapshotTests(unittest.TestCase):
+    def test_a_minutes_snapshot_values_its_positions_at_that_minutes_last_mark(self):
+        """The first mark of the next minute triggers the snapshot; the minute is valued at the mark before it, as a
+        replay values the minute at its MARK bar's close (audit runs 52 to 54: 0.004 BTC at 63,813.67, the next
+        minute's first mark, instead of 63,819.52, the minute's last)."""
+        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], {}))
+        position = SimpleNamespace(id="P-1", instrument_id=IID, signed_qty=Decimal(2), avg_px_open=Decimal(100),
+                                   realized_pnl="0 USDT",
+                                   unrealized_pnl=lambda price: f"{(price.as_decimal() - 100) * 2} USDT")
+        cache = SimpleNamespace(account_for_venue=lambda venue: None, positions_open=lambda: [position],
+                                orders_open=lambda: [])
+        with mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock, return_value=cache), \
+                mock.patch.object(paper, "journal") as journal:
+            for at, price in ((DAY, "100.0"), (DAY + 59 * 10**9, "101.0"), (DAY + MINUTE_NS, "105.0")):
+                recorder.on_mark_price(MarkPriceUpdate(IID, Price.from_str(price), at, at))
+        snapshots = [call.kwargs for call in journal.call_args_list if call.args[0] == "snapshot"]
+        self.assertEqual([(item["minute_ns"], item["unrealized_pnl"]) for item in snapshots], [(DAY, "2.00000000")])
+
+
 class CadenceTests(unittest.TestCase):
     def test_the_strategy_gets_the_first_mark_of_each_minute(self):
         cadence = Cadence()

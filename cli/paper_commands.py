@@ -86,7 +86,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "reports and audit, comparison.json)",
         "path, summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, differs, run_only, "
         "replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, early_bars, differing_bars, "
-        "warmup_differs, terms_differ, equity_max_difference}, replay {status, problems, path}",
+        "warmup_differs, terms_differ, equity_max_difference, equity_unexplained_minutes}, replay {status, problems, path}",
         "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (not sealed); PAPER_COMPARE_EMPTY (no interval); "
         "PAPER_COMPARE_UNCOVERED (the market lacks the interval's minutes); NOT_TEMPORARY_PATH, PATH_EXISTS "
         "(--output); RUNTIME_UNAVAILABLE; REPLAY_TIMEOUT (--timeout-seconds)"),
