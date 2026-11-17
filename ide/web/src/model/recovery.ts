@@ -13,10 +13,12 @@ const PASSING = ["another Paper lifecycle operation", "another run of this sourc
 export const unresumable = (run: PaperRun): boolean =>
   run.recovery?.code === "PAPER_RECOVERY_UNAVAILABLE" && !PASSING.some((reason) => run.recovery!.message.includes(reason));
 
-/** A running run whose source does not declare Paper recovery: an interruption (a release, a host restart, a
- *  crash) ends it. Unknown (null) is not said. */
-export const endsOnInterruption = (run: PaperRun): boolean => run.state === "running" && run.recovery_declared === false;
+/** A running run whose source does not declare Paper recovery: after an interruption (a release, a host restart, a
+ *  crash) the source does not run again. A run then holding a position is held (engine/paper.py): its stops and
+ *  targets work until it is flat, and no other run of the source starts meanwhile (paper/runs.py); a flat one ends.
+ *  Unknown (null) is not said. */
+export const heldOnInterruption = (run: PaperRun): boolean => run.state === "running" && run.recovery_declared === false;
 
-export const NO_RECOVERY = "The source does not declare Paper recovery; an interruption ends this run";
+export const NO_RECOVERY = "The source does not declare Paper recovery; after an interruption the source does not run again: an open position keeps only its stops and targets until it is flat, and this source cannot start another run until then";
 /** That mark in a few words, in the warning tone wherever it shows (run row, phone). */
-export const ENDS_ON_RESTART = "Ends on restart";
+export const HELD_ON_RESTART = "Held on restart";

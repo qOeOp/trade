@@ -35,9 +35,19 @@ def window(lines: list[dict], seal: Mapping) -> tuple[int, int]:
     return start, end
 
 
+def held_since(lines: list[dict], source: bytes) -> int | None:
+    """When the run was first held: the wall time of its first `resumed`, for a source without the recovery protocol
+    (engine.paper_session, held; read from its text as the page reads it, paper.serve.declares_recovery). Derived,
+    never stored; a source whose text does not parse is not taken as held."""
+    from paper.serve import declares_recovery
+    if declares_recovery(source) is not False:
+        return None
+    return next((line["wall_ns"] for line in lines if line["kind"] == "resumed"), None)
+
+
 def run_record(lines: list[dict], settled: list[dict], terms: Mapping | None = None,
-               fees: Mapping | None = None) -> dict:
-    """The journal as replay.comparison.compare reads a run, with the funding `settled`."""
+               fees: Mapping | None = None, held: int | None = None) -> dict:
+    """The journal as replay.comparison.compare reads a run, with the funding `settled` and when it was `held`."""
     warmup: dict[str, dict[str, dict]] = {}
     for line in lines:
         if line["kind"] == "warmup":
@@ -46,7 +56,7 @@ def run_record(lines: list[dict], settled: list[dict], terms: Mapping | None = N
     return {"bars": [line for line in lines if line["kind"] == "bar"], "warmup": warmup,
             "metrics": [line for line in lines if line["kind"] in ("metrics", "metrics_unsubscribed")],
             "events": [line for line in lines if line["kind"] == "order"], "settlements": settled,
-            "equity": records.equity_path(lines, settled)[0], "terms": dict(terms or {}), "fees": fees}
+            "equity": records.equity_path(lines, settled)[0], "terms": dict(terms or {}), "fees": fees, "held": held}
 
 
 def _journal(conn: db.LedgerConnection, paper_id: int) -> list[dict]:
@@ -72,7 +82,8 @@ def compare(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: i
     run = run_record(lines, records.settlements(lines, records.published_settlements(lines, seal.get("stopped_ns"))),
                      # Each contract's terms at the run's market day, and the account's one rate on each.
                      {symbol: instrument.terms(opened, str(row["market_day"]), symbol) for symbol in symbols},
-                     {symbol: row["config"]["fees"] for symbol in symbols} if row["config"].get("fees") else None)
+                     {symbol: row["config"]["fees"] for symbol in symbols} if row["config"].get("fees") else None,
+                     held_since(lines, candidate["source"]))
     output, replayed, compared = shared.replay_and_compare(
         run, market, market_day, archived, candidate["source"], candidate["entry_class"], row["image_ref"], symbols,
         start, end,

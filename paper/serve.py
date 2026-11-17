@@ -167,7 +167,7 @@ def declares_recovery(source: bytes) -> bool | None:
     """Whether the source declares Paper recovery as the runner checks it (engine.paper_session Session.supported): a
     class that has PAPER_RECOVERY = 1 and, with the classes of the same file it derives from, defines on_save and
     on_load. Read from the source text, never run; None when the text does not parse. Without it an interruption
-    ends the run (engine/README.md)."""
+    ends the run, or holds it while a position is open (engine/README.md)."""
     try:
         tree = ast.parse(source)
     except (SyntaxError, ValueError):
@@ -512,9 +512,10 @@ class Daemon:
             except (FileNotFoundError, ValueError):
                 summary = None
             # Only a pause or an interruption before the summary leaves a run to continue. A pause is SIGTERM/SIGINT
-            # that left a clean checkpoint: a source without the recovery protocol cancels its orders on SIGTERM and
-            # cuts none, so `resume` would refuse it forever (finding 20261117-04). Every other end (STOP, duration, a
-            # runner refusal, the node stopping by itself, a signal without a checkpoint) is sealed.
+            # that left a clean checkpoint: a source without the recovery protocol leaves one only while it holds a
+            # position (it is then held, engine.paper); a flat one cancels its orders and cuts none, so `resume` would
+            # refuse it forever (finding 20261117-04). Every other end (STOP, duration, a runner refusal, the node
+            # stopping by itself, the end of a held run, a signal without a checkpoint) is sealed.
             paused = summary is None or (summary.get("stop_reason") in ("SIGTERM", "SIGINT")
                                          and checkpoint.paused(output))
             action = "resume" if paused and not (output / "STOP").exists() else "seal"

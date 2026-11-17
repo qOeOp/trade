@@ -42,7 +42,7 @@ export const word = (value: unknown) => { const w = last(value).toLowerCase().re
 const NONE: Precision = { price: -1, size: -1 };
 
 // Who or what asked a run to stop, in words.
-const BY: Record<string, string> = { STOP_FILE: "by you", DURATION: "at its set duration", SIGTERM: "by a Docker or host restart", KILLED: "by a Docker or host restart", SIGINT: "by an interrupt" };
+const BY: Record<string, string> = { STOP_FILE: "by you", DURATION: "at its set duration", SIGTERM: "by a Docker or host restart", KILLED: "by a Docker or host restart", SIGINT: "by an interrupt", HELD_FLAT: "once its held positions closed" };
 const by = (reason: unknown) => BY[String(reason)] ?? `by ${word(reason).toLowerCase()}`;
 
 /** One line in words, without its time, contract or category; prices and sizes in the contract's decimals. */

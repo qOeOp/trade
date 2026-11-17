@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loader } from "./load.mjs";
 
-const { unresumable, endsOnInterruption } = await loader().namespace("model/recovery.ts");
+const { unresumable, heldOnInterruption } = await loader().namespace("model/recovery.ts");
 const { paperIssues } = await loader().namespace("model/phoneRuns.ts");
 const refused = (message, code = "PAPER_RECOVERY_UNAVAILABLE") => ({ state: "ended", recovery: { code, message } });
 
@@ -19,10 +19,10 @@ test("a resume refused for what stays (no checkpoint, a changed input) cannot pa
 });
 
 test("only a running run whose source is read as not declaring recovery is marked", () => {
-  assert.equal(endsOnInterruption({ state: "running", recovery_declared: false }), true);
-  assert.equal(endsOnInterruption({ state: "running", recovery_declared: true }), false);
-  assert.equal(endsOnInterruption({ state: "running", recovery_declared: null }), false, "unknown is not said");
-  assert.equal(endsOnInterruption({ state: "ended", recovery_declared: false }), false);
+  assert.equal(heldOnInterruption({ state: "running", recovery_declared: false }), true);
+  assert.equal(heldOnInterruption({ state: "running", recovery_declared: true }), false);
+  assert.equal(heldOnInterruption({ state: "running", recovery_declared: null }), false, "unknown is not said");
+  assert.equal(heldOnInterruption({ state: "ended", recovery_declared: false }), false);
   const readings = { protection_gaps: 0, missing_bars: 0, late_bars: 0, exceptions: 0 };
-  assert.deepEqual(paperIssues({ state: "running", recovery_declared: false, readings }), [{ text: "Ends on restart", tone: "misses" }]);
+  assert.deepEqual(paperIssues({ state: "running", recovery_declared: false, readings }), [{ text: "Held on restart", tone: "misses" }]);
 });

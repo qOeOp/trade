@@ -550,9 +550,10 @@ the replay's cadence: the first MARK update of each minute and one funding updat
 Sandbox settles no funding; `events.jsonl` records each settlement with the positions it applies to.
 `STOP` in the output directory or `--duration-seconds` cancels the working orders, waits for the cancels and stops
 the node; positions stay open and are valued at their latest MARK in `summary.json`. SIGTERM or SIGINT does the
-same, except for a source that declares `PAPER_RECOVERY = 1` (below): that run pauses without cancelling anything
-(it first waits, up to the same ten seconds, for the orders in flight to be answered) and the daemon resumes it with
-its positions and working orders.
+same, except for a source that declares `PAPER_RECOVERY = 1` (below), or any other source while it holds a position
+whose working orders a checkpoint can hold (held, below): that run pauses without cancelling anything (it first waits,
+up to the same ten seconds, for the orders in flight to be answered) and the daemon resumes it with its positions and
+working orders (a held one withdraws its entries then).
 
 `python -m cli.main paper start|resume|stop|seal|list` runs it as the product does
 (`paper/runs.py`): the candidate's source is copied from the research ledger into the separate Paper database
@@ -567,8 +568,8 @@ ended by itself. How a run ended is a reason in `seal.json` (`RUNNER_EXIT_NONZER
 `PAPER_CACHE_UNAVAILABLE`, below, and `PAPER_JOURNAL_WRITE_FAILED`) and leaves the status `complete`; only evidence that cannot be trusted
 (`SOURCE_MISMATCH`, `LEVERAGE_MISMATCH`, `EGRESS_DENIED`, or a runner that started and left no journal) seals `invalid`
 (`ledger.paper.verdict`). The daemon resumes a run that paused (SIGTERM or SIGINT and a clean checkpoint, which only the pause of a
-`PAPER_RECOVERY` source leaves) or was interrupted before its summary, and seals every other end: a signal that ended
-a source without the recovery protocol is an ordinary end. The seal stores the run's files (`paper_file`): the journal by UTC day, the summary, the
+`PAPER_RECOVERY` source or of a held one leaves) or was interrupted before its summary, and seals every other end: a
+signal that ended a flat source without the recovery protocol is an ordinary end, and so is `HELD_FLAT`. The seal stores the run's files (`paper_file`): the journal by UTC day, the summary, the
 egress and runner logs and `seal.json`, whose readings add the funding the Sandbox does not settle
 (`docs/plans/paper-run-storage-decision.zh.md`). Runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
 `docs/plans/paper-admission-by-memory.zh.md`), one per source at a time.
@@ -640,6 +641,21 @@ STOP and the duration, which cancel. The interruption shows
 in the journal as the `resumed` line and the first live bar's `data_gap`. Native Redis readback checks orders,
 positions and account events (the last carrying balances and margins) before the atomic cut is published; margins
 Nautilus sets only in memory are recomputed from the positions on restore and are not compared.
+
+A source without the protocol is held after an interruption, as Live holds (user 2026-11-17,
+`docs/plans/paper-recovery-open-orders-20261117.zh.md`): its source is never restored, only the positions and their
+stops and targets. While a position is open, the runner checkpoints the native cache and its recorder alone (`sources`
+empty, which is a held checkpoint exactly when the source is not recovery-capable), under the same order, callback and
+readback conditions; flat, it publishes none, so an interruption ends the run as before. Its recovery starts no
+source: a holder per contract takes the source's strategy ID and native configuration (the restored orders' events
+route to it), reads the interruption's minutes at T + 15 s and checks the restored orders as above (a failed check
+stops as a pause, no cancels), then withdraws the working orders it inherited that are not reduce-only (the entries)
+and leaves the rest to the Sandbox on live bars. No funding settlement is refused there; the seal settles every one
+for the journal's positions. Once no position is open the run cancels what is left and stops with `HELD_FLAT`, an
+ordinary end the daemon seals (the page says "Held until flat"). STOP and the duration end a held run as any run;
+another SIGTERM pauses it again and it resumes held. Held, the run is still running, so its source starts no other
+run until it is flat (`paper/runs.py`). `paper compare` attributes a difference reaching past the first `resumed` of
+such a run to `held` when nothing earlier in its cause order explains it, rather than `unexplained`.
 
 A seal stores the exact journal bytes as `events/native.jsonl.gz`, including any interrupted final line, plus
 current and actually-used recovery originals. Verification hashes the decompressed byte prefix; parsed UI

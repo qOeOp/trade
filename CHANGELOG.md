@@ -26,6 +26,18 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: a run whose source does not declare `PAPER_RECOVERY` is now held after an interruption while it holds a
+  position, as Live holds (user 2026-11-17). SIGTERM pauses it without cancelling, and it checkpoints the native cache
+  alone while a position is open; its resume starts no source but a holder under the source's strategy ID, which checks
+  the interruption's minutes as any resume does, withdraws the inherited entries and leaves the stops and targets
+  working on live bars. Once flat it cancels the rest and ends with the new stop reason `HELD_FLAT`, a clean end for
+  the seal (`CLEAN_STOPS`) that the page reads "Held until flat"; STOP ends it as any run, another SIGTERM pauses it
+  again. A flat run of such a source still cancels and ends on SIGTERM. The source cannot start another run while one
+  is held. `paper compare` attributes a difference reaching past such a run's first `resumed` to the new cause `held`
+  where it was `unexplained` (and a look-ahead suspect when only the replay had it). The page's "Ends on restart" mark
+  now reads "Held on restart". Nothing new is stored: a held checkpoint has empty `sources`, and held is derived from
+  the source.
+
 - Paper: a recovery that crossed a bucket boundary of a declared aggregation is no longer refused. It warms the
   aggregation from the bucket the checkpoint was cut in, its declared history ends just before that bucket, and the
   aggregated bars the native aggregator completed go to the source's `on_bar` after `on_start` and before any live

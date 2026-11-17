@@ -60,6 +60,13 @@ engine.paper_session.Session.submitted) journals a ``refusal`` and stops as a pa
 as they were; it is then sealed. A recovery that crossed a bucket boundary of a declared aggregation hands the source
 the aggregated bars it missed, built by the native aggregator from Binance's minutes, after its on_start and before
 any live data (engine.paper_session.Session.backfill).
+
+A source without the protocol is held, as Live holds (docs/plans/paper-recovery-open-orders-20261117.zh.md): SIGTERM/
+SIGINT while a position is open pauses it the same way and publishes a checkpoint of the native cache alone (a flat
+one cancels and ends as before), and its recovery starts no source but a ``Holder`` per contract under the source's
+strategy ID. The holder checks the interruption as a recovery does, withdraws the entries it inherits and leaves the
+stops and targets to the Sandbox on live bars; once no position is open it cancels the rest and the run stops with
+``HELD_FLAT``. STOP and the duration end a held run as any; another SIGTERM pauses it again.
 """
 
 from __future__ import annotations
@@ -109,7 +116,7 @@ from engine import paper_checkpoint as checkpoint, protection
 from engine.order_rules import OrderRules
 from engine.fill import fill_model
 from engine.paper_redis import CacheUnavailable, NativeCache
-from engine.paper_session import Session, in_flight
+from engine.paper_session import Session, in_flight, unrestorable
 from engine.paper_signals import Signals
 from engine.cadence import Cadence
 from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, instrument_id, leverage_of,
@@ -244,16 +251,17 @@ def mutation(callback):
 
 
 def pausing() -> bool:
-    """Whether the stop leaves the working orders as they are: the pause of a recovery-capable source (SIGTERM,
-    SIGINT), or any stop but STOP and the duration of a recovery that did not start its sources (a refused one), whose
-    working orders are the restored ones: cancelling them would record cancels the interrupted market never made
-    (docs/plans/paper-recovery-open-orders-20261117.zh.md). Such a recovery publishes no checkpoint (it is not ready)
-    and its stop reason is not a pause, so the daemon seals it."""
+    """Whether the stop leaves the working orders as they are: the pause (SIGTERM, SIGINT) of a recovery-capable
+    source, or of any other source that held a position when the stop was requested (`Session.holding`: it is then
+    held, engine.paper_session), or any stop but STOP and the duration of a recovery that did not start its sources (a
+    refused one), whose working orders are the restored ones: cancelling them would record cancels the interrupted
+    market never made (docs/plans/paper-recovery-open-orders-20261117.zh.md). Such a recovery publishes no checkpoint
+    (it is not ready) and its stop reason is not a pause, so the daemon seals it."""
     if not (SESSION and STOP_REASON):
         return False
     if SESSION.saved and not SESSION.ready and STOP_REASON[0] not in ("STOP_FILE", "DURATION"):
         return True
-    return SESSION.supported and STOP_REASON[0] in ("SIGTERM", "SIGINT")
+    return (SESSION.supported or SESSION.holding) and STOP_REASON[0] in ("SIGTERM", "SIGINT")
 
 
 def journal(kind: str, **fields) -> None:
@@ -577,6 +585,82 @@ def paper_class(loaded: LoadedStrategy) -> type:
     return globals()[name]
 
 
+class Holder(Strategy):
+    """A held start's stand-in for the source of one contract (engine.paper_session, held): the source's strategy ID
+    and native configuration, so the restored orders' events reach it and it can cancel them (2026-11-17 probe), and
+    nothing of the source. At T + SETTLE_NS it reads the interruption's klines of its contract when that holds a
+    restored order (Session.read_downtime, retried as a warm-up until T + DEADLINE_NS; what it cannot read fails the
+    check), then joins the start barrier. Once every restored order is proven untouched it withdraws the entries it
+    inherited (working orders that are not reduce-only), as Live's held start does, and places nothing."""
+
+    def __new__(cls, inputs: PaperInputs, proxy_url: str | None = None):
+        return Strategy.__new__(cls, strategy_runtime.source_config(StrategyId(inputs.strategy_id)))  # type: ignore[call-arg]
+
+    def __init__(self, inputs: PaperInputs, proxy_url: str | None = None):
+        super().__init__()
+        self._paper_instrument_id = inputs.instrument_id
+        self._paper_proxy_url = proxy_url
+        self._paper_held: list = []  # no data callback is ever held (release_before reads it)
+        self._paper_reader: threading.Thread | None = None
+        strategy_runtime.STRATEGIES[inputs.instrument_id] = self
+
+    @mutation
+    def on_start(self):
+        assert SESSION is not None
+        if self._paper_instrument_id not in SESSION.working:
+            return SESSION.start(self._held_begin)
+        when = SESSION.warm_at + history.SETTLE_NS
+        if self.clock.timestamp_ns() >= when:
+            return self._held_read()
+        self.clock.set_time_alert_ns("held-read", when, self._held_read)
+
+    @mutation
+    def _held_read(self, _event=None):
+        session, iid, proxy_url = SESSION, self._paper_instrument_id, self._paper_proxy_url
+        assert session is not None
+        instrument = self.cache.instrument(InstrumentId.from_str(iid))
+
+        def work():
+            while instrument is not None:
+                try:
+                    session.read_downtime(iid, session.warm_at, (instrument.price_precision,
+                                                                 instrument.size_precision), proxy_url)
+                except OSError as exc:  # the network: try again while the deadline allows
+                    if time.time_ns() + history.RETRY_NS < session.warm_at + history.DEADLINE_NS:
+                        time.sleep(history.RETRY_NS / history.SECOND_NS)
+                        continue
+                    print(f"Paper held read of {iid} failed: {type(exc).__name__}: {exc}", flush=True)
+                except Exception as exc:  # the minutes stay unread, so the check refuses the recovery
+                    print(f"Paper held read of {iid} failed: {type(exc).__name__}: {exc}", flush=True)
+                return
+
+        self._paper_reader = threading.Thread(target=work, name=f"held-{iid}", daemon=True)
+        self._paper_reader.start()
+        self.clock.set_timer("held-read-wait", history.WAIT, callback=self._held_wait)
+
+    @mutation
+    def _held_wait(self, _event=None):
+        if self._paper_reader is None or self._paper_reader.is_alive():
+            return
+        self._paper_reader = None
+        self.clock.cancel_timer("held-read-wait")
+        assert SESSION is not None
+        SESSION.start(self._held_begin)
+
+    def _held_begin(self):
+        for order in self.cache.orders_open():
+            if str(order.instrument_id) == self._paper_instrument_id and not order.is_reduce_only:
+                self.cancel_order(order.client_order_id)
+
+    @mutation
+    def on_order_event(self, event):
+        journal("order", strategy_id=str(event.strategy_id), **_event_fields(event))
+
+    @mutation
+    def on_position_event(self, event):
+        journal("position", strategy_id=str(event.strategy_id), **_event_fields(event))
+
+
 # The recorder
 
 STOP = threading.Event()
@@ -771,8 +855,9 @@ class Recorder(DataActor):
         if SESSION and not SESSION.ready and not STOP.is_set() and (
                 SESSION.refused or time.monotonic() >= SESSION.restore_deadline):
             checkpoint.dirty(SESSION.backend.output)
-            journal("refusal", code="PAPER_RECOVERY_UNAVAILABLE",
-                    reason=SESSION.refused or "native initialization did not complete")
+            # Latched, so a start that completes after the deadline starts nothing (Session.maybe_begin).
+            SESSION.refused = SESSION.refused or "native initialization did not complete"
+            journal("refusal", code="PAPER_RECOVERY_UNAVAILABLE", reason=SESSION.refused)
             request_stop("PAPER_RECOVERY_UNAVAILABLE")
         found = strategy_runtime.breaches()
         if found is not None and not STOP.is_set():
@@ -780,6 +865,9 @@ class Recorder(DataActor):
             journal("refusal", code=code, subscriptions=subscriptions)
             request_stop(code)
             return  # the next tick runs the stop sequence
+        if SESSION and SESSION.held and SESSION.ready and not STOP.is_set() and not self.cache.positions_open():
+            request_stop("HELD_FLAT")  # the held run's positions are closed: it ends (engine.paper_session, held)
+            return  # the next tick runs the stop sequence, which cancels what is left
         if not STOP.is_set():
             if SESSION:
                 SESSION.try_cut(self.cache)
@@ -787,12 +875,21 @@ class Recorder(DataActor):
         open_orders = self.cache.orders_open()
         if self.stopping_since is None:
             self.stopping_since = time.monotonic()
+            if SESSION:
+                # A source without the protocol is held only with a position whose working orders a checkpoint can
+                # hold (in flight ones are waited for); otherwise it cancels and ends as before.
+                SESSION.holding = bool(self.cache.positions_open()) and not any(
+                    unrestorable(order) and not in_flight(order) for order in self.cache.orders())
             journal("stop_requested", reason=STOP_REASON[0] if STOP_REASON else None, open_orders=len(open_orders))
             if not pausing():
                 # The runner's own cancel, past the gate on the source's commands (Session.commanded): a STOP
-                # cancels even after a refused back-fill whose refusal has not been journalled yet.
+                # cancels even after a refused back-fill whose refusal has not been journalled yet. A held run's
+                # holder is the runner's own strategy, without that gate.
                 for iid, strategy in strategy_runtime.STRATEGIES.items():
-                    OrderRules.cancel_all_orders(strategy, InstrumentId.from_str(iid))
+                    if isinstance(strategy, Holder):
+                        strategy.cancel_all_orders(InstrumentId.from_str(iid))
+                    else:
+                        OrderRules.cancel_all_orders(strategy, InstrumentId.from_str(iid))
             return
         # A pause keeps the working orders but waits for those in flight: Sandbox `stop()` refuses the commands still
         # queued, and a checkpoint cannot hold an order the venue has not answered (engine.paper_session.unrestorable).
@@ -883,7 +980,8 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
         if session.saved:
             session.working = session.backend.open_contracts()
         if accounts:
-            if len(accounts) != 1 or not (session.saved or {}).get("sources"):
+            # A held checkpoint has no source state, and only a source without the protocol has one.
+            if len(accounts) != 1 or bool((session.saved or {}).get("sources")) != session.supported:
                 raise checkpoint.fail("native accounts and checkpoint strategy state disagree")
             original = next(iter(accounts.values()))
             if "SANDBOX" not in str(original.id):
@@ -916,7 +1014,8 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
         liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"]))
     node = builder.build()
     for inputs in planned:
-        node.add_strategy(strategy_runtime.configure_strategy(loaded, inputs, paper_class))
+        node.add_strategy(Holder(inputs, proxy_url) if session and session.held
+                          else strategy_runtime.configure_strategy(loaded, inputs, paper_class))
     node.add_actor(history.WarmupActor(history.WarmupActorConfig(live=True)))
     node.add_actor_from_config(ImportableActorConfig("engine.paper:Recorder", "engine.paper:RecorderConfig",
                                                      {"instrument_ids": [item.instrument_id for item in planned],
@@ -932,6 +1031,8 @@ def summary(args, loaded: LoadedStrategy, planned: list[PaperInputs], recorder: 
     instances = {}
     for inputs in planned:
         strategy = strategy_runtime.STRATEGIES.get(inputs.instrument_id)
+        if isinstance(strategy, Holder):
+            strategy = None  # a held run has no source to ask
         found = None
         try:
             found = strategy.replay_integrity_findings(denied) if strategy is not None else None  # type: ignore[attr-defined]

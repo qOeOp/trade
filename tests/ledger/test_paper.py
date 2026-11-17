@@ -137,6 +137,8 @@ class ReadingTests(unittest.TestCase):
             "runtime failure": (journal(), summary(runtime_failures=2), 0, None, {"RUNTIME_FAILURES"}, "complete"),
             "node stopped itself": (journal(), summary(stop_reason="node_stopped"), 0, None, {"STOPPED:node_stopped"},
                                     "complete"),
+            # A held run (engine.paper) ends once its positions are closed: an ordinary end, not a crash.
+            "held until flat": (journal(), summary(stop_reason="HELD_FLAT"), 0, None, set(), "complete"),
             "refused": (journal() + [line("refusal", START + 4 * MINUTE, code="PAPER_EXEC_CLIENT_NOT_SANDBOX")],
                         summary(), 0, None, {"REFUSED:PAPER_EXEC_CLIENT_NOT_SANDBOX"}, "complete"),
             "another source": (journal(), summary(identity={"source_sha256": "b" * 64}), 0, None, {"SOURCE_MISMATCH"},

@@ -83,6 +83,28 @@ class Compare(unittest.TestCase):
         self.assertEqual((group["cause"], group["look_ahead_suspect"]), ("missing_bar", False))
         self.assertEqual(found["summary"]["missing_bars"], 1)
 
+    def test_after_a_held_resume_a_difference_is_the_holds_not_unexplained(self):
+        """A source without the recovery protocol is held after an interruption (engine.paper_session): it sends no
+        entry, so an entry only the replay made after the first `resumed` is the hold's, not a look-ahead suspect;
+        one before it, or a run whose source declares recovery, stays unexplained (user 2026-11-17)."""
+        held = START + 2 * MINUTE
+        lines = journal([], 5) + [{"kind": "resumed", "wall_ns": held}]
+        undeclared = b"class S(Strategy):\n    def on_bar(self, bar):\n        pass\n"
+        declared = (b"class S(Strategy):\n    PAPER_RECOVERY = 1\n    def on_save(self):\n        return {}\n"
+                    b"    def on_load(self, state):\n        pass\n")
+        self.assertEqual(compare.held_since(lines, undeclared), held)
+        self.assertIsNone(compare.held_since(lines, declared))
+        self.assertIsNone(compare.held_since(journal([], 5), undeclared), "never resumed")
+        for at, since, cause in ((close_of(3), held, "held"), (close_of(1), held, "unexplained"),
+                                 (close_of(3), None, "unexplained")):
+            with self.subTest(at=at, since=since):
+                replay = [initialized("R1", "ENTRY"), {**filled("R1", at, "100.0", "1")}]
+                replay[0]["ts_event"] = at
+                found = shared.compare(compare.run_record(lines, [], held=since), replay, {"BTCUSDT": archived(5)},
+                                       None, START, START + 5 * MINUTE)
+                group = found["groups"][0]
+                self.assertEqual((group["cause"], group["look_ahead_suspect"]), (cause, cause == "unexplained"))
+
     def test_a_live_bar_unlike_the_archive_explains_a_price_difference(self):
         paper = [initialized("P1", "ENTRY"), filled("P1", close_of(2), "100.5", "1")]
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(2), "100.0", "1")]

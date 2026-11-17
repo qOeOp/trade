@@ -26,6 +26,14 @@ touched one is. A cut waits while a declared aggregation's bucket has ended and 
 (`due`), so the checkpoint's cut time separates the bars a source has had from those a recovery back-fills. T moves on
 by a minute while it would close a crossed bucket: the native aggregator builds a request's bucket only once a later
 minute arrives.
+
+A source without the protocol (`Session.supported` false) is held after an interruption, as Live holds
+(docs/plans/paper-recovery-open-orders-20261117.zh.md, 保持模式): while a position is open its checkpoint holds the
+native cache and the recorder's state alone (`sources` empty), and its recovery (`held`) starts no source. The
+runner's holder (engine.paper.Holder) takes the source's strategy ID, reads the interruption's klines itself and,
+once every restored order is proven untouched, withdraws the inherited entries; the stops and targets keep working on
+live bars until the account is flat (HELD_FLAT). No funding settlement is refused there: no source would miss it, and
+the seal settles it for the journal's positions.
 """
 
 from __future__ import annotations
@@ -145,6 +153,9 @@ class Session:
         hooks = {name for base in source_bases for name, value in vars(base).items() if callable(value)}
         self.supported = (getattr(loaded.strategy_class, "PAPER_RECOVERY", None) == 1
                           and {"on_save", "on_load"} <= hooks)
+        # Whether the pause of a source without the protocol keeps its orders: a position was open when the stop was
+        # requested (engine.paper.pausing; latched there, since the pause itself may close it).
+        self.holding = False
         self.ready = False
         self.recorder: Any = None
         self.cache: Any = None
@@ -171,6 +182,11 @@ class Session:
                         self.last_bar[value["instrument_id"]] = value["ts_event"]
         if saved and saved.get("sources"):
             self._no_settlement_missed()
+
+    @property
+    def held(self) -> bool:
+        """A recovery of a source without the protocol: it starts no source, only the runner's holders."""
+        return bool(self.saved) and not self.supported
 
     @property
     def aggregated(self) -> list[str]:
@@ -326,7 +342,10 @@ class Session:
     def due(self, cache, now: int) -> str | None:
         """Why a cut at `now` could not tell whether a declared aggregation's latest bar reached the source, or None:
         a bucket ended after T and its bar is not in the native cache yet (rc7 builds it BUILD_DELAY_US after the
-        end, caches it and dispatches it in one step; a held callback then defers the cut until it ran)."""
+        end, caches it and dispatches it in one step; a held callback then defers the cut until it ran). A source
+        without the protocol is never back-filled (a held recovery starts none), so nothing is due for it."""
+        if not self.supported:
+            return None
         for iid in strategy_runtime.STRATEGIES:
             for period in self.aggregated:
                 end = warmup.bucket_start(now, period)
@@ -389,8 +408,18 @@ class Session:
         # the node shuts down is not one whose bar the source should have had (`due`).
         cut_ns = self.stopped_ns or time.time_ns()
         sources: dict[str, dict] = {}
-        if cache is not None:
-            if not self.supported or not self.ready:
+        if cache is not None and not self.supported:
+            # A held checkpoint: the native cache and the recorder, no source state. Only an open position is held.
+            if not self.ready:
+                raise checkpoint.fail("the run has not started")
+            if not cache.positions_open():
+                raise checkpoint.fail("no position is open; a source without the recovery protocol is held only "
+                                      "while one is")
+            self._restorable(cache)
+            if any(getattr(source, "_paper_held", None) for source in strategy_runtime.STRATEGIES.values()):
+                raise checkpoint.fail("a strategy callback remains pending")
+        elif cache is not None:
+            if not self.ready:
                 raise checkpoint.fail("the source has not completed its recovery protocol")
             found = self.due(cache, cut_ns)
             if found:
@@ -448,5 +477,6 @@ class Session:
         found = next(filter(None, map(unrestorable, cache.orders())), None)
         if found:
             self.pause_error = f"the pause had an order that cannot be restored ({found}); its original state is retained"
-        if any(source.clock.timer_names() for source in strategy_runtime.STRATEGIES.values()):
+        # A held checkpoint restores no source, so a source's timers are not lost by it.
+        if self.supported and any(source.clock.timer_names() for source in strategy_runtime.STRATEGIES.values()):
             self.pause_error = "the pause had a source timer; no timer state was checkpointed"

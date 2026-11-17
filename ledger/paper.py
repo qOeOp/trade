@@ -36,8 +36,9 @@ from shared.refusals import refuse
 
 READINGS = "paper-readings@2026-11-15"
 LOG_TAIL_BYTES = 1024 * 1024
-# How a run may end without a reason recorded: the user's stop, the engineering duration.
-CLEAN_STOPS = frozenset({"STOP_FILE", "SIGTERM", "SIGINT", "DURATION"})
+# How a run may end without a reason recorded: the user's stop, the engineering duration, a signal, and the end of a
+# held run once its positions are closed (engine.paper, HELD_FLAT).
+CLEAN_STOPS = frozenset({"STOP_FILE", "SIGTERM", "SIGINT", "DURATION", "HELD_FLAT"})
 # The stop reason of a runner killed from outside (a Docker or host restart that did not wait for its stop).
 KILLED = "KILLED"
 KILLED_EXIT = 137  # 128 + SIGKILL
