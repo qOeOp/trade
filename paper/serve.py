@@ -419,8 +419,9 @@ class Daemon:
         """A run's comparison outputs, oldest first. The temporary directory outlives this process."""
         return sorted(self.compare_root().glob(f"{paper_id}-*"))
 
-    def compare(self, paper_id: int) -> dict:
-        """Start `paper compare` of a sealed run in the background; its result is read with compared()."""
+    def compare(self, paper_id: int, preliminary: bool = False) -> dict:
+        """Start `paper compare` of a sealed run in the background (`preliminary`: --preliminary, on Binance's REST
+        where the market does not reach yet); its result is read with compared()."""
         with db.connect(self.profile, "reader") as conn:
             records.read_paper_run(conn, paper_id)
             if records.seal_of(conn, paper_id) is None:
@@ -437,6 +438,7 @@ class Daemon:
             try:
                 market = self.market_args()
                 self.cli("compare", "--paper-id", str(paper_id), "--output", str(output), *market,
+                         *(["--preliminary"] if preliminary else []),
                          "--timeout-seconds", str(COMPARE_SECONDS - 60), timeout=COMPARE_SECONDS)
                 found: dict[str, object] = {"state": "done"}
                 # Only the latest is read (compared()); a failed one leaves nothing to read.
@@ -687,7 +689,9 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                 elif found and found[2] == "resume":
                     self.json(200, daemon.resume_run(int(found[1])))
                 elif found and found[2] == "compare":
-                    self.json(202, daemon.compare(int(found[1])))
+                    if not isinstance(body, dict) or not isinstance(body.get("preliminary", False), bool):
+                        raise Failure(400, "USAGE_ERROR", 'a comparison\'s body is {} or {"preliminary": true}')
+                    self.json(202, daemon.compare(int(found[1]), body.get("preliminary", False)))
                 elif found and found[2] == "delete":
                     self.json(200, daemon.delete(int(found[1])))
                 else:

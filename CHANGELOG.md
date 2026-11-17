@@ -34,6 +34,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   when a fill both sides made counts in the minute on one side only (the replay fills at its bar's close, Paper once
   that bar reached it, after its snapshot: the 0.10 to 0.12 USDT of audit runs 52 to 54), else `unexplained`. Which
   groups differ and why is unchanged.
+- `paper compare --preliminary` (user 2026-11-17, 「加初步对账」): a same-day comparison before Binance archives the
+  run's day. The minutes, funding and metrics the market lacks are read from Binance's public REST into a working
+  copy of the market under `--output` (files linked, only the extended months rewritten; nothing enters the market
+  directory), paced, stopping at the first rate limit. The result carries `data_source: rest` and what REST added;
+  the Paper page offers it when the market does not cover the run yet and labels its result preliminary. The archive
+  comparison stays authoritative.
 - Paper (doctor 20261117-01): the Run paper dialog named the account as "1× leverage"; a page start runs with the
   replay default, leverage 3. The dialog now shows the margin and leverage the Paper controller names
   (`/api/paper/defaults`, from `ACCOUNT_CONTRACT`).

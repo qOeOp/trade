@@ -23,10 +23,10 @@ const ROLE: Record<string, string> = { entry: "entry", stop: "stop", target: "ta
 export function CompareTools({ r, paperId }: { r: Comparison | null; paperId: number }) {
   const zone = useTimeZone();
   if (r?.state !== "done" || !r.result) return null;
-  const { window: w, market_day: day } = r.result;
+  const { window: w, market_day: day, data_source: source, preliminary } = r.result;
   return (
     <>
-      <Tip content={<>Replayed with market {marketThrough(day)}</>}>
+      <Tip content={source === "rest" ? <>Preliminary: {preliminary?.market_day ? <>market {marketThrough(preliminary.market_day)}, then </> : null}Binance REST</> : <>Replayed with market {marketThrough(day)}</>}>
         <span className="whitespace-nowrap tabular-nums">{dateTime(utcInstant(w.start), zone, "minute")} → {dateTime(utcInstant(w.end), zone, "minute")}</span>
       </Tip>
       <TextButton onClick={() => void compare(paperId)}>Replay again</TextButton>
@@ -84,11 +84,14 @@ function Row({ g, row, i, only, p }: { g: Group; row: OrderRow; i: number; only:
   );
 }
 
-function Prompt({ children, action, label }: { children: ReactNode; action?: () => void; label?: string }) {
+function Prompt({ children, action, label, extra }: { children: ReactNode; action?: () => void; label?: string; extra?: ReactNode }) {
   return (
     <div className="flex h-full min-h-24 flex-col items-center justify-center gap-3 px-3 text-center text-dense text-fg-muted">
       <p className="max-w-[52ch] text-pretty">{children}</p>
-      {action && <FormButton primary icon="run" onClick={action}>{label}</FormButton>}
+      {(action || extra) && <div className="flex flex-wrap items-center justify-center gap-2">
+        {action && <FormButton primary icon="run" onClick={action}>{label}</FormButton>}
+        {extra}
+      </div>}
     </div>
   );
 }
@@ -108,7 +111,8 @@ export function Compare({ r, paperId, only, digits }: {
   if (r.state === "comparing") return <Prompt>Replaying on the archive… a run of an hour takes about half a minute.</Prompt>;
   if (r.state === "failed" || !r.result) {
     const uncovered = r.error?.code === "PAPER_COMPARE_UNCOVERED";
-    return <Prompt action={() => void compare(paperId)} label="Try again">
+    return <Prompt action={() => void compare(paperId)} label="Try again"
+      extra={uncovered && <TextButton size="form" onClick={() => void compare(paperId, true)}>Compare now on Binance REST</TextButton>}>
       <span className={uncovered ? "" : "text-fail-fg"}>{uncovered ? "The market does not hold this run's minutes yet. " : `${r.error?.code ?? "Failed"}: `}</span>{r.error?.message}
     </Prompt>;
   }
@@ -119,8 +123,10 @@ export function Compare({ r, paperId, only, digits }: {
   const unlike = barsOf.reduce((n, b) => n + b.differing_bars, 0);
   const barCounts = <span className="text-fg-faint">{plural(missing, "live bar")} missing, {late} late, {early} early, {unlike} unlike the archive</span>;
   const invalid = replay.status === "invalid" && <p className="px-3 pb-2 text-dense text-fail-fg">The replay is invalid: {replay.problems.map((p) => p.code ?? p.message).join(", ")}</p>;
+  const prelim = r.result.data_source === "rest" && <p className="px-3 pt-2 text-dense text-misses-fg">Preliminary: {r.result.preliminary?.market_day ? `market ${marketThrough(r.result.preliminary.market_day)}, later minutes` : "every minute"} from Binance REST, not the archive. Replay again once the archive covers the run.</p>;
   if (!groups) return (
     <div className="flex flex-col">
+      {prelim}
       <p className="flex flex-wrap gap-x-2 gap-y-1 px-3 py-2 text-dense tabular-nums text-fg-muted">
         <span className="text-fail-fg">The replay wrote no order events, so its orders cannot be compared</span>
         <span className="text-fg-faint">·</span>{barCounts}
@@ -137,6 +143,7 @@ export function Compare({ r, paperId, only, digits }: {
   const shown = differ.length || open ? [...differ, ...same] : differ;
   return (
     <div className="flex flex-col">
+      {prelim}
       <p className="flex flex-wrap gap-x-2 gap-y-1 px-3 py-2 text-dense tabular-nums text-fg-muted">
         {[
           <span key="same"><span className="text-fg">{same.length}</span> of {plural(mine.length, "trade")} the same</span>,
