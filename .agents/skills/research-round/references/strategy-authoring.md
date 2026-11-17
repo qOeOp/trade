@@ -71,8 +71,9 @@ header template, the entry class, the two hooks and a sizing helper.
   do not submit its stop again, which breaches the stop rule below. A resume past a bucket end of a
   declared aggregation hands the aggregated bars it missed to `on_bar` after `on_start`, before any
   live bar; an order sent on one ends the run if it is a MARKET order or `close_position`, or if
-  that bar's close or the minutes up to the resume reached it. Meanwhile the clock reads the resume time and the cache already holds the later
-  missed bars: decide from the bar handed in and saved state.
+  that bar's close or the minutes up to the resume reached it. Meanwhile the clock reads the resume
+  time and the cache already holds the later missed bars: decide from the bar handed in and saved
+  state.
 
 ## Causal clock
 
