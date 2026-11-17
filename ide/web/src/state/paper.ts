@@ -189,8 +189,10 @@ export async function deletePaper(run: PaperRun): Promise<void> {
   }
 }
 
-/** The contracts of a version's last research replay, or null when it has none. */
-export async function lastSymbols(candidate: string): Promise<string[] | null> {
-  const found = await paperApi<{ last: { symbols: string[] } | null }>(`/defaults?candidate=${encodeURIComponent(candidate)}`);
-  return found.last?.symbols ?? null;
+/** What a page start of a version takes: its last research replay's contracts (null when it has none) and the
+ *  account every page start runs with, as the controller states it. */
+export type StartDefaults = { symbols: string[] | null; account: { starting_balance_usdt: string; leverage: string } };
+export async function startDefaults(candidate: string): Promise<StartDefaults> {
+  const found = await paperApi<{ last: { symbols: string[] } | null; account: StartDefaults["account"] }>(`/defaults?candidate=${encodeURIComponent(candidate)}`);
+  return { symbols: found.last?.symbols ?? null, account: found.account };
 }

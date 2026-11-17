@@ -2,19 +2,21 @@ import { useEffect, useState } from "react";
 import { AlertDialog, Dialog } from "radix-ui";
 import { CONTRACT } from "../model/liveLaunchText";
 import { useAtom } from "../state/atom";
-import { deleteDialog, deletePaper, lastSymbols, startDialog, startPaper, stopDialog, stopPaper } from "../state/paper";
+import { deleteDialog, deletePaper, type StartDefaults, startDefaults, startDialog, startPaper, stopDialog, stopPaper } from "../state/paper";
 import { FormButton } from "./chat/Field";
 import { PANEL, SCRIM } from "./dialog";
 
 /** "Run paper", asked before every new start: the contracts (the last research replay's to start with) or
- *  the whole universe; execution is bars and the account the replay's, so neither is a choice. */
+ *  the whole universe; execution is bars and the account the replay default the controller names, so neither is a choice. */
 function StartDialog({ candidate }: { candidate: string }) {
   const [text, setText] = useState("");
   const [pool, setPool] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [account, setAccount] = useState<StartDefaults["account"] | null>(null);
   useEffect(() => {
-    lastSymbols(candidate).then((found) => {
+    startDefaults(candidate).then(({ symbols: found, account }) => {
+      setAccount(account);
       if (found) setText(found.join(", "));
       setNote(found ? "From this version's last research replay." : "It has no research replay: name the contracts.");
     }).catch(() => setNote("The last research replay could not be read: name the contracts."));
@@ -47,7 +49,9 @@ function StartDialog({ candidate }: { candidate: string }) {
       </label>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-fg-muted">
         <dt className="text-fg-faint">Execution</dt><dd>One-minute bars, Sandbox fills</dd>
-        <dt className="text-fg-faint">Account</dt><dd>Same as the replay: 100,000 USDT margin, 1× leverage</dd>
+        <dt className="text-fg-faint">Account</dt><dd>{account
+          ? `The replay default: ${Number(account.starting_balance_usdt).toLocaleString("en-US")} USDT margin, ${account.leverage}× leverage`
+          : "The replay default"}</dd>
         <dt className="text-fg-faint">Data</dt><dd>Binance public data, no credential</dd>
       </dl>
       <div className="flex justify-end gap-2 pt-1">
