@@ -69,7 +69,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "path, segment {number, of}, window {start, end}, market_day, unexplained [{at, at_ns, class}], "
         "summary {run_orders, run_fills, replay_orders, replay_fills, groups, same, "
         "differs, run_only, replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, early_bars, "
-        "differing_bars, warmup_differs, terms_differ, equity_max_difference}, measures {from, to (--from, --to), groups, "
+        "differing_bars, warmup_differs, terms_differ, equity_max_difference, equity_unexplained_minutes}, measures {from, to (--from, --to), groups, "
         "entries_unfilled, partial_fills, fills_paired, adverse_slippage_bps, fees, equity_change, holds}, "
         "replay {status, problems, path}",
         "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_COMPARE_EMPTY (no warm-up, no such trading start, no "

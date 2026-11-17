@@ -740,6 +740,45 @@ def replay_equity(reports: Path, minutes: list[int]) -> list[list]:
     return path
 
 
+def equity_differences(run_equity: list[tuple[int, Decimal]], replayed: Mapping[int, Decimal],
+                       compared: list[dict] | None, taken: Mapping[int, int]) -> list[dict]:
+    """Each minute whose equities differ by more than metrics.MONEY, with what the comparison knows of it (`cause`):
+    `orders_differ` when a group that differs has a fill on either side by then (the equity follows the order
+    differences already attributed), else `fill_timing` when an order filled on both sides is counted in the minute on
+    one side only, else `unexplained`; `orders` names the run's orders of that cause.
+
+    A replay values a minute after its bar's close, the fills that bar caused included, at the MARK bar's close. A run
+    values it when it took the minute's value (`taken`: {minute: the run clock then}; Paper's snapshot, at the next
+    minute's first mark, by default the minute's end), before the minute's bar reached its source: the fills that bar
+    caused fall in the next minute (audit runs 52 to 54, 2026-11-15: a BTC entry's commission and its open profit to
+    the minute's MARK close, 0.10 to 0.12 USDT)."""
+    found = []
+    for minute, value in run_equity:
+        if minute not in replayed or abs(value - replayed[minute]) <= metrics.MONEY:
+            continue
+        run_cut, replay_cut = taken.get(minute, minute + MINUTE_NS), minute + MINUTE_NS - MILLISECOND_NS
+        differ: list[str] = []
+        timing: list[str] = []
+        for group in compared or []:
+            for row in group["orders"]:
+                run_fill = ((row["run"] or {}).get("fill") or {}).get("ts_ns")
+                replay_fill = ((row["replay"] or {}).get("fill") or {}).get("ts_ns")
+                name = (row["run"] or row["replay"])["order"]
+                if group["class"] != "same":
+                    if (run_fill is not None and run_fill <= run_cut) or (
+                            replay_fill is not None and replay_fill <= replay_cut):
+                        differ.append(name)
+                elif run_fill is not None and replay_fill is not None and (
+                        (run_fill <= run_cut) != (replay_fill <= replay_cut)):
+                    timing.append(name)
+        cause, orders = (("orders_differ", differ) if differ else ("fill_timing", timing) if timing
+                         else ("unexplained", []))
+        found.append({"minute": utc_text(minute), "minute_ns": minute, "run": str(value),
+                      "replay": str(replayed[minute]), "difference": str(value - replayed[minute]), "cause": cause,
+                      "orders": orders[:LISTED]})
+    return found
+
+
 # The whole comparison
 
 def _listed_metrics(item: Mapping) -> dict:
@@ -755,8 +794,9 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
             replay_terms: Mapping | None = None, replay_fees: Mapping | None = None,
             archived_metrics: Mapping | None = None) -> dict:
     """A run against its replay. `run`: {bars, warmup ({instrument: {period: digest}}), metrics (rows received and
-    unsubscribes), events (native order events), settlements (funding), equity ([(minute, value)]),
-    terms ({symbol: terms}), fees ({symbol: {maker, taker}})}.
+    unsubscribes), events (native order events), settlements (funding), equity ([(minute, value)]), taken ({minute:
+    the run clock when it took that value}, equity_differences), terms ({symbol: terms}), fees ({symbol: {maker,
+    taker}})}.
     `replay_events` None means the replay wrote no order events: its orders are unknown, not none."""
     found = bars(run.get("bars") or [], archive, start, end)
     warmed = warmup(run.get("warmup") or {}, archived_warmup or {})
@@ -804,12 +844,16 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
                     "consequences": sum(group.get("cause") == "consequence" for group in compared),
                     "look_ahead_suspects": sum(bool(group.get("look_ahead_suspect")) for group in compared)}
     run_equity = [(minute, value) for minute, value in run.get("equity") or [] if start <= minute < end]
-    equity = {"run": [[minute, str(value)] for minute, value in run_equity],
+    equity: dict[str, list] = {"run": [[minute, str(value)] for minute, value in run_equity],
               "replay": replay_equity(reports, [minute for minute, _ in run_equity])
               if reports and (reports / "account.csv").is_file() else []}
     replayed = {minute: Decimal(value) for minute, value in equity["replay"]}
     gaps = [abs(value - replayed[minute]) for minute, value in run_equity if minute in replayed]
     summary["equity_max_difference"] = str(max(gaps)) if gaps else None
+    explained = equity_differences(run_equity, replayed, compared, run.get("taken") or {})
+    # The list stops at LISTED; the count is complete.
+    equity["differences"] = explained[:LISTED]
+    summary["equity_unexplained_minutes"] = sum(item["cause"] == "unexplained" for item in explained)
     return {"summary": summary, "inputs": inputs, "groups": compared, "equity": equity}
 
 

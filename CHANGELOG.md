@@ -26,6 +26,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: a minute's snapshot now values the open positions at that minute's last mark. It is taken at the next
+  minute's first mark, which it used for that contract, so the equity path stood one mark late against the replay's
+  MARK close (audit runs 52 and 54: 0.02 USDT on 0.004 BTC). Runs sealed before keep their journals.
+- `paper compare` explains each minute whose equity differs from the replay's (`equity.differences`, with
+  `summary.equity_unexplained_minutes`): `orders_differ` when a differing group has filled by then, `fill_timing`
+  when a fill both sides made counts in the minute on one side only (the replay fills at its bar's close, Paper once
+  that bar reached it, after its snapshot: the 0.10 to 0.12 USDT of audit runs 52 to 54), else `unexplained`. Which
+  groups differ and why is unchanged.
 - `paper compare --preliminary` (user 2026-11-17, 「加初步对账」): a same-day comparison before Binance archives the
   run's day. The minutes, funding and metrics the market lacks are read from Binance's public REST into a working
   copy of the market under `--output` (files linked, only the extended months rewritten; nothing enters the market

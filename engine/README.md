@@ -632,8 +632,12 @@ a declared aggregation's bucket has ended and its bar is not yet in the native c
 invented: on the warm-up's reader at T (T + 15 s, when the Binance kline closing at T is final), the recovery reads
 the one-minute klines of each contract holding a restored order from the journal's last bar up to the minute closing
 at T, and before any source starts it requires every restored order to be untouched by them (a stop's trigger, a
-limit's price, a LIMIT_IF_TOUCHED's trigger not reached by the minutes' high or low), a GTD's expiry after T, and a
-trigger on the last price. Any other order type or state, or a minute missing, fails too. A
+limit's price, a LIMIT_IF_TOUCHED's trigger not reached by the minutes' high or low) and a trigger on the last price.
+A GTD that expired while the run was down needs only the minutes up to its expiry and the last one: rc7's matching
+engine matches a bar before it expires what it holds, so the uninterrupted run matched it up to the minute its expiry
+fell in and then expired it unfilled, and the recovery's Sandbox matches it once more, on the first live bar's open
+(which follows the last minute's close), before it expires it there. Its `OrderExpired` then comes at that bar, not
+at the expiry. Any other order type or state, or a minute missing, fails too. A
 failed check journals a `refusal` (`PAPER_RECOVERY_UNAVAILABLE`, naming the order and the minute) and stops the run as
 a pause stops, leaving the restored orders as they were, without a new checkpoint; the daemon seals it. So does a
 refused back-fill (orders it already sent stay as they are) and any other stop of a recovery before it is ready, but

@@ -57,7 +57,11 @@ def run_record(lines: list[dict], settled: list[dict], terms: Mapping | None = N
     return {"bars": [line for line in lines if line["kind"] == "bar"], "warmup": warmup,
             "metrics": [line for line in lines if line["kind"] in ("metrics", "metrics_unsubscribed")],
             "events": [line for line in lines if line["kind"] == "order"], "settlements": settled,
-            "equity": records.equity_path(lines, settled)[0], "terms": dict(terms or {}), "fees": fees, "held": held}
+            "equity": records.equity_path(lines, settled)[0],
+            "taken": {line["minute_ns"]: line["wall_ns"] for line in lines
+                      if line["kind"] == "snapshot" and isinstance(line.get("minute_ns"), int)
+                      and isinstance(line.get("wall_ns"), int)},
+            "terms": dict(terms or {}), "fees": fees, "held": held}
 
 
 def _journal(conn: db.LedgerConnection, paper_id: int) -> list[dict]:
