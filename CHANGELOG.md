@@ -26,6 +26,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper (doctor 20261117-04): the daemon seals a run that SIGTERM or SIGINT ended without a clean recovery checkpoint
+  (a source without `PAPER_RECOVERY`, which cancels its orders and cuts none) instead of trying `resume` every 15 s
+  forever while it stayed ended and unsealed. A pause that published its checkpoint still resumes.
 - Release (doctor 20261117-02): a release that cannot read the Web or the Paper controller now says which reader,
   which path and what it answered: an HTTP status, or the class of the error that stopped the read (`TimeoutError`,
   `URLError`, ...), never a response body. After a compose service move is undone, the journal names the reader
