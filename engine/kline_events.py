@@ -108,7 +108,9 @@ def connect(symbols: Iterable[str], proxy_url: str | None, timeout: float = SILE
             raise ConnectionError(f"the proxy refused the tunnel: {b' '.join(status[:3]).decode('latin-1')}")
     else:
         raw = socket.create_connection((HOST, PORT), timeout=timeout)
-    stream = ssl.create_default_context().wrap_socket(raw, server_hostname=HOST)
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    stream = context.wrap_socket(raw, server_hostname=HOST)
     stream.settimeout(timeout)
     key = base64.b64encode(os.urandom(16)).decode()
     streams = "/".join(f"{symbol.lower()}@kline_1m" for symbol in symbols)
