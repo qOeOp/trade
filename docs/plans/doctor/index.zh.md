@@ -10,7 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261117-04 | 无恢复协议的源码被 SIGTERM 结束后，控制器当成暂停反复 resume，运行不封存 | 修缺陷（只恢复真正暂停的结束） | doctor | minutes | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-17 | 2026-11-17 |
+| 20261117-04 | 无恢复协议的源码被 SIGTERM 结束后，控制器当成暂停反复 resume，运行不封存 | 修缺陷（只恢复真正暂停的结束） | doctor | minutes | in PR [#3148](https://github.com/qOeOp/trade/pull/3148) | 2026-11-17 | 2026-11-17 |
 | 20261117-05 | Paper 页面不显示运行不可恢复，结束后给出只会被拒的 Resume | 修缺陷（显示拒绝码，运行中注明中断即结束） | doctor | minutes | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-17 | 2026-11-17 |
 | 20261117-02 | 发布移动 ledger 镜像与 market-import 失败后退回，原因没留下，本版本内不再重试 | 修缺陷（记读取者与状态；退回不算运维重建） | doctor | hours | in PR [#3144](https://github.com/qOeOp/trade/pull/3144)（记读取者，已合入）；[#3145](https://github.com/qOeOp/trade/pull/3145)（退回后重试） | 2026-11-17 | 2026-11-17 |
 | 20261117-03 | 工作站 compose 服务停在 11-11 镜像，market-import 不跟进六个合约的 metrics，市场最新日卡住 | 用户授权后升级工作站服务 | doctor | hours | open [记录](2026-11-16-release-weak-points.zh.md) | 2026-11-17 | 2026-11-17 |
