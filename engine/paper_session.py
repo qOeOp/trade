@@ -10,11 +10,11 @@ the last price (`unrestorable`). Any other unfinished order defers the cut.
 
 A recovery warms each source again at its own T (engine.history): the declared history and the aggregations'
 current buckets are read from Binance's klines, the history goes to on_historical_bars, then the source's on_load
-gets its saved state and its on_start runs. A recovery that crossed a funding settlement is refused: the source would
-never see that settlement as it happened. So is one whose interruption may have changed a restored working order
-(`touched`): for each contract holding one, the warm-up's reader also reads the one-minute klines from the journal's
-last bar up to T, and before any source starts every restored order must be proven untouched by them and unexpired at
-T. Nothing is matched or invented for the interruption.
+gets its saved state and its on_start runs. A recovery that crossed a funding settlement is held instead (`hold`, user
+decision 2026-11-17): the source would never see that settlement as it happened. One whose interruption may have
+changed a restored working order is refused (`touched`): for each contract holding one, the warm-up's reader also
+reads the one-minute klines from the journal's last bar up to T, and before any source starts every restored order
+must be proven untouched by them and unexpired at T. Nothing is matched or invented for the interruption.
 
 A recovery that crossed a bucket boundary of a declared aggregation back-fills it (`backfill`;
 docs/plans/paper-recovery-open-orders-20261117.zh.md): the native aggregator is warmed from the start of the bucket
@@ -27,7 +27,8 @@ touched one is. A cut waits while a declared aggregation's bucket has ended and 
 by a minute while it would close a crossed bucket: the native aggregator builds a request's bucket only once a later
 minute arrives.
 
-A source without the protocol (`Session.supported` false) is held after an interruption, as Live holds
+A source without the protocol (`Session.supported` false), or one whose recovery crossed a funding settlement, is
+held after an interruption, as Live holds
 (docs/plans/paper-recovery-open-orders-20261117.zh.md, 保持模式): while a position is open its checkpoint holds the
 native cache and the recorder's state alone (`sources` empty), and its recovery (`held`) starts no source. The
 runner's holder (engine.paper.Holder) takes the source's strategy ID, reads the interruption's klines itself and,
@@ -151,8 +152,12 @@ class Session:
         self.depth = 0
         source_bases = loaded.strategy_class.__mro__[:loaded.strategy_class.__mro__.index(Strategy)]
         hooks = {name for base in source_bases for name, value in vars(base).items() if callable(value)}
-        self.supported = (getattr(loaded.strategy_class, "PAPER_RECOVERY", None) == 1
-                          and {"on_save", "on_load"} <= hooks)
+        # Whether the source declares the protocol, and whether this process restores it with it: a recovery that
+        # crossed a funding settlement holds the run instead (`hold`).
+        self.declared = (getattr(loaded.strategy_class, "PAPER_RECOVERY", None) == 1
+                         and {"on_save", "on_load"} <= hooks)
+        self.supported = self.declared
+        self.fallen: str | None = None  # why a recovery of a source with the protocol is held (`hold`)
         # Whether the pause of a source without the protocol keeps its orders: a position was open when the stop was
         # requested (engine.paper.pausing; latched there, since the pause itself may close it).
         self.holding = False
@@ -168,6 +173,9 @@ class Session:
         self.working: set[str] = set()  # the contracts of the restored unfinished orders (engine.paper.build_node)
         self.stopped_ns: int | None = None  # when a pause stopped the node (before_stop)
         self.handing: tuple | None = None  # (period, aggregated bar, its minutes up to T) while backfill hands one
+        if self.missed_settlement():
+            # The source would never see that settlement as it happened: the run is held instead of ended.
+            self.hold("the recovery crossed an unobserved funding settlement")
         # A recovery's T, and the start of the bucket the checkpoint was cut in of each aggregation it back-fills.
         self.warm_at, self.since = self.crossed(warm_at)
         # The sources start once warmed: T, its settling and its deadline (engine.history), and some slack.
@@ -180,13 +188,19 @@ class Session:
                     value = json.loads(raw)
                     if value["kind"] == "bar":
                         self.last_bar[value["instrument_id"]] = value["ts_event"]
-        if saved and saved.get("sources"):
-            self._no_settlement_missed()
 
     @property
     def held(self) -> bool:
-        """A recovery of a source without the protocol: it starts no source, only the runner's holders."""
+        """A recovery that restores no source, only the runner's holders: of a source without the protocol, or of one
+        with it that fell back (`hold`)."""
         return bool(self.saved) and not self.supported
+
+    def hold(self, reason: str) -> None:
+        """Hold this recovery of a source with the protocol, as one without it is held: a recovery that crossed a
+        funding settlement (user decision 2026-11-17), and every later recovery of the run, whose held checkpoint has
+        the account and no source state (engine.paper.build_node). From here the run is a held one: `supported` is
+        false for the cut, the pause and the end."""
+        self.supported, self.fallen = False, reason
 
     @property
     def aggregated(self) -> list[str]:
@@ -199,7 +213,7 @@ class Session:
         is the end of a crossed bucket: a request builds a bucket only once a minute after it arrives (rc7's time-bar
         aggregator closes a request's bucket on its own clock, which only the request's later bars move), and after the
         request the live aggregator would put that bucket's minutes into the next bucket's bar."""
-        if not self.saved or not self.saved.get("sources"):
+        if not self.saved or not self.saved.get("sources") or self.held:
             return at, {}
         while True:
             since = {period: warmup.bucket_start(self.saved["cut_ns"], period) for period in self.aggregated}
@@ -208,13 +222,15 @@ class Session:
                 return at, since
             at += MINUTE_NS
 
-    def _no_settlement_missed(self) -> None:
-        if not self.saved or not self.saved.get("sources"):
-            return  # a waiting checkpoint has not started a settlement cadence
+    def missed_settlement(self) -> bool:
+        """Whether a funding settlement the checkpoint's source or recorder was following is due by now. A waiting
+        checkpoint has started no settlement cadence, and a held recovery has no source to miss it (the seal settles
+        it for the journal's positions)."""
+        if self.held or not self.saved or not self.saved.get("sources"):
+            return False
         following = list((self.saved.get("recorder") or {}).get("funding", {}).values())
         following.extend(value["cadence"].get("next_funding_ns") for value in self.saved["sources"].values())
-        if any(value is not None and time.time_ns() >= value for value in following):
-            raise checkpoint.fail("recovery crossed an unobserved funding settlement; the original point is retained")
+        return any(value is not None and time.time_ns() >= value for value in following)
 
     @contextmanager
     def callback(self):
@@ -246,7 +262,9 @@ class Session:
 
     def maybe_begin(self) -> None:
         if not self.ready and not self.refused and len(self.starts) == self.expected_starts:
-            self._no_settlement_missed()
+            if self.missed_settlement():  # one due since the process started: the node already runs the source
+                raise checkpoint.fail("recovery crossed an unobserved funding settlement; the original point is "
+                                      "retained")
             account = self.cache.account_for_venue(Venue(ACCOUNT_CONTRACT["venue"]))
             if account is None or account.to_dict().get("calculate_account_state") is not True:
                 raise checkpoint.fail("native account initialization did not restore Sandbox calculation mode")

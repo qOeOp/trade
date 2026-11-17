@@ -851,13 +851,16 @@ class SandboxConfigTests(unittest.TestCase):
                                                                                        paper.Currency.from_str("USDT")))
         planned = [paper.PaperInputs(str(IID), DAY, DAY, "R1-BTCUSDT", None, DAY)]  # type: ignore[arg-type]
         self.addCleanup(paper.strategy_runtime.STRATEGIES.clear)
-        for supported, sources, refused in ((False, {}, False), (True, {}, True), (False, {"BTC": {}}, True),
+        # A source with the protocol whose checkpoint has the account and no state was held by an earlier recovery
+        # (Session.hold): it is held again.
+        for supported, sources, refused in ((False, {}, False), (True, {}, False), (False, {"BTC": {}}, True),
                                             (True, {"BTC": {}}, False)):
             with self.subTest(supported=supported, sources=sources):
-                session = SimpleNamespace(
-                    supported=supported, saved={"sources": sources}, held=not supported, working=set(),
-                    backend=SimpleNamespace(config=None, accounts=lambda: {"a": account},
-                                            open_contracts=lambda: set()))
+                session = paper.Session.__new__(paper.Session)
+                session.saved, session.working, session.declared = {"sources": sources}, set(), supported
+                session.supported, session.fallen = supported, None
+                session.backend = SimpleNamespace(config=None, accounts=lambda: {"a": account},
+                                                  open_contracts=lambda: set())
                 builder = mock.MagicMock()
                 with mock.patch.object(paper.LiveNode, "builder", return_value=builder), \
                         mock.patch.object(paper.history, "ACTORS", []), \
@@ -872,8 +875,10 @@ class SandboxConfigTests(unittest.TestCase):
                                             (Decimal("0.0002"), Decimal("0.0005")), Path("/nonexistent"), "3", {},
                                             session)
                 added = node.add_strategy.call_args.args[0]
-                self.assertEqual(isinstance(added, paper.Holder), not supported)
-                self.assertEqual(configure.called, supported)
+                self.assertEqual(isinstance(added, paper.Holder), not (supported and sources))
+                self.assertEqual(configure.called, bool(supported and sources))
+                self.assertEqual(session.fallen, "an earlier recovery of this run was held" if supported and not sources
+                                 else None)
 
     def test_the_sandbox_takes_the_contracts_matching_terms_a_replay_venue_takes(self):
         """liquidity_consumption and queue_position come from the account contract, as in engine.run.add_venue, so

@@ -990,9 +990,13 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
         if session.saved:
             session.working = session.backend.open_contracts()
         if accounts:
-            # A held checkpoint has no source state, and only a source without the protocol has one.
-            if len(accounts) != 1 or bool((session.saved or {}).get("sources")) != session.supported:
+            # A held checkpoint has the account and no source state: of a source without the protocol, or of one with
+            # it whose earlier recovery fell back to held (Session.hold), the only cut that leaves its state out.
+            sources = bool((session.saved or {}).get("sources"))
+            if len(accounts) != 1 or sources and not session.declared:
                 raise checkpoint.fail("native accounts and checkpoint strategy state disagree")
+            if session.supported and not sources:
+                session.hold("an earlier recovery of this run was held")
             original = next(iter(accounts.values()))
             if "SANDBOX" not in str(original.id):
                 raise checkpoint.fail("the checkpoint account is not a Sandbox account")
@@ -1146,6 +1150,10 @@ def _main(args) -> bool:
                     if not target.exists():
                         checkpoint.atomic(target, data)
             journal("resumed", execution=EXECUTION)
+            if SESSION and SESSION.fallen:
+                # The source's recovery is refused and the run is held (Session.hold); `paper compare` reads the
+                # held start from this line following `resumed` (paper.compare.held_since).
+                journal("refusal", code="PAPER_RECOVERY_UNAVAILABLE", reason=f"{SESSION.fallen}; the run is held")
         else:
             journal("started", symbols=args.symbols, input_start_ns=start_ns, execution=EXECUTION,
                     **strategy_metadata(loaded))
