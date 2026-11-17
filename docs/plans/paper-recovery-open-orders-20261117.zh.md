@@ -339,3 +339,11 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 - 不变：不新增存储字段、不加日志行；停机检查只多读同一个 LAST 1 分钟接口。
 - 实施时的成对验收：用 `engine.paper.main` 跑连续与中断—恢复，覆盖 MIT、MARK 止损、未激活的跟踪止损；拒绝路径各一条（停机碰到激活价、已激活的在切点推迟）；已触发的跟踪止损限价单单独探一次再决定。技能文字（`strategy-authoring.md`）按 `.agents/README.md` 同步：跟踪止损必须给初始触发价，否则回放与 Paper 以 `MARKET_PRICE_UNAVAILABLE` 拒单。
 - 上游（可选，对外发帖要用户点头）：rc7 跟踪止损的激活状态不持久化，带 `load_state` 重启后已激活的跟踪止损变成未激活；Live 带缓存重启同样受影响（止损在交易所工作，但缓存里的订单状态会丢）。
+
+## `recovery_declared` 由运行记录的入口类推出（2026-11-18）
+
+页面的 `recovery_declared` 与 `paper compare` 的 `held_since` 原先在源码文本里找"任一个类"声明了 `PAPER_RECOVERY = 1` 且（连同同文件里的基类）实现了 `on_save`、`on_load`。运行器检查的是它加载的入口类（`Session.declared`：`getattr(strategy_class, "PAPER_RECOVERY")`），所以一个文件里另有一个声明了协议的类、入口类却没有时，页面会说"能恢复"，`paper compare` 也不会把保持归因为 `held`。
+
+现在两处都只看运行的入口类：取自日志 `started` 行的 `strategy_entry_class`（`engine.strategy_metadata`，运行器写的，不是新存的值），沿同文件的基类链判定。还读不到 `started` 行、入口类不是文件里的类、或文本解析不了时为 None（页面不标、`held_since` 不当保持）。
+
+仍然不精确的一处：入口类从别的模块导入的基类里继承来的声明或钩子，文本里读不到（运行器能看到）。要精确只能运行源码或让运行器把它判定的结果写进日志（如 `started` 行加一个值），后者是新存储的值，需要用户授权，本次不做。

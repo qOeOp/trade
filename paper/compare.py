@@ -39,12 +39,12 @@ def window(lines: list[dict], seal: Mapping) -> tuple[int, int]:
 
 def held_since(lines: list[dict], source: bytes) -> int | None:
     """When the run was first held (engine.paper_session, held): the wall time of its first `resumed` for a source
-    without the recovery protocol (read from its text as the page reads it, paper.serve.declares_recovery), and for
+    without the recovery protocol (its entry class read from its text as the page reads it, paper.serve.declares_recovery), and for
     one with it the first `resumed` the runner followed at once with a PAPER_RECOVERY_UNAVAILABLE `refusal` and then
     went on (a later `bar`): a recovery that crossed a funding settlement (Session.hold). A refused recovery stops
     without a bar. Derived, never stored; a source whose text does not parse is not taken as held."""
-    from paper.serve import declares_recovery
-    declared = declares_recovery(source)
+    from paper.serve import declares_recovery, entry_class
+    declared = declares_recovery(source, entry_class(lines))
     if declared is None:
         return None
     for index, line in enumerate(lines):

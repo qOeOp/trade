@@ -26,6 +26,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: whether a run's source declares recovery (the page's `recovery_declared`, and the held start `paper
+  compare` and the runs listing derive) is now read from the run's entry class, as its journal's `started` line names
+  it, and its bases in the same file, as the runner checks it; another class of the file declaring the protocol no
+  longer counts. Before the `started` line, or when the entry class is not a class of the file, it is unknown.
 - Paper: a run held after an interruption with a position that no working stop protects stays held and is now flagged
   (user 2026-11-17). Its recovery journals that position's `protection_gap` again after `resumed`, which a restored
   gap state used to suppress. The runs listing derives `held_since` and `unprotected` from the journal, so nothing new
