@@ -1,1 +1,1 @@
-{"revision":"56b7c7d033cbd3be0d39dbd627eca935dab9765e","image":null,"service":null,"runtime":null}
+{"revision":"56b7c7d033cbd3be0d39dbd627eca935dab9765e","image":"ghcr.io/qoeop/trade-ide@sha256:0b31bf7957fb058b9aaefee7546842d666fad5644ee21d19b3b5f3bbf716d31d","service":"ghcr.io/qoeop/trade-service@sha256:dd9f1c80e6350af5d43c0b67adb4a44dd89d0e6ccbbfa00dd6ff0cfa52f01c24","runtime":"ghcr.io/qoeop/trade-runtime@sha256:caccb972068e48a655090eef3440fdef1f5240fa23fa87ba3f421d3be68ae2a8"}
