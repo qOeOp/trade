@@ -932,6 +932,8 @@ class FollowHost(Host):
         self.broken = set()
         self.during = None
         self.stamp = moment(AFTER)  # the creation time of what recreate makes
+        self.live_locked = False  # whether the release holds the Live account lock
+        self.readers = []
 
     def created(self, name):
         assert name == WEB + A
@@ -965,6 +967,13 @@ class FollowHost(Host):
     def requires_live(self, name):
         return True
 
+    def health(self, name, lines, routed=False, live=True):
+        # The Web's /api/live lists under the Live account lock (live/state.py reading): while the release holds it
+        # (RecordingLive.barrier) that read waits until the probe times out, as on the host (doctor 20261117-02).
+        if routed and live and self.requires_live(name) and self.live_locked:
+            raise ReaderFailure("routed Web", "/api/live", "TimeoutError")
+        self.readers.append((name, routed, live))
+
 
 class RecordingLive(IdleLive):
     def __init__(self, host):
@@ -977,7 +986,11 @@ class RecordingLive(IdleLive):
         if self.busy:
             raise LiveBusy("Live has a running run")
         self.held.append((name, idle))
-        yield lambda: None
+        self.host.live_locked = True
+        try:
+            yield lambda: None
+        finally:
+            self.host.live_locked = False
         self.held.append("released")
 
 
@@ -1162,6 +1175,13 @@ class FollowTests(unittest.TestCase):
         self.now += FOLLOW_RETRY_SECONDS
         self.release.follow(WEB + A)
         self.assertEqual(self.host.recreated[0], ("ledger", TARGET["service"], True))
+
+    def test_the_readers_after_the_move_do_not_wait_on_the_live_lock_the_move_holds(self):
+        # Doctor 20261117-02: 0.4.1 and 0.4.2 both undid this move after 180 s of "routed Web /api/live: TimeoutError".
+        with patch("deploy.release.until_ready", side_effect=lambda check, *args, **kwargs: check()):
+            self.release.follow(WEB + A)
+        self.assertEqual([image for _, image, _ in self.host.recreated], [TARGET["service"]] * 2, "nothing undone")
+        self.assertEqual(self.host.readers, [(WEB + A, True, False)])
 
     def test_unreadable_readers_after_the_move_put_the_services_back(self):
         self.controller.health = Mock(side_effect=RuntimeError("Paper controller cannot read its database"))

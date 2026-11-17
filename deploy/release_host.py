@@ -570,14 +570,16 @@ class DockerHost:
         found = {line["name"] for line in lines if any(candidate in line["versions"] for candidate in active)}
         return sorted(found or {max(lines, key=lambda line: line["created_at"])["name"]})
 
-    def health(self, name: str, lines: list[str], routed: bool = False) -> None:
+    def health(self, name: str, lines: list[str], routed: bool = False, live: bool = True) -> None:
+        """`live` False leaves out /api/live: a caller holding the Live account lock (Live barrier) would wait on
+        itself there, since the listing reads under that lock (live/state.py reading)."""
         self.agent()
         for path in [
             "/api/paper/health",
             "/api/overview/health",
             "/api/agent/health",
             "/api/agent/agents",
-            *(["/api/live"] if routed and self.requires_live(name) else []),
+            *(["/api/live"] if routed and live and self.requires_live(name) else []),
         ]:
             if not (value := self.answer(name, path, routed)).get("ok", value.get("valid", True)):
                 raise ReaderFailure("routed Web" if routed else "Web", path, "not ok")

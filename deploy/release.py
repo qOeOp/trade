@@ -966,7 +966,9 @@ class Release:
                 held()
 
             def readers() -> None:
-                self.host.health(web, [], routed=True)
+                # Not /api/live: this move holds the Live account lock that its listing waits on (doctor 20261117-02).
+                # The services moved here are not on the Web to Live control path it would check.
+                self.host.health(web, [], routed=True, live=False)
                 self.paper().host.health(controller)  # its listing reads Docker through docker-api
 
             until_ready(readers, 180, 5, errors=(RuntimeError, ValueError, KeyError, subprocess.SubprocessError))
