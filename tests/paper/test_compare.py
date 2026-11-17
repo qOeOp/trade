@@ -7,6 +7,7 @@ is read at another moment than the paper snapshot it is set against. The compari
 from __future__ import annotations
 
 import csv
+from decimal import Decimal
 import gzip
 from pathlib import Path
 import tempfile
@@ -151,6 +152,26 @@ class Compare(unittest.TestCase):
                          (START, START + 3 * MINUTE))
         self.assertEqual(refused(compare.window, lines,
                                  {"stopped_ns": START + 30 * 10**9}).code, "PAPER_COMPARE_EMPTY")
+
+    def test_an_equity_difference_names_a_fill_the_run_took_after_its_snapshot(self):
+        """Audit runs 52 to 54: the replay fills at its bar's close, inside the minute; Paper fills once the bar reached
+        it, after it took the minute's snapshot, so the fill counts a minute later there."""
+        replayed = [initialized("R-1", "ENTRY"), filled("R-1", close_of(1), "100.0", "1")]
+        lines = journal([initialized("P-1", "ENTRY"), filled("P-1", START + 2 * MINUTE + 900 * 10**6, "100.0", "1")], 3)
+        lines += [{"kind": "snapshot", "minute_ns": START + i * MINUTE, "wall_ns": START + (i + 1) * MINUTE - 10**8,
+                   "balance_total": "100", "unrealized_pnl": "0"} for i in range(3)]
+        found = shared.compare(compare.run_record(lines, []), replayed, {"BTCUSDT": archived(3)}, None, START, START + 3 * MINUTE)
+        groups = found["groups"]
+        self.assertEqual(groups[0]["class"], "same")
+        cuts = {START + i * MINUTE: START + (i + 1) * MINUTE - 10**8 for i in range(3)}
+        replay_equity = {START: Decimal(100), START + MINUTE: Decimal("99.9"),
+                         START + 2 * MINUTE: Decimal("99.85")}
+        run_equity = [(START, Decimal(100)), (START + MINUTE, Decimal(100)),
+                      (START + 2 * MINUTE, Decimal("99.9"))]
+        explained = shared.equity_differences(run_equity, replay_equity, groups, cuts)
+        self.assertEqual([(item["minute_ns"], item["cause"], item["orders"]) for item in explained],
+                         [(START + MINUTE, "fill_timing", ["P-1"]), (START + 2 * MINUTE, "unexplained", [])])
+        self.assertEqual(found["summary"]["equity_unexplained_minutes"], 0)  # no replay reports: no replay equity
 
     def test_the_replay_equity_is_read_at_each_snapshot_minutes_close(self):
         with tempfile.TemporaryDirectory() as root:
