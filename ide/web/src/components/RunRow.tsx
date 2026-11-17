@@ -3,6 +3,7 @@ import { HoverCard } from "radix-ui";
 import type { PaperRun } from "../lib/paperApi";
 import { duration, plural, signedPct } from "../lib/format";
 import { ACTIVE, chainReturn, chainStart, chainTrades } from "../model/chain";
+import { endsOnInterruption, NO_RECOVERY } from "../model/recovery";
 import { useTimeZone } from "../state/timeZone";
 import { dotClass, pnlClass } from "../theme/roles";
 import { Ended, health, RunMenu } from "./RunTile";
@@ -41,6 +42,7 @@ export function RunRow({ run, chain, on, now, note, onPick, history }: {
           <i aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${dotClass(tone)}`} />
           <span className="flex min-w-0 max-w-[60%] shrink-0"><Status run={run} chain={chain} now={now} /></span>
           {trades !== null && <span className="shrink-0 tabular-nums">· {plural(trades, "trade")}</span>}
+          {endsOnInterruption(run) && <span className="shrink-0 text-fg-faint" title={NO_RECOVERY}>· No recovery</span>}
           {note && <span className="min-w-0 shrink-[100] truncate text-fg-faint">· {note}</span>}
         </span>
       </span>

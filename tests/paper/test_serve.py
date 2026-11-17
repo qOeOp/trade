@@ -299,6 +299,19 @@ class RestartTests(unittest.TestCase):
         self.assertEqual(found[2]["recovery"], failure)
         self.assertNotIn("recovery", found[3], "a running run has recovered")
         self.assertNotIn("recovery", found[4], "a sealed run is done")
+        self.assertIsNone(found[3]["recovery_declared"], "no strategy input to read")
+
+    def test_the_listing_says_whether_the_source_declares_recovery_as_the_runner_checks_it(self):
+        """The Paper page marks a running run that an interruption ends (engine.paper_session Session.supported)."""
+        hooks = "    def on_save(self):\n        return {}\n\n    def on_load(self, state):\n        pass\n"
+        declared = f"class S(Strategy):\n    PAPER_RECOVERY = 1\n\n{hooks}"
+        inherited = f"class Base(Strategy):\n{hooks}\n\nclass S(Base):\n    PAPER_RECOVERY = 1\n"
+        self.assertTrue(serve.declares_recovery(declared.encode()))
+        self.assertTrue(serve.declares_recovery(inherited.encode()), "hooks from a base in the same file count")
+        self.assertFalse(serve.declares_recovery(f"class S(Strategy):\n{hooks}".encode()), "no declaration")
+        self.assertFalse(serve.declares_recovery(b"class S(Strategy):\n    PAPER_RECOVERY = 1\n"), "no hooks")
+        self.assertFalse(serve.declares_recovery(declared.replace("= 1", "= 2").encode()))
+        self.assertIsNone(serve.declares_recovery(b"class S(:\n"))
 
     def test_only_a_pause_or_a_missing_summary_resumes_every_other_end_seals(self):
         """A runner refusal (TERMS_CHANGED, a breach, a failed restore) or a node that stopped on its own leaves a

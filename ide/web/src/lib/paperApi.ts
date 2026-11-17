@@ -40,7 +40,11 @@ export type PaperRun = {
    *  [minute ns, equity]) and the runner's last open positions and orders (null before its first state). */
   readings?: Omit<Readings, "equity"> & { outline?: [number, number][]; held?: { minute_ns: number | null; positions: OpenPosition[]; orders: OpenOrder[] } | null };
   seal?: Seal;
+  /** Why the daemon's last resume or seal of this ended run was refused (paper/serve.py recovery_failures). */
   recovery?: { code: string; message: string };
+  /** Whether the run's source declares Paper recovery (PAPER_RECOVERY = 1 with on_save and on_load), read from its
+   *  strategy input while it is not sealed; null where that is unreadable. Without it an interruption ends the run. */
+  recovery_declared?: boolean | null;
 };
 /** The ledger's paper memory in MiB (paper/runs.py memory_state): the budget, what running runs reserve, the
  *  host's available memory (null where unread), what a new run may reserve and the least one needs. */

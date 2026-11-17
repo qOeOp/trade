@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import type { PaperRun } from "../lib/paperApi";
 import { ACTIVE, continuable } from "../model/chain";
 import { ending } from "../model/ending";
+import { unresumable } from "../model/recovery";
 import { LAG_MS, waitingText, waitingUntil } from "../model/observation";
 import { copyText } from "../lib/clipboard";
 import { openSource } from "../state/editors";
@@ -15,9 +16,10 @@ import { ActionButton } from "./ActionGroup";
 import { locate, Menu, MenuItem, MenuSeparator } from "./VersionMenu";
 
 /** A run's health in words and its tone: running, data late, stopping, or how it ended (model/ending.ts),
- *  in the warning tone when its evidence is untrusted. */
+ *  in the warning tone when its evidence is untrusted; an ended run whose recovery was refused says so with
+ *  the refusal's code, and whether a resume can still pass (model/recovery.ts). */
 export function health(run: PaperRun, now: number, zone: TimeZone = "UTC"): { tone: DataRole; text: string; late: boolean } {
-  if (run.recovery) return { tone: "fail", text: "Recovery paused · account retained", late: false };
+  if (run.recovery) return { tone: "fail", text: `${unresumable(run) ? "Cannot resume" : "Recovery paused"} · ${run.recovery.code}`, late: false };
   const lastBar = run.readings?.last_bar_ns != null ? run.readings.last_bar_ns / 1e6 : null;
   if (run.state === "running") {
     if (run.readings?.exceptions) return { tone: "fail", text: `${run.readings.exceptions}+ errors`, late: false };
@@ -49,12 +51,13 @@ export function Ended({ run, errors }: { run: PaperRun; errors?: ReactNode }) {
  *  same contracts again: in the accent when the new run will continue the run's chain (model/chain.ts), as
  *  it does unless the run is invalid or a later run of them stands between, Continue, or Start for a run
  *  that never started; else Run again; while that start is in flight, a turning Starting…; off, saying which,
- *  while another run of the version is not sealed (one per version). Each says what it does beside its icon
+ *  while another run of the version is not sealed (one per version). An ended run's Resume is off, saying
+ *  why, when resuming can only be refused (model/recovery.ts). Each says what it does beside its icon
  *  (ActionGroup). */
 export function RunButton({ run }: { run: PaperRun }) {
   const listing = usePaperRuns(), runs = listing?.runs ?? [], go = continuable(run, runs), limit = full(listing);
   const busy = useAtom(resuming).has(run.paper_id), pending = useAtom(starting).has(run.candidate ?? "");
-  const other = run.candidate === null ? undefined : activeRun(listing, run.candidate);
+  const other = run.candidate === null ? undefined : activeRun(listing, run.candidate), refused = unresumable(run);
   if (!ACTIVE.has(run.state)) return (
     <ActionButton icon={pending ? "loading" : "run"} spinning={pending} disabled={pending} aria-disabled={other !== undefined}
                   tone={pending || go || limit ? undefined : "meets"}
@@ -66,8 +69,9 @@ export function RunButton({ run }: { run: PaperRun }) {
   );
   return (
     <>
-      {(run.state === "ended" || run.state === "unsealed") && <ActionButton icon="run" disabled={busy} className="text-primary"
-        onClick={(e) => { e.stopPropagation(); void resumePaper(run); }}>{busy ? "Resuming…" : "Resume"}</ActionButton>}
+      {(run.state === "ended" || run.state === "unsealed") && <ActionButton icon="run" disabled={busy} aria-disabled={refused}
+        className={refused ? "text-fg" : "text-primary"} hint={refused ? `Cannot resume: ${run.recovery?.message}. Stop and seal keeps its evidence` : undefined}
+        onClick={(e) => { e.stopPropagation(); if (!refused) void resumePaper(run); }}>{busy ? "Resuming…" : "Resume"}</ActionButton>}
       <ActionButton icon="stop" tone="fail" className="text-fg" disabled={run.state === "stopping"} hint="Stop the run and seal its evidence"
                     onClick={(e) => { e.stopPropagation(); stopDialog.set(run); }}>{run.state === "stopping" ? "Stopping…" : "Stop"}</ActionButton>
     </>
@@ -105,7 +109,7 @@ export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode 
   return (
     <Menu title={`${id} · run ${run.paper_id}`} items={<>
       {ACTIVE.has(run.state) && <MenuItem icon="stop" label="Stop and seal…" run={() => stopDialog.set(run)} />}
-      {(run.state === "ended" || run.state === "unsealed") && <MenuItem icon="run" label="Resume this run" run={() => void resumePaper(run)} />}
+      {(run.state === "ended" || run.state === "unsealed") && !unresumable(run) && <MenuItem icon="run" label="Resume this run" run={() => void resumePaper(run)} />}
       <MenuItem icon="locate" label="Locate version in graph" run={() => locate(id)} />
       <MenuItem icon="file.python" label="Open source" run={() => openSource(id)} />
       <MenuItem icon="copy" label="Copy run id" run={() => void copyText(String(run.paper_id))} />
