@@ -1136,7 +1136,7 @@ class FollowTests(unittest.TestCase):
         self.assertEqual(self.host.recreated, [])
 
     def test_an_undone_move_is_tried_again_an_hour_later_at_most_three_times_per_version(self):
-        # Doctor 20261117-01: the undo recreates both services after the routed Web, which read as the operator's
+        # Doctor 20261117-02: the undo recreates both services after the routed Web, which read as the operator's
         # recreation, so 0.4.1 never moved them again.
         self.host.broken = {"ledger", TARGET["service"]}
         del self.host.services[MARKET_IMPORT]  # untouched by a move that failed first on ledger
@@ -1184,7 +1184,7 @@ class FollowTests(unittest.TestCase):
 
 
 class ReaderDiagnosisTests(unittest.TestCase):
-    """Doctor 20261117-01: a reader that failed after a service move left only "unclassified runtime failure
+    """Doctor 20261117-02: a reader that failed after a service move left only "unclassified runtime failure
     (RuntimeError at deploy/release_host.py:239)". It names the reader, the path and the HTTP status or error class,
     never a response body or what docker printed."""
 
