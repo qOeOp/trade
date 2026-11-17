@@ -239,46 +239,193 @@ class SessionTests(unittest.TestCase):
         session.start(lambda: seen.append("ETH"))
         self.assertEqual(seen, ["recorder", "BTC", "ETH"])
 
-    def test_a_recovery_crossing_a_declared_aggregations_boundary_is_refused(self):
-        from engine.load import DAY_NS
-        from engine.cadence import Cadence
-        quarter = DAY_NS // 96
-        for warmup, cut, resumed, refused in (((("1-DAY", 200),), DAY_NS - 1, DAY_NS + 1, True),
-                                              ((("15-MINUTE", 0),), DAY_NS + 1, DAY_NS + quarter - 1, False),
-                                              ((("15-MINUTE", 0),), DAY_NS + 1, DAY_NS + quarter + 1, True)):
-            with self.subTest(warmup=warmup, resumed=resumed):
-                session = self.session()
-                session.loaded.warmup = warmup
-                strategy = self.strategy()
-                strategy._paper_cadence = Cadence()
-                strategy._paper_subscriptions.add(f"BTC-{warmup[0][0]}-LAST-INTERNAL@1-MINUTE-EXTERNAL")
-                with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True), \
-                        mock.patch("engine.paper_session.time.time_ns", return_value=cut):
-                    session.cut(SimpleNamespace(orders=lambda: []))
-                session.saved = session.backend.snapshot.call_args.args[1]
-                with mock.patch("engine.paper_session.time.time_ns", return_value=resumed):
-                    if refused:
-                        with self.assertRaises(checkpoint.Refusal):
-                            session._same_bucket()
-                    else:
-                        session._same_bucket()
-
-    def test_waiting_point_can_cross_midnight_but_an_active_aggregation_cannot(self):
-        from engine.load import DAY_NS
-        session = self.session(saved={"sources": {}, "cut_ns": 0})
-        session.loaded.warmup = (("1-DAY", 200),)
-        with mock.patch("engine.paper_session.time.time_ns", return_value=DAY_NS):
-            session._same_bucket()
-            session.saved["sources"] = {"BTC": {"cadence": {}}}
-            with self.assertRaises(checkpoint.Refusal):
-                session._same_bucket()
-
     def test_missed_funding_is_not_filled_with_a_later_estimate(self):
         session = self.session()
         session.saved = {"sources": {"BTC": {"cadence": {"next_funding_ns": 100}}}, "cut_ns": 1}
         with mock.patch("engine.paper_session.time.time_ns", return_value=101):
             with self.assertRaises(checkpoint.Refusal):
-                session._same_bucket()
+                session._no_settlement_missed()
+
+
+QUARTER = 15 * MINUTE_NS
+DELAY = 5_000_000_000  # engine.history.BUILD_DELAY_US: rc7 stamps an aggregated bar this long after its bucket's end
+
+
+def aggregated(end: int, close="100000.0"):
+    """A 15-minute bar of the bucket ending at `end`, as the native cache holds one."""
+    return SimpleNamespace(ts_event=end + DELAY, close=Price.from_str(close), bar_type="BTCUSDT-15-MINUTE")
+
+
+def minute(close: int, low="99500.0", high="100500.0"):
+    return SimpleNamespace(ts_event=close - 1_000_000, low=Price.from_str(low), high=Price.from_str(high))
+
+
+class BackfillTests(unittest.TestCase):
+    """A recovery that crossed a bucket boundary of a declared aggregation hands the source the aggregated bars it
+    missed instead of being refused (docs/plans/paper-recovery-open-orders-20261117.zh.md)."""
+
+    START = T - 4 * QUARTER + 7 * MINUTE_NS  # the cut: seven minutes into a quarter
+
+    def recovery(self, warm_at, warmup=(("15-MINUTE", 3),), sources=True, cut=START):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        backend = SimpleNamespace(output=root, root=root / "recovery", snapshot=mock.Mock(return_value={}))
+        (root / "events.jsonl").write_bytes(b"")
+        backend.root.mkdir()
+        loaded = SimpleNamespace(strategy_class=Hooks, warmup=warmup)
+        saved = {"sources": {IID: {"cadence": {}}} if sources else {}, "cut_ns": cut}
+        return Session(backend, mock.Mock(), loaded, saved, 1, 2, warm_at, release=mock.Mock())
+
+    def test_the_back_fill_starts_at_the_bucket_of_the_cut_and_t_never_ends_a_crossed_bucket(self):
+        first = T - 4 * QUARTER  # the quarter the cut is in
+        cases = {
+            "the same bucket": (first + 10 * MINUTE_NS, (("15-MINUTE", 3),), True, first + 10 * MINUTE_NS, {}),
+            "one boundary": (T - 3 * QUARTER + MINUTE_NS, (("15-MINUTE", 3),), True, T - 3 * QUARTER + MINUTE_NS,
+                             {"15-MINUTE": first}),
+            "three boundaries": (T - QUARTER + 2 * MINUTE_NS, (("15-MINUTE", 0),), True, T - QUARTER + 2 * MINUTE_NS,
+                                 {"15-MINUTE": first}),
+            # A request builds the bucket ending at T only once a later minute arrives: T moves on.
+            "T at a boundary": (T, (("15-MINUTE", 3),), True, T + MINUTE_NS, {"15-MINUTE": first}),
+            # Moved off the 3-minute boundary onto a 5-minute one, and on again.
+            "T at two periods' boundaries": (T - 4 * QUARTER + 9 * MINUTE_NS, (("3-MINUTE", 0), ("5-MINUTE", 0)), True,
+                                             T - 4 * QUARTER + 11 * MINUTE_NS,
+                                             {"3-MINUTE": T - 4 * QUARTER + 6 * MINUTE_NS,
+                                              "5-MINUTE": T - 4 * QUARTER + 5 * MINUTE_NS}),
+            "a waiting checkpoint": (T, (("15-MINUTE", 3),), False, T, {}),
+            "no aggregation": (T, (("1-MINUTE", 3),), True, T, {}),
+        }
+        for name, (at, warmup, sources, warm_at, since) in cases.items():
+            with self.subTest(name), mock.patch("engine.paper_session.time.time_ns", return_value=at - MINUTE_NS):
+                session = self.recovery(at, warmup, sources)
+                self.assertEqual((session.warm_at, session.since), (warm_at, since))
+
+    def handing(self, built, orders=None, warm_at=T + MINUTE_NS, minutes=None):
+        """A recovery at `warm_at` of a cut in the quarter four before T, its cache holding `built`; `orders` maps a
+        bar's bucket end to the order its source submits on it."""
+        with mock.patch("engine.paper_session.time.time_ns", return_value=warm_at):
+            session = self.recovery(warm_at)
+        handed: list = []
+        strategy = SimpleNamespace(_warming_state=lambda: {"expected": {("warm", "15-MINUTE"): minutes or [
+            minute(close) for close in range(T - 4 * QUARTER + MINUTE_NS, warm_at + 1, MINUTE_NS)]}})
+
+        def on_bar(bar):
+            handed.append(("held", bar.ts_event))
+            order_ = (orders or {}).get(bar.ts_event - DELAY)
+            strategy.pending = order_
+        strategy.on_bar = on_bar
+        strategy.pending = None
+
+        def release(_):
+            handed.append(("released", session.handing[1].ts_event))
+            if strategy.pending is not None:
+                handed.append(("submitted", session.submitted(strategy.pending)))
+        session.release = release
+        session.cache = SimpleNamespace(bars=lambda bar_type: list(built) or None)
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strategy}, clear=True):
+            return session, session.backfill(), handed
+
+    def test_the_bars_completed_since_the_cut_reach_on_bar_in_order_one_released_before_the_next(self):
+        ends = [T - 3 * QUARTER, T - 2 * QUARTER, T - QUARTER, T]
+        # The cache holds them newest first, with a bar the source already had (before the cut) and none after T.
+        built = [aggregated(end) for end in reversed(ends)] + [aggregated(T - 4 * QUARTER)]
+        session, refused, handed = self.handing(built)
+        self.assertIsNone(refused)
+        self.assertEqual(handed, [step for end in ends for step in (("held", end + DELAY), ("released", end + DELAY))])
+        self.assertIsNone(session.handing)
+        _, refused, handed = self.handing([bar for bar in built if bar.ts_event != T - QUARTER + DELAY])
+        self.assertIn("built 3 of the 4", refused)
+        self.assertEqual(handed, [], "a bar missing hands none")
+
+    def test_an_order_on_a_back_filled_bar_must_wait_untouched_until_t(self):
+        bar_end = T - QUARTER
+        below, above = ("99500.0", "99900.0"), ("100100.0", "100500.0")  # the minutes after it; its close is 100000
+        quiet = order(kind="LIMIT", side="BUY", price="99000.0")
+        cases = {
+            "an untouched buy limit": (quiet, below, None),
+            "an untouched sell stop": (order(side="SELL", trigger="99000.0"), below, None),
+            "a buy limit above the close": (order(kind="LIMIT", side="BUY", price="100050.0"), above,
+                                            "marketable at the close"),
+            "a sell limit below the close": (order(kind="LIMIT", side="SELL", price="99950.0"), below,
+                                             "marketable at the close"),
+            "a buy stop below the close": (order(side="BUY", trigger="99950.0"), below, "marketable at the close"),
+            "a sell stop above the close": (order(side="SELL", trigger="100050.0"), above, "marketable at the close"),
+            "a buy stop a minute reached": (order(side="BUY", trigger="99900.0"), below, "touched in the interruption"),
+            "a buy limit a minute reached": (order(kind="LIMIT", side="BUY", price="99500.0"), below,
+                                             "touched in the interruption"),
+            "a MARKET": (order(kind="MARKET"), below, "is a MARKET order"),
+            "a GTD expiring by T": (order(kind="LIMIT", side="BUY", price="99000.0", tif="GTD", expire_time=T), below,
+                                    "GTD expiry"),
+            "a MARK trigger": (order(trigger_type="MARK_PRICE"), below, "cannot be checked"),
+        }
+        bars = [aggregated(end, close="100000.0") for end in (T - 3 * QUARTER, T - 2 * QUARTER, bar_end, T)]
+        for name, (found, (low, high), reason) in cases.items():
+            with self.subTest(name):
+                session, refused, handed = self.handing(bars, {bar_end: found}, minutes=[
+                    minute(close, low=low, high=high) for close in range(
+                        T - 4 * QUARTER + MINUTE_NS, T + 2 * MINUTE_NS, MINUTE_NS)])
+                submitted = [item[1] for item in handed if item[0] == "submitted"]
+                if reason is None:
+                    self.assertEqual((refused, submitted), (None, [None]))
+                    self.assertIn(("held", T + DELAY), handed)
+                else:
+                    self.assertIn(reason, submitted[0])
+                    self.assertIn(reason, refused)
+                    self.assertIn("back-filled 15-MINUTE bar", refused)
+                    self.assertNotIn(("held", T + DELAY), handed, "the bar after the refused one is not handed")
+        # A minute of the interruption missing after the bar fails as the interruption's check does.
+        minutes = [minute(close) for close in range(T - 4 * QUARTER + MINUTE_NS, T + 2 * MINUTE_NS, MINUTE_NS)
+                   if close != T - 5 * MINUTE_NS]
+        _, refused, _ = self.handing(bars, {bar_end: quiet}, minutes=minutes)
+        self.assertIn("could not all be read", refused)
+        with mock.patch("engine.paper_session.time.time_ns", return_value=T):
+            self.assertIsNone(self.recovery(T + MINUTE_NS).submitted(order(kind="MARKET")),
+                              "outside the back-fill nothing is checked")
+
+    def test_a_refused_back_fill_starts_the_sources_but_leaves_the_recovery_unready(self):
+        with mock.patch("engine.paper_session.time.time_ns", return_value=T):
+            session = self.recovery(T + MINUTE_NS)
+        session.expected_starts, session.warm_at = 1, T + MINUTE_NS
+        session.cache = SimpleNamespace(account_for_venue=lambda _: SimpleNamespace(
+            to_dict=lambda: {"calculate_account_state": True}), orders=lambda: [], bars=lambda _: None)
+        seen: list = []
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: SimpleNamespace(
+                _warming_state=lambda: {"expected": {}})}, clear=True), \
+                mock.patch("engine.paper_session.time.time_ns", return_value=T + MINUTE_NS):
+            session.start(lambda: seen.append("started"))
+        self.assertEqual((seen, session.ready), (["started"], False))
+        self.assertIn("built 0 of the 4", session.refused)
+
+    def test_a_cut_waits_for_the_bar_of_a_bucket_that_ended(self):
+        with mock.patch("engine.paper_session.time.time_ns", return_value=T):
+            session = self.recovery(T + MINUTE_NS)
+        latest: list = [aggregated(T + QUARTER - QUARTER)]  # the last bar before the bucket ending at T + QUARTER
+        cache = SimpleNamespace(bar=lambda _: latest[0])
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: object()}, clear=True):
+            self.assertIsNone(session.due(cache, T + QUARTER - 1))
+            self.assertIn("has not reached the source", session.due(cache, T + QUARTER + 1))
+            latest[0] = aggregated(T + QUARTER)
+            self.assertIsNone(session.due(cache, T + QUARTER + DELAY))
+            self.assertIn("bucket ends at", session.due(cache, T + 2 * QUARTER - 1_000_000_000, 3_000_000_000))
+            # A bucket ending at or before T is the warm-up's: its bar is back-filled or was never the source's.
+            latest[0] = None
+            self.assertIsNone(session.due(cache, T + 2 * MINUTE_NS))
+        strategy = SessionTests.strategy(self)  # type: ignore[arg-type]
+        strategy._paper_cadence = Cadence()
+        strategy._paper_subscriptions = {f"{IID}-1-MINUTE-LAST-EXTERNAL",
+                                         f"{IID}-15-MINUTE-LAST-INTERNAL@1-MINUTE-EXTERNAL"}
+        session.ready = True
+        cache = SimpleNamespace(bar=lambda _: aggregated(T), orders=lambda: [])
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strategy}, clear=True):
+            with mock.patch("engine.paper_session.time.time_ns", return_value=T + QUARTER + 1):
+                with self.assertRaises(checkpoint.Refusal) as caught:
+                    session.cut(cache)
+            self.assertIn("has not reached the source", str(caught.exception))
+            session.backend.snapshot.assert_not_called()
+            cache.bar = lambda _: aggregated(T + QUARTER)
+            with mock.patch("engine.paper_session.time.time_ns", return_value=T + QUARTER + DELAY):
+                session.cut(cache)
+            session.backend.snapshot.assert_called_once()
 
 
 class InterruptionTests(unittest.TestCase):

@@ -12,8 +12,11 @@ on_start and on_historical_bars aside. At T the runner:
    that reads funding (on_funding_rate) starting on a whole hour has that history read too, declared or not, for the
    settlement of T's hour (step 6);
 2. has WarmupActor warm each declared aggregation with the one-minute bars of the bucket T falls in,
-   [floor(T, P), T), so that the first aggregated bar the source sees is complete; these responses go to the actor;
-3. requests each declared history for the source (engine.warmup.history_range);
+   [floor(T, P), T), so that the first aggregated bar the source sees is complete; these responses go to the actor.
+   A Paper recovery that crossed a bucket boundary of P (`since`, engine.paper_session.Session) warms from the start of
+   the bucket its checkpoint was cut in instead: the native aggregator builds the buckets completed since, which rc7
+   puts only into the cache (engine.paper_session.Session.backfill hands them to the source);
+3. requests each declared history for the source (engine.warmup.history_range), for such a P at that bucket's start;
 4. checks every response: the requested bars, ascending and adjacent, and (Paper and Live) exactly the bars written;
 5. hands each history to the source's on_historical_bars once and the funding settlements (a replay's from its export,
    engine.warmup.funding_history) to its on_historical_funding_rates once, then runs its on_start (`_warming_begin`);
@@ -80,12 +83,17 @@ def utc(ns: int) -> datetime:
     return datetime.fromtimestamp(ns // SECOND_NS, UTC) + timedelta(microseconds=ns % SECOND_NS // 1000)
 
 
-def requests(at: int, declared) -> list[tuple[str, str, int, int]]:
+def requests(at: int, declared, since: dict[str, int] | None = None) -> list[tuple[str, str, int, int]]:
     """(role, period, first, last) of every request at `at`: "warm" for the one-minute bars of an aggregation's
-    current bucket, "history" for a declared history; `first` and `last` bound the requested ts_event."""
-    found = [("warm", period, warmup.bucket_start(at, period), at - warmup.MILLISECOND_NS)
-             for period, _ in declared if period != "1-MINUTE" and warmup.bucket_start(at, period) < at]
-    found.extend(("history", period, *warmup.history_range(at, period, count)) for period, count in declared if count)
+    current bucket, "history" for a declared history; `first` and `last` bound the requested ts_event. `since` maps an
+    aggregation a Paper recovery back-fills to the start of the bucket its checkpoint was cut in: its warm-up starts
+    there and its history ends just before it."""
+    since = since or {}
+    found = [("warm", period, since.get(period, warmup.bucket_start(at, period)), at - warmup.MILLISECOND_NS)
+             for period, _ in declared if period != "1-MINUTE" and (period in since
+                                                                    or warmup.bucket_start(at, period) < at)]
+    found.extend(("history", period, *warmup.history_range(since.get(period, at), period, count))
+                 for period, count in declared if count)
     return found
 
 
@@ -123,13 +131,15 @@ def settlements(instrument_id, at: int, count: int, proxy_url: str | None, get=k
 
 
 def fetch(instrument_id, at: int, declared, precisions: tuple[int, int], catalog: Path, proxy_url: str | None,
-          get=klines.get_json, funding: int = 0, follow: bool = False) -> tuple[list[list], list, list]:
+          get=klines.get_json, funding: int = 0, follow: bool = False,
+          since: dict[str, int] | None = None) -> tuple[list[list], list, list]:
     """Read the bars of every request at `at` from Binance's klines into `catalog`, each bar type once over the
     span its requests cover, and (`funding` declared or `follow`) the settlements: the last `funding` at or before `at`
     and the one of `at`'s hour (see settlements); returns each request's bars and both. WARMUP_INSUFFICIENT when
-    Binance lacks a declared history or the minutes of a bucket."""
+    Binance lacks a declared history or the minutes of a bucket. `since`: see requests."""
     settled, following = settlements(instrument_id, at, funding, proxy_url, get) if funding or follow else ([], [])
-    planned = requests(at, declared)
+    since = since or {}
+    planned = requests(at, declared, since)
     spans: dict[str, tuple[int, int]] = {}
     for role, period, first, last in planned:
         source = "1-MINUTE" if role == "warm" else period
@@ -148,7 +158,8 @@ def fetch(instrument_id, at: int, declared, precisions: tuple[int, int], catalog
     for role, period, first, last in planned:
         found = [bar for bar in written["1-MINUTE" if role == "warm" else period] if first <= bar.ts_event <= last]
         count = dict(declared)[period]
-        if role == "history" and not warmup.adjacent([bar.ts_event for bar in found], at, period, count):
+        if role == "history" and not warmup.adjacent([bar.ts_event for bar in found], since.get(period, at), period,
+                                                     count):
             raise Refusal("WARMUP_INSUFFICIENT", f"{instrument_id}: Binance holds {len(found)} of the {count} adjacent "
                                                  f"{period} bars that end at {utc(last)}")
         answers.append(found)
@@ -169,11 +180,13 @@ class Warming:
 
     def _warming_setup(self, strategy_id, instrument_id, at: int, declared, funding: int = 0,
                        fetch: Callable[..., tuple[list[list], list, list]] | None = None,
-                       settlements: list | None = None, follows: bool = False, reads: bool = False) -> None:
-        """`fetch(instrument_id, at, declared, precisions, funding=funding, follow=...)` fills the run's Catalog and
-        reads the settlements (Paper and Live; see fetch); a replay gives the `settlements` of its export instead.
-        `follows`: the Paper or Live source reads funding (on_funding_rate). `reads`: `fetch` reads at T even without a
-        request (a Paper recovery's interruption klines, engine.paper_session.Session.read_downtime)."""
+                       settlements: list | None = None, follows: bool = False, reads: bool = False,
+                       since: dict[str, int] | None = None) -> None:
+        """`fetch(instrument_id, at, declared, precisions, funding=funding, follow=..., since=...)` fills the run's
+        Catalog and reads the settlements (Paper and Live; see fetch); a replay gives the `settlements` of its export
+        instead. `follows`: the Paper or Live source reads funding (on_funding_rate). `reads`: `fetch` reads at T even
+        without a request (a Paper recovery's interruption klines, engine.paper_session.Session.read_downtime).
+        `since`: the aggregations a Paper recovery back-fills (see requests)."""
         order_rules.WARMING.add(str(strategy_id))
         order_rules.CONTRACTS[str(strategy_id)] = instrument_id
         STATES[str(strategy_id)] = {
@@ -181,7 +194,7 @@ class Warming:
             "settlements": settlements if fetch is None else None, "pending": set(), "received": {}, "expected": {},
             "delivered": {}, "result": None, "thread": None, "fetched_ns": None, "requested": False, "done": False,
             "follow": fetch is not None and follows and at % HOUR_NS == 0, "subscribed": False, "following": [],
-            "reads": fetch is not None and reads}
+            "reads": fetch is not None and reads, "since": dict(since or {})}
 
     def _warming_state(self) -> dict:
         return STATES[str(Strategy.strategy_id.__get__(self, type(self)))]
@@ -191,7 +204,8 @@ class Warming:
 
     def on_start(self):
         state = self._warming_state()
-        fetching = state["fetch"] and (requests(state["at"], state["declared"]) or state["funding"] or state["follow"]
+        fetching = state["fetch"] and (requests(state["at"], state["declared"], state["since"]) or state["funding"]
+                                       or state["follow"]
                                        or state["reads"])
         when = state["at"] + (SETTLE_NS if fetching else 0)
         clock = self._warming_clock()
@@ -202,7 +216,7 @@ class Warming:
 
     def _warming_go(self, _event=None) -> None:
         state = self._warming_state()
-        planned = requests(state["at"], state["declared"])
+        planned = requests(state["at"], state["declared"], state["since"])
         if state["fetch"] is None or not (planned or state["funding"] or state["follow"] or state["reads"]):
             return self._warming_request(planned, None)
         instrument = Strategy.cache.__get__(self, type(self)).instrument(state["instrument_id"])
@@ -214,7 +228,8 @@ class Warming:
             while True:
                 try:
                     state["result"] = state["fetch"](state["instrument_id"], state["at"], state["declared"],
-                                                     precisions, funding=state["funding"], follow=state["follow"])
+                                                     precisions, funding=state["funding"], follow=state["follow"],
+                                                     since=state["since"])
                 except OSError as exc:  # the network: try again while the deadline allows
                     state["result"] = exc
                     if time.time_ns() + RETRY_NS < state["at"] + DEADLINE_NS:
@@ -247,7 +262,7 @@ class Warming:
             return self._warming_stop("WARMUP_TIMEOUT", f"{state['instrument_id']}: Binance's history could not be read "
                                                         f"({type(found).__name__}: {found})")
         answers, state["settlements"], state["following"] = found
-        return self._warming_request(requests(state["at"], state["declared"]), answers)
+        return self._warming_request(requests(state["at"], state["declared"], state["since"]), answers)
 
     def _warming_request(self, planned, answers) -> None:
         state = self._warming_state()
@@ -284,7 +299,8 @@ class Warming:
         if len(received) < count:
             return None
         expected = state["expected"].get(key)
-        if (len(received) != count or not warmup.adjacent([bar.ts_event for bar in received], state["at"], period, count)
+        if (len(received) != count or not warmup.adjacent([bar.ts_event for bar in received],
+                                                          state["since"].get(period, state["at"]), period, count)
                 or expected is not None and not _same(received, expected)):
             return self._warming_stop("WARMUP_NOT_ADJACENT", f"{Strategy.strategy_id.__get__(self, type(self))}: "
                                       f"{bars[0].bar_type} answered {len(received)} bars, not the {count} adjacent "

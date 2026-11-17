@@ -26,6 +26,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: a recovery that crossed a bucket boundary of a declared aggregation is no longer refused. It warms the
+  aggregation from the bucket the checkpoint was cut in, its declared history ends just before that bucket, and the
+  aggregated bars the native aggregator completed go to the source's `on_bar` after `on_start` and before any live
+  data; T moves on by a minute while it would end a crossed bucket. An order the source submits on one of them must be
+  untouched by the minutes from that bar up to T and not marketable at its close (no MARKET), or it is not sent and the
+  recovery is refused (`PAPER_RECOVERY_UNAVAILABLE`) and stops without cancelling. A checkpoint waits while a declared
+  aggregation's bucket has ended and its bar has not reached the source, and a pause waits for that bar. A recovery
+  across an unobserved funding settlement is still refused. (`docs/plans/paper-recovery-open-orders-20261117.zh.md`.)
 - Paper (doctor 20261117-05): an ended run whose resume was refused now reads "Cannot resume" (red) or, when a retry
   can pass, "Recovery paused" (amber), with the refusal's code and message beside the charts. When it cannot pass
   (`PAPER_RECOVERY_UNAVAILABLE` for a missing, dirty or changed checkpoint or a changed input), Resume is greyed out
@@ -33,7 +41,6 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   does not declare Paper recovery (`PAPER_RECOVERY = 1` with `on_save` and `on_load`) is marked "Ends on restart"
   in amber: an interruption ends it. The run listing gains `recovery_declared`, read from
   the run's strategy input on each listing and never stored.
-
 - Paper: a run of a `PAPER_RECOVERY` source now survives an interruption while it holds positions with working stops
   and targets. Its checkpoint holds the working orders the Sandbox restores as they were and a resume can check
   (accepted, a STOP_LIMIT also triggered; a LIMIT, STOP_MARKET, STOP_LIMIT or LIMIT_IF_TOUCHED on the last price; not

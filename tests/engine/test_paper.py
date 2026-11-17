@@ -407,7 +407,8 @@ class PauseTests(unittest.TestCase):
     def test_a_pause_waits_for_the_orders_in_flight_then_stops_without_cancelling(self):
         self.orders.extend([self.working("ACCEPTED"), self.working("SUBMITTED")])
         session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock()), ready=True, refused=None,
-                                  supported=True, saved=None, before_stop=mock.Mock(), try_cut=mock.Mock())
+                                  supported=True, saved=None, before_stop=mock.Mock(), try_cut=mock.Mock(),
+                                  due=mock.Mock(return_value=None))
         handle = self.recorder.handle
         with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
             paper.request_stop("SIGTERM")
@@ -419,6 +420,32 @@ class PauseTests(unittest.TestCase):
         session.before_stop.assert_called_once()
         handle.stop.assert_called_once()
         self.source.cancel_all_orders.assert_not_called()
+
+    def test_a_pause_waits_for_a_declared_aggregations_bar_due_now(self):
+        """The final cut cannot be published while a bucket ended and its bar has not reached the source
+        (engine.paper_session.Session.due): the pause waits for it, within STOP_CANCEL_SECONDS."""
+        due = mock.Mock(side_effect=["a 15-MINUTE bucket ends at 12:15", None])
+        session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock()), ready=True, refused=None,
+                                  supported=True, saved=None, before_stop=mock.Mock(), try_cut=mock.Mock(), due=due)
+        handle = self.recorder.handle
+        with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal"):
+            paper.request_stop("SIGTERM")
+            self.recorder.on_stop_timer(None)
+            self.recorder.on_stop_timer(None)
+            handle.stop.assert_not_called()
+            self.recorder.on_stop_timer(None)
+        self.assertEqual(due.call_args.args[2], paper.PAUSE_AHEAD_NS)
+        handle.stop.assert_called_once()
+        self.source.cancel_all_orders.assert_not_called()
+
+    def test_an_order_a_back_filled_bar_cannot_wait_for_is_not_sent(self):
+        """engine.paper_session.Session.submitted refused the recovery: the order never reaches the venue."""
+        source = SimpleNamespace(_paper_membership=SimpleNamespace(member_at=lambda _: True))
+        session = SimpleNamespace(submitted=mock.Mock(return_value="O-1 is a MARKET order"))
+        found = SimpleNamespace(is_reduce_only=False)
+        with mock.patch.object(paper, "SESSION", session):
+            self.assertIsNone(paper._PaperConfigured.submit_order(source, found))  # type: ignore[arg-type]
+        session.submitted.assert_called_once_with(found)
 
     def test_an_explicit_stop_of_an_unstarted_recovery_still_cancels(self):
         session = SimpleNamespace(ready=False, supported=True, saved={"sources": {}})
@@ -450,7 +477,7 @@ class InterruptionReadTests(unittest.TestCase):
         with mock.patch.object(history, "Strategy", SimpleNamespace(cache=cache)):
             source._warming_go()
         state["thread"].join(5)
-        fetch.assert_called_once_with(IID, at, (), (1, 3), funding=0, follow=False)
+        fetch.assert_called_once_with(IID, at, (), (1, 3), funding=0, follow=False, since={})
 
         # Only a contract holding a restored working order reads them (engine.paper.build_node sets `working`).
         for working, reads in ((set(), False), ({str(IID)}, True)):
