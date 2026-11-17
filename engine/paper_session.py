@@ -13,8 +13,9 @@ current buckets are read from Binance's klines, the history goes to on_historica
 gets its saved state and its on_start runs. A recovery that crossed a funding settlement is refused: the source would
 never see that settlement as it happened. So is one whose interruption may have changed a restored working order
 (`touched`): for each contract holding one, the warm-up's reader also reads the one-minute klines from the journal's
-last bar up to T, and before any source starts every restored order must be proven untouched by them and unexpired at
-T. Nothing is matched or invented for the interruption.
+last bar up to T, and before any source starts every restored order must be proven untouched by them (a GTD that
+expired in the interruption, by those up to its expiry and the last: it then expires on the first live bar, as the
+uninterrupted run expired it unfilled). Nothing is matched or invented for the interruption.
 
 A recovery that crossed a bucket boundary of a declared aggregation back-fills it (`backfill`;
 docs/plans/paper-recovery-open-orders-20261117.zh.md): the native aggregator is warmed from the start of the bucket
@@ -108,6 +109,17 @@ def _level(order, status: str):
     return f"{order.client_order_id}: a {status} {kind} order cannot be checked for the interruption"
 
 
+def expiring(bars: list, expiry: int) -> list:
+    """The minutes that prove a GTD order expiring at `expiry`, in the interruption, would have expired unfilled and
+    will: the uninterrupted run matched each minute that opened before the expiry (a minute's `ts_event` is its close
+    less a millisecond; that covers the minute closing at or after it, which arrives after it and is matched before the
+    order expires, and one more when an arrival lags), and the recovery matches it once more, on the first live bar's
+    open, before the Sandbox expires it, so the last minute, closing at T, must not reach it either. Refuses more,
+    never less."""
+    return [bar for index, bar in enumerate(bars)
+            if bar.ts_event + warmup.MILLISECOND_NS - MINUTE_NS < expiry or index == len(bars) - 1]
+
+
 def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int,
             status: str | None = None) -> str | None:
     """Why the interruption may have changed one of the restored working `orders`, or None when every one is proven
@@ -115,16 +127,22 @@ def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int
     at `last_bar`) up to the one closing at T (`at`). A stop (STOP_MARKET, an untriggered STOP_LIMIT) is touched by a
     high at or above its buy trigger or a low at or below its sell trigger, a limit (LIMIT, a triggered STOP_LIMIT) by
     a low at or below its buy price or a high at or above its sell price, a LIMIT_IF_TOUCHED by a low at or below its
-    buy trigger or a high at or above its sell trigger; a GTD expiring at or before T fails. Touching, not the fill
-    model's crossing, so it refuses more, never less. Any other order type, state or trigger type (LAST klines cannot
-    show a MARK or BID_ASK trigger) and any minute missing fail: only an order proven untouched passes. `status`
-    checks every order as one in that status (an order a back-filled bar is submitting, `Session.submitted`)."""
+    buy trigger or a high at or above its sell trigger. Touching, not the fill model's crossing, so it refuses more,
+    never less. Any other order type, state or trigger type (LAST klines cannot show a MARK or BID_ASK trigger) and
+    any minute missing fail: only an order proven untouched passes. `status` checks every order as one in that status
+    (an order a back-filled bar is submitting, `Session.submitted`); such an order's GTD expiring by T fails.
+
+    A restored GTD order that expired in the interruption needs only the minutes up to its expiry and the last one
+    (`expiring`): rc7's matching engine matches a bar before it expires the orders it holds (`iterate_with_mode`, then
+    `post_match_order_action`), so the uninterrupted run expired it unfilled and the Sandbox expires it at the first
+    live bar (docs/plans/paper-recovery-open-orders-20261117.zh.md)."""
     for order in orders:
         if order.is_closed and status is None:
             continue
         name, iid, side = order.client_order_id, str(order.instrument_id), _name(order.side)
         expiry = getattr(order, "expire_time", None)
-        if _name(order.time_in_force) == "GTD" and (expiry is None or expiry <= at):
+        expired = _name(order.time_in_force) == "GTD" and (expiry is None or expiry <= at)
+        if expired and (expiry is None or status is not None):
             return f"{name}: its GTD expiry {history.utc(expiry or 0)} is at or before {history.utc(at)}"
         found = _level(order, status or str(_name(order.status)))
         if isinstance(found, str):
@@ -135,7 +153,7 @@ def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int
         if bars is None or last is None or [bar.ts_event for bar in bars] != list(
                 range(last + MINUTE_NS, at, MINUTE_NS)):
             return f"{name}: the {iid} minutes of the interruption up to {history.utc(at)} could not all be read"
-        for bar in bars:
+        for bar in (expiring(bars, expiry) if expired and expiry is not None else bars):
             if bar.high.as_decimal() >= level if side == by_high else bar.low.as_decimal() <= level:
                 return (f"{name} ({side} {kind} at {level}) was touched in the interruption by the {iid} minute "
                         f"closing at {history.utc(bar.ts_event + warmup.MILLISECOND_NS)}")
