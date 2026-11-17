@@ -18,3 +18,5 @@ export const unresumable = (run: PaperRun): boolean =>
 export const endsOnInterruption = (run: PaperRun): boolean => run.state === "running" && run.recovery_declared === false;
 
 export const NO_RECOVERY = "The source does not declare Paper recovery; an interruption ends this run";
+/** That mark in a few words, in the warning tone wherever it shows (run row, phone). */
+export const ENDS_ON_RESTART = "Ends on restart";

@@ -18,7 +18,7 @@ import { isKnown } from "../../state/selection";
 import { tradesTab } from "../../state/paperStream";
 import { exceptionsText, raised } from "./Exceptions";
 
-export const alarming = (run: PaperRun, now: number) => { const h = health(run, now); return ACTIVE.has(run.state) && (h.late || h.tone === "fail"); };
+export const alarming = (run: PaperRun, now: number) => { const h = health(run, now); return ACTIVE.has(run.state) && (h.late || h.tone === "fail" || run.recovery !== undefined); };
 
 /** How long ago the last bar closed, read every second: 12s, 3m. */
 function Ago({ ns }: { ns: number }) {

@@ -3,16 +3,17 @@ import { HoverCard } from "radix-ui";
 import type { PaperRun } from "../lib/paperApi";
 import { duration, plural, signedPct } from "../lib/format";
 import { ACTIVE, chainReturn, chainStart, chainTrades } from "../model/chain";
-import { endsOnInterruption, NO_RECOVERY } from "../model/recovery";
+import { endsOnInterruption, ENDS_ON_RESTART, NO_RECOVERY } from "../model/recovery";
 import { useTimeZone } from "../state/timeZone";
-import { dotClass, pnlClass } from "../theme/roles";
+import { dotClass, pnlClass, textClass } from "../theme/roles";
 import { Ended, health, RunMenu } from "./RunTile";
 
 
 /** How the strategy stands, in a few words: running for how long (since its chain's first run), data late
- *  or failing in amber, or how and when it ended. */
+ *  or failing in amber, or how and when it ended; a refused recovery in its own tone, as its dot. */
 function Status({ run, chain, now }: { run: PaperRun; chain: readonly PaperRun[]; now: number }) {
   const zone = useTimeZone(), state = health(run, now, zone), started = chainStart(chain) ?? run.readings?.started_ns ?? null;
+  if (run.recovery) return <span className={`truncate ${textClass(state.tone)}`}>{state.text}</span>;
   if (state.late || (run.state !== "sealed" && state.tone === "fail")) return <span className="truncate text-misses-fg">{state.text}</span>;
   if (run.state === "sealed") return <span className="truncate"><Ended run={run} /></span>;
   if (run.state !== "running" || started === null || run.readings?.last_bar_ns == null) return <span className="truncate">{state.text}</span>;
@@ -42,7 +43,7 @@ export function RunRow({ run, chain, on, now, note, onPick, history }: {
           <i aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${dotClass(tone)}`} />
           <span className="flex min-w-0 max-w-[60%] shrink-0"><Status run={run} chain={chain} now={now} /></span>
           {trades !== null && <span className="shrink-0 tabular-nums">· {plural(trades, "trade")}</span>}
-          {endsOnInterruption(run) && <span className="shrink-0 text-fg-faint" title={NO_RECOVERY}>· No recovery</span>}
+          {endsOnInterruption(run) && <span className="shrink-0 text-misses-fg" title={NO_RECOVERY}>· {ENDS_ON_RESTART}</span>}
           {note && <span className="min-w-0 shrink-[100] truncate text-fg-faint">· {note}</span>}
         </span>
       </span>

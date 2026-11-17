@@ -26,11 +26,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
-- Paper (doctor 20261117-05): an ended run whose resume was refused now shows the refusal's code and message. When
-  the refusal cannot pass on a retry (`PAPER_RECOVERY_UNAVAILABLE` for a missing, dirty or changed checkpoint or a
-  changed input), Resume is greyed out with the reason as its tooltip and leaves the right-click menu; Stop and seal
-  stays. A running run whose source does not declare Paper recovery (`PAPER_RECOVERY = 1` with `on_save` and
-  `on_load`) is marked "No recovery": an interruption ends it. The run listing gains `recovery_declared`, read from
+- Paper (doctor 20261117-05): an ended run whose resume was refused now reads "Cannot resume" (red) or, when a retry
+  can pass, "Recovery paused" (amber), with the refusal's code and message beside the charts. When it cannot pass
+  (`PAPER_RECOVERY_UNAVAILABLE` for a missing, dirty or changed checkpoint or a changed input), Resume is greyed out
+  with the reason as its tooltip and leaves the right-click menu; Stop and seal stays. A running run whose source
+  does not declare Paper recovery (`PAPER_RECOVERY = 1` with `on_save` and `on_load`) is marked "Ends on restart"
+  in amber: an interruption ends it. The run listing gains `recovery_declared`, read from
   the run's strategy input on each listing and never stored.
 
 - Release (doctor 20261117-02): a release that cannot read the Web or the Paper controller now says which reader,

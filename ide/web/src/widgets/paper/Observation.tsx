@@ -17,8 +17,8 @@ export function Observation({ run, s, part }: { run: PaperRun; s: Stream; part?:
   const fragile = endsOnInterruption(run), refused = unresumable(run);
   if (!facts && !run.recovery && until === null && !restarted && !fragile) return null;
   return <div role="status" className={`flex shrink-0 flex-wrap gap-x-3 gap-y-1 text-small tabular-nums ${sentences ? "mx-3 mb-2" : ""}`}>
-    {sentences && run.recovery && <span className="text-fail-fg">{refused ? "Cannot resume" : "Recovery paused"} · <span className="font-mono">{run.recovery.code}</span>: {run.recovery.message}. {refused ? "Stop and seal keeps its evidence." : "The original account and records are retained."}</span>}
-    {sentences && fragile && <span className="text-fg-muted">{NO_RECOVERY}.</span>}
+    {sentences && run.recovery && <span className={refused ? "text-fail-fg" : "text-misses-fg"}><span className="font-mono">{run.recovery.code}</span>: {run.recovery.message}. {refused ? "Stop and seal keeps its evidence." : "The original account and records are retained."}</span>}
+    {sentences && fragile && <span className="text-misses-fg">{NO_RECOVERY}.</span>}
     {sentences && until !== null && <span className="text-misses-fg">{waitingText(until, now, zone)}</span>}
     {facts && through !== null && <span className={stale ? "text-misses-fg" : "text-fg-muted"}>{stale || run.state === "sealed" ? "Historical data" : "Data"} through {utcMinute(through, zone)}</span>}
     {facts && !s.connected && !s.seal && <span className="text-misses-fg">Stream disconnected</span>}

@@ -24,5 +24,5 @@ test("only a running run whose source is read as not declaring recovery is marke
   assert.equal(endsOnInterruption({ state: "running", recovery_declared: null }), false, "unknown is not said");
   assert.equal(endsOnInterruption({ state: "ended", recovery_declared: false }), false);
   const readings = { protection_gaps: 0, missing_bars: 0, late_bars: 0, exceptions: 0 };
-  assert.deepEqual(paperIssues({ state: "running", recovery_declared: false, readings }), [{ text: "no recovery", tone: "misses" }]);
+  assert.deepEqual(paperIssues({ state: "running", recovery_declared: false, readings }), [{ text: "Ends on restart", tone: "misses" }]);
 });

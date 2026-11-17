@@ -16,10 +16,11 @@ import { ActionButton } from "./ActionGroup";
 import { locate, Menu, MenuItem, MenuSeparator } from "./VersionMenu";
 
 /** A run's health in words and its tone: running, data late, stopping, or how it ended (model/ending.ts),
- *  in the warning tone when its evidence is untrusted; an ended run whose recovery was refused says so with
- *  the refusal's code, and whether a resume can still pass (model/recovery.ts). */
+ *  in the warning tone when its evidence is untrusted; an ended run whose recovery was refused says whether a
+ *  resume can still pass (model/recovery.ts): Cannot resume in the fail tone, Recovery paused in the warning
+ *  tone. The refusal's code is in the sentence beside the charts (widgets/paper/Observation.tsx). */
 export function health(run: PaperRun, now: number, zone: TimeZone = "UTC"): { tone: DataRole; text: string; late: boolean } {
-  if (run.recovery) return { tone: "fail", text: `${unresumable(run) ? "Cannot resume" : "Recovery paused"} · ${run.recovery.code}`, late: false };
+  if (run.recovery) return unresumable(run) ? { tone: "fail", text: "Cannot resume", late: false } : { tone: "misses", text: "Recovery paused", late: false };
   const lastBar = run.readings?.last_bar_ns != null ? run.readings.last_bar_ns / 1e6 : null;
   if (run.state === "running") {
     if (run.readings?.exceptions) return { tone: "fail", text: `${run.readings.exceptions}+ errors`, late: false };
