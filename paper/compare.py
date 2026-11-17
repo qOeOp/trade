@@ -70,6 +70,9 @@ def run_record(lines: list[dict], settled: list[dict], terms: Mapping | None = N
                 key: line.get(key) for key in ("bars", "first_ts_event", "last_ts_event", "sha256")}
     return {"bars": [line for line in lines if line["kind"] == "bar"], "warmup": warmup,
             "kline_events": [line for line in lines if line["kind"] == "kline_event"],
+            "kline_sockets": [line for line in lines if line["kind"] == "kline_socket"],
+            "side_starts": [line["wall_ns"] for line in lines if line["kind"] in ("started", "resumed")
+                            and isinstance(line.get("wall_ns"), int)],
             "metrics": [line for line in lines if line["kind"] in ("metrics", "metrics_unsubscribed")],
             "events": [line for line in lines if line["kind"] == "order"], "settlements": settled,
             "equity": records.equity_path(lines, settled)[0],

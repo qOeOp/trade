@@ -235,6 +235,28 @@ class Attribution(unittest.TestCase):
         group = result["groups"][0]
         self.assertEqual((group["cause"], group["evidence"]["unknown_bars"]), ("late_bar", 1))
 
+    def test_a_bar_with_no_event_time_while_the_side_connection_was_down_is_counted_apart(self):
+        """User 2026-11-18 (「第二个限制我授权加字段」): a bar with no kline_event inside a recorded gap of the side
+        connection (its kline_socket lines, from the process's start to its first up) is shown with the gap's reason,
+        apart from the unknown ones. Neither is a cause."""
+        events = [sent(i) for i in range(40) if i not in (0, 2, 3)]
+        bars = [bar(i) | {"ts_init": close_of(i) + 10**7} for i in range(40)]
+        sockets = [{"kind": "kline_socket", "state": "up", "at_ns": close_of(0) + 10**9},
+                   {"kind": "kline_socket", "state": "down", "at_ns": close_of(2) - 10**9, "reason": "silent"},
+                   {"kind": "kline_socket", "state": "up", "at_ns": close_of(2) + 10**9}]
+        run = {"bars": bars, "kline_events": events, "kline_sockets": sockets, "side_starts": [START], "events": []}
+        result = comparison.compare(run, bracket("r", close_of(5), close_of(5), "R"), {"BTCUSDT": archived(40)}, None,
+                                    START, START + 40 * MINUTE)
+        self.assertEqual({key: result["summary"][key] for key in ("unknown_bars", "side_down_bars")},
+                         {"unknown_bars": 1, "side_down_bars": 2})
+        self.assertEqual((result["inputs"]["BTCUSDT"]["bars"]["unknown"],
+                          result["inputs"]["BTCUSDT"]["bars"]["side_down"]),
+                         ([utc_text(close_of(3))], [{"close": utc_text(close_of(0)), "reason": "starting"},
+                                                    {"close": utc_text(close_of(2)), "reason": "silent"}]))
+        group = result["groups"][0]
+        self.assertEqual((group["cause"], group["evidence"]["unknown_bars"], group["evidence"]["side_down_bars"],
+                          group["evidence"]["side_down_reasons"]), ("unexplained", 1, 2, ["silent", "starting"]))
+
     def test_binance_sending_a_bar_late_is_shown_beside_a_difference_and_is_no_cause(self):
         events = [sent(i, 3 * 10**9 if i == 2 else 10**6) for i in range(40)]
         bars = [bar(i) | {"ts_init": close_of(i) + 10**6 + (3 * 10**9 if i == 2 else 10**6) + 10**7} for i in range(40)]

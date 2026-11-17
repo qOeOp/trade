@@ -1,6 +1,7 @@
 import json
 import struct
 import unittest
+from unittest import mock
 
 from engine import kline_events
 
@@ -37,9 +38,75 @@ class Received(unittest.TestCase):
                 {"instrument_id": iid, "ts_event": close + 60 * 10**9, "ts_init": close + 60 * 10**9 + 10**6 + 10**7}]
         events = [{"instrument_id": iid, "ts_event": close, "event_ns": sent}]
         self.assertEqual(kline_events.received(bars, events),
-                         {iid: {"late": [], "unknown": [close + 60 * 10**9], "sent": {close: 3 * 10**9}}})
+                         {iid: {"late": [], "unknown": [close + 60 * 10**9], "side_down": {},
+                                "sent": {close: 3 * 10**9}}})
         bars[0]["ts_init"] += 1
         self.assertEqual(kline_events.received(bars, events)[iid]["late"], [close])
+
+
+    def test_a_bar_with_no_event_time_while_the_side_connection_was_down_says_why(self):
+        """A bar with no kline_event counts as the side connection's gap when the connection was not up at some
+        moment from its close to LATE_NS after the run received it; before a process's first up it was starting."""
+        iid, minute = "BTCUSDT-PERP.BINANCE", 60 * 10**9
+        close = CLOSE_MS * 10**6
+        bars = [{"instrument_id": iid, "ts_event": close + i * minute, "ts_init": close + i * minute + 10**8}
+                for i in range(6)]
+        sockets = [{"state": "up", "at_ns": close + 2 * 10**9},  # the process's first up, after bar 0's window
+                   # the last frame came after bar 2's receipt, still inside its LATE_NS
+                   {"state": "down", "at_ns": close + 2 * minute + 10**8 + 10**7, "reason": "silent"},
+                   {"state": "up", "at_ns": close + 3 * minute + 10**9},
+                   {"state": "down", "at_ns": close + 4 * minute + 10**9, "reason": "closed"},
+                   {"state": "down", "at_ns": close + 5 * minute - 10**8, "reason": "refused"}]
+        found = kline_events.received(bars, [], sockets, starts=[close - minute])[iid]
+        self.assertEqual(found["unknown"], [close + minute])
+        self.assertEqual(found["side_down"], {close: "starting", close + 2 * minute: "silent",
+                                              close + 3 * minute: "silent", close + 4 * minute: "closed",
+                                              close + 5 * minute: "refused"})
+        # With no state recorded, a bar with no event time stays unknown, as before.
+        self.assertEqual(kline_events.received(bars, [])[iid]["side_down"], {})
+
+
+class Connection(unittest.TestCase):
+    def test_each_state_change_is_kept_with_when_the_link_was_last_alive_and_why_it_went(self):
+        text = json.dumps(message()).encode()
+        plans = iter([kline_events.Refused("403"), kline_events.Refused("403"), [text, TimeoutError()], [text],
+                      [ConnectionError("the connection closed")], [ValueError("bad")], TimeoutError()])
+        events = kline_events.KlineEvents(["BTCUSDT"], None)
+        clock = iter(range(1, 1000))
+
+        def opener(*_):
+            plan = next(plans, None)
+            if plan is None:  # the run stops: a failure while stopping is no gap
+                events.stop()
+                plan = ConnectionError("stopped")
+            if isinstance(plan, BaseException):
+                raise plan
+            return mock.Mock(items=plan)
+
+        def frames(stream):
+            for item in stream.items:
+                if isinstance(item, BaseException):
+                    raise item
+                yield item
+
+        events._open = opener
+        with mock.patch.object(kline_events, "frames", frames), \
+                mock.patch.object(kline_events.time, "time_ns", lambda: next(clock)), \
+                mock.patch.object(events._stop, "wait"):
+            events._run()
+        states = events.drain_states()
+        # never up in this process; the second refusal says nothing new. The timeout before an up at the end is not
+        # silence, and the same reason as the down before it, so it is not repeated.
+        self.assertEqual([(state, reason) for state, _, reason in states], [
+            ("down", "refused"),
+            ("up", None), ("down", "silent"),
+            ("up", None), ("down", "closed"),  # the server's close frame
+            ("up", None), ("down", "closed"),  # the stream ended
+            ("up", None), ("down", "error")])
+        at = [at for _, at, _ in states]
+        self.assertEqual(at, sorted(at))
+        self.assertEqual(at[2] - at[1], 1)  # silent: when the last frame came, not when the timeout was seen
+        self.assertEqual(events.drain_states(), [])
 
 
 class FakeSocket:

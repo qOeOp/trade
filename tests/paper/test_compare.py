@@ -129,6 +129,14 @@ class Compare(unittest.TestCase):
         self.assertEqual(compare.run_record(lines, [])["warmup"],
                          {BTC: {"1-HOUR": {"bars": 4, "first_ts_event": 1, "last_ts_event": 2, "sha256": "h"}}})
 
+    def test_the_side_connections_states_and_each_process_start_are_the_runs(self):
+        """A process begins with its side connection down until its first `up` (engine.kline_events): the journal's
+        `started` and each `resumed` mark where."""
+        side = {"kind": "kline_socket", "state": "up", "at_ns": START + 10**9, "wall_ns": START + 2 * 10**9}
+        lines = [{"kind": "started", "wall_ns": START - 10**9}, side, {"kind": "resumed", "wall_ns": START + MINUTE}]
+        run = compare.run_record(lines, [])
+        self.assertEqual((run["kline_sockets"], run["side_starts"]), ([side], [START - 10**9, START + MINUTE]))
+
     def test_the_metrics_the_journal_holds_are_checked_as_live_compare_checks_them(self):
         """engine.paper journals each metrics row the Feed hands the source and each unsubscribe (`metrics`,
         `metrics_unsubscribed`); the comparison expects rows from the first received until the unsubscribe."""

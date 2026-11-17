@@ -7,7 +7,7 @@ import { TextButton } from "../../components/TextButton";
 import { Tip } from "../../components/Tip";
 import { FormButton } from "../../components/chat/Field";
 import { CELL, HEAD } from "./table";
-import { compare, type Cause, type Comparison, type Group, type OrderRow, type RowClass, type Stage } from "../../state/compare";
+import { compare, type Cause, type Comparison, type Group, type OrderRow, type RowClass, type SideDown, type Stage } from "../../state/compare";
 
 const STAGE: Record<Stage, string> = { decision: "Order", fill: "Fill", fee: "Fee", funding: "Funding" };
 const KIND: Record<RowClass, string> = { same: "same", time: "time", type: "type", quantity: "size", price: "price", amount: "amount", run_only: "only on paper", replay_only: "only in the replay" };
@@ -16,7 +16,9 @@ const CAUSE: Record<Exclude<Cause, "consequence">, string> = {
   metrics: "the metrics received differed from the archive", entry_gate: "Live's entry gate held or withdrew the entry",
   held: "the run was held after a restart: no new entries, its own withdrawn",
   warmup: "the warm-up differed from the archive", contract_terms: "the contract terms or fee rates differed", window_end: "at the stop", unexplained: "unexplained" };
-const ROLE: Record<string, string> = { entry: "entry", stop: "stop", target: "target" };
+/** Why the connection reading Binance's send times was down (engine/kline_events.py). */
+const SIDE_DOWN: Record<SideDown, string> = { starting: "not connected yet", closed: "closed", silent: "silent", refused: "refused", error: "failed" };
+const ROLE: Record<string, string> ={ entry: "entry", stop: "stop", target: "target" };
 const WRAPPING = CELL.replace("whitespace-nowrap", "whitespace-normal");  // the Result cell: its clauses wrap between them
 
 /** The head's right side on Comparison: the interval replayed (the last day of market data under the pointer),
@@ -81,6 +83,7 @@ function Row({ g, row, i, only, p }: { g: Group; row: OrderRow; i: number; only:
           {!!g.evidence?.early_bars && <>{" "}<span className="whitespace-nowrap text-fg-muted">· {plural(g.evidence.early_bars, "bar")} early, up to {Number(g.evidence.early_lead_ms).toFixed(1)} ms: the run's clock was behind</span></>}
           {!!g.evidence?.published_late_bars && <>{" "}<span className="whitespace-nowrap text-fg-muted">· {plural(g.evidence.published_late_bars, "bar")} sent late by Binance{g.evidence.publication_delay_ms ? `, up to ${(Number(g.evidence.publication_delay_ms) / 1000).toFixed(1)} s` : ""}</span></>}
           {!!g.evidence?.unknown_bars && <>{" "}<span className="whitespace-nowrap text-fg-muted">· {plural(g.evidence.unknown_bars, "bar")} with no Binance send time</span></>}
+          {!!g.evidence?.side_down_bars && <>{" "}<span className="whitespace-nowrap text-fg-muted">· {plural(g.evidence.side_down_bars, "bar")} with no send time: its stream was down ({g.evidence.side_down_reasons.map((r) => SIDE_DOWN[r] ?? r).join(", ")})</span></>}
         </>}
       </td>
     </tr>
@@ -123,9 +126,10 @@ export function Compare({ r, paperId, only, digits }: {
   const barsOf = (only ? [inputs[only]].filter(Boolean) : Object.values(inputs)).map((c) => c!.bars);
   const missing = barsOf.reduce((n, b) => n + b.missing_bars, 0), late = barsOf.reduce((n, b) => n + b.late_bars, 0);
   const early = barsOf.reduce((n, b) => n + b.early_bars, 0), unknown = barsOf.reduce((n, b) => n + b.unknown_bars, 0);
+  const sideDown = barsOf.reduce((n, b) => n + b.side_down_bars, 0);
   const unlike = barsOf.reduce((n, b) => n + b.differing_bars, 0);
   const sentLate = barsOf.reduce((n, b) => n + b.published_late_bars, 0);
-  const barCounts = <span className="text-fg-faint">{plural(missing, "live bar")} missing, {late} late to the run, {early} early, {unlike} unlike the archive{sentLate ? `, ${sentLate} sent late by Binance` : ""}{unknown ? `, ${unknown} with no Binance send time` : ""}</span>;
+  const barCounts = <span className="text-fg-faint">{plural(missing, "live bar")} missing, {late} late to the run, {early} early, {unlike} unlike the archive{sentLate ? `, ${sentLate} sent late by Binance` : ""}{unknown ? `, ${unknown} with no Binance send time` : ""}{sideDown ? `, ${sideDown} with none while its stream was down` : ""}</span>;
   const invalid = replay.status === "invalid" && <p className="px-3 pb-2 text-dense text-fail-fg">The replay is invalid: {replay.problems.map((p) => p.code ?? p.message).join(", ")}</p>;
   const prelim = r.result.data_source === "rest" && <p className="px-3 pt-2 text-dense text-misses-fg">Preliminary: {r.result.preliminary?.market_day ? `market ${marketThrough(r.result.preliminary.market_day)}, later minutes` : "every minute"} from Binance REST, not the archive. Replay again once the archive covers the run.</p>;
   if (!groups) return (

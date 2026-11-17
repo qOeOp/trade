@@ -33,11 +33,12 @@ suspect. Once the paths part, the positions they trade from differ, so each late
 agreeing group is a consequence of that first one.
 
 A live bar is late when the run received it more than LATE_NS after Binance sent it (its kline_event,
-engine.kline_events): only the run's own delay (user 2026-11-18). A bar with no kline_event is unknown, neither late
-nor on time.
+engine.kline_events): only the run's own delay (user 2026-11-18). A bar with no kline_event is neither late nor on
+time: it counts as the side connection's gap, with the reason, when that connection was down then (its kline_socket
+lines), else as unknown.
 
 A first difference also carries, over the same span, the early bars of its contract with the largest lead (a live bar
-the run's clock stamped before its close: that clock was behind the venue's), its unknown bars, and the bars Binance
+the run's clock stamped before its close: that clock was behind the venue's), its unknown bars and those in a gap of the side connection with the reasons, and the bars Binance
 itself sent more than LATE_NS after their close with the longest such delay. They are shown, not a cause: they do not
 change the attribution or a look-ahead suspect (user 2026-11-14, 2026-11-18).
 """
@@ -62,7 +63,7 @@ from shared import paths
 from shared.refusals import refuse
 
 
-FORMAT = "run-comparison@2026-11-18"
+FORMAT = "run-comparison@2026-11-18.1"
 MINUTE_NS = 60 * 10**9
 MILLISECOND_NS = 10**6
 ON_TIME_NS = MINUTE_NS  # a decision or fill within one bar of its counterpart is on time
@@ -362,11 +363,12 @@ def _period(bar_type: str, instrument_id: str) -> str:
 
 
 def bars(run_bars: list[dict], archive: Mapping[str, list[list]], start: int, end: int,
-         events: Iterable[Mapping] = ()) -> dict[str, dict]:
+         events: Iterable[Mapping] = (), sockets: Iterable[Mapping] = (), starts: Iterable[int] = ()) -> dict[str, dict]:
     """Per contract, the one-minute bars the run's source received against the archive's: {missing: closes of
     archive bars no live bar matched, late: closes of live bars received (ts_init) more than LATE_NS after Binance
     sent them (their kline_event in `events`, engine.kline_events), unknown: closes of live bars with no kline_event,
-    sent: {close: ns from the close to Binance sending it}, early: {close: ns by which the source's clock stamped
+    side_down: {close: reason} of those with none while the side connection was down (`sockets`: its kline_socket
+    lines, `starts`: the run's process starts, engine.kline_events.received), sent: {close: ns from the close to Binance sending it}, early: {close: ns by which the source's clock stamped
     (ts_init) the live bar before its close}, differing: {close: {field: [live, archive]}}, live_only}.
 
     A bar reaches the source after its close, so an early one means the run's clock was behind the venue's. The
@@ -378,7 +380,7 @@ def bars(run_bars: list[dict], archive: Mapping[str, list[list]], start: int, en
             continue  # an aggregation a Live source subscribed to
         if start < line["ts_event"] <= end:
             live.setdefault(symbol_of(line["instrument_id"]), {})[line["ts_event"]] = line
-    sent = received([bar for rows in live.values() for bar in rows.values()], events)
+    sent = received([bar for rows in live.values() for bar in rows.values()], events, sockets, starts)
     result = {}
     for symbol, rows in archive.items():
         stored = {row[1] * MILLISECOND_NS: dict(zip(BAR_FIELDS, row[2:7], strict=True)) for row in rows}
@@ -390,11 +392,12 @@ def bars(run_bars: list[dict], archive: Mapping[str, list[list]], start: int, en
                           if Decimal(mine[close][name]) != Decimal(bar[name])}
                 if fields:
                     differing[close] = fields
-        timing = sent.get(instrument_id(symbol)) or {"late": [], "unknown": [], "sent": {}}
+        timing = sent.get(instrument_id(symbol)) or {"late": [], "unknown": [], "side_down": {}, "sent": {}}
         early = {close: close - bar["ts_init"] for close, bar in sorted(mine.items())
                  if isinstance(bar.get("ts_init"), int) and bar["ts_init"] < close}
         result[symbol] = {"archive": len(stored), "live": len(mine), "late": sorted(timing["late"]),
-                          "unknown": sorted(timing["unknown"]), "sent": dict(sorted(timing["sent"].items())),
+                          "unknown": sorted(timing["unknown"]), "side_down": dict(sorted(timing["side_down"].items())),
+                          "sent": dict(sorted(timing["sent"].items())),
                           "early": early,
                           "missing": sorted(set(stored) - set(mine)), "live_only": sorted(set(mine) - set(stored)),
                           "differing": differing}
@@ -648,7 +651,7 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
     withdrew those it had, so a group that reaches past it may differ for that."""
     agreed: dict[str, int] = {}  # the decision of the contract's latest agreeing group
     parted: dict[str, int] = {}  # the contract's first difference since its previous agreeing group
-    empty: dict = {"missing": [], "late": [], "unknown": [], "sent": {}, "early": {}, "differing": {}}
+    empty: dict = {"missing": [], "late": [], "unknown": [], "side_down": {}, "sent": {}, "early": {}, "differing": {}}
     for group in compared:
         symbol = symbol_of(group["instrument"])
         first, last = _span(group)
@@ -689,7 +692,9 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
         early = [inputs["early"][close] for close in _within(inputs["early"], since, last)]
         evidence |= {"early_bars": len(early), "early_lead_ms": text(Decimal(max(early)) / MILLISECOND_NS) if early else None}
         published = [inputs["sent"][close] for close in _within(inputs["sent"], since, last)]
+        down = [inputs["side_down"][close] for close in _within(inputs["side_down"], since, last)]
         evidence |= {"unknown_bars": len(_within(inputs["unknown"], since, last)),
+                     "side_down_bars": len(down), "side_down_reasons": sorted(set(down)),
                      "published_late_bars": sum(delay > LATE_NS for delay in published),
                      "publication_delay_ms": text(Decimal(max(published)) / MILLISECOND_NS) if published else None}
         group |= {"cause": cause, "evidence": evidence,
@@ -816,7 +821,8 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
     the run clock when it took that value}, equity_differences), terms ({symbol: terms}), fees ({symbol: {maker,
     taker}})}.
     `replay_events` None means the replay wrote no order events: its orders are unknown, not none."""
-    found = bars(run.get("bars") or [], archive, start, end, run.get("kline_events") or [])
+    found = bars(run.get("bars") or [], archive, start, end, run.get("kline_events") or [],
+                 run.get("kline_sockets") or [], run.get("side_starts") or [])
     warmed = warmup(run.get("warmup") or {}, archived_warmup or {})
     metered = compare_metrics(run.get("metrics") or [], archived_metrics or {}, end)
     contract = terms(sorted(archive), run.get("terms") or {}, traded_terms(replay_terms or {}, reports), run.get("fees"),
@@ -824,11 +830,14 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
     inputs = {symbol: {"bars": {**{key: item[key] for key in ("archive", "live")},
                                 # The lists stop at LISTED; the counts are complete.
                                 "missing_bars": len(item["missing"]), "late_bars": len(item["late"]),
-                                "unknown_bars": len(item["unknown"]), "published_late_bars": _published_late(item),
+                                "unknown_bars": len(item["unknown"]), "side_down_bars": len(item["side_down"]),
+                                "published_late_bars": _published_late(item),
                                 "early_bars": len(item["early"]), "differing_bars": len(item["differing"]),
                                 "missing": [utc_text(close) for close in item["missing"][:LISTED]],
                                 "late": [utc_text(close) for close in item["late"][:LISTED]],
                                 "unknown": [utc_text(close) for close in item["unknown"][:LISTED]],
+                                "side_down": [{"close": utc_text(close), "reason": reason}
+                                              for close, reason in list(item["side_down"].items())[:LISTED]],
                                 "published_late": [{"close": utc_text(close), "delay_ms": text(Decimal(delay) / MILLISECOND_NS)}
                                                    for close, delay in item["sent"].items() if delay > LATE_NS][:LISTED],
                                 "early": [{"close": utc_text(close), "lead_ms": text(Decimal(lead) / MILLISECOND_NS)}
@@ -844,6 +853,7 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
                "missing_bars": sum(len(item["missing"]) for item in found.values()),
                "late_bars": sum(len(item["late"]) for item in found.values()),
                "unknown_bars": sum(len(item["unknown"]) for item in found.values()),
+               "side_down_bars": sum(len(item["side_down"]) for item in found.values()),
                "published_late_bars": sum(_published_late(item) for item in found.values()),
                "early_bars": sum(len(item["early"]) for item in found.values()),
                "differing_bars": sum(len(item["differing"]) for item in found.values()),

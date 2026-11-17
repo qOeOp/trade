@@ -81,6 +81,11 @@ class Evidence:
         (``ts_event``, as the bar is stamped) and Binance's event time (``event_ns``)."""
         self._append("kline_event", instrument_id=instrument_id, ts_event=close, event_ns=sent)
 
+    def kline_socket(self, state: str, at: int, reason: str | None) -> None:
+        """A change of the side connection's state (engine.kline_events): ``kline_socket`` with ``state`` (up or
+        down), ``at_ns`` and, on a down, its ``reason``."""
+        self._append("kline_socket", state=state, at_ns=at, **({"reason": reason} if reason else {}))
+
     def metrics_unsubscribed(self, instrument_id: str) -> None:
         """The source stopped following `instrument_id`'s metrics (engine.metrics.Feed._metrics_unfollow):
         ``metrics_unsubscribed``. No row reaches it after wall_ns until it subscribes again."""
