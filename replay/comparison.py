@@ -62,7 +62,7 @@ from shared import paths
 from shared.refusals import refuse
 
 
-FORMAT = "run-comparison@2026-11-15"
+FORMAT = "run-comparison@2026-11-18"
 MINUTE_NS = 60 * 10**9
 MILLISECOND_NS = 10**6
 ON_TIME_NS = MINUTE_NS  # a decision or fill within one bar of its counterpart is on time
