@@ -4,9 +4,8 @@
 // the open profit and loss, the stretch between the balance (equity less the open profit) and the line
 // wherever they part, in the profit colour where equity is above the balance and the loss colour where
 // below, over the band; on request, beneath them all, an equal-weight buy and hold of the run's contracts as a
-// fine line over an area that fades from it to nothing at the pane's foot. All of it inside the plot
-// (equityZones.ts) but the buy and hold, which runs on under it over the day bars and the exposure: a market
-// that fell further than the run is not cut off at the plot's foot.
+// fine line over an area that fades from it to nothing at the plot's foot. All of it inside the plot
+// (equityZones.ts).
 import type { AutoscaleInfo, IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, LogicalRange,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import type { Reading } from "../../model/equityReadings";
@@ -19,6 +18,7 @@ export type FillsLook = { up: string; down: string; costs: string; rim: string }
 export type HoldLook = { line: string; area: string };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 type Range = AutoscaleInfo["priceRange"];
+const HOLD_BAND = 0.28;  // the most a coarser outer band for the buy and hold adds above or below equity's own span
 
 export class EquityFills implements ISeriesPrimitive<Time> {
   private chart: IChartApi | null = null;
@@ -39,29 +39,40 @@ export class EquityFills implements ISeriesPrimitive<Time> {
     const at = (p: EquityPoint) => readings.get(p.minute ?? p.time);
     Object.assign(this, { points, look, hold, balances: points.map((p) => at(p)?.balance ?? null), befores: points.map((p) => at(p)?.before ?? null),
                           holds: hold === null ? [] : points.map((p) => at(p)?.hold ?? null) });
+    this.series?.applyOptions({});
     this.redraw?.();
   }
 
-  /** Equity's range in view (`range`, over `view`) widened to take in equity before costs, by at most its own
-   *  span again, so the band stays in the pane unless costs dwarf the line's own moves. */
+  /** Equity's range in view (`range`, over `view`, widened for equity before costs by at most its own span) and
+   *  the buy and hold's bounds in view. */
+  private bounds(range: NonNullable<Range>, from: number, to: number) {
+    const span = Math.max(range.maxValue - range.minValue, 1);
+    let hiEq = range.maxValue, loEq = range.minValue, hiHold = -Infinity, loHold = Infinity;
+    for (let i = Math.max(0, Math.floor(from)); i <= Math.min(this.points.length - 1, Math.ceil(to)); i++) {
+      const b = this.befores[i], h = this.holds[i];
+      if (b != null) { hiEq = Math.max(hiEq, Math.min(b, range.maxValue + span)); loEq = Math.min(loEq, Math.max(b, range.minValue - span)); }
+      if (h != null) { hiHold = Math.max(hiHold, h); loHold = Math.min(loHold, h); }
+    }
+    const eqSpan = Math.max(hiEq - loEq, 1), band = eqSpan * HOLD_BAND;
+    const topRoom = hiHold > hiEq ? Math.min(hiHold - hiEq, band) : 0;
+    const botRoom = loHold < loEq ? Math.min(loEq - loHold, band) : 0;
+    return { loEq, hiEq, loHold, hiHold, topRoom, botRoom };
+  }
+
+  /** Equity's range in view widened for costs and, while the buy and hold runs past it, by at most `HOLD_BAND`
+   *  of equity's span each way for the coarser outer bands that hold its peaks and troughs. */
   reach(range: Range, view: LogicalRange | null): Range {
     if (!view || !range) return range;
-    let hi = range.maxValue, lo = range.minValue;
-    for (let i = Math.max(0, Math.floor(view.from)); i <= Math.min(this.points.length - 1, Math.ceil(view.to)); i++) {
-      const v = this.befores[i];
-      if (v != null) { hi = Math.max(hi, v); lo = Math.min(lo, v); }
-    }
-    const span = Math.max(range.maxValue - range.minValue, 1);
-    return { minValue: Math.max(lo, range.minValue - span), maxValue: Math.min(hi, range.maxValue + span) };
+    const { loEq, hiEq, topRoom, botRoom } = this.bounds(range, view.from, view.to);
+    return { minValue: loEq - botRoom, maxValue: hiEq + topRoom };
   }
 
   attached({ chart, series, requestUpdate }: SeriesAttachedParameter<Time>): void { Object.assign(this, { chart, series, redraw: requestUpdate }); }
   detached(): void { Object.assign(this, { chart: null, series: null, redraw: null }); }
   paneViews(): readonly IPrimitivePaneView[] {
     return [{ zOrder: () => "bottom", renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace((s) => {
-      const { context: c, bitmapSize: { width, height }, verticalPixelRatio: vr } = s, top = Math.round(this.plot().top * vr);
-      c.save(); c.beginPath(); c.rect(0, top, width, Math.max(0, height - top)); c.clip(); this.holding(s); c.restore();
-      inPlot(c, this.plot(), width, vr, () => this.draw(s));
+      const { context: c, bitmapSize: { width }, verticalPixelRatio: vr } = s;
+      inPlot(c, this.plot(), width, vr, () => { this.holding(s); this.draw(s); });
     }) }) }];
   }
 
@@ -74,18 +85,25 @@ export class EquityFills implements ISeriesPrimitive<Time> {
     return { look, X, Y, from: Math.max(0, Math.floor(range.from) - 1), to: Math.min(points.length - 1, Math.ceil(range.to) + 1) };
   }
 
-  /** The buy and hold's area, from the line down to the pane's foot, its colour fading from its highest
-   *  point in view to nothing there; then the line over it. */
+  /** The buy and hold's area: 1:1 with the value axis across equity's own range (so crossings and which is ahead
+   *  stay true), and scaled into the coarser `HOLD_BAND` bands above `hiEq` and below `loEq` where it runs
+   *  further, so its peaks and troughs stay whole without flattening the equity line. */
   private holding(s: Scope): void {
-    const at = this.placing(s), { context: c, horizontalPixelRatio: hr, bitmapSize } = s;
+    const at = this.placing(s), { context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr } = s;
     if (!at || !this.hold) return;
-    const { X, Y, from, to } = at, hold = perColumn(from, to, X, (i) => this.holds[i]!, (i) => this.holds[i] != null);
+    const { X, Y, from, to } = at, plot = this.plot(), hold = perColumn(from, to, X, (i) => this.holds[i]!, (i) => this.holds[i] != null);
     if (hold.length < 2) return;
-    const line = new Path2D(), foot = bitmapSize.height, ys = hold.map((i) => Y(this.holds[i]!));
+    let lo = Infinity, hi = -Infinity;
+    for (let i = from; i <= to; i++) { const p = this.points[i]; if (p && !p.down) { lo = Math.min(lo, p.value); hi = Math.max(hi, p.value); } }
+    const { loEq, hiEq, loHold, hiHold, topRoom, botRoom } = this.bounds({ minValue: lo, maxValue: hi }, from, to);
+    const mapHold = (v: number) => (v > hiEq && hiHold > hiEq ? hiEq + ((v - hiEq) / (hiHold - hiEq)) * topRoom
+      : v < loEq && loHold < loEq ? loEq - ((loEq - v) / (loEq - loHold)) * botRoom : v);
+    const top = Math.round(plot.top * vr), foot = Math.round(plot.bottom * vr), ys = hold.map((i) => Y(mapHold(this.holds[i]!)));
+    const line = new Path2D();
     hold.forEach((i, k) => line[k ? "lineTo" : "moveTo"](X(i), ys[k]!));
     const area = new Path2D(line);
     area.lineTo(X(hold.at(-1)!), foot); area.lineTo(X(hold[0]!), foot); area.closePath();
-    const g = c.createLinearGradient(0, ys.reduce((top, y) => (y < top ? y : top), foot - 1), 0, foot);
+    const g = c.createLinearGradient(0, Math.max(top, ys.reduce((min, y) => (y < min ? y : min), foot - 1)), 0, foot);
     g.addColorStop(0, this.hold.area); g.addColorStop(1, `${this.hold.area.slice(0, 7)}00`);
     c.fillStyle = g; c.fill(area);
     Object.assign(c, { strokeStyle: this.hold.line, lineWidth: Math.max(1, Math.floor(hr)), lineJoin: "round" });
