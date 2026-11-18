@@ -67,21 +67,28 @@ def held_since(lines: list[dict]) -> int | None:
     return None
 
 
-def interruptions(lines: list[dict], held: int) -> dict[str, list[tuple[int, int]]]:
-    """Per contract, the [from, to) of each interruption a held run resumed from (every `resumed` from `held` on):
-    from its pause (the first `stop_requested` since the run last started or resumed, else the last line before the
-    `resumed`, a crash) to the first live bar of that contract after the `resumed` (none: to the run's end). The bars
-    that closed in it are the hold's to miss, not a live gap. Derived, never stored."""
-    found: dict[str, list[tuple[int, int]]] = {}
-    symbols = {symbol_of(line["instrument_id"]) for line in lines if line["kind"] == "bar"}
+def _held_resumes(lines: list[dict], held: int) -> list[tuple[int, int, int]]:
+    """(index, pause, resume) of every `resumed` from `held` on: its pause is the first `stop_requested` since the run
+    last started or resumed, else the last line before the `resumed` (a crash)."""
+    found = []
     for index, line in enumerate(lines):
         if line["kind"] != "resumed" or not isinstance(line.get("wall_ns"), int) or line["wall_ns"] < held:
             continue
         before = list(itertools.takewhile(lambda item: item["kind"] not in ("started", "resumed"),
                                           reversed(lines[:index])))[::-1]
         stopped = [item["wall_ns"] for item in before if isinstance(item.get("wall_ns"), int)]
-        pause = next((item["wall_ns"] for item in before if item["kind"] == "stop_requested"),
-                     stopped[-1] if stopped else line["wall_ns"])
+        found.append((index, next((item["wall_ns"] for item in before if item["kind"] == "stop_requested"),
+                                  stopped[-1] if stopped else line["wall_ns"]), line["wall_ns"]))
+    return found
+
+
+def interruptions(lines: list[dict], held: int) -> dict[str, list[tuple[int, int]]]:
+    """Per contract, the [from, to) of each interruption a held run resumed from (_held_resumes): from its pause to the
+    first live bar of that contract after the `resumed` (none: to the run's end). The bars that closed in it are the
+    hold's to miss, not a live gap. Derived, never stored."""
+    found: dict[str, list[tuple[int, int]]] = {}
+    symbols = {symbol_of(line["instrument_id"]) for line in lines if line["kind"] == "bar"}
+    for index, pause, _ in _held_resumes(lines, held):
         first: dict[str, int] = {}
         for item in lines[index + 1:]:
             if item["kind"] == "bar":
@@ -93,8 +100,8 @@ def interruptions(lines: list[dict], held: int) -> dict[str, list[tuple[int, int
 
 def run_record(lines: list[dict], settled: list[dict], terms: Mapping | None = None,
                fees: Mapping | None = None, held: int | None = None) -> dict:
-    """The journal as replay.comparison.compare reads a run, with the funding `settled`, when it was `held` and the
-    interruptions it was held over."""
+    """The journal as replay.comparison.compare reads a run, with the funding `settled`, when it was `held`, the
+    interruptions it was held over and when it was paused."""
     warmup: dict[str, dict[str, dict]] = {}
     for line in lines:
         if line["kind"] == "warmup":
@@ -112,7 +119,9 @@ def run_record(lines: list[dict], settled: list[dict], terms: Mapping | None = N
                       if line["kind"] == "snapshot" and isinstance(line.get("minute_ns"), int)
                       and isinstance(line.get("wall_ns"), int)},
             "terms": dict(terms or {}), "fees": fees, "held": held,
-            "interrupted": interruptions(lines, held) if held is not None else {}}
+            "interrupted": interruptions(lines, held) if held is not None else {},
+            # The [pause, resume] of each held interruption (_held_resumes), for the minutes it was down in.
+            "paused": [(pause, resume) for _, pause, resume in _held_resumes(lines, held)] if held is not None else []}
 
 
 def _journal(conn: db.LedgerConnection, paper_id: int) -> list[dict]:

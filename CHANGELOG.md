@@ -32,6 +32,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   no margins while positions are open); `orders.csv` writes an order without a fill as NO_LIQUIDITY_SIDE (rc7 marked
   every restored order MAKER, so a stop canceled unfilled read MAKER only after a resume, and marks a resting limit
   order MAKER in any run). Fills, positions, order events and replay and Live reports are unchanged.
+- Paper: `paper compare`'s equity differences name a new cause `held` (user 2026-11-18, 「加」) for a minute a held run
+  was down in (ending after a held interruption's pause, starting by its `resumed`) that no order difference or fill
+  timing explains: the run values it at a mark from before its recovery went live. Such a minute no longer counts in
+  `summary.equity_unexplained_minutes`; every other minute keeps its cause. Derived from the journal; nothing new is
+  stored.
 - Paper: `paper compare` no longer counts the bars a held run missed during its own interruption (from the pause to
   the held recovery's first live bar on the contract) as `missing_bar` evidence for a difference reaching past the
   held start, so such a difference can now be attributed to `held`; every resume misses at least one bar, so before

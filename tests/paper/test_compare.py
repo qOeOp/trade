@@ -217,6 +217,27 @@ class Compare(unittest.TestCase):
                          [(START + MINUTE, "fill_timing", ["P-1"]), (START + 2 * MINUTE, "unexplained", [])])
         self.assertEqual(found["summary"]["equity_unexplained_minutes"], 0)  # no replay reports: no replay equity
 
+    def test_a_held_runs_value_of_a_minute_it_was_down_in_is_the_holds(self):
+        """Paper runs 3 and 4 (2026-11-18): the minute a held run paused in is valued at a mark from before its
+        recovery went live, not at the minute's last mark (run 4's 02:18 at 64199.16, the archive's MARK close
+        64257.75). A minute it ran through, before the pause or after the resume, stays unexplained."""
+        pause, resumed = START + 2 * MINUTE + 2 * 10**9, START + 2 * MINUTE + 28 * 10**9
+        lines = [*journal([], 2), {"kind": "stop_requested", "wall_ns": pause},
+                 {"kind": "summary_written", "wall_ns": pause + 10**10}, {"kind": "resumed", "wall_ns": resumed},
+                 *journal([], 5)[4:]]
+        lines += [{"kind": "snapshot", "minute_ns": START + i * MINUTE, "wall_ns": START + (i + 1) * MINUTE + 10**8,
+                   "balance_total": "100", "unrealized_pnl": "0"} for i in range(5)]
+        replayed = {START + i * MINUTE: Decimal(100) for i in range(5)}
+        run_equity = [(minute, Decimal("100.5") if minute in (START + MINUTE, START + 2 * MINUTE, START + 4 * MINUTE)
+                       else value) for minute, value in replayed.items()]
+        for held, causes in ((resumed, ["unexplained", "held", "unexplained"]), (None, ["unexplained"] * 3)):
+            with self.subTest(held=held):
+                run = compare.run_record(lines, [], held=held)
+                explained = shared.equity_differences(run_equity, replayed, [], run["taken"], run["paused"])
+                self.assertEqual([(item["minute_ns"], item["cause"]) for item in explained],
+                                 list(zip((START + MINUTE, START + 2 * MINUTE, START + 4 * MINUTE), causes,
+                                          strict=True)))
+
     def test_the_replay_equity_is_read_at_each_snapshot_minutes_close(self):
         with tempfile.TemporaryDirectory() as root:
             reports = Path(root)
