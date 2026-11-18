@@ -674,6 +674,13 @@ another SIGTERM pauses it again and it resumes held. Held, the run is still runn
 run until it is flat (`paper/runs.py`). `paper compare` attributes a difference reaching past the first `resumed` of
 such a run to `held` when nothing earlier in its cause order explains it, rather than `unexplained`.
 
+Whether a source declares the protocol is the runner's own verdict on the class it loaded
+(`engine.paper_session.declares_recovery`: `PAPER_RECOVERY` as Python resolves it, and `on_save` and `on_load` in its
+MRO above `Strategy`). A new run journals it on its `started` line as `recovery_declared` (user 2026-11-18); the
+page's mark, the listing's `held_since` and `unprotected`, and `paper compare`'s `held` cause read it from there and
+never read or run the source. A run whose `started` line has no such key (started before this change) has no verdict:
+it is never marked or taken as held.
+
 A recovery of a `PAPER_RECOVERY` source whose interruption crossed a funding settlement its source or recorder was
 following is held the same way instead of refused (user 2026-11-17): the source would never see that settlement as it
 happened. Its runner journals a `refusal` (`PAPER_RECOVERY_UNAVAILABLE`, the reason naming the settlement and the hold)

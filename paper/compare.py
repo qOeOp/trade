@@ -37,14 +37,21 @@ def window(lines: list[dict], seal: Mapping) -> tuple[int, int]:
     return start, end
 
 
-def held_since(lines: list[dict], source: bytes) -> int | None:
+def recovery_declared(lines: list[dict]) -> bool | None:
+    """Whether the run's source declares the recovery protocol, as its runner judged it and journalled it on the
+    `started` line (engine.paper_session.declares_recovery); None before that line or when the line has no verdict."""
+    started = next((line for line in lines if line["kind"] == "started"), None)
+    found = None if started is None else started.get("recovery_declared")
+    return found if isinstance(found, bool) else None
+
+
+def held_since(lines: list[dict]) -> int | None:
     """When the run was first held (engine.paper_session, held): the wall time of its first `resumed` for a source
-    without the recovery protocol (its entry class read from its text as the page reads it, paper.serve.declares_recovery), and for
-    one with it the first `resumed` the runner followed at once with a PAPER_RECOVERY_UNAVAILABLE `refusal` and then
-    went on (a later `bar`): a recovery that crossed a funding settlement (Session.hold). A refused recovery stops
-    without a bar. Derived, never stored; a source whose text does not parse is not taken as held."""
-    from paper.serve import declares_recovery, entry_class
-    declared = declares_recovery(source, entry_class(lines))
+    without the recovery protocol (the runner's verdict on the `started` line, recovery_declared), and for one with it
+    the first `resumed` the runner followed at once with a PAPER_RECOVERY_UNAVAILABLE `refusal` and then went on (a
+    later `bar`): a recovery that crossed a funding settlement (Session.hold). A refused recovery stops without a bar.
+    Derived from the journal; a run with no verdict is not taken as held."""
+    declared = recovery_declared(lines)
     if declared is None:
         return None
     for index, line in enumerate(lines):
@@ -107,7 +114,7 @@ def compare(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: i
                      # Each contract's terms at the run's market day, and the account's one rate on each.
                      {symbol: instrument.terms(opened, str(row["market_day"]), symbol) for symbol in symbols},
                      {symbol: row["config"]["fees"] for symbol in symbols} if row["config"].get("fees") else None,
-                     held_since(lines, candidate["source"]))
+                     held_since(lines))
     fetched = None
     if preliminary:
         from replay import preliminary as rest
