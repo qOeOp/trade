@@ -102,3 +102,25 @@ test("Detail calls every hook whether waiting for the first view or showing a lo
   assert.equal(statusReads, 2, "useAtom(viewStatus) still runs after line.name arrives");
   assert.equal(stageReads, 2);
 });
+
+test("empty inspector cards default to collapsed and open when populated", async () => {
+  const { Performance } = await loader({ stubs: {
+    "icons/Icon": { Icon: empty },
+    "state/timeZone": { useTimeZone: () => "UTC" },
+  } }).namespace("widgets/paper/Performance.tsx");
+  const baseStats = {
+    winRate: null, profitFactor: null, perTrade: null, hold: null, inMarket: null,
+    sides: { long: { n: 0, won: 0, pnl: 0 }, short: { n: 0, won: 0, pnl: 0 } },
+    avgWin: null, avgLoss: null, streak: 0, exits: { target: 0, stop: 0, other: 0 },
+  };
+  const emptyHtml = renderToStaticMarkup(createElement(Performance, {
+    a: { trades: [] }, stats: baseStats,
+  }));
+  assert.match(emptyHtml, /data-state="closed"[\s\S]*?Trades/, "Trades opens collapsed when there are no closed trades");
+
+  const withTradesHtml = renderToStaticMarkup(createElement(Performance, {
+    a: { trades: [{ id: "1", symbol: "BTCUSDT", long: true, quantity: 1, entry: 100, exit: 105, pnl: 5, opened: 0, closed: 1000, how: "target" }] },
+    stats: { ...baseStats, sides: { long: { n: 1, won: 1, pnl: 5 }, short: { n: 0, won: 0, pnl: 0 } }, exits: { target: 1, stop: 0, other: 0 } },
+  }));
+  assert.match(withTradesHtml, /data-state="open"[\s\S]*?Trades/, "Trades opens expanded once a closed trade exists");
+});

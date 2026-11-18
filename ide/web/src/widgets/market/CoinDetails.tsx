@@ -48,7 +48,7 @@ export function CoinDetails({ c, snapshot }: { c: Coin; snapshot: Snapshot }) {
           ["Open interest", <>{usd(c.oi)} <Signed x={c.oiChange24h}>{change(c.oiChange24h)}</Signed> <span className="text-fg-faint">24h</span></>],
           ["Long / short", c.longShort === null ? null : <>{ratio(c.longShort)} <span className="text-fg-faint">accounts</span></>]]} />
       </Section>
-      <Section title="7 days" aside="hourly closes">
+      <Section title="7 days" aside="hourly closes" open={!detail || detail.line.length > 0}>
         {detail?.line.length ? <CoinLine line={detail.line} /> : <p className="py-2 text-fg-faint">{detail ? "No closes yet" : "Reading…"}</p>}
       </Section>
       <Section title="Exchanges" aside={total ? `${usd(total)} open interest` : undefined}>

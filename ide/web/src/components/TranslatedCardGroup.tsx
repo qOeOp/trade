@@ -59,7 +59,7 @@ export function TranslatedCardGroup({ title, sections, loading = false, children
       {result && <p role="status" className="text-small text-fg-faint leading-zh">本地翻译 · {duration}（不含模型准备）</p>}
     </div>}
     {sections.map(({ title, text }, index) =>
-      <Section key={title} title={title}>
+      <Section key={title} title={title} open={loading || !!text?.trim()}>
         {loading ? <SkeletonLines /> : <Prose text={text} />}
         {!loading && visible && (result || busy) && text && <div lang="zh-CN" className="mt-3 space-y-1 border-t border-line pt-3">
           <p className="text-small text-fg-faint">中文 · 本地机器翻译</p>
