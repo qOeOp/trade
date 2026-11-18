@@ -32,6 +32,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   touched the order (a trailing stop: reached its activation price), and the close of the minute ending the bucket
   must not make it marketable (a trailing stop: a sell's close at or above its activation price, a buy's at or below,
   which in the uninterrupted run activated it at once). A trailing stop without an activation price still refuses.
+- Paper: `paper compare`'s equity differences name a new cause `held` (user 2026-11-18, 「加」) for a minute a held run
+  was down in (ending after a held interruption's pause, starting by its `resumed`) that no order difference or fill
+  timing explains: the run values it at a mark from before its recovery went live. Such a minute no longer counts in
+  `summary.equity_unexplained_minutes`; every other minute keeps its cause. Derived from the journal; nothing new is
+  stored.
 - Paper: `paper compare` no longer counts the bars a held run missed during its own interruption (from the pause to
   the held recovery's first live bar on the contract) as `missing_bar` evidence for a difference reaching past the
   held start, so such a difference can now be attributed to `held`; every resume misses at least one bar, so before
