@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: `paper compare` no longer counts the bars a held run missed during its own interruption (from the pause to
+  the held recovery's first live bar on the contract) as `missing_bar` evidence for a difference reaching past the
+  held start, so such a difference can now be attributed to `held`; every resume misses at least one bar, so before
+  `held` could never win. A live gap before the pause or after that first bar is still `missing_bar`, and the inputs
+  still list every missing bar. Derived from the journal; nothing new is stored.
 - Paper: whether a run's source declares recovery (the page's `recovery_declared`, and the held start `paper
   compare` and the runs listing derive) is now read from the run's entry class, as its journal's `started` line names
   it, and its bases in the same file, as the runner checks it; another class of the file declaring the protocol no

@@ -666,7 +666,11 @@ for the journal's positions. Once no position is open the run cancels what is le
 ordinary end the daemon seals (the page says "Held until flat"). STOP and the duration end a held run as any run;
 another SIGTERM pauses it again and it resumes held. Held, the run is still running, so its source starts no other
 run until it is flat (`paper/runs.py`). `paper compare` attributes a difference reaching past the first `resumed` of
-such a run to `held` when nothing earlier in its cause order explains it, rather than `unexplained`.
+such a run to `held` when nothing earlier in its cause order explains it, rather than `unexplained`. Every resume
+misses at least one bar (the one closing at the warm-up's T is never received live), so for such a difference the
+bars missing from each held interruption's pause (the first `stop_requested` since the run last started or resumed,
+else its last line before `resumed`) up to the held recovery's first live bar on the contract are the hold's, not
+`missing_bar` evidence; a live gap before the pause or after that bar still is (`paper/compare.py` interruptions).
 
 A recovery of a `PAPER_RECOVERY` source whose interruption crossed a funding settlement its source or recorder was
 following is held the same way instead of refused (user 2026-11-17): the source would never see that settlement as it

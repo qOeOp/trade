@@ -118,6 +118,32 @@ class Compare(unittest.TestCase):
                 group = found["groups"][0]
                 self.assertEqual((group["cause"], group["look_ahead_suspect"]), (cause, cause == "unexplained"))
 
+    def test_a_held_runs_own_interruption_is_not_a_missing_bar(self):
+        """Every resume misses at least the bar closing at its warm-up boundary, so a group reaching past the held
+        start would always take `missing_bar` before `held` (paper run 4, 2026-11-18). The bars missing from the pause
+        to the held recovery's first live bar are the hold's; a live gap before the pause or after that bar is still
+        `missing_bar`."""
+        held = close_of(2) + 10**10
+
+        def run(skip: tuple[int, ...]) -> list[dict]:
+            # Paused 20 s after bar 1 closed, resumed held after bar 2 closed: bar 2 is the interruption's.
+            bars = journal([], 7, skip=(2, *skip))
+            cut = 3 - (0 in skip)
+            return [*bars[:cut], {"kind": "stop_requested", "wall_ns": close_of(1) + 2 * 10**10},
+                    {"kind": "summary_written", "wall_ns": close_of(1) + 3 * 10**10},
+                    {"kind": "resumed", "wall_ns": held}, *bars[cut:]]
+
+        for skip, at, cause in (((), close_of(4), "held"), ((4,), close_of(5), "missing_bar"),
+                                ((0,), close_of(4), "missing_bar")):
+            with self.subTest(skip=skip):
+                replay = [{**initialized("R1", "ENTRY"), "ts_event": at}, filled("R1", at, "100.0", "1")]
+                found = shared.compare(compare.run_record(run(skip), [], held=held), replay,
+                                       {"BTCUSDT": archived(7)}, None, START, START + 7 * MINUTE)
+                group = found["groups"][0]
+                self.assertEqual((group["class"], group["cause"]), ("replay_only", cause))
+                self.assertEqual(group["evidence"]["missing_bars"], len(skip))
+                self.assertEqual(found["summary"]["missing_bars"], 1 + len(skip), "the inputs still list every gap")
+
     def test_a_live_bar_unlike_the_archive_explains_a_price_difference(self):
         paper = [initialized("P1", "ENTRY"), filled("P1", close_of(2), "100.5", "1")]
         replay = [initialized("R1", "ENTRY"), filled("R1", close_of(2), "100.0", "1")]
