@@ -43,8 +43,8 @@ const PLACEHOLDER: Candidate = { id: "", status: null, prediction_class: "none" 
 
 /** One version's detail, as the inspector shows the selected one. */
 function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets: Targets | null; loading?: boolean }) {
-  const zone = useTimeZone();
-  const busy = loading || useStageReading();
+  const zone = useTimeZone(), stageReading = useStageReading();
+  const busy = loading || stageReading;
   const runs = (c.trials ?? []).filter((t) => t.purpose === "research");
   const compared = useComparison(c);
   const cmp = !busy && compared.kind === "ready" ? compared.comparison : null;
@@ -150,7 +150,7 @@ export function Detail({ widget }: { widget: DetailWidget }) {
 
 function SelectedDetail({ widget }: { widget: DetailWidget }) {
   const selected = useSelection();
-  const { line, targets } = useView(), waiting = !line.name && useAtom(viewStatus).busy;
+  const { line, targets } = useView(), status = useAtom(viewStatus), waiting = !line.name && status.busy;
   const runsPage = useOnRunsPage(), { run } = useShown();
   const loose = !waiting && runsPage && run !== null && selected === null;
   const c = loose ? undefined : widget.items.find((item) => item.id === (selected ?? widget.default));

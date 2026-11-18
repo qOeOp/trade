@@ -70,3 +70,35 @@ test("readings being read show pulsing skeleton placeholders instead of missing 
   assert.match(backtestLoading, /class="skeleton\b/, "backtest account and trade stats pulse while the trial report is read");
   assert.doesNotMatch(backtestLoading, /\binvisible\b/, "rows stay visible with skeleton values while loading");
 });
+
+test("Detail calls every hook whether waiting for the first view or showing a loaded line", async () => {
+  let view = { line: { name: "" }, targets: null }, statusReads = 0, stageReads = 0;
+  const { Detail } = await loader({ stubs: {
+    "icons/Icon": { Icon: empty },
+    "model/view": { useView: () => view },
+    "state/atom": { useAtom: () => { statusReads += 1; return { busy: true }; } },
+    "state/timeZone": { useTimeZone: () => "UTC" },
+    "state/update": { viewStatus: {} },
+    "state/selection": { useSelection: () => "a@1", select: empty },
+    "state/comparison": { useComparison: () => ({ kind: "none" }) },
+    "state/shell": { useOnMarketPage: () => false, useOnRunsPage: () => false },
+    "state/shown": { useShown: () => ({ stage: "backtest", run: null, trial: null }) },
+    "components/Tip": { Tip: pass },
+    "components/TranslatedCardGroup": { TranslatedCardGroup: pass },
+    "widgets/detail/Readings": { Readings: empty },
+    "widgets/detail/ReplayTable": { ReplayTable: empty },
+    "widgets/detail/StagePerformance": { StagePerformance: empty, useStageReading: () => { stageReads += 1; return false; } },
+    "widgets/market/MarketDetails": { MarketDetails: empty },
+    "widgets/live/LiveRunDetails": { LiveRunDetails: empty },
+  } }).namespace("widgets/detail/Detail.tsx");
+  renderToStaticMarkup(createElement(Detail, { widget: { type: "candidate-detail", default: null, items: [] } }));
+  assert.equal(statusReads, 1);
+  assert.equal(stageReads, 1, "useStageReading runs even while loading is true");
+
+  view = { line: { name: "alpha" }, targets: null };
+  renderToStaticMarkup(createElement(Detail, {
+    widget: { type: "candidate-detail", default: "a@1", items: [{ id: "a@1", status: null, prediction_class: "none" }] },
+  }));
+  assert.equal(statusReads, 2, "useAtom(viewStatus) still runs after line.name arrives");
+  assert.equal(stageReads, 2);
+});
