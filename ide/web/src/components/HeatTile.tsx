@@ -27,25 +27,6 @@ function coinRows(c: Coin, color: Color, rows: number) {
   return all.slice(0, Math.min(rows, 5)).map(([l, x]) => <Stat key={l} label={l} value={x} />);
 }
 
-/** A coin's open interest across exchanges as one bar, a segment for each, its shade fading down the
- *  order; an exchange holding 14% or more is named under its segment with its share, each on hover. */
-function venueShares(c: Coin) {
-  const total = c.oiByVenue.reduce((a, [, oi]) => a + oi, 0);
-  return (
-    <div className="mt-auto flex flex-col gap-2 border-t border-current/15 pt-3">
-      <span className="text-small opacity-85">Open interest by exchange</span>
-      <div className="flex gap-0.5">
-        {c.oiByVenue.map(([venue, oi], i) => (
-          <div key={venue} title={`${venue} ${((oi / total) * 100).toFixed(0)}%`} className="flex min-w-0 flex-col gap-0.5 overflow-hidden" style={{ flex: oi }}>
-            <i className="mb-1 block h-2 rounded-xs bg-current" style={{ opacity: 0.9 - i * 0.12 }} />
-            {oi / total >= 0.14 && <><span className="truncate pr-1.5 text-small opacity-85">{venue}</span><b className="font-medium">{((oi / total) * 100).toFixed(0)}%</b></>}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /** A group's leaders by market cap, each with its share of the group as a bar (a figure under 3%, left out where it would touch the change). */
 function leaders(n: Node, color: Color, count: number, w: number) {
   return [...n.coins].sort((a, b) => capOf(b) - capOf(a)).slice(0, count).map((c) => {
@@ -98,7 +79,7 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick, opens 
   let mid: ReactNode = null, sub: ReactNode = null, foot: ReactNode = null;
   if (n.kind === "coin") {
     const c = n.coins[0]!;
-    if (rows >= 2 && w > 150) mid = <>{coinRows(c, color, rows)}{rows >= 12 && w > 300 && c.oiByVenue.length > 1 && venueShares(c)}</>;
+    if (rows >= 2 && w > 150) mid = coinRows(c, color, rows);
     if (h > (stack ? 90 : 70) && w > 90) sub = <div className="mt-0.5 truncate opacity-85">{price(c.price)}{!mid && ` · ${usd(n.cap)}`}{w > 200 && ` · ${c.name}`}</div>;
   } else {
     if (rows >= 1 && w > 130) {

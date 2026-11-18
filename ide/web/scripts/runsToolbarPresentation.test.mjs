@@ -15,7 +15,7 @@ const action = (name) => ({ run, candidate }) => createElement("button", { "data
 const fixtures = {
   "model/view": { useWidget: () => null },
   "state/phone": { desktopLayout: { set: empty }, useNarrow: () => false },
-  "state/shell": { paletteOpen: { set: empty }, useOnRunsPage: () => runsPage },
+  "state/shell": { paletteOpen: { set: empty }, useOnMarketPage: () => false, useOnRunsPage: () => runsPage },
   "components/SearchTrigger": { SearchTrigger: empty },
   "icons/Icon": { Icon: () => createElement("svg") },
   "widgets/registry": { RENDERERS: { summary: { Component: empty } } },

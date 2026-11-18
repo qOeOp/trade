@@ -83,6 +83,7 @@ export function ResearchSyncStatus() {
   const status = useAtom(researchSync), error = useAtom(syncError);
   if (!status && !error) return null;
   const failure = failureOf(status, error), text = syncText(status, failure);
+  if (!failure && status?.state === "ready" && !status.changed) return null;
   const moves = status?.history ?? [], place = status?.origin ? placeOf(status.origin) : null;
   return (
     <StatusPopover label={`${text}. Show the latest research syncs`} onOpen={() => void readResearchSync()}

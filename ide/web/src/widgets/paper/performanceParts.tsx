@@ -26,28 +26,60 @@ export function Exits({ exits }: { exits: TradeStats["exits"] }) {
   );
 }
 
-/** Each contract's closed trades, when the run has more than one: how many and their profit and loss
- *  together (byContract), as a bar from a zero line in the middle on one scale (square where it meets
- *  the line), the count on hover. */
+type SideStat = { n: number; won: number; pnl: number };
+export type ContractStat = SideStat & { long: SideStat; short: SideStat };
+
+/** Each contract's closed trades, when the run has more than one: total and per-side (Long / Short)
+ *  trade counts, wins, and net profit and loss. */
 export function byContract(trades: Account["trades"]) {
-  const by = new Map<string, { n: number; pnl: number }>();
-  for (const t of trades) if (t.pnl !== null) { const c = by.get(t.symbol) ?? { n: 0, pnl: 0 }; by.set(t.symbol, { n: c.n + 1, pnl: c.pnl + t.pnl }); }
+  const by = new Map<string, ContractStat>();
+  for (const t of trades) {
+    if (t.pnl === null) continue;
+    const prev = by.get(t.symbol) ?? { n: 0, won: 0, pnl: 0, long: { n: 0, won: 0, pnl: 0 }, short: { n: 0, won: 0, pnl: 0 } };
+    const win = t.pnl > 0 ? 1 : 0;
+    const side = t.long ? prev.long : prev.short;
+    const nextSide: SideStat = { n: side.n + 1, won: side.won + win, pnl: side.pnl + t.pnl };
+    by.set(t.symbol, {
+      n: prev.n + 1, won: prev.won + win, pnl: prev.pnl + t.pnl,
+      long: t.long ? nextSide : prev.long,
+      short: t.long ? prev.short : nextSide,
+    });
+  }
   return by;
 }
 
 export function Contracts({ by }: { by: ReturnType<typeof byContract> }) {
-  const rows = [...by].sort((a, b) => b[1].pnl - a[1].pnl), most = Math.max(...rows.map(([, c]) => Math.abs(c.pnl)), 1e-9);
+  const rows = [...by].sort((a, b) => b[1].pnl - a[1].pnl);
+  const winPct = (s: SideStat) => (s.n ? `${((s.won / s.n) * 100).toFixed(1)}%` : MISSING);
   return (
-    <div className="relative flex flex-col gap-0.5">
-      <i className="absolute inset-y-0 left-[calc(74px+(100%-168px)/2)] w-px bg-line-strong" />
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-3 gap-y-1.5 text-dense tabular-nums">
+      <span /><span className="text-right text-small text-fg-faint">Long / Short</span>
+      <span className="text-right text-small text-fg-faint">Win rate</span><span className="text-right text-small text-fg-faint">P&L</span>
       {rows.map(([symbol, c]) => (
-        <Tip key={symbol} content={`${c.n} closed ${c.n === 1 ? "trade" : "trades"}`}><div className="grid grid-cols-[64px_minmax(0,1fr)_84px] items-center gap-2 text-dense tabular-nums">
-          <span className="truncate text-fg-muted">{symbol}</span>
-          <span className="relative h-1">
-            <i className={`glide absolute inset-y-0 ${c.pnl >= 0 ? "left-1/2 rounded-r-full bg-pnl-up" : "right-1/2 rounded-l-full bg-pnl-down"}`} style={{ width: `max(3px, ${(Math.abs(c.pnl) / most) * 50}%)` }} />
-          </span>
-          <span className={`text-right ${pnlClass(c.pnl)}`}>{signed(c.pnl)}</span>
-        </div></Tip>
+        <Tip key={symbol} content={
+          <div className="space-y-0.5 tabular-nums">
+            <div className="font-mono font-semibold text-fg">{symbol} · {c.n} closed {c.n === 1 ? "trade" : "trades"}</div>
+            <div className="text-fg-muted">Long: {c.long.n} ({winPct(c.long)} win) · <span className={c.long.n ? pnlClass(c.long.pnl) : ""}>{c.long.n ? signed(c.long.pnl) : MISSING}</span></div>
+            <div className="text-fg-muted">Short: {c.short.n} ({winPct(c.short)} win) · <span className={c.short.n ? pnlClass(c.short.pnl) : ""}>{c.short.n ? signed(c.short.pnl) : MISSING}</span></div>
+          </div>
+        }>
+          <div className="col-span-full grid grid-cols-subgrid items-center py-0.5">
+            <span className="truncate text-fg-muted">{symbol}</span>
+            <span className="flex flex-col items-end gap-0.5">
+              <span className="text-small">
+                <span className="text-pnl-up">{c.long.n}L</span>
+                <span className="mx-1 text-fg-faint">·</span>
+                <span className="text-pnl-down">{c.short.n}S</span>
+              </span>
+              <span className="flex h-1 w-16 gap-px overflow-hidden rounded-full bg-grid">
+                {c.long.n > 0 && <i className="bg-pnl-up" style={{ flexGrow: c.long.n }} />}
+                {c.short.n > 0 && <i className="bg-pnl-down" style={{ flexGrow: c.short.n }} />}
+              </span>
+            </span>
+            <span className="text-right">{winPct(c)}</span>
+            <span className={`text-right ${pnlClass(c.pnl)}`}>{signed(c.pnl)}</span>
+          </div>
+        </Tip>
       ))}
     </div>
   );

@@ -44,6 +44,11 @@ export function useSelectionTree<T>({ item, children, name, folder, selectable, 
     setExpandedItems((open) => [...new Set([...open, ...ancestors(id)])]);
     requestAnimationFrame(() => { void tree.getItemInstance(id).scrollTo({ block: "nearest" }); });
   };
+  const folderKey = folders.join("\0");
+  useEffect(() => {
+    setExpandedItems((open) => [...new Set([...open, ...folders])]);
+    tree.rebuildTree();
+  }, [tree, folderKey]);
   useEffect(() => reveal(selected), [selected]);  // follow a selection made elsewhere
   useEffect(() => {
     control.set({ expandAll: () => setExpandedItems(folders), collapseAll: () => setExpandedItems([]), revealSelected: () => reveal(selected) });

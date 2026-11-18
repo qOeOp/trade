@@ -48,8 +48,7 @@ export function LiveRunCanvas() {
       {/* inset as the paper chart card's, so the legend starts on the 12px line of the rows above */}
       <div className="mb-1 ml-3 mr-1 min-h-0 flex-1">{chart === "equity" ? <LiveEquity key={run.id} run={run} /> : <LiveChart key={`${run.id}:${symbol}`} run={run} symbol={symbol} />}</div>
     </div>}
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-line px-3 py-2 text-small text-fg-faint">
-      <span>Execution continues when this page is closed</span>
+    <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t border-line px-3 py-2 text-small text-fg-faint">
       {/* pulled out by the buttons' padding, so their text keeps the row's 12px lines */}
       <div className="-mx-1 flex shrink-0 gap-2"><TextButton onClick={openLiveRequests}>Requests</TextButton><TextButton onClick={() => void actions.refresh?.()}>Refresh observations</TextButton></div>
     </div>

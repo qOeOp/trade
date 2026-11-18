@@ -21,8 +21,8 @@ const KINDS = ["bars", "metrics", "quotes", "trades"];
 // The order a waiting or lagging entry is named in: a month of quotes or trades before a day.
 const NAMED = ["quotes", "trades", "metrics", "bars"];
 
-export function rows(status: Status): Row[] {
-  const kinds = status.kinds ?? {};
+export function rows(status?: Status | null): Row[] {
+  const kinds = status?.kinds ?? {};
   return [...KINDS, ...Object.keys(kinds).filter((k) => !KINDS.includes(k))].flatMap((kind) =>
     Object.entries(kinds[kind] ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([contract, entry]) => ({ kind, contract, entry })));
 }
@@ -53,7 +53,7 @@ function first(all: Row[], state: Entry["state"]): string {
  *  lagging, waiting and caught up that holds, with whether a round is running. Skipped months are not
  *  named here, as the healthcheck does not count them. */
 export function summary(reply: Reply): { text: string; tone: Tone; running: boolean } {
-  const { status } = reply, all = rows(status), running = !!status.running_since;
+  const status = reply?.status ?? ({ at: "" } as Status), all = rows(status), running = !!status.running_since;
   const has = (state: Entry["state"]) => all.some((r) => r.entry.state === state);
   if (reply.stale) {
     const hours = Math.floor((Date.parse(reply.read_at) - Date.parse(status.at)) / 3600_000);

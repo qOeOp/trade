@@ -14,7 +14,7 @@ type Sides = { open: Record<Side, string | null>; last: Record<Side, string> };
 type ShellState = Sides & { size: Record<Side, number>; runsShown?: boolean; marketShown?: boolean };
 
 const DEFAULTS: ShellState = {
-  open: { left: "versions", right: "inspector", bottom: "progress" },
+  open: { left: null, right: "inspector", bottom: "progress" },
   last: { left: "versions", right: "inspector", bottom: "progress" },
   size: { left: 400, right: 420, bottom: 260 },
 };
@@ -26,7 +26,7 @@ const isState = (v: unknown): v is ShellState => {
     && (s.open?.[side] === null || typeof s.open?.[side] === "string"));
 };
 
-export const shell = persistedAtom<ShellState>("rg-shell@3", DEFAULTS, isState);
+export const shell = persistedAtom<ShellState>("rg-shell@4", DEFAULTS, isState);
 export const useShell = () => useAtom(shell);
 /** Whether the editor shows the Runs page. */
 export const useOnRunsPage = () => onRuns(useAtom(shell));

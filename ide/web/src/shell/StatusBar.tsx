@@ -24,16 +24,15 @@ import { ResearchSyncStatus } from "../components/ResearchSync";
 import { VersionLine } from "../components/VersionLine";
 
 /** Where the stage the Runs page shows comes from. */
-const SOURCE = { backtest: "", paper: " · 1m bars · Binance public data · Sandbox fills", live: " · native execution observations" } as const;
+const SOURCE = { backtest: "", paper: " · 1m bars", live: " · native execution observations" } as const;
 const EXECUTION: Record<string, string> = { bars: "1m bars", quotes: "aggTrades quotes" };
-/** The backtest's: its daily series (a contract's daily bars on a contract's chart), the runtime image (by
- *  its end) and the last day of the line's market data, how it filled; or, in the failure colour, that its report is
- *  not served here. */
+/** The backtest's: its daily series (a contract's daily bars on a contract's chart), the last day of the line's
+ *  market data, how it filled; or, in the failure colour, that its report is not served here. */
 function backtestSource(l: Loaded | null, market: string | null, contract: boolean): { text: string; failed: boolean } {
   if (l?.kind === "absent") return { text: " · data not served by this IDE", failed: true };
   if (l?.kind !== "ready") return { text: "", failed: false };
-  const { image, execution } = l.b, digest = image?.replace(/^sha256:/, "");
-  return { text: [contract ? " · 1d bars" : " · 1d series", digest && `image …${digest.slice(-6)}`, market && `market ${marketThrough(market)}`, execution && (EXECUTION[execution] ?? execution)]
+  const { execution } = l.b;
+  return { text: [contract ? " · 1d bars" : " · 1d series", market && `market ${marketThrough(market)}`, execution && (EXECUTION[execution] ?? execution)]
     .filter(Boolean).join(" · "), failed: false };
 }
 
@@ -62,8 +61,8 @@ export function StatusBar() {
   const tree = useMemo(() => (lineage ? lineageTree(lineage) : null), [lineage]);
   const hovered = useHovered();
   const selected = useSelection();
-  const id = hovered && hovered.length > 1 ? null : hovered?.[0] ?? selected;
-  const focus = lineage?.nodes.find((n) => n.id === id);
+  const id = hovered && hovered.length === 1 ? hovered[0] : null;
+  const focus = id && id !== selected ? lineage?.nodes.find((n) => n.id === id) : undefined;
   const path = selected && tree ? [...ancestors(tree, selected), selected] : [];
   const said = useAtom(notice), status = useAtom(viewStatus);
   const runs = useOnRunsPage(), market = useOnMarketPage(), live = useShown().stage === "live" && runs;
@@ -72,7 +71,7 @@ export function StatusBar() {
     <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">
       {!live && !line.name && !status.busy && (runs || market) && <span role="status" className="min-w-0 truncate text-fg-muted">{status.text}</span>}
       {live && <span className="min-w-0 truncate">Execution runs independently of this page</span>}
-      {!live && line.name && <Breadcrumbs items={[
+      {!live && !market && line.name && <Breadcrumbs items={[
         { id: "line", label: line.name, onSelect: () => requestFocus("") },
         ...path.map((v) => ({ id: v, label: v, onSelect: () => select(v, { reveal: true }) })),
       ]} />}
@@ -86,9 +85,9 @@ export function StatusBar() {
         <MarketImportStatus />
         <ResearchSyncStatus />
         <UpdateStatus />
-        {!live && (hovered && hovered.length > 1 ? <span className="text-fg-muted">{plural(hovered.length, "version")}</span>
+        {!live && !market && (hovered && hovered.length > 1 ? <span className="text-fg-muted">{plural(hovered.length, "version")}</span>
           : focus && <VersionLine node={focus} targets={lineage?.targets ?? null} />)}
-        {summary && <span>{lineCounts(summary)}</span>}
+        {!market && summary && <span>{lineCounts(summary)}</span>}
       </span>
     </footer>
   );

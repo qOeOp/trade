@@ -39,7 +39,7 @@ export function SourceTree({ widget }: { widget: SourcesWidget }) {
   const entries = useMemo(() => files(widget.items), [widget]);
   const dirs = useMemo(() => [...entries.keys()].filter((id) => id.startsWith(DIR)), [entries]);
   const tree = useSelectionTree<Entry>({
-    item: (id) => entries.get(id)!,
+    item: (id) => entries.get(id) ?? { id, label: id, item: null, children: [] },
     children: (id) => entries.get(id)?.children ?? [],
     name: (id) => entries.get(id)?.label ?? id,
     folder: (id) => entries.get(id)?.item === null,

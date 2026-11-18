@@ -1,7 +1,7 @@
 import type { SummaryWidget } from "../model/types";
 import { useWidget } from "../model/view";
 import { desktopLayout, useNarrow } from "../state/phone";
-import { paletteOpen, useOnRunsPage } from "../state/shell";
+import { paletteOpen, useOnMarketPage, useOnRunsPage } from "../state/shell";
 import { ActionGroup } from "../components/ActionGroup";
 import { SearchTrigger } from "../components/SearchTrigger";
 import { TextButton } from "../components/TextButton";
@@ -19,13 +19,13 @@ import { SettingsMenu } from "./toolbar/SettingsMenu";
  *  layout, where the row runs past the screen, the way back comes first. */
 export function MainToolbar() {
   const summary = useWidget<SummaryWidget>("summary");
-  const runs = useOnRunsPage(), narrow = useNarrow(), actions = useRunActions();
+  const runs = useOnRunsPage(), market = useOnMarketPage?.() ?? false, narrow = useNarrow(), actions = useRunActions();
   const Readout = RENDERERS.summary.Component;
   return (
     <header id="main-toolbar" aria-label="Main toolbar" className="flex h-(--toolbar-h) min-w-0 shrink-0 items-center gap-1 overflow-hidden px-(--frame-inset) pt-(--frame-inset) pb-(--frame-near)">
       {narrow && <TextButton className="shrink-0 whitespace-nowrap text-dense" onClick={() => desktopLayout.set(false)}>Phone layout</TextButton>}
       <LineWidget /><LedgerWidget /><span className="mx-1 h-4 w-px shrink-0 bg-line-strong" />
-      {runs ? <><RunsWidget /><div className="min-w-0 flex-1" /></> : <>
+      {runs ? <><RunsWidget /><div className="min-w-0 flex-1" /></> : market ? <div className="min-w-0 flex-1" /> : <>
         <RecommendationWidget />
         <div className="ml-3 min-w-0 flex-1">{summary && <Readout widget={summary} />}</div>
       </>}
