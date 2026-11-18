@@ -1,7 +1,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { Popover } from "radix-ui";
 import { Icon } from "../icons/Icon";
-import { CoinLogo } from "./CoinLogo";
+import { CoinName } from "./CoinLogo";
 
 /** `warn`: a short word in the failure hue after the side (a position without its stop). */
 export type Coin = { symbol: string; side: "LONG" | "SHORT" | null; warn?: string };
@@ -18,11 +18,10 @@ export function coinGroups(symbols: readonly string[], side: (symbol: string) =>
 const FIND = 6;  // a list longer than this opens with a box to find a coin by name
 const LABEL = 52;  // px: from the segment's left edge to the arrow, which the menu's left edge goes back over
 
-const baseOf = (symbol: string) => symbol.replace(/USDT$/, "");
 const Side = ({ side, warn }: { side: Coin["side"]; warn?: string }) => (side && <><span className={`text-small font-medium tracking-[0.04em] ${side === "LONG" ? "text-pnl-up" : "text-pnl-down"}`}>{side}</span>
   {warn && <span className="text-small font-medium text-fail-fg">{warn}</span>}</>);
 const CHIP = "mr-0.5 inline-flex h-5.5 items-center gap-1.5 rounded-badge bg-selection-inactive pl-1.5 text-fg";
-const Content = ({ coin }: { coin: Coin }) => <><CoinLogo coin={baseOf(coin.symbol)} />{coin.symbol}<Side side={coin.side} warn={coin.warn} /></>;
+const Content = ({ coin }: { coin: Coin }) => <><CoinName coin={coin.symbol} /><Side side={coin.side} warn={coin.warn} /></>;
 
 /** The small capsule inside a segment when there is no other coin to pick. */
 export const CoinChip = ({ coin }: { coin: Coin }) => <span data-chip className={`${CHIP} pr-2`}><Content coin={coin} /></span>;
@@ -61,8 +60,8 @@ export function CoinMenu({ groups, coin, onPick, onClose }: { groups: readonly C
                 {groups.length > 1 && <p className="mx-2 mb-0.5 mt-1.5 text-small text-fg-faint">{g.title}</p>}
                 {g.coins.map((c) => (
                   <button key={c.symbol} type="button" data-coin onClick={() => pick(c.symbol)}
-                          className={`flex h-6 w-full items-center gap-2 rounded-control px-2 text-left outline-none hover:bg-selection focus:bg-selection ${c.symbol === coin?.symbol ? "bg-selection-inactive" : ""}`}>
-                    <CoinLogo coin={baseOf(c.symbol)} /><span className="flex min-w-0 flex-1 items-baseline justify-between gap-2"><span>{c.symbol}</span><span className="flex shrink-0 items-baseline gap-1.5"><Side side={c.side} warn={c.warn} /></span></span>
+                          className={`flex h-6 w-full items-center justify-between gap-2 rounded-control px-2 text-left outline-none hover:bg-selection focus:bg-selection ${c.symbol === coin?.symbol ? "bg-selection-inactive" : ""}`}>
+                    <CoinName coin={c.symbol} className="min-w-0 flex-1 gap-2" /><span className="flex shrink-0 items-baseline gap-1.5"><Side side={c.side} warn={c.warn} /></span>
                   </button>
                 ))}
               </div>
