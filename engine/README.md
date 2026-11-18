@@ -612,8 +612,7 @@ activated that has an activation price (user decision 2026-11-18). Any other unf
 a source holding one cannot be resumed: an activated trailing stop among them (also one placed without an activation
 price, which activates at once), since rc7 keeps a trailing stop's activation outside the order's events and restores
 every trailing stop inactive. A recovery checks a restored trailing stop by its activation price: a sell is touched by
-a minute whose high reached it, a buy by one whose low did. An order a source submits on a back-filled bar is checked
-by the earlier rules: a MARKET_IF_TOUCHED, a MARK trigger or a trailing stop there refuses the recovery. A source must
+a minute whose high reached it, a buy by one whose low did. A source must
 not rely on native account event-count/history representation or unsaved cache history. A recovery warms the
 source again at its own T as a start does (history, then the unfinished buckets from their minutes), then
 calls `on_load` with the saved state and then `on_start`. A recovery that crossed a funding settlement the source
@@ -627,8 +626,9 @@ a source subscribed to another contract's declared aggregation (one of the run's
 No OHLCV is computed outside Nautilus. T moves on by a minute while it would end a crossed bucket, since a request's
 aggregator builds a bucket only once a later minute arrives. An order the source submits on a back-filled bar must be
 proven untouched by the minutes of its own contract from that bar's bucket end up to T, by the same rules as a
-restored order, and must not be marketable at the close of its contract's minute ending that bucket (a buy limit at or above it, a sell limit at or below it, a stop the close has
-reached, any MARKET order, a position close among them, an order on another contract than the source's own);
+restored order, and must not be marketable at the close of its contract's minute ending that bucket (a buy limit at or above it, a sell limit at or below it, a stop, LIMIT_IF_TOUCHED or MARKET_IF_TOUCHED the close has
+reached, a trailing stop whose activation price the close has reached, which in the uninterrupted run activated it at
+once (user decision 2026-11-18), an activated trailing stop or one without an activation price, any MARKET order, a position close among them, an order on another contract than the source's own);
 otherwise it is not sent and the recovery is refused as
 below. After that no order, cancel or close of the source is sent; those sent earlier, also earlier in the same
 callback, stand.

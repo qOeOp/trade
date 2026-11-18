@@ -414,10 +414,29 @@ class BackfillTests(unittest.TestCase):
             "a MARKET": (order(kind="MARKET"), below, "is a MARKET order"),
             "a GTD expiring by T": (order(kind="LIMIT", side="BUY", price="99000.0", tif="GTD", expire_time=T), below,
                                     "GTD expiry"),
-            # Restored orders only (user decision 2026-11-18): one submitted on a back-filled bar is not checked.
-            "a MARK trigger": (order(trigger_type="MARK_PRICE"), below, "cannot be checked"),
-            "a MARKET_IF_TOUCHED": (order(kind="MARKET_IF_TOUCHED", trigger="101000.0"), below, "cannot be checked"),
-            "a trailing stop": (trailing(), below, "cannot be checked"),
+            # Checked as restored ones are (user decision 2026-11-18).
+            "an untouched MARK stop": (order(side="SELL", trigger="99000.0", trigger_type="MARK_PRICE"), below, None),
+            "an untouched MARKET_IF_TOUCHED": (order(kind="MARKET_IF_TOUCHED", side="SELL", trigger="101000.0"),
+                                               below, None),
+            "an inactive trailing stop": (trailing(side="SELL", activation="101000.0"), below, None),
+            "a trailing limit on MARK": (trailing(kind="TRAILING_STOP_LIMIT", side="SELL", activation="101000.0",
+                                                  trigger_type="MARK_PRICE"), below, None),
+            "a sell MARKET_IF_TOUCHED below the close": (order(kind="MARKET_IF_TOUCHED", side="SELL",
+                                                               trigger="99950.0"), below, "marketable at the close"),
+            "a sell MARK stop above the close": (order(side="SELL", trigger="100050.0", trigger_type="MARK_PRICE"),
+                                                 above, "marketable at the close"),
+            # The close at the activation price would have activated it at once in the uninterrupted run.
+            "a sell trailing stop activated by the close": (trailing(side="SELL", activation="99950.0"), below,
+                                                            "marketable at the close"),
+            "a buy trailing stop activated by the close": (trailing(side="BUY", activation="100050.0"), above,
+                                                           "marketable at the close"),
+            "a buy MARKET_IF_TOUCHED a minute reached": (order(kind="MARKET_IF_TOUCHED", side="BUY",
+                                                               trigger="99900.0"), below, "touched in the interruption"),
+            "a buy trailing stop whose activation a minute reached": (trailing(side="BUY", activation="99900.0"),
+                                                                     below, "touched in the interruption"),
+            "a trailing stop without an activation price": (trailing(activation=None), below,
+                                                            "without an activation price"),
+            "a BID_ASK trigger": (order(trigger_type="BID_ASK"), below, "cannot be checked"),
         }
         bars = [aggregated(end, close="100000.0") for end in (T - 3 * QUARTER, T - 2 * QUARTER, bar_end, T)]
         for name, (found, (low, high), reason) in cases.items():

@@ -60,10 +60,9 @@ from engine.config import ACCOUNT_CONTRACT, MINUTE_NS
 
 # An order the venue has not yet answered: a checkpoint could restore neither its command nor its answer.
 IN_FLIGHT = {"INITIALIZED", "SUBMITTED", "PENDING_UPDATE", "PENDING_CANCEL"}
-TRIGGERS = ("DEFAULT", "LAST_PRICE")  # the triggers LAST klines show
-# The triggers a restored order may have: a MARK trigger fires on the bars' LAST prices in the Sandbox, which takes no
-# mark price and matches bars with bid = ask = last (docs/plans/paper-recovery-open-orders-20261117.zh.md).
-RESTORED_TRIGGERS = (*TRIGGERS, "MARK_PRICE")
+# The triggers LAST klines show: a MARK trigger fires on the bars' LAST prices in the Sandbox, which takes no mark price
+# and matches bars with bid = ask = last (docs/plans/paper-recovery-open-orders-20261117.zh.md).
+TRIGGERS = ("DEFAULT", "LAST_PRICE", "MARK_PRICE")
 TRAILING = ("TRAILING_STOP_MARKET", "TRAILING_STOP_LIMIT")
 
 
@@ -106,25 +105,23 @@ def unrestorable(order) -> str | None:
     if kind in TRAILING and getattr(order, "activation_price", None) is None:
         return f"{order.client_order_id} is a trailing stop without an activation price, which a recovery cannot check"
     if (status == "ACCEPTED" and kind != "LIMIT"
-            and _name(getattr(order, "trigger_type", None)) not in RESTORED_TRIGGERS):
+            and _name(getattr(order, "trigger_type", None)) not in TRIGGERS):
         return f"{order.client_order_id} triggers on {_name(order.trigger_type)}, which a recovery cannot check"
     return None
 
 
-def _level(order, status: str, restored: bool = True):
-    """(the price that touches the order, the side whose order a high touches), or why the order cannot be checked.
-    A MARKET_IF_TOUCHED, a MARK trigger and an inactive trailing stop are checked only as `restored` orders (user
-    decision 2026-11-18); one a source submits on a back-filled bar (`Session.submitted`) is not."""
+def _level(order, status: str):
+    """(the price that touches the order, the side whose order a high touches), or why the order cannot be checked."""
     kind = _name(order.order_type)
-    touching = ("STOP_MARKET", "LIMIT_IF_TOUCHED", "STOP_LIMIT") + (("MARKET_IF_TOUCHED", *TRAILING) if restored else ())
-    if kind in touching and status == "ACCEPTED":
+    if kind in ("STOP_MARKET", "LIMIT_IF_TOUCHED", "STOP_LIMIT", "MARKET_IF_TOUCHED", *TRAILING) and status == "ACCEPTED":
         trigger = _name(getattr(order, "trigger_type", None))
-        if trigger not in (RESTORED_TRIGGERS if restored else TRIGGERS):
+        if trigger not in TRIGGERS:
             return f"{order.client_order_id}: its {trigger} trigger cannot be checked on LAST klines"
         if kind in TRAILING:
             # Until it activates, nothing but its activation price changes it: a sell activates on a bid, here the
             # last price, at or above it, a buy on an ask at or below it (rc7 maybe_activate_trailing_stop). A
-            # restored one is always inactive, so the cut deferred any activated one (`unrestorable`).
+            # restored one is always inactive, so the cut deferred any activated one (`unrestorable`); one placed
+            # without an activation price activates at once.
             activation = getattr(order, "activation_price", None)
             if getattr(order, "is_activated", True) or activation is None:
                 return f"{order.client_order_id}: an activated trailing stop or one without an activation price"
@@ -160,8 +157,7 @@ def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int
     LAST klines: the Sandbox fires it on the bars' last prices. Touching, not the fill model's crossing, so it refuses
     more, never less. Any other order type, state or trigger type (LAST klines cannot show a BID_ASK trigger) and any
     minute missing fail: only an order proven untouched passes. `status` checks every order as one in that status (an
-    order a back-filled bar is submitting, `Session.submitted`), by the narrower rules of `_level` for such an order;
-    such an order's GTD expiring by T fails.
+    order a back-filled bar is submitting, `Session.submitted`); such an order's GTD expiring by T fails.
 
     A restored GTD order that expired in the interruption needs only the minutes up to its expiry and the last one
     (`expiring`): rc7's matching engine matches a bar before it expires the orders it holds (`iterate_with_mode`, then
@@ -175,7 +171,7 @@ def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int
         expired = _name(order.time_in_force) == "GTD" and (expiry is None or expiry <= at)
         if expired and (expiry is None or status is not None):
             return f"{name}: its GTD expiry {history.utc(expiry or 0)} is at or before {history.utc(at)}"
-        found = _level(order, status or str(_name(order.status)), restored=status is None)
+        found = _level(order, status or str(_name(order.status)))
         if isinstance(found, str):
             return found
         level, by_high = found
@@ -407,7 +403,11 @@ class Session:
         the bar's bucket end up to T prove untouched (`touched`, as an accepted order) and the close of its contract's
         minute ending the bucket (the bar's own close when the bar is of its contract) does not make marketable (it
         would have matched at once on that L1; a MARKET always) passes: then its first match is the one the
-        uninterrupted run made. Once the recovery is refused, nothing more is sent (`commanded`)."""
+        uninterrupted run made. A MARKET_IF_TOUCHED or a MARK trigger is checked as a LIMIT_IF_TOUCHED or a stop is
+        (user decision 2026-11-18); a trailing stop not yet activated by its activation price: in the uninterrupted
+        run a close at or above a sell's (at or below a buy's) would have activated it at once, as a minute after it
+        would, and then it trails from there. An activated one, or one without an activation price, fails. Once the
+        recovery is refused, nothing more is sent (`commanded`)."""
         if self.refused or self.handing is None:
             return self.refused
         period, bar, minutes, own = self.handing
@@ -422,7 +422,7 @@ class Session:
             found = touched([order], {iid: [minute for minute in minutes if minute.ts_event > end]},
                             {iid: end - warmup.MILLISECOND_NS}, self.warm_at, status="ACCEPTED")
         if found is None:
-            level, by_high = cast(tuple, _level(order, "ACCEPTED", restored=False))
+            level, by_high = cast(tuple, _level(order, "ACCEPTED"))
             ending = next((minute for minute in minutes if minute.ts_event == end - warmup.MILLISECOND_NS), None)
             close = None if ending is None else ending.close.as_decimal()
             if close is None:

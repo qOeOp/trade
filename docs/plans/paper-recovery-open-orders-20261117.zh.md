@@ -383,9 +383,13 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 
 ### 已实施（2026-11-18，用户选「放宽能精确恢复的」）
 
-按上表放宽 `engine/paper_session.py`：`unrestorable` 放行已受理的 MIT、按 MARK 触发的单、未激活且带激活价的跟踪止损（切点时读缓存里的 `is_activated`：rc7 撮合引擎激活时就写回缓存，`store_trailing_stop_activation`）；`touched`/`_level` 对恢复的单按上节判定（跟踪止损用激活价）。在回补 bar 上新下的单（`Session.submitted`）不在授权里，规则不变：MIT、MARK 触发、跟踪止损照旧拒绝。已触发的跟踪止损限价单照旧推迟（状态不是 ACCEPTED），没有另探。成对验收结果见 PR。
+按上表放宽 `engine/paper_session.py`：`unrestorable` 放行已受理的 MIT、按 MARK 触发的单、未激活且带激活价的跟踪止损（切点时读缓存里的 `is_activated`：rc7 撮合引擎激活时就写回缓存，`store_trailing_stop_activation`）；`touched`/`_level` 对恢复的单按上节判定（跟踪止损用激活价）。在回补 bar 上新下的单（`Session.submitted`）当时不在授权里，规则未变（后来放宽，见下）。已触发的跟踪止损限价单照旧推迟（状态不是 ACCEPTED），没有另探。成对验收结果见 PR。
 
 验收时看到一处已有的差别（不是这次引入的，在未改的 main 上用 DEFAULT 的 STOP_MARKET 对照跑也一样）：恢复后从没成交、后来被撤的止损类单，`orders.csv` 的 `liquidity_side` 是 MAKER，连续跑是 NO_LIQUIDITY_SIDE。rc7 `restore_open_order` 给每张恢复的单在缓存里标 Maker（mod.rs:3474-3484），只影响无成交单的这一列；成交、手续费、事件序列都相同。
+
+### 回补 bar 上新下的 MIT、MARK 触发、未激活跟踪止损（2026-11-18，用户选「放宽，同样规则」）
+
+`Session.submitted` 对这三种单用与恢复的单相同的判定：从该 bar 的桶末到 T 的分钟不得碰到（跟踪止损：不得到达激活价），桶末那一分钟的收盘不得让它可成交。MIT 与按 MARK 触发的止损按 LIT 与 STOP 的比较；未激活的跟踪止损的"收盘可成交"定义为收盘到达激活价（卖单收盘 ≥ 激活价、买单 ≤）：连续跑里它在那根 bar 收盘时提交，受理时 rc7 按当时的 bid/ask（bar 撮合下等于收盘）判 `trailing_stop_activates_now`，到达即当场激活，恢复后在 T 才提交、不会同样激活，所以拒绝。不带激活价的跟踪止损受理即激活，照旧拒绝；回补时新下的单不会是已激活的。成对验收结果见 PR。
 
 ## `recovery_declared` 由运行记录的入口类推出（2026-11-18）
 
