@@ -371,6 +371,10 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 - 实施时的成对验收：用 `engine.paper.main` 跑连续与中断—恢复，覆盖 MIT、MARK 止损、未激活的跟踪止损；拒绝路径各一条（停机碰到激活价、已激活的在切点推迟）；已触发的跟踪止损限价单单独探一次再决定。技能文字（`strategy-authoring.md`）按 `.agents/README.md` 同步：跟踪止损必须给初始触发价，否则回放与 Paper 以 `MARKET_PRICE_UNAVAILABLE` 拒单。
 - 上游（可选，对外发帖要用户点头）：rc7 跟踪止损的激活状态不持久化，带 `load_state` 重启后已激活的跟踪止损变成未激活；Live 带缓存重启同样受影响（止损在交易所工作，但缓存里的订单状态会丢）。
 
+### 已实施（2026-11-18，用户选「放宽能精确恢复的」）
+
+按上表放宽 `engine/paper_session.py`：`unrestorable` 放行已受理的 MIT、按 MARK 触发的单、未激活且带激活价的跟踪止损（切点时读缓存里的 `is_activated`：rc7 撮合引擎激活时就写回缓存，`store_trailing_stop_activation`）；`touched`/`_level` 对恢复的单按上节判定（跟踪止损用激活价）。在回补 bar 上新下的单（`Session.submitted`）不在授权里，规则不变：MIT、MARK 触发、跟踪止损照旧拒绝。已触发的跟踪止损限价单照旧推迟（状态不是 ACCEPTED），没有另探。成对验收结果见 PR。
+
 ## `recovery_declared` 由运行记录的入口类推出（2026-11-18）
 
 页面的 `recovery_declared` 与 `paper compare` 的 `held_since` 原先在源码文本里找"任一个类"声明了 `PAPER_RECOVERY = 1` 且（连同同文件里的基类）实现了 `on_save`、`on_load`。运行器检查的是它加载的入口类（`Session.declared`：`getattr(strategy_class, "PAPER_RECOVERY")`），所以一个文件里另有一个声明了协议的类、入口类却没有时，页面会说"能恢复"，`paper compare` 也不会把保持归因为 `held`。
