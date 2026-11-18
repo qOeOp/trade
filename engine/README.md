@@ -676,7 +676,13 @@ such a run to `held` when nothing earlier in its cause order explains it, rather
 misses at least one bar (the one closing at the warm-up's T is never received live), so for such a difference the
 bars missing from each held interruption's pause (the first `stop_requested` since the run last started or resumed,
 else its last line before `resumed`) up to the held recovery's first live bar on the contract are the hold's, not
-`missing_bar` evidence; a live gap before the pause or after that bar still is (`paper/compare.py` interruptions).
+`missing_bar` evidence; a live gap before the pause or after that bar still is (`paper/compare.py` interruptions). Its
+equity differences (`equity.differences`) name `held` for a minute the run was down in, one that ends after a held
+interruption's pause and starts by its `resumed` (user 2026-11-18, 「加」), when no order difference or fill timing
+explains it: a minute is valued at the last mark the run received in it, and it received none from the pause until
+its held recovery went live, so the minute it paused in is valued at a mark from before then (runs 3 and 4: 01:29 at
+-0.13 and 02:18 at -0.59 USDT). Later minutes keep their causes: in those runs the live mark a minute was valued at lies on
+the 0.01 grid and differs exactly where the archive's MARK close is finer, by a few 1e-5 USDT, which is not the hold's.
 
 Whether a source declares the protocol is the runner's own verdict on the class it loaded
 (`engine.paper_session.declares_recovery`: `PAPER_RECOVERY` as Python resolves it, and `on_save` and `on_load` in its
