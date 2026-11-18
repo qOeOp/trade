@@ -32,6 +32,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   no margins while positions are open); `orders.csv` writes an order without a fill as NO_LIQUIDITY_SIDE (rc7 marked
   every restored order MAKER, so a stop canceled unfilled read MAKER only after a resume, and marks a resting limit
   order MAKER in any run). Fills, positions, order events and replay and Live reports are unchanged.
+- Paper: a MARKET_IF_TOUCHED, an order triggered by the mark price and a trailing stop not yet activated that has an
+  activation price, submitted by a source on a back-filled aggregated bar, are now checked as restored ones are (user
+  decision 2026-11-18) instead of refusing the recovery: the minutes from that bar's bucket end up to T must not have
+  touched the order (a trailing stop: reached its activation price), and the close of the minute ending the bucket
+  must not make it marketable (a trailing stop: a sell's close at or above its activation price, a buy's at or below,
+  which in the uninterrupted run activated it at once). A trailing stop without an activation price still refuses.
 - Paper: `paper compare`'s equity differences name a new cause `held` (user 2026-11-18, 「加」) for a minute a held run
   was down in (ending after a held interruption's pause, starting by its `resumed`) that no order difference or fill
   timing explains: the run values it at a mark from before its recovery went live. Such a minute no longer counts in
@@ -48,8 +54,8 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   Sandbox fires it on the bars' last prices), a MARKET_IF_TOUCHED as a LIMIT_IF_TOUCHED, and a trailing stop by its
   activation price: a downtime minute that reached it (a sell's high, a buy's low) refuses the recovery
   (`PAPER_RECOVERY_UNAVAILABLE`, stopped as a pause, without cancelling). An activated trailing stop, also one placed
-  without an activation price, still defers the checkpoint: rc7 restores every trailing stop inactive. An order a
-  source submits on a back-filled bar is checked as before. (`docs/plans/paper-recovery-open-orders-20261117.zh.md`.)
+  without an activation price, still defers the checkpoint: rc7 restores every trailing stop inactive.
+  (`docs/plans/paper-recovery-open-orders-20261117.zh.md`.)
 - Paper: whether a run's source declares recovery (the page's `recovery_declared`, and the held start `paper
   compare` and the runs listing derive) is now the runner's own verdict, journalled on a new run's `started` line as
   `recovery_declared` (user 2026-11-18, 「授权，走评审」; `docs/plans/paper-recovery-open-orders-20261117.zh.md`), not

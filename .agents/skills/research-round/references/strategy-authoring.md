@@ -75,8 +75,9 @@ header template, the entry class, the two hooks and a sizing helper.
   do not submit its stop again, which breaches the stop rule below. A resume past a bucket end of a
   declared aggregation hands the aggregated bars it missed (also those of another contract of the run
   it subscribed to) to `on_bar` after `on_start`, before any live bar; an order sent on one ends the
-  run if it is a MARKET order, `close_position` or on another contract, or if its contract's close at
-  that bar's end or the minutes up to the resume reached it. Meanwhile the clock reads the resume
+  run if it is a MARKET order, `close_position`, on another contract or a trailing stop without an
+  activation price, or if its contract's close at that bar's end or the minutes up to the resume
+  reached it (a trailing stop: its activation price). Meanwhile the clock reads the resume
   time and the cache already holds the later missed bars: decide from the bar handed in and saved
   state.
 
