@@ -1,8 +1,8 @@
 // What the Equity chart shows beside equity and its layers (equityReadings.ts): what fees and funding
 // took as a raised band over the line and the open profit and loss as a filled block between the balance
-// and the line, and on request an equal-weight buy and hold of the run's contracts as an area (equityFills.ts), the
-// band in the value axis's fit as far as `reach` lets it, the buy and hold kept out of it (so a market
-// move cannot flatten the equity line); and the gross exposure as an indicator in a band of its own along the
+// and the line, and on request an equal-weight buy and hold of the run's contracts as an area (equityFills.ts),
+// both in the value axis's fit as far as `reach` lets them; and the gross exposure as an indicator in a band of
+// its own along the
 // pane's foot (below the day bars), a faint indigo step area on a scale of its own from none to all of
 // equity (or more, with leverage), as the candle charts lay volume. The run's events are not flagged here:
 // they are in Events, and on each contract's chart.
@@ -14,7 +14,7 @@ import type { Plot } from "./equityZones";
 
 type ExtrasLook = { fills: FillsLook; hold: HoldLook; exposure: string; exposureFill: string };
 type Shown = { points: readonly EquityPoint[]; readings: ReadonlyMap<number, Reading>; hold: boolean; look: ExtrasLook };
-const BAND = 30;  // px: the exposure's band
+const BAND = 30;  // px: the exposure's band at full scale
 const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
 
 export class EquityExtras {
@@ -22,6 +22,8 @@ export class EquityExtras {
   private readonly fills = new EquityFills(() => this.plot());
   private s: { exposure: ISeriesApi<"Baseline"> } | null = null;
   private shown: Shown | null = null;
+  private exposures: (number | null)[] = [];
+  private maxExposure = 1;
   private applied = "";
 
   /** Adds its series to `chart`, its fills to the equity series, drawn inside `plot` (equityZones.ts). */
@@ -56,15 +58,23 @@ export class EquityExtras {
       this.applied = key;
       s.exposure.applyOptions({ topLineColor: look.exposure, topFillColor1: look.exposureFill, topFillColor2: look.exposureFill });
     }
+    this.exposures = points.map((p) => readings.get(p.minute ?? p.time)?.exposure ?? null);
+    this.maxExposure = this.exposures.reduce<number>((m, v) => (v !== null && v > m ? v : m), 1);
     this.fills.set(points, readings, look.fills, shown.hold ? look.hold : null);
     s.exposure.setData(data((r) => r.exposure));
   }
 
-  /** Equity's range in view widened to take in the costs' band (equityFills). */
+  /** Equity's range in view widened to take in the costs' band and the buy and hold's outer bands (equityFills). */
   reach(range: AutoscaleInfo["priceRange"], view: LogicalRange | null): AutoscaleInfo["priceRange"] { return this.fills.reach(range, view); }
 
-  /** How much of the foot the exposure takes (px), for the day bars to sit above. */
-  foot(): number { return this.shown?.readings.size ? BAND : 0; }
+  /** How much of the foot the visible exposure actually takes (px), for the day bars and plot to sit above. */
+  foot(view: LogicalRange | null = null): number {
+    if (!this.shown?.readings.size || !this.exposures.length) return 0;
+    const lo = Math.max(0, Math.floor(view?.from ?? 0)), hi = Math.min(this.exposures.length - 1, Math.ceil(view?.to ?? this.exposures.length - 1));
+    let peak = 0;
+    for (let i = lo; i <= hi; i++) { const v = this.exposures[i]; if (v != null && v > peak) peak = v; }
+    return peak > 0 ? Math.ceil((peak / this.maxExposure) * BAND) + 2 : 2;
+  }
 
   destroy(): void { this.s = null; }
 }

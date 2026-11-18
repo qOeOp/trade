@@ -10,15 +10,13 @@
 // pane's height, so nothing drawn from the series runs across it and the line simply stops either side of
 // it; only words (the notes' names, the stretches' names) and the closes' arrows draw over it.
 import { DAY_S } from "../../lib/time";
-import { FEW, dayBars, drawdownRows, frameOf, sideTrack, span, type DayBar, type Frame } from "./equityBands";
+import { barsHigh, dayBars, dotsHigh, drawdownRows, FEW, frameOf, sideTrack, span, type DayBar, type Frame } from "./equityBands";
 import type { Leaning } from "../../model/held";
 import type { Restart } from "../../model/paper";
 import { downsOf, downTags, drawDown, tagged, widened, type Down, type DownLook } from "./downLook";
 import { xAt } from "./equityPlace";
-import { dotsEnd, inPlot, toEdges, type Plot } from "./equityZones";
-import type { ShareLook } from "./equityShares";
-import type { YearLook } from "./equityYears";
-import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
+import { headOf, inPlot, toEdges, type Plot } from "./equityZones";
+import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, LogicalRange, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 
 /** A point a minute (or a step), or a backtest's a day (`day`); `down` across a chain's offline stretch
  *  (downLook.ts); `stretch` the index of the stretch it belongs to (equityStretches.ts); `cut` where a
@@ -26,11 +24,11 @@ import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Serie
 /** `peak`: the highest equity so far in its stretch; `low`: the lowest from it to its stretch's end. */
 export type EquityPoint = { time: number; value: number; peak: number; low: number; pace: number | null; minute?: number; down?: boolean; stretch?: number; cut?: boolean; day?: boolean };
 export type EquityLook = { line: string; pace: string; knockout: string; knockoutWidth: number; haze: string; ahead: string; behind: string;
-                           ceiling: string; flat: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook; rows: YearLook; shares: ShareLook };
+                           ceiling: string; flat: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook };
 const BLUR = 10, DROP = 6;  // px: the line's shadow's blur and how far down it falls
 /** How far (px) the line's knockout and shadow reach above and below it: the value axis keeps this much
  *  room inside the plot (equityApi.ts), so the plot's edge never cuts them. */
-export const HALO = { above: 5, below: 16 };
+export const HALO = { above: 4, below: 6 };
 const HELD_GAP = 6, CROWDED = 48;  // px: held stretches nearer than this count as one (no flat shading between); at most one stretch this wide a share
 
 export class EquityLayers implements ISeriesPrimitive<Time> {
@@ -48,21 +46,29 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   private look: EquityLook | null = null;
   private ticks: readonly number[] = [];
   private downs: readonly Down[] = [];
-  private foot = 0;
   private shown: readonly [number, number] | null = null;
+  private captions = false;
 
-  /** `plot`: where the priced layers are drawn (equityZones.ts). */
-  constructor(private readonly plot: () => Plot, private readonly head: () => number) {}
+  /** `plot`: where the priced layers are drawn (equityZones.ts); `foot`: the exposure's height in view (px). */
+  constructor(private readonly plot: () => Plot, private readonly foot: () => number = () => 0) {}
 
   /** The points and the shown stretch's days, the day picked (its start, in seconds), the balance equity
    *  is measured against where it has no pace, the worst drawdown (from every minute), where the shown
    *  stretch held a position and which way (seconds), the colours, the restarts of its chains of runs, the shown
-   *  stretch's first and last minute (s; null when there is none). */
+   *  stretch's first and last minute (s; null when there is none) and whether the stretches' names are drawn. */
   set(points: readonly EquityPoint[], days: readonly DayBar[], picked: number | null, base: number, worst: number, held: readonly Leaning[], look: EquityLook,
-      restarts: readonly Restart[] = [], shown: readonly [number, number] | null = null): void {
-    Object.assign(this, { points, bars: days, picked, base, worst, held, look, downs: downsOf(restarts), shown, cuts: points.flatMap((p, i) => (p.cut ? [i] : [])) });
+      restarts: readonly Restart[] = [], shown: readonly [number, number] | null = null, captions = false): void {
+    Object.assign(this, { points, bars: days, picked, base, worst, held, look, downs: downsOf(restarts), shown, captions, cuts: points.flatMap((p, i) => (p.cut ? [i] : [])) });
+    this.series?.applyOptions({});
     this.redraw?.();
   }
+
+  /** Whether the stretches' names take a line at the top of the pane. */
+  captionsShown(): boolean { return this.captions; }
+
+  /** The height (px) the visible drawdown dots and day bars take in a pane `h` px high. */
+  dotsHigh(view: LogicalRange | null, h: number): number { return dotsHigh(this.points, this.worst, view, h); }
+  barsHigh(view: LogicalRange | null, h: number, foot: number): number { return this.days() ? barsHigh(this.points, this.bars, view, h, foot) : 0; }
 
   /** The day under the pointer (its start, in seconds), or null. */
   hover(day: number | null): void {
@@ -70,10 +76,6 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     this.hovered = day;
     this.redraw?.();
   }
-
-  /** How much of the pane's foot (px) the day bars stand above: the exposure's band. */
-  lift(px: number): void { if (px !== this.foot) { this.foot = px; this.redraw?.(); } }
-
 
   /** Whether the day bars have room at the foot: the shown stretch is long enough for them. */
   days(): boolean { return this.shown !== null && this.shown[1] - this.shown[0] >= FEW && this.bars.length > 0; }
@@ -133,9 +135,10 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     f.c.fillStyle = look!.grid;
     for (const p of this.ticks) f.c.fillRect(0, Math.round(this.y(p, f.vr)), f.w, Math.max(1, Math.round(f.vr)));
     inPlot(f.c, this.plot(), f.w, f.vr, () => { this.gap(f); this.pace(f); });
-    drawdownRows(f, points, this.worst, look!, this.head(), dotsEnd(f.h / f.vr, this.head()));
-    sideTrack(f, points, this.held, look!, this.head());
-    if (days) dayBars({ ...f, h: f.h - Math.round(this.foot * f.vr) }, shown!, this.bars, (d) => d === this.picked || d === this.hovered, look!);
+    const top = headOf(this.captions);
+    drawdownRows(f, points, this.worst, look!, top);
+    sideTrack(f, points, this.held, look!, top);
+    if (days) dayBars({ ...f, h: f.h - Math.round(this.foot() * f.vr) }, shown!, this.bars, (d) => d === this.picked || d === this.hovered, look!);
   }
 
   /** Each offline stretch over the line. */

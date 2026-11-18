@@ -4,7 +4,7 @@
 // of the run's worst drawdown, the deepest any entry takes, and 1%, which a short run's small dip never makes look like a crash); at the bottom each day's return as a slim bar on a baseline, the picked or hovered day
 // stronger, while three days or more are in view. All drawn in device pixels with snapped edges, from
 // the visible points thinned to each pixel column's first, lowest, highest and last (frameOf).
-import type { IChartApi, IPrimitivePaneRenderer, Logical } from "lightweight-charts";
+import type { IChartApi, IPrimitivePaneRenderer, Logical, LogicalRange } from "lightweight-charts";
 import { DAY_S } from "../../lib/time";
 import type { Leaning } from "../../model/held";
 import type { EquityLook, EquityPoint } from "./equityLayers";
@@ -14,11 +14,10 @@ export type Frame = { c: CanvasRenderingContext2D; hr: number; vr: number; w: nu
 export type DayBar = { from: number; ret: number };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 
-export const CEILING = 0.2, BARS = 0.12;   // the drawdown band and the tallest day's bar, as shares of the pane's height
+export const CEILING = 0.12, BARS = 0.08;  // the drawdown band and the tallest day's bar, as shares of the pane's height
 export const FEW = 2 * DAY_S;              // a run shorter than two days has no day bars
-const PITCH = 3, DOT = 1;                  // px: the drawdown dots' pitch (both ways) and size
+const PITCH = 3, DOT = 1, FLOOR = 0.01;    // px: the drawdown dots' pitch and size; the band's least drawdown
 const FEWEST_DAYS = 3, DAY_PX = 3;         // day bars only while this many days are in view, each this wide (px)
-const FLOOR = 0.01;                        // the band's foot is at least this deep a drawdown
 const BAR_W = 0.3, BAR_MAX = 4;            // a day's bar, as a share of the day's width, and at most this wide (px): slim, as vibe-trading's
 const TRACK_UP = 7, TRACK_H = 3;           // px: the side track's top above the drawdown dots' first row, and its bars' height
 export const span = (a: number, b: number) => { const p = Math.round(a), q = Math.round(b); return { at: Math.min(p, q), len: Math.max(1, Math.abs(q - p)) }; };
@@ -37,12 +36,12 @@ export function frameOf({ context: c, horizontalPixelRatio: hr, verticalPixelRat
 }
 
 /** A dot matrix, as vibe-trading's: each column of dots (PITCH apart, counted from the pane's left so a
- *  dot keeps its place as the view moves) reaches down from `top` towards `bottom` (px) as far as the deepest drawdown an
+ *  dot keeps its place as the view moves) reaches down from `top` (px) as far as the deepest drawdown an
  *  entry under it would take, scaled to the band, one row for any drawdown at all; a point holds until the next. Filled
  *  once with a pattern of one dot a cell. */
-export function drawdownRows({ c, hr, vr, w, keep, xs }: Frame, points: readonly EquityPoint[], worst: number, look: EquityLook, top: number, bottom: number): void {
+export function drawdownRows({ c, hr, vr, w, h, keep, xs }: Frame, points: readonly EquityPoint[], worst: number, look: EquityLook, top = 0): void {
   if (!(worst > 0) || keep.length < 2) return;
-  const px = Math.max(2, Math.round(PITCH * hr)), py = Math.max(2, Math.round(PITCH * vr)), band = (bottom - top) * vr, scale = Math.max(worst, FLOOR), y0 = Math.ceil((top * vr) / py) * py;
+  const px = Math.max(2, Math.round(PITCH * hr)), py = Math.max(2, Math.round(PITCH * vr)), band = h * CEILING, scale = Math.max(worst, FLOOR), y0 = Math.ceil((top * vr) / py) * py;
   const cols = Math.ceil(w / px), depth = new Float32Array(cols);
   keep.forEach((i, k) => {
     const d = ((1 - points[i]!.low / points[i]!.value) / scale) * band, x0 = xs.get(i)!, next = keep[k + 1];
@@ -87,6 +86,26 @@ function dots(c: CanvasRenderingContext2D, px: number, py: number, dot: number, 
     patterns.set(key, g && c.createPattern(cell, "repeat"));
   }
   return patterns.get(key)!;
+}
+
+/** The height (px) the visible drawdown dots reach in a pane `h` px high. */
+export function dotsHigh(points: readonly EquityPoint[], worst: number, view: LogicalRange | null, h: number): number {
+  if (!(worst > 0) || points.length < 2) return 0;
+  const lo = Math.max(0, Math.floor(view?.from ?? 0)), hi = Math.min(points.length - 1, Math.ceil(view?.to ?? points.length - 1));
+  let deepest = 0;
+  for (let i = lo; i <= hi; i++) { const p = points[i]!; if (!p.down && p.value > 0) deepest = Math.max(deepest, 1 - p.low / p.value); }
+  return deepest > 0 ? Math.ceil(((deepest / Math.max(worst, FLOOR)) * h * CEILING) / PITCH) * PITCH : 0;
+}
+
+/** The height (px) the tallest visible day bar reaches above `foot` in a pane `h` px high. */
+export function barsHigh(points: readonly EquityPoint[], bars: readonly DayBar[], view: LogicalRange | null, h: number, foot: number): number {
+  const most = Math.max(0, ...bars.map((d) => Math.abs(d.ret)));
+  if (!(most > 0) || !points.length) return 0;
+  const lo = Math.max(0, Math.floor(view?.from ?? 0)), hi = Math.min(points.length - 1, Math.ceil(view?.to ?? points.length - 1));
+  const t0 = (points[lo]?.time ?? -Infinity) - DAY_S, t1 = (points[hi]?.time ?? Infinity) + DAY_S;
+  let vis = 0;
+  for (const d of bars) if (d.from >= t0 && d.from <= t1) vis = Math.max(vis, Math.abs(d.ret));
+  return vis > 0 ? Math.max(2, Math.ceil((vis / most) * BARS * Math.max(0, h - foot))) : 2;
 }
 
 /** A day's bar sits mid-way across the part of the day the run covers, its width from a whole day's
