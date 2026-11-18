@@ -59,7 +59,7 @@ export function PnlBridge({ a, b }: { a: Account; b: Bridge }) {
       const contract = s.kind === "win" || s.kind === "loss";
       const r: Row = {
         name: contract ? `${baseAsset(s.name)} ${s.kind === "win" ? "wins" : "losses"}` : s.name,
-        ...(contract ? { coin: baseAsset(s.name) } : {}),
+        ...(contract ? { coin: s.name } : {}),
         note: `${contract ? `${s.name} ` : ""}${NOTE[s.kind](s.value > 0)}`,
         from: run, to: run + s.value, tone: s.kind === "win" ? "up" : s.kind === "loss" ? "down" : "bar",
       };

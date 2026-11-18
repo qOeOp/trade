@@ -170,6 +170,7 @@ test("a held run's failed stop check is red and short: no paragraph, a Stop chec
   const chip = render("CoinChip", { coin: { symbol: "BTCUSDT", side: "LONG", warn: "No stop" } });
   assert.match(chip, />LONG<\/span><span class="text-small font-medium text-fail-fg">No stop<\/span>/);
   assert.doesNotMatch(render("CoinChip", { coin: { symbol: "BTCUSDT", side: "LONG" } }), /No stop/);
+  assert.match(render("CoinChip", { coin: { symbol: "1000PEPEUSDT", side: null } }), /logos\/PEPE\.png".*>1000PEPEUSDT</);
   // Stops all in place: the amber paragraph and the plain host state it has had.
   canvasRun = { ...held, heldAlert: null, heldNotice: "This run holds only positions that have their stop at Binance" };
   assert.doesNotMatch(render("LiveRunCanvas", {}), /<p role="status" class="text-dense text-misses-fg"/, "the hold's explanation is an info icon, not a paragraph");
