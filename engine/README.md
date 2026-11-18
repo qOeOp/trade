@@ -659,6 +659,16 @@ in the journal as the `resumed` line and the first live bar's `data_gap`. Native
 positions and account events (the last carrying balances and margins) before the atomic cut is published; margins
 Nautilus sets only in memory are recomputed from the positions on restore and are not compared.
 
+A resumed run's `reports/` (`engine.paper.write_native_reports`, written at each end from the whole run's cache) are
+written as an uninterrupted run's. rc7 adds to a restored cache what no trading made: its Redis cache appends the
+account's last state on every cache update, so the restored account repeats states under one event ID; the Sandbox,
+connecting again, restates the checkpoint's balance with nothing locked and no margins while the restored positions
+hold theirs; and its matching engine marks every order it restores MAKER. So `account.csv` keeps each state once and
+leaves out that restatement (the first state after a `resumed` line, when it restates the one before it so; any other
+state stays), and `orders.csv` writes every order without a fill as NO_LIQUIDITY_SIDE (a fill sets the side; without
+one rc7 sets MAKER on a resting limit order and nothing on a stop). Fills, positions and order events are unchanged.
+Replays and Live write their reports as before.
+
 A source without the protocol is held after an interruption, as Live holds (user 2026-11-17,
 `docs/plans/paper-recovery-open-orders-20261117.zh.md`): its source is never restored, only the positions and their
 stops and targets. While a position is open, the runner checkpoints the native cache and its recorder alone (`sources`

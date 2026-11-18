@@ -12,6 +12,7 @@ import math
 from collections.abc import Iterable, Mapping
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 from nautilus_trader.analysis import SharpeRatio
 from nautilus_trader.model import ClientOrderId
@@ -232,18 +233,37 @@ def write_reports(output: Path, cache, orders, fills, positions, account) -> dic
     return reports
 
 
-def write_cache_reports(directory: Path, cache, venue) -> None:
+def write_cache_reports(directory: Path, cache, venue, account_events: list | None = None,
+                        unfilled_liquidity: bool = True) -> None:
     """A running node's native cache as a replay writes its reports and order events (write_reports,
     write_order_events), into a directory the caller made: Paper's end (engine.paper) and Live's evidence
-    (engine.live_evidence)."""
+    (engine.live_evidence). Paper passes its account's states (`account_events`, engine.paper.account_states) and
+    writes an order without a fill with no liquidity side (`unfilled_liquidity` False, without_unfilled_liquidity)."""
     import pandas as pd
     from nautilus_trader.analysis import ReportProvider
     orders, account = cache.orders(), cache.account_for_venue(venue)
-    write_reports(directory, cache, ReportProvider.generate_orders_report(orders),
+    if account is not None and account_events is not None:
+        account = SimpleNamespace(events=account_events)  # all the native account report reads
+    orders_report = ReportProvider.generate_orders_report(orders)
+    write_reports(directory, cache, orders_report if unfilled_liquidity else without_unfilled_liquidity(orders_report),
                   ReportProvider.generate_fills_report(orders),
                   ReportProvider.generate_positions_report(cache.positions(), cache.position_snapshots()),
                   ReportProvider.generate_account_report(account) if account is not None else pd.DataFrame())
     write_order_events(orders, directory / ORDER_EVENTS)
+
+
+def without_unfilled_liquidity(orders):
+    """The native orders report with NO_LIQUIDITY_SIDE for every order without a fill. A fill sets an order's
+    liquidity side; without one rc7's matching engine sets it unevenly and with no event: MAKER on a limit order it
+    accepts to rest, none on a stop it accepts, and MAKER on every order it restores into a resumed Sandbox
+    (restore_open_order, crates/execution/src/matching_engine/mod.rs), so a Paper stop canceled unfilled read MAKER
+    only after a resume. Paper's checkpoint readback leaves the same field out (engine.paper_redis)."""
+    if orders.empty or "liquidity_side" not in orders.columns:
+        return orders
+    result = orders.copy()
+    unfilled = [Decimal(str(value or 0)) == 0 for value in result["filled_qty"]]
+    result.loc[unfilled, "liquidity_side"] = "NO_LIQUIDITY_SIDE"
+    return result
 
 def write_native_reports(output: Path, replay, strategies: dict, instruments: list[dict], identity: dict,
                          window: Window, account: AccountContract, limitations: list[str],
