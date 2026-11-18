@@ -59,7 +59,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
   const flat = Math.round(minutes.at(-1)?.value ?? NaN) === Math.round(starting);
   const now = useRef<Now>({ points, shown, starting }), stretches = useRef(placed), minutesRef = useRef(minutes), rememberRef = useRef(remembers);
   now.current = { points, shown, starting }; stretches.current = placed; minutesRef.current = minutes; rememberRef.current = remembers;
-  const fitted = useRef<string | null>(null), layout = placed.map((p) => `${p.label}:${p.from}`).join();
+  const fitted = useRef<string | null>(null), ready = useRef(false), frame = useRef(0), layout = placed.map((p) => `${p.label}:${p.from}`).join();
   const extras = useMemo(() => new EquityExtras(), []);
   const fit = (k: number) => { const p = stretches.current[k], time = api.current?.chart.timeScale(); if (p && time) glide(time, { from: p.from, to: p.to }); };
   const whole = () => { const d = api.current?.equity.data(), time = api.current?.chart.timeScale(); if (d?.length && time) glide(time, { from: d[0]!.time as number, to: d.at(-1)!.time as number }); };
@@ -70,7 +70,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     // kept where it is across the redraw (the effect drawing the points puts it back).
     const release = whenSettled(host.current!, time, (x) => {
       const r = time.getVisibleRange(), step = stepRef.current;
-      a.ticks.refresh();
+      a.fenced(); a.ticks.refresh();
       if (!r || !time.width()) return;
       const next = stepOver(minutesRef.current, r.from as number, r.to as number, time.width(), step);
       if (next === step) return;
@@ -100,9 +100,10 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     host.current!.addEventListener("dblclick", whole);
     api.current = a;
     return () => {
-      const r = time.getVisibleRange();
+      cancelAnimationFrame(frame.current);
+      const r = ready.current ? time.getVisibleRange() : null;
       if (r) views.set(rememberRef.current, { step: stepRef.current, from: r.from as number, to: r.to as number });
-      release(); extras.destroy(); a.chart.remove(); api.current = null;
+      fitted.current = null; ready.current = false; release(); extras.destroy(); a.chart.remove(); api.current = null;
     };
   }, []);
 
@@ -139,17 +140,20 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     }
     a.equity.setData(points.map((p) => (p.down ? { time: at(p.time) } : { time: at(p.time), value: p.value })));
     a.pace.setData(annual === null ? [] : points.map((p) => (p.down ? { time: at(p.time) } : { time: at(p.time), value: p.pace! })));
-    a.fenced();
     const time = a.chart.timeScale();
     if (refit.current) {
-      refit.current = false; keep.current = null;
+      refit.current = false; keep.current = null; ready.current = false;
+      if (time.options().minBarSpacing > 0.01) time.applyOptions({ minBarSpacing: 0.01 });
       const view = firstView(points, shown);
       // Or the day picked before there were points to glide on.
       if (day) glide(time, { from: Math.max(points[0]!.time, dayStart(day)), to: Math.min(points.at(-1)!.time, dayStart(day) + DAY_S) });
       else if (saved) time.setVisibleRange({ from: at(saved.from), to: at(saved.to) });
       else if (view) time.setVisibleLogicalRange({ from: view.from, to: view.to === points.length - 1 ? view.to + 6 : view.to });
       else time.fitContent();
-    } else if (keep.current) { const k = keep.current; keep.current = null; restore(time, points.map((p) => p.time), step, k.t, k.x, k.w); }
+      cancelAnimationFrame(frame.current);
+      frame.current = requestAnimationFrame(() => { ready.current = true; api.current?.fenced(); });
+    } else if (keep.current) { const k = keep.current; keep.current = null; a.fenced(); restore(time, points.map((p) => p.time), step, k.t, k.x, k.w); }
+    else if (ready.current) a.fenced();
   }, [points, annual]);
 
   useEffect(() => {

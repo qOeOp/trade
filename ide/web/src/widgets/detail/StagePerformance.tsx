@@ -10,6 +10,7 @@ import { Skeleton } from "../../components/Missing";
 import { CardGroup, Section } from "../../components/Section";
 import { Calendar } from "../paper/Calendar";
 import { PnlBridge } from "../paper/Bridge";
+import { MarketExposure, PeriodsAndRegimes } from "../paper/MarketExposure";
 import { Performance } from "../paper/Performance";
 
 const BARS = [35, -25, 60, 20, -45, 80, -15, 40, -55, 30, 70, -30, 25, -40, 50, 15, -65, 45, -20, 55, 30, -35, 65, -25];
@@ -107,8 +108,8 @@ export function StagePerformance() {
   const tested = stage === "backtest" && backtest?.kind === "ready" ? backtest.b : null;
   const paper = stage === "paper" && data && data.run.paper_id === run?.paper_id ? data : null;
   const testedBridge = useMemo(() => (tested?.account ? bridge(tested.account, tested.cycles.map((c) => ({ symbol: c.symbol, pnl: c.pnl ?? 0, gross: c.gross }))) : null), [tested]);
-  const shown = tested?.account && tested.stats ? { a: tested.account, stats: tested.stats, bridge: testedBridge, fills: null, of: "backtest" as const }
-    : paper?.a && paper.stats ? { a: paper.a, stats: paper.stats, bridge: paper.bridge, fills: paper.fills, of: "paper" as const } : null;
+  const shown = tested?.account && tested.stats ? { a: tested.account, stats: tested.stats, bridge: testedBridge, exposures: tested.exposures, periods: tested.periods, fills: null, of: "backtest" as const }
+    : paper?.a && paper.stats ? { a: paper.a, stats: paper.stats, bridge: paper.bridge, exposures: [], periods: null, fills: paper.fills, of: "paper" as const } : null;
   const reading = (stage === "backtest" && backtest?.kind === "reading")
     || (stage === "paper" && !!run && !paper?.a && service !== "offline" && service !== "absent")
     || (stage === null && service === "checking");
@@ -119,6 +120,8 @@ export function StagePerformance() {
         {shown ? (
           <div className="space-y-2">
             <Performance a={shown.a} stats={shown.stats} />
+            <MarketExposure rows={shown.exposures} />
+            {shown.periods && <PeriodsAndRegimes p={shown.periods} />}
             <Calendar a={shown.a} fills={shown.fills} stage={shown.of} />
             {shown.bridge && <Section title="Profit and loss"><PnlBridge a={shown.a} b={shown.bridge} /></Section>}
           </div>

@@ -337,9 +337,13 @@ class ReportTests(unittest.TestCase):
         exposure = paired["market_exposure"]["measures"]
         for name in ("beta_basket", "alpha_basket"):
             self.assertEqual(exposure[name]["pairwise"]["definition_note"], measures.BASKET_NOTE, name)
+            self.assertIsNotNone(single["market_exposure"][name]["return_sum"], name)
+            self.assertIsNotNone(exposure[name]["pairwise"]["return_sum"], name)
         for name in ("beta_btc", "alpha_btc"):
             self.assertNotIn("definition_note", single["market_exposure"][name], "BTC is not the basket")
             self.assertNotIn("definition_note", exposure[name], "BTC is not the basket")
+            self.assertIsNotNone(single["market_exposure"][name]["return_sum"], name)
+            self.assertIsNotNone(exposure[name]["pairwise"]["return_sum"], name)
 
     def test_the_comparison_gives_the_test_attribution_pairs_and_predictions_in_one_entry(self):
         found = comparison.compare(self.profile, self.child_registration, self.candidate["trial_id"])

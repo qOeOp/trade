@@ -3,8 +3,19 @@
 // backtest reads is typed; the product's refusal comes back as its { code, message }.
 import { getJson, type Unread } from "./transport";
 
-/** A measure as the report gives it: its value (a number, or a decimal or time as text) or none. */
-type Measure = { value: number | string | null } | undefined;
+/** A measure as the report gives it: its value (a number, or a decimal or time as text) or none, with
+ *  any regression standard error, simple-return sum, sample size, unavailability reason or note. */
+type Measure = {
+  value: number | string | null; standard_error?: number | null; return_sum?: number | null;
+  sample_size?: number | null; null_reason?: string | null; definition_note?: string | null;
+} | undefined;
+/** One calendar year of the development window, or the summary across them (`report/runs.py`). */
+type DevYear = { year: number; days: number; return: number | null; annual_return: number | null };
+type DevYears = {
+  years?: DevYear[] | null; worst_year_return?: Measure; return_excluding_best_year?: Measure;
+} | null;
+/** One calendar year of closed cycles (`tables.closed_by_year`). */
+type ClosedYear = { year: number; cycles: number; win_rate: number | null; net_pnl: string };
 /** One cycle of `run_cycle`: open to close of one position (no close while it was still open at the
  *  window's end), no prices or sizes stored. */
 type Cycle = {
@@ -19,11 +30,12 @@ export type TrialReport = {
   runtime: { image_digest: string | null } | null;
   drawdown: Record<string, Measure> | null;
   capital: Record<string, Measure> | null;
+  dev_years?: DevYears;
   cost_basis: { account: { starting_balance_usdt: string | null; execution: string | null } | null } | null;
   availability: { economic_evidence_available: boolean; reasons: string[] } | null;
   /** The report's single-run slices, each with its measures by name. */
   slices: { id: string; measures: Record<string, Measure | null> }[] | null;
-  tables: { positions: Cycle[] | null; daily_returns: DailyReturn[] | null } | null;
+  tables: { positions: Cycle[] | null; daily_returns: DailyReturn[] | null; closed_by_year?: ClosedYear[] | null } | null;
 };
 /** The report; the product's refusal; or no report served here. */
 export async function fetchTrial(trialId: number, at: string): Promise<{ kind: "report"; report: TrialReport } | Unread> {

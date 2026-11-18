@@ -17,6 +17,27 @@ import type { Closed } from "./trades";
 /** A cycle as a closed trade: `pnl` after fees and funding, `gross` its price move alone; `open` when it was
  *  still open at the window's end, `closed` then being that end. */
 export type Cycle = Closed & { fees: number; funding: number; gross: number; type: string; open: boolean };
+/** One market benchmark's Dimson (one-day lag) regression decomposition from the `market_exposure` slice:
+ *  `beta` (same-day plus prior-day slope), daily `alpha` and its Newey-West `alphaSe`, and the fitted days'
+ *  simple-return sums `betaReturn` and `alphaReturn`. */
+export type MarketExposure = {
+  benchmark: "basket" | "btc"; label: string; note: string | null; days: number | null;
+  beta: number | null; alpha: number | null; alphaSe: number | null;
+  betaReturn: number | null; alphaReturn: number | null;
+};
+/** One volatility regime's return summary from `by_regime` (`high` or `low` prior-day basket volatility):
+ *  the number of days in that regime, their compounded return (`exp(log_sum) - 1`) and mean daily return (`exp(mean_log) - 1`). */
+export type RegimeStat = { regime: "high" | "low"; label: string; days: number; totalReturn: number | null; dailyReturn: number | null };
+/** One calendar year's return or closed-cycle summary from `dev_years` and `tables.closed_by_year`. */
+export type YearStat = { year: number; days: number | null; ret: number | null; cycles: number | null; winRate: number | null; netPnl: number | null };
+/** Time and market-state breakdowns from `by_period`, `by_regime`, `capital_scaled` and `dev_years`. */
+export type PeriodBreakdown = {
+  monthsWonShare: number | null; monthsCount: number | null; residualAfterTop5Days: number | null;
+  upMonthNotional: number | null; downMonthNotional: number | null;
+  levelTerm: number | null; timingTerm: number | null;
+  regimes: RegimeStat[]; years: YearStat[];
+  worstYearReturn: number | null; exBestYearReturn: number | null;
+};
 /** A day: its start (s), return, closing equity, gross exposure (share of equity) and cycles held. */
 type Day = { time: number; ret: number; equity: number; exposure: number | null; held: number };
 export type Backtest = {
@@ -26,6 +47,8 @@ export type Backtest = {
   /** The trade window (ms). */
   window: [number, number];
   image: string | null; execution: string | null; account: Account | null; stats: TradeStats | null;
+  exposures: MarketExposure[];
+  periods: PeriodBreakdown | null;
 };
 
 /** The report's times: UTC, written without a zone. */
@@ -65,6 +88,70 @@ export function backtest(r: TrialReport): Backtest {
     image: r.runtime?.image_digest ?? null, execution: r.cost_basis?.account?.execution ?? null,
     account, stats: account && { ...tradeStats(account, []), inMarket, winRate: trade("win_rate"), avgWin: trade("avg_win"),
                                  avgLoss: trade("avg_loss"), perTrade: trade("expectancy") },
+    exposures: marketExposures(r),
+    periods: periodsOf(r),
+  };
+}
+
+/** Reads the `market_exposure` slice (`beta_basket`, `alpha_basket`, `beta_btc`, `alpha_btc`) when present. */
+function marketExposures(r: TrialReport): MarketExposure[] {
+  const m = r.slices?.find((s) => s.id === "market_exposure")?.measures;
+  if (!m) return [];
+  const specs = [
+    ["basket", "Basket", "beta_basket", "alpha_basket"],
+    ["btc", "BTC", "beta_btc", "alpha_btc"],
+  ] as const;
+  return specs.flatMap(([benchmark, label, bKey, aKey]): MarketExposure[] => {
+    const b = m[bKey], a = m[aKey];
+    const beta = value(b), alpha = value(a);
+    if (beta === null && alpha === null) return [];
+    const bSum = amount(b?.return_sum ?? null), aSum = amount(a?.return_sum ?? null);
+    const days = amount(a?.sample_size ?? b?.sample_size ?? null);
+    return [{
+      benchmark, label, note: a?.definition_note ?? b?.definition_note ?? null, days,
+      beta, alpha, alphaSe: amount(a?.standard_error ?? null),
+      betaReturn: bSum, alphaReturn: aSum !== null ? aSum : alpha !== null && days !== null ? alpha * days : null,
+    }];
+  });
+}
+
+/** Reads the time and market-state slices (`by_period`, `by_regime`, `capital_scaled`, `dev_years`, `closed_by_year`). */
+function periodsOf(r: TrialReport): PeriodBreakdown | null {
+  const period = r.slices?.find((s) => s.id === "by_period")?.measures;
+  const regime = r.slices?.find((s) => s.id === "by_regime")?.measures;
+  const cap = r.slices?.find((s) => s.id === "capital_scaled")?.measures;
+  const monthsWon = period?.["months_won_share"];
+  const monthsWonShare = value(monthsWon), monthsCount = amount(monthsWon?.sample_size ?? null);
+  const residualAfterTop5Days = value(period?.["residual_after_top5_days"]);
+  const upMonthNotional = value(cap?.["up_month_notional"]), downMonthNotional = value(cap?.["down_month_notional"]);
+  const levelTerm = value(cap?.["level_term"]), timingTerm = value(cap?.["timing_term"]);
+  const regimes: RegimeStat[] = (["high", "low"] as const).flatMap((k): RegimeStat[] => {
+    const days = value(regime?.[`${k}_vol_days`]);
+    if (days === null || days <= 0) return [];
+    const logSum = value(regime?.[`${k}_vol_log_sum`]), meanLog = value(regime?.[`${k}_vol_mean_log`]);
+    return [{
+      regime: k, label: k === "high" ? "High vol" : "Low vol", days,
+      totalReturn: logSum === null ? null : Math.expm1(logSum),
+      dailyReturn: meanLog === null ? null : Math.expm1(meanLog),
+    }];
+  });
+  const byYear = new Map<number, YearStat>();
+  for (const y of r.dev_years?.years ?? []) {
+    byYear.set(y.year, { year: y.year, days: y.days, ret: amount(y.return), cycles: null, winRate: null, netPnl: null });
+  }
+  for (const c of r.tables?.closed_by_year ?? []) {
+    const cur = byYear.get(c.year) ?? { year: c.year, days: null, ret: null, cycles: null, winRate: null, netPnl: null };
+    byYear.set(c.year, { ...cur, cycles: c.cycles, winRate: amount(c.win_rate), netPnl: amount(c.net_pnl) });
+  }
+  const years = [...byYear.values()].sort((a, b) => a.year - b.year);
+  const worstYearReturn = value(r.dev_years?.worst_year_return), exBestYearReturn = value(r.dev_years?.return_excluding_best_year);
+  if (
+    monthsWonShare === null && residualAfterTop5Days === null && upMonthNotional === null && downMonthNotional === null
+    && levelTerm === null && timingTerm === null && !regimes.length && !years.length
+  ) return null;
+  return {
+    monthsWonShare, monthsCount, residualAfterTop5Days, upMonthNotional, downMonthNotional,
+    levelTerm, timingTerm, regimes, years, worstYearReturn, exBestYearReturn,
   };
 }
 

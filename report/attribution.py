@@ -240,9 +240,9 @@ def _pairwise(control: Mapping, candidate: Mapping, control_measures: Mapping, c
             put(beta, None, f"REGRESSION_UNAVAILABLE: {exc}")
             put(alpha, None, f"REGRESSION_UNAVAILABLE: {exc}")
             continue
-        put(beta, fitted["beta"])
-        put(alpha, fitted["alpha"], standard_error=fitted["alpha_se"], lags=fitted["lags"],
-            lag_selection=fitted["lag_selection"])
+        put(beta, fitted["beta"], return_sum=fitted["beta_return"])
+        put(alpha, fitted["alpha"], standard_error=fitted["alpha_se"], return_sum=fitted["alpha_return"],
+            lags=fitted["lags"], lag_selection=fitted["lag_selection"])
     split = measures.expectancy_split(_trade_inputs(control_measures), _trade_inputs(candidate_measures))
     put("expectancy", None if split is None else split["difference"], "TRADE_STRUCTURE_UNAVAILABLE: a side has no "
                                                                       "wins or no losses",
