@@ -172,13 +172,13 @@ function Strip({ f }: { f: Facts }) {
   );
 }
 
-/** The card's readings as a ledger, or as lines over a two-column strip once the card is 42rem wide (a
- *  widened inspector). Each form keeps its own sizes; the width only chooses which one stands. */
+/** The card's readings as a compact two-column strip once the card is 20rem wide (the default 420px
+ *  inspector and wider), or as a single-column ledger when narrowed below 20rem. */
 export function Board({ f }: { f: Facts }) {
   return (
     <div data-readings className="@container">
-      <div className="@2xl:hidden"><Ledger f={f} /></div>
-      <div className="hidden @2xl:block"><Strip f={f} /></div>
+      <div className="@xs:hidden"><Ledger f={f} /></div>
+      <div className="hidden @xs:block"><Strip f={f} /></div>
     </div>
   );
 }

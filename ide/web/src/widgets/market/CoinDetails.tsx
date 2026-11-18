@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { change, funding, price, ratio, usd } from "../../lib/format";
 import { capOf, type Coin, type Snapshot, type VenueRow } from "../../model/market";
-import { useCoinDetail } from "../../state/market";
+import { marketCoin, useCoinDetail } from "../../state/market";
 import { pnlClass } from "../../theme/roles";
 import { columns, DataTable, type Column } from "../../components/DataTable";
 import { KeyValues } from "../../components/KeyValues";
 import { Missing } from "../../components/Missing";
 import { CardGroup, Section } from "../../components/Section";
+import { TextButton } from "../../components/TextButton";
 import { CoinLine } from "./CoinLine";
 import { MarketRuns } from "./MarketRuns";
 import { Liquidations } from "./Liquidations";
@@ -41,12 +42,14 @@ export function CoinDetails({ c, snapshot }: { c: Coin; snapshot: Snapshot }) {
   const peers = snapshot.coins.filter((x) => x.sector === c.sector).sort((a, b) => capOf(b) - capOf(a));
   const total = detail?.venues.reduce((a, v) => a + (v.oi ?? 0), 0) ?? 0;
   return (
-    <CardGroup title={`${c.base} · ${c.name}`}>
+    <CardGroup title={`${c.base} · ${c.name}`} actions={<TextButton onClick={() => marketCoin.set(null)}>All perpetuals</TextButton>}>
       <Section title="Perpetual" aside={c.symbol}>
         <KeyValues labels="fixed" items={[["Price", price(c.price)], ["Change", <Windows c={c} />],
-          ["Funding", <Signed x={c.funding}>{funding(c.funding)}</Signed>], ["Volume 24h", usd(c.volume24h)],
+          ["Volume 24h", usd(c.volume24h)],
           ["Open interest", <>{usd(c.oi)} <Signed x={c.oiChange24h}>{change(c.oiChange24h)}</Signed> <span className="text-fg-faint">24h</span></>],
-          ["Long / short", c.longShort === null ? null : <>{ratio(c.longShort)} <span className="text-fg-faint">accounts</span></>]]} />
+          ["Long / short", c.longShort === null ? null : <>{ratio(c.longShort)} <span className="text-fg-faint">accounts</span></>],
+          ["Market cap", <>{usd(c.marketCap)}{c.fdv !== null && <span className="text-fg-faint"> · FDV {usd(c.fdv)}</span>}</>],
+          ["Sector", `${c.subsector ? `${c.sector} · ${c.subsector}` : c.sector} · #${peers.indexOf(c) + 1} of ${peers.length}`]]} />
       </Section>
       <Section title="7 days" aside="hourly closes">
         {detail?.line.length ? <CoinLine line={detail.line} /> : <p className="py-2 text-fg-faint">{detail ? "No closes yet" : "Reading…"}</p>}
@@ -55,10 +58,6 @@ export function CoinDetails({ c, snapshot }: { c: Coin; snapshot: Snapshot }) {
         {detail ? <DataTable data={detail.venues} columns={VENUES} rowId={(v) => v.venue} sticky={false} /> : <p className="py-2 text-fg-faint">Reading…</p>}
       </Section>
       <Liquidations sides={c.liquidations} since={snapshot.liquidationsSince} {...(detail ? { venues: detail.venues } : {})} />
-      <Section title="Coin">
-        <KeyValues labels="fixed" items={[["Market cap", usd(c.marketCap)], ["FDV", usd(c.fdv)],
-          ["Sector", `${c.subsector ? `${c.sector} · ${c.subsector}` : c.sector} · #${peers.indexOf(c) + 1} of ${peers.length} by cap`]]} />
-      </Section>
       <MarketRuns symbols={[c.symbol]} />
     </CardGroup>
   );

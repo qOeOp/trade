@@ -1,7 +1,7 @@
 import type { HTMLAttributes, ReactNode, Ref } from "react";
 import { Icon } from "../icons/Icon";
 
-export const TREE_INDENT = 20;
+export const TREE_INDENT = 12;
 
 type Props = { level: number; folder: boolean; expanded: boolean; selected: boolean; children: ReactNode; ref?: Ref<HTMLDivElement> }
   & Omit<HTMLAttributes<HTMLDivElement>, "children">;
@@ -15,7 +15,7 @@ export function TreeRow({ level, folder, expanded, selected, children, className
          className={`relative flex h-(--row-h) cursor-default select-none items-center gap-1 pr-3 outline-none transition-colors hover:bg-row-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset ${className}`}
          style={{ paddingLeft: 8 + level * TREE_INDENT }}>
       {Array.from({ length: level }, (_, l) => (
-        <span key={l} className="pointer-events-none absolute inset-y-0 w-px bg-guide" style={{ left: 8 + l * TREE_INDENT + 8 }} />
+        <span key={l} className="pointer-events-none absolute inset-y-0 w-px bg-guide" style={{ left: 8 + l * TREE_INDENT + 6 }} />
       ))}
       <span className={`grid w-4 shrink-0 place-items-center text-icon transition-transform ${expanded ? "rotate-90" : ""}`}>
         {folder && <Icon name="chevron-right" />}

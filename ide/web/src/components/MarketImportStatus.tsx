@@ -62,6 +62,7 @@ export function MarketImportStatus() {
   const service = useMarketImport();
   if (service.kind === "checking" || service.kind === "absent") return null;
   const said = service.kind === "ready" ? summary(service.reply) : { text: "Market: no status", tone: "fail" as const, running: false };
+  if (service.kind === "ready" && !said.tone && !said.running && said.text === "Market: caught up") return null;
   const icon = said.tone ? <Icon name="warning" size={12} tone={said.tone} />
     : said.running ? <Spinner />
       : null;

@@ -32,8 +32,8 @@ function Block({ text }: { text: string }) {
 
 /** Long text as paragraphs (split on blank lines) and lists, folded to its first paragraph, or to the first
  *  sentence of a single one, with the rest behind Show more; hashes, IDs and paths in it as chips. */
-export function Prose({ text }: { text?: string | null }) {
-  const [open, setOpen] = useState(false);
+export function Prose({ text, unfolded = false }: { text?: string | null; unfolded?: boolean }) {
+  const [open, setOpen] = useState(unfolded);
   if (!text) return <p><Missing /></p>;
   const blocks = text.trim().split(/\n\s*\n/), leading = ZH.test(text) ? "leading-zh" : "leading-normal";
   const toggle = (className: string) =>
@@ -45,7 +45,7 @@ export function Prose({ text }: { text?: string | null }) {
       <div className="-ml-1">{toggle("")}</div>
     </div>
   );
-  const first = FIRST.exec(text)?.[0] ?? text, folded = text.length - first.length > 0 && text.slice(first.length).trim() !== "";
+  const first = FIRST.exec(text)?.[0] ?? text, folded = text.length > 200 && text.length - first.length > 0 && text.slice(first.length).trim() !== "";
   // A Chinese stop already ends in half an em of blank, so Show more comes 2px closer; else a space, which a wrap
   // drops, its text flush with the line then (the button pads 4px each side).
   const zh = /[。！？；]$/.test(first);

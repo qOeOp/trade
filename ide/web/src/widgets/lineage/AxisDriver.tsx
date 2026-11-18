@@ -1,17 +1,31 @@
 import { useEffect, useRef } from "react";
 import { useReactFlow, useStoreApi, useViewport } from "@xyflow/react";
 import type { LineageWidget } from "../../model/types";
-import { axisView, useFocusRequest } from "../../state/linking";
+import { axisView, useExpandedBranches, useFocusRequest, useLineageMode } from "../../state/linking";
+import { selection } from "../../state/selection";
 import { centredOn, home, UNIT } from "./geometry";
 
 /** Publishes the canvas's pan for everything on the trial axis, and carries out focus requests. */
 export function AxisDriver({ widget, positions, inset }: { widget: LineageWidget; positions: ReadonlyMap<string, { x: number; y: number }>; inset: number }) {
   const { x } = useViewport();
   const request = useFocusRequest();
+  const mode = useLineageMode();
+  const expanded = useExpandedBranches();
   const flow = useReactFlow();
   const store = useStoreApi();
   const done = useRef<number | null>(null);  // each request once: a new view does not bring the canvas back to it
+  const prevKey = useRef(`${mode}:${expanded.size}`);
   useEffect(() => axisView.set({ x0: x, unit: UNIT }), [x]);
+  useEffect(() => {
+    const key = `${mode}:${[...expanded].join(",")}`;
+    if (prevKey.current !== key) {
+      prevKey.current = key;
+      const id = selection.get() ?? widget.trail.at(-1)?.candidate ?? null;
+      const at = id ? positions.get(id) : undefined;
+      const { width, height } = store.getState();
+      void flow.setViewport({ ...(at && width > 0 ? centredOn(widget, at, width, height, inset) : home(widget, inset)), zoom: 1 }, { duration: 350 });
+    }
+  }, [mode, expanded, widget, positions, flow, store, inset]);
   useEffect(() => {
     if (!request || request.n === done.current) return;
     const at = positions.get(request.id);
