@@ -26,6 +26,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: a MARKET_IF_TOUCHED, an order triggered by the mark price and a trailing stop not yet activated that has an
+  activation price, submitted by a source on a back-filled aggregated bar, are now checked as restored ones are (user
+  decision 2026-11-18) instead of refusing the recovery: the minutes from that bar's bucket end up to T must not have
+  touched the order (a trailing stop: reached its activation price), and the close of the minute ending the bucket
+  must not make it marketable (a trailing stop: a sell's close at or above its activation price, a buy's at or below,
+  which in the uninterrupted run activated it at once). A trailing stop without an activation price still refuses.
 - Paper: `paper compare` no longer counts the bars a held run missed during its own interruption (from the pause to
   the held recovery's first live bar on the contract) as `missing_bar` evidence for a difference reaching past the
   held start, so such a difference can now be attributed to `held`; every resume misses at least one bar, so before
@@ -37,8 +43,8 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   Sandbox fires it on the bars' last prices), a MARKET_IF_TOUCHED as a LIMIT_IF_TOUCHED, and a trailing stop by its
   activation price: a downtime minute that reached it (a sell's high, a buy's low) refuses the recovery
   (`PAPER_RECOVERY_UNAVAILABLE`, stopped as a pause, without cancelling). An activated trailing stop, also one placed
-  without an activation price, still defers the checkpoint: rc7 restores every trailing stop inactive. An order a
-  source submits on a back-filled bar is checked as before. (`docs/plans/paper-recovery-open-orders-20261117.zh.md`.)
+  without an activation price, still defers the checkpoint: rc7 restores every trailing stop inactive.
+  (`docs/plans/paper-recovery-open-orders-20261117.zh.md`.)
 - Paper: whether a run's source declares recovery (the page's `recovery_declared`, and the held start `paper
   compare` and the runs listing derive) is now the runner's own verdict, journalled on a new run's `started` line as
   `recovery_declared` (user 2026-11-18, 「授权，走评审」; `docs/plans/paper-recovery-open-orders-20261117.zh.md`), not
