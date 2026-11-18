@@ -35,13 +35,17 @@ function harmonyOsSans(): Plugin {
 }
 
 // The tab's icons go into the page too: Vite leaves a favicon as a file of its own, which nothing would serve.
+// In `vite` dev mode, an empty token meta tag lets pageFetch's same-origin renewal (lib/transport.ts) populate it.
 function inlineIcons(): Plugin {
   return {
     name: "inline-icons",
     transformIndexHtml: {
       order: "pre",
-      handler: (html) => html.replace(/href="\/(src\/icons\/[^"]+\.svg)"/g, (_, path: string) =>
-        `href="data:image/svg+xml,${encodeURIComponent(readFileSync(new URL(path, import.meta.url), "utf8"))}"`),
+      handler: (html, ctx) => {
+        const inlined = html.replace(/href="\/(src\/icons\/[^"]+\.svg)"/g, (_, path: string) =>
+          `href="data:image/svg+xml,${encodeURIComponent(readFileSync(new URL(path, import.meta.url), "utf8"))}"`);
+        return ctx.server ? inlined.replace("</head>", '  <meta name="trade-paper-token" content="" />\n  </head>') : inlined;
+      },
     },
   };
 }
@@ -49,5 +53,6 @@ function inlineIcons(): Plugin {
 // One self-contained index.html, the only file the Python service serves for the page.
 export default defineConfig({
   plugins: [inlineIcons(), harmonyOsSans(), react(), tailwindcss(), viteSingleFile()],
+  server: { host: "127.0.0.1", proxy: { "/api": { target: "http://127.0.0.1:8765", changeOrigin: true } } },
   build: { outDir: "dist", emptyOutDir: true, chunkSizeWarningLimit: 4096 },
 });

@@ -7,7 +7,7 @@ import { lineHref, type ResearchLine } from "../../lib/lines";
 import { readResearchLines, type LineIndex } from "../../state/researchLines";
 import { followReadings, useLineReadings, type LineReading } from "../../state/researchReadings";
 import { DropdownGrid, DropdownGridLabel, DropdownGridLink, DropdownGridSeparator, DropdownItem, DropdownLabel } from "../../components/Dropdown";
-import { Missing } from "../../components/Missing";
+import { Missing, Skeleton } from "../../components/Missing";
 
 // Check, name, development, recommended version, annual return, max drawdown; the two numbers share one width.
 const COLS = "grid-cols-[1.5rem_repeat(3,max-content)_repeat(2,minmax(5rem,max-content))]";
@@ -34,8 +34,11 @@ function Value({ value, target, higher, name }: { value: number | null; target: 
 }
 
 /** The recommendation's cells: version, annual return, max drawdown; the wording of the phone's Research tab. */
-function Recommendation({ r, targets }: { r: LineReading | null | undefined; targets: Targets | null }) {
-  if (r === undefined) return <><span className={VERSION}><Missing /></span><span className={NUMBER}><Missing /></span><span className={NUMBER}><Missing /></span></>;
+function Recommendation({ r, targets, reading }: { r: LineReading | null | undefined; targets: Targets | null; reading: boolean }) {
+  if (r === undefined) {
+    const cell = reading ? <Skeleton /> : <Missing />;
+    return <><span className={VERSION}>{cell}</span><span className={NUMBER}>{cell}</span><span className={NUMBER}>{cell}</span></>;
+  }
   if (r === null) return <span className={`${VERSION} col-span-3 text-fg-faint`}>No recommendation yet</span>;
   const [name, revision] = r.recommended.split("@");
   const version = <span className={`${VERSION} font-mono text-fg-muted`}>{name}{revision !== undefined && <span className="text-fg-faint">@{revision}</span>}</span>;
@@ -52,7 +55,7 @@ function Recommendation({ r, targets }: { r: LineReading | null | undefined; tar
 export function ResearchLines({ index }: { index: LineIndex }) {
   const { line } = useView();
   const { lines, loaded, loading, error } = index;
-  const { lines: readings } = useLineReadings();
+  const { lines: readings, read } = useLineReadings();
   useEffect(() => { followReadings(true); return () => followReadings(false); }, []);
   const newest = [...lines].reverse(), common = shared(lines), byMonth = monthly(lines);
   const sections = [["Open", newest.filter((l) => !l.closed)], ["Closed", newest.filter((l) => l.closed)]] as const;
@@ -75,7 +78,7 @@ export function ResearchLines({ index }: { index: LineIndex }) {
         {rows.map((item) => <DropdownGridLink key={item.name} href={lineHref(window.location.href, item.name)} current={item.name === line.name}>
           <span title={item.name} className={`${NAME} block max-w-[22ch] truncate font-mono ${item.closed ? "text-fg-muted" : ""}`}>{item.name}</span>
           <span className={`${DEV} text-fg-faint`} title={byMonth ? `${item.dev_start} → ${item.dev_end}` : undefined}>{when(item)}</span>
-          <Recommendation r={readings[item.name]} targets={item.targets ?? null} />
+          <Recommendation r={readings[item.name]} targets={item.targets ?? null} reading={!read} />
         </DropdownGridLink>)}
       </div>)}
     </DropdownGrid>}

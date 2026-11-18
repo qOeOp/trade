@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CardGroup, Section } from "./Section";
 import { IconButton } from "./IconButton";
+import { SkeletonLines } from "./Missing";
 import { Prose } from "./Prose";
 import { TextButton } from "./TextButton";
 import { translateToChinese } from "../lib/translation";
@@ -9,8 +10,8 @@ import type { TranslationResult } from "../lib/translation.worker";
 type ProseSection = { title: string; text?: string | null };
 
 /** One independent translation action for a group of prose cards, sharing the page's local model. */
-export function TranslatedCardGroup({ title, sections, children, className }: {
-  title: string; sections: readonly ProseSection[]; children?: ReactNode; className?: string;
+export function TranslatedCardGroup({ title, sections, loading = false, children, className }: {
+  title: string; sections: readonly ProseSection[]; loading?: boolean; children?: ReactNode; className?: string;
 }) {
   const [result, setResult] = useState<TranslationResult>();
   const [visible, setVisible] = useState(false);
@@ -59,10 +60,10 @@ export function TranslatedCardGroup({ title, sections, children, className }: {
     </div>}
     {sections.map(({ title, text }, index) =>
       <Section key={title} title={title}>
-        <Prose text={text} />
-        {visible && result && text && <div lang="zh-CN" className="mt-3 space-y-1 border-t border-line pt-3">
+        {loading ? <SkeletonLines /> : <Prose text={text} />}
+        {!loading && visible && (result || busy) && text && <div lang="zh-CN" className="mt-3 space-y-1 border-t border-line pt-3">
           <p className="text-small text-fg-faint">中文 · 本地机器翻译</p>
-          <Prose text={result.texts[index]} />
+          {result ? <Prose text={result.texts[index]} /> : <SkeletonLines />}
         </div>}
       </Section>)}
     {children}

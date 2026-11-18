@@ -48,3 +48,25 @@ test("20261113-106: a sealed run without a plan win rate shows none, never the c
   assert.doesNotMatch(missing, /75\.00/, "the backtest report's closed-trade win rate stays out");
   assert.match(render({ ...trial, plan_win_rate: 0.5 }), /50\.00/);
 });
+
+test("readings being read show pulsing skeleton placeholders instead of missing hyphens", async () => {
+  let runsPage = true, shown = { stage: "paper", run: { paper_id: 7 }, name: "Paper · 21 contracts" }, data = null, backtest = { kind: "reading" };
+  const { Readings } = await loader({ stubs: {
+    "state/backtest": { useBacktest: () => backtest },
+    "state/runData": { useRunData: () => data },
+    "state/shell": { useOnRunsPage: () => runsPage },
+    "state/shown": { useShown: () => shown },
+    "components/Eased": { Eased: pass },
+    "components/Tip": { Tip: pass },
+  } }).namespace("widgets/detail/Readings.tsx");
+  const targets = { max_drawdown: 0.15, annual_return: 0.2 };
+  const paperLoading = renderToStaticMarkup(createElement(Readings, { c: { id: "a@2", trials: [] }, targets }));
+  assert.match(paperLoading, /class="skeleton\b/, "paper readings pulse while the stream is being read");
+  assert.doesNotMatch(paperLoading, />-</, "no missing hyphen while paper readings are being read");
+  assert.match(paperLoading, /The limit[\s\S]*?15\.00[\s\S]*?The minimum[\s\S]*?20\.00/, "known targets already stand in place");
+
+  shown = { stage: "backtest", trial: { trial_id: 140, purpose: "research", annual_return: 0.3, max_drawdown: 0.1, sharpe: 1.2, plan_win_rate: 0.5 }, name: "Backtest · trial 140" };
+  const backtestLoading = renderToStaticMarkup(createElement(Readings, { c: { id: "a@2", trials: [shown.trial] }, targets }));
+  assert.match(backtestLoading, /class="skeleton\b/, "backtest account and trade stats pulse while the trial report is read");
+  assert.doesNotMatch(backtestLoading, /\binvisible\b/, "rows stay visible with skeleton values while loading");
+});
