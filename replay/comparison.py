@@ -644,11 +644,14 @@ def _gated(group: Mapping, gate: Mapping) -> bool:
 
 def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[str, dict],
               contract: Mapping[str, dict], start: int, end: int, gate: Mapping | None = None,
-              metered: Mapping[str, dict] | None = None, held: int | None = None) -> list[dict]:
+              metered: Mapping[str, dict] | None = None, held: int | None = None,
+              interrupted: Mapping[str, list[tuple[int, int]]] | None = None) -> list[dict]:
     """Each group pair with its cause when it differs (CAUSES, in order; else unexplained), whether it is a
     look-ahead suspect, or the earlier difference it follows. `held`: when a Paper run of a source without the
     recovery protocol was first held (engine.paper_session; its first `resumed`): from then on it sent no entry and
-    withdrew those it had, so a group that reaches past it may differ for that."""
+    withdrew those it had, so a group that reaches past it may differ for that. `interrupted`: per contract, the
+    [from, to) of the interruptions it was held over (paper.compare.interruptions); for a group reaching past `held`,
+    the bars missing there are the hold's, not `missing_bar` evidence (every resume misses at least one)."""
     agreed: dict[str, int] = {}  # the decision of the contract's latest agreeing group
     parted: dict[str, int] = {}  # the contract's first difference since its previous agreeing group
     empty: dict = {"missing": [], "late": [], "unknown": [], "side_down": {}, "sent": {}, "early": {}, "differing": {}}
@@ -667,6 +670,10 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
         # concurrent position), shows nothing about the inputs this group's decision read.
         since = agreed.get(symbol, start)
         inputs = found.get(symbol) or empty
+        if held is not None and last >= held:
+            spans = (interrupted or {}).get(symbol, ())
+            inputs = {**inputs, "missing": [close for close in inputs["missing"]
+                                            if not any(lo <= close < hi for lo, hi in spans)]}
         evidence: dict = {"missing_bars": len(_within(inputs["missing"], since, last)),
                     "late_bars": len(_within(inputs["late"], since, last)),
                     "differing_bars": len(_within(inputs["differing"], since, last))}
@@ -869,7 +876,8 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
         replay_orders = orders(replay_events)
         mine, theirs = run_funding(run.get("settlements") or []), replay_funding(reports)
         compared = attribute([compare_group(a, b, mine, theirs) for a, b in pair(groups(run_orders), groups(replay_orders))],
-                             found, warmed, contract, start, end, run.get("gate"), metered, run.get("held"))
+                             found, warmed, contract, start, end, run.get("gate"), metered, run.get("held"),
+                             run.get("interrupted"))
         summary |= {"replay_orders": len(replay_orders),
                     "replay_fills": sum(bool(item["filled"]) for item in replay_orders),
                     "groups": len(compared),

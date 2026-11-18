@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: `paper compare` no longer counts the bars a held run missed during its own interruption (from the pause to
+  the held recovery's first live bar on the contract) as `missing_bar` evidence for a difference reaching past the
+  held start, so such a difference can now be attributed to `held`; every resume misses at least one bar, so before
+  `held` could never win. A live gap before the pause or after that first bar is still `missing_bar`, and the inputs
+  still list every missing bar. Derived from the journal; nothing new is stored.
 - Paper: a recovery now also restores a working MARKET_IF_TOUCHED, an order triggered by the mark price and a trailing
   stop not yet activated that has an activation price (user decision 2026-11-18), where each used to defer the
   checkpoint so that an interruption ended the run. A MARK trigger is checked on the same LAST one-minute klines (the
