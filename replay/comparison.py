@@ -766,11 +766,16 @@ def replay_equity(reports: Path, minutes: list[int]) -> list[list]:
 
 
 def equity_differences(run_equity: list[tuple[int, Decimal]], replayed: Mapping[int, Decimal],
-                       compared: list[dict] | None, taken: Mapping[int, int]) -> list[dict]:
+                       compared: list[dict] | None, taken: Mapping[int, int],
+                       paused: Iterable[tuple[int, int]] = ()) -> list[dict]:
     """Each minute whose equities differ by more than metrics.MONEY, with what the comparison knows of it (`cause`):
     `orders_differ` when a group that differs has a fill on either side by then (the equity follows the order
     differences already attributed), else `fill_timing` when an order filled on both sides is counted in the minute on
-    one side only, else `unexplained`; `orders` names the run's orders of that cause.
+    one side only, else `held` when a held Paper run was down in the minute (`paused`: the [pause, resume] of each held
+    interruption, paper.compare), else `unexplained`; `orders` names the run's orders of that cause. A run values a
+    minute at the last mark it received in it, and from its pause until its held recovery went live after the resume
+    it received none, so it values the minute it paused in at a mark from before then, not at the minute's last mark
+    (Paper runs 3 and 4, 2026-11-18).
 
     A replay values a minute after its bar's close, the fills that bar caused included, at the MARK bar's close. A run
     values it when it took the minute's value (`taken`: {minute: the run clock then}; Paper's snapshot, at the next
@@ -796,8 +801,9 @@ def equity_differences(run_equity: list[tuple[int, Decimal]], replayed: Mapping[
                 elif run_fill is not None and replay_fill is not None and (
                         (run_fill <= run_cut) != (replay_fill <= replay_cut)):
                     timing.append(name)
+        down = any(minute <= resume and minute + MINUTE_NS > pause for pause, resume in paused)
         cause, orders = (("orders_differ", differ) if differ else ("fill_timing", timing) if timing
-                         else ("unexplained", []))
+                         else ("held", []) if down else ("unexplained", []))
         found.append({"minute": utc_text(minute), "minute_ns": minute, "run": str(value),
                       "replay": str(replayed[minute]), "difference": str(value - replayed[minute]), "cause": cause,
                       "orders": orders[:LISTED]})
@@ -892,7 +898,7 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
     replayed = {minute: Decimal(value) for minute, value in equity["replay"]}
     gaps = [abs(value - replayed[minute]) for minute, value in run_equity if minute in replayed]
     summary["equity_max_difference"] = str(max(gaps)) if gaps else None
-    explained = equity_differences(run_equity, replayed, compared, run.get("taken") or {})
+    explained = equity_differences(run_equity, replayed, compared, run.get("taken") or {}, run.get("paused") or ())
     # The list stops at LISTED; the count is complete.
     equity["differences"] = explained[:LISTED]
     summary["equity_unexplained_minutes"] = sum(item["cause"] == "unexplained" for item in explained)
