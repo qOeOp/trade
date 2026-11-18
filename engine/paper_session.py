@@ -163,6 +163,16 @@ def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int
     return None
 
 
+def declares_recovery(strategy_class: type) -> bool:
+    """Whether the loaded entry class declares Paper recovery: PAPER_RECOVERY == 1 as Python resolves it, and on_save
+    and on_load defined by a class of its MRO above Strategy. The runner's own verdict (the source has to run to tell
+    it); journalled on the run's `started` line as `recovery_declared` (engine.paper), which the page and paper
+    compare read."""
+    source_bases = strategy_class.__mro__[:strategy_class.__mro__.index(Strategy)]
+    hooks = {name for base in source_bases for name, value in vars(base).items() if callable(value)}
+    return getattr(strategy_class, "PAPER_RECOVERY", None) == 1 and {"on_save", "on_load"} <= hooks
+
+
 class Session:
     def __init__(self, backend, journal, loaded, saved: dict | None, started_ns: int, input_start_ns: int,
                  warm_at: int, release=None):
@@ -170,12 +180,9 @@ class Session:
         self.started_ns, self.input_start_ns = started_ns, input_start_ns
         self.release = release  # engine.paper.release_before: runs the held data callbacks (backfill)
         self.depth = 0
-        source_bases = loaded.strategy_class.__mro__[:loaded.strategy_class.__mro__.index(Strategy)]
-        hooks = {name for base in source_bases for name, value in vars(base).items() if callable(value)}
         # Whether the source declares the protocol, and whether this process restores it with it: a recovery that
         # crossed a funding settlement holds the run instead (`hold`).
-        self.declared = (getattr(loaded.strategy_class, "PAPER_RECOVERY", None) == 1
-                         and {"on_save", "on_load"} <= hooks)
+        self.declared = declares_recovery(loaded.strategy_class)
         self.supported = self.declared
         self.fallen: str | None = None  # why a recovery of a source with the protocol is held (`hold`)
         # Whether the pause of a source without the protocol keeps its orders: a position was open when the stop was

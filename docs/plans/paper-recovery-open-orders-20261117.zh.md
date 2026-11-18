@@ -163,7 +163,7 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 
 - SIGTERM 时无协议源码按暂停停下，条件除了有持仓，还要求每张未终结的订单都能进切点（在途的单照旧等）。否则（例如持有跟踪止损）暂停发布不了切点，运行会以未撤的入场单封存，正是第二次评审第 6 条要避免的，所以这时照今天撤单、结束。
 - 恢复的期限到了而源码（或保持策略）还没启动时，拒绝原因写进 `Session.refused`，之后才完成的读取不会再启动任何东西（否则会在已经按暂停停下的运行里撤掉恢复出来的入场单）。这也适用于有协议源码的恢复，属于修已有缺陷。
-- `paper compare` 判断源码是否声明协议，用页面同一个读源码文本的判定（`paper.serve.declares_recovery`），不运行源码。
+- `paper compare` 判断源码是否声明协议，用页面同一个读源码文本的判定（`paper.serve.declares_recovery`），不运行源码。（2026-11-18 起改为读运行器写在 `started` 行上的判定，见文末一节。）
 
 ## 跨聚合桶边界：补齐后继续（「放宽，补齐后继续」）
 
@@ -377,4 +377,21 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 
 现在两处都只看运行的入口类：取自日志 `started` 行的 `strategy_entry_class`（`engine.strategy_metadata`，运行器写的，不是新存的值），沿同文件的基类链判定。还读不到 `started` 行、入口类不是文件里的类、或文本解析不了时为 None（页面不标、`held_since` 不当保持）。
 
-仍然不精确的一处：入口类从别的模块导入的基类里继承来的声明或钩子，文本里读不到（运行器能看到）。要精确只能运行源码或让运行器把它判定的结果写进日志（如 `started` 行加一个值），后者是新存储的值，需要用户授权，本次不做。
+仍然不精确：文本判定与运行器的判定在若干写法上不同（见下一节）。要精确只能运行源码或让运行器把它判定的结果写进日志，后者是新存储的值，需要用户授权；当时没做，下一节已由用户授权做了，本节的文本判定随之删除。
+
+## `started` 行记录运行器的协议判定 `recovery_declared`（2026-11-18 用户授权「授权，走评审」）
+
+运行器把它对所加载入口类的协议判定写在新运行的 `started` 日志行上（`recovery_declared`，布尔值）；页面标记、`held_since` 与 `paper compare` 的 `held` 原因都从这里读，不再读源码文本。这是本次唯一新增的存储值。
+
+### 字段评审
+
+- 消费者：页面的 `recovery_declared` 标记（"Held on restart"）；运行列表的 `held_since` 与 `unprotected`，以及发布节拍据此发的 Telegram 无保护持仓通知；`paper compare` 把差异归因为 `held`（`run_record` 的 `held`）。
+- 独立的事实：协议是否声明，是运行器加载源码后用 Python 的解析结果判定的（`engine.paper_session.declares_recovery`：`PAPER_RECOVERY` 按属性查找取值等于 1，`on_save`、`on_load` 由 MRO 中 `Strategy` 之上的类定义）。要得到这个判定必须运行源码；运行器之外的产品代码（页面守护进程、`paper compare`）从不运行源码，所以它们拿不到这个事实，只能由运行器记下。
+- 已有数据为什么表达不了：已存的是源码文本和入口类名（`strategy_entry_class`），由它们推出的只能是文本判定。原因不是"导入的基类"：策略规则允许的导入带不来 `PAPER_RECOVERY`。真正的差别是文本与运行时的语义不同：同一个类里重复赋值时，文本按第一次取、Python 取最后一次；非字面量的取值（例如表达式）文本判不出；以赋值绑定的钩子（`on_save = ...`）不是函数定义，文本看不到；文本沿基类深度优先，Python 按 MRO；基类以别名引用时文本对不上类名。任一处不同，页面就会对能恢复的运行说"会被保持"或反过来，`paper compare` 也会错把差异归为或不归为 `held`。
+- 形状：写在 `started` 行上（`engine/paper.py` 的 `journal("started", ..., recovery_declared=...)`），不放进 `strategy_metadata`（`engine/load.py`），因为后者还进回放摘要和 Paper 摘要的身份，改它会改变原生报告的内容。判定是 `engine/paper_session.py` 的模块级函数，`Session.__init__`（`declared`）与 `started` 行共用，不依赖 `SESSION` 是否存在。只有运行的第一次启动写 `started` 行，恢复不再写。
+- 不受影响：封存与各解析器只取各自需要的键，`started` 行多一个键不改变它们的读法。
+- 授权：用户 2026-11-18 选择「授权，走评审」。独立子代理评审结论：APPROVED WITH CHANGES；要求的改动（显式写在 `started` 行而非 `strategy_metadata`、共用一个模块级判定函数、删除文本判定、`held_since` 去掉 `source` 参数、更新说明文字、记录本决定、`CHANGELOG.md` 写明升级丢掉什么、补测试）都已在实施 PR 中完成。
+
+### 升级丢掉的
+
+此前启动的运行，`started` 行没有这个键：在整个生命周期里页面都不标记，`held_since` 为 None，`unprotected` 为空，不发 Telegram 通知，`paper compare` 不会给出 `held`。按 AGENTS.md（1.0 之前不读旧格式），不写兼容代码。

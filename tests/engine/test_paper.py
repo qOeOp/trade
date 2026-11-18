@@ -2,6 +2,7 @@
 data callbacks held until the next data dispatch, when the fills their data caused are applied, the instances a run plans and the event fields
 the live view draws from."""
 
+import tempfile
 import unittest
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -727,6 +728,42 @@ class CredentialTests(unittest.TestCase):
                 paper.main([])
         self.assertEqual(raised.exception.code, "PAPER_CREDENTIALS_PRESENT")
         self.assertNotIn("never-read", str(raised.exception))
+
+
+class Reassigned(paper.Strategy):
+    """Text and runtime disagree: the first assignment is 0, the one Python keeps is 1."""
+    PAPER_RECOVERY = 0
+    PAPER_RECOVERY = 1  # noqa: PIE794
+
+    def on_save(self):
+        return {}
+
+    def on_load(self, state):
+        pass
+
+
+class StartedTests(unittest.TestCase):
+    def test_a_new_run_journals_its_runners_protocol_verdict_on_the_started_line(self):
+        """The page and paper compare read `recovery_declared` from the `started` line (user 2026-11-18): the runner's
+        own verdict (engine.paper_session.declares_recovery), not the source text."""
+        for cls, expected in ((Reassigned, True), (paper.Strategy, False)):
+            with self.subTest(cls=cls.__name__), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                args = SimpleNamespace(symbols=["BTCUSDT"], output=root, strategy_file=root / "strategy.py",
+                                       strategy_class=cls.__name__, strategy_sha256="x", universe=root / "u.json",
+                                       proxy_url=None)
+                written = mock.Mock(failure=None)
+                with mock.patch.object(paper, "JOURNAL", None), mock.patch.object(paper, "SESSION", None), \
+                        mock.patch.object(paper, "load_strategy", return_value=SimpleNamespace(strategy_class=cls)), \
+                        mock.patch.object(paper, "read_universe"), \
+                        mock.patch.object(paper, "strategy_metadata", return_value={"strategy_entry_class": "S"}), \
+                        mock.patch.object(paper, "Journal", return_value=written), \
+                        mock.patch.object(paper, "plan", side_effect=StopIteration), \
+                        self.assertRaises(StopIteration):
+                    paper._main(args)
+                started = next(call for call in written.write.call_args_list if call.args[0] == "started")
+                self.assertIs(started.kwargs["recovery_declared"], expected)
+                self.assertEqual(started.kwargs["strategy_entry_class"], "S")
 
 
 class SnapshotTests(unittest.TestCase):

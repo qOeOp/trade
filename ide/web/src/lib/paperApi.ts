@@ -42,9 +42,10 @@ export type PaperRun = {
   seal?: Seal;
   /** Why the daemon's last resume or seal of this ended run was refused (paper/serve.py recovery_failures). */
   recovery?: { code: string; message: string };
-  /** Whether the run's source declares Paper recovery (PAPER_RECOVERY = 1 with on_save and on_load), read from its
-   *  strategy input while it is not sealed; null where that is unreadable. Without it an interruption ends the run, or
-   *  holds it while a position is open (engine/paper.py, HELD_FLAT). */
+  /** Whether the run's source declares Paper recovery (PAPER_RECOVERY = 1 with on_save and on_load): its runner's
+   *  verdict on the journal's `started` line (engine/paper_session.py declares_recovery), while it is not sealed; null
+   *  before that line or when it has none. Without it an interruption ends the run, or holds it while a position is
+   *  open (engine/paper.py, HELD_FLAT). */
   recovery_declared?: boolean | null;
   /** When the run was first held (paper/compare.py held_since, wall ns), and the positions held since then with no
    *  working stop (paper/serve.py unprotected); derived from the journal while it is not sealed. */

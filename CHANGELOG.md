@@ -27,9 +27,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 ## Unreleased
 
 - Paper: whether a run's source declares recovery (the page's `recovery_declared`, and the held start `paper
-  compare` and the runs listing derive) is now read from the run's entry class, as its journal's `started` line names
-  it, and its bases in the same file, as the runner checks it; another class of the file declaring the protocol no
-  longer counts. Before the `started` line, or when the entry class is not a class of the file, it is unknown.
+  compare` and the runs listing derive) is now the runner's own verdict, journalled on a new run's `started` line as
+  `recovery_declared` (user 2026-11-18, 「授权，走评审」; `docs/plans/paper-recovery-open-orders-20261117.zh.md`), not
+  read from the source text, which a reassigned `PAPER_RECOVERY`, a computed value, hooks bound by assignment or an
+  aliased base could misread. The upgrade drops this for runs started before it: their `started` line has no key, so
+  for their whole life the page shows no mark, `held_since` is null, `unprotected` is empty, no Telegram notice is
+  sent, and `paper compare` never names `held`.
 - Paper: a recovery of a `PAPER_RECOVERY` source whose interruption crossed a funding settlement is now held instead
   of refused (user 2026-11-17, 「资金费结算被错过时转托管」): no source starts, the holder keeps the stops and targets
   working until flat. The runner journals `refusal` `PAPER_RECOVERY_UNAVAILABLE` right after `resumed`, so the seal

@@ -85,6 +85,30 @@ class SessionTests(unittest.TestCase):
         self.assertFalse(self.session(Empty).supported)
         self.assertTrue(self.session().supported)
 
+    def test_the_protocol_is_what_python_resolves_not_what_the_text_says_first(self):
+        """declares_recovery is the runner's verdict the `started` line carries (user 2026-11-18): the last assignment
+        wins, a computed value counts, and hooks bound by assignment or from a base count."""
+        class Reassigned(Hooks):
+            PAPER_RECOVERY = 0
+            PAPER_RECOVERY = 1  # noqa: PIE794
+
+        class Computed(Hooks):
+            PAPER_RECOVERY = int("1")
+
+        class Bound(Strategy):
+            PAPER_RECOVERY = 1
+            on_save = Hooks.on_save
+            on_load = Hooks.on_load
+
+        class Undone(Hooks):
+            PAPER_RECOVERY = 1
+            PAPER_RECOVERY = 0  # noqa: PIE794
+
+        for cls, expected in ((Reassigned, True), (Computed, True), (Bound, True), (Undone, False), (Empty, False)):
+            with self.subTest(cls=cls.__name__):
+                self.assertIs(paper_session.declares_recovery(cls), expected)
+                self.assertIs(self.session(cls).declared, expected)
+
     def test_an_error_from_the_native_cache_defers_the_cut_and_never_escapes_the_timer(self):
         """A killed cache child gives RuntimeError: broken pipe. Out of the timer callback it stopped rc7's dispatch for
         good (finding 20261114-34); it is a deferred cut, reported once per message."""

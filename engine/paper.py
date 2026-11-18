@@ -120,7 +120,7 @@ from engine import paper_checkpoint as checkpoint, protection
 from engine.order_rules import OrderRules
 from engine.fill import fill_model
 from engine.paper_redis import CacheUnavailable, NativeCache
-from engine.paper_session import Session, in_flight, unrestorable
+from engine.paper_session import Session, declares_recovery, in_flight, unrestorable
 from engine.paper_signals import Signals
 from engine.cadence import Cadence
 from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, instrument_id, leverage_of,
@@ -1166,8 +1166,10 @@ def _main(args) -> bool:
                 # held start from this line following `resumed` (paper.compare.held_since).
                 journal("refusal", code="PAPER_RECOVERY_UNAVAILABLE", reason=f"{SESSION.fallen}; the run is held")
         else:
+            # The runner's own protocol verdict (paper_session.declares_recovery), which the page and paper compare
+            # read; not in strategy_metadata, which also feeds the replay summary.
             journal("started", symbols=args.symbols, input_start_ns=start_ns, execution=EXECUTION,
-                    **strategy_metadata(loaded))
+                    recovery_declared=declares_recovery(loaded.strategy_class), **strategy_metadata(loaded))
             journal("waiting", until_ns=start_ns)
         planned = plan(list(args.symbols), membership, start_ns, warm_at, args.universe.parent / membership_months.MONTHS)
         FETCH[:] = [functools.partial(fetch_at, catalog=catalog, proxy_url=args.proxy_url, session=SESSION)]
