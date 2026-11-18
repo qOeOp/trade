@@ -1101,8 +1101,54 @@ def write_native_reports(output: Path, cache) -> None:
     shutil.rmtree(output / REPORTS, ignore_errors=True)
     shutil.rmtree(partial, ignore_errors=True)
     partial.mkdir()
-    write_cache_reports(partial, cache, Venue(VENUE))
+    account = cache.account_for_venue(Venue(VENUE))
+    write_cache_reports(partial, cache, Venue(VENUE),
+                        account_states(account.events, resumed_at(output)) if account is not None else None,
+                        unfilled_liquidity=False)
     os.replace(partial, output / REPORTS)
+
+
+def resumed_at(output: Path) -> list[int]:
+    """The wall times of the run's `resumed` lines in its journal."""
+    found = []
+    with (output / "events.jsonl").open("rb") as stream:
+        for raw in stream:
+            try:
+                line = json.loads(raw)
+            except ValueError:  # an interrupted line
+                continue
+            if line.get("kind") == "resumed" and isinstance(line.get("wall_ns"), int):
+                found.append(line["wall_ns"])
+    return found
+
+
+def account_states(events: list, resumed: list[int]) -> list:
+    """The account's states as an uninterrupted run has them, for its report. rc7 adds two kinds to a resumed run's
+    account that no trading made: its Redis cache appends the account's last state on every cache update
+    (crates/infrastructure/src/redis/cache.rs, update_account), so the restored account repeats states under one event
+    ID, kept here once; and the Sandbox, connecting again, restates the balance it was started with (the checkpoint's
+    total, build_node) with nothing locked and no margins (crates/adapters/sandbox/src/execution.rs, connect) while
+    the restored positions still hold theirs. That restatement is the first state after a `resumed`; it is left out
+    only when it restates the state before it so, and any other state stays."""
+    seen: set[str] = set()
+    states = []
+    for event in events:
+        if str(event.event_id) not in seen:
+            seen.add(str(event.event_id))
+            states.append(event)
+    restated = set()
+    for at in resumed:
+        index = next((index for index, state in enumerate(states) if state.ts_event >= at), None)
+        if index and restates(states[index - 1], states[index]):
+            restated.add(index)
+    return [state for index, state in enumerate(states) if index not in restated]
+
+
+def restates(before, state) -> bool:
+    """Whether `state` holds `before`'s totals with nothing locked and no margins."""
+    return (not state.margins and all(balance.locked.as_decimal() == 0 for balance in state.balances)
+            and {str(balance.currency): balance.total for balance in state.balances}
+            == {str(balance.currency): balance.total for balance in before.balances})
 
 
 def main(argv: list[str] | None = None) -> None:

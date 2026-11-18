@@ -26,6 +26,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: a resumed run's `account.csv` and `orders.csv` now equal an uninterrupted run's. `account.csv` keeps each
+  account state once (rc7's Redis cache repeats the account's last state on every cache update) and leaves out the
+  state the Sandbox restates when it connects again after a resume (the checkpoint's balance with nothing locked and
+  no margins while positions are open); `orders.csv` writes an order without a fill as NO_LIQUIDITY_SIDE (rc7 marked
+  every restored order MAKER, so a stop canceled unfilled read MAKER only after a resume, and marks a resting limit
+  order MAKER in any run). Fills, positions, order events and replay and Live reports are unchanged.
 - Paper: a MARKET_IF_TOUCHED, an order triggered by the mark price and a trailing stop not yet activated that has an
   activation price, submitted by a source on a back-filled aggregated bar, are now checked as restored ones are (user
   decision 2026-11-18) instead of refusing the recovery: the minutes from that bar's bucket end up to T must not have

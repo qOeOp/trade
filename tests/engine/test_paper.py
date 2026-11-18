@@ -959,3 +959,73 @@ class SandboxConfigTests(unittest.TestCase):
         with mock.patch.dict(paper.ACCOUNT_CONTRACT, {"liquidity_consumption": True, "queue_position": True}):
             changed = configured()
         self.assertEqual((changed.liquidity_consumption, changed.queue_position), (True, True))
+
+
+class NativeReportTests(unittest.TestCase):
+    """The run's reports (engine.paper.write_native_reports) are the same for a run that was paused and resumed as for
+    one that was not: rc7 changes the cache a resume restores in ways no trading made."""
+
+    def state(self, total: str, locked: str = "0", margins: tuple = (), ts: int = DAY):
+        from nautilus_trader.core import UUID4
+        from nautilus_trader.model import (AccountBalance, AccountId, AccountState, AccountType, Currency,
+                                           MarginBalance, Money)
+        usdt = Currency.from_str("USDT")
+        return AccountState(AccountId("BINANCE-SANDBOX-001"), AccountType.MARGIN,
+                            [AccountBalance(Money(Decimal(total), usdt), Money(Decimal(locked), usdt),
+                                            Money(Decimal(total) - Decimal(locked), usdt))],
+                            [MarginBalance(Money(Decimal(initial), usdt), Money(Decimal(maintenance), usdt), IID)
+                             for initial, maintenance in margins],
+                            False, UUID4(), ts, ts, usdt)
+
+    def write(self, states: list, resumed: tuple = (), orders: list | None = None) -> tuple:
+        import pandas as pd
+        from nautilus_trader.model import MarginAccount
+        account = MarginAccount(states[0], True)
+        for state in states[1:]:
+            account.apply(state)
+        cache = SimpleNamespace(orders=list, positions=list, position_snapshots=list,
+                                account_for_venue=lambda venue: account,
+                                order=lambda order_id: SimpleNamespace(time_in_force="GTC", expire_time=None))
+        output = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (output / "events.jsonl").write_text("".join(
+            f'{{"execution": "bars", "kind": "resumed", "wall_ns": {at}}}\n' for at in resumed), encoding="utf-8")
+        native = pd.DataFrame(orders or [], columns=["client_order_id", "status", "filled_qty", "liquidity_side"])
+        with mock.patch("nautilus_trader.analysis.ReportProvider.generate_orders_report",
+                        return_value=native.set_index("client_order_id")):
+            paper.write_native_reports(output, cache)
+        return (pd.read_csv(output / paper.REPORTS / "account.csv", dtype=str),
+                pd.read_csv(output / paper.REPORTS / "orders.csv", dtype=str, keep_default_na=False))
+
+    def test_an_order_without_a_fill_has_no_liquidity_side_and_a_filled_one_keeps_its_own(self):
+        """rc7's matching engine marks every order it restores MAKER (restore_open_order) and a resting limit order
+        it accepts, but not a stop it accepts: a stop canceled unfilled read MAKER only after a resume."""
+        _, orders = self.write([self.state("100000")], orders=[
+            ("O-1", "CANCELED", "0.000", "MAKER"), ("O-2", "CANCELED", "0.000", "NO_LIQUIDITY_SIDE"),
+            ("O-3", "FILLED", "0.010", "TAKER"), ("O-4", "FILLED", "0.010", "MAKER")])
+        self.assertEqual(dict(zip(orders["client_order_id"], orders["liquidity_side"], strict=True)),
+                         {"O-1": "NO_LIQUIDITY_SIDE", "O-2": "NO_LIQUIDITY_SIDE", "O-3": "TAKER", "O-4": "MAKER"})
+
+    def test_a_resumed_accounts_repeated_states_and_the_sandboxs_restatement_are_left_out(self):
+        """rc7's Redis cache appends the account's last state on every cache update, so the restored account repeats
+        states under one event ID; the Sandbox restates the balance with no margin when it connects again."""
+        start = self.state("100000")
+        opened = self.state("100000", "333", ((333, 0),), ts=DAY + MINUTE_NS)
+        paused = DAY + 5 * MINUTE_NS
+        restated = self.state("100000", ts=paused + 10**9)
+        closed = self.state("99998.5", ts=paused + 3 * MINUTE_NS)
+        account, _ = self.write([start, start, opened, opened, opened, restated, closed], resumed=(paused,))
+        self.assertEqual(list(zip(account["total"], account["locked"], strict=True)),
+                         [("100000.00000000", "0.00000000"), ("100000.00000000", "333.00000000"),
+                          ("99998.50000000", "0.00000000")])
+
+    def test_a_state_that_restates_nothing_stays_and_a_run_never_resumed_keeps_its_first(self):
+        start = self.state("100000")
+        opened = self.state("100000", "333", ((333, 0),), ts=DAY + MINUTE_NS)
+        paused = DAY + 5 * MINUTE_NS
+        for name, first in (("margins", self.state("100000", "333", ((333, 0),), ts=paused + 10**9)),
+                            ("balance", self.state("99999", ts=paused + 10**9))):
+            with self.subTest(name):
+                account, _ = self.write([start, opened, first], resumed=(paused,))
+                self.assertEqual(len(account), 3)
+        account, _ = self.write([start, opened])
+        self.assertEqual(list(account["locked"]), ["0.00000000", "333.00000000"])
