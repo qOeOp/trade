@@ -2,11 +2,12 @@ import { useTimeZone } from "../../state/timeZone";
 import { useMemo } from "react";
 import { change, plural, usd, when } from "../../lib/format";
 import { coinsAt, group, MORE, splits, subsectorLevel, type Coin, type Snapshot } from "../../model/market";
-import { openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
+import { marketCoin, openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
 import { columns, DataTable, type Column } from "../../components/DataTable";
 import { KeyValues } from "../../components/KeyValues";
 import { Skeleton, TableSkeleton } from "../../components/Missing";
 import { CardGroup, Section } from "../../components/Section";
+import { TextButton } from "../../components/TextButton";
 import { CoinDetails, Signed } from "./CoinDetails";
 import { GlobalMarket } from "./GlobalMarket";
 import { liquidated, Liquidations } from "./Liquidations";
@@ -42,13 +43,17 @@ const breadth = (coins: readonly Coin[], title: string) => {
 /** The five liquid coins that rose most, and the five that fell most. */
 function Movers({ coins }: { coins: readonly Coin[] }) {
   const liquid = [...coins].filter((c) => c.volume24h >= LIQUID).sort((a, b) => b.change24h - a.change24h);
-  const line = (c: Coin) => [c.base, <Signed key={c.symbol} x={c.change24h}>{change(c.change24h)}</Signed>] as const;
-  return (
-    <div className="grid grid-cols-2 gap-x-6">
-      <KeyValues items={liquid.slice(0, 5).map(line)} />
-      <KeyValues items={liquid.slice(-5).reverse().map(line)} />
+  const list = (items: readonly Coin[]) => (
+    <div className="flex flex-col gap-0.5">
+      {items.map((c) => (
+        <div key={c.symbol} className="flex items-baseline justify-between gap-2">
+          <TextButton className="-ml-1" onClick={() => marketCoin.set(c.symbol)}>{c.base}</TextButton>
+          <Signed x={c.change24h}>{change(c.change24h)}</Signed>
+        </div>
+      ))}
     </div>
   );
+  return <div className="grid grid-cols-2 gap-x-6">{list(liquid.slice(0, 5))}{list(liquid.slice(-5).reverse())}</div>;
 }
 
 function Sources({ snapshot }: { snapshot: Snapshot }) {
@@ -100,20 +105,21 @@ export function MarketDetails() {
     : sub ? subsectorLevel(path[0]!, coins, "marketCap", "change24h").map((n) => row(n.name, n.coins)) : [];
   return (
     <div className="space-y-3 px-2 pb-3 text-dense">
-      {picked && <CoinDetails c={picked} snapshot={snapshot} />}
-      {!path.length && <CardGroup title="Crypto market"><GlobalMarket g={snapshot.global} /></CardGroup>}
-      <CardGroup title={title}>
-        <Section title="Breadth"><KeyValues labels="fixed" items={breadth(coins, title)} /></Section>
-        {!!rows.length && (
-          <Section title={sub ? "Sub-sectors" : "Sectors"} aside={`${rows.length}`}>
-            <DataTable data={rows} columns={sub ? SUBSECTORS : SECTORS} rowId={(r) => r.name} sticky={false} initialSort={[{ id: "cap", desc: true }]}
-                       onRow={(r) => openPath(sub ? [path[0]!, r.name] : [r.name])} />
-          </Section>
-        )}
-        <Liquidations sides={liquidated(coins)} since={snapshot.liquidationsSince} />
-        <Section title="Movers" aside="Volume 24h ≥ $5M"><Movers coins={coins} /></Section>
-        {!!path.length && <MarketRuns symbols={coins.map((c) => c.symbol)} />}
-      </CardGroup>
+      {picked ? <CoinDetails c={picked} snapshot={snapshot} /> : <>
+        {!path.length && <CardGroup title="Crypto market"><GlobalMarket g={snapshot.global} /></CardGroup>}
+        <CardGroup title={title}>
+          <Section title="Breadth"><KeyValues labels="fixed" items={breadth(coins, title)} /></Section>
+          {!!rows.length && (
+            <Section title={sub ? "Sub-sectors" : "Sectors"} open={sub} aside={`${rows.length}`}>
+              <DataTable data={rows} columns={sub ? SUBSECTORS : SECTORS} rowId={(r) => r.name} sticky={false} initialSort={[{ id: "cap", desc: true }]}
+                         onRow={(r) => openPath(sub ? [path[0]!, r.name] : [r.name])} />
+            </Section>
+          )}
+          <Liquidations sides={liquidated(coins)} since={snapshot.liquidationsSince} />
+          <Section title="Movers" aside="Volume 24h ≥ $5M"><Movers coins={coins} /></Section>
+          {!!path.length && <MarketRuns symbols={coins.map((c) => c.symbol)} />}
+        </CardGroup>
+      </>}
       <CardGroup title="Sources"><Section title="Last read" open={false}><Sources snapshot={snapshot} /></Section></CardGroup>
     </div>
   );

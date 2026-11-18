@@ -82,6 +82,14 @@ function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets:
         </Section>
       )}
       </TranslatedCardGroup>
+      <TranslatedCardGroup title="Conclusion" loading={busy} sections={[{ title: "Interpretation and decision", text: c.interpretation }]} className="@3xl:col-start-1">
+      <Section title="Registration" open={false}>
+        <KeyValues items={[
+          ["Registration", busy ? <Skeleton className="w-20" /> : c.registration ? <Token value={c.registration} /> : null],
+          ["Duties", busy ? <Skeleton className="w-28" /> : (c.duties ?? []).join(" ") || null],
+        ]} />
+      </Section>
+      </TranslatedCardGroup>
       <div className={`${SIDE} @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1`}>
       <StagePerformance />
       <CardGroup title="Evidence">
@@ -101,7 +109,8 @@ function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets:
           : "No control to compare against"}</p>}
       </Section>
       {!!c.reviews?.length && (
-        <Section title="Source reviews" aside={busy ? <Skeleton className="w-4" /> : `${c.reviews.length}`}>
+        <Section title="Source reviews" open={c.reviews.some((r) => r.verdict !== "passed")}
+                 aside={busy ? <Skeleton className="w-4" /> : `${c.reviews.every((r) => r.verdict === "passed") ? "Passed · " : ""}${c.reviews.length}`}>
           <div className="space-y-1.5">
             {c.reviews.map((r, i) => {
               const [label, cls] = VERDICT[r.verdict ?? ""] ?? ["-", "text-fg-faint"];
@@ -127,14 +136,6 @@ function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets:
       )}
       </CardGroup>
       </div>
-      <TranslatedCardGroup title="Conclusion" loading={busy} sections={[{ title: "Interpretation and decision", text: c.interpretation }]} className="@3xl:col-start-1">
-      <Section title="Registration" open={false}>
-        <KeyValues items={[
-          ["Registration", busy ? <Skeleton className="w-20" /> : c.registration ? <Token value={c.registration} /> : null],
-          ["Duties", busy ? <Skeleton className="w-28" /> : (c.duties ?? []).join(" ") || null],
-        ]} />
-      </Section>
-      </TranslatedCardGroup>
       </div>
     </div>
   );

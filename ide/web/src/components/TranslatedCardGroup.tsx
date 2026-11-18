@@ -63,7 +63,7 @@ export function TranslatedCardGroup({ title, sections, loading = false, children
         {loading ? <SkeletonLines /> : <Prose text={text} />}
         {!loading && visible && (result || busy) && text && <div lang="zh-CN" className="mt-3 space-y-1 border-t border-line pt-3">
           <p className="text-small text-fg-faint">中文 · 本地机器翻译</p>
-          {result ? <Prose text={result.texts[index]} /> : <SkeletonLines />}
+          {result ? <Prose text={result.texts[index]} unfolded /> : <SkeletonLines />}
         </div>}
       </Section>)}
     {children}
