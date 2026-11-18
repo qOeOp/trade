@@ -124,3 +124,85 @@ test("empty inspector cards default to collapsed and open when populated", async
   }));
   assert.match(withTradesHtml, /data-state="open"[\s\S]*?Trades/, "Trades opens expanded once a closed trade exists");
 });
+
+test("backtest market_exposure and period slices parse and render Alpha vs Beta and time/regime breakdowns", async () => {
+  const env = loader({ stubs: { "icons/Icon": { Icon: empty }, "components/Tip": { Tip: pass } } });
+  const { backtest } = await env.namespace("model/backtest.ts");
+  const { MarketExposure, PeriodsAndRegimes } = await env.namespace("widgets/paper/MarketExposure.tsx");
+  const parsed = backtest({
+    trial_id: 42,
+    trade_window: { input_start: "2026-01-01T00:00:00", trade_start: "2026-01-01T00:00:00", trade_end: "2026-01-11T00:00:00" },
+    runtime: { image_digest: null },
+    drawdown: null,
+    capital: null,
+    dev_years: {
+      years: [{ year: 2026, days: 10, return: 0.36, annual_return: 1.5 }],
+      worst_year_return: { value: 0.36 },
+      return_excluding_best_year: { value: 0.12 },
+    },
+    cost_basis: { account: { starting_balance_usdt: "10000", execution: "bar" } },
+    availability: { economic_evidence_available: true, reasons: [] },
+    slices: [
+      {
+        id: "market_exposure",
+        measures: {
+          beta_basket: { value: 0.42, return_sum: 0.12, sample_size: 9 },
+          alpha_basket: { value: 0.0025, standard_error: 0.0008, return_sum: 0.24, sample_size: 9 },
+          beta_btc: { value: 0.31, return_sum: 0.09, sample_size: 9 },
+          alpha_btc: { value: 0.003, standard_error: 0.001, return_sum: 0.27, sample_size: 9 },
+        },
+      },
+      {
+        id: "by_regime",
+        measures: {
+          high_vol_days: { value: 4, sample_size: 10 },
+          high_vol_mean_log: { value: Math.log1p(0.05), sample_size: 4 },
+          high_vol_log_sum: { value: Math.log1p(0.22), sample_size: 4 },
+          low_vol_days: { value: 6, sample_size: 10 },
+          low_vol_mean_log: { value: Math.log1p(0.018), sample_size: 6 },
+          low_vol_log_sum: { value: Math.log1p(0.115), sample_size: 6 },
+        },
+      },
+      {
+        id: "by_period",
+        measures: {
+          months_won_share: { value: 0.75, sample_size: 4 },
+          residual_after_top5_days: { value: Math.log1p(0.18), sample_size: 10 },
+        },
+      },
+      {
+        id: "capital_scaled",
+        measures: {
+          up_month_notional: { value: 12500, sample_size: 6 },
+          down_month_notional: { value: 8400, sample_size: 4 },
+          level_term: { value: 2400, sample_size: 10 },
+          timing_term: { value: 1200, sample_size: 10 },
+        },
+      },
+    ],
+    tables: { positions: [], daily_returns: [] },
+  });
+  assert.equal(parsed.exposures.length, 2);
+  assert.equal(parsed.exposures[0].beta, 0.42);
+  assert.equal(parsed.exposures[0].alphaReturn, 0.24);
+  assert.equal(parsed.exposures[0].betaReturn, 0.12);
+  const html = renderToStaticMarkup(createElement(MarketExposure, { rows: parsed.exposures }));
+  assert.match(html, /Alpha and beta/);
+  assert.match(html, /Beta 33%/);
+  assert.match(html, /Alpha 67%/);
+  assert.match(html, /\+24\.0%/);
+  assert.match(html, /\+12\.0%/);
+  assert.match(html, /\+36\.0%/, "Total column shows Beta ret + Alpha ret");
+  assert.match(html, /\+0\.250%\/d/);
+
+  assert.ok(parsed.periods);
+  const periodsHtml = renderToStaticMarkup(createElement(PeriodsAndRegimes, { p: parsed.periods }));
+  assert.match(periodsHtml, /Periods and regimes/);
+  assert.match(periodsHtml, /High vol/);
+  assert.match(periodsHtml, /Low vol/);
+  assert.match(periodsHtml, /2026/);
+  assert.match(periodsHtml, /Positive months \(4\)/);
+  assert.match(periodsHtml, /Ex top 5 days/);
+  assert.match(periodsHtml, /Notional \(up \/ down mo\)/);
+  assert.match(periodsHtml, /Scale \(level \/ timing\)/);
+});

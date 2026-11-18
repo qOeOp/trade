@@ -180,6 +180,9 @@ class RegressionTests(unittest.TestCase):
         self.assertAlmostEqual(found["beta"], 0.7, places=12)
         self.assertAlmostEqual(found["alpha"], 0.001, places=12)
         self.assertAlmostEqual(found["alpha_se"], 0.0, places=10)
+        self.assertAlmostEqual(found["alpha_return"], 0.009, places=12)
+        self.assertAlmostEqual(found["beta_return"], sum(y[1:]) - 0.009, places=12)
+        self.assertAlmostEqual(found["alpha_return"] + found["beta_return"], sum(y[1:]), places=12)
         self.assertEqual((found["days"], found["lag_selection"]), (9, measures.lag_selection(9)))
 
     def test_the_lag_selection_parameter_is_newey_west_1994s_truncation(self):

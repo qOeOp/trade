@@ -203,16 +203,20 @@ def coefficient_bandwidth(y: npt.ArrayLike, x: np.ndarray, index: int) -> tuple[
 def market_regression(y: Sequence[float], market: Sequence[float]) -> dict:
     """y_t = a + b0 m_t + b1 m_(t-1) + e_t from the second day on (Dimson's one-day lag);
     beta = b0 + b1, alpha = a per day with its Newey-West standard error at the automatic bandwidth
-    for the intercept (`lags`; `lag_selection` is the truncation that estimated it)."""
+    for the intercept (`lags`; `lag_selection` is the truncation that estimated it). Because the
+    design has an intercept, the OLS residuals sum to zero and the fitted days' simple-return sum
+    splits into `alpha_return` (T * a) and `beta_return` (sum(b0 m_t + b1 m_(t-1)))."""
     if len(y) != len(market) or len(y) < 5:
         raise ValueError("the regression needs two aligned series of at least five days")
     m = np.asarray(market, dtype=float)
-    x = np.column_stack([np.ones(len(m) - 1), m[1:], m[:-1]])
+    days = len(m) - 1
+    x = np.column_stack([np.ones(days), m[1:], m[:-1]])
     target = np.asarray(y, dtype=float)[1:]
     lags, selection = coefficient_bandwidth(target, x, 0)
     beta, covariance = ols_newey_west(target, x, lags)
     return {"beta": float(beta[1] + beta[2]), "alpha": float(beta[0]), "alpha_se": float(math.sqrt(covariance[0, 0])),
-            "lags": lags, "lag_selection": selection, "days": len(m) - 1}
+            "beta_return": float((x[:, 1:] @ beta[1:]).sum()), "alpha_return": float(beta[0] * days),
+            "lags": lags, "lag_selection": selection, "days": days}
 
 
 def autocorrelations(values: Sequence[float], lags: int) -> list[float]:
@@ -572,9 +576,10 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
                 reason = f"REGRESSION_UNAVAILABLE: {exc}"
         if reason is None:
             put(beta_name, fitted["beta"], "account_days", fitted["days"])
+            found[beta_name].update(return_sum=fitted["beta_return"])
             put(alpha_name, fitted["alpha"], "account_days", fitted["days"])
-            found[alpha_name].update(standard_error=fitted["alpha_se"], lags=fitted["lags"],
-                                     lag_selection=fitted["lag_selection"])
+            found[alpha_name].update(standard_error=fitted["alpha_se"], return_sum=fitted["alpha_return"],
+                                     lags=fitted["lags"], lag_selection=fitted["lag_selection"])
         else:
             put(beta_name, None, "account_days", days, reason)
             put(alpha_name, None, "account_days", days, reason)
