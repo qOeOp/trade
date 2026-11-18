@@ -54,6 +54,9 @@ body {
 /* A typing status line's caret blinks; under reduced motion it is not drawn (components/Typing.tsx). */
 @keyframes blink { 50% { opacity: 0; } }
 .caret { animation: blink 1s step-end infinite; }
+/* A reading's placeholder pulses while its report or stream is being read (components/Missing.tsx). */
+@keyframes pulse { 50% { opacity: 0.35; } }
+.skeleton { background: var(--line-strong); animation: pulse 1.2s ease-in-out infinite; }
 
 /* Resizable panels: the separator is the gap between islands; it shows only while dragged or hovered. */
 [data-separator] { background: transparent; transition: background-color var(--t-fast) var(--ease); }

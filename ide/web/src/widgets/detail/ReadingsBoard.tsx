@@ -4,21 +4,22 @@ import { meets } from "../../model/semantics";
 import { duration } from "../../lib/format";
 import { signed } from "../../lib/paperApi";
 import { pnlClass } from "../../theme/roles";
-import { Missing } from "../../components/Missing";
+import { Missing, Skeleton } from "../../components/Missing";
 import { Tip } from "../../components/Tip";
 
 const STEPS = 5;  // the drawdown track is graduated in fifths of the limit
 
 type N = number | null | undefined;
 /** One stage's readings. `account` and `stats` are absent where the page has none (the graph page),
- *  their values null until read; `stale` ones are held unseen while the next report is read. `dd` is the
- *  drawdown at the end (`ended`) or when last seen, or the run's stop. */
+ *  their values null until read; `reading` and `stale` mark figures still being read so each shows a
+ *  pulsing placeholder instead of a missing hyphen. `dd` is the drawdown at the end (`ended`) or when
+ *  last seen, or the run's stop. */
 export type Facts = {
   basis: string; limit: number | null; minimum: number | null;
   mdd: N; annual: N; short?: number;
   /** Absent where the page cannot compute them (a phone's paper run): the Ratios group then stays out.
    *  `plans`: the win rate is a sealed run's plan win rate, not the share of closed trades that won. */
-  sharpe?: N; winRate?: N; plans?: boolean;
+  sharpe?: N; winRate?: N; plans?: boolean; reading?: boolean;
   account?: { ret: N; needed: N; ahead: N; usdt: N; dd: N | "stop"; ended: boolean; stale: boolean };
   stats?: { pf: N; avgWin: N; avgLoss: N; perTrade: N; hold: N; inMarket: N; streak: N; stale: boolean };
 };
@@ -26,8 +27,8 @@ export type Facts = {
 const digits = (n: number) => (Math.abs(n) * 100).toFixed(2);
 const pct = (n: number, places = 2) => `${(Math.abs(n) * 100).toFixed(places)}%`;
 const sign = (n: number, plus = true) => (n > 0 && plus ? "+" : n < 0 ? "−" : "");
-const shown = (n: N, text: (n: number) => ReactNode) => (n == null ? <Missing /> : text(n));
-const amount = (n: N) => shown(n, (v) => <span className={pnlClass(v)}>{signed(v)}</span>);
+const shown = (n: N, text: (n: number) => ReactNode, busy = false) => (n == null ? (busy ? <Skeleton /> : <Missing />) : text(n));
+const amount = (n: N, busy = false) => shown(n, (v) => <span className={pnlClass(v)}>{signed(v)}</span>, busy);
 const Said = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => <span className={ok ? "text-meets-fg" : "text-misses-fg"}>{ok ? yes : no}</span>;
 
 /** The deepest drawdown so far (quiet) and the drawdown now (in the text colour) along a track to the
@@ -50,13 +51,14 @@ export function Track({ used, now }: { used: number; now: number }) {
     </div>
   );
 }
-const track = (f: Facts) => f.limit === null || f.mdd == null ? null
-  : <Track used={f.mdd / f.limit} now={(typeof f.account?.dd === "number" ? f.account.dd : f.mdd) / f.limit} />;
+const track = (f: Facts) => f.limit === null || (f.mdd == null && !f.reading) ? null
+  : <Track used={(f.mdd ?? 0) / f.limit} now={(typeof f.account?.dd === "number" ? f.account.dd : f.mdd ?? 0) / f.limit} />;
 const Drawdown = ({ f }: { f: Facts }) => <Tip content={f.basis}><span>Max drawdown</span></Tip>;
 
-type Row = { name: ReactNode; n?: ReactNode; u?: string; sub?: boolean; tone?: string; stale?: boolean; track?: ReactNode };
+type Row = { name: ReactNode; n?: ReactNode; u?: string; sub?: boolean; tone?: string; track?: ReactNode };
 type Group = { title: string; aside?: string; rows: Row[] };
-const num = (n: N, text: (n: number) => string, u?: string): Pick<Row, "n" | "u"> => (n == null ? { n: <Missing /> } : { n: text(n), u });
+const num = (n: N, text: (n: number) => string, u?: string, busy = false): Pick<Row, "n" | "u"> =>
+  n == null ? { n: busy ? <Skeleton /> : <Missing /> } : { n: text(n), u };
 
 /** Narrow: one ledger. Each reading a line, its name at the left, its number on one right edge and its
  *  unit in a faint column after it; what a target asks and the verdict stand indented under it. */
@@ -65,28 +67,28 @@ function Ledger({ f }: { f: Facts }) {
   const hold = t?.hold == null ? null : duration(t.hold);
   const groups: Group[] = [
     { title: "Targets", rows: [
-      { name: <Drawdown f={f} />, ...num(f.mdd, digits, "%"), track: track(f) },
-      ...dd === null ? [] : [{ name: <><Said ok={dd} yes="Within" no="Over" /> the limit</>, ...num(f.limit, digits, "%"), sub: true }],
-      ...a ? [a.dd === "stop" ? { name: "At the stop", sub: true } : { name: a.ended ? "Below the peak at the end" : "Below the peak when last seen", ...num(a.dd, digits, "%"), sub: true, stale: a.stale },
-        { name: "Return", ...num(a.ret, (n) => `${sign(n)}${digits(n)}`, "%"), stale: a.stale },
+      { name: <Drawdown f={f} />, ...num(f.mdd, digits, "%", f.reading), track: track(f) },
+      ...f.limit === null ? [] : [{ name: dd === null ? "The limit" : <><Said ok={dd} yes="Within" no="Over" /> the limit</>, ...num(f.limit, digits, "%"), sub: true }],
+      ...a ? [a.dd === "stop" ? { name: "At the stop", sub: true } : { name: a.ended ? "Below the peak at the end" : "Below the peak when last seen", ...num(a.dd, digits, "%", a.stale), sub: true },
+        { name: "Return", ...num(a.ret, (n) => `${sign(n)}${digits(n)}`, "%", a.stale) },
         // what the minimum annual return asks for by now, and the pace against it, where there is a minimum
-        ...f.minimum === null ? [] : [{ name: "Needed by now", ...num(a.needed, (n) => `${sign(n)}${digits(n)}`, "%"), sub: true, stale: a.stale },
+        ...f.minimum === null ? [] : [{ name: "Needed by now", ...num(a.needed, (n) => `${sign(n)}${digits(n)}`, "%", a.stale), sub: true },
           { name: a.ahead == null ? "Pace" : <><Said ok={a.ahead >= 0} yes="On pace" no="Behind pace" /> · {signed(a.usdt ?? null, 0)} USDT</>,
-            ...num(a.ahead, (n) => signed(n * 100), "pt"), sub: true, stale: a.stale }]] : [],
-      { name: "Annual return", ...num(f.annual, (n) => `${sign(n)}${digits(n)}`, "%") },
+            ...num(a.ahead, (n) => signed(n * 100), "pt", a.stale), sub: true }]] : [],
+      { name: "Annual return", ...num(f.annual, (n) => `${sign(n)}${digits(n)}`, "%", f.reading) },
       ...f.minimum === null ? [] : [{ name: yearly === null ? "The minimum" : <><Said ok={yearly} yes="Meets" no="Misses" /> the minimum</>, ...num(f.minimum, digits, "%"), sub: true }],
       ...f.short == null ? [] : [{ name: `Too short: ${Math.floor(f.short)} of ${ANNUAL_DAYS} days`, sub: true }],
     ] },
     ...f.sharpe === undefined && f.winRate === undefined && !t ? [] : [{ title: "Ratios", rows: [
-      { name: "Sharpe", ...num(f.sharpe ?? null, (n) => `${sign(n, false)}${Math.abs(n).toFixed(2)}`) },
-      ...t ? [{ name: "Profit factor", ...num(t.pf, (n) => n.toFixed(2)), stale: t.stale }] : [],
-      { name: f.plans ? "Plan win rate" : "Win rate", ...num(f.winRate ?? null, digits, "%") },
+      { name: "Sharpe", ...num(f.sharpe ?? null, (n) => `${sign(n, false)}${Math.abs(n).toFixed(2)}`, undefined, f.reading) },
+      ...t ? [{ name: "Profit factor", ...num(t.pf, (n) => n.toFixed(2), undefined, t.stale) }] : [],
+      { name: f.plans ? "Plan win rate" : "Win rate", ...num(f.winRate ?? null, digits, "%", f.reading) },
     ] }],
     ...t ? [
-      { title: "Trades", aside: "USDT", rows: [{ name: "Average win", n: amount(t.avgWin) }, { name: "Average loss", n: amount(t.avgLoss) }, { name: "Per trade", n: amount(t.perTrade) }].map((r) => ({ ...r, stale: t.stale })) },
+      { title: "Trades", aside: "USDT", rows: [{ name: "Average win", n: amount(t.avgWin, t.stale) }, { name: "Average loss", n: amount(t.avgLoss, t.stale) }, { name: "Per trade", n: amount(t.perTrade, t.stale) }] },
       // the hold's last unit stands in the unit column ("1h 5" "m"), so its number ends on the same edge
-      { title: "Time", rows: [{ name: "Average hold", ...hold === null ? { n: <Missing /> } : { n: hold.slice(0, -1), u: hold.slice(-1) } },
-        { name: "In market", ...num(t.inMarket, digits, "%") }, { name: "Losing streak", ...num(t.streak, (n) => `${n}`) }].map((r) => ({ ...r, stale: t.stale })) },
+      { title: "Time", rows: [{ name: "Average hold", ...hold === null ? { n: t.stale ? <Skeleton /> : <Missing /> } : { n: hold.slice(0, -1), u: hold.slice(-1) } },
+        { name: "In market", ...num(t.inMarket, digits, "%", t.stale) }, { name: "Losing streak", ...num(t.streak, (n) => `${n}`, undefined, t.stale) }] },
     ] : [],
   ];
   return (
@@ -98,7 +100,7 @@ function Ledger({ f }: { f: Facts }) {
           </div>
           {g.rows.map((r, i) => (
             <Fragment key={i}>
-              <div className={`col-span-full grid grid-cols-subgrid items-baseline py-0.5 ${i > 0 && !r.sub ? "border-t border-line" : ""} ${r.stale ? "invisible" : ""}`}>
+              <div className={`col-span-full grid grid-cols-subgrid items-baseline py-0.5 ${i > 0 && !r.sub ? "border-t border-line" : ""}`}>
                 <span className={`min-w-0 truncate pr-3 ${r.sub ? "pl-3 text-fg-faint" : "text-fg-muted"}`}>{r.name}</span>
                 <span className={`text-right whitespace-nowrap tabular-nums ${r.sub ? "text-fg-muted" : ""}`}>{r.n}</span>
                 <span className="min-w-[2ch] pl-px text-fg-faint">{r.u}</span>
@@ -112,7 +114,7 @@ function Ledger({ f }: { f: Facts }) {
   );
 }
 
-type Cell = { name: string; value: ReactNode; stale?: boolean };
+type Cell = { name: string; value: ReactNode };
 
 /** Wide: the drawdown and the return each a line, the value with what the target asks at the right edge
  *  and the verdict under it; every other reading in two columns of cells divided by rules, name at the
@@ -123,28 +125,28 @@ function Strip({ f }: { f: Facts }) {
   const { account: a, stats: t } = f, dd = meets(f.mdd, f.limit, false);
   const ddNote = a?.dd === "stop" ? "at the stop" : typeof a?.dd === "number" ? (a.ended ? `${pct(a.dd)} below the peak at the end` : `last seen ${pct(a.dd)} below the peak`) : null;
   const lines = [
-    { name: "Max drawdown", value: shown(f.mdd, pct), context: f.limit === null ? null : `of ${pct(f.limit, 0)} limit`, track: track(f),
+    { name: "Max drawdown", value: shown(f.mdd, pct, f.reading), context: f.limit === null ? null : `of ${pct(f.limit, 0)} limit`, track: track(f),
       note: [dd === null ? null : <Said ok={dd} yes="Within limit" no="Over limit" />, ddNote] },
-    ...a ? [{ name: "Return", value: shown(a.ret, (n) => `${sign(n)}${pct(n)}`), context: a.needed == null ? null : `of ${sign(a.needed)}${pct(a.needed)} needed`, track: null, stale: a.stale,
+    ...a ? [{ name: "Return", value: shown(a.ret, (n) => `${sign(n)}${pct(n)}`, a.stale), context: a.needed == null ? null : `of ${sign(a.needed)}${pct(a.needed)} needed`, track: null,
       note: a.ahead == null ? [] : [<Said ok={a.ahead >= 0} yes="On pace" no="Behind pace" />, `${signed(a.ahead * 100)} pt`, `${signed(a.usdt ?? null, 0)} USDT`] }] : [],
   ];
   const annual = f.short != null ? <span className="text-small text-fg-faint">Too short · {Math.floor(f.short)} of {ANNUAL_DAYS} d</span>
-    : shown(f.annual, (n) => { const ok = meets(n, f.minimum, true); return <span className={ok === null ? pnlClass(n) : ok ? "text-meets-fg" : "text-misses-fg"}>{sign(n)}{pct(n)}</span>; });
+    : shown(f.annual, (n) => { const ok = meets(n, f.minimum, true); return <span className={ok === null ? pnlClass(n) : ok ? "text-meets-fg" : "text-misses-fg"}>{sign(n)}{pct(n)}</span>; }, f.reading);
   const groups: { title: string; aside?: string; cells: Cell[] }[] = [
     { title: "Returns", aside: f.minimum === null ? undefined : `minimum ${pct(f.minimum, 0)} a year`, cells: [
-      { name: "Annual return", value: annual }, { name: "Sharpe", value: shown(f.sharpe ?? null, (n) => `${sign(n, false)}${Math.abs(n).toFixed(2)}`) },
-      ...t ? [{ name: "Profit factor", value: shown(t.pf, (n) => n.toFixed(2)), stale: t.stale }] : [], { name: f.plans ? "Plan win rate" : "Win rate", value: shown(f.winRate ?? null, pct) }] },
+      { name: "Annual return", value: annual }, { name: "Sharpe", value: shown(f.sharpe ?? null, (n) => `${sign(n, false)}${Math.abs(n).toFixed(2)}`, f.reading) },
+      ...t ? [{ name: "Profit factor", value: shown(t.pf, (n) => n.toFixed(2), t.stale) }] : [], { name: f.plans ? "Plan win rate" : "Win rate", value: shown(f.winRate ?? null, pct, f.reading) }] },
     ...t ? [
-      { title: "Trades", aside: "USDT", cells: [{ name: "Average win", value: amount(t.avgWin) }, { name: "Average loss", value: amount(t.avgLoss) },
-        { name: "Per trade", value: amount(t.perTrade) }, { name: "Losing streak", value: shown(t.streak, (n) => `${n}`) }].map((c) => ({ ...c, stale: t.stale })) },
-      { title: "Time", cells: [{ name: "Average hold", value: shown(t.hold, duration) }, { name: "In market", value: shown(t.inMarket, pct) }].map((c) => ({ ...c, stale: t.stale })) },
+      { title: "Trades", aside: "USDT", cells: [{ name: "Average win", value: amount(t.avgWin, t.stale) }, { name: "Average loss", value: amount(t.avgLoss, t.stale) },
+        { name: "Per trade", value: amount(t.perTrade, t.stale) }, { name: "Losing streak", value: shown(t.streak, (n) => `${n}`, t.stale) }] },
+      { title: "Time", cells: [{ name: "Average hold", value: shown(t.hold, duration, t.stale) }, { name: "In market", value: shown(t.inMarket, pct, t.stale) }] },
     ] : [],
   ];
   return (
     <div className="pb-2">
       <div className="border-t border-line-strong">
         {lines.map((l, i) => (
-          <div key={l.name} className={`flex flex-col gap-1 py-1.5 ${i > 0 ? "border-t border-line" : ""} ${"stale" in l && l.stale ? "invisible" : ""}`}>
+          <div key={l.name} className={`flex flex-col gap-1 py-1.5 ${i > 0 ? "border-t border-line" : ""}`}>
             <div className="flex items-baseline justify-between gap-3 whitespace-nowrap">
               <span className="text-fg-muted">{l.name === "Max drawdown" ? <Drawdown f={f} /> : l.name}</span>
               <span className="tabular-nums">{l.value}{l.context && <span className="text-fg-faint"> {l.context}</span>}</span>
@@ -159,7 +161,7 @@ function Strip({ f }: { f: Facts }) {
           <Fragment key={g.title}>
             <div className="col-span-full ml-px flex justify-between border-t border-line-strong px-3 pt-1.5 pb-0.5 text-small text-fg-faint"><span>{g.title}</span>{g.aside && <span>{g.aside}</span>}</div>
             {g.cells.map((c) => (
-              <div key={c.name} className={`flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 whitespace-nowrap border-l border-line-strong px-3 py-0.5 ${c.stale ? "invisible" : ""}`}>
+              <div key={c.name} className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 whitespace-nowrap border-l border-line-strong px-3 py-0.5">
                 <span className="shrink-0 text-fg-muted">{c.name}</span><span className="ml-auto tabular-nums">{c.value}</span>
               </div>
             ))}

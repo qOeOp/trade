@@ -6,21 +6,24 @@ import { when } from "../../lib/format";
 import { Icon } from "../../icons/Icon";
 import { select } from "../../state/selection";
 import { textClass } from "../../theme/roles";
+import { Skeleton } from "../../components/Missing";
 import { TextButton } from "../../components/TextButton";
 import { Tip } from "../../components/Tip";
 
 /** The selected version's card: its name, role, prediction verdict, when it was published, its
  *  parent; its readings follow in the same card. */
-export function Header({ c, children }: { c: Candidate; children?: ReactNode }) {
+export function Header({ c, loading = false, children }: { c: Candidate; loading?: boolean; children?: ReactNode }) {
   const zone = useTimeZone();
   const role = c.status ?? null;
   return (
     <header className="rounded-card border border-card-border bg-island-alt px-3 pt-2">
-      <h2 className="truncate font-mono text-h1 font-semibold">{c.id}</h2>
+      <h2 className="truncate font-mono text-h1 font-semibold">{c.id || <Skeleton className="w-40" />}</h2>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-dense text-fg-faint">
-        <Tip content={role ? ROLE[role].hint : undefined}><span className="text-fg-muted">{role ? ROLE[role].label : "-"}</span></Tip>
-        <span className={textClass(PREDICTION[c.prediction_class].tone)}>{PREDICTION[c.prediction_class].label}</span>
-        <span>{when(c.created_at, zone)}</span>
+        {loading ? <><Skeleton className="w-16" /><Skeleton className="w-20" /><Skeleton className="w-28" /></> : <>
+          <Tip content={role ? ROLE[role].hint : undefined}><span className="text-fg-muted">{role ? ROLE[role].label : "-"}</span></Tip>
+          <span className={textClass(PREDICTION[c.prediction_class].tone)}>{PREDICTION[c.prediction_class].label}</span>
+          <span>{when(c.created_at, zone)}</span>
+        </>}
         {c.parent && (
           // pulled out by its padding, and its arrow by the glyph's own inset, so the arrow's ink starts at
           // the line's edge where the link wraps to a line of its own, as the words above it do
