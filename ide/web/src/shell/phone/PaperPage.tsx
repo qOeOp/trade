@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { PhonePage } from "../../components/PhoneBar";
+import { Skeleton } from "../../components/Missing";
 import { Amount, Change, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
 import { health } from "../../components/RunTile";
 import { useNow } from "../../components/hooks/useNow";
@@ -40,7 +41,21 @@ export function PaperPage({ id }: { id: number }) {
   const money = run ? paperEquity(run) : null;
   const levels = useMemo(() => (money ? [{ value: money.starting, title: "Start" }] : []), [money?.starting]);
   const back = { label: "Runs", onClick: closeRun };
-  if (!run || !money) return <><PhoneTop back={back} aside={`Paper ${id}`} /><p className="p-4 text-dense text-fg-faint">{listing ? "This paper run is not listed." : "Reading the paper runs…"}</p></>;
+  if (!run || !money) {
+    if (listing) return <><PhoneTop back={back} aside={`Paper ${id}`} /><p className="p-4 text-dense text-fg-faint">This paper run is not listed.</p></>;
+    return (
+      <>
+        <PhoneTop back={back} aside={`Paper ${id}`} />
+        <PhonePage>
+          <div className="space-y-2 px-3 pt-3"><Skeleton className="w-40" /><Skeleton className="w-52" /><Skeleton className="w-32" /></div>
+          <div className="px-3 pt-3 text-dense">
+            <Board f={{ basis: "Measured on the account's minute snapshots", limit: null, minimum: null, mdd: null, annual: null, reading: true,
+                        account: { ret: null, needed: null, ahead: null, usdt: null, dd: null, ended: false, stale: true } }} />
+          </div>
+        </PhonePage>
+      </>
+    );
+  }
   const h = health(run, now, zone), held = paperHeld(run), issues = paperIssues(run), line = run.candidate ? lineOf(lines, run.candidate) : null;
   const bar = run.readings?.last_bar_ns != null ? run.readings.last_bar_ns / 1e6 : null, start = run.readings?.started_ns != null ? run.readings.started_ns / 1e6 : null;
   return (

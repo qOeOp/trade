@@ -5,6 +5,7 @@ import { useAtom } from "../state/atom";
 import { deleteDialog, deletePaper, type StartDefaults, startDefaults, startDialog, startPaper, stopDialog, stopPaper } from "../state/paper";
 import { FormButton } from "./chat/Field";
 import { PANEL, SCRIM } from "./dialog";
+import { Skeleton } from "./Missing";
 
 /** "Run paper", asked before every new start: the contracts (the last research replay's to start with) or
  *  the whole universe; execution is bars and the account the replay default the controller names, so neither is a choice. */
@@ -40,7 +41,7 @@ function StartDialog({ candidate }: { candidate: string }) {
                   className="block w-full resize-none rounded-control border border-line-strong bg-island px-2 py-1 font-mono outline-none placeholder:text-fg-ghost focus:border-focus disabled:text-fg-ghost"
                   placeholder="BTCUSDT, ETHUSDT" />
         <span className={`block text-small ${bad.length && !pool ? "text-fail-fg" : "text-fg-faint"}`}>
-          {bad.length && !pool ? `Not a Binance symbol: ${bad.slice(0, 3).join(", ")}` : note ?? "Reading the last research replay…"}
+          {bad.length && !pool ? `Not a Binance symbol: ${bad.slice(0, 3).join(", ")}` : note ?? <Skeleton className="w-44" />}
         </span>
       </label>
       <label className="flex items-center gap-2">
@@ -51,7 +52,7 @@ function StartDialog({ candidate }: { candidate: string }) {
         <dt className="text-fg-faint">Execution</dt><dd>One-minute bars, Sandbox fills</dd>
         <dt className="text-fg-faint">Account</dt><dd>{account
           ? `The replay default: ${Number(account.starting_balance_usdt).toLocaleString("en-US")} USDT margin, ${account.leverage}× leverage`
-          : "The replay default"}</dd>
+          : note ? "The replay default" : <Skeleton className="w-48" />}</dd>
         <dt className="text-fg-faint">Data</dt><dd>Binance public data, no credential</dd>
       </dl>
       <div className="flex justify-end gap-2 pt-1">

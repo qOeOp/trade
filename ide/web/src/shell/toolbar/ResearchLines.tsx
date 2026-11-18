@@ -63,7 +63,16 @@ export function ResearchLines({ index }: { index: LineIndex }) {
   const goal = (label: string, target: number | null | undefined, sign: string) =>
     <span className={NUMBER}>{label}{common && target != null && <span className="block">{sign}{pct(target)}</span>}</span>;
   return <>
-    {!loaded && !error && <DropdownLabel>Reading research lines…</DropdownLabel>}
+    {!loaded && !error && <DropdownGrid cols={COLS}>
+      <DropdownGridLabel sticky>
+        <span className={NAME}>Open</span><span className={DEV}>Development</span><span className={VERSION}>Recommended</span>
+        <span className={NUMBER}>Annual</span><span className={NUMBER}>Max DD</span>
+      </DropdownGridLabel>
+      {[0, 1, 2].map((i) => <DropdownGridLink key={i} href="#" current={false}>
+        <span className={NAME}><Skeleton className="w-28" /></span><span className={DEV}><Skeleton className="w-20" /></span>
+        <span className={VERSION}><Skeleton className="w-20" /></span><span className={NUMBER}><Skeleton /></span><span className={NUMBER}><Skeleton /></span>
+      </DropdownGridLink>)}
+    </DropdownGrid>}
     {loaded && !error && lines.length === 0 && <DropdownLabel>No research lines yet</DropdownLabel>}
     {loaded && <DropdownGrid cols={COLS}>
       {sections.filter(([, rows]) => rows.length).map(([title, rows], i) => <div key={title} className="contents">

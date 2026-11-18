@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { paperApi } from "../../lib/paperApi";
+import { SkeletonLines } from "../../components/Missing";
 import { TextButton } from "../../components/TextButton";
 
 type Log = { paper_id: number; source: string; text: string; sealed: boolean };
@@ -36,7 +37,8 @@ export function Logs({ paperId }: { paperId: number }) {
         <span className="ml-auto text-small text-fg-faint">{log?.sealed ? "Sealed capture" : "Refreshes every 5 seconds"} · latest 300 lines</span>
       </div>
       {error && <p role="status" className="text-misses-fg">Logs unavailable · {error}. Last received text is retained.</p>}
-      <pre className="whitespace-pre-wrap break-words font-mono text-small text-fg-muted">{log?.text || (log ? "No log output yet" : "Reading logs…")}</pre>
+      {!log ? <div className="space-y-3"><SkeletonLines /><SkeletonLines /></div>
+        : <pre className="whitespace-pre-wrap break-words font-mono text-small text-fg-muted">{log.text || "No log output yet"}</pre>}
     </div>
   );
 }

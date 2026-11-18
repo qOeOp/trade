@@ -4,12 +4,14 @@ import { useAtom } from "../../state/atom";
 import { useRunData } from "../../state/runData";
 import { paperTab } from "../../state/stage";
 import { useShown, useTargets } from "../../state/shown";
-import { Typing } from "../../components/Typing";
+import { ChartSkeleton } from "../../components/Missing";
 import { ChartCard } from "./ChartCard";
 import { LiveRunCanvas } from "../live/LiveRunCanvas";
 
-// The page's one line when there is no chart to draw, typing itself out while it is being read (Typing).
-const Empty = ({ children, busy = false }: { children: string; busy?: boolean }) => <div className="grid h-full place-items-center"><Typing text={children} busy={busy} className="text-dense text-fg-faint" /></div>;
+// The page's one line when there is no chart to draw, or a chart skeleton while it is being read.
+const Empty = ({ children, busy = false }: { children: string; busy?: boolean }) => busy
+  ? <section aria-label="Chart" className="flex h-full min-h-0 min-w-0 flex-col rounded-island bg-island px-3 py-2"><ChartSkeleton note={children} /></section>
+  : <div className="grid h-full place-items-center"><p className="text-dense text-fg-faint">{children}</p></div>;
 
 /** What the page says while the page's server has a daemon that does not answer: the runs are not gone,
  *  and nothing is asked of the user, who may have no shell on the machine; the deployment restarts it. */

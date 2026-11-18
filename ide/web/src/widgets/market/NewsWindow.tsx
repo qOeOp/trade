@@ -7,8 +7,11 @@ import { MarketPending } from "./CoinsWindow";
 import { useAtom } from "../../state/atom";
 import { useOnMarketPage } from "../../state/shell";
 import { columns, DataTable, type Column } from "../../components/DataTable";
+import { TableSkeleton } from "../../components/Missing";
 import { Tabs } from "../../components/Tabs";
 import { TextButton } from "../../components/TextButton";
+
+const NEWS_HEADS = [["Age", true], ["Source"], ["Headline"], ["Coins"]] as const;
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
 /** How long ago, in the largest whole unit. */
@@ -54,8 +57,8 @@ export function NewsWindow() {
   const zone = useTimeZone();
   const cols = useMemo(() => COLUMNS(now, zone), [now, zone]);
   if (!page) return <p className="p-4 text-fg-faint">The news of the Market page's level.</p>;
-  if (!snapshot) return <MarketPending />;
-  if (!rows) return <p className="p-4 text-fg-faint">{failed ? "Headlines unavailable: the last read failed. Retrying every 30 seconds." : "Reading the news…"}</p>;
+  if (!snapshot) return <MarketPending headers={NEWS_HEADS} />;
+  if (!rows) return failed ? <p className="p-4 text-fg-faint">Headlines unavailable: the last read failed. Retrying every 30 seconds.</p> : <TableSkeleton headers={NEWS_HEADS} rows={5} />;
   if (!rows.length) return <p className="p-4 text-fg-faint">No headlines for {scope} in the last week.</p>;
   return <DataTable data={rows} columns={cols} rowId={(r) => r.link} fixed />;
 }

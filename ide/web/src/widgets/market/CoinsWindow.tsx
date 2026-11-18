@@ -5,7 +5,7 @@ import { marketCoin, useMarketView, useOverviewService, useSnapshot } from "../.
 import { useOnMarketPage } from "../../state/shell";
 import { pnlClass } from "../../theme/roles";
 import { columns, DataTable, type Column } from "../../components/DataTable";
-import { Missing } from "../../components/Missing";
+import { Missing, TableSkeleton } from "../../components/Missing";
 
 const col = columns<Coin>();
 const money = (key: "volume24h" | "oi", header: string) =>
@@ -33,12 +33,15 @@ const COLUMNS: Column<Coin>[] = [
     cell: (c) => (c.getValue() ? usd(c.getValue()) : <Missing />) }) as Column<Coin>,
 ];
 
-/** What the Coins and News windows say before the overview's first snapshot: not served, offline, or reading. */
-export function MarketPending() {
+const COIN_HEADS = [["Coin"], ["Sector"], ["Price", true], ["1h", true], ["4h", true], ["24h", true], ["7d", true],
+  ["Funding", true], ["OI", true], ["OI 24h", true], ["L / S", true], ["Market cap", true], ["Volume 24h", true], ["Liquidations", true]] as const;
+
+/** What the Coins and News windows say before the overview's first snapshot: not served, offline, or a skeleton. */
+export function MarketPending({ headers = COIN_HEADS }: { headers?: readonly (readonly [string, boolean?])[] }) {
   const service = useOverviewService();
-  return <p className="p-4 text-fg-faint">{service === "absent" ? "Market data is not served by this IDE."
-    : service === "offline" ? "Market data offline. Reconnecting automatically."
-    : "Reading the market…"}</p>;
+  if (service === "absent") return <p className="p-4 text-fg-faint">Market data is not served by this IDE.</p>;
+  if (service === "offline") return <p className="p-4 text-fg-faint">Market data offline. Reconnecting automatically.</p>;
+  return <TableSkeleton headers={headers} rows={5} />;
 }
 
 /** The coins of the level the Market page shows, the folded tail included, as one sortable table; a row

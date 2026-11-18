@@ -8,6 +8,7 @@ import { Breadcrumbs, type Crumb } from "../../components/Breadcrumbs";
 import { DropdownChoice } from "../../components/Dropdown";
 import { HeatLegend } from "../../components/HeatLegend";
 import { HeatTile } from "../../components/HeatTile";
+import { Skeleton } from "../../components/Missing";
 import { TextButton } from "../../components/TextButton";
 import { Empty } from "../../components/Waiting";
 import { useSize } from "../../components/hooks/useSize";
@@ -53,6 +54,9 @@ function Heatmap({ nodes, color, path, coin }: { nodes: readonly Node[]; color: 
  *  tail folded into "+N more"). The island's
  *  header has the path, what the tiles' area and colour follow, and the colour scale; its foot names the
  *  sources, as CoinGecko asks. */
+const TILES = ["col-span-2 row-span-2", "col-span-1 row-span-2", "col-span-1 row-span-1", "col-span-1 row-span-1",
+  "col-span-1 row-span-1", "col-span-1 row-span-1", "col-span-2 row-span-1"] as const;
+
 export function MarketPage() {
   const service = useOverviewService(), snapshot = useSnapshot();
   const { path, coin, size, color } = useMarketView();
@@ -61,22 +65,24 @@ export function MarketPage() {
                          [snapshot, path, size, color]);
   const count = useMemo(() => (snapshot ? coinsAt(snapshot, path, size).length : 0), [snapshot, path, size]);
   if (service === "absent") return <Empty title="Market data is not served by this IDE" />;
-  if (!snapshot) return service === "offline"
-    ? <Empty title="Market data offline">Can't reach the market overview service. Reconnecting automatically.</Empty>
-    : <Empty title="Reading the market…" />;
+  if (!snapshot && service === "offline") return <Empty title="Market data offline">Can't reach the market overview service. Reconnecting automatically.</Empty>;
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* The island's 12px inset less a breadcrumb's own 8px padding, so the first crumb's text sits on the inset. */}
       <div className="flex h-(--header-h) shrink-0 items-center gap-x-3 pr-3 pl-1 text-dense">
         <Breadcrumbs items={crumbs(path, labels)} />
-        <span className="shrink-0 whitespace-nowrap text-fg-faint">{plural(nodes.length, path.length ? "tile" : "sector")} · {plural(count, "contract")}</span>
+        <span className="shrink-0 whitespace-nowrap text-fg-faint">{snapshot ? `${plural(nodes.length, path.length ? "tile" : "sector")} · ${plural(count, "contract")}` : <Skeleton className="w-28" />}</span>
         <span className="ml-auto flex items-center gap-3">
           <DropdownChoice<Size> name="Size" label="Tile size" options={SIZES} value={size} onChange={marketSize.set} />
           <DropdownChoice<Color> name="Colour" label="Tile colour" options={COLORS} value={color} onChange={marketColor.set} />
           <HeatLegend color={color} />
         </span>
       </div>
-      {nodes.length ? <Heatmap nodes={nodes} color={color} path={path} coin={coin} />
+      {!snapshot ? (
+        <div aria-label="Loading market heatmap" className="mx-2 mb-2 grid min-h-0 flex-1 grid-cols-4 grid-rows-3 gap-1">
+          {TILES.map((cls, i) => <div key={i} className={`skeleton rounded-card opacity-45 ${cls}`} />)}
+        </div>
+      ) : nodes.length ? <Heatmap nodes={nodes} color={color} path={path} coin={coin} />
         : path.length ? <Empty title={`The ${labels.at(-1)} ${path.length === 1 ? "sector" : "group"} is not in this snapshot`}><TextButton onClick={() => openPath([])}>Back to All</TextButton></Empty>
         : <Empty title="No coins in this snapshot">The overview service read no perpetual contracts; it reads again every 30 seconds.</Empty>}
       <p className="shrink-0 px-3 pb-1.5 text-right text-small text-fg-faint">Prices, open interest and funding: Binance · Other exchanges: Bybit, OKX, Bitget, Gate, Hyperliquid · Market cap and categories: CoinGecko</p>

@@ -3,6 +3,7 @@ import { useTimeZone } from "../../state/timeZone";
 import { useState, type ReactNode } from "react";
 import { fixed, symbolOf, type Precision } from "../../lib/paperApi";
 import { marketThrough, MISSING, plural } from "../../lib/format";
+import { Skeleton, TableSkeleton } from "../../components/Missing";
 import { TextButton } from "../../components/TextButton";
 import { Tip } from "../../components/Tip";
 import { FormButton } from "../../components/chat/Field";
@@ -108,13 +109,24 @@ function Prompt({ children, action, label, extra }: { children: ReactNode; actio
  *  warm-up, the contract terms or fee rates, the stop, or none of these, which for something only the replay did
  *  marks a look-ahead suspect. Once a contract's paths part, its later differences follow from the first and are
  *  grey. Differences are amber, suspects red. When nothing differs, the matching groups fold into one row. */
+const COMPARE_HEADS = [["Contract"], ["Order"], ["Time"], ["Paper", true], ["Replay", true], ["Delay", true], ["Price, bp", true], ["Result"]] as const;
+
 export function Compare({ r, paperId, only, digits }: {
   r: Comparison | null; paperId: number; only: string | null; digits: ReadonlyMap<string, Precision>;
 }) {
   const [open, setOpen] = useState(false);
-  if (!r || r.paper_id !== paperId) return <Prompt>Reading the run's comparison…</Prompt>;
+  if (!r || r.paper_id !== paperId || r.state === "comparing") {
+    return (
+      <div className="flex flex-col">
+        <div className="flex flex-wrap items-center gap-3 px-3 py-2 text-dense">
+          <Skeleton className="w-24" /><Skeleton className="w-20" /><Skeleton className="w-28" />
+          {r?.state === "comparing" && <span className="ml-auto text-small text-fg-faint">Replaying on the archive…</span>}
+        </div>
+        <TableSkeleton headers={only ? COMPARE_HEADS.slice(1) : COMPARE_HEADS} rows={4} />
+      </div>
+    );
+  }
   if (r.state === "none") return <Prompt action={() => void compare(paperId)} label="Replay and compare">Replay this run on the archived bars of the same interval, with the same source, image and warm-up, and compare every order. Nothing is recorded.</Prompt>;
-  if (r.state === "comparing") return <Prompt>Replaying on the archive… a run of an hour takes about half a minute.</Prompt>;
   if (r.state === "failed" || !r.result) {
     const uncovered = r.error?.code === "PAPER_COMPARE_UNCOVERED";
     return <Prompt action={() => void compare(paperId)} label="Try again"

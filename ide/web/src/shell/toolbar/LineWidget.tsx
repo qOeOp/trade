@@ -4,6 +4,7 @@ import { useView, useWidget } from "../../model/view";
 import { marketDay } from "../../lib/format";
 import { copyText } from "../../lib/clipboard";
 import { Dropdown, DropdownFacts, DropdownItem, DropdownLabel, DropdownSeparator } from "../../components/Dropdown";
+import { Skeleton } from "../../components/Missing";
 import { ResearchLines } from "./ResearchLines";
 import { useResearchLines } from "../../state/researchLines";
 import { useAtom } from "../../state/atom";
@@ -20,12 +21,12 @@ const trialList = (ids: number[]) => `${ids.length === 1 ? "trial" : "trials"} $
 
 /** A row of the menu's lists: a dot in the items' icon column while it holds, its words and value, a muted line under. */
 function Row({ held, label, value, detail, title, mark }: {
-  held: boolean; label: string; value?: string; detail?: string; title?: string; mark?: ReactNode;
+  held: boolean; label: string; value?: ReactNode; detail?: string; title?: string; mark?: ReactNode;
 }) {
   return (
     <li className="flex gap-2" title={title}>
       <span className="grid h-[1lh] w-4 shrink-0 place-items-center">{mark ?? (held && <i className="size-1.5 rounded-full bg-misses" />)}</span>
-      <span className="min-w-0 flex-1"><span className="flex gap-3"><span className="text-fg">{label}</span>
+      <span className="min-w-0 flex-1"><span className="flex items-baseline gap-3"><span className="text-fg">{label}</span>
         {value && <span className={`ml-auto shrink-0 font-mono tabular-nums ${held ? "text-fg" : "text-fg-muted"}`}>{value}</span>}</span>
         {detail && <span className="block wrap-anywhere text-small text-fg-muted">{detail}</span>}</span>
     </li>
@@ -49,9 +50,10 @@ function LineState({ line, drawn }: { line: string; drawn: { code: string; messa
     </>}
     <DropdownLabel>Review{every ? ` · every ${every} runs` : ""}</DropdownLabel>
     <ul className="flex w-0 min-w-full flex-col gap-1 px-2 pb-1.5">
-      {read?.kind === "reading" && <li className="flex gap-2 text-fg-muted">
-        <span className="grid h-[1lh] w-4 shrink-0 place-items-center"><Icon name="loading" size={12} className="text-icon motion-safe:animate-spin" /></span>
-        Comparing the latest runs…</li>}
+      {read?.kind === "reading" && <>
+        <Row held={false} label="Runs since the last review" value={<Skeleton className="w-10" />} />
+        <Row held={false} label="Undistinguished runs in a row" value={<Skeleton className="w-10" />} />
+      </>}
       {read?.kind === "failed" && <Row held={false} mark={<Icon name="warning" size={12} className="text-misses" />}
         label="Could not read the review" detail={`${read.message} · reopen the menu to try again`} />}
       {state && every && <>

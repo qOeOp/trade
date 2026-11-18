@@ -4,6 +4,7 @@ import { PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
 import { HeatLegend } from "../../components/HeatLegend";
 import { HeatTile } from "../../components/HeatTile";
 import { KeyValues } from "../../components/KeyValues";
+import { Skeleton } from "../../components/Missing";
 import { Section } from "../../components/Section";
 import { useNow } from "../../components/hooks/useNow";
 import { useSize } from "../../components/hooks/useSize";
@@ -61,7 +62,21 @@ export function MarketTab() {
     <>
       <PhoneTop title="Market" aside={updated !== null && Number.isFinite(updated) ? `Updated ${ago(updated, now)} ago` : undefined} />
       <PhonePage>
-        {!snapshot ? <p className="p-4 text-dense text-fg-faint">{service === "absent" ? "Market data is not served by this IDE." : service === "offline" ? "Market data offline. This page reconnects on its own." : "Reading the market…"}</p> : <>
+        {!snapshot ? (
+          service === "absent" ? <p className="p-4 text-dense text-fg-faint">Market data is not served by this IDE.</p>
+          : service === "offline" ? <p className="p-4 text-dense text-fg-faint">Market data offline. This page reconnects on its own.</p>
+          : <>
+            <div className="px-3 pt-3 text-dense"><Section title="Overview">
+              <KeyValues labels="fixed" items={[["Total market cap", <Skeleton key="cap" className="w-24" />], ["BTC dominance", <Skeleton key="btc" className="w-12" />], ["Fear & Greed", <Skeleton key="fg" className="w-20" />]]} />
+            </Section></div>
+            <PhoneHeading title="Prices" aside="Binance perpetuals" />
+            <PhoneTable head={["Coin", "Price", "24h", "Funding"]} rows={FIXED.map((s) => [s.replace(/USDT$/, ""), <Skeleton key={`${s}-p`} className="w-16" />, <Skeleton key={`${s}-c`} className="w-12" />, <Skeleton key={`${s}-f`} className="w-14" />])} />
+            <PhoneHeading title="Sectors" aside="24h · by market cap" />
+            <div className="grid h-48 grid-cols-3 grid-rows-2 gap-1 px-3 pb-2">
+              {[0, 1, 2, 3, 4].map((i) => <div key={i} className={`skeleton rounded-card opacity-45 ${i === 0 ? "col-span-2" : ""}`} />)}
+            </div>
+          </>
+        ) : <>
           {g && <div className="px-3 pt-3 text-dense"><Section title="Overview">
             <KeyValues labels="fixed" items={[
               ["Total market cap", g.marketCap === null ? null : <>{usd(g.marketCap)} <span className={pnlClass(g.marketCapChange24h)}>{change(g.marketCapChange24h)}</span> <span className="text-fg-faint">24h</span></>],

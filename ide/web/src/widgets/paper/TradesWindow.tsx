@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Skeleton, TableSkeleton } from "../../components/Missing";
 import { Tabs } from "../../components/Tabs";
 import { TextButton } from "../../components/TextButton";
 import { precisions } from "../../lib/paperApi";
@@ -18,6 +19,9 @@ import { Trades, useTradeRows } from "./Trades";
 import { Logs } from "./Logs";
 import { LiveTrades, LiveTradesTools } from "../live/LiveTrades";
 
+const CYCLE_HEADS = [["Contract"], ["Side"], ["Opened", true], ["Closed", true], ["Held", true], ["Closed by"], ["P&L", true], ["Fees", true], ["Funding", true]] as const;
+const TRADE_HEADS = [["Contract"], ["Side"], ["Size", true], ["Entry", true], ["Exit / last", true], ["Closed by"], ["Held", true], ["P&L", true], ["Closed / stopped", true]] as const;
+
 /** The paper run's stream while the stage shown is paper, and the tab open: Exceptions only once the
  *  strategy raised, Comparison only once the run is sealed. */
 function useScope() {
@@ -32,11 +36,14 @@ function useScope() {
  *  shown has no paper run), then what they list (the stage, the contract the chart shows or all of them,
  *  and how many) with "Show all" to go back to every contract. */
 export function TradesTools() {
-  const { stage, s, only, tab, failures, sealed } = useScope(), r = useComparison(), backtest = useBacktest();
+  const { stage, s, only, tab, failures, sealed } = useScope(), r = useComparison(), backtest = useBacktest(), service = usePaperService();
   const cycles = stage === "backtest" && backtest?.kind === "ready" ? backtest.b.cycles.filter((c) => !only || c.symbol === only).length : null;
+  const reading = (stage === "backtest" && backtest?.kind === "reading") || (stage === "paper" && !s && service !== "absent" && service !== "offline");
   if (stage === "live") return <LiveTradesTools />;
   if (!s) {
-    return <><h2 className="shrink-0 font-semibold">Trades</h2>{cycles !== null && <span className="ml-auto whitespace-nowrap text-dense tabular-nums text-fg-faint">Backtest · {only ?? "All contracts"} · {cycles}</span>}</>;
+    return <><h2 className="shrink-0 font-semibold">Trades</h2>
+      {cycles !== null ? <span className="ml-auto whitespace-nowrap text-dense tabular-nums text-fg-faint">Backtest · {only ?? "All contracts"} · {cycles}</span>
+        : reading && <span className="ml-auto flex items-center"><Skeleton className="w-28" /></span>}</>;
   }
   return (
     <>
@@ -73,11 +80,15 @@ export function TradesWindow() {
   if (stage === "live") return <LiveTrades />;
   if (stage === "backtest") {
     if (backtest?.kind === "ready") return <div className="@container/page"><Cycles cycles={backtest.b.cycles} only={only} /></div>;
+    if (backtest?.kind === "reading") return <TableSkeleton headers={only ? CYCLE_HEADS.slice(1) : CYCLE_HEADS} rows={4} />;
     return <Note>{backtestNote(backtest, trial?.trial_id ?? 0) ?? ""}</Note>;
   }
-  if (!s) return <Note>{service === "absent" ? "Paper runs are not served by this IDE"
-    : service === "offline" ? "Paper service offline. Reconnecting automatically."
-    : stage === null ? "No research run and no paper run" : "Reading the paper run…"}</Note>;
+  if (!s) {
+    if (service === "absent") return <Note>Paper runs are not served by this IDE</Note>;
+    if (service === "offline") return <Note>Paper service offline. Reconnecting automatically.</Note>;
+    if (stage === null && service !== "checking") return <Note>No research run and no paper run</Note>;
+    return <TableSkeleton headers={only ? TRADE_HEADS.slice(1) : TRADE_HEADS} rows={4} />;
+  }
   return (
     <div className="@container/page">
       {tab === "trades" ? <Trades s={s} only={only} /> : tab === "events" ? <Events s={s} only={only} />
