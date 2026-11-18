@@ -320,7 +320,7 @@ class RestartTests(unittest.TestCase):
         daemon = self.daemon(Path("/nonexistent"))
         daemon.stopping, daemon.starting, daemon.journals, daemon.listed = set(), set(), {}, None
         daemon.recovery_failures = {paper_id: failure for paper_id in (1, 2, 3, 4)}
-        daemon.journal = mock.Mock()
+        daemon.journal = mock.Mock(return_value=serve.Journal())
         listed = {"runs": [{"paper_id": 1, "state": "ended"}, {"paper_id": 2, "state": "unsealed"},
                            {"paper_id": 3, "state": "running"}, {"paper_id": 4, "state": "sealed"}]}
         with tempfile.TemporaryDirectory() as name, \
@@ -332,28 +332,24 @@ class RestartTests(unittest.TestCase):
         self.assertEqual(found[2]["recovery"], failure)
         self.assertNotIn("recovery", found[3], "a running run has recovered")
         self.assertNotIn("recovery", found[4], "a sealed run is done")
-        self.assertIsNone(found[3]["recovery_declared"], "no strategy input to read")
+        self.assertIsNone(found[3]["recovery_declared"], "no `started` line yet")
 
-    def test_the_listing_says_whether_the_source_declares_recovery_as_the_runner_checks_it(self):
-        """The Paper page marks a running run that an interruption ends (engine.paper_session Session.supported)."""
-        hooks = "    def on_save(self):\n        return {}\n\n    def on_load(self, state):\n        pass\n"
-        declared = f"class S(Strategy):\n    PAPER_RECOVERY = 1\n\n{hooks}"
-        inherited = f"class Base(Strategy):\n{hooks}\n\nclass S(Base):\n    PAPER_RECOVERY = 1\n"
-        self.assertTrue(serve.declares_recovery(declared.encode(), "S"))
-        self.assertTrue(serve.declares_recovery(inherited.encode(), "S"), "hooks from a base in the same file count")
-        self.assertFalse(serve.declares_recovery(f"class S(Strategy):\n{hooks}".encode(), "S"), "no declaration")
-        self.assertFalse(serve.declares_recovery(b"class S(Strategy):\n    PAPER_RECOVERY = 1\n", "S"), "no hooks")
-        self.assertFalse(serve.declares_recovery(declared.replace("= 1", "= 2").encode(), "S"))
-        self.assertIsNone(serve.declares_recovery(b"class S(:\n", "S"))
-        # Only the run's entry class, as its journal's `started` line names it, and the bases it derives from count:
-        # another class of the file declaring it does not make the run recoverable.
-        other = f"{declared}\n\nclass Entry(Strategy):\n    pass\n"
-        self.assertFalse(serve.declares_recovery(other.encode(), "Entry"))
-        self.assertTrue(serve.declares_recovery(other.encode(), "S"))
-        self.assertIsNone(serve.declares_recovery(declared.encode(), None), "before the `started` line")
-        self.assertIsNone(serve.declares_recovery(declared.encode(), "Imported"), "not a class of the file")
-        self.assertEqual(serve.entry_class([{"kind": "waiting"}, {"kind": "started", "strategy_entry_class": "S"}]), "S")
-        self.assertIsNone(serve.entry_class([{"kind": "waiting"}]))
+    def test_the_listing_says_whether_the_source_declares_recovery_as_its_runner_journalled_it(self):
+        """The Paper page marks a running run that an interruption ends: the runner's verdict on the `started` line
+        (engine.paper_session.declares_recovery); nothing before that line, nor for a line without the key."""
+        for lines, expected in (([{"kind": "waiting"}], None),
+                                ([{"kind": "started"}], None),
+                                ([{"kind": "started", "recovery_declared": False}], False),
+                                ([{"kind": "started", "recovery_declared": True}], True)):
+            daemon = self.daemon(Path("/nonexistent"))
+            daemon.stopping, daemon.starting, daemon.journals, daemon.listed = set(), set(), {}, None
+            daemon.recovery_failures = {}
+            daemon.journal = mock.Mock(return_value=serve.Journal(lines=list(lines)))
+            with self.subTest(lines=lines), tempfile.TemporaryDirectory() as name, \
+                    mock.patch.object(runs, "listing", return_value={"runs": [{"paper_id": 1, "state": "running"}]}), \
+                    mock.patch.object(runs, "run_dir", return_value=Path(name)), \
+                    mock.patch.object(serve, "readings", side_effect=lambda row, journal: {}):
+                self.assertIs(serve.Daemon._runs(daemon)["runs"][0]["recovery_declared"], expected)
 
     def test_the_listing_names_a_held_runs_positions_without_a_working_stop_until_they_close(self):
         """User 2026-11-17 (keep it held, notify at once): a position whose `protection_gap` was journalled after the
@@ -361,25 +357,21 @@ class RestartTests(unittest.TestCase):
         that declares recovery are not."""
         gap = lambda key, at: {"kind": "protection_gap", "wall_ns": at, "position_id": key,  # noqa: E731
                                "instrument_id": "BTCUSDT-PERP.BINANCE", "since_ns": at - 5}
-        lines = [{"kind": "started", "strategy_entry_class": "S"}, gap("P-0", 10), {"kind": "resumed", "wall_ns": 20},
+        lines = [gap("P-0", 10), {"kind": "resumed", "wall_ns": 20},
                  gap("P-1", 30), gap("P-2", 31),
                  {"kind": "position", "wall_ns": 40, "position_id": "P-2", "type": "PositionClosed"},
                  {"kind": "position", "wall_ns": 41, "position_id": "P-1", "type": "PositionChanged",
                   "side": "LONG", "quantity": "0.5"}]
-        undeclared = b"class S(Strategy):\n    pass\n"
-        declared = (b"class S(Strategy):\n    PAPER_RECOVERY = 1\n    def on_save(self):\n        return {}\n"
-                    b"    def on_load(self, state):\n        pass\n")
-        for text, since, named in ((undeclared, 20, ["P-1"]), (declared, None, [])):
+        for declared, since, named in ((False, 20, ["P-1"]), (True, None, [])):
             daemon = self.daemon(Path("/nonexistent"))
             daemon.stopping, daemon.starting, daemon.journals, daemon.listed = set(), set(), {}, None
             daemon.recovery_failures = {}
-            daemon.journal = mock.Mock(return_value=serve.Journal(lines=list(lines)))
+            journalled = [{"kind": "started", "recovery_declared": declared}, *lines]
+            daemon.journal = mock.Mock(return_value=serve.Journal(lines=journalled))
             with tempfile.TemporaryDirectory() as name, \
                     mock.patch.object(runs, "listing", return_value={"runs": [{"paper_id": 1, "state": "running"}]}), \
                     mock.patch.object(runs, "run_dir", return_value=Path(name)), \
                     mock.patch.object(serve, "readings", side_effect=lambda row, journal: {}):
-                (Path(name) / "inputs").mkdir()
-                (Path(name) / "inputs" / "strategy.py").write_bytes(text)
                 run = serve.Daemon._runs(daemon)["runs"][0]
             self.assertEqual(run["held_since"], since)
             self.assertEqual([item["position_id"] for item in run["unprotected"]], named)

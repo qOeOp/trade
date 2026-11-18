@@ -605,9 +605,15 @@ IDs, which the paired comparison masks.
 `on_start` re-establishes the minute subscription and the aggregations `WARMUP` declares, and may subscribe to those
 aggregations of the run's other contracts, without custom routing or dynamic changes. User timers are outside this protocol. A checkpoint holds the positions and the working
 orders the Sandbox restores into its matching engines as they were and a recovery can check: accepted (a STOP_LIMIT
-also triggered), not in flight, emulated, contingent or linked, not partly filled, a LIMIT, STOP_MARKET, STOP_LIMIT or
-LIMIT_IF_TOUCHED triggered by the last price; any other unfinished order (a trailing stop, a MARKET_IF_TOUCHED, a MARK
-trigger) defers the checkpoint, so a source holding one cannot be resumed. A source must
+also triggered), not in flight, emulated, contingent or linked, not partly filled, a LIMIT, STOP_MARKET, STOP_LIMIT,
+LIMIT_IF_TOUCHED or MARKET_IF_TOUCHED triggered by the last or the mark price (the Sandbox takes no mark price and
+matches bars with bid = ask = last, so a MARK trigger fires on the bars' last prices), or a trailing stop not yet
+activated that has an activation price (user decision 2026-11-18). Any other unfinished order defers the checkpoint, so
+a source holding one cannot be resumed: an activated trailing stop among them (also one placed without an activation
+price, which activates at once), since rc7 keeps a trailing stop's activation outside the order's events and restores
+every trailing stop inactive. A recovery checks a restored trailing stop by its activation price: a sell is touched by
+a minute whose high reached it, a buy by one whose low did. An order a source submits on a back-filled bar is checked
+by the earlier rules: a MARKET_IF_TOUCHED, a MARK trigger or a trailing stop there refuses the recovery. A source must
 not rely on native account event-count/history representation or unsaved cache history. A recovery warms the
 source again at its own T as a start does (history, then the unfinished buckets from their minutes), then
 calls `on_load` with the saved state and then `on_start`. A recovery that crossed a funding settlement the source
@@ -671,6 +677,13 @@ misses at least one bar (the one closing at the warm-up's T is never received li
 bars missing from each held interruption's pause (the first `stop_requested` since the run last started or resumed,
 else its last line before `resumed`) up to the held recovery's first live bar on the contract are the hold's, not
 `missing_bar` evidence; a live gap before the pause or after that bar still is (`paper/compare.py` interruptions).
+
+Whether a source declares the protocol is the runner's own verdict on the class it loaded
+(`engine.paper_session.declares_recovery`: `PAPER_RECOVERY` as Python resolves it, and `on_save` and `on_load` in its
+MRO above `Strategy`). A new run journals it on its `started` line as `recovery_declared` (user 2026-11-18); the
+page's mark, the listing's `held_since` and `unprotected`, and `paper compare`'s `held` cause read it from there and
+never read or run the source. A run whose `started` line has no such key (started before this change) has no verdict:
+it is never marked or taken as held.
 
 A recovery of a `PAPER_RECOVERY` source whose interruption crossed a funding settlement its source or recorder was
 following is held the same way instead of refused (user 2026-11-17): the source would never see that settlement as it

@@ -89,31 +89,29 @@ class Compare(unittest.TestCase):
         entry, so an entry only the replay made after the first `resumed` is the hold's, not a look-ahead suspect;
         one before it, or a run whose source declares recovery, stays unexplained (user 2026-11-17)."""
         held = START + 2 * MINUTE
-        started = {"kind": "started", "strategy_entry_class": "S"}  # the entry class the runner loaded
-        lines = [started, *journal([], 5), {"kind": "resumed", "wall_ns": held}]
-        undeclared = b"class S(Strategy):\n    def on_bar(self, bar):\n        pass\n"
-        declared = (b"class S(Strategy):\n    PAPER_RECOVERY = 1\n    def on_save(self):\n        return {}\n"
-                    b"    def on_load(self, state):\n        pass\n")
-        self.assertEqual(compare.held_since(lines, undeclared), held)
-        self.assertIsNone(compare.held_since(lines, declared))
-        self.assertIsNone(compare.held_since([started, *journal([], 5)], undeclared), "never resumed")
-        self.assertIsNone(compare.held_since(lines[1:], undeclared), "no entry class, nothing taken as held")
+        undeclared = {"kind": "started", "recovery_declared": False}  # the runner's verdict
+        declared = {"kind": "started", "recovery_declared": True}
+        rest = [*journal([], 5), {"kind": "resumed", "wall_ns": held}]
+        self.assertEqual(compare.held_since([undeclared, *rest]), held)
+        self.assertIsNone(compare.held_since([declared, *rest]))
+        self.assertIsNone(compare.held_since([undeclared, *journal([], 5)]), "never resumed")
+        self.assertIsNone(compare.held_since(rest), "no `started` line, nothing taken as held")
+        self.assertIsNone(compare.held_since([{"kind": "started"}, *rest]), "no verdict, nothing taken as held")
         # A source with the protocol is held from a recovery that crossed a funding settlement: the runner follows
         # `resumed` with a refusal at once and goes on; a refused recovery stops without another bar.
-        fell = [started, {"kind": "resumed", "wall_ns": held},
+        fell = [declared, {"kind": "resumed", "wall_ns": held},
                 {"kind": "refusal", "code": "PAPER_RECOVERY_UNAVAILABLE", "reason": "funding"}]
         bar = {"kind": "bar", "instrument_id": "BTCUSDT-PERP.BINANCE", "ts_event": close_of(4)}
-        self.assertEqual(compare.held_since(fell + [bar], declared), held)
-        self.assertIsNone(compare.held_since(fell, declared), "refused and stopped")
-        self.assertIsNone(compare.held_since(fell + [{"kind": "resumed", "wall_ns": held + 1}, bar], declared))
-        self.assertIsNone(compare.held_since([started, fell[1], bar, fell[2], bar], declared),
-                          "a refusal that came later")
+        self.assertEqual(compare.held_since(fell + [bar]), held)
+        self.assertIsNone(compare.held_since(fell), "refused and stopped")
+        self.assertIsNone(compare.held_since(fell + [{"kind": "resumed", "wall_ns": held + 1}, bar]))
+        self.assertIsNone(compare.held_since([declared, fell[1], bar, fell[2], bar]), "a refusal that came later")
         for at, since, cause in ((close_of(3), held, "held"), (close_of(1), held, "unexplained"),
                                  (close_of(3), None, "unexplained")):
             with self.subTest(at=at, since=since):
                 replay = [initialized("R1", "ENTRY"), {**filled("R1", at, "100.0", "1")}]
                 replay[0]["ts_event"] = at
-                found = shared.compare(compare.run_record(lines, [], held=since), replay, {"BTCUSDT": archived(5)},
+                found = shared.compare(compare.run_record([undeclared, *rest], [], held=since), replay, {"BTCUSDT": archived(5)},
                                        None, START, START + 5 * MINUTE)
                 group = found["groups"][0]
                 self.assertEqual((group["cause"], group["look_ahead_suspect"]), (cause, cause == "unexplained"))

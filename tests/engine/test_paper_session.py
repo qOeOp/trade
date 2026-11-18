@@ -52,6 +52,12 @@ def order(kind="STOP_MARKET", status="ACCEPTED", side="SELL", trigger="99000.0",
         **fields})
 
 
+def trailing(kind="TRAILING_STOP_MARKET", side="SELL", activation="101000.0", is_activated=False, **fields):
+    """A trailing stop as the cut reads it from the native cache: `is_activated` is rc7's matching engine's."""
+    return order(kind=kind, side=side, activation_price=None if activation is None else Price.from_str(activation),
+                 is_activated=is_activated, **fields)
+
+
 def minutes(*ranges: tuple[str, str]) -> list:
     """The interruption's one-minute bars after LAST, (low, high) each, closing a minute apart up to T."""
     return [SimpleNamespace(ts_event=LAST + (index + 1) * MINUTE_NS, low=Price.from_str(low), high=Price.from_str(high))
@@ -84,6 +90,30 @@ class SessionTests(unittest.TestCase):
     def test_native_default_hooks_are_not_an_explicit_recovery_protocol(self):
         self.assertFalse(self.session(Empty).supported)
         self.assertTrue(self.session().supported)
+
+    def test_the_protocol_is_what_python_resolves_not_what_the_text_says_first(self):
+        """declares_recovery is the runner's verdict the `started` line carries (user 2026-11-18): the last assignment
+        wins, a computed value counts, and hooks bound by assignment or from a base count."""
+        class Reassigned(Hooks):
+            PAPER_RECOVERY = 0
+            PAPER_RECOVERY = 1  # noqa: PIE794
+
+        class Computed(Hooks):
+            PAPER_RECOVERY = int("1")
+
+        class Bound(Strategy):
+            PAPER_RECOVERY = 1
+            on_save = Hooks.on_save
+            on_load = Hooks.on_load
+
+        class Undone(Hooks):
+            PAPER_RECOVERY = 1
+            PAPER_RECOVERY = 0  # noqa: PIE794
+
+        for cls, expected in ((Reassigned, True), (Computed, True), (Bound, True), (Undone, False), (Empty, False)):
+            with self.subTest(cls=cls.__name__):
+                self.assertIs(paper_session.declares_recovery(cls), expected)
+                self.assertIs(self.session(cls).declared, expected)
 
     def test_an_error_from_the_native_cache_defers_the_cut_and_never_escapes_the_timer(self):
         """A killed cache child gives RuntimeError: broken pipe. Out of the timer callback it stopped rc7's dispatch for
@@ -149,10 +179,14 @@ class SessionTests(unittest.TestCase):
 
     def test_a_checkpoint_holds_the_working_orders_the_sandbox_restores_and_defers_for_any_other(self):
         """docs/plans/paper-recovery-open-orders-20261117.zh.md: an accepted order (a triggered STOP_LIMIT too) is
-        restored by the Sandbox's start as it was; one in flight, emulated, contingent or linked, a trailing stop, a
-        partial fill or another triggered order is not, and defers the cut."""
+        restored by the Sandbox's start as it was, a trailing stop only while it is not activated (user decision
+        2026-11-18); one in flight, emulated, contingent or linked, an activated trailing stop, a partial fill or
+        another triggered order is not, and defers the cut."""
         restorable = (order(), order(kind="LIMIT", price="98000.0"), order(kind="STOP_LIMIT", status="TRIGGERED"),
-                      order(kind="LIMIT_IF_TOUCHED"), order(is_closed=True, status="CANCELED"))
+                      order(kind="LIMIT_IF_TOUCHED"), order(kind="MARKET_IF_TOUCHED"),
+                      order(trigger_type="MARK_PRICE"), order(kind="MARKET_IF_TOUCHED", trigger_type="MARK_PRICE"),
+                      trailing(), trailing(kind="TRAILING_STOP_LIMIT", side="BUY", activation="99000.0"),
+                      trailing(trigger_type="MARK_PRICE"), order(is_closed=True, status="CANCELED"))
         unrestorable = {"INITIALIZED": order(status="INITIALIZED"), "SUBMITTED": order(status="SUBMITTED"),
                         "PENDING_UPDATE": order(status="PENDING_UPDATE"),
                         "PENDING_CANCEL": order(status="PENDING_CANCEL"),
@@ -161,10 +195,14 @@ class SessionTests(unittest.TestCase):
                         "emulated": order(is_emulated=True),
                         "OTO": order(contingency_type=ContingencyType.OTO),
                         "parent": order(parent_order_id="O-0"), "linked": order(linked_order_ids=["O-2"]),
-                        "trailing": order(kind="TRAILING_STOP_MARKET"),
+                        "activated trailing": trailing(is_activated=True),
+                        "activated trailing limit": trailing(kind="TRAILING_STOP_LIMIT", is_activated=True),
+                        "triggered trailing limit": trailing(kind="TRAILING_STOP_LIMIT", status="TRIGGERED"),
                         # What the recovery's check could not decide (touched) defers the cut instead.
-                        "MARKET_IF_TOUCHED": order(kind="MARKET_IF_TOUCHED"),
-                        "MARK trigger": order(trigger_type="MARK_PRICE")}
+                        "trailing without an activation price": trailing(activation=None),
+                        "BID_ASK trigger": order(trigger_type="BID_ASK"),
+                        "trailing on BID_ASK": trailing(trigger_type="BID_ASK"),
+                        "MARKET_IF_TOUCHED on BID_ASK": order(kind="MARKET_IF_TOUCHED", trigger_type="BID_ASK")}
         strategy = self.strategy()
         strategy._paper_cadence = Cadence()
         for name, found in (("restorable", restorable), *((key, (value,)) for key, value in unrestorable.items())):
@@ -376,7 +414,10 @@ class BackfillTests(unittest.TestCase):
             "a MARKET": (order(kind="MARKET"), below, "is a MARKET order"),
             "a GTD expiring by T": (order(kind="LIMIT", side="BUY", price="99000.0", tif="GTD", expire_time=T), below,
                                     "GTD expiry"),
+            # Restored orders only (user decision 2026-11-18): one submitted on a back-filled bar is not checked.
             "a MARK trigger": (order(trigger_type="MARK_PRICE"), below, "cannot be checked"),
+            "a MARKET_IF_TOUCHED": (order(kind="MARKET_IF_TOUCHED", trigger="101000.0"), below, "cannot be checked"),
+            "a trailing stop": (trailing(), below, "cannot be checked"),
         }
         bars = [aggregated(end, close="100000.0") for end in (T - 3 * QUARTER, T - 2 * QUARTER, bar_end, T)]
         for name, (found, (low, high), reason) in cases.items():
@@ -615,6 +656,12 @@ class InterruptionTests(unittest.TestCase):
                       order(kind="LIMIT_IF_TOUCHED", side="BUY", trigger="99000.0"),
                       order(kind="LIMIT_IF_TOUCHED", side="SELL", trigger="101000.0"),
                       order(trigger_type="LAST_PRICE"), order(tif="GTD", expire_time=T + 1),
+                      order(kind="MARKET_IF_TOUCHED", side="BUY", trigger="99000.0"),
+                      order(kind="MARKET_IF_TOUCHED", side="SELL", trigger="101000.0"),
+                      order(side="SELL", trigger="99000.0", trigger_type="MARK_PRICE"),
+                      order(side="BUY", trigger="101000.0", trigger_type="MARK_PRICE"),
+                      trailing(side="SELL", activation="101000.0"), trailing(side="BUY", activation="99000.0"),
+                      trailing(kind="TRAILING_STOP_LIMIT", side="SELL", activation="101000.0", trigger_type="MARK_PRICE"),
                       order(status="CANCELED", kind="MARKET_IF_TOUCHED", is_closed=True)):
             with self.subTest(kind=found.order_type, side=found.side, status=found.status):
                 self.assertIsNone(self.check(found))
@@ -629,7 +676,13 @@ class InterruptionTests(unittest.TestCase):
                       order(kind="LIMIT", side="SELL", price="101000.0"),
                       order(kind="STOP_LIMIT", status="TRIGGERED", side="BUY", trigger="101000.0", price="99000.0"),
                       order(kind="LIMIT_IF_TOUCHED", side="BUY", trigger="99000.0"),
-                      order(kind="LIMIT_IF_TOUCHED", side="SELL", trigger="101000.0")):
+                      order(kind="LIMIT_IF_TOUCHED", side="SELL", trigger="101000.0"),
+                      order(kind="MARKET_IF_TOUCHED", side="BUY", trigger="99000.0"),
+                      order(kind="MARKET_IF_TOUCHED", side="SELL", trigger="101000.0"),
+                      order(side="SELL", trigger="99000.0", trigger_type="MARK_PRICE"),
+                      # A trailing stop the interruption reached the activation price of may have activated.
+                      trailing(side="SELL", activation="101000.0"), trailing(side="BUY", activation="99000.0"),
+                      trailing(kind="TRAILING_STOP_LIMIT", side="SELL", activation="101000.0")):
             with self.subTest(kind=found.order_type, side=found.side, status=found.status):
                 reason = self.check(found, touching)
                 self.assertIn("O-1", reason)
@@ -638,9 +691,10 @@ class InterruptionTests(unittest.TestCase):
 
     def test_what_the_minutes_cannot_prove_untouched_refuses(self):
         cases = {"a GTD without its expiry": (order(tif="GTD"), QUIET),
-                 "a MARK trigger": (order(trigger_type="MARK_PRICE"), QUIET),
                  "a BID_ASK trigger": (order(trigger_type="BID_ASK"), QUIET),
-                 "a MARKET_IF_TOUCHED": (order(kind="MARKET_IF_TOUCHED"), QUIET),
+                 "a trailing stop without an activation price": (trailing(activation=None), QUIET),
+                 "an activated trailing stop": (trailing(is_activated=True), QUIET),
+                 "a triggered trailing stop limit": (trailing(kind="TRAILING_STOP_LIMIT", status="TRIGGERED"), QUIET),
                  "a triggered LIMIT_IF_TOUCHED": (order(kind="LIMIT_IF_TOUCHED", status="TRIGGERED", side="BUY"),
                                                   QUIET),
                  "a triggered STOP_MARKET": (order(status="TRIGGERED"), QUIET),

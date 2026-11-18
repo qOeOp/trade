@@ -163,7 +163,7 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 
 - SIGTERM 时无协议源码按暂停停下，条件除了有持仓，还要求每张未终结的订单都能进切点（在途的单照旧等）。否则（例如持有跟踪止损）暂停发布不了切点，运行会以未撤的入场单封存，正是第二次评审第 6 条要避免的，所以这时照今天撤单、结束。
 - 恢复的期限到了而源码（或保持策略）还没启动时，拒绝原因写进 `Session.refused`，之后才完成的读取不会再启动任何东西（否则会在已经按暂停停下的运行里撤掉恢复出来的入场单）。这也适用于有协议源码的恢复，属于修已有缺陷。
-- `paper compare` 判断源码是否声明协议，用页面同一个读源码文本的判定（`paper.serve.declares_recovery`），不运行源码。
+- `paper compare` 判断源码是否声明协议，用页面同一个读源码文本的判定（`paper.serve.declares_recovery`），不运行源码。（2026-11-18 起改为读运行器写在 `started` 行上的判定，见文末一节。）
 
 ## 跨聚合桶边界：补齐后继续（「放宽，补齐后继续」）
 
@@ -370,6 +370,22 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 - 不变：不新增存储字段、不加日志行；停机检查只多读同一个 LAST 1 分钟接口。
 - 实施时的成对验收：用 `engine.paper.main` 跑连续与中断—恢复，覆盖 MIT、MARK 止损、未激活的跟踪止损；拒绝路径各一条（停机碰到激活价、已激活的在切点推迟）；已触发的跟踪止损限价单单独探一次再决定。技能文字（`strategy-authoring.md`）按 `.agents/README.md` 同步：跟踪止损必须给初始触发价，否则回放与 Paper 以 `MARKET_PRICE_UNAVAILABLE` 拒单。
 - 上游（可选，对外发帖要用户点头）：rc7 跟踪止损的激活状态不持久化，带 `load_state` 重启后已激活的跟踪止损变成未激活；Live 带缓存重启同样受影响（止损在交易所工作，但缓存里的订单状态会丢）。
+- 上游：用户 2026-11-18 同意发帖，已提 nautechsystems/nautilus_trader#5695（检索过，没有既有的同类 issue；内容只有原生事实与复现步骤，不含本项目信息）。
+
+### 我们自己的切点能不能带上激活状态（2026-11-18；只是回答，没有新增存储的值）
+
+能记下，但用不上，所以不能靠它让已激活的跟踪止损可恢复：
+
+- 记：切点那一刻从原生缓存读每张工作中的跟踪止损的 `is_activated` 和 `activation_price`（激活时补上的那个），存进检查点，是一个新存储的值（要逐字段授权、独立评审）。
+- 用不上：rc7 的 Python 订单对象上 `is_activated`、`activation_price` 都只读（`nautilus_trader.model.TrailingStopMarketOrder` 的 getset 描述符没有 setter，类型存根里是 `@property`）；pyo3 返回的订单是 Rust 缓存里那张的副本，改了也到不了缓存。Sandbox 在 `start()` 里自己 `load_open_orders` → `restore_open_order`，用的是从事件重建的订单，在源码 `on_start` 之前；撮合核心的条目也没有 Python 接口。所以存下的状态没有原生入口能写回去。
+- 绕法都不精确：恢复后撤掉再按"已激活"重下一张，订单 ID、事件、激活价都与连续跑不同，且重下那一刻到撮合之间还有一步；自己算跟踪价等于平行的撮合，违反"Nautilus 管订单与撮合"。
+- 结论：要等上游让激活状态随订单持久化（#5695），那时连同我们自己的切点都不需要新值，已激活的跟踪止损按原生恢复即可；在那之前照现状推迟切点。
+
+### 已实施（2026-11-18，用户选「放宽能精确恢复的」）
+
+按上表放宽 `engine/paper_session.py`：`unrestorable` 放行已受理的 MIT、按 MARK 触发的单、未激活且带激活价的跟踪止损（切点时读缓存里的 `is_activated`：rc7 撮合引擎激活时就写回缓存，`store_trailing_stop_activation`）；`touched`/`_level` 对恢复的单按上节判定（跟踪止损用激活价）。在回补 bar 上新下的单（`Session.submitted`）不在授权里，规则不变：MIT、MARK 触发、跟踪止损照旧拒绝。已触发的跟踪止损限价单照旧推迟（状态不是 ACCEPTED），没有另探。成对验收结果见 PR。
+
+验收时看到一处已有的差别（不是这次引入的，在未改的 main 上用 DEFAULT 的 STOP_MARKET 对照跑也一样）：恢复后从没成交、后来被撤的止损类单，`orders.csv` 的 `liquidity_side` 是 MAKER，连续跑是 NO_LIQUIDITY_SIDE。rc7 `restore_open_order` 给每张恢复的单在缓存里标 Maker（mod.rs:3474-3484），只影响无成交单的这一列；成交、手续费、事件序列都相同。
 
 ## `recovery_declared` 由运行记录的入口类推出（2026-11-18）
 
@@ -377,4 +393,21 @@ resume_gap（评审后重跑，同一个 first 的 RDB）：第 5、6 根没进�
 
 现在两处都只看运行的入口类：取自日志 `started` 行的 `strategy_entry_class`（`engine.strategy_metadata`，运行器写的，不是新存的值），沿同文件的基类链判定。还读不到 `started` 行、入口类不是文件里的类、或文本解析不了时为 None（页面不标、`held_since` 不当保持）。
 
-仍然不精确的一处：入口类从别的模块导入的基类里继承来的声明或钩子，文本里读不到（运行器能看到）。要精确只能运行源码或让运行器把它判定的结果写进日志（如 `started` 行加一个值），后者是新存储的值，需要用户授权，本次不做。
+仍然不精确：文本判定与运行器的判定在若干写法上不同（见下一节）。要精确只能运行源码或让运行器把它判定的结果写进日志，后者是新存储的值，需要用户授权；当时没做，下一节已由用户授权做了，本节的文本判定随之删除。
+
+## `started` 行记录运行器的协议判定 `recovery_declared`（2026-11-18 用户授权「授权，走评审」）
+
+运行器把它对所加载入口类的协议判定写在新运行的 `started` 日志行上（`recovery_declared`，布尔值）；页面标记、`held_since` 与 `paper compare` 的 `held` 原因都从这里读，不再读源码文本。这是本次唯一新增的存储值。
+
+### 字段评审
+
+- 消费者：页面的 `recovery_declared` 标记（"Held on restart"）；运行列表的 `held_since` 与 `unprotected`，以及发布节拍据此发的 Telegram 无保护持仓通知；`paper compare` 把差异归因为 `held`（`run_record` 的 `held`）。
+- 独立的事实：协议是否声明，是运行器加载源码后用 Python 的解析结果判定的（`engine.paper_session.declares_recovery`：`PAPER_RECOVERY` 按属性查找取值等于 1，`on_save`、`on_load` 由 MRO 中 `Strategy` 之上的类定义）。要得到这个判定必须运行源码；运行器之外的产品代码（页面守护进程、`paper compare`）从不运行源码，所以它们拿不到这个事实，只能由运行器记下。
+- 已有数据为什么表达不了：已存的是源码文本和入口类名（`strategy_entry_class`），由它们推出的只能是文本判定。原因不是"导入的基类"：策略规则允许的导入带不来 `PAPER_RECOVERY`。真正的差别是文本与运行时的语义不同：同一个类里重复赋值时，文本按第一次取、Python 取最后一次；非字面量的取值（例如表达式）文本判不出；以赋值绑定的钩子（`on_save = ...`）不是函数定义，文本看不到；文本沿基类深度优先，Python 按 MRO；基类以别名引用时文本对不上类名。任一处不同，页面就会对能恢复的运行说"会被保持"或反过来，`paper compare` 也会错把差异归为或不归为 `held`。
+- 形状：写在 `started` 行上（`engine/paper.py` 的 `journal("started", ..., recovery_declared=...)`），不放进 `strategy_metadata`（`engine/load.py`），因为后者还进回放摘要和 Paper 摘要的身份，改它会改变原生报告的内容。判定是 `engine/paper_session.py` 的模块级函数，`Session.__init__`（`declared`）与 `started` 行共用，不依赖 `SESSION` 是否存在。只有运行的第一次启动写 `started` 行，恢复不再写。
+- 不受影响：封存与各解析器只取各自需要的键，`started` 行多一个键不改变它们的读法。
+- 授权：用户 2026-11-18 选择「授权，走评审」。独立子代理评审结论：APPROVED WITH CHANGES；要求的改动（显式写在 `started` 行而非 `strategy_metadata`、共用一个模块级判定函数、删除文本判定、`held_since` 去掉 `source` 参数、更新说明文字、记录本决定、`CHANGELOG.md` 写明升级丢掉什么、补测试）都已在实施 PR 中完成。
+
+### 升级丢掉的
+
+此前启动的运行，`started` 行没有这个键：在整个生命周期里页面都不标记，`held_since` 为 None，`unprotected` 为空，不发 Telegram 通知，`paper compare` 不会给出 `held`。按 AGENTS.md（1.0 之前不读旧格式），不写兼容代码。

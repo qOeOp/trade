@@ -5,8 +5,10 @@ hooks, minute bars and the aggregations WARMUP declares, and no strategy timers.
 
 A checkpoint holds the working orders the Sandbox restores from the native cache as they were (its start loads the
 cache's open orders into its matching engines; docs/plans/paper-recovery-open-orders-20261117.zh.md): accepted, not
-in flight, not emulated, not contingent or linked, a LIMIT, STOP_MARKET, STOP_LIMIT or LIMIT_IF_TOUCHED triggered by
-the last price (`unrestorable`). Any other unfinished order defers the cut.
+in flight, not emulated, not contingent or linked, a LIMIT, STOP_MARKET, STOP_LIMIT, LIMIT_IF_TOUCHED or
+MARKET_IF_TOUCHED triggered by the last or the mark price, or a trailing stop not yet activated that has an activation
+price (`unrestorable`; user decision 2026-11-18). Any other unfinished order defers the cut: an activated trailing stop
+among them, since rc7 keeps its activation outside the order's events and restores every trailing stop inactive.
 
 A recovery warms each source again at its own T (engine.history): the declared history and the aggregations'
 current buckets are read from Binance's klines, the history goes to on_historical_bars, then the source's on_load
@@ -59,6 +61,10 @@ from engine.config import ACCOUNT_CONTRACT, MINUTE_NS
 # An order the venue has not yet answered: a checkpoint could restore neither its command nor its answer.
 IN_FLIGHT = {"INITIALIZED", "SUBMITTED", "PENDING_UPDATE", "PENDING_CANCEL"}
 TRIGGERS = ("DEFAULT", "LAST_PRICE")  # the triggers LAST klines show
+# The triggers a restored order may have: a MARK trigger fires on the bars' LAST prices in the Sandbox, which takes no
+# mark price and matches bars with bid = ask = last (docs/plans/paper-recovery-open-orders-20261117.zh.md).
+RESTORED_TRIGGERS = (*TRIGGERS, "MARK_PRICE")
+TRAILING = ("TRAILING_STOP_MARKET", "TRAILING_STOP_LIMIT")
 
 
 def _name(value) -> str | None:
@@ -72,9 +78,12 @@ def in_flight(order) -> bool:
 def unrestorable(order) -> str | None:
     """Why an unfinished order cannot be in a checkpoint, or None. The Sandbox restores an accepted order (a triggered
     STOP_LIMIT too) into its matching engine as it was, but neither a command in flight nor the state a matching
-    engine keeps outside the cache (an emulated order, a contingent or linked one, a trailing stop's trailing price),
-    nor what a recovery cannot prove untouched (`touched`: another order type, a trigger other than the last price);
-    a partial fill was not proven by a probe."""
+    engine keeps outside the order's events (an emulated order, a contingent or linked one, a trailing stop's
+    activation: rc7 restores every trailing stop inactive, trailing.rs "Activation is not an order event"), nor what a
+    recovery cannot prove untouched (`touched`: another order type, a trigger other than the last or mark price, a
+    trailing stop without an activation price, which activates at once); a partial fill was not proven by a probe.
+    The cut reads `is_activated` from the native cache, where rc7's matching engine stores an activation as it
+    happens."""
     if order.is_closed:
         return None
     status, kind = _name(order.status), _name(order.order_type)
@@ -86,27 +95,43 @@ def unrestorable(order) -> str | None:
     if (_name(getattr(order, "contingency_type", None)) not in (None, "NO_CONTINGENCY")
             or getattr(order, "parent_order_id", None) or getattr(order, "linked_order_ids", None)):
         return f"{order.client_order_id} is contingent or linked"
-    if str(kind).startswith("TRAILING_STOP"):
-        return f"{order.client_order_id} is a trailing stop"
+    if kind in TRAILING and status == "ACCEPTED" and getattr(order, "is_activated", True):
+        return (f"{order.client_order_id} is an activated trailing stop, which a recovery would restore inactive "
+                f"(rc7 keeps no activation in the order's events)")
     if not (status == "ACCEPTED" or status == "TRIGGERED" and kind == "STOP_LIMIT"):
         return f"{order.client_order_id} is {status}"
     # What a recovery could not prove untouched (`touched`) would only be refused there.
-    if kind not in ("LIMIT", "STOP_MARKET", "STOP_LIMIT", "LIMIT_IF_TOUCHED"):
+    if kind not in ("LIMIT", "STOP_MARKET", "STOP_LIMIT", "LIMIT_IF_TOUCHED", "MARKET_IF_TOUCHED", *TRAILING):
         return f"{order.client_order_id} is a {kind}, which a recovery cannot check"
-    if status == "ACCEPTED" and kind != "LIMIT" and _name(getattr(order, "trigger_type", None)) not in TRIGGERS:
+    if kind in TRAILING and getattr(order, "activation_price", None) is None:
+        return f"{order.client_order_id} is a trailing stop without an activation price, which a recovery cannot check"
+    if (status == "ACCEPTED" and kind != "LIMIT"
+            and _name(getattr(order, "trigger_type", None)) not in RESTORED_TRIGGERS):
         return f"{order.client_order_id} triggers on {_name(order.trigger_type)}, which a recovery cannot check"
     return None
 
 
-def _level(order, status: str):
-    """(the price that touches the order, the side whose order a high touches), or why the order cannot be checked."""
+def _level(order, status: str, restored: bool = True):
+    """(the price that touches the order, the side whose order a high touches), or why the order cannot be checked.
+    A MARKET_IF_TOUCHED, a MARK trigger and an inactive trailing stop are checked only as `restored` orders (user
+    decision 2026-11-18); one a source submits on a back-filled bar (`Session.submitted`) is not."""
     kind = _name(order.order_type)
-    if kind in ("STOP_MARKET", "LIMIT_IF_TOUCHED", "STOP_LIMIT") and status == "ACCEPTED":
+    touching = ("STOP_MARKET", "LIMIT_IF_TOUCHED", "STOP_LIMIT") + (("MARKET_IF_TOUCHED", *TRAILING) if restored else ())
+    if kind in touching and status == "ACCEPTED":
         trigger = _name(getattr(order, "trigger_type", None))
-        if trigger not in TRIGGERS:
+        if trigger not in (RESTORED_TRIGGERS if restored else TRIGGERS):
             return f"{order.client_order_id}: its {trigger} trigger cannot be checked on LAST klines"
-        # The side whose order a high touches: a buy stop above the market, a sell LIMIT_IF_TOUCHED.
-        return order.trigger_price.as_decimal(), "SELL" if kind == "LIMIT_IF_TOUCHED" else "BUY"
+        if kind in TRAILING:
+            # Until it activates, nothing but its activation price changes it: a sell activates on a bid, here the
+            # last price, at or above it, a buy on an ask at or below it (rc7 maybe_activate_trailing_stop). A
+            # restored one is always inactive, so the cut deferred any activated one (`unrestorable`).
+            activation = getattr(order, "activation_price", None)
+            if getattr(order, "is_activated", True) or activation is None:
+                return f"{order.client_order_id}: an activated trailing stop or one without an activation price"
+            return activation.as_decimal(), "SELL"
+        # The side whose order a high touches: a buy stop above the market, a sell LIMIT_IF_TOUCHED or
+        # MARKET_IF_TOUCHED.
+        return order.trigger_price.as_decimal(), "BUY" if kind in ("STOP_MARKET", "STOP_LIMIT") else "SELL"
     if kind == "LIMIT" and status == "ACCEPTED" or kind == "STOP_LIMIT" and status == "TRIGGERED":
         return order.price.as_decimal(), "SELL"
     return f"{order.client_order_id}: a {status} {kind} order cannot be checked for the interruption"
@@ -129,11 +154,14 @@ def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int
     untouched. `downtime` holds each contract's one-minute bars from the minute after its journal's last bar (closing
     at `last_bar`) up to the one closing at T (`at`). A stop (STOP_MARKET, an untriggered STOP_LIMIT) is touched by a
     high at or above its buy trigger or a low at or below its sell trigger, a limit (LIMIT, a triggered STOP_LIMIT) by
-    a low at or below its buy price or a high at or above its sell price, a LIMIT_IF_TOUCHED by a low at or below its
-    buy trigger or a high at or above its sell trigger. Touching, not the fill model's crossing, so it refuses more,
-    never less. Any other order type, state or trigger type (LAST klines cannot show a MARK or BID_ASK trigger) and
-    any minute missing fail: only an order proven untouched passes. `status` checks every order as one in that status
-    (an order a back-filled bar is submitting, `Session.submitted`); such an order's GTD expiring by T fails.
+    a low at or below its buy price or a high at or above its sell price, a LIMIT_IF_TOUCHED or MARKET_IF_TOUCHED by a
+    low at or below its buy trigger or a high at or above its sell trigger, a trailing stop not yet activated by a low
+    at or below its buy activation price or a high at or above its sell one. A MARK trigger is checked on the same
+    LAST klines: the Sandbox fires it on the bars' last prices. Touching, not the fill model's crossing, so it refuses
+    more, never less. Any other order type, state or trigger type (LAST klines cannot show a BID_ASK trigger) and any
+    minute missing fail: only an order proven untouched passes. `status` checks every order as one in that status (an
+    order a back-filled bar is submitting, `Session.submitted`), by the narrower rules of `_level` for such an order;
+    such an order's GTD expiring by T fails.
 
     A restored GTD order that expired in the interruption needs only the minutes up to its expiry and the last one
     (`expiring`): rc7's matching engine matches a bar before it expires the orders it holds (`iterate_with_mode`, then
@@ -147,7 +175,7 @@ def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int
         expired = _name(order.time_in_force) == "GTD" and (expiry is None or expiry <= at)
         if expired and (expiry is None or status is not None):
             return f"{name}: its GTD expiry {history.utc(expiry or 0)} is at or before {history.utc(at)}"
-        found = _level(order, status or str(_name(order.status)))
+        found = _level(order, status or str(_name(order.status)), restored=status is None)
         if isinstance(found, str):
             return found
         level, by_high = found
@@ -163,6 +191,16 @@ def touched(orders, downtime: dict[str, list], last_bar: dict[str, int], at: int
     return None
 
 
+def declares_recovery(strategy_class: type) -> bool:
+    """Whether the loaded entry class declares Paper recovery: PAPER_RECOVERY == 1 as Python resolves it, and on_save
+    and on_load defined by a class of its MRO above Strategy. The runner's own verdict (the source has to run to tell
+    it); journalled on the run's `started` line as `recovery_declared` (engine.paper), which the page and paper
+    compare read."""
+    source_bases = strategy_class.__mro__[:strategy_class.__mro__.index(Strategy)]
+    hooks = {name for base in source_bases for name, value in vars(base).items() if callable(value)}
+    return getattr(strategy_class, "PAPER_RECOVERY", None) == 1 and {"on_save", "on_load"} <= hooks
+
+
 class Session:
     def __init__(self, backend, journal, loaded, saved: dict | None, started_ns: int, input_start_ns: int,
                  warm_at: int, release=None):
@@ -170,12 +208,9 @@ class Session:
         self.started_ns, self.input_start_ns = started_ns, input_start_ns
         self.release = release  # engine.paper.release_before: runs the held data callbacks (backfill)
         self.depth = 0
-        source_bases = loaded.strategy_class.__mro__[:loaded.strategy_class.__mro__.index(Strategy)]
-        hooks = {name for base in source_bases for name, value in vars(base).items() if callable(value)}
         # Whether the source declares the protocol, and whether this process restores it with it: a recovery that
         # crossed a funding settlement holds the run instead (`hold`).
-        self.declared = (getattr(loaded.strategy_class, "PAPER_RECOVERY", None) == 1
-                         and {"on_save", "on_load"} <= hooks)
+        self.declared = declares_recovery(loaded.strategy_class)
         self.supported = self.declared
         self.fallen: str | None = None  # why a recovery of a source with the protocol is held (`hold`)
         # Whether the pause of a source without the protocol keeps its orders: a position was open when the stop was
@@ -387,7 +422,7 @@ class Session:
             found = touched([order], {iid: [minute for minute in minutes if minute.ts_event > end]},
                             {iid: end - warmup.MILLISECOND_NS}, self.warm_at, status="ACCEPTED")
         if found is None:
-            level, by_high = cast(tuple, _level(order, "ACCEPTED"))
+            level, by_high = cast(tuple, _level(order, "ACCEPTED", restored=False))
             ending = next((minute for minute in minutes if minute.ts_event == end - warmup.MILLISECOND_NS), None)
             close = None if ending is None else ending.close.as_decimal()
             if close is None:

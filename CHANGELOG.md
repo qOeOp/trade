@@ -31,10 +31,21 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   held start, so such a difference can now be attributed to `held`; every resume misses at least one bar, so before
   `held` could never win. A live gap before the pause or after that first bar is still `missing_bar`, and the inputs
   still list every missing bar. Derived from the journal; nothing new is stored.
+- Paper: a recovery now also restores a working MARKET_IF_TOUCHED, an order triggered by the mark price and a trailing
+  stop not yet activated that has an activation price (user decision 2026-11-18), where each used to defer the
+  checkpoint so that an interruption ended the run. A MARK trigger is checked on the same LAST one-minute klines (the
+  Sandbox fires it on the bars' last prices), a MARKET_IF_TOUCHED as a LIMIT_IF_TOUCHED, and a trailing stop by its
+  activation price: a downtime minute that reached it (a sell's high, a buy's low) refuses the recovery
+  (`PAPER_RECOVERY_UNAVAILABLE`, stopped as a pause, without cancelling). An activated trailing stop, also one placed
+  without an activation price, still defers the checkpoint: rc7 restores every trailing stop inactive. An order a
+  source submits on a back-filled bar is checked as before. (`docs/plans/paper-recovery-open-orders-20261117.zh.md`.)
 - Paper: whether a run's source declares recovery (the page's `recovery_declared`, and the held start `paper
-  compare` and the runs listing derive) is now read from the run's entry class, as its journal's `started` line names
-  it, and its bases in the same file, as the runner checks it; another class of the file declaring the protocol no
-  longer counts. Before the `started` line, or when the entry class is not a class of the file, it is unknown.
+  compare` and the runs listing derive) is now the runner's own verdict, journalled on a new run's `started` line as
+  `recovery_declared` (user 2026-11-18, 「授权，走评审」; `docs/plans/paper-recovery-open-orders-20261117.zh.md`), not
+  read from the source text, which a reassigned `PAPER_RECOVERY`, a computed value, hooks bound by assignment or an
+  aliased base could misread. The upgrade drops this for runs started before it: their `started` line has no key, so
+  for their whole life the page shows no mark, `held_since` is null, `unprotected` is empty, no Telegram notice is
+  sent, and `paper compare` never names `held`.
 - Paper: a recovery of a `PAPER_RECOVERY` source whose interruption crossed a funding settlement is now held instead
   of refused (user 2026-11-17, 「资金费结算被错过时转托管」): no source starts, the holder keeps the stops and targets
   working until flat. The runner journals `refusal` `PAPER_RECOVERY_UNAVAILABLE` right after `resumed`, so the seal
