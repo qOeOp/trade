@@ -2,12 +2,12 @@ import { useTimeZone } from "../../state/timeZone";
 import { useMemo } from "react";
 import { change, plural, usd, when } from "../../lib/format";
 import { coinsAt, group, MORE, splits, subsectorLevel, type Coin, type Snapshot } from "../../model/market";
-import { openPath, useMarketView, useSnapshot } from "../../state/market";
+import { openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
 import { columns, DataTable, type Column } from "../../components/DataTable";
 import { KeyValues } from "../../components/KeyValues";
+import { Skeleton, TableSkeleton } from "../../components/Missing";
 import { CardGroup, Section } from "../../components/Section";
 import { CoinDetails, Signed } from "./CoinDetails";
-import { MarketPending } from "./CoinsWindow";
 import { GlobalMarket } from "./GlobalMarket";
 import { liquidated, Liquidations } from "./Liquidations";
 import { MarketRuns } from "./MarketRuns";
@@ -56,13 +56,42 @@ function Sources({ snapshot }: { snapshot: Snapshot }) {
   return <KeyValues labels="fixed" items={Object.entries(snapshot.sources).map(([k, s]) => [k, s.error ? <span className="text-fail-fg">{s.error}</span> : when(s.updated, zone)] as const)} />;
 }
 
+const SECTOR_HEADS = [["Sector"], ["Market cap", true], ["1h", true], ["24h", true], ["7d", true], ["↑ / ↓", true]] as const;
+const kvs = (keys: readonly string[]) => keys.map((k) => [k, <Skeleton key={k} className="w-20" />] as const);
+
+function MarketDetailsSkeleton() {
+  return (
+    <div className="space-y-3 px-2 pb-3 text-dense">
+      <CardGroup title="Crypto market">
+        <Section title="Overview"><KeyValues labels="fixed" items={kvs(["Total market cap", "BTC dominance", "USD stablecoins", "Fear & Greed", "Altcoin season"])} /></Section>
+        <Section title="Premiums" aside="BTC vs Binance USDT"><KeyValues labels="fixed" items={kvs(["Coinbase", "Korea (Upbit)"])} /></Section>
+        <Section title="Bitcoin options" aside="Deribit"><KeyValues labels="fixed" items={kvs(["Open interest", "Put/call OI", "Max pain", "DVOL"])} /></Section>
+      </CardGroup>
+      <CardGroup title="All perpetuals">
+        <Section title="Breadth"><KeyValues labels="fixed" items={kvs(["Market cap", "Volume 24h", "Change 24h", "Median 24h", "Up / down"])} /></Section>
+        <Section title="Sectors" aside={<Skeleton className="w-6" />}><TableSkeleton headers={SECTOR_HEADS} rows={5} /></Section>
+        <Section title="Movers" aside="Volume 24h ≥ $5M">
+          <div className="grid grid-cols-2 gap-x-6">
+            <KeyValues items={kvs(["1", "2", "3", "4", "5"])} />
+            <KeyValues items={kvs(["6", "7", "8", "9", "10"])} />
+          </div>
+        </Section>
+      </CardGroup>
+    </div>
+  );
+}
+
 /** Details on the Market page: the picked coin, then the level the heatmap shows: at All the whole market
  *  first; its breadth, its sectors (at All) or sub-sectors (in a split sector) with their changes, its
  *  liquidations, its movers and below All the paper runs trading its coins; and when each source was last read. */
 export function MarketDetails() {
-  const snapshot = useSnapshot(), { path, coin, size } = useMarketView();
+  const snapshot = useSnapshot(), service = useOverviewService(), { path, coin, size } = useMarketView();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
-  if (!snapshot) return <MarketPending />;
+  if (!snapshot) {
+    if (service === "absent") return <p className="p-4 text-fg-faint">Market data is not served by this IDE.</p>;
+    if (service === "offline") return <p className="p-4 text-fg-faint">Market data offline. Reconnecting automatically.</p>;
+    return <MarketDetailsSkeleton />;
+  }
   const picked = coin ? snapshot.coins.find((c) => c.symbol === coin) : undefined;
   const names = path.filter((p) => p !== MORE);
   const title = path.length ? `${names.join(" · ")}${path.at(-1) === MORE ? " · the rest" : ""}` : "All perpetuals";

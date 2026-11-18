@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { PhonePage } from "../../components/PhoneBar";
 import { PhoneDisclosure } from "../../components/PhoneParts";
 import { ReadingBadge } from "../../components/ReadingBadge";
-import { Missing } from "../../components/Missing";
+import { Missing, Skeleton, SkeletonLines } from "../../components/Missing";
 import { ResearchSyncLine } from "../../components/ResearchSync";
 import { pct } from "../../lib/format";
 import type { ResearchLine } from "../../lib/lines";
@@ -19,7 +19,7 @@ const Said = ({ ok, yes, no }: { ok: boolean; yes: string; no: string }) => <spa
  *  longer eligible (CF-08). */
 function Opened({ line, r, read }: { line: ResearchLine; r: LineReading | null | undefined; read: boolean }) {
   const tail = <>{line.closed ? "closed" : "open"} · development {line.dev_start} to {line.dev_end}</>;
-  if (r === undefined) return <p className="text-dense text-fg-faint">{read ? "Not in the last reading" : "Reading the ledger…"}</p>;
+  if (r === undefined) return read ? <p className="text-dense text-fg-faint">Not in the last reading</p> : <SkeletonLines />;
   if (r === null) return <p className="text-dense text-fg-muted">No recommendation yet · {tail}</p>;
   const limit = line.targets?.max_drawdown ?? null, minimum = line.targets?.annual_return ?? null, dd = r.max_drawdown, annual = r.annual_return;
   return (
@@ -51,13 +51,19 @@ export function ResearchTab() {
       <PhoneTop title="Research" aside={loaded ? `${lines.length - closed} open · ${closed} closed` : undefined} line={open} />
       <PhonePage>
         <ResearchSyncLine />
-        {!loaded && <p className="p-4 text-dense text-fg-faint">{error ?? "Reading the research lines…"}</p>}
-        {loaded && <p className="flex justify-between border-b border-line px-3 py-1.5 text-small text-fg-faint"><span>Annual | max drawdown, recommended</span><span>Versions</span></p>}
+        {!loaded && error && <p className="p-4 text-dense text-fg-faint">{error}</p>}
+        <p className="flex justify-between border-b border-line px-3 py-1.5 text-small text-fg-faint"><span>Annual | max drawdown, recommended</span><span>Versions</span></p>
+        {!loaded && !error && [0, 1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center gap-2 border-b border-line px-3 py-2">
+            <ReadingBadge reading={null} targets={null} busy />
+            <Skeleton className="w-36" /><span className="ml-auto"><Skeleton className="w-6" /></span>
+          </div>
+        ))}
         {order.map((line) => {
           const r = readings[line.name];
           return (
             <PhoneDisclosure key={line.name} open={open === line.name} onToggle={() => setOpen(open === line.name ? null : line.name)}
-              head={<><ReadingBadge reading={r && r.eligible !== false ? r : null} targets={line.targets ?? null}
+              head={<><ReadingBadge reading={r && r.eligible !== false ? r : null} targets={line.targets ?? null} busy={!read && r === undefined}
                                     status={r?.eligible === false ? "Ineligible" : r === null ? "None" : undefined} />
                 <span className={`min-w-0 flex-1 truncate font-mono text-dense ${line.closed ? "text-fg-muted" : ""}`}>{line.name}</span>
                 <span className="shrink-0 text-dense tabular-nums text-fg-faint">{line.versions.length}</span></>}>

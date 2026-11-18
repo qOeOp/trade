@@ -16,3 +16,54 @@ export const SkeletonLines = () => (
     <div className="skeleton h-2 w-3/4 rounded-badge" />
   </div>
 );
+
+const CHART_BARS = [42, 46, 44, 51, 48, 55, 52, 60, 58, 64, 61, 68, 65, 62, 70, 67, 74, 71, 78, 75, 82, 79, 85, 83];
+
+/** A chart canvas being read: legend placeholders, price grid with right-axis ticks, pulsing series and time axis. */
+export const ChartSkeleton = ({ note }: { note?: string | null }) => (
+  <div aria-label={note ?? "Loading chart"} className="flex h-full min-h-0 flex-col justify-between py-2 pr-2">
+    <div className="flex flex-wrap items-center gap-3 pb-2 text-small">
+      <Skeleton className="w-16" /><Skeleton className="w-24" /><Skeleton className="w-20" /><Skeleton className="w-16" />
+      {note && <span className="ml-auto truncate text-fg-faint">{note}</span>}
+    </div>
+    <div aria-hidden="true" className="relative flex min-h-0 flex-1 flex-col justify-between border-b border-line">
+      {[0, 1, 2, 3].map((r) => (
+        <div key={r} className="flex items-center justify-end border-t border-grid py-2 first:border-0">
+          <Skeleton className="w-12" />
+        </div>
+      ))}
+      <div className="pointer-events-none absolute inset-x-0 inset-y-4 right-16 flex items-end gap-1.5">
+        {CHART_BARS.map((h, i) => (
+          <span key={i} className="skeleton min-w-0 flex-1 rounded-t-badge opacity-45" style={{ height: `${h}%` }} />
+        ))}
+      </div>
+    </div>
+    <div aria-hidden="true" className="flex justify-between pt-2 pr-6">
+      {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="w-10" />)}
+    </div>
+  </div>
+);
+
+/** A table being read: its column headers in place and pulsing bars in each cell. */
+export const TableSkeleton = ({ headers, rows = 5 }: { headers: readonly (readonly [string, boolean?])[]; rows?: number }) => (
+  <table className="w-full border-collapse text-dense tabular-nums">
+    <thead>
+      <tr>
+        {headers.map(([h, right]) => (
+          <th key={h} className={`h-(--form-h) border-b border-line-strong px-3 font-normal whitespace-nowrap text-fg-faint ${right ? "text-right" : "text-left"}`}>{h}</th>
+        ))}
+      </tr>
+    </thead>
+    <tbody>
+      {Array.from({ length: rows }, (_, r) => (
+        <tr key={r} className="border-b border-line last:border-0">
+          {headers.map(([h, right], c) => (
+            <td key={h} className={`h-(--form-h) px-3 whitespace-nowrap ${right ? "text-right" : "text-left"}`}>
+              <Skeleton className={c === 0 ? "w-16" : right ? "w-12" : "w-20"} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  </table>
+);

@@ -11,8 +11,8 @@ import { barsNote, useBacktestBars, useBacktestCloses } from "../../state/backte
 import type { Stretch } from "../../model/stretches";
 import { leadOf } from "./backtestCandles";
 import { eventsOf } from "./candleEvents";
+import { ChartSkeleton } from "../../components/Missing";
 import { TextButton } from "../../components/TextButton";
-import { Typing } from "../../components/Typing";
 import { tradesTab, type Stream } from "../../state/paperStream";
 import { useAtom } from "../../state/atom";
 import { useComparison } from "../../state/compare";
@@ -106,7 +106,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
       {!testing && run && s && <Observation run={run} s={s} part={equity && !reading ? "sentences" : undefined} />}
       <div className="mb-1 ml-3 mr-1 min-h-0 flex-1">
         {/* Until the shown run's chain is read whole, so its stretch never shows in part and then grows. */}
-        {reading ? <div className="grid h-full place-items-center"><Typing text={reading} busy className="text-dense text-fg-faint" /></div>
+        {reading ? <ChartSkeleton note={reading} />
           : equity ? (
           <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} years={years} warmup={warmup}
                        aside={(note || (!testing && run && s)) && <>{note && <span title={note}>{note}</span>}{!testing && run && s && <Observation run={run} s={s} part="facts" />}</>} />

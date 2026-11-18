@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { ChartSkeleton } from "../../components/Missing";
 import { TextButton } from "../../components/TextButton";
-import { Typing } from "../../components/Typing";
 import { fetchMinutes, type FetchedMinutes } from "../../lib/minutesApi";
 import type { JournalLine } from "../../lib/paperApi";
 import { liveChart } from "../../model/liveChart";
@@ -47,7 +47,7 @@ export function LiveChart({ run, symbol }: { run: LiveRun; symbol: string | null
   }, [key, tries]);
   if (!plan) return <p className="grid h-full place-items-center px-3 text-dense text-fg-faint">No order or account observation places this run in time yet.</p>;
   const bars = drawn?.head === head ? drawn.bars : null, failed = read?.key === key && read.got.kind === "absent" ? read.got.message : null;
-  if (!bars && !failed) return <div className="grid h-full place-items-center text-dense text-fg-faint"><Typing text={`Reading ${plan.symbol} minutes…`} busy /></div>;
+  if (!bars && !failed) return <div className="h-full px-3"><ChartSkeleton note={`Reading ${plan.symbol} minutes…`} /></div>;
   if (!bars) return <div className="grid h-full place-items-center px-3 text-center text-dense text-fg-faint">
     <p>{plan.symbol} minutes are unavailable here · {failed} <TextButton onClick={() => setTries((n) => n + 1)}>Retry</TextButton></p>
   </div>;

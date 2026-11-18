@@ -5,9 +5,13 @@ import { cellAt, columns, meetsBoth, noEdge, combinedTip, ordered, RETURN_RANGES
 import { useHistory } from "../../state/history";
 import { DropdownChoice } from "../../components/Dropdown";
 import { HistoryTile } from "../../components/HistoryTile";
+import { Skeleton } from "../../components/Missing";
 import { LineHeader, PriorTip } from "./LineHeader";
 import { Tip } from "../../components/Tip";
 import { Empty } from "../../components/Waiting";
+
+const SKELETON_COLS = ["2021", "2022", "2023", "2024", "Development", "Holdout"] as const;
+const SUMMARY_COLS = ["Whole yrs", "Profitable", "Meeting", "Median", "Worst", "Worst DD", "Veto", "Holdout", "Verdict", "DSR"] as const;
 
 const METRICS = [{ value: "annual_return", label: "Annual return" }, { value: "mark_max_drawdown", label: "Max drawdown" },
                  { value: "sharpe_365", label: "Sharpe" }] as const;
@@ -115,14 +119,14 @@ export function HistoryPage() {
   const { history, reading, error } = useHistory();
   const [metric, setMetric] = useState<Metric>("annual_return"), [order, setOrder] = useState<Order>("development"), [all, setAll] = useState(false);
   const lines = history?.lines ?? [], cols = useMemo(() => columns(lines), [lines]);
-  if (!history) return error ? <Empty title="Can't read the history tests">{error}</Empty> : <Empty title="Reading the history tests…" />;
-  if (!lines.length) return <Empty title="No line has a history test yet">A line's closing replays every participant over the years before its development period, its holdout and what follows; they show here as they run.</Empty>;
+  if (!history && error) return <Empty title="Can't read the history tests">{error}</Empty>;
+  if (history && !lines.length) return <Empty title="No line has a history test yet">A line's closing replays every participant over the years before its development period, its holdout and what follows; they show here as they run.</Empty>;
   const th = "px-2 py-1 font-normal text-fg-faint whitespace-nowrap";
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-(--header-h) shrink-0 items-center gap-x-3 px-3 text-dense">
         <span className="font-semibold">Line-close history</span>
-        <span className="text-fg-faint">{plural(lines.length, "line")} · each cell replayed from flat{reading ? " · reading…" : ""}{error ? ` · ${error}` : ""}</span>
+        <span className="text-fg-faint">{history ? <>{plural(lines.length, "line")} · each cell replayed from flat{reading ? " · reading…" : ""}{error ? ` · ${error}` : ""}</> : <Skeleton className="w-40" />}</span>
         <span className="ml-auto flex items-center gap-3">
           <label className="flex items-center gap-1.5 text-fg-muted"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />Rows with no edge</label>
           <DropdownChoice<Metric> name="Show" label="Show" options={METRICS} value={metric} onChange={setMetric} />
@@ -134,16 +138,27 @@ export function HistoryPage() {
           <thead className="sticky top-0 z-20 bg-island">
             <tr>
               <th className={`${th} sticky left-0 z-30 bg-island text-left`}>Participant</th>
-              {cols.map((c) => <th key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{c.label}</th>)}
-              {["Whole yrs", "Profitable", "Meeting", "Median", "Worst", "Worst DD", "Veto", "Holdout", "Verdict", "DSR"].map((h) =>
+              {history ? cols.map((c) => <th key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{c.label}</th>)
+                : SKELETON_COLS.map((c) => <th key={c} className={`${th} text-center ${c === "Development" ? "border-l border-line" : ""}`}>{c}</th>)}
+              {SUMMARY_COLS.map((h) =>
                 <th key={h} className={`${th} text-right ${h === "Whole yrs" ? "border-l border-line" : ""}`}>{h}</th>)}
             </tr>
           </thead>
-          {lines.map((l) => <LineRows key={l.line} line={l} cols={cols} metric={metric} order={order} all={all} shortDays={history.short_days} />)}
+          {history ? lines.map((l) => <LineRows key={l.line} line={l} cols={cols} metric={metric} order={order} all={all} shortDays={history.short_days} />) : (
+            <tbody className="border-t border-line">
+              {[0, 1, 2, 3, 4].map((r) => (
+                <tr key={r}>
+                  <th className="sticky left-0 z-10 bg-island px-2 py-1 text-left font-normal"><Skeleton className="w-32" /></th>
+                  {SKELETON_COLS.map((c) => <td key={c} className="p-0.5"><div className="skeleton h-7 min-w-[4.75rem] rounded-badge opacity-45" /></td>)}
+                  {SUMMARY_COLS.map((h) => <td key={h} className="px-2 text-right"><Skeleton className="w-8" /></td>)}
+                </tr>
+              ))}
+            </tbody>
+          )}
         </table>
       </div>
       <p className="shrink-0 px-3 py-1.5 text-small text-fg-faint">
-        Colour: annual return ({RETURN_RANGES[0]} to {RETURN_RANGES[6]}) · star: the segment meets both targets · grey: under {history.short_days} days, not counted · hatched: part of a year.
+        Colour: annual return ({RETURN_RANGES[0]} to {RETURN_RANGES[6]}) · star: the segment meets both targets · grey: under {history?.short_days ?? 90} days, not counted · hatched: part of a year.
         The verdict reads the veto years and the holdout apart; it tests, it does not validate, and picking by it is a choice among the participants.
       </p>
     </div>

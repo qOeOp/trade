@@ -12,12 +12,15 @@ import { usePaperService } from "../state/paper";
 import { dotClass } from "../theme/roles";
 import { FormButton } from "./chat/Field";
 import { External } from "./External";
+import { Skeleton } from "./Missing";
 import { PANEL, SCRIM } from "./dialog";
 
 const Mono = ({ children }: { children: ReactNode }) => <span className="font-mono">{children}</span>;
 const Code = ({ children }: { children: ReactNode }) => <code className="font-mono text-fg">{children}</code>;
 
-const NAMES = { checking: "Checking…", absent: "Not deployed", offline: "Offline", present: "Connected" };
+const NAMES: Record<"checking" | "absent" | "offline" | "present", ReactNode> = {
+  checking: <Skeleton className="w-16" />, absent: "Not deployed", offline: "Offline", present: "Connected",
+};
 
 /** A fault's line: the dot the rail and the status bar mark the same fact with. */
 const Fault = ({ tone, children }: { tone: "fail" | "misses" | null; children: ReactNode }) =>
@@ -89,7 +92,11 @@ function AboutBody() {
           {behind && <Row name="Released"><Fault tone="misses">{behind.long}</Fault></Row>}
           <Ledger about={reading.about} />
         </>}
-        {reading.kind === "reading" && <Row name="Ledger">Reading…</Row>}
+        {reading.kind === "reading" && <>
+          <Row name="Version"><Skeleton className="w-24" /></Row>
+          <Row name="Ledger"><Skeleton className="w-32" /></Row>
+          <Row name="Ledger commit"><Skeleton className="w-16" /></Row>
+        </>}
         {reading.kind === "unavailable" && <Row name="Ledger">{reading.message}</Row>}
         <Services />
       </dl>
