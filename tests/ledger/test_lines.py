@@ -87,8 +87,8 @@ class ResearchLineTests(unittest.TestCase):
                          "L11: the open lines by default")
         found = lines.list_lines(self.profile, every=True)
         self.assertEqual(found["ledger_commit"], head)
-        self.assertEqual([(item["name"], item["closed"]) for item in found["lines"]],
-                         [(first["line"], True), (second["line"], False)])
+        self.assertEqual([(item["name"], item["closed"], item["summary"]) for item in found["lines"]],
+                         [(first["line"], True, "historical findings retained"), (second["line"], False, None)])
         self.assertEqual(found["lines"][0]["dev_start"], "2021-04-01")
         self.assertEqual(set(found["lines"][0]), {*lines.LISTED, "targets"})
         self.assertLessEqual(set(test_release.HOST_LINE_KEYS), set(lines.LISTED), "deploy.release_host reads these keys")

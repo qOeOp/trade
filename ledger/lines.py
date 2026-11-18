@@ -79,7 +79,7 @@ def open_line(conn: db.LedgerConnection, line: str | int | None = None) -> dict:
     return record
 
 
-LISTED = ("line_id", "name", "start", "dev_start", "dev_end", "market_day", "created_at", "closed")
+LISTED = ("line_id", "name", "start", "dev_start", "dev_end", "market_day", "created_at", "closed", "summary")
 
 
 def list_lines(profile: db.LedgerProfile, at: str | None = None, *, every: bool = False) -> dict:
