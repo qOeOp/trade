@@ -7,6 +7,8 @@ import { Icon } from "../icons/Icon";
  *  `open` is false, which it follows until the user opens or closes the card. */
 export function Section({ title, aside, children, open: initial = true }: { title: string; aside?: ReactNode; children: ReactNode; open?: boolean }) {
   const [chosen, setOpen] = useState<boolean | null>(null);
+  const [prev, setPrev] = useState(initial);
+  if (prev !== initial) { setPrev(initial); setOpen(null); }
   const open = chosen ?? initial;
   return (
     <Collapsible.Root open={open} onOpenChange={setOpen} className="rounded-card border border-card-border bg-island-alt">

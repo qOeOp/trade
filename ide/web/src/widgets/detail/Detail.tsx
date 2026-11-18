@@ -85,10 +85,10 @@ function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets:
       <div className={`${SIDE} @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1`}>
       <StagePerformance />
       <CardGroup title="Evidence">
-      <Section title="Replays" aside={busy ? <Skeleton className="w-24" /> : `${plural(runs.length, "research run")} · ${plural((c.trials ?? []).length, "trial")} in all`}>
+      <Section title="Replays" open={busy || !!(c.trials ?? []).length} aside={busy ? <Skeleton className="w-24" /> : `${plural(runs.length, "research run")} · ${plural((c.trials ?? []).length, "trial")} in all`}>
         <ReplayTable trials={c.trials ?? []} targets={targets} busy={busy} />
       </Section>
-      <Section title="Versus control">
+      <Section title="Versus control" open={!!cmp || comparing || compared.kind === "failed"}>
         {cmp || comparing ? (
           <KeyValues items={[
             ["Control", cmp ? (cmp.vs_trial != null ? <span>trial {cmp.vs_trial}</span> : null) : <Skeleton />],
