@@ -26,6 +26,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: a recovery now also restores a working MARKET_IF_TOUCHED, an order triggered by the mark price and a trailing
+  stop not yet activated that has an activation price (user decision 2026-11-18), where each used to defer the
+  checkpoint so that an interruption ended the run. A MARK trigger is checked on the same LAST one-minute klines (the
+  Sandbox fires it on the bars' last prices), a MARKET_IF_TOUCHED as a LIMIT_IF_TOUCHED, and a trailing stop by its
+  activation price: a downtime minute that reached it (a sell's high, a buy's low) refuses the recovery
+  (`PAPER_RECOVERY_UNAVAILABLE`, stopped as a pause, without cancelling). An activated trailing stop, also one placed
+  without an activation price, still defers the checkpoint: rc7 restores every trailing stop inactive. An order a
+  source submits on a back-filled bar is checked as before. (`docs/plans/paper-recovery-open-orders-20261117.zh.md`.)
 - Paper: whether a run's source declares recovery (the page's `recovery_declared`, and the held start `paper
   compare` and the runs listing derive) is now read from the run's entry class, as its journal's `started` line names
   it, and its bases in the same file, as the runner checks it; another class of the file declaring the protocol no
