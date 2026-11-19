@@ -36,7 +36,8 @@ function LeftOut({ left }: { left: NonNullable<HistoryLine["without_economic_evi
   );
 }
 
-/** One fact of a line's header: its label small above its value, in a fixed width so every line's facts stand in the same columns. */
+/** One fact of a line's header: its label small above its value, in a minimum width so short facts line up across
+ *  lines while a long line name pushes the next column rather than drawing into it. */
 function Field({ label, width, tip, children }: { label: string; width: string; tip?: ReactNode; children: ReactNode }) {
   const body = <div className={`${width} whitespace-nowrap`}><div className="text-small text-fg-faint">{label}</div><div className="text-dense">{children}</div></div>;
   return tip ? <Tip content={tip}>{body}</Tip> : body;
@@ -51,7 +52,7 @@ export function LineHeader({ line, colSpan, hidden }: { line: HistoryLine; colSp
     <tr className="bg-island-alt">
       <th colSpan={colSpan} className="sticky left-0 px-0 py-1.5 text-left font-normal">
         <div className="sticky left-0 flex max-w-[calc(100vw-6rem)] flex-wrap gap-x-6 gap-y-1.5 px-2">
-          <Field label={line.closed ? "Closed" : "Closing"} width="w-full md:w-44"><span className="font-mono font-semibold">{line.line}</span></Field>
+          <Field label={line.closed ? "Closed" : "Closing"} width="w-full md:w-auto md:min-w-44"><span className="font-mono font-semibold">{line.line}</span></Field>
           <Field label="Participants" width="w-[calc(50%-0.75rem)] md:w-24">{line.participants}</Field>
           <Field label="Research trials" width="w-[calc(50%-0.75rem)] md:w-24">{line.research_trials}</Field>
           <Field label="Holdout searches" width="w-[calc(50%-0.75rem)] md:w-40" tip={<PriorTip line={line} />}>

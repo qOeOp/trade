@@ -13,7 +13,7 @@ export function HistoryTile({ step, quiet, short, meets, partial, children }: {
 }) {
   const [ink] = inkRoles(step);
   return (
-    <div className={`relative grid h-7 min-w-[4.75rem] place-items-center rounded-xs px-1.5 text-center tabular-nums ${quiet ? "italic" : ""}`}
+    <div className={`relative grid h-7 min-w-[4.75rem] place-items-center whitespace-nowrap rounded-xs px-1.5 text-center tabular-nums ${quiet ? "italic" : ""}`}
          style={{ background: short ? v("heat-0") : v(fillRole(step)), color: quiet ? v("fg-muted") : v(ink),
                   backgroundImage: partial ? HATCH : undefined, opacity: short ? 0.6 : 1 }}>
       {children}

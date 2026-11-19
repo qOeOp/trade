@@ -91,13 +91,30 @@ function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
   );
 }
 
+/** The column header row (`Participant`, the shared segment columns and the summary columns), repeated under each
+ *  line's header strip so every line's rows stand directly beneath their column labels. */
+function ColumnHeads({ cols }: { cols: readonly Column[] | null }) {
+  const th = "px-2 py-1 font-normal text-fg-faint whitespace-nowrap";
+  return (
+    <tr>
+      <th className={`${th} sticky left-0 z-10 bg-island text-left`}>Participant</th>
+      {cols ? cols.map((c) => <th key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{c.label}</th>)
+        : SKELETON_COLS.map((c) => <th key={c} className={`${th} text-center ${c === "Development" ? "border-l border-line" : ""}`}>{c}</th>)}
+      {SUMMARY_COLS.map((h) =>
+        <th key={h} className={`${th} text-right ${h === "Whole yrs" ? "border-l border-line" : ""}`}>{h}</th>)}
+    </tr>
+  );
+}
+
 /** A line's rows under its header: the line, whether it is closed, how many candidates took part and how many research
- *  trials they came from, the earlier searches of its holdout, its targets and its development period. */
+ *  trials they came from, the earlier searches of its holdout, its targets and its development period, then the column
+ *  labels over the line's participant rows. */
 function LineRows({ line, cols, metric, order, all, shortDays }: { line: HistoryLine; cols: Column[]; metric: Metric; order: Order; all: boolean; shortDays: number }) {
   const rows = ordered(line.rows, order), shown = all ? rows : rows.filter((r) => !noEdge(r)), hidden = rows.length - shown.length;
   return (
     <tbody className="border-t border-line">
       <LineHeader line={line} colSpan={cols.length + 11} hidden={hidden} />
+      <ColumnHeads cols={cols} />
       {shown.map((row) => (
         <tr key={row.run} className="hover:bg-row-hover">
           <th className="sticky left-0 z-10 max-w-56 truncate bg-island px-2 text-left font-mono font-normal">
@@ -121,7 +138,6 @@ export function HistoryPage() {
   const lines = history?.lines ?? [], cols = useMemo(() => columns(lines), [lines]);
   if (!history && error) return <Empty title="Can't read the history tests">{error}</Empty>;
   if (history && !lines.length) return <Empty title="No line has a history test yet">A line's closing replays every participant over the years before its development period, its holdout and what follows; they show here as they run.</Empty>;
-  const th = "px-2 py-1 font-normal text-fg-faint whitespace-nowrap";
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-(--header-h) shrink-0 items-center gap-x-3 px-3 text-dense">
@@ -135,17 +151,9 @@ export function HistoryPage() {
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="border-separate border-spacing-0 text-dense">
-          <thead className="sticky top-0 z-20 bg-island">
-            <tr>
-              <th className={`${th} sticky left-0 z-30 bg-island text-left`}>Participant</th>
-              {history ? cols.map((c) => <th key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{c.label}</th>)
-                : SKELETON_COLS.map((c) => <th key={c} className={`${th} text-center ${c === "Development" ? "border-l border-line" : ""}`}>{c}</th>)}
-              {SUMMARY_COLS.map((h) =>
-                <th key={h} className={`${th} text-right ${h === "Whole yrs" ? "border-l border-line" : ""}`}>{h}</th>)}
-            </tr>
-          </thead>
           {history ? lines.map((l) => <LineRows key={l.line} line={l} cols={cols} metric={metric} order={order} all={all} shortDays={history.short_days} />) : (
             <tbody className="border-t border-line">
+              <ColumnHeads cols={null} />
               {[0, 1, 2, 3, 4].map((r) => (
                 <tr key={r}>
                   <th className="sticky left-0 z-10 bg-island px-2 py-1 text-left font-normal"><Skeleton className="w-32" /></th>
