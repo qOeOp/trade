@@ -33,24 +33,25 @@ function About({ s, minutes }: { s: Placed; minutes: readonly EquityPoint[] }) {
 
 /** The equity chart's readout, one row: at `point` (under the pointer, else the shown stretch's last),
  *  timed at the line's step (a backtest's day; the stretch is named on the chart, a lone one here at the head as `name`), its equity on the joined line
- *  and, past the first stretch, the stretch's own equity and return, and of a backtest's day the cycles
- *  it held, and on the shown stretch its worst below the peak, with how it was measured (`basis`) where
- *  that differs; over a stretch a chain of runs was offline, when it stopped, when it started again and
- *  why; over a stretch's name (`named`), that stretch in words. Its buy and hold, early so it is never
- *  left out, names a toggle for that line (`hold`, null with no contract's closes). Whole values only: one that does not fit is left
- *  out, never cut. `aside` (what is not drawn, how fresh the data is) ends the row on the right. */
-export function EquityLegend({ name, point, stretch, named, minutes, offline, reading, hold, onHold, starting, replayed, worst, step, many, ret, basis, aside }: {
+ *  and, past the first stretch, the stretch's own equity and return, and the time-point values of the
+ *  chart's own visual layers under the pointer (the buy and hold toggle and return, a replay's equity,
+ *  the open profit and loss, the day bar's return, and the drawdown below the peak); over a stretch a
+ *  chain of runs was offline, when it stopped, when it started again and why; over a stretch's name
+ *  (`named`), that stretch in words. Single line on desktop so hovering never wraps or shifts the chart
+ *  below. `aside` (what is not drawn, how fresh the data is) ends the row on the right. */
+export function EquityLegend({ name, point, stretch, named, minutes, offline, reading, hold, onHold, starting, replayed, step, many, ret, aside }: {
   name: string | null; point: EquityPoint | null; stretch: Placed | null; named: Placed | null; minutes: readonly EquityPoint[]; offline: Down | null; reading: Reading | null;
-  hold: boolean | null; onHold: () => void; starting: number; replayed: ReadonlyMap<number, number>; worst: number; step: number; many: boolean; ret: number | undefined;
-  basis: string | null; aside: ReactNode;
+  hold: boolean | null; onHold: () => void; starting: number; replayed: ReadonlyMap<number, number>; step: number; many: boolean; ret: number | undefined;
+  aside: ReactNode;
 }) {
   const zone = useTimeZone();
   const own = point && stretch ? point.value / stretch.scale : null, base = stretch ? stretch.starting * stretch.scale : starting;
+  const dd = point ? (1 - point.value / point.peak) * 100 : 0;
   return (
     <div className="flex shrink-0 items-center gap-x-4 whitespace-nowrap text-small tabular-nums @max-md/page:flex-col @max-md/page:items-start @max-md/page:gap-y-1">
-      <div className="flex min-h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-3 gap-y-1 leading-5 text-fg @max-md/page:self-stretch">
+      <div className="flex h-5 min-w-0 flex-1 items-center gap-x-3 overflow-hidden leading-5 text-fg @max-md/page:h-auto @max-md/page:min-h-5 @max-md/page:flex-wrap @max-md/page:gap-y-1 @max-md/page:self-stretch">
         {named ? <About s={named} minutes={minutes} />
-          : offline ? <><span className="text-fg">{offline.label}</span><span className="whitespace-normal break-words">· {downRow(offline, zone)}</span></>
+          : offline ? <><span className="text-fg">{offline.label}</span><span className="truncate">· {downRow(offline, zone)}</span></>
           : point && <>
             {name && <span>{name}</span>}
             <span className="text-fg-faint" title={`${point.day ? "UTC daily interval · " : ""}${dateTime(point.time * 1000, zone, "minute")} → ${dateTime((point.time + (point.day ? DAY_S : step)) * 1000, zone, "minute")}`}>{during(point.time, point.day ? DAY_S : step, zone)}</span>
@@ -62,16 +63,11 @@ export function EquityLegend({ name, point, stretch, named, minutes, offline, re
             {hold !== null && <span className="inline-flex items-center"><TextButton size="inline" active={hold} onClick={onHold} aria-label="Buy and hold line" title={`${hold ? "Hide" : "Show"} buy and hold: the run's contracts bought in equal shares at its start, never rebalanced, price only (no fees or funding)`} className="mr-1 px-0.5">hold</TextButton>{reading?.hold != null && <span className={pnlClass(reading.hold - base)}>{signedPct(reading.hold / base - 1)}</span>}</span>}
             {replayed.has(point.minute ?? point.time) && <Value name="replay">{fixed(replayed.get(point.minute ?? point.time)!, 2)}</Value>}
             {reading?.balance != null && <Value name="open"><span className={pnlClass(point.value - reading.balance)}>{fixed((point.value - reading.balance) / (stretch?.scale ?? 1), 2)}</span></Value>}
-            {reading?.positions != null && <Value name="held">{reading.positions}</Value>}
-            {reading?.exposure != null && <Value name="exposure">{number(reading.exposure * 100, 0)}%{reading.margin != null && reading.margin > 0 && <span className="text-fg-faint"> · margin {number(reading.margin * 100, 0)}%</span>}</Value>}
-            {reading?.before != null && <Value name="costs">{fixed((reading.before - point.value) / (stretch?.scale ?? 1), 2)}</Value>}
-            {point.pace !== null && <Value name="vs pace"><span className={pnlClass(point.value - point.pace)}>{signedPct(point.value / point.pace - 1)}</span></Value>}
-            {many && ret != null && <Value name="UTC day"><span className={pnlClass(ret)}>{signedPct(ret)}</span></Value>}
-            <Value name="below peak">{number((1 - point.value / point.peak) * 100, 2)}%</Value>
-            {worst > 0 && (!stretch || stretch.selected) && <Value name="worst">−{number(worst * 100, 1)}%{basis && <span className="text-fg-faint"> · {basis}</span>}</Value>}
+            {many && ret != null && <Value name="day"><span className={pnlClass(ret)}>{signedPct(ret)}</span></Value>}
+            {dd >= 0.005 && <Value name="below peak">{number(dd, 2)}%</Value>}
           </>}
       </div>
-      {aside && <div className="ml-auto flex min-w-0 max-w-[50%] items-center gap-x-3 text-fg-faint *:truncate @max-md/page:ml-0 @max-md/page:max-w-none @max-md/page:flex-wrap @max-md/page:whitespace-normal">{aside}</div>}
+      {aside && <div className="ml-auto flex min-w-0 max-w-[50%] shrink-0 items-center gap-x-3 text-fg-faint *:truncate @max-md/page:ml-0 @max-md/page:max-w-none @max-md/page:flex-wrap @max-md/page:whitespace-normal">{aside}</div>}
     </div>
   );
 }
