@@ -92,12 +92,12 @@ function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
 }
 
 /** The column header row (`Participant`, the shared segment columns and the summary columns), repeated under each
- *  line's header strip so every line's rows stand directly beneath their column labels. */
+ *  line's header strip and sticking to the top of its line's `<tbody>` until the next line takes over. */
 function ColumnHeads({ cols }: { cols: readonly Column[] | null }) {
-  const th = "px-2 py-1 font-normal text-fg-faint whitespace-nowrap";
+  const th = "sticky top-0 z-20 bg-island px-2 py-1 font-normal text-fg-faint whitespace-nowrap";
   return (
     <tr>
-      <th className={`${th} sticky left-0 z-10 bg-island text-left`}>Participant</th>
+      <th className={`${th} left-0 z-30 text-left`}>Participant</th>
       {cols ? cols.map((c) => <th key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{c.label}</th>)
         : SKELETON_COLS.map((c) => <th key={c} className={`${th} text-center ${c === "Development" ? "border-l border-line" : ""}`}>{c}</th>)}
       {SUMMARY_COLS.map((h) =>
