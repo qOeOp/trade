@@ -99,7 +99,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "could open on the instruments); LINE_UNKNOWN, LINE_ENDED; "
         "OUT_OF_SAMPLE_RESERVED"),
     ("replay", "run"): (
-        "the candidate and the registration (writer, head); the market at --market-day, exported fresh; the runtime image; "
+        "the candidate and the registration (writer, head); the market at --market-day (default: the research "
+        "registration's market day, else head), exported fresh; the runtime image; "
         "the checkout's HEAD (with --validation it must contain origin/main)",
         "the trial naming its research or validation registration, its start receipt and execution capture, one "
         "run row and, when passed, its reading, daily returns and cycles; a "
@@ -202,7 +203,7 @@ def register(verbs, verb, runner) -> None:
         "explore trial.", 100) + "\n\n" + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
-    _market_day(command)
+    _market_day(command, default="the research registration's market day, else head")
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--registration", type=int, help="research registration ID (or --validation)")
