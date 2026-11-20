@@ -414,6 +414,12 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual(self.rows("SELECT COUNT(*) FROM run WHERE trial_id = %s", (trial_id,)), [(0,)])
         return trial_id, self.workdir(trial_id)
 
+    def test_a_research_replay_without_a_market_day_replays_the_registered_one(self):
+        stored = self.run_ref(self.refs[12], at=None)
+        self.assertEqual(stored["status"], "passed")
+        self.assertEqual(self.rows("SELECT CAST(market_day AS CHAR) FROM trial WHERE trial_id = %s",
+                                   (stored["trial_id"],)), [(MARKET_DAY,)])
+
     def test_a_kept_directory_must_be_new_and_temporary_before_any_trial(self):
         (trials_before,), = self.rows("SELECT COUNT(*) FROM trial")
         existing = self.world.output("already-there")
