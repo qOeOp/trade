@@ -19,9 +19,6 @@ import { Trades, useTradeRows } from "./Trades";
 import { Logs } from "./Logs";
 import { LiveTrades, LiveTradesTools } from "../live/LiveTrades";
 
-const CYCLE_HEADS = [["Contract"], ["Side"], ["Opened", true], ["Closed", true], ["Held", true], ["Closed by"], ["P&L", true], ["Fees", true], ["Funding", true]] as const;
-const TRADE_HEADS = [["Contract"], ["Side"], ["Size", true], ["Entry", true], ["Exit / last", true], ["Closed by"], ["Held", true], ["P&L", true], ["Closed / stopped", true]] as const;
-
 /** The paper run's stream while the stage shown is paper, and the tab open: Exceptions only once the
  *  strategy raised, Comparison only once the run is sealed. */
 function useScope() {
@@ -80,14 +77,14 @@ export function TradesWindow() {
   if (stage === "live") return <LiveTrades />;
   if (stage === "backtest") {
     if (backtest?.kind === "ready") return <div className="@container/page"><Cycles cycles={backtest.b.cycles} only={only} /></div>;
-    if (backtest?.kind === "reading") return <TableSkeleton headers={only ? CYCLE_HEADS.slice(1) : CYCLE_HEADS} rows={4} />;
+    if (backtest?.kind === "reading") return <TableSkeleton rows={4} />;
     return <Note>{backtestNote(backtest, trial?.trial_id ?? 0) ?? ""}</Note>;
   }
   if (!s) {
     if (service === "absent") return <Note>Paper runs are not served by this IDE</Note>;
     if (service === "offline") return <Note>Paper service offline. Reconnecting automatically.</Note>;
     if (stage === null && service !== "checking") return <Note>No research run and no paper run</Note>;
-    return <TableSkeleton headers={only ? TRADE_HEADS.slice(1) : TRADE_HEADS} rows={4} />;
+    return <TableSkeleton rows={4} />;
   }
   return (
     <div className="@container/page">
