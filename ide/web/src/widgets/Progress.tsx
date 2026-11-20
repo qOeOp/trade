@@ -1,13 +1,11 @@
-import { useId, useMemo } from "react";
+import { useId } from "react";
 import { scaleLinear } from "@visx/scale";
-import type { LineageWidget, ProgressWidget } from "../model/types";
-import { compactLineage, compactProgress } from "../model/lineageTree";
-import { useWidget } from "../model/view";
+import type { ProgressWidget } from "../model/types";
 import { pct } from "../lib/format";
 import { valueDomain } from "../lib/valueDomain";
 import { v, type ColorRole } from "../theme/roles";
-import { crosshair, hovered, hoverProps, requestFocus, useAxisView, useCrosshair, useExpandedBranches, useLineageMode } from "../state/linking";
-import { select, useSelection } from "../state/selection";
+import { crosshair, hovered, hoverProps, requestFocus, useAxisView, useCrosshair } from "../state/linking";
+import { select } from "../state/selection";
 import { useGlide } from "../components/hooks/useGlide";
 import { useSize } from "../components/hooks/useSize";
 import { ChartPill, PILL_H } from "../components/ChartPill";
@@ -39,15 +37,7 @@ function bar(x: number, w: number, base: number, end: number, r: number) {
 // reading glides: a bar's place along the axis is its group's, its height its own. The trial at the
 // crosshair is a shaded column behind the bars, its run's return read out on the value axis along a
 // dotted line from its bar. Layers are named groups in paint order, as Highcharts draws them.
-export function Progress({ widget: rawWidget }: { widget: ProgressWidget }) {
-  const lineage = useWidget<LineageWidget>("lineage");
-  const mode = useLineageMode();
-  const expanded = useExpandedBranches();
-  const selected = useSelection();
-  const widget = useMemo(
-    () => (lineage ? compactProgress(rawWidget, compactLineage(lineage, mode, selected, expanded)) : rawWidget),
-    [rawWidget, lineage, mode, selected, expanded],
-  );
+export function Progress({ widget }: { widget: ProgressWidget }) {
   const [ref, { width, height }] = useSize();
   const id = useId(), glide = useGlide(widget);
   const { x0, unit } = useAxisView();
@@ -105,7 +95,7 @@ export function Progress({ widget: rawWidget }: { widget: ProgressWidget }) {
               {points.map((p) => (
                 <Tip key={p.trial_id} content={<EventTip kind={`trial ${p.trial_id} · research run`} version={p.id}
                   note={`Return ${pct(p.annual_return)}${p.max_drawdown != null ? ` · drawdown ${pct(p.max_drawdown)}` : ""}${recommended.has(p.id) ? " · once recommended" : ""}`} />}>
-                  <g {...hoverProps(p.id)} data-light={tone(p.annual_return) === "bar" ? "" : undefined} className={`enter cursor-pointer ${glide}`} onClick={() => requestFocus(p.id)} transform={`translate(${sx(p.x)} 0)`}>
+                  <g {...hoverProps(p.id)} data-light={tone(p.annual_return) === "bar" ? "" : undefined} className="enter cursor-pointer" onClick={() => requestFocus(p.id)} transform={`translate(${sx(p.x)} 0)`}>
                     <path className={glide} d={bar(-barWidth / 2, barWidth, y(0), y(p.annual_return) + (p.annual_return === 0 ? -1 : 0), R)} fill={v(tone(p.annual_return))} />
                   </g>
                 </Tip>
