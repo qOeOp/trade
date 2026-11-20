@@ -7,8 +7,14 @@ import { namespace } from "./load.mjs";
 const h = await namespace("model/history.ts", { sources: ["model/heat"], packages: [] });
 const cell = (kind, label, annual = 0.1, dd = 0.1, extra = {}) => ({ trial_id: 1, kind, label, trade_start: "", trade_end: "", status: "passed",
   whole_year: kind === "veto", short: false, measures: { annual_return: annual, mark_max_drawdown: dd, sharpe_365: 1, cycles: 3, plan_win_rate: 0.5 }, ...extra });
-const row = (run, cells, veto = {}) => ({ source_sha256: "s", candidate: `c@${run}`, run, development: cell("development", "development"), cells,
-  control_reproduces: true, summary: { veto: { median_annual_return: 0.1, years_meeting_targets: 1, ...veto }, holdout: {}, meets_targets: null, judged_on: null } });
+// A summary as report/history.py's _summary gives it: a decided verdict on the veto years and the holdout.
+const decided = (veto = {}, holdout = {}, extra = {}) => ({
+  veto: { whole_years: 3, profitable_years: 2, median_annual_return: 0.1, worst_annual_return: -0.1, worst_mark_max_drawdown: 0.15,
+          years_meeting_targets: 1, meets_targets: false, ...veto },
+  holdout: { annual_return: 0.1, mark_max_drawdown: 0.1, meets_targets: false, deflated_sharpe: 0.4, ...holdout },
+  meets_targets: false, judged_on: "veto and holdout", missing: [], ...extra });
+const row = (run, cells, veto = {}, holdout = {}, extra = {}) => ({ source_sha256: "s", candidate: `c@${run}`, run,
+  development: cell("development", "development"), cells, control_reproduces: true, summary: decided(veto, holdout, extra) });
 const line = (rows) => ({ line: "l", closed: true, dev_start: "", dev_end: "", targets: { max_drawdown: 0.2, annual_return: 0.3 }, participants: rows.length, research_trials: 9, rows });
 
 test("every line shares the calendar-year columns, then development, holdout and forward", () => {
@@ -34,10 +40,23 @@ test("returns colour by sign and size; rows with no edge hide; orders put unknow
   assert.deepEqual(h.RETURN_RANGES, ["below −40%", "−40% to −15%", "−15% to −2%", "−2% to +2%", "+2% to +15%", "+15% to +40%", "above +40%"]);
   const a = row(1, [], { median_annual_return: 0, years_meeting_targets: 0 }), b = row(2, [], { median_annual_return: 0.4, years_meeting_targets: 3 }),
         c = { ...row(3, []), summary: null };
-  assert.deepEqual([a, b, c].map(h.noEdge), [true, false, false], "a row whose control differs has no summary and is never hidden for it");
+  assert.deepEqual([a, b, c].map(h.noEdge), [false, false, false], "a holdout that made money keeps a row; a row whose control differs has no summary");
   assert.deepEqual(h.ordered([a, b, c], "median").map((r) => r.run), [2, 1, 3]);
   assert.deepEqual(h.ordered([a, b, c], "meeting").map((r) => r.run), [2, 1, 3]);
   assert.deepEqual(h.ordered([a, b, c], "development").map((r) => r.run), [1, 2, 3]);
+});
+
+test("a row hides only when the verdict rejects it and neither the veto years nor the holdout made money (20261120-02)", () => {
+  const hidden = (...args) => h.noEdge(row(1, [], ...args));
+  assert.equal(hidden({ median_annual_return: 0 }, { annual_return: -0.05 }), true);
+  assert.equal(hidden({ median_annual_return: -0.1 }, { annual_return: 0.2 }), false, "a positive holdout is not hidden");
+  assert.equal(hidden({ median_annual_return: 0.05 }, { annual_return: -0.2 }), false, "positive veto years are not hidden");
+  assert.equal(hidden({ whole_years: 0, profitable_years: 0, median_annual_return: null, worst_annual_return: null, worst_mark_max_drawdown: null,
+                        years_meeting_targets: null, meets_targets: null }, { annual_return: -0.1 }, { judged_on: "holdout" }), true,
+    "with no whole veto year the holdout alone decides");
+  assert.equal(hidden({ median_annual_return: -0.1, meets_targets: null }, { annual_return: -0.1 }, { meets_targets: null, judged_on: null, missing: ["veto 2022"] }),
+    false, "an undecided row is not rejected, so not hidden");
+  assert.equal(hidden({ median_annual_return: -0.1 }, { annual_return: -0.1 }, { meets_targets: true }), false, "a verdict that meets the targets is never hidden");
 });
 
 test("the holdout's earlier searches: a count when the API gave one, zero is a count, no field is unknown", () => {
