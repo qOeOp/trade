@@ -126,7 +126,7 @@ test("review uses the run-bound credential relation, exact decimal text and the 
   assert.match(html, /Local copy<\/dt><dd[^>]*>Unavailable/);
   assert.doesNotMatch(html, /selected-but-unbound/);
   assert.match(render("LiveFrozenPlan", { run, credentials: [selected] }), /Bound credential<\/dt><dd[^>]*>Unknown/);
-  assert.match(render("LiveFacts", { title: "Native completion", facts: run.execution }), /Unknown/);
+  assert.match(render("LiveFacts", { title: "Native completion", facts: run.execution }), /Admission<\/dt><dd[^>]*><span class="text-fg-ghost">-</);
   assert.match(render("LiveFacts", { title: "Account observation", facts: [] }), /No observation received/);
 });
 

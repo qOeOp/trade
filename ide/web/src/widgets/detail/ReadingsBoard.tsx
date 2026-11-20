@@ -69,11 +69,10 @@ function Ledger({ f }: { f: Facts }) {
     { title: "Targets", rows: [
       { name: <Drawdown f={f} />, ...num(f.mdd, digits, "%", f.reading), track: track(f) },
       ...f.limit === null ? [] : [{ name: dd === null ? "The limit" : <><Said ok={dd} yes="Within" no="Over" /> the limit</>, ...num(f.limit, digits, "%"), sub: true }],
-      ...a ? [
-        ...a.ended ? [] : [a.dd === "stop" ? { name: "At the stop", sub: true } : { name: "Below the peak when last seen", ...num(a.dd, digits, "%", a.stale), sub: true }],
+      ...a ? [a.dd === "stop" ? { name: "At the stop", sub: true } : { name: a.ended ? "Below the peak at the end" : "Below the peak when last seen", ...num(a.dd, digits, "%", a.stale), sub: true },
         { name: "Return", ...num(a.ret, (n) => `${sign(n)}${digits(n)}`, "%", a.stale) },
-        // what the minimum annual return asks for by now, and the pace against it, while a run is still in progress
-        ...a.ended || f.minimum === null ? [] : [{ name: "Needed by now", ...num(a.needed, (n) => `${sign(n)}${digits(n)}`, "%", a.stale), sub: true },
+        // what the minimum annual return asks for by now, and the pace against it, where there is a minimum
+        ...f.minimum === null ? [] : [{ name: "Needed by now", ...num(a.needed, (n) => `${sign(n)}${digits(n)}`, "%", a.stale), sub: true },
           { name: a.ahead == null ? "Pace" : <><Said ok={a.ahead >= 0} yes="On pace" no="Behind pace" /> · {signed(a.usdt ?? null, 0)} USDT</>,
             ...num(a.ahead, (n) => signed(n * 100), "pt", a.stale), sub: true }]] : [],
       { name: "Annual return", ...num(f.annual, (n) => `${sign(n)}${digits(n)}`, "%", f.reading) },
@@ -124,12 +123,12 @@ type Cell = { name: string; value: ReactNode };
  *  cells end at it. */
 function Strip({ f }: { f: Facts }) {
   const { account: a, stats: t } = f, dd = meets(f.mdd, f.limit, false);
-  const ddNote = a?.dd === "stop" ? "at the stop" : typeof a?.dd === "number" && !a.ended ? `last seen ${pct(a.dd)} below the peak` : null;
+  const ddNote = a?.dd === "stop" ? "at the stop" : typeof a?.dd === "number" ? (a.ended ? `${pct(a.dd)} below the peak at the end` : `last seen ${pct(a.dd)} below the peak`) : null;
   const lines = [
     { name: "Max drawdown", value: shown(f.mdd, pct, f.reading), context: f.limit === null ? null : `of ${pct(f.limit, 0)} limit`, track: track(f),
       note: [dd === null ? null : <Said ok={dd} yes="Within limit" no="Over limit" />, ddNote] },
-    ...a ? [{ name: "Return", value: shown(a.ret, (n) => `${sign(n)}${pct(n)}`, a.stale), context: a.ended || a.needed == null ? null : `of ${sign(a.needed)}${pct(a.needed)} needed`, track: null,
-      note: a.ended || a.ahead == null ? [] : [<Said ok={a.ahead >= 0} yes="On pace" no="Behind pace" />, `${signed(a.ahead * 100)} pt`, `${signed(a.usdt ?? null, 0)} USDT`] }] : [],
+    ...a ? [{ name: "Return", value: shown(a.ret, (n) => `${sign(n)}${pct(n)}`, a.stale), context: a.needed == null ? null : `of ${sign(a.needed)}${pct(a.needed)} needed`, track: null,
+      note: a.ahead == null ? [] : [<Said ok={a.ahead >= 0} yes="On pace" no="Behind pace" />, `${signed(a.ahead * 100)} pt`, `${signed(a.usdt ?? null, 0)} USDT`] }] : [],
   ];
   const annual = f.short != null ? <span className="text-small text-fg-faint">Too short · {Math.floor(f.short)} of {ANNUAL_DAYS} d</span>
     : shown(f.annual, (n) => { const ok = meets(n, f.minimum, true); return <span className={ok === null ? pnlClass(n) : ok ? "text-meets-fg" : "text-misses-fg"}>{sign(n)}{pct(n)}</span>; }, f.reading);

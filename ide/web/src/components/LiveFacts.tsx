@@ -3,6 +3,7 @@ import { duration } from "../lib/format";
 import { dateTime, nsMilliseconds } from "../lib/time";
 import { useTimeZone } from "../state/timeZone";
 import { textClass } from "../theme/roles";
+import { Missing } from "./Missing";
 import { Section } from "./Section";
 import { FormButton } from "./chat/Field";
 import { useLiveAction } from "./LiveActionState";
@@ -22,7 +23,7 @@ export function LiveFacts({ title, facts }: { title: string; facts: readonly Liv
         const long = (shown?.length ?? 0) > LONG && !shown?.includes(" ");
         return <div key={label} className={`py-1 ${long ? "" : "flex items-baseline justify-between gap-x-4"}`}>
           <dt className="shrink-0 text-fg-faint">{label}</dt>
-          <dd title={format && value !== null ? `${value} ns` : undefined} className={`min-w-0 wrap-anywhere tabular-nums ${long ? "mt-0.5" : "text-right"} ${attention ? textClass("misses") : ""}`}>{shown ?? <span className="text-fg-faint">Unknown</span>}</dd>
+          <dd title={format && value !== null ? `${value} ns` : undefined} className={`min-w-0 wrap-anywhere tabular-nums ${long ? "mt-0.5" : "text-right"} ${attention ? textClass("misses") : ""}`}>{shown ?? <Missing />}</dd>
         </div>;
       })}</dl> : <p className="text-dense text-fg-faint">No observation received.</p>}
     </Section>
