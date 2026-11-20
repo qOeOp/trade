@@ -329,7 +329,7 @@ const piece = (paperId, lines, equity, final, extra = {}) => ({
 
 test("a joined account picks up where the run before it ended, its return compounding and its drawdown over the whole path", () => {
   const a = piece(1, [line("started", T0)], [[T0, 100_000], [T0 + MIN, 101_000]], 101_000, { seal: { stopped_ns: T0 + 2 * MIN, stop_reason: "KILLED", final_equity_usdt: "101000", reasons: [], fills: 2, positions_closed: 1, daily_returns: [["2026-10-28", 0.01]] } });
-  const b = { ...piece(2, [line("started", T0 + 50 * MIN, { symbols: ["BTCUSDT"] }), line("socket", T0 + 50 * MIN)], [[T0 + 50 * MIN, 100_000], [T0 + 51 * MIN, 99_000]], 99_000), symbol: null, connected: true };
+  const b = { ...piece(2, [line("started", T0 + 50 * MIN, { symbols: ["BTCUSDT"] }), line("socket", T0 + 50 * MIN)], [[T0 + 50 * MIN, 100_000], [T0 + 51 * MIN, 99_000]], 99_000), symbol: null, link: "open" };
   const s = joined([a], b);
   assert.deepEqual(s.readings.equity, [[T0, 100_000], [T0 + MIN, 101_000], [T0 + 50 * MIN, 101_000], [T0 + 51 * MIN, 99_990]]);
   assert.equal(s.readings.final_equity_usdt, (99_990).toFixed(10));
@@ -341,7 +341,7 @@ test("a joined account picks up where the run before it ended, its return compou
   assert.equal(s.readings.started_ns, T0);
   assert.equal(s.readings.starting_balance_usdt, "100000");
   assert.equal(s.paperId, 2, "the page follows the latest run");
-  assert.equal(s.connected, true);
+  assert.equal(s.link, "open");
   const restart = s.lines.find((l) => l.kind === "restart");
   assert.deepEqual(restart, { kind: "restart", wall_ns: T0 + 50 * MIN, from_ns: T0 + 2 * MIN, to_ns: T0 + 50 * MIN, stopped: 1, started: 2, stop_reason: "KILLED",
                              gap: "offline", lead: "Docker or host restart", resumed: "restarted", again: "Docker or host restart, started again after 48m offline", symbols: ["BTCUSDT"] });

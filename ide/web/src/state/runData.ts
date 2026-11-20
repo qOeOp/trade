@@ -1,6 +1,7 @@
 // The paper run shown (state/shown.ts) as the chart, Details, the Trades window and the toolbar read it,
 // worked out once by the shell (useRunDriver): its stream, joined with the earlier runs of its chain
-// (model/joined.ts, each with the listing's verdict on it; until they are read the run shows alone), its
+// (model/joined.ts, each with the listing's verdict on it; until they and its own readings are read the run
+// shows alone), its
 // account once its readings or seal arrive (before them every figure would read as zero), what its
 // closed trades say, its fills and what moved its equity; what the chart shows of it (Equity, or a contract
 // of the run or of its version's backtest), and the version's stretches the chart draws (stretches.ts).
@@ -48,7 +49,9 @@ export function useRunDriver(): void {
   const before = chain.slice(0, -1), ids = before.map((r) => r.paper_id).join(), verdicts = before.map((r) => r.status).join();
   const earlier = useEarlier(useMemo(() => before, [ids]), symbol);
   const own = stream && stream.paperId === run?.paper_id ? stream : null;
-  const s = useMemo(() => (own && earlier?.length && own.symbol === symbol
+  // Joined once the run's own readings or seal arrive: before them the join would carry no equity at all, the
+  // earlier runs' included, and the chart draws the chain from the runs read (paperChain.ts) meanwhile.
+  const s = useMemo(() => (own && (own.readings || own.seal) && earlier?.length && own.symbol === symbol
     ? joined(earlier.map((p, k) => ({ ...p, status: before[k]?.status ?? null })), own) : own), [own, earlier, verdicts, symbol]);
   const stretches = useStretches(s && s.symbol === symbol && (!before.length || s !== own) ? s : null, symbol);
   // The first view of a run: the contract it holds, once its state says which (else `fallback` above).

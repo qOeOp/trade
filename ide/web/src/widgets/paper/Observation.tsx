@@ -13,7 +13,7 @@ export function Observation({ run, s, part }: { run: PaperRun; s: Stream; part?:
   const stale = through !== null && now - through > LAG_MS;
   const restarted = s.lines.some((l) => l.kind === "restart");
   const facts = part !== "sentences", sentences = part !== "facts";
-  if (!sentences && through === null && (s.connected || s.seal)) return null;
+  if (!sentences && through === null && (s.link !== "lost" || s.seal)) return null;
   const fragile = heldOnInterruption(run), refused = unresumable(run), bare = unprotected(run);
   if (!facts && !run.recovery && until === null && !restarted && !fragile && !bare.length) return null;
   return <div role="status" className={`flex shrink-0 flex-wrap gap-x-3 gap-y-1 text-small tabular-nums ${sentences ? "mx-3 mb-2" : ""}`}>
@@ -22,7 +22,7 @@ export function Observation({ run, s, part }: { run: PaperRun; s: Stream; part?:
     {sentences && fragile && <span className="text-misses-fg">{NO_RECOVERY}.</span>}
     {sentences && until !== null && <span className="text-misses-fg">{waitingText(until, now, zone)}</span>}
     {facts && through !== null && <span className={stale ? "text-misses-fg" : "text-fg-muted"}>{stale || run.state === "sealed" ? "Historical data" : "Data"} through {utcMinute(through, zone)}</span>}
-    {facts && !s.connected && !s.seal && <span className="text-misses-fg">Stream disconnected</span>}
+    {facts && s.link === "lost" && !s.seal && <span className="text-misses-fg">Stream disconnected</span>}
     {sentences && restarted && <span className="text-fg-muted">Run {run.paper_id} starts with a fresh account; earlier positions were not carried forward</span>}
   </div>;
 }
