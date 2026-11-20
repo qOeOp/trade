@@ -10,7 +10,6 @@ import { LineHeader, PriorTip } from "./LineHeader";
 import { Tip } from "../../components/Tip";
 import { Empty } from "../../components/Waiting";
 
-const SKELETON_COLS = ["2021", "2022", "2023", "2024", "Development", "Holdout"] as const;
 const SUMMARY_COLS = ["Whole yrs", "Profitable", "Meeting", "Median", "Worst", "Worst DD", "Veto", "Holdout", "Verdict", "DSR"] as const;
 
 const METRICS = [{ value: "annual_return", label: "Annual return" }, { value: "mark_max_drawdown", label: "Max drawdown" },
@@ -95,13 +94,12 @@ function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
  *  sticky `<thead>`, which stays at the top while scrolling, and again, not sticky, under each line's header strip so
  *  that line's rows read under their own labels. A sticky table cell is bounded by the whole table, not its `<tbody>`,
  *  so only the `<thead>` row may stick or every line's copy would pile up at the top. */
-function ColumnHeads({ cols, pinned }: { cols: readonly Column[] | null; pinned: boolean }) {
+function ColumnHeads({ cols, pinned }: { cols: readonly Column[]; pinned: boolean }) {
   const th = "bg-island px-2 py-1 font-normal text-fg-faint whitespace-nowrap";
   return (
     <tr>
       <th scope="col" className={`${th} sticky left-0 ${pinned ? "z-30" : "z-10"} text-left`}>Participant</th>
-      {cols ? cols.map((c) => <th scope="col" key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{c.label}</th>)
-        : SKELETON_COLS.map((c) => <th scope="col" key={c} className={`${th} text-center ${c === "Development" ? "border-l border-line" : ""}`}>{c}</th>)}
+      {cols.map((c) => <th scope="col" key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{c.label}</th>)}
       {SUMMARY_COLS.map((h) =>
         <th scope="col" key={h} className={`${th} text-right ${h === "Whole yrs" ? "border-l border-line" : ""}`}>{h}</th>)}
     </tr>
@@ -153,13 +151,13 @@ export function HistoryPage() {
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="border-separate border-spacing-0 text-dense">
-          <thead className="sticky top-0 z-20 bg-island"><ColumnHeads cols={history ? cols : null} pinned /></thead>
+          <thead className="sticky top-0 z-20 bg-island"><ColumnHeads cols={cols} pinned /></thead>
           {history ? lines.map((l, i) => <LineRows key={l.line} line={l} first={i === 0} cols={cols} metric={metric} order={order} all={all} shortDays={history.short_days} />) : (
             <tbody className="border-t border-line">
               {[0, 1, 2, 3, 4].map((r) => (
                 <tr key={r}>
                   <th className="sticky left-0 z-10 bg-island px-2 py-1 text-left font-normal"><Skeleton className="w-32" /></th>
-                  {SKELETON_COLS.map((c) => <td key={c} className="p-0.5"><div className="skeleton h-7 min-w-[4.75rem] rounded-badge opacity-45" /></td>)}
+                  {cols.map((c) => <td key={c.id} className="p-0.5"><div className="skeleton h-7 min-w-[4.75rem] rounded-badge opacity-45" /></td>)}
                   {SUMMARY_COLS.map((h) => <td key={h} className="px-2 text-right"><Skeleton className="w-8" /></td>)}
                 </tr>
               ))}
@@ -168,7 +166,7 @@ export function HistoryPage() {
         </table>
       </div>
       <p className="shrink-0 px-3 py-1.5 text-small text-fg-faint">
-        Colour: annual return ({RETURN_RANGES[0]} to {RETURN_RANGES[6]}) · star: the segment meets both targets · grey: under {history?.short_days ?? 90} days, not counted · hatched: part of a year.
+        Colour: annual return ({RETURN_RANGES[0]} to {RETURN_RANGES[6]}) · star: the segment meets both targets{history && <> · grey: under {history.short_days} days, not counted</>} · hatched: part of a year.
         The verdict reads the veto years and the holdout apart; it tests, it does not validate, and picking by it is a choice among the participants.
       </p>
     </div>

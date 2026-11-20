@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { change, funding, price, ratio, usd } from "../../lib/format";
 import { capOf, coinsAt, type Coin } from "../../model/market";
 import { marketCoin, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
@@ -33,15 +33,14 @@ const COLUMNS: Column<Coin>[] = [
     cell: (c) => (c.getValue() ? usd(c.getValue()) : <Missing />) }) as Column<Coin>,
 ];
 
-const COIN_HEADS = [["Coin"], ["Sector"], ["Price", true], ["1h", true], ["4h", true], ["24h", true], ["7d", true],
-  ["Funding", true], ["OI", true], ["OI 24h", true], ["L / S", true], ["Market cap", true], ["Volume 24h", true], ["Liquidations", true]] as const;
+/** What the Market windows say while the overview service is not to be had: not served or offline; null otherwise. */
+export const marketDown = (service: ReturnType<typeof useOverviewService>): string | null =>
+  service === "absent" ? "Market data is not served by this IDE." : service === "offline" ? "Market data offline. Reconnecting automatically." : null;
 
-/** What the Coins and News windows say before the overview's first snapshot: not served, offline, or a skeleton. */
-export function MarketPending({ headers = COIN_HEADS }: { headers?: readonly (readonly [string, boolean?])[] }) {
-  const service = useOverviewService();
-  if (service === "absent") return <p className="p-4 text-fg-faint">Market data is not served by this IDE.</p>;
-  if (service === "offline") return <p className="p-4 text-fg-faint">Market data offline. Reconnecting automatically.</p>;
-  return <TableSkeleton headers={headers} rows={5} />;
+/** What a Market window shows before the overview's first snapshot: that the service is down, else `children`. */
+export function MarketPending({ children }: { children: ReactNode }) {
+  const down = marketDown(useOverviewService());
+  return down ? <p className="p-4 text-fg-faint">{down}</p> : <>{children}</>;
 }
 
 /** The coins of the level the Market page shows, the folded tail included, as one sortable table; a row
@@ -50,7 +49,7 @@ export function CoinsWindow() {
   const snapshot = useSnapshot(), { path, coin, size } = useMarketView(), page = useOnMarketPage();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
   if (!page) return <p className="p-4 text-fg-faint">The coins of the Market page's level.</p>;
-  if (!snapshot) return <MarketPending />;
+  if (!snapshot) return <MarketPending><TableSkeleton cols={COLUMNS.length} /></MarketPending>;
   if (!coins.length) return <p className="p-4 text-fg-faint">{path.length ? "This level is not in the latest snapshot." : "No coins in this snapshot."}</p>;
   return (
     <DataTable data={coins} columns={COLUMNS} rowId={(c) => c.symbol} selected={coin}

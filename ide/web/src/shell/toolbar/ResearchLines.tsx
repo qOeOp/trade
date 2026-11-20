@@ -6,7 +6,7 @@ import { pct } from "../../lib/format";
 import { lineHref, type ResearchLine } from "../../lib/lines";
 import { readResearchLines, type LineIndex } from "../../state/researchLines";
 import { followReadings, useLineReadings, type LineReading } from "../../state/researchReadings";
-import { DropdownGrid, DropdownGridLabel, DropdownGridLink, DropdownGridSeparator, DropdownItem, DropdownLabel } from "../../components/Dropdown";
+import { DropdownGrid, DropdownGridLabel, DropdownGridLink, DropdownGridPlaceholder, DropdownGridSeparator, DropdownItem, DropdownLabel } from "../../components/Dropdown";
 import { Missing, Skeleton } from "../../components/Missing";
 
 // Check, name, development, recommended version, annual return, max drawdown; the two numbers share one width.
@@ -68,10 +68,10 @@ export function ResearchLines({ index }: { index: LineIndex }) {
         <span className={NAME}>Open</span><span className={DEV}>Development</span><span className={VERSION}>Recommended</span>
         <span className={NUMBER}>Annual</span><span className={NUMBER}>Max DD</span>
       </DropdownGridLabel>
-      {[0, 1, 2].map((i) => <DropdownGridLink key={i} href="#" current={false}>
+      {[0, 1, 2].map((i) => <DropdownGridPlaceholder key={i}>
         <span className={NAME}><Skeleton className="w-28" /></span><span className={DEV}><Skeleton className="w-20" /></span>
         <span className={VERSION}><Skeleton className="w-20" /></span><span className={NUMBER}><Skeleton /></span><span className={NUMBER}><Skeleton /></span>
-      </DropdownGridLink>)}
+      </DropdownGridPlaceholder>)}
     </DropdownGrid>}
     {loaded && !error && lines.length === 0 && <DropdownLabel>No research lines yet</DropdownLabel>}
     {loaded && <DropdownGrid cols={COLS}>

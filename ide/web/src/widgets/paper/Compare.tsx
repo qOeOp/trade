@@ -109,8 +109,6 @@ function Prompt({ children, action, label, extra }: { children: ReactNode; actio
  *  warm-up, the contract terms or fee rates, the stop, or none of these, which for something only the replay did
  *  marks a look-ahead suspect. Once a contract's paths part, its later differences follow from the first and are
  *  grey. Differences are amber, suspects red. When nothing differs, the matching groups fold into one row. */
-const COMPARE_HEADS = [["Contract"], ["Order"], ["Time"], ["Paper", true], ["Replay", true], ["Delay", true], ["Price, bp", true], ["Result"]] as const;
-
 export function Compare({ r, paperId, only, digits }: {
   r: Comparison | null; paperId: number; only: string | null; digits: ReadonlyMap<string, Precision>;
 }) {
@@ -120,9 +118,9 @@ export function Compare({ r, paperId, only, digits }: {
       <div className="flex flex-col">
         <div className="flex flex-wrap items-center gap-3 px-3 py-2 text-dense">
           <Skeleton className="w-24" /><Skeleton className="w-20" /><Skeleton className="w-28" />
-          {r?.state === "comparing" && <span className="ml-auto text-small text-fg-faint">Replaying on the archive…</span>}
+          {r?.state === "comparing" && <span className="ml-auto text-small text-fg-faint">Replaying on the archive… a run of an hour takes about half a minute.</span>}
         </div>
-        <TableSkeleton headers={only ? COMPARE_HEADS.slice(1) : COMPARE_HEADS} rows={4} />
+        <TableSkeleton rows={4} />
       </div>
     );
   }

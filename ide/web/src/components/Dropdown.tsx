@@ -133,4 +133,8 @@ export function DropdownGridLink({ href, current = false, children }: { href: st
     </a>
   </DropdownMenu.Item>;
 }
+/** A row of the grid being read: laid out as a link row, but no menu item (not focusable, does not navigate) and
+ *  hidden from assistive technology. */
+export const DropdownGridPlaceholder = ({ children }: { children: ReactNode }) =>
+  <div aria-hidden="true" className={`${GRID_ROW} h-(--row-h) items-center`}><span />{children}</div>;
 export const DropdownGridSeparator = () => <DropdownMenu.Separator className="col-span-full my-1 h-px bg-line-strong" />;

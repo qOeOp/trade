@@ -21,7 +21,7 @@ const CHART_BARS = [42, 46, 44, 51, 48, 55, 52, 60, 58, 64, 61, 68, 65, 62, 70, 
 
 /** A chart canvas being read: legend placeholders, price grid with right-axis ticks, pulsing series and time axis. */
 export const ChartSkeleton = ({ note }: { note?: string | null }) => (
-  <div aria-label={note ?? "Loading chart"} className="flex h-full min-h-0 flex-col justify-between py-2 pr-2">
+  <div role="status" aria-label={note ?? "Loading chart"} className="flex h-full min-h-0 flex-col justify-between py-2 pr-2">
     <div className="flex flex-wrap items-center gap-3 pb-2 text-small">
       <Skeleton className="w-16" /><Skeleton className="w-24" /><Skeleton className="w-20" /><Skeleton className="w-16" />
       {note && <span className="ml-auto truncate text-fg-faint">{note}</span>}
@@ -44,23 +44,15 @@ export const ChartSkeleton = ({ note }: { note?: string | null }) => (
   </div>
 );
 
-/** A table being read: its column headers in place and pulsing bars in each cell. */
-export const TableSkeleton = ({ headers, rows = 5 }: { headers: readonly (readonly [string, boolean?])[]; rows?: number }) => (
-  <table className="w-full border-collapse text-dense tabular-nums">
-    <thead>
-      <tr>
-        {headers.map(([h, right]) => (
-          <th key={h} className={`h-(--form-h) border-b border-line-strong px-3 font-normal whitespace-nowrap text-fg-faint ${right ? "text-right" : "text-left"}`}>{h}</th>
-        ))}
-      </tr>
-    </thead>
+/** A table being read: `cols` columns of pulsing bars under an empty header rule, no header text (the table's own
+ *  columns name themselves once it is read). */
+export const TableSkeleton = ({ cols = 6, rows = 5 }: { cols?: number; rows?: number }) => (
+  <table aria-hidden="true" className="w-full border-collapse text-dense">
     <tbody>
       {Array.from({ length: rows }, (_, r) => (
-        <tr key={r} className="border-b border-line last:border-0">
-          {headers.map(([h, right], c) => (
-            <td key={h} className={`h-(--form-h) px-3 whitespace-nowrap ${right ? "text-right" : "text-left"}`}>
-              <Skeleton className={c === 0 ? "w-16" : right ? "w-12" : "w-20"} />
-            </td>
+        <tr key={r} className="border-b border-line last:border-0 first:border-t first:border-t-line-strong">
+          {Array.from({ length: cols }, (_, c) => (
+            <td key={c} className="h-(--form-h) px-3"><Skeleton className={c === 0 ? "w-16" : "w-12"} /></td>
           ))}
         </tr>
       ))}

@@ -9,6 +9,7 @@ import { DropdownChoice } from "../../components/Dropdown";
 import { HeatLegend } from "../../components/HeatLegend";
 import { HeatTile } from "../../components/HeatTile";
 import { Skeleton } from "../../components/Missing";
+import { marketDown } from "./CoinsWindow";
 import { TextButton } from "../../components/TextButton";
 import { Empty } from "../../components/Waiting";
 import { useSize } from "../../components/hooks/useSize";
@@ -64,8 +65,8 @@ export function MarketPage() {
   const labels = useMemo(() => path.map((p, i) => (p === MORE && snapshot ? level(snapshot, path.slice(0, i), size, color).at(-1)?.name ?? "More" : p)),
                          [snapshot, path, size, color]);
   const count = useMemo(() => (snapshot ? coinsAt(snapshot, path, size).length : 0), [snapshot, path, size]);
-  if (service === "absent") return <Empty title="Market data is not served by this IDE" />;
-  if (!snapshot && service === "offline") return <Empty title="Market data offline">Can't reach the market overview service. Reconnecting automatically.</Empty>;
+  const down = marketDown(service);
+  if (down && (service === "absent" || !snapshot)) return <Empty title={down} />;
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* The island's 12px inset less a breadcrumb's own 8px padding, so the first crumb's text sits on the inset. */}
