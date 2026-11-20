@@ -18,6 +18,7 @@ from ledger import targets as line_targets
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import availability, precheck, register
+from registration.comparability import COMPARABLE_PURPOSES
 from report import candidates as report_candidates
 from report import comparison, measures, seams, status
 
@@ -100,7 +101,7 @@ def _candidate_rows(conn: db.LedgerConnection) -> list[dict]:
 
 def _run_reading(conn: db.LedgerConnection, trial_id: int, checker: Mapping, records: list,
                  run: Mapping | Refusal) -> tuple[dict, dict | None]:
-    """A sealed research run as the graph draws it: whether it is eligible (availability), its four measures when it
+    """A sealed research or validation run as the graph draws it: whether it is eligible (availability), its four measures when it
     is (else why not) and the source check availability read, from its metrics.load_runs entry `run`."""
     reading: dict = {"eligible": None, "ineligible_reason": None}
     value = report_candidates.assess_listed(conn, trial_id, checker, records, run)
@@ -430,13 +431,13 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
             if key is None or (row["purpose"] == "research" and row["trial_id"] not in on_line):
                 continue  # a research run on another window or market day belongs to another line
             drawn.append((key, row))
-        loaded = metrics.load_runs(conn, [row["trial_id"] for _, row in drawn  # availability and the measures
-                                          if row["purpose"] == "research" and row["status"] is not None], listing=True)
+        read = [row["trial_id"] for _, row in drawn if row["purpose"] in COMPARABLE_PURPOSES and row["status"] is not None]
+        loaded = metrics.load_runs(conn, read, listing=True)  # availability and the measures
         for key, row in drawn:
             trial = {"trial_id": row["trial_id"], "purpose": row["purpose"], "status": row["status"],
                      "annual_return": None, "max_drawdown": None, "sharpe": None, "plan_win_rate": None,
                      "eligible": None, "ineligible_reason": None, "at": _iso(row["created_at"])}
-            if row["purpose"] == "research" and row["status"] is not None:
+            if row["trial_id"] in loaded:
                 reading, check = _run_reading(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
                 trial.update(reading)
                 if check is not None:
@@ -550,6 +551,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
             "and unrun come from reviews.",
             "Research runs are the line's own (its window and market day); other trials of a version are kept "
             "by source. A version whose research runs are all another line's is left out, with what only it links.",
+            "Research and validation runs carry their eligibility and measures; other trials carry neither.",
             "Interpretation is the latest current interpretation judgment naming the version's registration or trials.",
             "Out-of-sample validation registrations and verdicts are not drawn.",
             "Times are the ledger's UTC times without a zone.",

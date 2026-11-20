@@ -195,7 +195,9 @@ class ReportTests(unittest.TestCase):
                                (self.candidate["trial_id"],))[0][0]
             parent = conn.rows("SELECT parent_hash FROM dolt_commit_ancestors WHERE commit_hash = %s", (before,))[0][0]
         self.assertEqual(refused(runs.run_report, self.profile, self.candidate["trial_id"], parent).code, "UNKNOWN_RUN")
-        self.assertEqual(runs.run_report(self.profile, self.control["trial_id"], parent)["ledger_commit"], parent)
+        found = runs.run_report(self.profile, self.control["trial_id"], parent)
+        self.assertEqual((found["ledger_commit"], str(found["market_day"])), (parent, MARKET_DAY),
+                         "the market day the run read, where the IDE reads its bars")
         self.assertEqual(refused(runs.run_report, self.profile, self.control["trial_id"], "no-such-tag").code,
                          "UNKNOWN_REF")
 

@@ -18,14 +18,14 @@ export function chartHistory(stage: Drawn, stretches: readonly Stretch[], backte
 
 const startedNs = (r: PaperRun) => chainStart([r]) ?? createdNs(r);
 
-/** A trial the backtest stage can draw: a research replay with economic evidence (others ran on no
- *  window or market day of this line's that the view holds). */
-export const drawable = (t: Trial) => t.purpose === "research" && t.eligible === true;
+/** A trial the backtest stage can draw: a research or validation replay with economic evidence (a history
+ *  replay's report carries none, so it is read on the History page). */
+export const drawable = (t: Trial) => (t.purpose === "research" || t.purpose === "validation") && t.eligible === true;
 
-/** The research replay the backtest stage draws: the one picked (`chosen`) while it can be, else the
- *  version's last one with economic evidence. */
+/** The replay the backtest stage draws: the one picked (`chosen`) while it can be, else the version's last
+ *  research replay with economic evidence. */
 export const backtestTrial = (trials: readonly Trial[], chosen: number | null = null): Trial | null =>
-  trials.find((t) => t.trial_id === chosen && drawable(t)) ?? [...trials].reverse().find(drawable) ?? null;
+  trials.find((t) => t.trial_id === chosen && drawable(t)) ?? [...trials].reverse().find((t) => t.purpose === "research" && drawable(t)) ?? null;
 
 /** The run a version shows until one is picked: its running chain, else the run that started last. */
 export function defaultRun(mine: readonly PaperRun[]): PaperRun | null {

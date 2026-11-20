@@ -1,4 +1,4 @@
-// A contract's daily bars over the shown backtest's window (model/backtest.ts) at the line's market day,
+// A contract's daily bars over the shown backtest's window (model/backtest.ts) at the market day it read,
 // read once per contract, days and market day for the session: the backtest's candles on the contract chart,
 // and every contract's closes for the equity chart's buy and hold. Where they are not to be had, what the
 // chart says instead.

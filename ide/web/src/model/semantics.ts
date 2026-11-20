@@ -33,4 +33,4 @@ export function verdict(reading: Reading, targets: Targets | null) {
 /** A reading's text colour: marked only when it misses its target. */
 export const tone = (ok: boolean | null): "misses" | "fg" => (ok === false ? "misses" : "fg");
 
-export const PURPOSE: Record<string, string> = { research: "Research", precheck: "Precheck", explore: "Explore", validation: "Validation" };
+export const PURPOSE: Record<string, string> = { research: "Research", precheck: "Precheck", explore: "Explore", validation: "Validation", history: "History" };
