@@ -28,15 +28,18 @@ export type MarketExposure = {
 /** One volatility regime's return summary from `by_regime` (`high` or `low` prior-day basket volatility):
  *  the number of days in that regime, their compounded return (`exp(log_sum) - 1`) and mean daily return (`exp(mean_log) - 1`). */
 export type RegimeStat = { regime: "high" | "low"; label: string; days: number; totalReturn: number | null; dailyReturn: number | null };
-/** One calendar year's return or closed-cycle summary from `dev_years` and `tables.closed_by_year`. */
-export type YearStat = { year: number; days: number | null; ret: number | null; cycles: number | null; winRate: number | null; netPnl: number | null };
-/** Time and market-state breakdowns from `by_period`, `by_regime`, `capital_scaled` and `dev_years`. */
+/** One development year (cut at the trade start's anniversaries, not a calendar year): its UTC dates and compound return. */
+export type DevYear = { start: string; end: string; ret: number };
+/** The closed cycles of one UTC close year: their count, price move, fees paid and funding (account currency). */
+export type ClosedYear = { year: string; closed: number; price: number | null; fees: number | null; funding: number | null };
+/** Time and market-state breakdowns from `by_period`, `by_regime`, `capital_scaled`, `dev_years` and `closed_by_year`. */
 export type PeriodBreakdown = {
   monthsWonShare: number | null; monthsCount: number | null; residualAfterTop5Days: number | null;
   upMonthNotional: number | null; downMonthNotional: number | null;
   levelTerm: number | null; timingTerm: number | null;
-  regimes: RegimeStat[]; years: YearStat[];
-  worstYearReturn: number | null; exBestYearReturn: number | null;
+  regimes: RegimeStat[]; devYears: DevYear[]; closedYears: ClosedYear[];
+  /** The window's annual return without its best development year. */
+  exBestYearAnnual: number | null;
 };
 /** A day: its start (s), return, closing equity, gross exposure (share of equity) and cycles held. */
 type Day = { time: number; ret: number; equity: number; exposure: number | null; held: number };
@@ -105,12 +108,10 @@ function marketExposures(r: TrialReport): MarketExposure[] {
     const b = m[bKey], a = m[aKey];
     const beta = value(b), alpha = value(a);
     if (beta === null && alpha === null) return [];
-    const bSum = amount(b?.return_sum ?? null), aSum = amount(a?.return_sum ?? null);
-    const days = amount(a?.sample_size ?? b?.sample_size ?? null);
     return [{
-      benchmark, label, note: a?.definition_note ?? b?.definition_note ?? null, days,
+      benchmark, label, note: a?.definition_note ?? b?.definition_note ?? null, days: amount(a?.sample_size ?? b?.sample_size ?? null),
       beta, alpha, alphaSe: amount(a?.standard_error ?? null),
-      betaReturn: bSum, alphaReturn: aSum !== null ? aSum : alpha !== null && days !== null ? alpha * days : null,
+      betaReturn: amount(b?.return_sum ?? null), alphaReturn: amount(a?.return_sum ?? null),
     }];
   });
 }
@@ -135,23 +136,18 @@ function periodsOf(r: TrialReport): PeriodBreakdown | null {
       dailyReturn: meanLog === null ? null : Math.expm1(meanLog),
     }];
   });
-  const byYear = new Map<number, YearStat>();
-  for (const y of r.dev_years?.years ?? []) {
-    byYear.set(y.year, { year: y.year, days: y.days, ret: amount(y.return), cycles: null, winRate: null, netPnl: null });
-  }
-  for (const c of r.tables?.closed_by_year ?? []) {
-    const cur = byYear.get(c.year) ?? { year: c.year, days: null, ret: null, cycles: null, winRate: null, netPnl: null };
-    byYear.set(c.year, { ...cur, cycles: c.cycles, winRate: amount(c.win_rate), netPnl: amount(c.net_pnl) });
-  }
-  const years = [...byYear.values()].sort((a, b) => a.year - b.year);
-  const worstYearReturn = value(r.dev_years?.worst_year_return), exBestYearReturn = value(r.dev_years?.return_excluding_best_year);
+  const devYears: DevYear[] = (r.dev_years?.years ?? []).map((y) => ({ start: y.start, end: y.end, ret: y.return }));
+  const closedYears: ClosedYear[] = Object.entries(r.closed_by_year ?? {}).map(([year, c]) => ({
+    year, closed: c.closed_trades, price: amount(c.price_pnl_usdt), fees: amount(c.fill_commissions_usdt), funding: amount(c.reported_funding_usdt),
+  }));
+  const exBestYearAnnual = r.dev_years?.return_without_best_year ?? null;
   if (
     monthsWonShare === null && residualAfterTop5Days === null && upMonthNotional === null && downMonthNotional === null
-    && levelTerm === null && timingTerm === null && !regimes.length && !years.length
+    && levelTerm === null && timingTerm === null && !regimes.length && !devYears.length && !closedYears.length
   ) return null;
   return {
     monthsWonShare, monthsCount, residualAfterTop5Days, upMonthNotional, downMonthNotional,
-    levelTerm, timingTerm, regimes, years, worstYearReturn, exBestYearReturn,
+    levelTerm, timingTerm, regimes, devYears, closedYears, exBestYearAnnual,
   };
 }
 
