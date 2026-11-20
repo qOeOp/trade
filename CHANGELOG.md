@@ -26,6 +26,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Replay identity: `dependency_lock_sha256` now hashes `uv.lock` parsed, without the project's own version (its
+  editable package), instead of the file's bytes (user decision 2026-11-21). A release, which bumps only that
+  version, no longer rebuilds the replay image or leaves Live without replay evidence (`LIVE_EVIDENCE_MISSING`); a
+  dependency pin still changes the value. Breaking, once: every image built before this change reports the old
+  value, so its replays no longer back a Live run on a new execution image, and a main-build check of an old image
+  against its revision (a reproduction on another image, a validation) refuses; replay again on the new `main`
+  image.
 - Paper: a resumed run's `account.csv` and `orders.csv` now equal an uninterrupted run's. `account.csv` keeps each
   account state once (rc7's Redis cache repeats the account's last state on every cache update) and leaves out the
   state the Sandbox restates when it connects again after a resume (the checkpoint's balance with nothing locked and

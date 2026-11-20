@@ -18,6 +18,7 @@ import os
 import re
 import stat
 import sys
+import tomllib
 from pathlib import Path
 from typing import TypedDict
 
@@ -567,6 +568,16 @@ def runtime_source_metadata() -> dict:
     }
 
 
+def dependency_lock_sha256(lock: bytes) -> str:
+    """The hash of `uv.lock`'s dependency pins: the parsed lock without the project's own version (its editable
+    package), which only a release changes and no replay reads, serialized canonically."""
+    data = tomllib.loads(lock.decode())
+    for package in data.get("package", []):
+        if package.get("source") == {"editable": "."}:
+            package.pop("version", None)
+    return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def describe(config: RunnerConfiguration) -> dict:
     """engine.describe: the executing image's runtime code and the configuration it would resolve."""
     try:
@@ -585,7 +596,7 @@ def describe(config: RunnerConfiguration) -> dict:
         "runtime_contract": RUNTIME_CONTRACT,
         "engine_version": engine_version,
         "python_version": sys.version.split()[0],
-        "dependency_lock_sha256": hashlib.sha256(lock.read_bytes()).hexdigest(),
+        "dependency_lock_sha256": dependency_lock_sha256(lock.read_bytes()),
         "source_files_sha256": {key: value for key, value in metadata.items() if key.endswith("_source_sha256")},
         "source_file_paths": metadata["source_file_paths"],
         "audit_source_sha256": hashlib.sha256((ROOT / AUDIT_PATH).read_bytes()).hexdigest(),

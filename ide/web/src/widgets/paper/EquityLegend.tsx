@@ -6,6 +6,7 @@ import type { Reading } from "../../model/equityReadings";
 import { deepestDrawdown } from "../../model/joined";
 import { TextButton } from "../../components/TextButton";
 import { pnlClass } from "../../theme/roles";
+import { useOmitByRank } from "../../components/hooks/useOmitByRank";
 import { during } from "./chartTheme";
 import { downRow, type Down } from "./downLook";
 import type { EquityPoint } from "./equityLayers";
@@ -14,7 +15,7 @@ import type { Placed } from "./equityStretches";
 const number = (n: number, d: number) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }).replace(/^-/, "−");
 // Signed from the rounded figure, as lib/format's: what rounds to zero is 0.00%, unsigned.
 const signedPct = (r: number) => { const v = +(r * 100).toFixed(2) || 0; return `${v > 0 ? "+" : ""}${number(v, 2)}%`; };
-const Value = ({ name, children }: { name: string; children: ReactNode }) => <span><span className="mr-1 text-fg-faint">{name}</span>{children}</span>;
+const Value = ({ name, rank, children }: { name: string; rank: number; children: ReactNode }) => <span data-rank={rank}><span className="mr-1 text-fg-faint">{name}</span>{children}</span>;
 
 /** A stretch in words, for its name under the pointer: its dates, its own return and deepest drawdown. */
 function About({ s, minutes }: { s: Placed; minutes: readonly EquityPoint[] }) {
@@ -23,48 +24,56 @@ function About({ s, minutes }: { s: Placed; minutes: readonly EquityPoint[] }) {
   const end = own.at(-1)?.[1] ?? s.starting;
   return (
     <>
-      <span className="text-fg">{s.label}</span><span className="whitespace-normal break-words">{dateTime(s.from * 1000, zone, "minute")} – {dateTime(s.to * 1000, zone, "minute")}</span>
-      <span className={pnlClass(end - s.starting)}>{signedPct(end / s.starting - 1)}</span>
-      <Value name="max drawdown">{number(deepestDrawdown(own, s.starting) * 100, 2)}%</Value>
-      <span className="text-fg-faint">{s.selected ? "shown" : "click to show"}</span>
+      <span className="text-fg">{s.label}</span><span data-rank={1}>{dateTime(s.from * 1000, zone, "minute")} – {dateTime(s.to * 1000, zone, "minute")}</span>
+      <span data-rank={1} className={pnlClass(end - s.starting)}>{signedPct(end / s.starting - 1)}</span>
+      <Value name="max drawdown" rank={2}>{number(deepestDrawdown(own, s.starting) * 100, 2)}%</Value>
+      <span data-rank={3} className="text-fg-faint">{s.selected ? "shown" : "click to show"}</span>
     </>
   );
 }
 
 /** The equity chart's readout, one row: at `point` (under the pointer, else the shown stretch's last),
  *  timed at the line's step (a backtest's day; the stretch is named on the chart, a lone one here at the head as `name`), its equity on the joined line
- *  and, past the first stretch, the stretch's own equity and return, and the time-point values of the
- *  chart's own visual layers under the pointer (the buy and hold toggle and return, a replay's equity,
- *  the open profit and loss, the day bar's return, and the drawdown below the peak); over a stretch a
- *  chain of runs was offline, when it stopped, when it started again and why; over a stretch's name
- *  (`named`), that stretch in words. Single line on desktop so hovering never wraps or shifts the chart
- *  below. `aside` (what is not drawn, how fresh the data is) ends the row on the right. */
-export function EquityLegend({ name, point, stretch, named, minutes, offline, reading, hold, onHold, starting, replayed, step, many, ret, aside }: {
+ *  and, past the first stretch, the stretch's own equity and return, and the layers' values under the
+ *  pointer (the buy and hold, a replay's equity, the open profit and loss, the positions held, the exposure
+ *  and margin, what costs took, the gap to the pace, the day's return, the drawdown below the peak) and on
+ *  the shown stretch its worst below the peak, with how it was measured (`basis`) where that differs; over a
+ *  stretch a chain of runs was offline, when it stopped, when it started again and why; over a stretch's
+ *  name (`named`), that stretch in words. The buy and hold names a toggle for that line (`hold`, null with
+ *  no contract's closes). One line on a wide page, so the pointer never moves the chart below: a value that
+ *  does not fit is left out whole, the least needed first (each its `data-rank`, useOmitByRank), never cut;
+ *  on a phone's width the row wraps instead. `aside` (what is not drawn, how fresh the data is) ends the row on the right. */
+export function EquityLegend({ name, point, stretch, named, minutes, offline, reading, hold, onHold, starting, replayed, worst, step, many, ret, basis, aside }: {
   name: string | null; point: EquityPoint | null; stretch: Placed | null; named: Placed | null; minutes: readonly EquityPoint[]; offline: Down | null; reading: Reading | null;
-  hold: boolean | null; onHold: () => void; starting: number; replayed: ReadonlyMap<number, number>; step: number; many: boolean; ret: number | undefined;
-  aside: ReactNode;
+  hold: boolean | null; onHold: () => void; starting: number; replayed: ReadonlyMap<number, number>; worst: number; step: number; many: boolean; ret: number | undefined;
+  basis: string | null; aside: ReactNode;
 }) {
-  const zone = useTimeZone();
+  const zone = useTimeZone(), row = useOmitByRank();
   const own = point && stretch ? point.value / stretch.scale : null, base = stretch ? stretch.starting * stretch.scale : starting;
   const dd = point ? (1 - point.value / point.peak) * 100 : 0;
   return (
     <div className="flex shrink-0 items-center gap-x-4 whitespace-nowrap text-small tabular-nums @max-md/page:flex-col @max-md/page:items-start @max-md/page:gap-y-1">
-      <div className="flex h-5 min-w-0 flex-1 items-center gap-x-3 overflow-hidden leading-5 text-fg @max-md/page:h-auto @max-md/page:min-h-5 @max-md/page:flex-wrap @max-md/page:gap-y-1 @max-md/page:self-stretch">
+      <div ref={row} className="flex min-h-5 min-w-0 flex-1 items-center gap-x-3 leading-5 text-fg @max-md/page:flex-wrap @max-md/page:gap-y-1 @max-md/page:self-stretch">
         {named ? <About s={named} minutes={minutes} />
-          : offline ? <><span className="text-fg">{offline.label}</span><span className="truncate">· {downRow(offline, zone)}</span></>
+          : offline ? <><span className="text-fg">{offline.label}</span><span data-rank={1}>· {downRow(offline, zone)}</span></>
           : point && <>
             {name && <span>{name}</span>}
             <span className="text-fg-faint" title={`${point.day ? "UTC daily interval · " : ""}${dateTime(point.time * 1000, zone, "minute")} → ${dateTime((point.time + (point.day ? DAY_S : step)) * 1000, zone, "minute")}`}>{during(point.time, point.day ? DAY_S : step, zone)}</span>
             <span className="font-medium">{stretch && stretch.scale !== 1 && <span className="mr-1 font-normal text-fg-faint">normalized</span>}{fixed(point.value, 2)}</span>
             {own !== null && stretch && (stretch.scale !== 1
-              ? <Value name="paper">{fixed(own, 2)} <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span></Value>
-              : <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span>)}
-            {!stretch && <span className={pnlClass(point.value - starting)}>{signedPct(point.value / starting - 1)}</span>}
-            {hold !== null && <span className="inline-flex items-center"><TextButton size="inline" active={hold} onClick={onHold} aria-label="Buy and hold line" title={`${hold ? "Hide" : "Show"} buy and hold: the run's contracts bought in equal shares at its start, never rebalanced, price only (no fees or funding)`} className="mr-1 px-0.5">hold</TextButton>{reading?.hold != null && <span className={pnlClass(reading.hold - base)}>{signedPct(reading.hold / base - 1)}</span>}</span>}
-            {replayed.has(point.minute ?? point.time) && <Value name="replay">{fixed(replayed.get(point.minute ?? point.time)!, 2)}</Value>}
-            {reading?.balance != null && <Value name="open"><span className={pnlClass(point.value - reading.balance)}>{fixed((point.value - reading.balance) / (stretch?.scale ?? 1), 2)}</span></Value>}
-            {many && ret != null && <Value name="day"><span className={pnlClass(ret)}>{signedPct(ret)}</span></Value>}
-            {dd >= 0.005 && <Value name="below peak">{number(dd, 2)}%</Value>}
+              ? <Value name="paper" rank={1}>{fixed(own, 2)} <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span></Value>
+              : <span data-rank={1} className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span>)}
+            {!stretch && <span data-rank={1} className={pnlClass(point.value - starting)}>{signedPct(point.value / starting - 1)}</span>}
+            {hold !== null && <span data-rank={1} className="inline-flex items-center"><TextButton size="inline" active={hold} onClick={onHold} aria-label="Buy and hold line" title={`${hold ? "Hide" : "Show"} buy and hold: the run's contracts bought in equal shares at its start, never rebalanced, price only (no fees or funding)`} className="mr-1 px-0.5">hold</TextButton>{reading?.hold != null && <span className={pnlClass(reading.hold - base)}>{signedPct(reading.hold / base - 1)}</span>}</span>}
+            {replayed.has(point.minute ?? point.time) && <Value name="replay" rank={2}>{fixed(replayed.get(point.minute ?? point.time)!, 2)}</Value>}
+            {reading?.balance != null && <Value name="open" rank={3}><span className={pnlClass(point.value - reading.balance)}>{fixed((point.value - reading.balance) / (stretch?.scale ?? 1), 2)}</span></Value>}
+            {reading?.positions != null && <Value name="held" rank={7}>{reading.positions}</Value>}
+            {reading?.exposure != null && <Value name="exposure" rank={6}>{number(reading.exposure * 100, 0)}%{reading.margin != null && reading.margin > 0 && <span className="text-fg-faint"> · margin {number(reading.margin * 100, 0)}%</span>}</Value>}
+            {reading?.before != null && <Value name="costs" rank={5}>{fixed((reading.before - point.value) / (stretch?.scale ?? 1), 2)}</Value>}
+            {point.pace !== null && <Value name="vs pace" rank={2}><span className={pnlClass(point.value - point.pace)}>{signedPct(point.value / point.pace - 1)}</span></Value>}
+            {many && ret != null && <Value name="day" rank={5}><span className={pnlClass(ret)}>{signedPct(ret)}</span></Value>}
+            {dd >= 0.005 && <Value name="below peak" rank={4}>{number(dd, 2)}%</Value>}
+            {worst > 0 && (!stretch || stretch.selected) && <Value name="worst" rank={2}>−{number(worst * 100, 1)}%{basis && <span className="text-fg-faint"> · {basis}</span>}</Value>}
           </>}
       </div>
       {aside && <div className="ml-auto flex min-w-0 max-w-[50%] shrink-0 items-center gap-x-3 text-fg-faint *:truncate @max-md/page:ml-0 @max-md/page:max-w-none @max-md/page:flex-wrap @max-md/page:whitespace-normal">{aside}</div>}

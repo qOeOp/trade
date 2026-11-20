@@ -213,13 +213,22 @@ FILES = {path: path.encode() for path in [*SOURCE_PATHS.values(), LAYOUT["audit_
 FILES["engine/config.py"] = ("RUNTIME_SOURCE_PATHS = " + repr(SOURCE_PATHS) + "\n").encode()
 
 
+def lock(project: str = "0.4.2", pin: str = "1.0") -> bytes:
+    """A `uv.lock` pinning dependency `a` and holding the project's own editable package."""
+    return (f'version = 1\n\n[[package]]\nname = "a"\nversion = "{pin}"\nsource = {{ registry = "https://pypi.org/simple" }}\n\n'
+            f'[[package]]\nname = "trade-research"\nversion = "{project}"\nsource = {{ editable = "." }}\n').encode()
+
+
+FILES[LAYOUT["lock_path"]] = lock()
+
+
 def build_inspection(files: dict) -> dict:
     """The probe's source, auditor and lock hashes of an image holding `files`."""
     return {"source_files_sha256": {field: hashlib.sha256(files[path]).hexdigest()
                                     for field, path in SOURCE_PATHS.items()},
             "source_file_paths": dict(SOURCE_PATHS),
             "audit_source_sha256": hashlib.sha256(files[LAYOUT["audit_path"]]).hexdigest(),
-            "dependency_lock_sha256": hashlib.sha256(files[LAYOUT["lock_path"]]).hexdigest()}
+            "dependency_lock_sha256": engine_config.dependency_lock_sha256(files[LAYOUT["lock_path"]])}
 
 
 def _git(*argv: str, cwd) -> str:
@@ -319,7 +328,10 @@ class MainBuildTests(unittest.TestCase):
                                                           self.inspection(self.FILES)), runtime)
                 refused(self, "RUNTIME_NOT_MAIN", image.require_main_build, {**identity, "build_revision": unmerged},
                         self.inspection(self.FILES))
-                changed = self.inspection({**self.FILES, LAYOUT["lock_path"]: b"changed lock"})
+                released = self.inspection({**self.FILES, LAYOUT["lock_path"]: lock(project="0.4.3")})
+                self.assertEqual(image.require_main_build({**identity, "build_revision": runtime}, released), runtime,
+                                 "the project's own version is no dependency pin")
+                changed = self.inspection({**self.FILES, LAYOUT["lock_path"]: lock(pin="1.1")})
                 refused(self, "RUNTIME_NOT_MAIN", image.require_main_build, {**identity, "build_revision": runtime},
                         changed)
 
@@ -367,7 +379,7 @@ class CiBuildTests(unittest.TestCase):
             unlabelled = {"RepoDigests": [self.identity(None)["image_ref"]], "Config": {"Labels": {}}}
             cases = {"another registry": (self.identity(side, "localhost:15000/trade-runtime"), FILES),
                      "no revision label": (self.identity(None), FILES),
-                     "changed lock": (self.identity(side), {**FILES, LAYOUT["lock_path"]: b"changed lock"}),
+                     "changed lock": (self.identity(side), {**FILES, LAYOUT["lock_path"]: lock(pin="1.1")}),
                      "changed runner": (self.identity(side),
                                         {**FILES, SOURCE_PATHS["runner_source_sha256"]: b"changed code"})}
             with patch("runtime.image.CHECKOUT", checkout), patch("runtime.image._image", return_value=unlabelled):

@@ -70,8 +70,16 @@ const EDGES = [0.02, 0.15, 0.4] as const;
 export const returnStep = (value: number | null | undefined): Step | null => stepOf(value, EDGES);
 export const RETURN_RANGES = rangesOf(EDGES, (v) => `${Math.round(v * 100)}%`);
 
-/** A row with no edge, hidden unless asked for (3.7, P3): its whole veto years' median annual return is at most 0. */
-export const noEdge = (row: HistoryRow) => (row.summary?.veto.median_annual_return ?? Infinity) <= 0;
+/** A row with no edge, hidden unless asked for (3.7, P3): the combined verdict rejects it (so it lacks no reading) and
+ *  neither part outside the development period made money: its whole veto years' median annual return (when the test
+ *  has whole years) and its holdout's annual return are each at most 0. A row the verdict meets, leaves undecided or
+ *  voids (no summary) is never hidden. */
+export function noEdge(row: HistoryRow): boolean {
+  const s = row.summary;
+  if (s?.meets_targets !== false) return false;
+  const veto = s.veto.whole_years === 0 || (s.veto.median_annual_return ?? Infinity) <= 0;
+  return veto && (s.holdout.annual_return ?? Infinity) <= 0;
+}
 
 /** The rows in the order chosen: as the command gives them (development-period Sharpe), by the median whole-year return
  *  or by the years meeting targets, highest first and unknowns last; ties keep the command's order. */

@@ -113,9 +113,9 @@ def _at(parser) -> None:
     parser.add_argument("--at", help="ledger commit or branch (default: the head)")
 
 
-def _market_day(parser, required: bool = False) -> None:
+def _market_day(parser, required: bool = False, default: str = "head") -> None:
     parser.add_argument("--market-day", required=required,
-                        help="market day, YYYY-MM-DD, or head for the newest day" + ("" if required else " (default: head)"))
+                        help="market day, YYYY-MM-DD, or head for the newest day" + ("" if required else f" (default: {default})"))
 
 
 def _count(text: str) -> int:
