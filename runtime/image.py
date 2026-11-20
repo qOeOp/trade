@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 import time
 
-from engine.config import config_sha256
+from engine.config import config_sha256, dependency_lock_sha256
 from ledger.execution import IDENTITY_FIELDS
 from shared.refusals import refuse
 
@@ -404,6 +404,12 @@ def _require_build(identity: dict, inspection: dict, code: str, on_main: bool) -
                                "layout") from exc
         for path, digest in expected.items():
             blob = _git("show", f"{revision}:{path}", cwd=where)
-            if blob.returncode or hashlib.sha256(blob.stdout).hexdigest() != digest:
+            try:
+                observed = None if blob.returncode else (
+                    dependency_lock_sha256(blob.stdout) if path == found["lock_path"]
+                    else hashlib.sha256(blob.stdout).hexdigest())
+            except ValueError:  # a lock that is no TOML
+                observed = None
+            if observed != digest:
                 raise refuse(code, f"runtime image code differs from {path} at its revision {revision}")
     return revision
