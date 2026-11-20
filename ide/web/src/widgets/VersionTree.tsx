@@ -24,23 +24,18 @@ export function VersionTree({ widget: rawWidget }: { widget: LineageWidget }) {
     () => compactLineage(rawWidget, mode, selected, expanded),
     [rawWidget, mode, selected, expanded],
   );
-  const treeKey = `${mode}:${[...expanded].join(",")}:${widget.nodes.length}`;
-  return <VersionTreeBody key={treeKey} widget={widget} foldBars={foldBars} />;
-}
-
-function VersionTreeBody({ widget, foldBars }: { widget: LineageWidget; foldBars: readonly FoldBar[] }) {
-  const { structure, versionStructure, entries, parents } = useMemo(() => {
+  const versionStructure = useMemo(() => lineageTree(rawWidget), [rawWidget]);
+  const { structure, entries, parents } = useMemo(() => {
     const foldEdges = foldBars.flatMap((f) => (f.parentId ? [{ from: f.parentId, to: f.id }] : []));
     const st = lineageTree({
       rows: widget.rows,
       nodes: [...widget.nodes, ...foldBars.map((f) => ({ id: f.id }))],
       edges: [...widget.edges, ...foldEdges],
     });
-    const vSt = lineageTree(widget);
     const map = new Map<string, TreeEntry>([[ROOT, EMPTY_ENTRY]]);
     for (const n of widget.nodes) map.set(n.id, { node: n, fold: null });
     for (const f of foldBars) map.set(f.id, { node: null, fold: f });
-    return { structure: st, versionStructure: vSt, entries: map, parents: [...st.children.keys()] };
+    return { structure: st, entries: map, parents: [...st.children.keys()] };
   }, [widget, foldBars]);
 
   const tree = useSelectionTree<TreeEntry>({

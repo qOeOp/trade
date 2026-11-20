@@ -3,79 +3,58 @@ import { test } from "node:test";
 import { loader } from "./load.mjs";
 
 const { namespace } = loader();
-const { compactLineage, compactProgress, compactScatter } = await namespace("model/lineageTree.ts");
+const { compactLineage } = await namespace("model/lineageTree.ts");
 
-const sampleLineage = () => ({
-  axis: { min: 1, max: 6, scope_start: 2 },
-  targets: { max_drawdown: 0.15, annual_return: 0.2 },
-  rows: [
-    { id: "strat@1", row: 0 },
-    { id: "strat@2", row: 1 },
-    { id: "strat@3", row: 2 },
-    { id: "strat@4", row: 3 },
-  ],
-  nodes: [
-    { id: "strat@1", row: 0, x: 1, role: "superseded", prediction: "held", reading: { return: 0.1, drawdown: 0.05 }, change: null },
-    { id: "strat@2", row: 1, x: 2, role: "precheck_failed", prediction: "none", reading: null, change: null },
-    { id: "strat@3", row: 2, x: 3, role: "recommended", prediction: "held", reading: { return: 0.25, drawdown: 0.08 }, change: null },
-    { id: "strat@4", row: 3, x: null, role: "unrun", prediction: "none", reading: null, change: null },
-  ],
-  edges: [
-    { from: "strat@1", to: "strat@2" },
-    { from: "strat@2", to: "strat@3" },
-    { from: "strat@3", to: "strat@4" },
-  ],
-  revisions: [],
-  trials: [
-    { x: 1, trial_id: 10, candidate: "strat@1", purpose: "exploration" },
-    { x: 2, trial_id: 11, candidate: "strat@2", purpose: "precheck" },
-    { x: 3, trial_id: 12, candidate: "strat@3", purpose: "exploration" },
-  ],
-  decisions: [{ x: 2.5, kind: "approach_change", ref: "strat@3", at: "2026-11-16T00:00:00Z", text: "Change of approach. Switch signal." }],
-  trail: [{ candidate: "strat@3", x0: 3, judgments: [3] }],
+// Nodes as ide/research_graph/layout.py emits them.
+const node = (id, row, x, role, status, reading = { annual_return: null, max_drawdown: null }) =>
+  ({ id, row, x, status, role, change: null, prediction: "none", trials: [], reading });
+const lineage = (nodes, edges, trail = []) => ({
+  type: "lineage", axis: { max: 8, scope_start: null }, targets: { max_drawdown: 0.15, annual_return: 0.2 },
+  rows: nodes.map((n) => ({ id: n.id, row: n.row })), nodes, edges, revisions: [], trials: [], decisions: [], trail,
 });
 
-test("compactLineage folds precheck_failed and unrun versions, reconnects ancestors, and compacts rows and trials", () => {
-  const raw = sampleLineage();
-  const compacted = compactLineage(raw, "core", "strat@3");
-  const { widget, hiddenCount, foldedByParent } = compacted;
+const chain = () => lineage(
+  [
+    node("s@1", 0, 1, "superseded", "below_targets", { annual_return: 0.1, max_drawdown: 0.05 }),
+    node("s@2", 1, 2, "precheck_failed", "precheck_failed"),
+    node("s@3", 2, 3, "recommended", "recommended", { annual_return: 0.25, max_drawdown: 0.08 }),
+    node("s@4", 3, null, "unrun", "unrun"),
+  ],
+  [{ from: "s@1", to: "s@2" }, { from: "s@2", to: "s@3" }, { from: "s@3", to: "s@4" }],
+  [{ candidate: "s@3", x0: 3, judgments: [3] }],
+);
+
+test("folds unpassed versions into bars, links across them and keeps every version on its trial", () => {
+  const { widget, foldBars, hiddenCount } = compactLineage(chain(), "core");
   assert.equal(hiddenCount, 2);
-  assert.deepEqual(widget.nodes.map((n) => [n.id, n.row, n.x]), [
-    ["strat@1", 0, 1],
-    ["strat@3", 2, 2],
-  ]);
-  assert.deepEqual(compacted.foldBars.map((f) => [f.id, f.row, f.expanded]), [
-    ["fold:strat@2", 1, false],
-    ["fold:strat@4", 3, false],
-  ]);
-  assert.deepEqual(widget.edges, [{ from: "strat@1", to: "strat@3" }], "strat@3 reconnects across folded strat@2 to strat@1");
-  assert.deepEqual(foldedByParent.get("strat@1"), ["strat@2"]);
-  assert.deepEqual(foldedByParent.get("strat@3"), ["strat@4"]);
-  assert.deepEqual(widget.trials.map((t) => [t.trial_id, t.x]), [
-    [10, 1],
-    [12, 2],
-  ]);
-  assert.equal(widget.decisions[0].x, 1.5);
-
-  const progress = compactProgress(
-    { axis: { scope_start: 2 }, targets: raw.targets, recommended: ["strat@3"], points: [{ x: 1, trial_id: 10, id: "strat@1", annual_return: 0.1, max_drawdown: 0.05 }, { x: 3, trial_id: 12, id: "strat@3", annual_return: 0.25, max_drawdown: 0.08 }] },
-    compacted,
-  );
-  assert.deepEqual(progress.points.map((p) => p.x), [1, 2]);
-  const scatter = compactScatter(
-    { targets: raw.targets, points: [{ id: "strat@1", trial_id: 10, annual_return: 0.1, max_drawdown: 0.05 }, { id: "strat@2", trial_id: 11, annual_return: -0.2, max_drawdown: 0.4 }, { id: "strat@3", trial_id: 12, annual_return: 0.25, max_drawdown: 0.08 }] },
-    compacted,
-  );
-  assert.deepEqual(scatter.points.map((p) => p.id), ["strat@1", "strat@3"]);
+  assert.deepEqual(widget.nodes.map((n) => [n.id, n.row, n.x]), [["s@1", 0, 1], ["s@3", 2, 3]]);
+  assert.deepEqual(foldBars.map((f) => [f.id, f.parentId, f.row, f.expanded]), [["fold:s@2", "s@1", 1, false], ["fold:s@4", "s@3", 3, false]]);
+  assert.deepEqual(widget.edges, [{ from: "s@1", to: "s@3" }]);
 });
 
-test("compactLineage keeps a selected failed node visible and returns raw widget when compact is false", () => {
-  const raw = sampleLineage();
-  const withSelectedFailed = compactLineage(raw, true, "strat@2");
-  assert.equal(withSelectedFailed.hiddenCount, 1);
-  assert.deepEqual(withSelectedFailed.widget.nodes.map((n) => n.id), ["strat@1", "strat@2", "strat@3"]);
+test("a selected folded version opens its fold; all mode returns the lineage unchanged", () => {
+  const raw = chain();
+  assert.deepEqual(compactLineage(raw, "core", "s@2").widget.nodes.map((n) => n.id), ["s@1", "s@2", "s@3"]);
+  const all = compactLineage(raw, "all");
+  assert.equal(all.widget, raw);
+  assert.equal(all.counts.all - all.counts.core, 2);
+});
 
-  const expanded = compactLineage(raw, false, "strat@3");
-  assert.equal(expanded.widget, raw);
-  assert.equal(expanded.counts.all - expanded.counts.core, 2);
+test("independent roots stay roots: no edge the lineage does not have", () => {
+  const raw = lineage(
+    [
+      node("a@1", 0, 1, "superseded", "meets_targets", { annual_return: 0.3, max_drawdown: 0.1 }),
+      node("a@2", 1, 2, "precheck_failed", "precheck_failed"),
+      node("b@1", 2, 3, "superseded", "meets_targets", { annual_return: 0.22, max_drawdown: 0.12 }),
+      node("c@1", 3, 4, "unrun", "unrun"),
+      node("c@2", 4, 5, "superseded", "meets_targets", { annual_return: 0.21, max_drawdown: 0.1 }),
+    ],
+    [{ from: "a@1", to: "a@2" }, { from: "c@1", to: "c@2" }],
+  );
+  const { widget, foldBars } = compactLineage(raw, "core");
+  assert.deepEqual(widget.nodes.map((n) => n.id), ["a@1", "b@1", "c@2"]);
+  assert.deepEqual(widget.edges, [], "b@1 and c@2 have no kept ancestor");
+  assert.deepEqual(foldBars.map((f) => [f.id, f.parentId]), [["fold:a@2", "a@1"], ["fold:c@1", null]]);
+  const open = compactLineage(raw, "core", null, new Set(["fold:c@1"]));
+  assert.deepEqual(open.widget.edges, [{ from: "c@1", to: "c@2" }]);
 });
