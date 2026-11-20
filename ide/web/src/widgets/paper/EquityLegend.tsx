@@ -57,7 +57,7 @@ export function EquityLegend({ name, point, stretch, named, minutes, offline, re
         {named ? <About s={named} minutes={minutes} />
           : offline ? <><span className="text-fg">{offline.label}</span><span data-rank={1}>· {downRow(offline, zone)}</span></>
           : point && <>
-            {name && <span data-rank={4}>{name}</span>}
+            {name && <span>{name}</span>}
             <span className="text-fg-faint" title={`${point.day ? "UTC daily interval · " : ""}${dateTime(point.time * 1000, zone, "minute")} → ${dateTime((point.time + (point.day ? DAY_S : step)) * 1000, zone, "minute")}`}>{during(point.time, point.day ? DAY_S : step, zone)}</span>
             <span className="font-medium">{stretch && stretch.scale !== 1 && <span className="mr-1 font-normal text-fg-faint">normalized</span>}{fixed(point.value, 2)}</span>
             {own !== null && stretch && (stretch.scale !== 1
@@ -70,7 +70,7 @@ export function EquityLegend({ name, point, stretch, named, minutes, offline, re
             {reading?.positions != null && <Value name="held" rank={7}>{reading.positions}</Value>}
             {reading?.exposure != null && <Value name="exposure" rank={6}>{number(reading.exposure * 100, 0)}%{reading.margin != null && reading.margin > 0 && <span className="text-fg-faint"> · margin {number(reading.margin * 100, 0)}%</span>}</Value>}
             {reading?.before != null && <Value name="costs" rank={5}>{fixed((reading.before - point.value) / (stretch?.scale ?? 1), 2)}</Value>}
-            {point.pace !== null && <Value name="vs pace" rank={3}><span className={pnlClass(point.value - point.pace)}>{signedPct(point.value / point.pace - 1)}</span></Value>}
+            {point.pace !== null && <Value name="vs pace" rank={2}><span className={pnlClass(point.value - point.pace)}>{signedPct(point.value / point.pace - 1)}</span></Value>}
             {many && ret != null && <Value name="day" rank={5}><span className={pnlClass(ret)}>{signedPct(ret)}</span></Value>}
             {dd >= 0.005 && <Value name="below peak" rank={4}>{number(dd, 2)}%</Value>}
             {worst > 0 && (!stretch || stretch.selected) && <Value name="worst" rank={2}>−{number(worst * 100, 1)}%{basis && <span className="text-fg-faint"> · {basis}</span>}</Value>}
