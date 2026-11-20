@@ -1,5 +1,7 @@
-// The equity chart's pane in bands, top to bottom, so no layer runs into another's: the stretches' names
-// (stretchCaptions' BELOW, omitted when a lone stretch is named in the legend), which way the run held
+// The equity chart's pane in bands, top to bottom, so no layer runs into another's: in the backtest stage,
+// which draws one stretch and names it in the legend, each year as a unit UNIT high (its scorecard's LINE px
+// lines, equityYears, beside its P&L bars by contract, equityShares); elsewhere the stretches' names
+// (stretchCaptions' BELOW, omitted when a lone stretch is named in the legend); which way the run held
 // (equityBands' sideTrack, just over the dots), and the drawdown dots hanging from them down to CEILING of
 // the pane; the plot, which the value axis fits and in which every priced layer is drawn, clipped to it (the
 // line and its fills, the pace, the buy and hold, the floor, the drawdowns and the closes' arrows); the day
@@ -14,15 +16,17 @@ import { BELOW } from "./stretchCaptions";
 
 /** The plot's top and bottom, px from the pane's top. */
 export type Plot = { top: number; bottom: number };
-const GAP = 4, FADE = 32, LONE = 11;  // px: around the plot, the edges' fade, where the dots start with no stretch names
+const GAP = 4, FADE = 32, LONE = 11, UNDER = 11;  // px: around the plot, the edges' fade, where the dots start with no names or years, from the years to the dots (the side track between)
+export const UNIT = { top: 4, high: 24 }, LINE = 12;  // px: a year's unit, a line of its scorecard
 
-/** Where the drawdown dots start (px from the pane's top): BELOW the stretch names when drawn, else LONE. */
-export const headOf = (captions: boolean): number => (captions ? BELOW : LONE);
+/** Where the drawdown dots start (px from the pane's top): under the years when drawn, else BELOW the
+ *  stretch names when drawn, else LONE. */
+export const headOf = (captions: boolean, years = false): number => (years ? UNIT.top + UNIT.high + UNDER : captions ? BELOW : LONE);
 
-/** The plot of a pane `h` px high whose visible drawdown dots take `dots` px under `headOf(captions)` and
+/** The plot of a pane `h` px high whose visible drawdown dots take `dots` px under `head` (headOf) and
  *  whose foot holds `foot` px of exposure and `bars` px of day bars. */
-export const plotOf = (h: number, foot: number, bars: number, dots = h * CEILING, captions = false): Plot =>
-  ({ top: headOf(captions) + dots + GAP, bottom: h - foot - bars - GAP });
+export const plotOf = (h: number, foot: number, bars: number, dots = h * CEILING, head = LONE): Plot =>
+  ({ top: head + dots + GAP, bottom: h - foot - bars - GAP });
 
 /** `colour` (`#rrggbbaa`, as canvasColor gives it) fading out into the plot's top and bottom edges. */
 export function toEdges(c: CanvasRenderingContext2D, plot: Plot, vr: number, colour: string): CanvasGradient {

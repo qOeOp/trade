@@ -15,7 +15,7 @@ import type { Leaning } from "../../model/held";
 import type { Restart } from "../../model/paper";
 import { downsOf, downTags, drawDown, tagged, widened, type Down, type DownLook } from "./downLook";
 import { xAt } from "./equityPlace";
-import { headOf, inPlot, toEdges, type Plot } from "./equityZones";
+import { inPlot, toEdges, type Plot } from "./equityZones";
 import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, LogicalRange, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 
 /** A point a minute (or a step), or a backtest's a day (`day`); `down` across a chain's offline stretch
@@ -49,8 +49,8 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   private shown: readonly [number, number] | null = null;
   private captions = false;
 
-  /** `plot`: where the priced layers are drawn (equityZones.ts); `foot`: the exposure's height in view (px). */
-  constructor(private readonly plot: () => Plot, private readonly foot: () => number = () => 0) {}
+  /** `plot`: where the priced layers are drawn, `foot` the exposure's height in view and `head` where the dots start (px, equityZones.ts). */
+  constructor(private readonly plot: () => Plot, private readonly foot: () => number, private readonly head: () => number) {}
 
   /** The points and the shown stretch's days, the day picked (its start, in seconds), the balance equity
    *  is measured against where it has no pace, the worst drawdown (from every minute), where the shown
@@ -135,7 +135,7 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     f.c.fillStyle = look!.grid;
     for (const p of this.ticks) f.c.fillRect(0, Math.round(this.y(p, f.vr)), f.w, Math.max(1, Math.round(f.vr)));
     inPlot(f.c, this.plot(), f.w, f.vr, () => { this.gap(f); this.pace(f); });
-    const top = headOf(this.captions);
+    const top = this.head();
     drawdownRows(f, points, this.worst, look!, top);
     sideTrack(f, points, this.held, look!, top);
     if (days) dayBars({ ...f, h: f.h - Math.round(this.foot() * f.vr) }, shown!, this.bars, (d) => d === this.picked || d === this.hovered, look!);

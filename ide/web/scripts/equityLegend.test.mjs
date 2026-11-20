@@ -13,16 +13,17 @@ function legend(scale) {
   const props = {
     name: null, point, stretch: { label: "Paper", starting: 100000, scale, selected: true }, named: null, minutes: [point], offline: null,
     reading: { balance: (equity - open) * scale, before: (equity + costs) * scale, hold: null, exposure: null, margin: null },
-    hold: null, onHold() {}, starting: 100000, replayed: new Map(), step: 60, many: false, ret: undefined, aside: null,
+    hold: null, onHold() {}, starting: 100000, replayed: new Map(), worst: 0, step: 60, many: false, ret: undefined, basis: null, aside: null,
   };
   return renderToStaticMarkup(createElement(EquityLegend, props)).replace(/<[^>]*>/g, "");
 }
 
-test("20261106-02: normalized and unscaled charts show the same real paper equity and open profit", () => {
+test("20261106-02: normalized and unscaled charts show the same real paper equity, open profit and costs", () => {
   for (const scale of [1, 1.2229, 0.8]) {
     const text = legend(scale);
     assert.match(text, /98,814\.84/);
     assert.match(text, /open-1,179\.88/);
+    assert.match(text, /costs5\.28/);
     assert.equal(text.includes("normalized"), scale !== 1);
   }
 });
