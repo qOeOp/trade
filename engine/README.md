@@ -315,7 +315,10 @@ strings, is the same in every process that runs a replay.
   workflow) differs from the commit the current `main` image was built from. A Paper, Live or tooling change leaves
   `main` on its digest, and earlier runs stay comparable. CI scripts and tool configuration are not replay inputs:
   ruff and mypy read `ruff.toml` and `mypy.ini`, and `pyproject.toml` holds only the project and its dependencies.
-  `uv.lock` also pins the dev group, so a ruff or mypy version change still rebuilds it. Tags: `main`, `pr-N`,
+  `uv.lock` also pins the dev group, so a ruff or mypy version change still rebuilds it. A release bumps only the
+  project's own version, in `pyproject.toml` and in `uv.lock`'s editable package; the image never reads it and
+  `dependency_lock_sha256` (`config.py`) hashes the parsed lock without it, so a release rebuilds nothing and
+  keeps every replay identity. Tags: `main`, `pr-N`,
   `sha-COMMIT`.
   `tests/runtime/test_replay_closure.py` keeps the closure, both source lists, the Dockerfile's copies and the
   workflow's replay paths equal.

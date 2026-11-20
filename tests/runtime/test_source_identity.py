@@ -40,6 +40,7 @@ class SourceIdentityTests(unittest.TestCase):
         for paths in (INCOMPLETE, CURRENT, EARLIER):
             files = {path: (path + "\n").encode() for path in (*paths.values(), "engine/audit.py", "uv.lock")}
             files["engine/config.py"] = declaration(paths)
+            files["uv.lock"] = image_tests.lock()
             for path, raw in files.items():
                 destination = cls.root / path
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -54,7 +55,7 @@ class SourceIdentityTests(unittest.TestCase):
                           "source_files_sha256": {field: hashlib.sha256(files[path]).hexdigest()
                                                   for field, path in paths.items()},
                           "audit_source_sha256": hashlib.sha256(files["engine/audit.py"]).hexdigest(),
-                          "dependency_lock_sha256": hashlib.sha256(files["uv.lock"]).hexdigest()}
+                          "dependency_lock_sha256": config.dependency_lock_sha256(files["uv.lock"])}
             cls.builds.append((identity, inspection))
         cls.git("update-ref", "refs/remotes/origin/main", "HEAD")
 

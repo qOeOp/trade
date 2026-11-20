@@ -22,7 +22,7 @@ from report import runs
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_DAY, SKIP, source
 from tests.registration.world import LINE_WINDOW, RUNNER_ARGV
 from tests.replay.world import DEFAULT_FINGERPRINT, ReplayWorld, inspect, registered_grid
-from tests.runtime.test_image import FILES, branch_build, build_inspection
+from tests.runtime.test_image import FILES, branch_build, build_inspection, lock
 from tests.helpers import refused
 
 
@@ -222,7 +222,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                 for purpose, call in (("explore", self.explore), ("precheck", prechecked)):
                     cases = {"another-registry": registration_seams.use(resolve_runtime=lambda ref: dict(other)),
                              "no-revision-label": registration_seams.use(resolve_runtime=lambda ref: dict(IDENTITY)),
-                             "changed-code": patch.dict(files, {"uv.lock": b"another lock"})}
+                             "changed-code": patch.dict(files, {"uv.lock": lock(pin="1.1")})}
                     for case, change in cases.items():
                         with self.subTest(purpose=purpose, case=case):
                             trials_before, commands = self.count("trial"), len(self.world.commands)

@@ -6,10 +6,10 @@ can be read, selects a build. Comparing with the image, not with the previous pu
 leaves the next one to build, so `main` never stays behind the replay inputs on main. Any other event builds.
 A difference only in what the image copies but never reads selects no build, since a new digest would leave every
 passed run behind the image: `pyproject.toml`'s `project.version`, `build-system` and `tool.uv.build-backend`, which
-an install with `--no-install-project` never reads. Any `uv.lock` difference builds, a release's version line
-included: the image hashes the file's bytes into `dependency_lock_sha256` (engine/config.py), and Live backs a run
-only with replays whose value equals its execution image's (live/runs.py REPLAY_CODE), which rebuilds on every
-`uv.lock` change.
+an install with `--no-install-project` never reads, and `uv.lock`'s version of the project's own (editable) package,
+which `dependency_lock_sha256` (engine/config.py) leaves out, so a release changes no replay identity. Any other
+`uv.lock` difference builds: Live backs a run only with replays whose `dependency_lock_sha256` equals its execution
+image's (live/runs.py REPLAY_CODE).
 """
 
 import json
@@ -86,13 +86,23 @@ def _replayed(text: str) -> dict:
     return data
 
 
+def _locked(text: str) -> dict:
+    """`uv.lock` parsed, without the project's own version, as engine.config.dependency_lock_sha256 reads it."""
+    data = tomllib.loads(text)
+    for package in data.get("package", []):
+        if package.get("source") == {"editable": "."}:
+            package.pop("version", None)
+    return data
+
+
 def _same_replay(name: str, base: str) -> bool:
     """Whether `name` differs between `base` and HEAD only in what the replay image never reads."""
-    if name != "pyproject.toml":
+    read = {"pyproject.toml": _replayed, "uv.lock": _locked}.get(name)
+    if read is None:
         return False
     try:
-        return _replayed(_show(base, name)) == _replayed(_show("HEAD", name))
-    except (subprocess.CalledProcessError, tomllib.TOMLDecodeError, KeyError, TypeError):
+        return read(_show(base, name)) == read(_show("HEAD", name))
+    except (subprocess.CalledProcessError, tomllib.TOMLDecodeError, KeyError, TypeError, AttributeError):
         return False
 
 
