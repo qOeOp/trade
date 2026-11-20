@@ -110,13 +110,13 @@ function ColumnHeads({ cols, pinned }: { cols: readonly Column[] | null; pinned:
 
 /** A line's rows under its header: the line, whether it is closed, how many candidates took part and how many research
  *  trials they came from, the earlier searches of its holdout, its targets and its development period, then the column
- *  labels over the line's participant rows. */
-function LineRows({ line, cols, metric, order, all, shortDays }: { line: HistoryLine; cols: Column[]; metric: Metric; order: Order; all: boolean; shortDays: number }) {
+ *  labels over the line's participant rows (the first line reads under the sticky table header). */
+function LineRows({ line, first, cols, metric, order, all, shortDays }: { line: HistoryLine; first: boolean; cols: Column[]; metric: Metric; order: Order; all: boolean; shortDays: number }) {
   const rows = ordered(line.rows, order), shown = all ? rows : rows.filter((r) => !noEdge(r)), hidden = rows.length - shown.length;
   return (
     <tbody className="border-t border-line">
       <LineHeader line={line} colSpan={cols.length + 11} hidden={hidden} />
-      <ColumnHeads cols={cols} pinned={false} />
+      {!first && <ColumnHeads cols={cols} pinned={false} />}
       {shown.map((row) => (
         <tr key={row.run} className="hover:bg-row-hover">
           <th className="sticky left-0 z-10 max-w-56 truncate bg-island px-2 text-left font-mono font-normal">
@@ -154,7 +154,7 @@ export function HistoryPage() {
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="border-separate border-spacing-0 text-dense">
           <thead className="sticky top-0 z-20 bg-island"><ColumnHeads cols={history ? cols : null} pinned /></thead>
-          {history ? lines.map((l) => <LineRows key={l.line} line={l} cols={cols} metric={metric} order={order} all={all} shortDays={history.short_days} />) : (
+          {history ? lines.map((l, i) => <LineRows key={l.line} line={l} first={i === 0} cols={cols} metric={metric} order={order} all={all} shortDays={history.short_days} />) : (
             <tbody className="border-t border-line">
               {[0, 1, 2, 3, 4].map((r) => (
                 <tr key={r}>
