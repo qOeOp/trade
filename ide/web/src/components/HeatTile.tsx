@@ -56,9 +56,8 @@ const groupStats = (n: Node, color: Color) => (
 );
 
 /** One tile of the Market heatmap, styled by its size as vibe-trading's are: the name and the colour
- *  metric's badge on top; a coin's price and money (on a large tile also its open interest by exchange),
- *  or a group's leaders and totals, as room allows; a group's market cap, median and up and down counts
- *  at the foot. A group opens a level, a coin selects. */
+ *  metric's badge on top; a coin's price and money, or a group's leaders and totals, as room allows; a
+ *  group's market cap, median and up and down counts at the foot. A group opens a level, a coin selects. */
 export function HeatTile({ tile, frame, color, hovered, selected, onPick, opens = true }: {
   tile: Tile<Node>; frame: TileFrame; color: Color; hovered: boolean; selected: boolean; onPick: () => void;
   /** Whether a group opens its level (a phone's one-level map: no). */
