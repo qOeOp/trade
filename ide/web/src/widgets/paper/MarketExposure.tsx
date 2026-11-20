@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { MISSING, pct, signedPct } from "../../lib/format";
 import { fixed, signed } from "../../lib/paperApi";
 import type { MarketExposure as ExposureRow, PeriodBreakdown } from "../../model/backtest";
@@ -7,11 +7,18 @@ import { Tip } from "../../components/Tip";
 
 const tone = (v: number | null) => (v === null || v === 0 ? "text-fg-muted" : v > 0 ? "text-pnl-up" : "text-pnl-down");
 
+/** A column heading, with its explanation on hover when it has one. */
+function Head({ tip, right = false, children }: { tip?: string; right?: boolean; children: ReactNode }) {
+  const label = <span className={`${right ? "text-right " : ""}text-small text-fg-faint`}>{children}</span>;
+  return tip ? <Tip content={tip}>{label}</Tip> : label;
+}
+
 const dailyAlpha = (alpha: number | null) =>
   alpha === null ? MISSING : `${alpha > 0 ? "+" : alpha < 0 ? "−" : ""}${Math.abs(alpha * 100).toFixed(3)}%/d`;
 
 /** One benchmark's return split bar: when Alpha and Beta share the same sign, a stacked proportional bar;
- *  when they pull in opposite directions, a zero-centred bar showing Beta vs Alpha around 0. */
+ *  when they pull in opposite directions, a zero-centred bar showing Beta vs Alpha around 0. Alpha is drawn
+ *  without a gain or loss colour: the report sets no significance level for it. */
 function SplitBar({ betaReturn, alphaReturn }: { betaReturn: number | null; alphaReturn: number | null }) {
   if (betaReturn === null || alphaReturn === null) return null;
   const bAbs = Math.abs(betaReturn), aAbs = Math.abs(alphaReturn), span = bAbs + aAbs;
@@ -23,7 +30,7 @@ function SplitBar({ betaReturn, alphaReturn }: { betaReturn: number | null; alph
       <div className="flex flex-col gap-1">
         <div className="flex h-1 overflow-hidden rounded-full bg-well">
           <div className="bg-fg-muted opacity-55 transition-[width] duration-150" style={{ width: `${bPct}%` }} />
-          <div className={`${alphaReturn >= 0 ? "bg-pnl-up" : "bg-pnl-down"} transition-[width] duration-150`} style={{ width: `${aPct}%` }} />
+          <div className="bg-fg transition-[width] duration-150" style={{ width: `${aPct}%` }} />
         </div>
         <div className="flex justify-between text-small text-fg-faint tabular-nums">
           <span>Beta {bPct}%</span>
@@ -39,7 +46,7 @@ function SplitBar({ betaReturn, alphaReturn }: { betaReturn: number | null; alph
         <span className="absolute inset-y-0 left-1/2 w-px bg-line-strong" />
         <div className="absolute inset-y-0 bg-fg-muted opacity-55"
              style={betaReturn >= 0 ? { left: "50%", width: `${bHalf}%` } : { right: "50%", width: `${bHalf}%` }} />
-        <div className={`absolute inset-y-0 ${alphaReturn >= 0 ? "bg-pnl-up" : "bg-pnl-down"}`}
+        <div className="absolute inset-y-0 bg-fg"
              style={alphaReturn >= 0 ? { left: "50%", width: `${aHalf}%` } : { right: "50%", width: `${aHalf}%` }} />
       </div>
       <div className="flex justify-between text-small text-fg-faint tabular-nums">
@@ -51,8 +58,9 @@ function SplitBar({ betaReturn, alphaReturn }: { betaReturn: number | null; alph
 }
 
 /** A sealed research run's Alpha vs Beta return decomposition (`market_exposure` slice): Dimson (one-day lag)
- *  regression against the equal-weight crypto basket and BTC, showing Beta, daily Alpha, and the fitted days'
- *  cumulative simple-return split (`Beta ret + Alpha ret = Total`). */
+ *  regression against the equal-weight crypto basket and BTC, showing Beta, the fitted days' simple-return
+ *  sums the report gives, daily Alpha and its t-value (Alpha over its Newey-West standard error). The report
+ *  sets no significance level, so Alpha takes no gain or loss colour and its t-value is shown beside it. */
 export function MarketExposure({ rows }: { rows: readonly ExposureRow[] }) {
   if (!rows.length) return null;
   const primary = rows[0]!;
@@ -62,34 +70,22 @@ export function MarketExposure({ rows }: { rows: readonly ExposureRow[] }) {
         <SplitBar betaReturn={primary.betaReturn} alphaReturn={primary.alphaReturn} />
         <div className="grid grid-cols-[minmax(0,1fr)_repeat(5,auto)] items-baseline gap-x-2 gap-y-1 text-dense tabular-nums">
           <span />
-          <Tip content="Dimson (1979) market slope b0 + b1 (same-day plus prior-day benchmark return)">
-            <span className="text-right text-small text-fg-faint">Beta</span>
-          </Tip>
-          <Tip content="Cumulative simple return explained by passive benchmark movement over the fitted days">
-            <span className="text-right text-small text-fg-faint">Beta ret</span>
-          </Tip>
-          <Tip content="Cumulative simple excess return (intercept × fitted days) over the fitted days">
-            <span className="text-right text-small text-fg-faint">Alpha ret</span>
-          </Tip>
-          <Tip content="Total simple return over the fitted days (Beta ret + Alpha ret, since OLS residuals sum to zero)">
-            <span className="text-right text-small text-fg-faint">Total</span>
-          </Tip>
-          <Tip content="Daily intercept from the Dimson regression (Newey-West automatic-bandwidth standard error in tooltip)">
-            <span className="text-right text-small text-fg-faint">Alpha/d</span>
-          </Tip>
+          <Head tip="Dimson (1979) market slope b0 + b1 (same-day plus prior-day benchmark return)" right>Beta</Head>
+          <Head tip="Cumulative simple return explained by passive benchmark movement over the fitted days" right>Beta ret</Head>
+          <Head tip="Cumulative simple excess return (intercept × fitted days) over the fitted days" right>Alpha ret</Head>
+          <Head tip="Daily intercept from the Dimson regression (Newey-West automatic-bandwidth standard error in tooltip)" right>Alpha/d</Head>
+          <Head tip="Daily Alpha over its Newey-West standard error; the report sets no significance level" right>t</Head>
           {rows.map((r) => {
-            const se = r.alpha !== null && r.alphaSe !== null && r.alphaSe > 0
-              ? `SE ${(r.alphaSe * 100).toFixed(3)}%/d · t ${(r.alpha / r.alphaSe).toFixed(2)}`
-              : null;
-            const total = r.betaReturn !== null && r.alphaReturn !== null ? r.betaReturn + r.alphaReturn : null;
+            const t = r.alpha !== null && r.alphaSe !== null && r.alphaSe > 0 ? r.alpha / r.alphaSe : null;
             return (
               <Fragment key={r.benchmark}>
                 <span className="truncate text-fg-muted" title={r.note ?? undefined}>{r.label}</span>
                 <span className="text-right text-fg">{r.beta === null ? MISSING : r.beta.toFixed(2)}</span>
                 <span className={`text-right ${tone(r.betaReturn)}`}>{signedPct(r.betaReturn, 1)}</span>
-                <span className={`text-right font-medium ${tone(r.alphaReturn)}`}>{signedPct(r.alphaReturn, 1)}</span>
-                <span className={`text-right ${tone(total)}`}>{signedPct(total, 1)}</span>
-                <span className={`text-right ${tone(r.alpha)}`} title={se ?? undefined}>{dailyAlpha(r.alpha)}</span>
+                <span className="text-right font-medium text-fg">{signedPct(r.alphaReturn, 1)}</span>
+                <span className="text-right text-fg"
+                      title={r.alphaSe !== null ? `SE ${(r.alphaSe * 100).toFixed(3)}%/d` : undefined}>{dailyAlpha(r.alpha)}</span>
+                <span className="text-right text-fg-muted">{t === null ? MISSING : t.toFixed(2)}</span>
               </Fragment>
             );
           })}
@@ -100,19 +96,19 @@ export function MarketExposure({ rows }: { rows: readonly ExposureRow[] }) {
 }
 
 /** Time and market-state decomposition from the report (`by_regime`, `by_period`, `capital_scaled`, `dev_years`,
- *  `closed_by_year`): performance across high/low basket volatility days, calendar years, month consistency,
- *  outlier-day dependence and exposure timing. */
+ *  `closed_by_year`): performance across high/low basket volatility days, development years, closed cycles by
+ *  close year, month consistency, outlier-day dependence and exposure timing. The timing term takes no gain or
+ *  loss colour: its sign alone does not identify sizing skill (`MEASURE_NOTES`). */
 export function PeriodsAndRegimes({ p }: { p: PeriodBreakdown }) {
-  const hasYears = p.years.length > 0, hasYearRet = p.years.some((y) => y.ret !== null), hasYearPnl = p.years.some((y) => y.netPnl !== null);
   return (
     <Section title="Periods and regimes" aside="by market state and date">
       <div className="flex flex-col gap-3 text-dense tabular-nums">
         {p.regimes.length > 0 && (
           <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,auto)] items-baseline gap-x-3 gap-y-1">
-            <span className="text-small text-fg-faint">Volatility regime</span>
-            <span className="text-right text-small text-fg-faint">Days</span>
-            <span className="text-right text-small text-fg-faint">Daily</span>
-            <span className="text-right text-small text-fg-faint">Total</span>
+            <Head>Volatility regime</Head>
+            <Head right>Days</Head>
+            <Head right>Daily</Head>
+            <Head right>Total</Head>
             {p.regimes.map((g) => (
               <Fragment key={g.regime}>
                 <span className="text-fg-muted">{g.label}</span>
@@ -123,20 +119,32 @@ export function PeriodsAndRegimes({ p }: { p: PeriodBreakdown }) {
             ))}
           </div>
         )}
-        {hasYears && (
-          <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,auto)] items-baseline gap-x-3 gap-y-1">
-            <span className="text-small text-fg-faint">Year</span>
-            <span className="text-right text-small text-fg-faint">{hasYearRet ? "Days" : "Trades"}</span>
-            <span className="text-right text-small text-fg-faint">{hasYearPnl ? "Win rate" : ""}</span>
-            <span className="text-right text-small text-fg-faint">{hasYearRet ? "Return" : "Closed P&L"}</span>
-            {p.years.map((y) => (
+        {p.devYears.length > 0 && (
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1">
+            <Head tip="The development window cut at the trade start's anniversaries (UTC), each year's compound return">Development year</Head>
+            <Head right>Return</Head>
+            {p.devYears.map((y) => (
+              <Fragment key={y.start}>
+                <span className="text-fg-muted">{y.start} – {y.end}</span>
+                <span className={`text-right font-medium ${tone(y.ret)}`}>{signedPct(y.ret, 1)}</span>
+              </Fragment>
+            ))}
+          </div>
+        )}
+        {p.closedYears.length > 0 && (
+          <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,auto)] items-baseline gap-x-3 gap-y-1">
+            <Head tip="Closed cycles by the UTC calendar year of their close">Close year</Head>
+            <Head right>Closed</Head>
+            <Head right>Price P&amp;L</Head>
+            <Head right>Fees</Head>
+            <Head right>Funding</Head>
+            {p.closedYears.map((y) => (
               <Fragment key={y.year}>
                 <span className="text-fg-muted">{y.year}</span>
-                <span className="text-right text-fg-muted">{hasYearRet ? (y.days ?? MISSING) : (y.cycles ?? MISSING)}</span>
-                <span className="text-right text-fg-muted">{hasYearPnl ? pct(y.winRate) : ""}</span>
-                <span className={`text-right font-medium ${tone(hasYearRet ? y.ret : y.netPnl)}`}>
-                  {hasYearRet ? signedPct(y.ret, 1) : signed(y.netPnl, 0)}
-                </span>
+                <span className="text-right text-fg-muted">{y.closed}</span>
+                <span className={`text-right font-medium ${tone(y.price)}`}>{signed(y.price, 0)}</span>
+                <span className="text-right text-fg-muted">{fixed(y.fees, 2) ?? MISSING}</span>
+                <span className="text-right text-fg-muted">{signed(y.funding, 2)}</span>
               </Fragment>
             ))}
           </div>
@@ -150,18 +158,18 @@ export function PeriodsAndRegimes({ p }: { p: PeriodBreakdown }) {
           )}
           {p.residualAfterTop5Days !== null && (
             <>
-              <Tip content="Compounded return remaining after removing the 5 largest positive daily log-return days">
+              <Tip content="Compounded return left after removing up to five daily log returns in the direction of their total: the largest when the total is positive or zero, the smallest when it is negative">
                 <span className="text-fg-muted">Ex top 5 days</span>
               </Tip>
-              <span className={`text-right ${tone(Math.expm1(p.residualAfterTop5Days))}`}>
-                {signedPct(Math.expm1(p.residualAfterTop5Days), 1)}
-              </span>
+              <span className={`text-right ${tone(Math.expm1(p.residualAfterTop5Days))}`}>{signedPct(Math.expm1(p.residualAfterTop5Days), 1)}</span>
             </>
           )}
-          {p.exBestYearReturn !== null && (
+          {p.exBestYearAnnual !== null && (
             <>
-              <span className="text-fg-muted">Ex best year</span>
-              <span className={`text-right ${tone(p.exBestYearReturn)}`}>{signedPct(p.exBestYearReturn, 1)}</span>
+              <Tip content="The window's annual return over the development years without the best one">
+                <span className="text-fg-muted">Ex best year (annualized)</span>
+              </Tip>
+              <span className={`text-right ${tone(p.exBestYearAnnual)}`}>{signedPct(p.exBestYearAnnual, 1)}</span>
             </>
           )}
           {(p.upMonthNotional !== null || p.downMonthNotional !== null) && (
@@ -169,11 +177,7 @@ export function PeriodsAndRegimes({ p }: { p: PeriodBreakdown }) {
               <Tip content="Mean daily gross notional in months where the equal-weight basket rose vs fell">
                 <span className="text-fg-muted">Notional (up / down mo)</span>
               </Tip>
-              <span className="text-right text-fg">
-                {fixed(p.upMonthNotional, 0) ?? MISSING}
-                {" / "}
-                {fixed(p.downMonthNotional, 0) ?? MISSING}
-              </span>
+              <span className="text-right text-fg">{fixed(p.upMonthNotional, 0) ?? MISSING} / {fixed(p.downMonthNotional, 0) ?? MISSING}</span>
             </>
           )}
           {(p.levelTerm !== null || p.timingTerm !== null) && (
@@ -181,11 +185,7 @@ export function PeriodsAndRegimes({ p }: { p: PeriodBreakdown }) {
               <Tip content="Exposed P&L split into mean-notional level term vs daily notional-sizing timing covariance">
                 <span className="text-fg-muted">Scale (level / timing)</span>
               </Tip>
-              <span className="text-right text-fg">
-                {signed(p.levelTerm, 0)}
-                {" / "}
-                <span className={tone(p.timingTerm)}>{signed(p.timingTerm, 0)}</span>
-              </span>
+              <span className="text-right text-fg">{signed(p.levelTerm, 0)} / {signed(p.timingTerm, 0)}</span>
             </>
           )}
         </div>

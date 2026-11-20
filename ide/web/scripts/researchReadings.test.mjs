@@ -159,11 +159,11 @@ test("backtest market_exposure and period slices parse and render Alpha vs Beta 
     runtime: { image_digest: null },
     drawdown: null,
     capital: null,
-    dev_years: {
-      years: [{ year: 2026, days: 10, return: 0.36, annual_return: 1.5 }],
-      worst_year_return: { value: 0.36 },
-      return_excluding_best_year: { value: 0.12 },
-    },
+    // dev_years and closed_by_year as report/measures.py's dev_years(run, 0.2) and closed_by_year(cycles) give
+    // them for the 2021-10-01..2024-10-01 window of tests/report/test_numerics.py DevYearTests and three
+    // closed cycles (2022-03-01, 2022-07-01, 2024-02-01), printed by json.dumps.
+    dev_years: {"years": [{"start": "2021-10-01", "end": "2022-10-01", "return": -0.10373255989643182, "at_target": false, "short_by": 0.30373255989643183}, {"start": "2022-10-01", "end": "2023-10-01", "return": -0.035843665807902436, "at_target": false, "short_by": 0.23584366580790245}, {"start": "2023-10-01", "end": "2024-10-01", "return": 1.077715503584595, "at_target": true, "short_by": 0.0}], "annual_target": 0.2, "years_at_target": 1, "worst_year_return": -0.10373255989643182, "return_without_best_year": -0.07040765412682548},
+    closed_by_year: {"2022": {"closed_trades": 2, "price_pnl_usdt": "9.50000000", "fill_commissions_usdt": "0.60000000", "reported_funding_usdt": "-0.10000000"}, "2024": {"closed_trades": 1, "price_pnl_usdt": "8.00000000", "fill_commissions_usdt": "0.30000000", "reported_funding_usdt": "0.05000000"}},
     cost_basis: { account: { starting_balance_usdt: "10000", execution: "bar" } },
     availability: { economic_evidence_available: true, reasons: [] },
     slices: [
@@ -216,15 +216,25 @@ test("backtest market_exposure and period slices parse and render Alpha vs Beta 
   assert.match(html, /Alpha 67%/);
   assert.match(html, /\+24\.0%/);
   assert.match(html, /\+12\.0%/);
-  assert.match(html, /\+36\.0%/, "Total column shows Beta ret + Alpha ret");
+  assert.doesNotMatch(html, /Total/, "no sum of the fitted days' simple returns beside the compounded totals");
   assert.match(html, /\+0\.250%\/d/);
+  assert.match(html, />3\.13</, "Alpha's t-value shown beside it: 0.0025 / 0.0008");
+  assert.doesNotMatch(html, /text-pnl-up">\+24\.0%/, "Alpha takes no gain colour");
 
   assert.ok(parsed.periods);
   const periodsHtml = renderToStaticMarkup(createElement(PeriodsAndRegimes, { p: parsed.periods }));
   assert.match(periodsHtml, /Periods and regimes/);
   assert.match(periodsHtml, /High vol/);
   assert.match(periodsHtml, /Low vol/);
-  assert.match(periodsHtml, /2026/);
+  assert.deepEqual(parsed.periods.devYears.map((y) => [y.start, y.end]),
+    [["2021-10-01", "2022-10-01"], ["2022-10-01", "2023-10-01"], ["2023-10-01", "2024-10-01"]], "each development year its own row");
+  assert.match(periodsHtml, /2021-10-01 – 2022-10-01/);
+  assert.match(periodsHtml, /−10\.4%/);
+  assert.match(periodsHtml, /\+107\.8%/);
+  assert.match(periodsHtml, /Ex best year \(annualized\)/);
+  assert.match(periodsHtml, /−7\.0%/);
+  assert.deepEqual(parsed.periods.closedYears.map((y) => [y.year, y.closed, y.price]), [["2022", 2, 9.5], ["2024", 1, 8]]);
+  assert.match(periodsHtml, /Close year/);
   assert.match(periodsHtml, /Positive months \(4\)/);
   assert.match(periodsHtml, /Ex top 5 days/);
   assert.match(periodsHtml, /Notional \(up \/ down mo\)/);
