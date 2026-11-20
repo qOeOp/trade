@@ -11,14 +11,13 @@
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
 | 20261120-01 | 关线证伪只看整年否决段：不是整年的否决段封存为 `invalid`（审计失败）也不进否决结论 | authority（改证伪判定规则） | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
-| 20261120-02 | `Line-close history` 默认隐藏 `noEdge` 行只看否决年收益中位数，留出期为正的候选也被藏起 | fix | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-02 | `Line-close history` 默认隐藏 `noEdge` 行只看否决年收益中位数，留出期为正的候选也被藏起 | fix | doctor | unknown | fixed 509f4dadd [#3215](https://github.com/qOeOp/trade/pull/3215) | 2026-11-20 | 2026-11-20 |
 | 20261120-03 | `line history` 把 `invalid` 历史段当作已完成，续跑不重跑，瞬时故障让候选永久缺项 | authority（改历史段重跑规则） | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
-| 20261120-04 | IDE 的 `Runs` 与 `Details` 只绘制研究运行，`history`、`validation` 运行看不到曲线与成交 | fix | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-04 | IDE 的 `Runs` 与 `Details` 只绘制研究运行，`history`、`validation` 运行看不到曲线与成交 | fix | doctor | unknown | fixed fa292b2b9 [#3216](https://github.com/qOeOp/trade/pull/3216)（只放开 `validation` 运行；`history` 运行见[关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md)） | 2026-11-20 | 2026-11-20 |
 | 20261120-05 | 样本外验证登记不要求候选先经关线证伪 | authority（新增拒绝、改技能流程） | user（Product contracts and delivery） | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
 | 20261120-06 | Live 准入不看关线证伪，也不要求 Paper 运行并通过 `paper compare` 对账 | authority（新增 Live 拒绝；保存对账结论属存储字段，需评审后问用户） | user（Product contracts and delivery） | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
 | 20261120-07 | 开发期按覆盖季度二选一（12 或 4 季度），覆盖 23 季度的组合也只得 1 年开发期 | authority（改用户 2026-11-11 定的窗口划分） | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
-| 20261120-08 | `replay run --registration` 不带 `--market-day` 时取市场最新日而非登记的市场日，跨日后必报 `EXECUTION_MISMATCH` | fix | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
-| 20261120-09 | `line history` 每个候选每个分段都重新导出市场输入 | measure → fix | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-08 | `replay run --registration` 不带 `--market-day` 时取市场最新日而非登记的市场日，跨日后必报 `EXECUTION_MISMATCH` | fix | doctor | unknown | fixed 726862a0d [#3213](https://github.com/qOeOp/trade/pull/3213) | 2026-11-20 | 2026-11-20 |
 | 20261120-10 | `market` 的 `aggTrades` 解析与 `quotes` 推导逐行在 Python 里循环，导入耗时未计量 | measure（计量解析与推导在导入耗时中的占比） | doctor | unknown | open [工程工作流与治理盘点](2026-11-20-engineering-workflow-and-governance-survey.zh.md) | 2026-11-20 | 2026-11-20 |
 | 20261120-11 | Python 侧没有包内导入循环、模块体积、死代码与依赖声明的静态检查 | authority（新增 CI 检查） | doctor | unknown | open [工程工作流与治理盘点](2026-11-20-engineering-workflow-and-governance-survey.zh.md) | 2026-11-20 | 2026-11-20 |
 | 20261120-12 | TypeScript 子工程没有死导出与未用依赖检查，`research-graph-view` 的 Python 输出与 TS 类型之间没有契约检查 | authority（新增 CI 检查） | doctor | unknown | open [工程工作流与治理盘点](2026-11-20-engineering-workflow-and-governance-survey.zh.md) | 2026-11-20 | 2026-11-20 |
@@ -92,6 +91,7 @@
 
 | id | 发现 | 来源 | 代价 | 状态 |
 |---|---|---|---|---|
+| 20261120-09 | `line history` 每个候选每个分段都重新导出市场输入（[关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md)） | doctor | minutes | rejected [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md)（动作 none：每段市场导出 1.4–4.2 秒，约占一段回放的 2–13%，按日交易的候选 8–12%；共享导出最多省几个百分点，且只在预热、合约与 include_* 都相同时可行） |
 | 20261118-03 | 池内 26 个合格合约中仅 3 个有 `quote` 与 `agg_trade`、9 个有 `metrics`，`--universe pool` 无法开启 `quotes` 撮合环境或 `--metrics` / `--trade-ticks` 回放（报 `QUOTES_MISSING` / `METRICS_MISSING`）（接 20261105-36）（[Universe Pool 缺口](2026-11-18-universe-pool-gaps.zh.md)） | doctor | unknown | rejected [#3207](https://github.com/qOeOp/trade/pull/3207)（与 20261118-01 同一根因（市场只导入了部分合约），并入该行；动作 none：缺数据时回放以 `QUOTES_MISSING`、`METRICS_MISSING` 拒绝是正确行为） |
 | 20261118-05 | `market follow`（`market-import`）的自动维护范围与 `universe_month` 月度池脱钩：`--bar-symbols` 写死 30 个合约后币安新上市合约不会自动拉 K 线进池；`--symbols` 静态只写 3 个币，池内既有成员与每月新入池合约不会自动跟进轻量级的 `metrics`（54 MB）及 `aggTrades` / `quotes`（[Universe Pool 缺口](2026-11-18-universe-pool-gaps.zh.md)） | user（Product contracts and delivery） | unknown | rejected [#3207](https://github.com/qOeOp/trade/pull/3207)（与 20261118-01 同一根因（`market-import` 的导入范围），并入该行） |
 | 20261117-04 | 无恢复协议的源码被 SIGTERM 结束后，控制器当成暂停反复 resume，运行不封存 | doctor | minutes | verified `tests/paper/test_serve.py` 的新增用例（SIGTERM 而无干净检查点即封存；没有修复会失败）（fixed 157f5cb33 [#3148](https://github.com/qOeOp/trade/pull/3148)）；原 in PR [记录](2026-11-16-release-weak-points.zh.md) |
