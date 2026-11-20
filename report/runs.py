@@ -121,7 +121,7 @@ def report_of(conn: db.LedgerConnection, trial_id: int) -> dict:
               "runtime": {"image_ref": trial["image_ref"], "image_digest": trial["image_digest"],
                           "runtime_contract": trial["runtime_contract"], "build_revision": trial["build_revision"]},
               "trade_window": {"input_start": trial["input_start"], "trade_start": trial["trade_start"],
-                               "trade_end": trial["trade_end"]},
+                               "trade_end": trial["trade_end"]}, "market_day": trial["market_day"],
               "created_at": run["created_at"], "ledger_commit": db.head_commit(conn),
               "product_commit": (sealed or {}).get("product_commit"), "audit": audit_record(facts["capture"]),
               "failure_reasons": run["failure_reasons"] or [], "populations": (sealed or {}).get("populations"),

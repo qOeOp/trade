@@ -5,7 +5,6 @@ import { chartHistory } from "../../model/stage";
 import { cyclesHeld } from "../../model/backtest";
 import { heldSides, type Leaning } from "../../model/held";
 import { heldOf, priceLines, restartsOf, spans as spansOf, warmupAt, type Fill, type Restart } from "../../model/paper";
-import { useView } from "../../model/view";
 import { backtestNote, type Loaded } from "../../state/backtest";
 import { barsNote, useBacktestBars, useBacktestCloses } from "../../state/backtestBars";
 import type { Stretch } from "../../model/stretches";
@@ -45,7 +44,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   const restarts = useMemo<Restart[]>(() => JSON.parse(joins), [joins]);
   const { stretches, backtest: ready } = useMemo(() => chartHistory(testing ? "backtest" : "paper", history, backtest?.kind === "ready" ? backtest.b : null), [testing, history, backtest]);
   const drawn = ready?.starting != null ? ready : null;
-  const ours = !testing && !equity && (run?.symbols.includes(symbol) ?? false), market = useView().line.market_day ?? null;
+  const ours = !testing && !equity && (run?.symbols.includes(symbol) ?? false), market = ready?.market ?? null;
   const daily = useBacktestBars(ready && !equity ? symbol : "", ready, market);
   const lead = useMemo(() => (ready && !equity && trial !== null ? leadOf(ready, trial, symbol, daily, testing) : null), [ready, equity, trial, symbol, daily, testing]);
   const said = equity || !ready ? backtestNote(backtest, trial ?? 0) : lead ? barsNote(daily) : "Not traded in backtest";

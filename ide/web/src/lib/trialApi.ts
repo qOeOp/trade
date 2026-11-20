@@ -27,6 +27,8 @@ type DailyReturn = { ts_event_ns: number; native_return: number | null; mean_gro
 export type TrialReport = {
   trial_id: number;
   trade_window: { input_start: string; trade_start: string; trade_end: string };
+  /** The market day the run read (YYYY-MM-DD). */
+  market_day?: string | null;
   runtime: { image_digest: string | null } | null;
   drawdown: Record<string, Measure> | null;
   capital: Record<string, Measure> | null;

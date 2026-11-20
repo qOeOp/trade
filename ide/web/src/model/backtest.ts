@@ -49,6 +49,8 @@ export type Backtest = {
   drawdown: { depth: number; peak: number; trough: number } | null;
   /** The trade window (ms). */
   window: [number, number];
+  /** The market day the run read: its bars are read at it. */
+  market: string | null;
   image: string | null; execution: string | null; account: Account | null; stats: TradeStats | null;
   exposures: MarketExposure[];
   periods: PeriodBreakdown | null;
@@ -87,7 +89,7 @@ export function backtest(r: TrialReport): Backtest {
   const account = starting === null || !days.length ? null : accountOf(r, starting, days, cycles, window, depth);
   const inMarket = value(r.capital?.["time_in_market"]), trade = (name: string) => sliced(r, "trade_structure", name);
   return {
-    trial: r.trial_id, starting: days.length ? starting : null, days, cycles, drawdown, window,
+    trial: r.trial_id, starting: days.length ? starting : null, days, cycles, drawdown, window, market: r.market_day ?? null,
     image: r.runtime?.image_digest ?? null, execution: r.cost_basis?.account?.execution ?? null,
     account, stats: account && { ...tradeStats(account, []), inMarket, winRate: trade("win_rate"), avgWin: trade("avg_win"),
                                  avgLoss: trade("avg_loss"), perTrade: trade("expectancy") },

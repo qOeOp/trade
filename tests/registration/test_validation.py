@@ -17,7 +17,7 @@ from unittest.mock import patch
 from ledger import db, trials, witness
 from shared.errors import Refusal
 from registration import inputs as registration_inputs, seams, validation
-from report import comparison, review as ledger_review
+from report import comparison, graph, review as ledger_review
 from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, binder as stand_in_binder,
                                coverage, grid_point, sha, source)
 from tests.ledger.tsa import LocalAuthority
@@ -251,7 +251,7 @@ class ValidationTests(unittest.TestCase):
         # 100 ms windows, one per registration, each opening seconds after its own witness however slow the
         # earlier registrations were: an unbound registration reserves its own window.
         labels = ("bound", "consumed", "interrupted", "checks", "unrun", "unwitnessed", "baseline",
-                  "retry-baseline", "retry-members", "corrected", "successful", "witness-report", "released")
+                  "retry-baseline", "retry-members", "corrected", "successful", "witness-report", "drawn", "released")
         cls.windows, cls.registered = {}, {}
         opens = datetime.now(UTC)
         for label in labels:
@@ -416,6 +416,15 @@ class ValidationTests(unittest.TestCase):
                                                                     "validation_registration_id = %s",
                                                 (registered["registration_id"],)), [(trial_id,)])
         self.assertEqual(self.refused_bind("bound"), "REGISTRATION_CONSUMED")
+
+    def test_the_graph_reads_a_sealed_validation_run_as_it_reads_a_research_run(self):
+        trial_id = self.bind("drawn")
+        self.world.seal_run(trial_id)
+        found = graph.research_graph(self.world.profile, self.world.line["line"], comparisons=False, counts=False)
+        run = next(t for c in found["candidates"] for t in c["trials"] if t["trial_id"] == trial_id)
+        self.assertEqual(run["purpose"], "validation")
+        self.assertIsNotNone(run["eligible"], "its availability is read (20261120-04)")
+        self.assertFalse(any("PURPOSE_NOT_COMPARABLE" in reason for reason in (run["ineligible_reason"] or "").split("; ")))
 
     def test_registration_refusals_write_nothing(self):
         seq = self.world.seq()
