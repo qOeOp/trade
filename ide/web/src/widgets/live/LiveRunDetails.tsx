@@ -12,7 +12,7 @@ export function LiveRunDetails() {
     <div className="pt-3"><h2 className="break-words font-semibold">{run.candidate}</h2><p className="mt-1 text-small text-fg-faint">{run.symbols?.join(", ")}</p></div>
     <LiveFacts title="Account observation" facts={run.account} />
     <LiveFacts title="Run status" facts={[...run.host, ...run.continuity ?? []]} />
-    <LiveFacts title="Native completion" facts={run.execution} />
+    {(run.ended || run.execution.some((f) => f.value !== null)) && <LiveFacts title="Native completion" facts={run.execution} />}
     <LiveFacts title="Stopping and custody" facts={run.ending} />
     <LiveFacts title="Frozen plan" facts={run.config} />
     <Section title="Source and evidence" open={false}>

@@ -69,10 +69,10 @@ function Ledger({ f }: { f: Facts }) {
     { title: "Targets", rows: [
       { name: <Drawdown f={f} />, ...num(f.mdd, digits, "%", f.reading), track: track(f) },
       ...f.limit === null ? [] : [{ name: dd === null ? "The limit" : <><Said ok={dd} yes="Within" no="Over" /> the limit</>, ...num(f.limit, digits, "%"), sub: true }],
-      ...a ? [a.dd === "stop" ? { name: "At the stop", sub: true } : { name: a.ended ? "Below the peak at the end" : "Below the peak when last seen", ...num(a.dd, digits, "%", a.stale), sub: true },
+      ...a ? [a.dd === "stop" ? { name: "At the stop", sub: true } : { name: a.ended ? "Below peak at end" : "Below peak, last seen", ...num(a.dd, digits, "%", a.stale), sub: true },
         { name: "Return", ...num(a.ret, (n) => `${sign(n)}${digits(n)}`, "%", a.stale) },
         // what the minimum annual return asks for by now, and the pace against it, where there is a minimum
-        ...f.minimum === null ? [] : [{ name: "Needed by now", ...num(a.needed, (n) => `${sign(n)}${digits(n)}`, "%", a.stale), sub: true },
+        ...f.minimum === null ? [] : [{ name: a.ended ? "Needed" : "Needed by now", ...num(a.needed, (n) => `${sign(n)}${digits(n)}`, "%", a.stale), sub: true },
           { name: a.ahead == null ? "Pace" : <><Said ok={a.ahead >= 0} yes="On pace" no="Behind pace" /> · {signed(a.usdt ?? null, 0)} USDT</>,
             ...num(a.ahead, (n) => signed(n * 100), "pt", a.stale), sub: true }]] : [],
       { name: "Annual return", ...num(f.annual, (n) => `${sign(n)}${digits(n)}`, "%", f.reading) },
