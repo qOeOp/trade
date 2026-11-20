@@ -51,8 +51,8 @@ export function Track({ used, now }: { used: number; now: number }) {
     </div>
   );
 }
-const track = (f: Facts) => f.limit === null || (f.mdd == null && !f.reading) ? null
-  : <Track used={(f.mdd ?? 0) / f.limit} now={(typeof f.account?.dd === "number" ? f.account.dd : f.mdd ?? 0) / f.limit} />;
+const track = (f: Facts) => f.limit === null || f.mdd == null ? null
+  : <Track used={f.mdd / f.limit} now={(typeof f.account?.dd === "number" ? f.account.dd : f.mdd) / f.limit} />;
 const Drawdown = ({ f }: { f: Facts }) => <Tip content={f.basis}><span>Max drawdown</span></Tip>;
 
 type Row = { name: ReactNode; n?: ReactNode; u?: string; sub?: boolean; tone?: string; track?: ReactNode };

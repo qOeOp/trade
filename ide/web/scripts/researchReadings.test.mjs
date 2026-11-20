@@ -34,6 +34,7 @@ test("20261113-106: a sealed run without a plan win rate shows none, never the c
   const { Readings } = await loader({ stubs: {
     "state/backtest": { useBacktest: () => ({ kind: "ready", b: { account, stats: { winRate: 0.75 } } }) },
     "state/runData": { useRunData: () => null },
+    "state/paper": { usePaperService: () => "present" },
     "state/shell": { useOnRunsPage: () => false },
     "state/shown": { useShown: () => shown },
     "components/Eased": { Eased: pass },
@@ -54,6 +55,7 @@ test("readings being read show pulsing skeleton placeholders instead of missing 
   const { Readings } = await loader({ stubs: {
     "state/backtest": { useBacktest: () => backtest },
     "state/runData": { useRunData: () => data },
+    "state/paper": { usePaperService: () => "present" },
     "state/shell": { useOnRunsPage: () => runsPage },
     "state/shown": { useShown: () => shown },
     "components/Eased": { Eased: pass },
@@ -69,6 +71,27 @@ test("readings being read show pulsing skeleton placeholders instead of missing 
   const backtestLoading = renderToStaticMarkup(createElement(Readings, { c: { id: "a@2", trials: [shown.trial] }, targets }));
   assert.match(backtestLoading, /class="skeleton\b/, "backtest account and trade stats pulse while the trial report is read");
   assert.doesNotMatch(backtestLoading, /\binvisible\b/, "rows stay visible with skeleton values while loading");
+});
+
+test("a paper run whose stream has sent its first batch but no readings shows missing values, not placeholders", async () => {
+  const run = { paper_id: 7 }, s = { paperId: 7, lines: [], state: null, readings: null, seal: null, failures: [], connected: true, loaded: true };
+  let data = { run, s, a: null, stats: null };
+  const { Readings } = await loader({ stubs: {
+    "state/backtest": { useBacktest: () => null },
+    "state/runData": { useRunData: () => data },
+    "state/paper": { usePaperService: () => "present" },
+    "state/shell": { useOnRunsPage: () => true },
+    "state/shown": { useShown: () => ({ stage: "paper", run, name: "Paper · BTCUSDT" }) },
+    "components/Eased": { Eased: pass },
+    "components/Tip": { Tip: pass },
+  } }).namespace("widgets/detail/Readings.tsx");
+  const targets = { max_drawdown: 0.15, annual_return: 0.2 };
+  const render = () => renderToStaticMarkup(createElement(Readings, { c: { id: "a@2", trials: [] }, targets }));
+  const read = render();
+  assert.doesNotMatch(read, /class="skeleton\b/, "a run that has written no readings is not still being read");
+  assert.match(read, />-</, "its missing readings show a hyphen");
+  data = { run, s: { ...s, connected: false, loaded: false }, a: null, stats: null };
+  assert.match(render(), /class="skeleton\b/, "before the stream's first batch its readings pulse");
 });
 
 test("Detail calls every hook whether waiting for the first view or showing a loaded line", async () => {
@@ -87,7 +110,8 @@ test("Detail calls every hook whether waiting for the first view or showing a lo
     "components/TranslatedCardGroup": { TranslatedCardGroup: pass },
     "widgets/detail/Readings": { Readings: empty },
     "widgets/detail/ReplayTable": { ReplayTable: empty },
-    "widgets/detail/StagePerformance": { StagePerformance: empty, useStageReading: () => { stageReads += 1; return false; } },
+    "widgets/detail/StagePerformance": { StagePerformance: empty },
+    "state/stageReading": { useStageReading: () => { stageReads += 1; return false; } },
     "widgets/market/MarketDetails": { MarketDetails: empty },
     "widgets/live/LiveRunDetails": { LiveRunDetails: empty },
   } }).namespace("widgets/detail/Detail.tsx");
@@ -135,11 +159,11 @@ test("backtest market_exposure and period slices parse and render Alpha vs Beta 
     runtime: { image_digest: null },
     drawdown: null,
     capital: null,
-    dev_years: {
-      years: [{ year: 2026, days: 10, return: 0.36, annual_return: 1.5 }],
-      worst_year_return: { value: 0.36 },
-      return_excluding_best_year: { value: 0.12 },
-    },
+    // dev_years and closed_by_year as report/measures.py's dev_years(run, 0.2) and closed_by_year(cycles) give
+    // them for the 2021-10-01..2024-10-01 window of tests/report/test_numerics.py DevYearTests and three
+    // closed cycles (2022-03-01, 2022-07-01, 2024-02-01), printed by json.dumps.
+    dev_years: {"years": [{"start": "2021-10-01", "end": "2022-10-01", "return": -0.10373255989643182, "at_target": false, "short_by": 0.30373255989643183}, {"start": "2022-10-01", "end": "2023-10-01", "return": -0.035843665807902436, "at_target": false, "short_by": 0.23584366580790245}, {"start": "2023-10-01", "end": "2024-10-01", "return": 1.077715503584595, "at_target": true, "short_by": 0.0}], "annual_target": 0.2, "years_at_target": 1, "worst_year_return": -0.10373255989643182, "return_without_best_year": -0.07040765412682548},
+    closed_by_year: {"2022": {"closed_trades": 2, "price_pnl_usdt": "9.50000000", "fill_commissions_usdt": "0.60000000", "reported_funding_usdt": "-0.10000000"}, "2024": {"closed_trades": 1, "price_pnl_usdt": "8.00000000", "fill_commissions_usdt": "0.30000000", "reported_funding_usdt": "0.05000000"}},
     cost_basis: { account: { starting_balance_usdt: "10000", execution: "bar" } },
     availability: { economic_evidence_available: true, reasons: [] },
     slices: [
@@ -192,15 +216,25 @@ test("backtest market_exposure and period slices parse and render Alpha vs Beta 
   assert.match(html, /Alpha 67%/);
   assert.match(html, /\+24\.0%/);
   assert.match(html, /\+12\.0%/);
-  assert.match(html, /\+36\.0%/, "Total column shows Beta ret + Alpha ret");
+  assert.doesNotMatch(html, /Total/, "no sum of the fitted days' simple returns beside the compounded totals");
   assert.match(html, /\+0\.250%\/d/);
+  assert.match(html, />3\.13</, "Alpha's t-value shown beside it: 0.0025 / 0.0008");
+  assert.doesNotMatch(html, /text-pnl-up">\+24\.0%/, "Alpha takes no gain colour");
 
   assert.ok(parsed.periods);
   const periodsHtml = renderToStaticMarkup(createElement(PeriodsAndRegimes, { p: parsed.periods }));
   assert.match(periodsHtml, /Periods and regimes/);
   assert.match(periodsHtml, /High vol/);
   assert.match(periodsHtml, /Low vol/);
-  assert.match(periodsHtml, /2026/);
+  assert.deepEqual(parsed.periods.devYears.map((y) => [y.start, y.end]),
+    [["2021-10-01", "2022-10-01"], ["2022-10-01", "2023-10-01"], ["2023-10-01", "2024-10-01"]], "each development year its own row");
+  assert.match(periodsHtml, /2021-10-01 – 2022-10-01/);
+  assert.match(periodsHtml, /−10\.4%/);
+  assert.match(periodsHtml, /\+107\.8%/);
+  assert.match(periodsHtml, /Ex best year \(annualized\)/);
+  assert.match(periodsHtml, /−7\.0%/);
+  assert.deepEqual(parsed.periods.closedYears.map((y) => [y.year, y.closed, y.price]), [["2022", 2, 9.5], ["2024", 1, 8]]);
+  assert.match(periodsHtml, /Close year/);
   assert.match(periodsHtml, /Positive months \(4\)/);
   assert.match(periodsHtml, /Ex top 5 days/);
   assert.match(periodsHtml, /Notional \(up \/ down mo\)/);

@@ -10,6 +10,15 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261120-01 | 关线证伪只看整年否决段：不是整年的否决段封存为 `invalid`（审计失败）也不进否决结论 | authority（改证伪判定规则） | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-02 | `Line-close history` 默认隐藏 `noEdge` 行只看否决年收益中位数，留出期为正的候选也被藏起 | fix | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-03 | `line history` 把 `invalid` 历史段当作已完成，续跑不重跑，瞬时故障让候选永久缺项 | authority（改历史段重跑规则） | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-04 | IDE 的 `Runs` 与 `Details` 只绘制研究运行，`history`、`validation` 运行看不到曲线与成交 | fix | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-05 | 样本外验证登记不要求候选先经关线证伪 | authority（新增拒绝、改技能流程） | user（Product contracts and delivery） | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-06 | Live 准入不看关线证伪，也不要求 Paper 运行并通过 `paper compare` 对账 | authority（新增 Live 拒绝；保存对账结论属存储字段，需评审后问用户） | user（Product contracts and delivery） | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-07 | 开发期按覆盖季度二选一（12 或 4 季度），覆盖 23 季度的组合也只得 1 年开发期 | authority（改用户 2026-11-11 定的窗口划分） | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-08 | `replay run --registration` 不带 `--market-day` 时取市场最新日而非登记的市场日，跨日后必报 `EXECUTION_MISMATCH` | fix | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-09 | `line history` 每个候选每个分段都重新导出市场输入 | measure → fix | doctor | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
 | 20261120-10 | `market` 的 `aggTrades` 解析与 `quotes` 推导逐行在 Python 里循环，导入耗时未计量 | measure（计量解析与推导在导入耗时中的占比） | doctor | unknown | open [工程工作流与治理盘点](2026-11-20-engineering-workflow-and-governance-survey.zh.md) | 2026-11-20 | 2026-11-20 |
 | 20261120-11 | Python 侧没有包内导入循环、模块体积、死代码与依赖声明的静态检查 | authority（新增 CI 检查） | doctor | unknown | open [工程工作流与治理盘点](2026-11-20-engineering-workflow-and-governance-survey.zh.md) | 2026-11-20 | 2026-11-20 |
 | 20261120-12 | TypeScript 子工程没有死导出与未用依赖检查，`research-graph-view` 的 Python 输出与 TS 类型之间没有契约检查 | authority（新增 CI 检查） | doctor | unknown | open [工程工作流与治理盘点](2026-11-20-engineering-workflow-and-governance-survey.zh.md) | 2026-11-20 | 2026-11-20 |
