@@ -34,6 +34,7 @@ test("20261113-106: a sealed run without a plan win rate shows none, never the c
   const { Readings } = await loader({ stubs: {
     "state/backtest": { useBacktest: () => ({ kind: "ready", b: { account, stats: { winRate: 0.75 } } }) },
     "state/runData": { useRunData: () => null },
+    "state/paper": { usePaperService: () => "present" },
     "state/shell": { useOnRunsPage: () => false },
     "state/shown": { useShown: () => shown },
     "components/Eased": { Eased: pass },
@@ -54,6 +55,7 @@ test("readings being read show pulsing skeleton placeholders instead of missing 
   const { Readings } = await loader({ stubs: {
     "state/backtest": { useBacktest: () => backtest },
     "state/runData": { useRunData: () => data },
+    "state/paper": { usePaperService: () => "present" },
     "state/shell": { useOnRunsPage: () => runsPage },
     "state/shown": { useShown: () => shown },
     "components/Eased": { Eased: pass },
@@ -69,6 +71,27 @@ test("readings being read show pulsing skeleton placeholders instead of missing 
   const backtestLoading = renderToStaticMarkup(createElement(Readings, { c: { id: "a@2", trials: [shown.trial] }, targets }));
   assert.match(backtestLoading, /class="skeleton\b/, "backtest account and trade stats pulse while the trial report is read");
   assert.doesNotMatch(backtestLoading, /\binvisible\b/, "rows stay visible with skeleton values while loading");
+});
+
+test("a paper run whose stream has sent its first batch but no readings shows missing values, not placeholders", async () => {
+  const run = { paper_id: 7 }, s = { paperId: 7, lines: [], state: null, readings: null, seal: null, failures: [], connected: true, loaded: true };
+  let data = { run, s, a: null, stats: null };
+  const { Readings } = await loader({ stubs: {
+    "state/backtest": { useBacktest: () => null },
+    "state/runData": { useRunData: () => data },
+    "state/paper": { usePaperService: () => "present" },
+    "state/shell": { useOnRunsPage: () => true },
+    "state/shown": { useShown: () => ({ stage: "paper", run, name: "Paper · BTCUSDT" }) },
+    "components/Eased": { Eased: pass },
+    "components/Tip": { Tip: pass },
+  } }).namespace("widgets/detail/Readings.tsx");
+  const targets = { max_drawdown: 0.15, annual_return: 0.2 };
+  const render = () => renderToStaticMarkup(createElement(Readings, { c: { id: "a@2", trials: [] }, targets }));
+  const read = render();
+  assert.doesNotMatch(read, /class="skeleton\b/, "a run that has written no readings is not still being read");
+  assert.match(read, />-</, "its missing readings show a hyphen");
+  data = { run, s: { ...s, connected: false, loaded: false }, a: null, stats: null };
+  assert.match(render(), /class="skeleton\b/, "before the stream's first batch its readings pulse");
 });
 
 test("Detail calls every hook whether waiting for the first view or showing a loaded line", async () => {
@@ -87,7 +110,8 @@ test("Detail calls every hook whether waiting for the first view or showing a lo
     "components/TranslatedCardGroup": { TranslatedCardGroup: pass },
     "widgets/detail/Readings": { Readings: empty },
     "widgets/detail/ReplayTable": { ReplayTable: empty },
-    "widgets/detail/StagePerformance": { StagePerformance: empty, useStageReading: () => { stageReads += 1; return false; } },
+    "widgets/detail/StagePerformance": { StagePerformance: empty },
+    "state/stageReading": { useStageReading: () => { stageReads += 1; return false; } },
     "widgets/market/MarketDetails": { MarketDetails: empty },
     "widgets/live/LiveRunDetails": { LiveRunDetails: empty },
   } }).namespace("widgets/detail/Detail.tsx");

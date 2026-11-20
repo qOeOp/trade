@@ -8,6 +8,7 @@ import { useSelection } from "../../state/selection";
 import { useComparison } from "../../state/comparison";
 import { useOnMarketPage, useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
+import { useStageReading } from "../../state/stageReading";
 import { viewStatus } from "../../state/update";
 import { KeyValues } from "../../components/KeyValues";
 import { Missing, Skeleton, SkeletonLines } from "../../components/Missing";
@@ -19,7 +20,7 @@ import { Header } from "./Header";
 import { Readings } from "./Readings";
 import { ReplayTable } from "./ReplayTable";
 import { measureLabel } from "../../model/measures";
-import { StagePerformance, useStageReading } from "./StagePerformance";
+import { StagePerformance } from "./StagePerformance";
 import { TranslatedCardGroup } from "../../components/TranslatedCardGroup";
 import { MarketDetails } from "../market/MarketDetails";
 import { LiveRunDetails } from "../live/LiveRunDetails";
@@ -43,8 +44,10 @@ const PLACEHOLDER: Candidate = { id: "", status: null, prediction_class: "none" 
 
 /** One version's detail, as the inspector shows the selected one. */
 function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets: Targets | null; loading?: boolean }) {
-  const zone = useTimeZone(), stageReading = useStageReading();
-  const busy = loading || stageReading;
+  // The version's own fields wait only for the first view (`loading`); what the shown stage's report or
+  // stream gives (its readings and performance, the comparison with its control) waits for that too (`busy`).
+  const zone = useTimeZone(), stageReading = useStageReading(), runsPage = useOnRunsPage();
+  const busy = loading || (runsPage && stageReading);
   const runs = (c.trials ?? []).filter((t) => t.purpose === "research");
   const compared = useComparison(c);
   const cmp = !busy && compared.kind === "ready" ? compared.comparison : null;
@@ -53,11 +56,11 @@ function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets:
     <div className="@container space-y-3 px-2 pb-3 text-dense">
       <Header c={c} loading={loading}><Readings c={c} targets={targets} loading={loading} /></Header>
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-4 @3xl:grid-cols-[repeat(2,minmax(0,1fr))]">
-      <TranslatedCardGroup title="Change and hypothesis" loading={busy} sections={[
+      <TranslatedCardGroup title="Change and hypothesis" loading={loading} sections={[
         { title: "What changed", text: c.change }, { title: "Hypothesis", text: c.hypothesis },
       ]} className={SIDE}>
       {!!c.predictions?.length && (
-        <Section title="Predictions" aside={busy ? <Skeleton className="w-4" /> : `${c.predictions.length}`}>
+        <Section title="Predictions" aside={loading ? <Skeleton className="w-4" /> : `${c.predictions.length}`}>
           <table className="w-full"><tbody>
             {c.predictions.map((p, i) => {
               const [label, cls] = OUTCOME[p.outcome ?? ""] ?? ["Not judged", "text-fg-faint"];
@@ -67,14 +70,14 @@ function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets:
                   <td className="py-1 pr-2">{named
                     ? <Tip content={<span className="font-mono">{p.measure}</span>}><span>{named.measure}{named.slice && <span className="text-fg-faint"> · {named.slice}</span>}</span></Tip>
                     : <Missing />}
-                    {!busy && p.reason && <span title={p.reason} className="line-clamp-2 text-small text-fg-faint">{p.reason}</span>}</td>
+                    {!loading && p.reason && <span title={p.reason} className="line-clamp-2 text-small text-fg-faint">{p.reason}</span>}</td>
                   <td className="py-1 pr-2 text-fg-muted">
-                    {busy ? <Skeleton className="w-8" />
+                    {loading ? <Skeleton className="w-8" />
                       : p.direction === "up" ? <span className="inline-flex items-center gap-1"><Icon name="arrow-up" size={12} />Up</span>
                       : p.direction === "down" ? <span className="inline-flex items-center gap-1"><Icon name="arrow-down" size={12} />Down</span>
                       : p.direction ?? <Missing />}
                   </td>
-                  <td className={`whitespace-nowrap py-1 text-right ${cls}`}>{busy ? <Skeleton className="w-10" /> : label}</td>
+                  <td className={`whitespace-nowrap py-1 text-right ${cls}`}>{loading ? <Skeleton className="w-10" /> : label}</td>
                 </tr>
               );
             })}
@@ -82,19 +85,19 @@ function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets:
         </Section>
       )}
       </TranslatedCardGroup>
-      <TranslatedCardGroup title="Conclusion" loading={busy} sections={[{ title: "Interpretation and decision", text: c.interpretation }]} className="@3xl:col-start-1">
+      <TranslatedCardGroup title="Conclusion" loading={loading} sections={[{ title: "Interpretation and decision", text: c.interpretation }]} className="@3xl:col-start-1">
       <Section title="Registration" open={false}>
         <KeyValues items={[
-          ["Registration", busy ? <Skeleton className="w-20" /> : c.registration ? <Token value={c.registration} /> : null],
-          ["Duties", busy ? <Skeleton className="w-28" /> : (c.duties ?? []).join(" ") || null],
+          ["Registration", loading ? <Skeleton className="w-20" /> : c.registration ? <Token value={c.registration} /> : null],
+          ["Duties", loading ? <Skeleton className="w-28" /> : (c.duties ?? []).join(" ") || null],
         ]} />
       </Section>
       </TranslatedCardGroup>
       <div className={`${SIDE} @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1`}>
       <StagePerformance />
       <CardGroup title="Evidence">
-      <Section title="Replays" open={busy || !!(c.trials ?? []).length} aside={busy ? <Skeleton className="w-24" /> : `${plural(runs.length, "research run")} · ${plural((c.trials ?? []).length, "trial")} in all`}>
-        <ReplayTable trials={c.trials ?? []} targets={targets} busy={busy} />
+      <Section title="Replays" open={loading || !!(c.trials ?? []).length} aside={loading ? <Skeleton className="w-24" /> : `${plural(runs.length, "research run")} · ${plural((c.trials ?? []).length, "trial")} in all`}>
+        <ReplayTable trials={c.trials ?? []} targets={targets} loading={loading} />
       </Section>
       <Section title="Versus control" open={!!cmp || comparing || compared.kind === "failed"}>
         {cmp || comparing ? (
@@ -110,15 +113,15 @@ function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets:
       </Section>
       {!!c.reviews?.length && (
         <Section title="Source reviews" open={c.reviews.some((r) => r.verdict !== "passed")}
-                 aside={busy ? <Skeleton className="w-4" /> : `${c.reviews.every((r) => r.verdict === "passed") ? "Passed · " : ""}${c.reviews.length}`}>
+                 aside={loading ? <Skeleton className="w-4" /> : `${c.reviews.every((r) => r.verdict === "passed") ? "Passed · " : ""}${c.reviews.length}`}>
           <div className="space-y-1.5">
             {c.reviews.map((r, i) => {
               const [label, cls] = VERDICT[r.verdict ?? ""] ?? ["-", "text-fg-faint"];
               return (
                 <div key={i} className="grid grid-cols-[4.5rem_1fr] gap-x-2">
-                  <span className={cls}>{busy ? <Skeleton className="w-12" /> : label}</span>
-                  <div className="min-w-0 space-y-2"><div className="text-fg-faint">{busy ? <Skeleton className="w-24" /> : when(r.at, zone)}</div>
-                    {busy ? <SkeletonLines /> : (r.checks ?? []).map((ch) => {
+                  <span className={cls}>{loading ? <Skeleton className="w-12" /> : label}</span>
+                  <div className="min-w-0 space-y-2"><div className="text-fg-faint">{loading ? <Skeleton className="w-24" /> : when(r.at, zone)}</div>
+                    {loading ? <SkeletonLines /> : (r.checks ?? []).map((ch) => {
                       const [status, tone] = CHECK[ch.status ?? ""] ?? [(ch.status ?? "-").replaceAll("_", " "), "text-fg-faint"];
                       return (
                         <div key={ch.name} className="space-y-0.5">
