@@ -4,7 +4,6 @@
   "type": "module",
   "description": "The web renderer of research-graph: one self-contained HTML page laid out like an IntelliJ IDE (Islands theme), served by ide.py serve.",
   "scripts": {
-    "dev": "vite",
     "check": "tsc --noEmit && node scripts/check-rules.mjs && npm test",
     "test": "node --experimental-vm-modules --test scripts/*.test.mjs",
     "build": "npm run check && vite build"

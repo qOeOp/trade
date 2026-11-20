@@ -9,13 +9,13 @@ type Measure = {
   value: number | string | null; standard_error?: number | null; return_sum?: number | null;
   sample_size?: number | null; null_reason?: string | null; definition_note?: string | null;
 } | undefined;
-/** One calendar year of the development window, or the summary across them (`report/runs.py`). */
-type DevYear = { year: number; days: number; return: number | null; annual_return: number | null };
-type DevYears = {
-  years?: DevYear[] | null; worst_year_return?: Measure; return_excluding_best_year?: Measure;
-} | null;
-/** One calendar year of closed cycles (`tables.closed_by_year`). */
-type ClosedYear = { year: number; cycles: number; win_rate: number | null; net_pnl: string };
+/** One development year of a 12-quarter window, cut at the trade start's anniversaries (`measures.dev_years`):
+ *  its UTC dates and compound return. */
+type DevYear = { start: string; end: string; return: number };
+/** The development years, the worst year's return and the window's annual return without the best year. */
+type DevYears = { years: DevYear[]; worst_year_return: number; return_without_best_year: number } | null;
+/** Closed cycles of one UTC close year, by that year (`measures.closed_by_year`): money as decimal text. */
+type ClosedYear = { closed_trades: number; price_pnl_usdt: string; fill_commissions_usdt: string; reported_funding_usdt: string };
 /** One cycle of `run_cycle`: open to close of one position (no close while it was still open at the
  *  window's end), no prices or sizes stored. */
 type Cycle = {
@@ -31,11 +31,12 @@ export type TrialReport = {
   drawdown: Record<string, Measure> | null;
   capital: Record<string, Measure> | null;
   dev_years?: DevYears;
+  closed_by_year?: Record<string, ClosedYear> | null;
   cost_basis: { account: { starting_balance_usdt: string | null; execution: string | null } | null } | null;
   availability: { economic_evidence_available: boolean; reasons: string[] } | null;
   /** The report's single-run slices, each with its measures by name. */
   slices: { id: string; measures: Record<string, Measure | null> }[] | null;
-  tables: { positions: Cycle[] | null; daily_returns: DailyReturn[] | null; closed_by_year?: ClosedYear[] | null } | null;
+  tables: { positions: Cycle[] | null; daily_returns: DailyReturn[] | null } | null;
 };
 /** The report; the product's refusal; or no report served here. */
 export async function fetchTrial(trialId: number, at: string): Promise<{ kind: "report"; report: TrialReport } | Unread> {

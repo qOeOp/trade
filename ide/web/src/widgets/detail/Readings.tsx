@@ -5,6 +5,7 @@ import { useBacktest } from "../../state/backtest";
 import { useRunData } from "../../state/runData";
 import { useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
+import { useStageReading } from "../../state/stageReading";
 import { stageName } from "../../model/stage";
 import { Eased } from "../../components/Eased";
 import { Board, type Facts } from "./ReadingsBoard";
@@ -67,13 +68,12 @@ function Tested({ targets }: { targets: Targets | null }) {
 }
 
 function StageReadings({ targets, loading = false }: { targets: Targets | null; loading?: boolean }) {
-  const { stage, run, name } = useShown(), data = useRunData();
+  const { stage, run, name } = useShown(), data = useRunData(), reading = useStageReading();
   if (stage === "backtest") return <><Name>{name}</Name><Tested targets={targets} /></>;
   if (stage !== "paper") {
     return loading ? <Readout of={{ annual: null, maxDrawdown: null, sharpe: null, winRate: null, reading: true }} targets={targets} basis={MINUTES} full stale /> : null;
   }
   const a = data && data.run.paper_id === run?.paper_id ? data.a : null, stats = a ? data!.stats : null;
-  const reading = !a;
   const days = a?.start == null ? 0 : (a.end - a.start) / DAY_MS;
   const annual = annualized(a?.ret, days);
   return (
