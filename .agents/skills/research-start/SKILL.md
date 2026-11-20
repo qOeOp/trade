@@ -91,8 +91,8 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   candidate or the user says to leave every line, each with its contract scope and why, and its first
   report on the current development period or marked not yet replayed, never with a figure from
   elsewhere (an estimate, other data, a result outside this ledger), not even against a target. The scope is each replay's `--symbols` or `--universe pool` (the members among the contracts
-  this deployment's market holds, not every listed contract): propose it, never as a question of its own; the why comes from the hypothesis, closed-line findings and `market coverage`, never
-  merely what earlier lines used. Roots with the same scope may share one scope and why.
+  this deployment's market holds, not every listed contract): propose it, never as a question of its own; the why comes from the hypothesis and `market coverage`, never
+  from what earlier lines used (their findings inform the hypothesis). Roots with the same scope may share one scope and why.
 - A due change of approach (research-round) is not a line offer: you choose an approach inside the
   line yourself (research-round's feedback.md). Poor results (undistinguished runs, repeated
   changes of approach, a target out of reach) never change the line.
