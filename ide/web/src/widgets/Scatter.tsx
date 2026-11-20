@@ -1,14 +1,12 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useState } from "react";
 import { AxisBottom, AxisLeft } from "@visx/axis";
 import { Group } from "@visx/group";
 import { scaleLinear } from "@visx/scale";
-import type { LineageWidget, ScatterWidget } from "../model/types";
-import { compactLineage, compactScatter } from "../model/lineageTree";
-import { useWidget } from "../model/view";
+import type { ScatterWidget } from "../model/types";
 import { pct, plural } from "../lib/format";
 import { valueDomain } from "../lib/valueDomain";
 import { tint, v } from "../theme/roles";
-import { hovered as hoveredAtom, hoverProps, requestFocus, useExpandedBranches, useHovered, useLineageMode } from "../state/linking";
+import { hovered as hoveredAtom, hoverProps, requestFocus, useHovered } from "../state/linking";
 import { select, useSelection } from "../state/selection";
 import { useGlide } from "../components/hooks/useGlide";
 import { useSize } from "../components/hooks/useSize";
@@ -37,15 +35,8 @@ const R = 4, RING = 2;
 // non-dominated runs as a frontier (less drawdown and more return cannot both improve) named at its
 // ends and at the recommendation, and on hover or keyboard focus a crosshair read off both axes. Where
 // runs crowd, the wheel zooms in around the pointer and a drag pans; a double-click shows them all again.
-export function Scatter({ widget: rawWidget }: { widget: ScatterWidget }) {
-  const lineage = useWidget<LineageWidget>("lineage");
-  const mode = useLineageMode();
-  const expanded = useExpandedBranches();
+export function Scatter({ widget }: { widget: ScatterWidget }) {
   const selected = useSelection();
-  const widget = useMemo(
-    () => (lineage ? compactScatter(rawWidget, compactLineage(lineage, mode, selected, expanded)) : rawWidget),
-    [rawWidget, lineage, mode, selected, expanded],
-  );
   const [ref, { width, height }] = useSize();
   const hovered = useHovered();
   const [kbd, setKbd] = useState<Point | null>(null);
@@ -123,7 +114,9 @@ export function Scatter({ widget: rawWidget }: { widget: ScatterWidget }) {
     enter: (p) => { select(p.id); requestFocus(p.id); },
     leave: () => { setKbd(null); hoveredAtom.set(null); },
   });
-  // Named directly: the frontier rises to the right, so above-left of a point is clear.
+  // Named directly: the frontier rises to the right, so above-left of a point is clear. The first point is named
+  // below-right where that fits (else beside it, under the rising line), the rest above-left; the last has nothing to its
+  // right, so it is named there when the name stays on one side of the target zone's edge (11px monospace: 6.6px a letter).
   const labels = named.filter(shows).map((p) => {
     const cx = x(p.max_drawdown), cy = y(p.annual_return), first = p === frontier[0] && p !== recommendedRun, width = p.id.length * 6.6;
     const end = cx + 9 + width, edge = t.max_drawdown != null ? x(t.max_drawdown) : Infinity;
@@ -132,6 +125,7 @@ export function Scatter({ widget: rawWidget }: { widget: ScatterWidget }) {
     const tx = cx + (first && !below ? 12 : last || first ? 9 : left ? 4 : -4);
     return { p, tx, ty: cy + dy, width, anchor: left ? "start" as const : "end" as const };
   }).sort((a, b) => Number(b.p === recommendedRun) - Number(a.p === recommendedRun)).filter((l, i, all) => {
+    // Runs close together on a narrow plot: the recommendation keeps its name, and a name it would run into waits for the tap.
     const from = (o: typeof l) => (o.anchor === "start" ? o.tx : o.tx - o.width);
     return !all.slice(0, i).some((o) => Math.abs(o.ty - l.ty) < 14 && from(o) < from(l) + l.width && from(l) < from(o) + o.width);
   });
@@ -140,6 +134,7 @@ export function Scatter({ widget: rawWidget }: { widget: ScatterWidget }) {
          className={`relative h-full w-full touch-none select-none rounded-island -outline-offset-4 ${zoom.zoomed ? "cursor-grab active:cursor-grabbing" : ""}`}>
       {width > 0 && (
         <svg width={width} height={height} role="img" aria-label="Annual return against max drawdown of research runs; arrow keys step through them">
+          {/* Zoomed in, marks stop at the plot's edges; showing everything, they may overhang them by a point's width. */}
           <defs><clipPath id={clip}><rect x={-pad} y={-pad} width={w + 2 * pad} height={h + 2 * pad} /></clipPath></defs>
           <Group left={m.left} top={m.top}>
             <g clipPath={`url(#${clip})`}>
@@ -147,7 +142,9 @@ export function Scatter({ widget: rawWidget }: { widget: ScatterWidget }) {
               const left = Math.max(0, x(whole.x[0])), top = Math.max(0, y(whole.y[1])), right = Math.min(w, x(t.max_drawdown)), foot = Math.min(h, y(t.annual_return));
               return right > left && foot > top && <rect className={glide} x={left} y={top} width={right - left} height={foot - top} fill={tint("meets", 12)} />;
             })()}
+            {/* The grid over the zone's fill, as Highcharts draws plot bands under it. */}
             <g className="chart-grid" stroke={v("grid")}>{y.ticks(count).filter((n) => n !== 0).map((n) => <line key={n} className={glide} style={{ transform: `translateY(${Math.round(y(n)) + 0.5}px)` }} x1={0} x2={w} />)}</g>
+            {/* With both targets the corner's edges show them, as a plot band; with one, it is a line across. */}
             <g className="chart-plot-lines" stroke={v("meets")} strokeOpacity={0.55}>
               {t.max_drawdown != null && t.annual_return == null && <line x1={x(t.max_drawdown)} x2={x(t.max_drawdown)} y1={0} y2={h} />}
               {t.annual_return != null && t.max_drawdown == null && <line x1={0} x2={w} y1={y(t.annual_return)} y2={y(t.annual_return)} />}
@@ -159,15 +156,18 @@ export function Scatter({ widget: rawWidget }: { widget: ScatterWidget }) {
             </g>}
             <g className="chart-series-dominated">{marks.filter((m) => !onFrontier.has(m.p) && m.p.id !== selected).map(dot)}</g>
             {frontier.length > 1 && (
+              // It stays lit while a run is hovered, as the reference.
               <path className={`chart-frontier ${glide}`} pointerEvents="none" d={frontier.map((p, i) => `${i ? "L" : "M"}${x(p.max_drawdown)} ${y(p.annual_return)}`).join(" ")}
                     fill="none" stroke={v("recommended")} strokeWidth={2} strokeLinejoin="round" />
             )}
             <g className="chart-series-frontier">{marks.filter((m) => onFrontier.has(m.p) && m.p.id !== selected).map(dot)}</g>
+            {/* the selected run over everything, whichever series it is in */}
             <g className="chart-series-selected">{marks.filter((m) => m.p.id === selected).map(dot)}</g>
             <g className="chart-labels" pointerEvents="none">{labels.map((l) => (
               <text key={l.p.id} x={l.tx} y={l.ty} textAnchor={l.anchor} fontSize={11} fill={v("fg-muted")} data-v={l.p.id} data-keep="" className="font-mono">{l.p.id}</text>
             ))}</g>
             </g>
+            {/* Ticks under a readout pill give way to it; the pill sits on their line (17px below the plot). */}
             <AxisLeft scale={y} tickValues={y.ticks(count).filter((n) => !pinned || Math.abs(y(n) - y(pinned.annual_return)) > PILL_H + 2)}
                       tickFormat={percent} hideAxisLine hideTicks tickLabelProps={leftLabel} hideZero={false} />
             <AxisBottom top={h} scale={x} tickValues={xTicks.filter((n) => !pinned || Math.abs(x(n) - x(pinned.max_drawdown)) > pillWidth(pct(pinned.max_drawdown)) / 2 + 14)}

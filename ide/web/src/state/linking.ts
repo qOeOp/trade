@@ -30,10 +30,8 @@ export const useAxisView = () => useAtom(axisView);
 export const crosshair = atom<number | null>(null);
 export const useCrosshair = () => useAtom(crosshair);
 
-/** Contraction mode for the lineage canvas, progress bar chart, scatter bubble chart, and version tree:
- *  - "core": keeps the recommendation backbone and target-meeting runs (folding dead-end and failed runs)
- *  - "valid": keeps all valid research runs (folding precheck_failed, unrun, and masked runs)
- *  - "all": shows every version and every precheck trial column */
+/** How the lineage canvas and the version tree show versions: "core" folds runs of unpassed versions into bars,
+ *  "all" shows every version. The progress and scatter charts always show every run. */
 export const lineageMode = atom<LineageMode>("core");
 export const useLineageMode = () => useAtom(lineageMode);
 
@@ -45,10 +43,3 @@ export function toggleBranch(id: string): void {
   if (next.has(id)) next.delete(id); else next.add(id);
   expandedBranches.set(next);
 }
-
-/** Legacy boolean helper mapped to lineageMode ("all" vs compacted). */
-export const hideFailed = {
-  get: () => lineageMode.get() !== "all",
-  set: (hide: boolean) => { lineageMode.set(hide ? "core" : "all"); expandedBranches.set(new Set()); },
-};
-export const useHideFailed = () => useAtom(lineageMode) !== "all";
