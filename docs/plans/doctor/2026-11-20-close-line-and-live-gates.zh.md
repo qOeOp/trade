@@ -36,3 +36,5 @@
 - 2026-11-20 用户审阅关线、证伪、页面与 Validation / Paper / Live 准入的诊断后决定：“先都记着，然后提交 PR，之后 Claude 上线后会看到这些内容然后来改进。”
 - 2026-11-20 用户要求审计最近两次研究流程后决定：“记录 并 提交”。
 - authority 行（`20261120-01`、`-03`、`-05`、`-06`、`-07`）尚待用户决定。
+- 2026-11-21 `20261120-09` 计量后关闭，动作 none：在隔离的临时账本与临时市场上用 `replay explore` 计量（不是完整的封存 `line history` 路径），每段市场导出 1.4–4.2 秒，约占一段回放的 2–13%，按日交易的候选 8–12%。按导出身份共享最多省几个百分点，且只在预热、合约与 `include_*` 旗标都相同时可行，不改。
+- 2026-11-21 `20261120-04` 只修了 `validation` 运行（[#3216](https://github.com/qOeOp/trade/pull/3216)）。`history` 运行仍不能在 `Runs` 里绘制：`registration/availability.py` 对非 `research`、`validation` 用途给出 `PURPOSE_NOT_COMPARABLE`，`replay report` 因此遮蔽其读数、`--tables` 拒绝。放开属于改拒绝与可用性判定，需用户授权；不放开时，历史段读数只在 `Line-close history` 页面（`research history`）可读。
