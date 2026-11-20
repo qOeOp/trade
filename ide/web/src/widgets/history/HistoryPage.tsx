@@ -91,13 +91,32 @@ function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
   );
 }
 
+/** The column header row (`Participant`, the shared segment columns and the summary columns): once in the table's
+ *  sticky `<thead>`, which stays at the top while scrolling, and again, not sticky, under each line's header strip so
+ *  that line's rows read under their own labels. A sticky table cell is bounded by the whole table, not its `<tbody>`,
+ *  so only the `<thead>` row may stick or every line's copy would pile up at the top. */
+function ColumnHeads({ cols, pinned }: { cols: readonly Column[] | null; pinned: boolean }) {
+  const th = "bg-island px-2 py-1 font-normal text-fg-faint whitespace-nowrap";
+  return (
+    <tr>
+      <th scope="col" className={`${th} sticky left-0 ${pinned ? "z-30" : "z-10"} text-left`}>Participant</th>
+      {cols ? cols.map((c) => <th scope="col" key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{c.label}</th>)
+        : SKELETON_COLS.map((c) => <th scope="col" key={c} className={`${th} text-center ${c === "Development" ? "border-l border-line" : ""}`}>{c}</th>)}
+      {SUMMARY_COLS.map((h) =>
+        <th scope="col" key={h} className={`${th} text-right ${h === "Whole yrs" ? "border-l border-line" : ""}`}>{h}</th>)}
+    </tr>
+  );
+}
+
 /** A line's rows under its header: the line, whether it is closed, how many candidates took part and how many research
- *  trials they came from, the earlier searches of its holdout, its targets and its development period. */
-function LineRows({ line, cols, metric, order, all, shortDays }: { line: HistoryLine; cols: Column[]; metric: Metric; order: Order; all: boolean; shortDays: number }) {
+ *  trials they came from, the earlier searches of its holdout, its targets and its development period, then the column
+ *  labels over the line's participant rows (the first line reads under the sticky table header). */
+function LineRows({ line, first, cols, metric, order, all, shortDays }: { line: HistoryLine; first: boolean; cols: Column[]; metric: Metric; order: Order; all: boolean; shortDays: number }) {
   const rows = ordered(line.rows, order), shown = all ? rows : rows.filter((r) => !noEdge(r)), hidden = rows.length - shown.length;
   return (
     <tbody className="border-t border-line">
       <LineHeader line={line} colSpan={cols.length + 11} hidden={hidden} />
+      {!first && <ColumnHeads cols={cols} pinned={false} />}
       {shown.map((row) => (
         <tr key={row.run} className="hover:bg-row-hover">
           <th className="sticky left-0 z-10 max-w-56 truncate bg-island px-2 text-left font-mono font-normal">
@@ -121,7 +140,6 @@ export function HistoryPage() {
   const lines = history?.lines ?? [], cols = useMemo(() => columns(lines), [lines]);
   if (!history && error) return <Empty title="Can't read the history tests">{error}</Empty>;
   if (history && !lines.length) return <Empty title="No line has a history test yet">A line's closing replays every participant over the years before its development period, its holdout and what follows; they show here as they run.</Empty>;
-  const th = "px-2 py-1 font-normal text-fg-faint whitespace-nowrap";
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-(--header-h) shrink-0 items-center gap-x-3 px-3 text-dense">
@@ -135,16 +153,8 @@ export function HistoryPage() {
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="border-separate border-spacing-0 text-dense">
-          <thead className="sticky top-0 z-20 bg-island">
-            <tr>
-              <th className={`${th} sticky left-0 z-30 bg-island text-left`}>Participant</th>
-              {history ? cols.map((c) => <th key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{c.label}</th>)
-                : SKELETON_COLS.map((c) => <th key={c} className={`${th} text-center ${c === "Development" ? "border-l border-line" : ""}`}>{c}</th>)}
-              {SUMMARY_COLS.map((h) =>
-                <th key={h} className={`${th} text-right ${h === "Whole yrs" ? "border-l border-line" : ""}`}>{h}</th>)}
-            </tr>
-          </thead>
-          {history ? lines.map((l) => <LineRows key={l.line} line={l} cols={cols} metric={metric} order={order} all={all} shortDays={history.short_days} />) : (
+          <thead className="sticky top-0 z-20 bg-island"><ColumnHeads cols={history ? cols : null} pinned /></thead>
+          {history ? lines.map((l, i) => <LineRows key={l.line} line={l} first={i === 0} cols={cols} metric={metric} order={order} all={all} shortDays={history.short_days} />) : (
             <tbody className="border-t border-line">
               {[0, 1, 2, 3, 4].map((r) => (
                 <tr key={r}>
