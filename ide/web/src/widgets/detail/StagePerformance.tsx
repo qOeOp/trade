@@ -1,10 +1,9 @@
 import { Fragment, useMemo } from "react";
 import { bridge } from "../../model/bridge";
 import { useBacktest } from "../../state/backtest";
-import { usePaperService } from "../../state/paper";
 import { useRunData } from "../../state/runData";
-import { useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
+import { useStageReading } from "../../state/stageReading";
 import { Eased } from "../../components/Eased";
 import { Skeleton } from "../../components/Missing";
 import { CardGroup, Section } from "../../components/Section";
@@ -14,15 +13,6 @@ import { MarketExposure, PeriodsAndRegimes } from "../paper/MarketExposure";
 import { Performance } from "../paper/Performance";
 
 const BARS = [35, -25, 60, 20, -45, 80, -15, 40, -55, 30, 70, -30, 25, -40, 50, 15, -65, 45, -20, 55, 30, -35, 65, -25];
-
-/** Whether the stage shown on the Runs page is still reading its trial report or paper stream. */
-export function useStageReading(): boolean {
-  const runs = useOnRunsPage(), { stage, run } = useShown(), data = useRunData(), backtest = useBacktest(), service = usePaperService();
-  if (!runs) return false;
-  if (stage === "backtest") return backtest?.kind === "reading";
-  if (stage === "paper") return !!run && !(data && data.run.paper_id === run.paper_id && data.a) && service !== "offline" && service !== "absent";
-  return stage === null && service === "checking";
-}
 
 function PerformanceSkeleton() {
   return (
@@ -104,15 +94,12 @@ function PerformanceSkeleton() {
  *  by side and contract, its calendar and what moved its equity. While its report or stream is read
  *  a skeleton of the group's cards stands in their place. None while the stage has nothing to show here. */
 export function StagePerformance() {
-  const { stage, run, name } = useShown(), data = useRunData(), backtest = useBacktest(), service = usePaperService();
+  const { stage, run, name } = useShown(), data = useRunData(), backtest = useBacktest(), reading = useStageReading();
   const tested = stage === "backtest" && backtest?.kind === "ready" ? backtest.b : null;
   const paper = stage === "paper" && data && data.run.paper_id === run?.paper_id ? data : null;
   const testedBridge = useMemo(() => (tested?.account ? bridge(tested.account, tested.cycles.map((c) => ({ symbol: c.symbol, pnl: c.pnl ?? 0, gross: c.gross }))) : null), [tested]);
   const shown = tested?.account && tested.stats ? { a: tested.account, stats: tested.stats, bridge: testedBridge, exposures: tested.exposures, periods: tested.periods, fills: null, of: "backtest" as const }
     : paper?.a && paper.stats ? { a: paper.a, stats: paper.stats, bridge: paper.bridge, exposures: [], periods: null, fills: paper.fills, of: "paper" as const } : null;
-  const reading = (stage === "backtest" && backtest?.kind === "reading")
-    || (stage === "paper" && !!run && !paper?.a && service !== "offline" && service !== "absent")
-    || (stage === null && service === "checking");
   if (!shown && !reading) return null;
   return (
     <CardGroup title="Performance" actions={<span className="min-w-0 truncate text-fg-faint">{name ?? (reading ? <Skeleton className="w-24" /> : null)}</span>}>

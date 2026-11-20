@@ -14,8 +14,8 @@ import { Missing, Skeleton } from "../../components/Missing";
 import { Tip } from "../../components/Tip";
 
 const col = columns<Trial>();
-const value = (x: number | null | undefined, text: string, ok: boolean | null = null, busy = false) =>
-  busy ? <Skeleton className="w-10" /> : x == null ? <Missing /> : <span className={textClass(tone(ok))}>{text}</span>;
+const value = (x: number | null | undefined, text: string, ok: boolean | null = null, loading = false) =>
+  loading ? <Skeleton className="w-10" /> : x == null ? <Missing /> : <span className={textClass(tone(ok))}>{text}</span>;
 const PLACEHOLDERS: Trial[] = [{ trial_id: 1, purpose: "research" }, { trial_id: 2, purpose: "research" }];
 
 /** A version's trials: purpose, readings against the targets, and whether each kept its evidence. On the
@@ -24,32 +24,32 @@ const PLACEHOLDERS: Trial[] = [{ trial_id: 1, purpose: "research" }, { trial_id:
  *  purpose left. Trial and Elig are as wide as their
  *  headers, so Trial starts under the section title and Elig sits a column gap after Sharpe. */
 const FIT = { trial: "w-[calc(5ch+1rem)]", elig: "w-[calc(4ch+1rem)]" };
-export function ReplayTable({ trials, targets, busy = false }: { trials: Trial[]; targets: Targets | null; busy?: boolean }) {
+export function ReplayTable({ trials, targets, loading = false }: { trials: Trial[]; targets: Targets | null; loading?: boolean }) {
   // A cell's function is its component: a new one each render would rebuild every cell.
   const cols = useMemo((): Column<Trial>[] => [
     col.accessor("trial_id", { header: "Trial", meta: { numeric: true, width: FIT.trial },
-      cell: (x) => (busy ? <Skeleton className="w-6" /> : x.getValue()) }) as Column<Trial>,
+      cell: (x) => (loading ? <Skeleton className="w-6" /> : x.getValue()) }) as Column<Trial>,
     col.accessor("purpose", { header: "Use",
-      cell: (x) => (busy ? <Skeleton className="w-12" /> : PURPOSE[x.getValue()] ?? x.getValue()) }) as Column<Trial>,
+      cell: (x) => (loading ? <Skeleton className="w-12" /> : PURPOSE[x.getValue()] ?? x.getValue()) }) as Column<Trial>,
     col.accessor("annual_return", { header: "Return", meta: { numeric: true }, sortUndefined: "last",
-      cell: (x) => value(x.getValue(), pct(x.getValue()), meets(x.getValue(), targets?.annual_return, true), busy) }) as Column<Trial>,
+      cell: (x) => value(x.getValue(), pct(x.getValue()), meets(x.getValue(), targets?.annual_return, true), loading) }) as Column<Trial>,
     col.accessor("max_drawdown", { header: "Drawdown", meta: { numeric: true }, sortUndefined: "last",
-      cell: (x) => value(x.getValue(), pct(x.getValue()), meets(x.getValue(), targets?.max_drawdown, false), busy) }) as Column<Trial>,
+      cell: (x) => value(x.getValue(), pct(x.getValue()), meets(x.getValue(), targets?.max_drawdown, false), loading) }) as Column<Trial>,
     col.accessor("sharpe", { header: "Sharpe", meta: { numeric: true }, sortUndefined: "last",
-      cell: (x) => value(x.getValue(), ratio(x.getValue()), null, busy) }) as Column<Trial>,
+      cell: (x) => value(x.getValue(), ratio(x.getValue()), null, loading) }) as Column<Trial>,
     col.accessor("eligible", { header: "Elig", meta: { align: "right", width: FIT.elig }, cell: (x) => {
-      if (busy) return <Skeleton className="w-4" />;
+      if (loading) return <Skeleton className="w-4" />;
       const t = x.row.original;
       if (t.eligible === false) return <span className="text-fail-fg">Lost</span>;
       // The check's ink stops 1px inside its box; the margin puts it flush with the header's right edge.
       return t.eligible ? <Icon name="check" tone="meets" className="-mr-px align-middle" /> : <Missing />;
     } }) as Column<Trial>,
-  ], [targets, busy]);
+  ], [targets, loading]);
   const runsPage = useOnRunsPage(), { stage, trial } = useShown();
-  const picks = runsPage && !busy ? { onRow: (t: Trial) => { if (drawable(t)) chooseTrial(t.trial_id); }, selected: stage === "backtest" && trial ? String(trial.trial_id) : null,
+  const picks = runsPage && !loading ? { onRow: (t: Trial) => { if (drawable(t)) chooseTrial(t.trial_id); }, selected: stage === "backtest" && trial ? String(trial.trial_id) : null,
     wrapRow: (t: Trial, tr: ReactElement) => (t.purpose === "research" ? tr : <Tip content="Out-of-sample replay: not on this line's window">{tr}</Tip>) } : {};
-  const rows = busy && !trials.length ? PLACEHOLDERS : trials;
-  const lost = busy ? [] : trials.filter((t) => t.eligible === false);
+  const rows = loading && !trials.length ? PLACEHOLDERS : trials;
+  const lost = loading ? [] : trials.filter((t) => t.eligible === false);
   return (
     <>
       <div className="-mx-2"><DataTable data={rows} columns={cols} rowId={(t) => String(t.trial_id)} fixed sticky={false} {...picks} /></div>
