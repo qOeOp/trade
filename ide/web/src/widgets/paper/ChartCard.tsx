@@ -48,7 +48,9 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   const lead = useMemo(() => (ready && !equity && trial !== null ? leadOf(ready, trial, symbol, daily, testing) : null), [ready, equity, trial, symbol, daily, testing]);
   const said = equity || !ready ? backtestNote(backtest, trial ?? 0) : lead ? barsNote(daily) : "Not traded in backtest";
   const note = [!testing || trial === null ? null : said, paper].filter(Boolean).join(" · ") || null;
-  const reading = !testing && run && !stretches.some((x) => x.chain.some((r) => r.paper_id === run.paper_id)) ? "Reading the paper runs…"
+  // The shown run's stretch, read once it holds equity or its stream has sent its first batch.
+  const shown = !testing && run ? stretches.find((x) => x.chain.some((r) => r.paper_id === run.paper_id)) : undefined;
+  const reading = !testing && run && (!shown || (!shown.piece.readings?.equity.length && !s?.loaded)) ? "Reading the paper runs…"
     : testing && trial !== null && backtest?.kind === "reading" ? backtestNote(backtest, trial) : daily?.kind === "reading" ? barsNote(daily) : null;
   // The backtest's buy and hold: the closes of the contracts its cycles traded, read while its equity is shown.
   const contracts = useMemo(() => [...new Set(drawn?.cycles.map((c) => c.symbol))].sort(), [drawn]);

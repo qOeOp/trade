@@ -10,7 +10,13 @@ export type Stream = {
   paperId: number; symbol: string | null; lines: JournalLine[]; bars: JournalLine[];
   /** Every contract's bar closes ([bar time ns, close]), by symbol: the Account view's stream only. */
   closes: Record<string, [number, number][]>;
-  state: PaperState | null; readings: Readings | null; seal: Seal | null; failures: RuntimeFailure[]; connected: boolean;
+  state: PaperState | null; readings: Readings | null; seal: Seal | null; failures: RuntimeFailure[];
+  /** The stream itself: asking for its first batch (a run opened, or another contract of it), sending, or
+   *  lost and reconnecting. */
+  link: "connecting" | "open" | "lost";
+  /** Whether the run's first batch of lines has arrived: before it nothing is known of the run, after it
+   *  what the stream has not sent (readings of a run that has written none) is missing, not being read. */
+  loaded: boolean;
 };
 const stream = atom<Stream | null>(null);
 export const useStream = () => useAtom(stream);
@@ -80,7 +86,8 @@ export function follow(paperId: number | null, symbol: string | null): void {
   const lasts = Object.values(held).map((c) => c.at(-1)?.[0] ?? 0);
   const upTo = symbol ? (bars.length ? Number(bars.at(-1)!.ts_event) : 0) : lasts.length ? Math.min(...lasts) : 0;
   stream.set({ paperId, symbol, lines, bars, closes: held, state: kept?.state ?? null,
-               readings: kept?.readings ?? null, seal: kept?.seal ?? null, failures: kept?.failures ?? [], connected: false });
+               readings: kept?.readings ?? null, seal: kept?.seal ?? null, failures: kept?.failures ?? [], link: "connecting",
+               loaded: kept?.loaded ?? false });
   const events = new EventSource(streamUrl(paperId, symbol, lines.length ? { lines: lines.length, last: lines.at(-1)!.wall_ns, bars: upTo } : null));
   source = events;
   let first = true, firstCloses = true, from: { lines: number; bars: number } | null = null;
@@ -92,7 +99,7 @@ export function follow(paperId: number | null, symbol: string | null): void {
     // The first batch is what came since, when resumed; else the whole journal again, which replaces what
     // an earlier stream of the run gave.
     update((s) => {
-      const next = { ...s, connected: true,
+      const next = { ...s, link: "open" as const, loaded: true,
         lines: !first ? [...s.lines, ...rest] : from ? linesAfter(s.lines, from.lines, rest) : again(s.lines, rest),
         bars: !first ? [...s.bars, ...bars] : from ? barsAfter(s.bars, from.bars, bars) : again(s.bars, bars) };
       if (symbol) cached.bars.set(symbol, next.bars);
@@ -119,5 +126,5 @@ export function follow(paperId: number | null, symbol: string | null): void {
   });
   // A reconnected stream starts again: resumed from what the page held when it first asked, or whole.
   events.onopen = () => { first = firstCloses = true; from = null; };
-  events.onerror = () => update((s) => ({ ...s, connected: false }));
+  events.onerror = () => update((s) => ({ ...s, link: "lost" }));
 }

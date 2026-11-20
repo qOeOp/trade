@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { expandAllFeature, hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature } from "@headless-tree/core";
 import { useTree } from "@headless-tree/react";
 import type { Atom } from "../../state/atom";
@@ -44,11 +44,15 @@ export function useSelectionTree<T>({ item, children, name, folder, selectable, 
     setExpandedItems((open) => [...new Set([...open, ...ancestors(id)])]);
     requestAnimationFrame(() => { void tree.getItemInstance(id).scrollTo({ block: "nearest" }); });
   };
-  const folderKey = folders.join("\0");
+  // When the rows change, a folder seen for the first time starts open; the rest keep what the user left them.
+  const seen = useRef(new Set(folders));
+  const shape = [ROOT, ...folders].map((id) => `${id}>${children(id).join(",")}`).join("\n");
   useEffect(() => {
-    setExpandedItems((open) => [...new Set([...open, ...folders])]);
+    const fresh = folders.filter((id) => !seen.current.has(id));
+    for (const id of fresh) seen.current.add(id);
+    if (fresh.length) setExpandedItems((open) => [...open, ...fresh]);
     tree.rebuildTree();
-  }, [tree, folderKey]);
+  }, [tree, shape]);
   useEffect(() => reveal(selected), [selected]);  // follow a selection made elsewhere
   useEffect(() => {
     control.set({ expandAll: () => setExpandedItems(folders), collapseAll: () => setExpandedItems([]), revealSelected: () => reveal(selected) });
