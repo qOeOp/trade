@@ -66,7 +66,7 @@ Tests, demos and engineering trials of product code write only to an isolated Do
 - Persistent research data lives only in the Dolt ledger (with its `dolt_backup` copy and its public
   DoltHub copy) and, for market data, the market directory (no copy: it is recomputed from Binance's
   public archives when lost). The ledger is public, and both hold only what a replay cannot give
-  back (`docs/rd/design-ledger.mdx` lists the kinds); of a third-party video, only its identity,
+  back (`docs/rd/design-ledger.zh.mdx` lists the kinds); of a third-party video, only its identity,
   hashes and quoted excerpts. Store each fact once and never what stored data derives. Everything
   else (drafts, exploratory scripts, replay outputs and native reports, media, derived reports) is a
   working copy in `/tmp`.
