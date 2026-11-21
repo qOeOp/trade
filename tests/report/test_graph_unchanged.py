@@ -36,7 +36,7 @@ class UnchangedTests(unittest.TestCase):
         root, (cls.control_ref,) = registered_grid(world, ["control"])
         cls.control = entry.run(world.profile, world.market, MARKET_DAY, cls.control_ref, None, RUNNER_ARGV, registration=root)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.control["trial_id"]}])
-        child = world.publish("child", parent=cls.control_ref, difference="widen the stop")
+        child = world.publish("child", parent=cls.control_ref, difference="widen the stop", changed=("F3",))
         cls.child_ref, cls.child_source = child["candidate"], child["source"]
         mechanism = [{"slice": "trade_structure", "measure": "win_rate", "direction": "up", "duty": "F3", "reason": "fixture"}]
         registration = world.register(world.body(

@@ -12,17 +12,17 @@ from ledger import db, problems, strategies
 from registration import availability, precheck, register, seams as registration_seams
 from replay import entry
 from report import candidates, comparison, measures, seams, status
-from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, SOURCE
+from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, duty_line, source
 from tests.registration.world import OUTCOMES, RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld
 from tests.report.test_reports import FINGERPRINT, market_returns
 
 
-BASE = SOURCE + b"FIRST = 1\nMIDDLE = 0\nSECOND = 2\n"
-A = BASE.replace(b"FIRST = 1", b"FIRST = 10")
-B = BASE.replace(b"SECOND = 2", b"SECOND = 20")
-AB = A.replace(b"SECOND = 2", b"SECOND = 20")
-SIBLING = A.replace(b"SECOND = 2", b"SECOND = 21")
+BASE = source("lattice") + b"FIRST = 1\nMIDDLE = 0\nSECOND = 2\n"
+A = BASE.replace(b"FIRST = 1", b"FIRST = 10").replace(duty_line("F3"), duty_line("F3", "first"))
+B = BASE.replace(b"SECOND = 2", b"SECOND = 20").replace(duty_line("F3"), duty_line("F3", "second"))
+AB = A.replace(b"SECOND = 2", b"SECOND = 20").replace(duty_line("F3", "first"), duty_line("F3", "both"))
+SIBLING = A.replace(b"SECOND = 2", b"SECOND = 21").replace(duty_line("F3", "first"), duty_line("F3", "sibling"))
 RETURNS = {"a": [0.001, -0.0005], "b": [0.0005, -0.0006, 0.0002], "ab": [0.002, -0.001, 0.0005],
            "sibling": [0.0015, -0.0002]}
 
