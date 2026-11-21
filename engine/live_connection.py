@@ -37,7 +37,7 @@ from nautilus_trader.model import ClientId, OrderStatus, PositionSide, TimeInFor
 from nautilus_trader.common import SocketState
 from nautilus_trader.trading import Strategy
 
-from engine import protection
+from engine import history, protection
 from engine.live_errors import LiveRefusal as Refusal
 from engine.config import symbol_of
 from engine.live_records import contract as contract_id, keep, owned, strategy_ids
@@ -60,6 +60,10 @@ CONTRACT_SECONDS = 60  # while the contract is not TRADING, its status is read t
 ORPHAN_NS = 600 * 10**9  # flat after a missing bar, reduce-only orders still at Binance this long: a notice
 ORPHAN_SLACK_NS = COMPARE_RETRY_SECONDS * 10**9  # reads PERIODIC_SECONDS apart land a little early or late
 HOLD_NS = 60_000_000_000  # an entry is held unsent at most this long after its decision
+# An aggregated bar received this long after its bucket's end: rc7 closes a time bar on a monotonic-clock timer, which
+# a host sleep or VM pause leaves behind for good (doctor 20261114-30); on time it comes BUILD_DELAY_US after the end.
+AGGREGATE_LATE_NS = 60_000_000_000
+HOUR_NS, DAY_NS = 3_600_000_000_000, 86_400_000_000_000
 # Native order states whose venue state may still be changing; a comparison seeing one is not yet consistent.
 IN_FLIGHT = frozenset({OrderStatus.SUBMITTED, OrderStatus.PENDING_UPDATE, OrderStatus.PENDING_CANCEL})
 
@@ -314,9 +318,10 @@ def bar(session, bar) -> bool:
     pushing a closed kline again, revised or not; rc7's validate_data_sequence passes an equal stamp), which the
     source must not see, or it decides twice on one bar. A replay never repeats a bar, so this keeps parity."""
     try:
-        if not bar.bar_type.is_externally_aggregated():
-            return False
         kind, step = str(bar.bar_type), bar.bar_type.spec.get_interval_ns()
+        if not bar.bar_type.is_externally_aggregated():
+            late_aggregate(session, kind, step, bar.ts_event)
+            return False
     except Exception:
         return False
     state = session.connection
@@ -332,6 +337,19 @@ def bar(session, bar) -> bool:
         # protects a fill; positions keep their exits (design §3.2 item 3).
         close_entries(session, "bars_missing", bar_type=kind, after_ns=previous, received_ns=bar.ts_event)
     return False
+
+
+def late_aggregate(session, kind: str, step: int, stamped: int) -> None:
+    """An aggregated time bar received more than AGGREGATE_LATE_NS after its bucket's end closes entries as a missing
+    bar does: the source would decide on a stale bucket, and only a restart's fresh timers and warm-up (rewarm) put
+    the aggregation back on time. The bucket is the one the bar's stamp, less the build delay, falls in, so a timer that
+    slipped is judged by the bucket it should have closed; only steps the hour or the day divides align so."""
+    if not (step < HOUR_NS and HOUR_NS % step == 0 or step >= HOUR_NS and DAY_NS % step == 0):
+        return
+    end = (stamped - history.BUILD_DELAY_US * 1000) // step * step
+    late = time.time_ns() - end
+    if late > AGGREGATE_LATE_NS:
+        close_entries(session, "bars_missing", bar_type=kind, bucket_end_ns=end, late_ns=late)
 
 
 def rewarm_due(session) -> bool:
