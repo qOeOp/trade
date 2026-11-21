@@ -21,6 +21,7 @@ from ledger import db
 from live import host as host_runtime
 from live import authority, configuration, runs, state
 from tests.live.authority_fixture import install, launch, maintain, prepare
+from tests.live.durable import assert_durable_replace
 from tests.helpers import refused
 
 
@@ -1166,7 +1167,7 @@ class LiveMonthFileTests(LiveFixture):
         self.month_files.assert_not_called()  # the market day's month: the universe file holds it
         self.assertFalse(folder.exists())
         state.private_directory(folder)
-        (folder / "2026-12.partial").write_bytes(b"left by a write that died")
+        (folder / ".2026-12.json.partial").write_bytes(b"left by a write that died")
         self.assertEqual(runs.write_months_locked(self.root, self.run_id, self.root / "market", self.at("2026-12-01")),
                          ["2026-12"])
         self.month_files.assert_called_once_with({"holds": "market", "root": str(self.root / "market")}, ["BTCUSDT"],
@@ -1182,6 +1183,12 @@ class LiveMonthFileTests(LiveFixture):
                          ["2027-01"])
         self.assertEqual(self.month_files.call_args.args[2], "2026-12")
         self.assertEqual((folder / "2026-12.json").read_bytes(), b'{"members":["BTCUSDT"]}')
+
+    def test_a_month_is_written_durably(self):
+        state.private_directory(self.directory / "inputs" / "membership")
+        assert_durable_replace(self, self.directory / "inputs" / "membership" / "2026-12.json",
+                               lambda: runs.write_months_locked(self.root, self.run_id, self.root / "market",
+                                                                self.at("2026-12-01")))
 
     def test_a_month_the_market_does_not_hold_yet_is_read_again_on_the_next_pass(self):
         self.month_files.return_value = {}

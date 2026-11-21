@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import errno
-import fcntl
 from http.server import BaseHTTPRequestHandler
 import json
 import os
@@ -200,11 +199,9 @@ def listener(config: configuration.Configuration, config_file: Path, *, binding:
     directory = state.private_directory(config.socket.parent)
     # This empty process lease protects only this socket inode. Account operations still
     # use the original account.lock, never this lease or a second lifecycle mutex.
-    descriptor = os.open(directory / "listener.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "r+") as lease:
-        if not stat.S_ISREG(os.fstat(lease.fileno()).st_mode):
-            raise configuration.fail()
-        fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with state.lock(directory / "listener.lock", blocking=False, regular=configuration.fail) as leased:
+        if not leased:
+            raise BlockingIOError(errno.EWOULDBLOCK, "another control holds the listener lease")
         if os.path.lexists(config.socket):
             old = config.socket.lstat()
             if not stat.S_ISSOCK(old.st_mode) or old.st_uid != os.geteuid():
