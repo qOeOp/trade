@@ -79,7 +79,7 @@ def daily_returns(profile: dict, market_day: str, universe_rule: str | None, sta
         found = marks.filter(pa.array(marks.column("ts_open").to_numpy() % DAY_MS == CLOSE_OFFSET_MS))
         for symbol, ts_open, close in zip(*(found.column(name).to_pylist() for name in ("symbol", "ts_open", "close")),
                                           strict=True):
-            closes.setdefault(symbol, {})[series._ms_day(ts_open).isoformat()] = close
+            closes.setdefault(symbol, {})[series.ms_day(ts_open).isoformat()] = close
     return {**returns_from(closes, members, days), "market_day": market_day, "universe_rule": universe_rule}
 
 

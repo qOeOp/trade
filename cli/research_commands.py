@@ -750,7 +750,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 
 def register(verbs, verb, runner) -> None:
-    """Add the research record nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
+    """Add the research record nouns to the parser with `cli.main.build_parser`'s verbs, verb and runner."""
     candidate = verbs("candidate", "candidates")
     command = verb(candidate, "publish", "publish one single-file source as a candidate")
     _ledger_option(command)

@@ -152,7 +152,7 @@ def _import(market: files.Market, month: date, start: int, end: int, cache: Path
     """One contract's published days in [start, end) the file does not hold, added to the stored rows."""
     label = f"{month:%Y-%m}"
     held = held_days(market, symbol, month)
-    days = [day for at in range(start, end, store.DAY) if (day := series._ms_day(at)) not in held]
+    days = [day for at in range(start, end, store.DAY) if (day := series.ms_day(at)) not in held]
     if not days:
         raise _refuse(f"the market already holds every closed day of {label} metrics of {symbol}",
                       "MONTH_EXISTS", missing=(label,))

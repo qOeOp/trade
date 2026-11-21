@@ -237,7 +237,7 @@ def _compare_bars(job: dict, price_type: str, reread: dict[str, np.ndarray]) -> 
     if not times:
         differs = np.nonzero(np.any([stored[name] != reread[name] for name in series.COLUMNS], axis=0))[0]
         times = stored["ts_open"][differs].tolist()
-    label = series._ms_day(job["start"]).strftime("%Y-%m")
+    label = series.ms_day(job["start"]).strftime("%Y-%m")
     raise _refuse(f"{price_type}: the sources now differ from the stored {label} rows at {times[:5]}", "MONTH_EXISTS",
                   missing=(label, *map(str, times[:5])))
 
@@ -496,7 +496,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     # Bars last: the market's newest day comes from them.
     files.place(market, [item for item in (*member_files, funding_file, terms_file, bar_file) if item is not None])
     result = {"month": label, "universe_rule": universe.RULE, "scope": scope or "all",
-              "through": series._ms_day(end_ms).isoformat(), "instruments_appended": len(appended_terms),
+              "through": series.ms_day(end_ms).isoformat(), "instruments_appended": len(appended_terms),
               "bar_rows": totals["bar_rows"], "funding_rows": totals["funding_rows"], "universe_members": members,
               "gaps": dict(sorted(totals["gaps"].items())), "source_rows": totals["source_rows"], "excluded": excluded,
               "inferred_terms": sorted(totals["inferred_terms"]), "rounded_volumes": totals["rounded_volumes"],
@@ -746,7 +746,7 @@ def freshness(profile: dict, ref: str | None = None) -> dict:
                 newest = max(newest or 0, pc.max(opens).as_py())
         if newest is not None:
             break
-    complete_day = series._ms_day(newest + MINUTE) - timedelta(days=1) if newest is not None else None
+    complete_day = series.ms_day(newest + MINUTE) - timedelta(days=1) if newest is not None else None
     return {"market_day": market_day, "universe_months": [value.strftime("%Y-%m") for value in months],
             "latest_complete_day": complete_day}
 

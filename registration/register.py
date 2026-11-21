@@ -587,9 +587,9 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
                      "universe_rule": inputs["universe_rule"], "lifecycle_bundle": inputs.get("lifecycle_bundle"),
                      "export_sha256": inputs["export_content_sha256"],
                      "comparable_config_sha256": trials.comparable_config_sha256(inspection.get("effective_config")),
-                     "input_start": trials._utc(runner["window"]["start"]),
-                     "trade_start": trials._utc(runner["window"]["trade_start"]),
-                     "trade_end": trials._utc(runner["window"]["end"]),
+                     "input_start": trials.utc(runner["window"]["start"]),
+                     "trade_start": trials.utc(runner["window"]["trade_start"]),
+                     "trade_end": trials.utc(runner["window"]["end"]),
                      "symbols": sorted(set(inputs.get("symbols") or ()))}
         body["sources"] = list(dict.fromkeys([*body["sources"], *(name for name, _ in sources)]))
         if body["rationale"]["external"].strip() and not body["sources"]:
