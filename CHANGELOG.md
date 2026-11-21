@@ -53,6 +53,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   about 2,000 denied requests an hour for three days. Now the first 401 stops every poll, the graph's place says
   "Sign in again to read the ledger." instead of a JSON parse error, and the existing session notice offers the
   GitHub sign-in, which reloads the page.
+
+
+- `research-round`: a recommendation that first reaches both targets no longer tells the user validation is
+  theirs to start; it raises no validation question, which comes only after the line's closing history test.
 - IDE Runs page: clicking a row in the Trades, Cycles or Comparison table now moves the chart to that trade
   (doctor 20261121-10): the equity chart glides to its span with as much again either side, the candle chart shows
   it with at least twenty candles either side, and both mark the span with a band in the focus blue. The row stays
