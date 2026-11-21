@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import type { SourceItem, SourcesWidget } from "../../model/types";
 import { Icon } from "../../icons/Icon";
-import { toggleDiff } from "../../state/editors";
+import { toggleDiff, togglePin } from "../../state/editors";
 import { CodeView } from "../../ui/CodeView";
 import { useSize } from "../../ui/hooks/useSize";
 import { PanelHeader } from "../../ui/PanelHeader";
@@ -19,8 +19,9 @@ function opened(widget: SourcesWidget | undefined, id: string, diff: boolean): O
 }
 
 /** The editor's header, as IntelliJ's editor breadcrumbs and diff toolbar in one row: the file (while
- *  comparing, its parent's file before it), then the comparison toggle and the way back to the graph. */
-export function SourceBar({ id, diff, widget }: { id: string; diff: boolean; widget: SourcesWidget | undefined }) {
+ *  comparing, its parent's file before it), then the comparison toggle, the pin that keeps the file open
+ *  whatever is selected next, and the way back to the graph with the version in view. */
+export function SourceBar({ id, diff, pinned, widget }: { id: string; diff: boolean; pinned: boolean; widget: SourcesWidget | undefined }) {
   const { item, parent, comparing } = opened(widget, id, diff);
   return (
     <PanelHeader actions={[]}>
@@ -34,8 +35,11 @@ export function SourceBar({ id, diff, widget }: { id: string; diff: boolean; wid
         {item?.source != null && parent?.source != null
           && <TextButton active={diff} onClick={toggleDiff} aria-label="Compare with parent" title="Compare with parent" className="shrink-0">
             <Icon name="diff" /><span className="hidden @[34rem]:inline">Compare with parent</span></TextButton>}
-        <TextButton onClick={() => locate(id)} aria-label="Locate in graph" title="Locate in graph" className="shrink-0">
-          <Icon name="locate" /><span className="hidden @[34rem]:inline">Locate in graph</span></TextButton>
+        <TextButton active={pinned} onClick={() => togglePin(id)} aria-label="Pin" className="shrink-0"
+                    title={pinned ? "Kept open: selecting another version leaves it. Click to follow the selection again." : "Follows the selected version. Click to keep this file open."}>
+          <Icon name="pin" /><span className="hidden @[34rem]:inline">Pin</span></TextButton>
+        <TextButton onClick={() => locate(id)} aria-label="Back to graph" title="Back to the graph, with this version in view" className="shrink-0">
+          <Icon name="arrow-left" /><span className="hidden @[34rem]:inline">Back to graph</span></TextButton>
       </div>
     </PanelHeader>
   );

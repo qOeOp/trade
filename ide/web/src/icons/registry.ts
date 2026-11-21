@@ -11,6 +11,8 @@ import arrowDown from "lucide-static/icons/arrow-down.svg?raw";
 import newspaper from "lucide-static/icons/newspaper.svg?raw";
 import triangleAlert from "lucide-static/icons/triangle-alert.svg?raw";
 import arrowUp from "lucide-static/icons/arrow-up.svg?raw";
+import arrowLeft from "lucide-static/icons/arrow-left.svg?raw";
+import pin from "lucide-static/icons/pin.svg?raw";
 import bot from "lucide-static/icons/bot.svg?raw";
 import circleCheck from "lucide-static/icons/circle-check.svg?raw";
 import circleDashed from "lucide-static/icons/circle-dashed.svg?raw";
@@ -58,6 +60,7 @@ export const ICONS = {
   close: { svg: x },
   minus: { svg: minus },
   "arrow-up": { svg: arrowUp },
+  "arrow-left": { svg: arrowLeft },
   "arrow-down": { svg: arrowDown },
   "chevron-down": { svg: chevronDown },
   "chevron-left": { svg: chevronLeft },
@@ -68,6 +71,7 @@ export const ICONS = {
   "panel-bottom": { svg: panelBottom },
   "panel-right": { svg: panelRight },
   locate: { svg: locate },
+  pin: { svg: pin },
   "expand-all": { svg: chevronsUpDown },
   "collapse-all": { svg: chevronsDownUp },
   more: { svg: ellipsisVertical },
