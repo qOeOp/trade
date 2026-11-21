@@ -43,6 +43,14 @@ Paper 记录只在远端主机的私有 Paper 库，不进研究账本、DoltHub
 | `metrics` 行（字段同 Paper 日志） | `live compare` → `compare_metrics`；差异原因 `metrics`；IDE 比较视图 | Feed 实际交给源的行与时刻，含截止时为 None 的比值、因无持仓量跳过的行 | REST 只留 30 天、给最终值；永不结束的运行没有写摘要的时点 | 2026-11-15 用户选“Live 记录 metrics” |
 | `metrics_unsubscribed` 行（`wall_ns`、`instrument_id`） | `compare_metrics` 切分跟随区间 | 源何时退订 metrics | 回放给的是回放里的退订时刻，两边一分岔就不同；与 `metrics` 行同文件，一起丢或一起在 | 随 #3077 合入（记录里没有原话） |
 
+## Live 运行清单
+
+只在 Live 私有根的 `runs/<run>/inputs/manifest.json`，不进研究账本、DoltHub 或 Git。
+
+| 字段 | 消费者 | 独立事实 | 为何不能派生 | 授权 |
+|---|---|---|---|---|
+| `config.environment`（`live` 或 `demo`，清单格式升为 `live-run-6`）（D-102） | 运行器选 Binance 主机与 Nautilus `BinanceEnvironment`（`engine/live.py`、`engine/live_node.py`、`engine/realtime.py`、`engine/klines.py`、`engine/kline_events.py`）；出口代理按运行放行的主机（`live/host.py`、`engine/egress.py`）；密钥检查（`live/key.py`，demo 没有 `apiRestrictions`）；`live compare`、每日对照、Telegram 与 Live 页标出 Demo | 用户为这次运行选的 Binance 环境 | `account_id`、`credential_binding`（API key 的 SHA-256）、`credential_ref` 都不含它；向交易所试探要有效 key 和一次网络调用，key 被撤销时两边答得一样，而运行器在第一次读之前就要选主机；出口日志要启动后才有 | 待用户 |
+
 ## 浏览器偏好
 
 | 字段 | 消费者 | 独立事实 | 为何不能派生 | 授权 |
@@ -58,3 +66,5 @@ Paper 记录只在远端主机的私有 Paper 库，不进研究账本、DoltHub
 | Live 证据包的聚合 K 线与 `bar` 行的 `bar_type` | 不存：只记一分钟线，与 Paper 同形；聚合由一分钟线算出，比较、`window`、`journal` 都只读一分钟行 | 同上 |
 | 离线扫描变体数单开一列 `judgment.variants` | 不开列，写在正文首行（见上） | 2026-11-12 |
 | 参与率读时现算或封存时读市场库 | 不采用：读时每次重放；封存不能多一个对市场库的依赖 | 2026-10-20、10-31 审阅 |
+| 每个保存的凭证版本记下它属于哪个环境（`credentials/metadata.jsonl`） | 不存：Live 一次只跑一个运行；交易所在准入时就拒绝另一环境的 key（live key 在 `api.binance.com` 的 `apiRestrictions`，demo key 在 `demo-fapi` 的第一次签名读取），运行经 `credential_ref` 绑定到它准备时的 key 版本。代价是换环境要重新保存另一把 key | 2026-11-21 独立审阅（D-102）；要 demo 与 live 同时运行时重审 |
+| 环境写进 `prepared` 行、`events.jsonl`、`compare.json` 或通知状态 | 不存：从清单读 | 同上 |
