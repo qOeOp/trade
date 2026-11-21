@@ -116,17 +116,17 @@ class ConstructionTests(unittest.TestCase):
         source = "from nautilus_trader.model import OrderSide, Quantity\n" + source
         loaded = self.load(source)
         for registry in (history.STATES, history.ACTORS, order_rules.WARMING, strategy_runtime.DECLARED,
-                         strategy_runtime.BREACHES, paper.FETCH):
+                         strategy_runtime.BREACHES):
             registry.clear()
             self.addCleanup(registry.clear)
         catalog = self.root / "catalog"
         catalog.mkdir()
         get, _ = binance()
-        paper.FETCH.append(functools.partial(history.fetch, catalog=catalog, proxy_url=None, get=get))
         day = 1_767_225_600_000_000_000
         at = day + 7 * 60_000_000_000  # seven minutes into a day: its aggregation is warmed too
         inputs = paper.PaperInputs(str(fixture.INSTRUMENT_ID), at, at, "SOURCE-001",
-                                     paper.Membership("BTCUSDT", [(0, 10**19)], 10**19, None), at)
+                                   paper.Membership("BTCUSDT", [(0, 10**19)], 10**19, None), at,
+                                   functools.partial(history.fetch, catalog=catalog, proxy_url=None, get=get))
         engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.ERROR),
                                                      catalogs=[DataCatalogConfig(path=str(catalog))]))
         self.addCleanup(engine.dispose)
@@ -190,13 +190,13 @@ class ConstructionTests(unittest.TestCase):
             loaded = self.load(source)
             loaded.strategy_class.seen.clear()  # one class per source text
             for registry in (history.STATES, history.ACTORS, order_rules.WARMING, strategy_runtime.DECLARED,
-                             strategy_runtime.BREACHES, strategy_runtime.STRATEGIES, paper.FETCH):
+                             strategy_runtime.BREACHES, strategy_runtime.STRATEGIES):
                 registry.clear()
                 self.addCleanup(registry.clear)
             catalog = Path(tempfile.mkdtemp(dir=self.root))
-            paper.FETCH.append(functools.partial(history.fetch, catalog=catalog, proxy_url=None, get=get))
             inputs = paper.PaperInputs(str(fixture.INSTRUMENT_ID), at, at, "SOURCE-001",
-                                       paper.Membership("BTCUSDT", [(0, 10**19)], 10**19, None), at)
+                                       paper.Membership("BTCUSDT", [(0, 10**19)], 10**19, None), at,
+                                       functools.partial(history.fetch, catalog=catalog, proxy_url=None, get=get))
             engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.ERROR),
                                                          catalogs=[DataCatalogConfig(path=str(catalog))]))
             run.add_venue(engine, fixture.fees())
