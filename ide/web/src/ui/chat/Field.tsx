@@ -60,8 +60,9 @@ export function Checklist({ items, checked, onToggle, star, onStar }: {
             <input type="checkbox" checked={checked.has(item)} onChange={() => onToggle(item)} className="accent-(--focus)" />
             <span className="truncate font-mono text-dense">{item}</span>
           </label>
-          {/* The default is a label; every other chosen model offers "make default", always shown so it is found. */}
-          {item === star ? <span className="shrink-0 text-small text-fg-muted">default</span> : checked.has(item) && (
+          {/* The default is a label; every other chosen model offers "make default", always shown so it is found;
+              the label keeps the button's inset, so both end on one edge. */}
+          {item === star ? <span className="shrink-0 px-1 text-small text-fg-muted">default</span> : checked.has(item) && (
             <button type="button" onClick={() => onStar(item)}
               className="shrink-0 rounded-badge px-1 text-small text-fg-faint transition-colors hover:bg-hover hover:text-fg">
               make default
