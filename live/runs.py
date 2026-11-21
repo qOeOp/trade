@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+from typing import Any
 
 from engine.config import Refusal as EngineRefusal, is_leverage
 from engine.live_errors import LiveRefusal
@@ -350,13 +351,14 @@ def _candidate(research: db.LedgerProfile, research_at: str, candidate: str) -> 
 
 
 def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, symbols: list[str],
-              inspection: dict, runner_args: list[str]) -> list[dict]:
+              inspection: dict, runner_args: list[str], leverage: str | None) -> list[dict]:
     """The replays at research_at that back running this source live: on exactly Live's instruments, in the bars
     environment, either a passed sealed run or a completed explore whose audit passed (`replay explore` of the
     candidate at the wallet's balance) trading only inside a research trial's window of this source (a window it
     already saw: no new exposure, no holdout spent), on an image whose replay code (admission.REPLAY_CODE) equals this
     execution image's. A sealed run on other replay code still counts through an explore that reproduces it on
-    matching code."""
+    matching code. Only replays at `leverage` (their effective configuration's) back a run at it (re-judge C-083);
+    None, for the page before the user picks one, lists them at any."""
     from ledger import execution
     from registration import reproduction
     with db.read_as_of(research, research_at) as reader:
@@ -385,6 +387,7 @@ def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, 
             else:
                 continue
             backing.append((row, images))
+        captures: dict[int, Any] = execution.read_captures(reader, [row["trial_id"] for row, _ in backing], listing=True)
     described: dict[str, bool] = {}
 
     def same_code(image_ref: str) -> bool:
@@ -395,8 +398,12 @@ def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, 
 
     result = []
     for row, images in backing:
+        try:  # an unreadable capture (a Refusal) or a configuration without a leverage backs nothing
+            traded = captures[row["trial_id"]]["input_coverage"]["effective_config"]["account"]["default_leverage"]
+        except (KeyError, TypeError):
+            continue
         matching = next((ref for ref in dict.fromkeys(images) if same_code(ref)), None)
-        if matching is not None:
+        if matching is not None and leverage in (None, traded):
             balance = Decimal(row["starting_balance"]).normalize()
             result.append({"trial_id": row["trial_id"], "starting_balance_usdt": format(balance, "f"),
                            "image_ref": matching})
@@ -415,7 +422,7 @@ def replay_evidence(research: db.LedgerProfile, research_at: str, source_sha256:
     before a run is prepared. Read only; preparation still checks again and refuses as before."""
     describe = _describe(symbols)
     inspection = image.inspect_runtime(image.resolve(runtime), describe)
-    return _evidence(research, research_at, source_sha256, symbols, inspection, describe)
+    return _evidence(research, research_at, source_sha256, symbols, inspection, describe, None)
 
 
 def _settings(root: Path, run_id: str, environment: str, drawdown_brake: str, duration_seconds: int | None,
@@ -503,7 +510,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
         admission.unfalsified(research, research_at, found["source_sha256"])
         # Recorded, possibly none: a run without it may still check the account (and read the wallet a replay must
         # start near), but never starts (launch_locked, engine.live_venue.require_evidence).
-        evidence = _evidence(research, research_at, found["source_sha256"], symbols, inspection, describe)
+        evidence = _evidence(research, research_at, found["source_sha256"], symbols, inspection, describe, leverage)
         reconciled(found["source_sha256"], symbols)
         market = _market_terms(market_root, symbols)
         key = hashlib.sha256(run_id.encode()).hexdigest()[:12]
