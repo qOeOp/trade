@@ -606,8 +606,8 @@ COMMANDS = [
         "with --readings the recommendation judgments and each recommended version's latest research run; no market",
         "nothing",
         "ledger_commit, lines [{line_id, name, start, dev_start, dev_end, market_day, created_at, closed, summary, "
-        "targets, versions, recommendation (with --readings: {recommended, since, research_runs, runs_since, trial_id, "
-        "eligible, annual_return, max_drawdown} or null)}] oldest first; versions are the candidates its research "
+        "targets, candidates, recommendation (with --readings: {recommended, since, research_runs, runs_since, trial_id, "
+        "eligible, annual_return, max_drawdown} or null)}] oldest first; candidates are those its research "
         "graph draws, oldest first; a recommendation is the latest current judgment's version, since the first of the "
         "latest judgments naming it, and its latest sealed research run on the line read as the graph reads it "
         "(measures only while it is eligible)",
