@@ -216,6 +216,18 @@ def _read_bytes(path: Path) -> bytes | None:
         return None
 
 
+def equity_tail(sent: list | None, readings: dict) -> dict:
+    """The `readings` event of a stream that already sent the equity path `sent` (None: nothing yet): the points
+    from the first that differs (`equity_from`), since the path only grows by a minute at a time; a funding
+    settlement journalled after its minute's snapshot can still change the last ones."""
+    path, start = readings["equity"], 0
+    for before, now in zip(sent or (), path, strict=False):
+        if before != now:
+            break
+        start += 1
+    return readings | {"equity": path[start:], "equity_from": start}
+
+
 def _changed(live: dict) -> tuple:
     return len(live["equity"]), live["last_bar_ns"], live["fills"], live["orders_submitted"], live["exceptions"], live.get("input_start_ns")
 
@@ -743,8 +755,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                 self.send_event("closes", closes(rest))
             failures = failure_records(files.get(FAILURES))
             self.send_event("failures", failures)
-            self.send_event("readings", readings(row, journal) | {
-                "exceptions": sum(item["count"] for item in failures)})
+            self.send_event("readings", equity_tail(None, readings(row, journal) | {
+                "exceptions": sum(item["count"] for item in failures)}))
             self.send_event("end", seal)
 
         def stream(self, paper_id: int, instrument: str | None, resume: Resume | None = None) -> None:
@@ -752,7 +764,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             of other contracts), `closes` (for a stream of no contract, the Account view's: every contract's
             bar closes (closes()), all of them and then what is appended), `state` (state.json as it is
             replaced), `failures` (the strategy's runtime failure records as the runner rewrites them, or the
-            sealed capture's), `readings` (readings(), as they change) and `end` (the seal) once the run
+            sealed capture's), `readings` (readings(), as they change, with the equity path's new points only:
+            equity_tail()) and `end` (the seal) once the run
             is sealed. With `resume` the first `lines` and `closes` leave out what the page holds (resumed()),
             announced by `resumed` (the resume's `lines` and `bars`); a journal the page's does not match
             streams whole, unannounced."""
@@ -771,6 +784,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     return
                 directory = runs.run_dir(daemon.profile, row["paper_id"]) / "out"
                 offset, state_seen, failures_seen, beat, first, shown = 0, 0.0, 0.0, time.monotonic(), True, None
+                path = None  # the equity path the stream sent: each readings event carries only what follows it
                 seen = 0  # the journal lines read so far: the sealed capture's journal goes on from there
                 while True:
                     offset, lines, _ = read_lines(directory / "events.jsonl", offset)
@@ -814,7 +828,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     current = (listed or {}).get("readings")
                     if current is not None and _changed(current) != shown:  # a new minute, bar or fill
                         shown = _changed(current)
-                        self.send_event("readings", current)
+                        self.send_event("readings", equity_tail(path, current))
+                        path = current["equity"]
                     time.sleep(STREAM_SECONDS)
             except OSError:
                 pass  # the page went away
