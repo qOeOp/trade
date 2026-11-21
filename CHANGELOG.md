@@ -26,6 +26,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (Paper): `paper start` (and the IDE's Paper start) refuses a candidate whose source never names one of
+  `PAPER_RECOVERY`, `on_save` and `on_load` with `PAPER_RECOVERY_UNDECLARED`, before it copies the source or starts a
+  container: such a source cannot declare Paper recovery, so a release, host restart or short stall ended or held its
+  run (remote runs 2, 3 and 4). A source that names all three still starts, and the runner's own verdict
+  (`recovery_declared`) marks it as before. Sources without recovery can no longer start Paper; publish a new version
+  with the protocol (doctor 20261121-27, decided under the user's delegation of 2026-11-21).
+
 - Host files (`shared.files.atomic_write`): the market-import status, profile and service files and the ledger's
   DoltHub key and Dolt config are replaced through one durable write (synced file, rename, synced directory). The
   market status and Dolt config were not synced before, and the DoltHub key was rewritten in place.
