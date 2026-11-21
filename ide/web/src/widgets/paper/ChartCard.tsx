@@ -10,8 +10,8 @@ import { barsNote, useBacktestBars, useBacktestCloses } from "../../state/backte
 import type { Stretch } from "../../model/stretches";
 import { leadOf } from "./backtestCandles";
 import { eventsOf } from "./candleEvents";
-import { ChartSkeleton } from "../../components/Missing";
-import { TextButton } from "../../components/TextButton";
+import { ChartSkeleton } from "../../ui/Missing";
+import { TextButton } from "../../ui/TextButton";
 import { tradesTab, type Stream } from "../../state/paperStream";
 import { useAtom } from "../../state/atom";
 import { useComparison } from "../../state/compare";

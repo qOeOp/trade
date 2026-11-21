@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { PhonePage } from "../../components/PhoneBar";
-import { Amount, Change, Contract, EntryMark, heldAside, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
-import { FormButton } from "../../components/chat/Field";
-import { useNow } from "../../components/hooks/useNow";
+import { PhonePage } from "../../ui/PhoneBar";
+import { Amount, Change, Contract, EntryMark, heldAside, PhoneHeading, PhoneTable, Side } from "../../ui/PhoneParts";
+import { FormButton } from "../../ui/chat/Field";
+import { useNow } from "../../ui/hooks/useNow";
 import { fixed, signed } from "../../lib/paperApi";
 import { nsMilliseconds } from "../../lib/time";
 import { heldGap } from "../../model/liveHeld";

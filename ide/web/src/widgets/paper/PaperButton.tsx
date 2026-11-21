@@ -1,0 +1,45 @@
+import type { MouseEvent } from "react";
+import { Icon } from "../../icons/Icon";
+import { useAtom } from "../../state/atom";
+import { activeRun, full, startDialog, starting, stopDialog, stopping, usePaperRuns, usePaperService } from "../../state/paper";
+import { useNow } from "../../ui/hooks/useNow";
+import { waited } from "./PaperStartStatus";
+import { Spinner } from "../../ui/Spinner";
+import { Tip } from "../../ui/Tip";
+import { Pressable } from "../../ui/Pressable";
+
+/** The ▶ after a version, as IntelliJ's run mark beside a line: a click asks to run it on paper, showing the
+ *  contracts (its last research replay's to start with); on a running version it is a red ■, which asks to stop.
+ *  It shows while its row or node is hovered (a `group`), and only when the page reaches a paper daemon. */
+export function PaperButton({ id }: { id: string }) {
+  const service = usePaperService();
+  const listing = usePaperRuns();
+  const since = useAtom(starting).get(id), pendingStart = since !== undefined;
+  const run = activeRun(listing, id), limit = full(listing);
+  const pendingStop = useAtom(stopping).has(run?.paper_id ?? -1) || run?.state === "stopping";
+  if (service !== "present") return null;
+  const busy = pendingStart || pendingStop;
+  const click = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (busy) return;
+    if (run) stopDialog.set(run);
+    else startDialog.set(id);
+  };
+  const label = pendingStart ? "Starting paper…" : pendingStop ? "Stopping paper…" : run ? "Stop and seal" : "Run paper…";
+  const tip = pendingStart ? <StartWait since={since} />
+    : run || busy ? label : limit ?? label;
+  return (
+    <Tip side="bottom" content={tip}>
+      <Pressable aria-label={label} aria-busy={busy} aria-disabled={busy} onClick={click} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
+              className={`nodrag nopan grid size-5 shrink-0 place-items-center rounded-control transition-[opacity,background-color] ${busy ? "cursor-progress opacity-100" : "opacity-0 hover:bg-hover active:bg-pressed focus-visible:opacity-100 group-hover:opacity-100"} ${pendingStop ? "animate-pulse" : ""}`}>
+        {pendingStart ? <Spinner className="text-icon" /> : <Icon name={run ? "stop" : "run"} size={12} tone={run ? "fail" : limit ? undefined : "meets"} />}
+      </Pressable>
+    </Tip>
+  );
+}
+
+/** The tip of a ▶ whose start is in flight: how long it has waited and what the server is doing. */
+function StartWait({ since }: { since: number }) {
+  const now = useNow(1000);
+  return <span>Starting paper · {waited(now - since)} <span className="text-fg-faint">· preparing image and containers; the Runs page opens when it is accepted</span></span>;
+}

@@ -1,9 +1,9 @@
 import { useEffect, useMemo } from "react";
-import { PhonePage } from "../../components/PhoneBar";
-import { Skeleton } from "../../components/Missing";
-import { Amount, Change, Contract, EntryMark, heldAside, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
-import { health } from "../../components/RunTile";
-import { useNow } from "../../components/hooks/useNow";
+import { PhonePage } from "../../ui/PhoneBar";
+import { Skeleton } from "../../ui/Missing";
+import { Amount, Change, Contract, EntryMark, heldAside, PhoneHeading, PhoneTable, Side } from "../../ui/PhoneParts";
+import { health } from "../../widgets/runs/RunTile";
+import { useNow } from "../../ui/hooks/useNow";
 import { lineOf } from "../../lib/lines";
 import { fixed, precisions, signed, type PaperRun } from "../../lib/paperApi";
 import { orders, ordersText, priceText, quantityText } from "../../model/events";

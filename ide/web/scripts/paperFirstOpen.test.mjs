@@ -58,7 +58,7 @@ test("once the shown run's readings arrive the earlier run's equity joins before
 
 test("the run's stream says it is disconnected only once lost, not while it first connects", async () => {
   const { Observation } = await namespace("widgets/paper/Observation.tsx", { stubs: {
-    "state/timeZone": { useTimeZone: () => "UTC" }, "components/hooks/useNow": { useNow: () => Date.now() } } });
+    "state/timeZone": { useTimeZone: () => "UTC" }, "ui/hooks/useNow": { useNow: () => Date.now() } } });
   const said = (link) => renderToStaticMarkup(createElement(Observation, { run: shownRun, s: { ...opening, link } }));
   assert.doesNotMatch(said("connecting"), /disconnected/);
   assert.match(said("lost"), /Stream disconnected/);

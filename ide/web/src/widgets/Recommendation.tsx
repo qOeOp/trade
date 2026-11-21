@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import type { SummaryWidget } from "../model/types";
 import { meets, ROLE } from "../model/semantics";
 import { pct } from "../lib/format";
-import { Missing } from "../components/Missing";
-import { Tip } from "../components/Tip";
+import { Missing } from "../ui/Missing";
+import { Tip } from "../ui/Tip";
 
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 const two = { minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;

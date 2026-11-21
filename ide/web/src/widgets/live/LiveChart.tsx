@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChartSkeleton } from "../../components/Missing";
-import { TextButton } from "../../components/TextButton";
+import { ChartSkeleton } from "../../ui/Missing";
+import { TextButton } from "../../ui/TextButton";
 import { fetchMinutes, type FetchedMinutes } from "../../lib/minutesApi";
 import type { JournalLine } from "../../lib/paperApi";
 import { liveChart } from "../../model/liveChart";

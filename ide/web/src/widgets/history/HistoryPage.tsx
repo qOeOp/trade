@@ -6,13 +6,13 @@ import { useHistory } from "../../state/history";
 import { useResearchLines } from "../../state/researchLines";
 import { showToolWindow } from "../../state/shell";
 import { openTrial } from "../../state/stage";
-import { DropdownChoice } from "../../components/Dropdown";
-import { HistoryTile } from "../../components/HistoryTile";
-import { Skeleton } from "../../components/Missing";
+import { DropdownChoice } from "../../ui/Dropdown";
+import { HistoryTile } from "../../ui/HistoryTile";
+import { Skeleton } from "../../ui/Missing";
 import { LineHeader, PriorTip } from "./LineHeader";
 import { LineSummary, PickedBar, usePicked, type Picked } from "./LinePanels";
-import { Tip } from "../../components/Tip";
-import { Empty } from "../../components/Waiting";
+import { Tip } from "../../ui/Tip";
+import { Empty } from "../../ui/Waiting";
 
 const SUMMARY_COLS = ["Whole yrs", "Profitable", "Meeting", "Median", "Worst", "Worst DD", "Veto", "Holdout", "Verdict", "DSR"] as const;
 

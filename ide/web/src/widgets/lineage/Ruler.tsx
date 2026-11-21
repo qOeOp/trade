@@ -4,9 +4,9 @@ import { PURPOSE } from "../../model/semantics";
 import { runs, steps } from "../../lib/range";
 import { v, wash } from "../../theme/roles";
 import { hoverProps, requestFocus, useAxisView, useCrosshair } from "../../state/linking";
-import { useSize } from "../../components/hooks/useSize";
-import { Tip } from "../../components/Tip";
-import { EventTip } from "../../components/EventTip";
+import { useSize } from "../../ui/hooks/useSize";
+import { Tip } from "../../ui/Tip";
+import { EventTip } from "../../ui/EventTip";
 import { RULER, UNIT } from "./geometry";
 
 const BLOCK_Y = 4, BLOCK_H = RULER - 8, NUM_Y = RULER / 2 + 3.5;

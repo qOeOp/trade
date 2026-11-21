@@ -6,11 +6,11 @@ import { PREDICTION, ROLE } from "../../model/semantics";
 import { RoleMark } from "../../icons/marks";
 import { hoverProps, toggleBranch } from "../../state/linking";
 import { useIsSelected } from "../../state/selection";
-import { Tip } from "../../components/Tip";
-import { TextButton } from "../../components/TextButton";
-import { VersionLine } from "../../components/VersionLine";
-import { VersionMenu } from "../../components/VersionMenu";
-import { PaperButton } from "../../components/PaperButton";
+import { Tip } from "../../ui/Tip";
+import { TextButton } from "../../ui/TextButton";
+import { VersionLine } from "../VersionLine";
+import { VersionMenu } from "../runs/VersionMenu";
+import { PaperButton } from "../paper/PaperButton";
 import { MARK_CENTRE } from "./geometry";
 
 export type VersionData = LineageNode & { targets: Targets | null };

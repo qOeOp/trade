@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { FormButton } from "../../components/chat/Field";
-import { LiveActionFailure, useLiveAction } from "../../components/LiveActionState";
-import { LiveLaunchColumn } from "../../components/LiveLaunchColumn";
-import { LiveLaunchStart } from "../../components/LiveLaunchStart";
-import { LiveNoReply } from "../../components/LiveNoReply";
-import { TextButton } from "../../components/TextButton";
+import { FormButton } from "../../ui/chat/Field";
+import { LiveActionFailure, useLiveAction } from "./LiveActionState";
+import { LiveLaunchColumn } from "./LiveLaunchColumn";
+import { LiveLaunchStart } from "./LiveLaunchStart";
+import { LiveNoReply } from "./LiveNoReply";
+import { TextButton } from "../../ui/TextButton";
 import { checkBlocker, launchColumns, launchSymbols, launchValues, ready, refusalText, unavailableReason } from "../../model/liveLaunch";
 import { preparedWith, type LiveRequest, type LiveTradingActions, type LiveTradingView } from "../../model/liveTrading";
 import { useLaunchReading, useLiveEvidence, useLivePaper, useLiveSource } from "../../state/liveRun";

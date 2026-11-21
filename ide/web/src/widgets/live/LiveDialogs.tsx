@@ -1,7 +1,7 @@
 import { useLiveTrading } from "../../state/liveTrading";
 import { useLiveWorkspace, closeLiveReview, closeLiveCredentials } from "../../state/liveWorkspace";
-import { LiveRunReview } from "../../components/LiveRunReview";
-import { LiveCredentialsDialog } from "../../components/LiveCredentialsDialog";
+import { LiveRunReview } from "./LiveRunReview";
+import { LiveCredentialsDialog } from "./LiveCredentialsDialog";
 
 /** Mounted once in App. Overlay forms unmount on close. A new run starts inline on the Live page, never here. */
 export function LiveDialogs() {

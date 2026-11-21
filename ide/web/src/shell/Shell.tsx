@@ -7,7 +7,7 @@ import { bind } from "../lib/keys";
 import { useAgentService } from "../state/agent";
 import { useOverviewService } from "../state/market";
 import { usePaperPanel } from "../state/paper";
-import { PaperDialogs } from "../components/PaperDialogs";
+import { PaperDialogs } from "../widgets/paper/PaperDialogs";
 import { setSideSize, useShell, type Side } from "../state/shell";
 import { AgentRuntime } from "./agent/AgentRuntime";
 import { CommandPalette } from "./CommandPalette";

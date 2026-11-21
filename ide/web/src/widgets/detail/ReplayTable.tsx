@@ -9,9 +9,9 @@ import { useMemo, type ReactElement } from "react";
 import { pct, ratio } from "../../lib/format";
 import { textClass } from "../../theme/roles";
 import { Icon } from "../../icons/Icon";
-import { columns, DataTable, type Column } from "../../components/DataTable";
-import { Missing, Skeleton } from "../../components/Missing";
-import { Tip } from "../../components/Tip";
+import { columns, DataTable, type Column } from "../../ui/DataTable";
+import { Missing, Skeleton } from "../../ui/Missing";
+import { Tip } from "../../ui/Tip";
 
 const col = columns<Trial>();
 const value = (x: number | null | undefined, text: string, ok: boolean | null = null, loading = false) =>

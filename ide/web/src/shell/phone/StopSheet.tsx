@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react";
-import { FormButton } from "../../components/chat/Field";
-import { HoldButton } from "../../components/HoldButton";
-import { Sheet } from "../../components/Sheet";
-import { useLiveAction, LiveActionFailure } from "../../components/LiveActionState";
-import { StopEffects } from "../../components/LiveStop";
+import { FormButton } from "../../ui/chat/Field";
+import { HoldButton } from "../../ui/HoldButton";
+import { Sheet } from "../../ui/Sheet";
+import { useLiveAction, LiveActionFailure } from "../../widgets/live/LiveActionState";
+import { StopEffects } from "../../widgets/live/LiveStop";
 import { Icon } from "../../icons/Icon";
 import { fixed } from "../../lib/paperApi";
 import type { LiveRun } from "../../model/liveTrading";
