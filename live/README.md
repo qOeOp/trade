@@ -230,9 +230,11 @@ The STOP path submits at most five
 closes on each one-second tick, half the native submit rate of 10 orders a second, and the next ones once those are
 done, so a stop with many positions open stays under the rate. A close that rate still denies (the instances' own
 orders count toward it) was never sent: it marks the run failed like any denied order and is submitted again on a
-later tick. If the close is rejected or
-fails, it is not retried: the node stops with the position open and possibly no stop on the venue, and `status` says
-`unresolved` (see [Unresolved Live runs](#unresolved-live-runs)).
+later tick. A close Binance certainly did not take (rc7's `submit-order-error:` rejection: not sent, or a definite
+answer such as a price outside PERCENT_PRICE) is sent again on a later tick, at most three times per position
+(`close_resent`); it fails the run like any rejection. A close rejected more often, or one whose outcome rc7 could not
+learn (`INFLIGHT_TIMEOUT`: Binance may have filled it), is not retried: the node stops with the position open and
+possibly no stop on the venue, and `status` says `unresolved` (see [Unresolved Live runs](#unresolved-live-runs)).
 
 The drawdown brake (`engine/live_brake.py`, design §3.5, user 2026-11-10) replaces the per-run loss limit. Every
 15 seconds during a `run` the runner reads the account over REST; equity is the USDT wallet plus its unrealized result,

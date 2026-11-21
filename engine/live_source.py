@@ -199,6 +199,32 @@ class _LiveConfigured(history.Warming, metrics.Feed):
 RATE_LIMITED = "RATE_LIMIT_EXCEEDED"  # Nautilus's reason for an order its risk engine denies over the submit rate
 
 
+# rc7's Binance futures adapter sends OrderRejected with this reason only when the request certainly left no order at
+# Binance: not sent (validation, credentials), or a definite venue answer that is neither retryable nor ambiguous
+# (crates/adapters/binance futures/execution.rs and common/failure.rs at v2.0.0rc7). A submit whose outcome it could
+# not learn stays in flight for reconciliation and may end INFLIGHT_TIMEOUT, when Binance may still have filled it.
+NOT_TAKEN = "submit-order-error: "
+CLOSE_RESENDS = 3  # a close rejected this often is left: the same answer would come again
+
+
+def resend_close(session, cache, event) -> None:
+    """The Observer's close of a position (engine.live_lifecycle) that never reached Binance is closed again on a
+    later tick: one the native submit rate denied, and up to CLOSE_RESENDS times one Binance certainly did not take
+    (NOT_TAKEN; re-judge D-155), so a transient refusal such as a price outside PERCENT_PRICE in a fast market does
+    not leave the position open. The denial or rejection itself still fails the run, as any other."""
+    name, reason = type(event).__name__, str(event.reason)
+    rejected = name == "OrderRejected" and reason.startswith(NOT_TAKEN)
+    if not (rejected or name == "OrderDenied" and reason == RATE_LIMITED):
+        return
+    position = str(cache.position_id(event.client_order_id))
+    if position not in session.exits or rejected and session.resent[position] >= CLOSE_RESENDS:
+        return
+    if rejected:
+        session.resent[position] += 1
+        session.event("close_resent", strict=False, position_id=position, reason=reason)
+    session.exits.discard(position)
+
+
 def native_event(event) -> dict:
     encoder = getattr(event, "to_dict", None)
     if callable(encoder):
@@ -317,10 +343,7 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
                     type(event).__name__ == "OrderDenied" and str(event.client_order_id) in self._live.denied):
                 self._live.native_order_failure, self._live.failed = True, True
                 self._live.begin_stop("native_order_failure")
-                if type(event).__name__ == "OrderDenied" and str(event.reason) == RATE_LIMITED:
-                    # Never sent: if it was the Observer's close of a position, the STOP path closes that position
-                    # again (engine.live_lifecycle). The denial itself still fails the run, as any other.
-                    self._live.exits.discard(str(native_cache(self).position_id(event.client_order_id)))
+                resend_close(self._live, native_cache(self), event)
             try:
                 payload = native_event(event)
             except Exception:
