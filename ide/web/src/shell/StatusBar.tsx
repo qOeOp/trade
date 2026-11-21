@@ -46,7 +46,7 @@ function StageSource({ className }: { className: string }) {
   return stage && <span className={className}>{name}{SOURCE[stage]}<span className={tested.failed ? "text-fail-fg" : ""}>{tested.text}</span></span>;
 }
 
-const lineCounts = (s: SummaryWidget) => `${plural(s.versions, "version")} · ${plural(s.research_runs, "research run")} · ${s.masked_runs} ineligible`;
+const lineCounts = (s: SummaryWidget) => `${plural(s.candidates, "version")} · ${plural(s.research_runs, "research run")} · ${s.masked_runs} ineligible`;
 
 /** The window's bottom row, on the frame, as IntelliJ's: the path to the selected version (line ›
  *  ancestors › version, each step clickable) at the left, then on the Runs page where the stage it shows

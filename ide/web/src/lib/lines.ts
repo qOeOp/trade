@@ -25,14 +25,14 @@ export function trialHref(href: string, line: string, version: string, trial: nu
 }
 
 /** A line as `line list --all` gives it: `name`, its start version, its development period (`dev_start` to
- *  `dev_end`, UTC days), `versions`, the versions its research graph draws, and a closed line's closing `summary`. */
+ *  `dev_end`, UTC days), `candidates`, the candidates its research graph draws, and a closed line's closing `summary`. */
 export type ResearchLine = {
-  name: string; start: string; dev_start: string; dev_end: string; closed: boolean; versions: string[]; summary?: string | null;
+  name: string; start: string; dev_start: string; dev_end: string; closed: boolean; candidates: string[]; summary?: string | null;
   targets?: { max_drawdown?: number | null; annual_return?: number | null } | null;
 };
 
 /** The line whose graph draws `version`: the newest open one, else the newest. */
 export function lineOf(lines: readonly ResearchLine[], version: string): ResearchLine | null {
-  const holding = lines.filter((l) => l.versions.includes(version));
+  const holding = lines.filter((l) => l.candidates.includes(version));
   return holding.filter((l) => !l.closed).at(-1) ?? holding.at(-1) ?? null;
 }

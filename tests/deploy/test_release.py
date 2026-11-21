@@ -24,7 +24,7 @@ from deploy.release_host import (AGENT, DEFINITION, DOCKER_API, DOCKER_API_REF, 
                                  moment, revision, route_config, route_name)
 from tests.deploy.test_paper_release import Host as PaperStandIn
 
-# The keys of a `line list` entry DockerHost.lines reads besides `versions` (graph.line_list), written out: the
+# The keys of a `line list` entry DockerHost.lines reads besides `candidates` (graph.line_list), written out: the
 # release controller's tests run on the host's system Python, which cannot import the ledger.
 # tests/ledger/test_lines.py holds them within ledger.lines.LISTED.
 HOST_LINE_KEYS = ("name", "created_at")
@@ -822,7 +822,7 @@ class SelectionTests(unittest.TestCase):
     def test_readiness_draws_the_lines_of_active_runs_the_newest_or_none_on_an_empty_ledger(self):
         host = DockerHost(Config())
         def listed(name, version, created_at):  # a `line list` entry (graph.line_list over lines.list_lines)
-            return dict(zip(HOST_LINE_KEYS, (name, created_at), strict=True), versions=[version])
+            return dict(zip(HOST_LINE_KEYS, (name, created_at), strict=True), candidates=[version])
 
         lines = [listed("old", "v1", "2026-01-01T00:00:00"), listed("new", "v2", "2026-02-01T00:00:00")]
         runs = {"status": 200, "runs": [{"candidate": "v1", "state": "running"}]}

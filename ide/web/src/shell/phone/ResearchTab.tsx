@@ -66,7 +66,7 @@ export function ResearchTab() {
               head={<><ReadingBadge reading={r && r.eligible !== false ? r : null} targets={line.targets ?? null} busy={!read && r === undefined}
                                     status={r?.eligible === false ? "Ineligible" : r === null ? "None" : undefined} />
                 <span className={`min-w-0 flex-1 truncate font-mono text-dense ${line.closed ? "text-fg-muted" : ""}`}>{line.name}</span>
-                <span className="shrink-0 text-dense tabular-nums text-fg-faint">{line.versions.length}</span></>}>
+                <span className="shrink-0 text-dense tabular-nums text-fg-faint">{line.candidates.length}</span></>}>
               <Opened line={line} r={r} read={read} />
             </PhoneDisclosure>
           );

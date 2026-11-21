@@ -1,0 +1,1 @@
+- Breaking: `line list` names each line's candidates `candidates` (was `versions`), and the research graph view's summary counts them as `candidates` (was `versions`).
