@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fixed } from "../../lib/paperApi";
 import type { LiveRun, LiveTradingActions } from "../../model/liveTrading";
-import { liveHeld, liveWorking, marked, protects, type Held, type Working } from "../../model/phoneRuns";
+import { liveSnapshot, type LiveSnapshot } from "../../model/runSnapshot";
 import { useSnapshot } from "../../state/market";
 import { FormButton } from "../../ui/chat/Field";
 import { useLiveAction } from "./LiveActionState";
@@ -15,8 +15,7 @@ const SETTLE_MS = 500;
 
 /** What a stop does to a run as its working orders and positions stand now (live/README.md, the STOP path). The
  *  phone's sheet also says where a new run starts; the desktop is where it starts, so it does not. */
-export function StopEffects({ held, working, phone = false }: { held: readonly Held[]; working: readonly Working[]; phone?: boolean }) {
-  const entries = working.filter((o) => !protects(o, held)), stops = working.filter((o) => protects(o, held));
+export function StopEffects({ snap: { held, entries, stops }, phone = false }: { snap: LiveSnapshot; phone?: boolean }) {
   return (
     <ul className="list-disc space-y-2 pl-6 text-dense">
       <li>Stops new entries and cancels its entry orders. {entries.length ? `${entries.length} open now.` : "It has none open now."}</li>
@@ -68,10 +67,9 @@ export function StopButtons({ stop, form = false, className = "" }: { stop: Stop
 export function StopPanel({ stop }: { stop: StopRequest }) {
   const coins = useSnapshot()?.coins;
   if (!stop.armed || !stop.run) return null;
-  const held = marked(liveHeld(stop.run), coins), working = liveWorking(stop.run);
   return <section role="alert" aria-label="Stop this Live run?" className="space-y-2 border-l-2 border-fail pl-2">
     <h3 className="text-dense font-semibold text-fail-fg">Stop this Live run?</h3>
-    <StopEffects held={held} working={working} />
+    <StopEffects snap={liveSnapshot(stop.run, coins)} />
     <p className="text-small text-fg-faint">Confirm stop within {CONFIRM_MS / 1000} seconds sends it; otherwise nothing is sent.</p>
   </section>;
 }

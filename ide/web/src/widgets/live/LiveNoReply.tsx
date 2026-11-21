@@ -1,5 +1,5 @@
 import type { LiveRequest, LiveTradingActions, LiveTradingView } from "../../model/liveTrading";
-import { liveStatus } from "../../model/phoneRuns";
+import { liveStatus } from "../../model/runSnapshot";
 import { FormButton } from "../../ui/chat/Field";
 import { useLiveAction } from "./LiveActionState";
 

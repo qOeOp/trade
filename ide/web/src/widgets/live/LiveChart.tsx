@@ -6,7 +6,7 @@ import type { JournalLine } from "../../lib/paperApi";
 import { liveChart } from "../../model/liveChart";
 import { heldGap } from "../../model/liveHeld";
 import type { Held, PriceLine } from "../../model/paper";
-import { liveHeld, liveWorking, protects } from "../../model/phoneRuns";
+import { liveHeld, liveSnapshot } from "../../model/runSnapshot";
 import type { LiveRun } from "../../model/liveTrading";
 import { CandleChart } from "../paper/CandleChart";
 
@@ -32,8 +32,7 @@ export function LiveChart({ run, symbol }: { run: LiveRun; symbol: string | null
   }, [run.heldAlert, run.positions, plan?.symbol]);
   const stops = useMemo<PriceLine[]>(() => {
     if (!plan) return NONE;
-    const held = liveHeld(run);
-    return liveWorking(run).filter((o) => o.symbol === plan.symbol && protects(o, held)).map((o) =>
+    return liveSnapshot(run).stops.filter((o) => o.symbol === plan.symbol).map((o) =>
       ({ id: o.key, price: o.trigger!, kind: "stop", label: "SL", side: o.buy ? "BUY" : "SELL", quantity: String(o.qty ?? "") }));
   }, [run.orders, run.positions, plan?.symbol]);
   const key = plan ? `${plan.symbol}:${plan.from}:${plan.to}` : "", head = plan ? `${plan.symbol}:${plan.from}` : "";

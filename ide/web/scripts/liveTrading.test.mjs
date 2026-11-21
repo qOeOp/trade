@@ -55,7 +55,7 @@ const run = {
   id: "run-fixture", candidate: "fixture-strategy@1", sourceHash: "a".repeat(64), entryClass: "FixtureStrategy",
   runtimeDigest: `sha256:${"b".repeat(64)}`, symbols: ["BTCUSDT"], config: [{ label: "Entry quantity", value: "0.001000000000000001" }],
   host: [{ label: "Container", value: "Running" }], execution: [{ label: "Admission", value: null }],
-  account: [], ending: [{ label: "Venue flat", value: null }], evidence: [], accountCheck: null,
+  account: [], ending: [{ label: "Venue flat", value: null }], evidence: [], accountCheck: null, observedNs: { account: null, terminal: null },
 };
 const wizard = (view, actions = {}) => render("LiveRunReview", { runId: run.id, open: true, close: noOp, view, actions });
 

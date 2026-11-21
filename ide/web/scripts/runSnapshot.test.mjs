@@ -1,18 +1,17 @@
-// The phone's run cards and pages (model/phoneRuns.ts): what Live's native events and the paper listing say is
+// A run as the desktop and the phone show it (model/runSnapshot.ts): what Live's native events and the paper listing say is
 // held, working and used of the loss threshold. A wrong row here is a wrong position on a phone holding real money.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loader } from "./load.mjs";
 
-const { liveHeld, liveWorking, lastFill, liveMoney, liveStatus, paperHeld, paperIssues, paperEquity, marked, stopFor, away, runsDot } = await loader().namespace("model/phoneRuns.ts");
+const { liveHeld, liveWorking, liveSnapshot, lastFill, liveMoney, liveStatus, paperHeld, paperIssues, paperEquity, marked, stopFor, away, runsDot } = await loader().namespace("model/runSnapshot.ts");
 
 const T = Date.UTC(2026, 10, 11, 0, 10), ns = (ms) => String(BigInt(ms) * 1_000_000n);
 const row = (type, ms, extra = {}) => ({ event_type: type, ts_event: ns(ms), observed_ns: ns(ms), event_ref: { source: "native", cursor: `${type}:${ms}` },
   instrument_id: "BTCUSDT-PERP.BINANCE", ...extra });
-const fact = (label, value) => ({ label, value });
 const run = (over = {}) => ({
   id: "r1", candidate: "rsi@1", running: true, ended: false, symbols: ["BTCUSDT"], observedNs: { account: ns(T), terminal: null },
-  config: [fact("Drawdown brake", "0.15"), fact("Equity at start (USDT)", "90"), fact("Highest equity (USDT)", "100")], hostState: "running", ending: [fact("Stop requested", "No")],
+  brake: { ratio: 0.15, start: 90, peak: 100 }, hostState: "running", stopRequested: false,
   equity: { budget: 90, minutes: [[1, 90], [2, 88.5], [3, null], [4, 91.84]] },
   orders: [row("OrderAccepted", T, { client_order_id: "E-1", order_side: "SELL", order_type: "LIMIT", price: "74700", quantity: "0.002" }),
     row("OrderFilled", T + 1000, { client_order_id: "E-1", order_side: "SELL", last_px: "74652.3", last_qty: "0.002" }),
@@ -35,19 +34,19 @@ test("a Live run holds what its positions' latest native events leave open, and 
 test("the drawdown is from the highest equity; the deepest stays; the run stops the brake below the highest", () => {
   assert.deepEqual(liveMoney(run()), { start: 90, equity: 91.84, result: 91.84 - 90, peak: 100, drawdown: 100 - 91.84, deepest: 1.5,
     room: 15, stopsAt: 85 });
-  assert.equal(liveMoney(run({ equity: null, config: [] })), null, "no start, no figures");
+  assert.equal(liveMoney(run({ equity: null, brake: { ratio: null, start: null, peak: null } })), null, "no start, no figures");
 });
 
 test("a Live run's state reads as one word: unresolved before anything else, a requested stop while it runs", () => {
   assert.equal(liveStatus(run()).word, "Running");
-  assert.equal(liveStatus(run({ ending: [fact("Stop requested", "Yes")] })).word, "Stopping");
+  assert.equal(liveStatus(run({ stopRequested: true })).word, "Stopping");
   assert.deepEqual(liveStatus(run({ heldNotice: "held" })), { word: "Holding", tone: "misses" });
   assert.equal(liveStatus(run({ running: false, hostState: "unresolved" })).tone, "fail");
   // A hold whose check did not pass says what is wrong in the word and shows the hue of a missing stop; a covered hold keeps its look.
   const noStop = { word: "Holding, no stop", tone: "fail", body: "has a position with NO STOP at Binance: BTCUSDT LONG 0.002 (stops 0)." };
   assert.deepEqual(liveStatus(run({ heldNotice: "held", heldAlert: noStop })), { word: "Holding, no stop", tone: "fail" });
   assert.deepEqual(liveStatus(run({ heldNotice: "held", heldAlert: { ...noStop, word: "Holding, cancelling entries", tone: "misses" } })), { word: "Holding, cancelling entries", tone: "misses" });
-  assert.equal(liveStatus(run({ heldNotice: "held", heldAlert: noStop, ending: [fact("Stop requested", "Yes")] })).word, "Stopping");
+  assert.equal(liveStatus(run({ heldNotice: "held", heldAlert: noStop, stopRequested: true })).word, "Stopping");
   assert.equal(liveStatus(run({ running: false, ended: true, hostState: "clean_stopped" })).word, "Ended");
 });
 
@@ -84,4 +83,12 @@ test("a Live position is marked at the overview's price, its stop found on the o
   assert.equal(stopFor(short, [{ ...stop, buy: false }]), null, "a sell stop does not protect a short");
   assert.equal(stopFor(short, [stop]), stop);
   assert.ok(Math.abs(away(75880, 73652.3) - 0.030245) < 1e-5);
+});
+
+test("a Live run's snapshot gives each position the stop protecting it and keeps entries apart from stops", () => {
+  const open = run({ orders: [...run().orders, row("OrderAccepted", T + 5000, { client_order_id: "E-3", order_side: "SELL", order_type: "LIMIT", price: "80000", quantity: "0.002" })] });
+  const s = liveSnapshot(open, [{ symbol: "BTCUSDT", price: 73652.3 }]);
+  assert.deepEqual(s.held.map((h) => [h.symbol, h.stop, h.mark]), [["BTCUSDT", 75880, 73652.3]]);
+  assert.deepEqual([s.stops.map((o) => o.key), s.entries.map((o) => o.key), s.fills], [["S-1"], ["E-3"], 1]);
+  assert.equal(s.money.stopsAt, 85, "the brake is the run's number, not a figure read back from its facts");
 });
