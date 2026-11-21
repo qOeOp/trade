@@ -16,6 +16,7 @@ from engine import live, live_commands as commands, live_connection, live_source
 from engine.live_errors import LiveRefusal
 from engine.live_records import strategy_ids
 from tests.engine.test_live_venue import ERROR_ANSWER, answering_200, fixture, venue_clock
+from tests.helpers import refused
 
 SYMBOL = "BTCUSDT"
 BAR = BarType.from_str(f"{SYMBOL}-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")
@@ -327,9 +328,8 @@ class GateTests(unittest.TestCase):
                          {"holding": 1, "positions": [], "entries": [{"symbol": SYMBOL, "side": "LONG"}]})
         self.assertEqual(live_connection.held_cover(self.held(positions=(), algos=[stop])),
                          {"holding": 0, "positions": [], "entries": []})
-        with self.assertRaises(LiveRefusal) as caught:
-            live_connection.held_cover(self.held(algos=[{"algoId": 7}]))
-        self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_RESPONSE")
+        caught = refused(live_connection.held_cover, self.held(algos=[{"algoId": 7}]), error=LiveRefusal)
+        self.assertEqual(caught.code, "LIVE_ACCOUNT_RESPONSE")
 
     def test_a_held_start_journals_its_verdict_once_per_change(self):
         self.session.mode = "held"

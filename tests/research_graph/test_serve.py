@@ -28,6 +28,7 @@ from research_graph import cli, serve  # noqa: E402
 from cli.common import _print, refusal_json  # noqa: E402
 from shared.errors import Refusal  # noqa: E402
 from tests.research_graph.test_research_graph import GRAPH  # noqa: E402
+from tests.helpers import refused  # noqa: E402
 
 POLL = 0.01  # shutdown() waits one poll of serve_forever, 0.5 s by default
 PAGE = b"<html><head></head>page</html>"
@@ -940,9 +941,9 @@ class ProductReadsTests(unittest.TestCase):
         (self.marks / "refusal").write_text(printed.getvalue())
         product = serve.Product(self.root, "copy")
         for what, code in (("killed", "OUT_OF_MEMORY"), ("refuse", "LEDGER_UNAVAILABLE"), ("crash", "PRODUCT_FAILED")):
-            with self.subTest(what), self.assertRaises(serve.ProductError) as caught:
-                product.run(what, str(self.marks))
-            self.assertEqual(caught.exception.body["code"], code)
+            with self.subTest(what):
+                caught = refused(product.run, what, str(self.marks), error=serve.ProductError)
+            self.assertEqual(caught.body["code"], code)
 
 
 class MarketImportTests(unittest.TestCase):

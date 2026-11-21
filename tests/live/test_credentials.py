@@ -287,9 +287,9 @@ class CredentialStoreTests(unittest.TestCase):
     def test_an_unknown_run_has_no_managed_credential_version(self):
         self.save()
         self.prepared(ref=self.ref)
-        with state.serialized(self.root), self.assertRaises(LiveRefusal) as caught:
-            credentials.run_path_locked(self.root, "never-prepared", "reconcile")
-        self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_UNMANAGED")
+        with state.serialized(self.root):
+            caught = refused(credentials.run_path_locked, self.root, "never-prepared", "reconcile", error=LiveRefusal)
+        self.assertEqual(caught.code, "LIVE_CREDENTIAL_UNMANAGED")
 
     def test_new_start_uses_current_version_but_reconcile_keeps_original(self):
         self.save()
@@ -297,9 +297,9 @@ class CredentialStoreTests(unittest.TestCase):
         original = credentials.run_path_locked(self.root, directory.name, "run")
         self.save(self.other)
         for mode in ("run", "preflight"):
-            with state.serialized(self.root), self.assertRaises(LiveRefusal) as caught:
-                credentials.run_path_locked(self.root, directory.name, mode)
-            self.assertEqual(caught.exception.code, "LIVE_CREDENTIAL_CHANGED")
+            with state.serialized(self.root):
+                caught = refused(credentials.run_path_locked, self.root, directory.name, mode, error=LiveRefusal)
+            self.assertEqual(caught.code, "LIVE_CREDENTIAL_CHANGED")
         with state.serialized(self.root):
             self.assertEqual(credentials.run_path_locked(self.root, directory.name, "reconcile"), original)
 
@@ -327,10 +327,11 @@ class CredentialStoreTests(unittest.TestCase):
 
     def test_invalid_input_has_a_stable_error_without_secret_echo(self):
         for invalid in (None, "", " " + self.secret, self.secret + "x" * 16384):
-            with state.serialized(self.root), self.assertRaises(LiveRefusal) as caught:
-                credentials.save_locked(self.root, "live", self.ref, self.key, invalid)
-            self.assertNotIn(self.key, str(caught.exception))
-            self.assertNotIn(self.secret, str(caught.exception))
+            with state.serialized(self.root):
+                caught = refused(credentials.save_locked, self.root, "live", self.ref, self.key, invalid,
+                                 error=LiveRefusal)
+            self.assertNotIn(self.key, str(caught))
+            self.assertNotIn(self.secret, str(caught))
         self.assertFalse((self.root / "credentials").exists())
 
     def test_corrupt_history_and_secret_permissions_do_not_claim_availability(self):

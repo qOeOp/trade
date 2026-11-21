@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -23,7 +22,7 @@ from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, source
 from tests.ledger.tsa import LocalAuthority
 from tests.registration.world import DESIGN, RUNNER_ARGV, World
 from tests.replay.world import ReplayWorld, registered_grid
-from tests.helpers import refused
+from tests.helpers import refused, tempdir
 
 
 FINGERPRINT = {"fills": {"rows": 2, "sha256": "1" * 64}}
@@ -52,7 +51,7 @@ class TamperTests(unittest.TestCase):
         cls.fixture_run = world.seal_run(world.research_trial(cls.registration, source("root")))
         other = world.publish("other", parent=None)
         window = (datetime(2030, 1, 1, tzinfo=UTC), datetime(2030, 2, 1, tzinfo=UTC))
-        arguments = {"window_start": window[0], "window_end": window[1], "universe_rule": "pool-v1",
+        arguments = {"window_start": window[0], "window_end": window[1], "universe_rule": "usdt-perp-listed30d-v1",
                      "market": MARKET_DAY, "design": DESIGN, "retry_of": None, "market_profile": world.market,
                      # the fixture's candidates have no closing history test (report.history.require_unfalsified)
                      "unfalsified": lambda conn, source_sha256: None}
@@ -61,8 +60,7 @@ class TamperTests(unittest.TestCase):
         with patch.object(witness, "_post", side_effect=OSError("offline")):
             cls.unwitnessed = validation.validation_register(world.profile, other["candidate"], op_id="v:unwitnessed",
                                                              **arguments)
-        cls.backups = Path(tempfile.mkdtemp(prefix="backups-", dir="/tmp"))
-        cls.addClassCleanup(shutil.rmtree, cls.backups, True)
+        cls.backups = tempdir(cls.addClassCleanup, prefix="backups-", dir="/tmp")
         cls.profile = replace(world.profile, backup_root=cls.backups / "export")
 
     def setUp(self):
@@ -215,8 +213,7 @@ class SealedTamperTests(unittest.TestCase):
         registration, (late,) = registered_grid(world, ["late"])
         cls.late = entry.run(world.profile, world.market, MARKET_DAY, late, None, RUNNER_ARGV,
                              registration=registration)
-        cls.backups = Path(tempfile.mkdtemp(prefix="sealed-backups-", dir="/tmp"))
-        cls.addClassCleanup(shutil.rmtree, cls.backups, True)
+        cls.backups = tempdir(cls.addClassCleanup, prefix="sealed-backups-", dir="/tmp")
 
     def setUp(self):
         self.world = self.__class__.world

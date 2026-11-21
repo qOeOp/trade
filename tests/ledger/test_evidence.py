@@ -4,30 +4,27 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import tempfile
 import unittest
 from unittest.mock import patch
 
 from ledger import db, evidence
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service
-from tests.helpers import refused
+from tests.helpers import refused, tempdir
 
 
 class EvidenceShapeTests(unittest.TestCase):
     """Refusals decided from the name and the files alone, before any connection is used."""
 
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="le-", dir="/tmp"))
-        self.addCleanup(__import__("shutil").rmtree, self.root, ignore_errors=True)
+        self.root = tempdir(self.addCleanup, prefix="le-", dir="/tmp")
 
     def code(self, bundle, sources) -> str:
         return self.refused(bundle, sources).code
 
     def refused(self, bundle, sources) -> Refusal:
-        with self.assertRaises(Refusal) as caught:
-            evidence.add_bundle(None, bundle, sources)
-        return caught.exception
+        caught = refused(evidence.add_bundle, None, bundle, sources)
+        return caught
 
     def files(self, name: str, **contents) -> Path:
         directory = self.root / name
@@ -79,8 +76,7 @@ class EvidenceLedgerTests(unittest.TestCase):
         cls.profile = cls.service.ledger("evidence")
 
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="le-", dir="/tmp"))
-        self.addCleanup(__import__("shutil").rmtree, self.root, ignore_errors=True)
+        self.root = tempdir(self.addCleanup, prefix="le-", dir="/tmp")
         self.conn = db.connect(self.profile, "writer")
         self.addCleanup(self.conn.close)
 
@@ -110,19 +106,18 @@ class EvidenceLedgerTests(unittest.TestCase):
     def test_a_name_is_never_reused_for_other_content(self):
         evidence.add_bundle(self.conn, "taken", [self.directory("one", **{"a.txt": b"one"})])
         seq = self.service.sql(self.profile, "SELECT seq FROM ledger_head")
-        with self.assertRaises(Refusal) as caught:
-            evidence.add_bundle(self.conn, "taken", [self.directory("two", **{"a.txt": b"two"})])
-        self.assertEqual((caught.exception.code, caught.exception.write_status), ("BUNDLE_EXISTS", "not_written"))
+        caught = refused(evidence.add_bundle, self.conn, "taken", [self.directory("two", **{"a.txt": b"two"})])
+        self.assertEqual((caught.code, caught.write_status), ("BUNDLE_EXISTS", "not_written"))
         self.assertEqual(self.service.sql(self.profile, "SELECT seq FROM ledger_head"), seq)
 
     def test_an_operation_id_never_returns_another_bundle(self):
         first = evidence.add_bundle(self.conn, "mine", [self.directory("mine", **{"a.txt": b"mine"})],
                                     op_id="evidence:x")
         for bundle, content in (("theirs", b"mine"), ("mine", b"changed")):
-            with self.subTest(bundle=bundle), self.assertRaises(Refusal) as caught:
-                evidence.add_bundle(self.conn, bundle, [self.directory(bundle + "-src", **{"a.txt": content})],
-                                    op_id="evidence:x")
-            self.assertEqual(caught.exception.code, "OP_ID_CONFLICT")
+            with self.subTest(bundle=bundle):
+                caught = refused(evidence.add_bundle, self.conn, bundle,
+                                 [self.directory(bundle + "-src", **{"a.txt": content})], op_id="evidence:x")
+            self.assertEqual(caught.code, "OP_ID_CONFLICT")
         again = evidence.add_bundle(self.conn, "mine", [self.directory("mine", **{"a.txt": b"mine"})],
                                     op_id="evidence:x")
         self.assertEqual((again["write_status"], again["files"]), ("replayed", first["files"]))
@@ -143,9 +138,9 @@ class EvidenceLedgerTests(unittest.TestCase):
             with self.subTest(kind=kind, trial_id=trial_id), self.assertRaises(ValueError):
                 write({"a": b"a"}, "product-kind", kind, trial_id)
         for files, code in (({"../a": b"a"}, "INVALID_EVIDENCE_PATH"), ({"a": b""}, "EMPTY_EVIDENCE")):
-            with self.subTest(files=files), self.assertRaises(Refusal) as caught:
-                write(files, "product-bad")
-            self.assertEqual(caught.exception.code, code)
+            with self.subTest(files=files):
+                caught = refused(write, files, "product-bad")
+            self.assertEqual(caught.code, code)
         self.assertEqual(self.service.sql(self.profile, "SELECT bundle, kind, trial_id FROM evidence_bundle WHERE "
                                                         "bundle LIKE 'product-%'"), [("product-p", "agent", None)])
 
@@ -153,19 +148,19 @@ class EvidenceLedgerTests(unittest.TestCase):
         before = db.head_commit(self.conn)
         evidence.add_bundle(self.conn, "later", [self.directory("later", **{"a.txt": b"a"})])
         self.assertEqual(evidence.load_bundle(self.conn, "later")["files"], {"a.txt": b"a"})
-        with db.read_as_of(self.profile, before) as pinned, self.assertRaises(Refusal) as caught:
-            evidence.load_bundle(pinned, "later")
-        self.assertEqual(caught.exception.code, "UNKNOWN_BUNDLE")
+        with db.read_as_of(self.profile, before) as pinned:
+            caught = refused(evidence.load_bundle, pinned, "later")
+        self.assertEqual(caught.code, "UNKNOWN_BUNDLE")
         for bundle, code in (("absent", "UNKNOWN_BUNDLE"), ("bad name", "INVALID_BUNDLE_NAME")):
-            with self.subTest(bundle=bundle), self.assertRaises(Refusal) as caught:
-                evidence.load_bundle(self.conn, bundle)
-            self.assertEqual(caught.exception.code, code)
+            with self.subTest(bundle=bundle):
+                caught = refused(evidence.load_bundle, self.conn, bundle)
+            self.assertEqual(caught.code, code)
         real = evidence._fetch
 
         def altered(conn, bundle):
             head, rows = real(conn, bundle)
             return head, [(path, content + b"!", stored) for path, content, stored in rows]
 
-        with patch.object(evidence, "_fetch", altered), self.assertRaises(Refusal) as caught:
-            evidence.load_bundle(self.conn, "later")
-        self.assertEqual(caught.exception.code, "LEDGER_CORRUPT")
+        with patch.object(evidence, "_fetch", altered):
+            caught = refused(evidence.load_bundle, self.conn, "later")
+        self.assertEqual(caught.code, "LEDGER_CORRUPT")

@@ -63,7 +63,7 @@ class FakeMarket:
         return at
 
     def universe_rule(self, market_day):
-        return "pool-v1"
+        return "usdt-perp-listed30d-v1"
 
     def days(self, market_day):
         return date.fromisoformat(min(month for month, _ in self.market_days[market_day]) + "-01"), date(2026, 3, 31)
@@ -72,7 +72,7 @@ class FakeMarket:
         return list(self.market_days[market_day])
 
     def membership_path(self, market_day, window_end):
-        return {"universe_rule": "pool-v1", "membership": universe.merge_months(
+        return {"universe_rule": "usdt-perp-listed30d-v1", "membership": universe.merge_months(
             [(date.fromisoformat(month + "-01"), symbol) for month, symbol in self.market_days[market_day]])}
 
     def export_catalogs(self, market_day, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh, *, include_quotes=True,

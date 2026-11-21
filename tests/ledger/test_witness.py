@@ -11,7 +11,6 @@ import unittest
 from unittest.mock import patch
 
 from ledger import db, strategies, witness
-from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 from tests.ledger.tsa import LocalAuthority
 from tests.helpers import refused
@@ -35,9 +34,7 @@ class TokenTests(unittest.TestCase):
         self.token = token_of(FIXTURE)
 
     def code(self, *args, **kwargs) -> str:
-        with self.assertRaises(Refusal) as caught:
-            witness.token_time(*args, **kwargs)
-        return caught.exception.code
+        return refused(lambda: witness.token_time(*args, **kwargs)).code
 
     def test_a_recorded_token_verifies_offline_and_gives_its_time(self):
         self.assertEqual(witness.token_time(self.token, FIXTURE_COMMIT), datetime(2026, 10, 11, 7, 9, 27, tzinfo=UTC))
@@ -78,7 +75,7 @@ class WitnessLedgerTests(unittest.TestCase):
             seam.start()
             self.addCleanup(seam.stop)
 
-    def register(self, label: str, retry_of: int | None = None, universe_rule: str = "pool-v1") -> str:
+    def register(self, label: str, retry_of: int | None = None, universe_rule: str = "usdt-perp-listed30d-v1") -> str:
         """A validation registration row and its comparison design written directly (not through
         registration.validation.validation_register); returns its commit."""
         start = datetime(2030, 1, 1)
@@ -120,9 +117,9 @@ class WitnessLedgerTests(unittest.TestCase):
         head = self.published  # a commit that added a candidate, not a registration
         queries = self.authority.queries
         for commit in (head, "not-a-commit", None):
-            with self.subTest(commit=commit), self.assertRaises(Refusal) as caught:
-                self.stamp(commit)
-            self.assertEqual(caught.exception.code, "NOT_REGISTRATION_COMMIT")
+            with self.subTest(commit=commit):
+                caught = refused(self.stamp, commit)
+            self.assertEqual(caught.code, "NOT_REGISTRATION_COMMIT")
         self.assertEqual(self.authority.queries, queries, "nothing is sent for a commit that registered nothing")
 
     def test_an_unreachable_authority_is_a_failed_status_and_a_bad_token_a_refusal(self):
@@ -135,12 +132,12 @@ class WitnessLedgerTests(unittest.TestCase):
             self.assertEqual(self.stamp(commit)["status"], "failed")
         other = LocalAuthority()
         self.addCleanup(other.close)
-        with patch.object(witness, "_roots", return_value=other.roots), self.assertRaises(Refusal) as caught:
-            self.stamp(commit)
-        self.assertEqual(caught.exception.code, "WITNESS_INVALID")
-        with patch.object(witness, "CLOCK_TOLERANCE", timedelta(days=-1)), self.assertRaises(Refusal) as caught:
-            self.stamp(commit)
-        self.assertEqual(caught.exception.code, "WITNESS_INVALID")
+        with patch.object(witness, "_roots", return_value=other.roots):
+            caught = refused(self.stamp, commit)
+        self.assertEqual(caught.code, "WITNESS_INVALID")
+        with patch.object(witness, "CLOCK_TOLERANCE", timedelta(days=-1)):
+            caught = refused(self.stamp, commit)
+        self.assertEqual(caught.code, "WITNESS_INVALID")
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM witness WHERE commit_hash = %s",
                                           (commit,)), [(0,)])
         with self.assertRaises(ValueError):

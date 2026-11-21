@@ -6,7 +6,6 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 import random
-import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -17,7 +16,7 @@ from market import aggtrades, coverage, files, quotes, sources, store, universe
 from shared.errors import Refusal
 from tests.market.directory import directory, forged, read
 from tests.market.exchange import Exchange, day_ms, minutes, serving, two_sided_trades, MINUTE, DAY
-from tests.helpers import refused
+from tests.helpers import assert_refused, refused, tempdir
 
 DEC, JAN, FEB, MAR = date(2024, 12, 1), date(2025, 1, 1), date(2025, 2, 1), date(2025, 3, 1)
 EIGHT_HOURS = 8 * 3_600_000
@@ -82,12 +81,12 @@ class RuleTests(unittest.TestCase):
         rows, _ = quotes.derive(table([(2, "100.01", 90_000_000, False, 6)]), Decimal("0.01"), state, "day 2")
         self.assertEqual(rows, [(2, 90_000_000, scaled("99.99"), scaled("100.01"))])  # continues across days
         for second in [(1, "100.00", 1_000, True, 1), (1, "100.02", 1_000, False, 3), (1, "100.02", 1_200, False, 1)]:
-            with self.subTest(second=second), self.assertRaises(Refusal) as caught:
-                quotes.derive(table([(1, "100.00", 1_000, True, 1), second]), Decimal("0.01"), quotes.State(), "t")
-            self.assertEqual(caught.exception.code, "SEQUENCE_GAP")
-        with self.assertRaises(Refusal) as caught:
-            quotes.derive(table([(2, "100.01", 90_000_000, False, 4)]), Decimal("0.01"), state, "day 3")
-        self.assertEqual(caught.exception.code, "SEQUENCE_GAP")  # the carried raw trade id does not advance
+            with self.subTest(second=second):
+                caught = refused(quotes.derive, table([(1, "100.00", 1_000, True, 1), second]), Decimal("0.01"),
+                                 quotes.State(), "t")
+            self.assertEqual(caught.code, "SEQUENCE_GAP")
+        caught = refused(quotes.derive, table([(2, "100.01", 90_000_000, False, 4)]), Decimal("0.01"), state, "day 3")
+        self.assertEqual(caught.code, "SEQUENCE_GAP")  # the carried raw trade id does not advance
 
     def test_random_days_keep_the_rule_and_split_anywhere_derive_the_same(self):
         # Seeded, bounded property check over random days: contiguous ids, non-decreasing times, either side, prices a
@@ -170,8 +169,7 @@ class ImportQuotesTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.market = cls.profile = directory(cls.addClassCleanup)
-        cls.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
-        cls.addClassCleanup(shutil.rmtree, cls.cache, True)
+        cls.cache = tempdir(cls.addClassCleanup, prefix="market-cache-")
         cls.exchange = exchange()
         with serving(cls.exchange):
             cls.bars = store.import_month(cls.market, JAN, cls.cache, 1, ["BTCUSDT"], log=lambda line: None)
@@ -180,12 +178,6 @@ class ImportQuotesTests(unittest.TestCase):
         # February's members: January's last day waits for them.
         forged(cls.market, "universe_month", FEB, rows={"universe_rule": [universe.RULE], "month": [FEB],
                                                         "symbol": ["BTCUSDT"]})
-
-    def refused(self, code: str, call, *args, **kwargs) -> Refusal:
-        with self.assertRaises(Refusal) as caught:
-            call(*args, **kwargs)
-        self.assertEqual(caught.exception.code, code, caught.exception.message)
-        return caught.exception
 
     def test_one_month_of_a_contracts_quotes_is_one_file(self):
         self.assertEqual(self.result["rows"], 31 * 1440 * 2)  # two states a minute
@@ -219,12 +211,15 @@ class ImportQuotesTests(unittest.TestCase):
                           for path in Path(self.market["root"]).rglob("*.parquet"))
         before = held()
         with serving(self.exchange):
-            self.refused("MONTH_EXISTS", quotes.import_quotes, self.market, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
-            self.refused("UNIVERSE_UNKNOWN", quotes.import_quotes, self.market, MAR, self.cache, None, log=lambda _: None)
-            self.refused("SEQUENCE_GAP", aggtrades.import_month, self.market, FEB, self.cache, ["BTCUSDT"],
-                         log=lambda _: None)
-            refused = self.refused("TRADES_NOT_HELD", quotes.import_quotes, self.market, FEB, self.cache, ["BTCUSDT"],
-                                   log=lambda _: None)  # no aggTrades of the month: nothing to infer from
+            assert_refused(self, "MONTH_EXISTS", quotes.import_quotes, self.market, JAN, self.cache, ["BTCUSDT"],
+                           log=lambda _: None)
+            assert_refused(self, "UNIVERSE_UNKNOWN", quotes.import_quotes, self.market, MAR, self.cache, None,
+                           log=lambda _: None)
+            assert_refused(self, "SEQUENCE_GAP", aggtrades.import_month, self.market, FEB, self.cache, ["BTCUSDT"],
+                           log=lambda _: None)
+            refused = assert_refused(self, "TRADES_NOT_HELD", quotes.import_quotes, self.market, FEB, self.cache,
+                                     ["BTCUSDT"],
+                                     log=lambda _: None)  # no aggTrades of the month: nothing to infer from
             self.assertIn("the market holds no 2025-02 aggTrades", refused.message)
         self.assertEqual(held(), before)
 
@@ -287,8 +282,7 @@ class EveTests(unittest.TestCase):
     def test_the_day_before_reads_the_same_from_the_month_befores_file_as_from_its_archive(self):
         """February's quotes carry January's last day in: from January's stored aggTrades when the market holds
         them, else from the archive, the same bytes either way."""
-        cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
-        self.addCleanup(shutil.rmtree, cache, True)
+        cache = tempdir(self.addCleanup, prefix="market-cache-")
         made = {}
         with serving(exchange(gap=False)):
             for months in ((JAN, FEB), (FEB,)):

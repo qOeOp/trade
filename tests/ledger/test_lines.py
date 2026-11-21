@@ -6,11 +6,11 @@ from datetime import UTC, date, datetime, time
 import unittest
 
 from ledger import db, lines, strategies, trials
-from shared.errors import Refusal
 from shared.refusals import refuse
 from tests.deploy import test_release
 from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_DAY, RUNTIME, SKIP, Service, binder, context, coverage, grid_point,
                                market, reviewed, sha, source, window)
+from tests.helpers import refused
 
 
 def open_names(conn) -> list[str]:
@@ -34,10 +34,9 @@ class ResearchLineTests(unittest.TestCase):
 
     def code(self, **overrides) -> str:
         seq = self.seq()
-        with self.assertRaises(Refusal) as caught:
-            self.select(**overrides)
+        caught = refused(lambda: self.select(**overrides))
         self.assertEqual(self.seq(), seq)
-        return caught.exception.code
+        return caught.code
 
     def seq(self) -> int:
         return self.service.sql(self.profile, "SELECT seq FROM ledger_head")[0][0]
@@ -48,7 +47,7 @@ class ResearchLineTests(unittest.TestCase):
         before = db.head_commit(self.conn)
         first = self.select()
         self.assertEqual((first["line"], first["market_day"], first["universe_rule"], first["created"]),
-                         ("ema-trend", MARKET_DAY, "pool-v1", True))
+                         ("ema-trend", MARKET_DAY, "usdt-perp-listed30d-v1", True))
         self.assertEqual(lines.open_line(self.conn)["line_id"], first["line_id"])
         again = self.select()
         self.assertEqual((again["line_id"], again["created"], again["op_id"]),
@@ -63,8 +62,8 @@ class ResearchLineTests(unittest.TestCase):
         read = lines.open_line(self.conn, "ema-trend-wider")
         self.assertEqual((read["line_id"], read["dev_start"], read["dev_end"], read["start"], read["start_sha256"],
                           read["universe_rule"], read["closed"]),
-                         (second["line_id"], "2021-04-01", "2024-04-01", "start@1", sha(source("start")), "pool-v1",
-                          False))
+                         (second["line_id"], "2021-04-01", "2024-04-01", "start@1", sha(source("start")),
+                          "usdt-perp-listed30d-v1", False))
         self.assertEqual(lines.read_line(self.conn, second["line_id"])["name"], "ema-trend-wider")
         with db.read_as_of(self.profile, self.first_commit(first["line_id"])) as pinned:
             self.assertEqual(open_names(pinned), ["ema-trend"])
@@ -136,9 +135,9 @@ class ResearchLineTests(unittest.TestCase):
             with self.subTest(covered=covered):
                 self.assertEqual(lines.development_period(today, latest, covered), period)
         for covered in (date(2023, 10, 2), None):  # 11 quarters; an instrument the market never covered
-            with self.subTest(covered=covered), self.assertRaises(Refusal) as caught:
-                lines.development_period(today, latest, covered)
-            self.assertEqual(caught.exception.code, "LINE_HISTORY_SHORT")
+            with self.subTest(covered=covered):
+                caught = refused(lines.development_period, today, latest, covered)
+            self.assertEqual(caught.code, "LINE_HISTORY_SHORT")
         members = [("2022-07", "OPUSDT"), ("2020-02", "BTCUSDT"), ("2022-08", "OPUSDT"), ("2020-03", "BTCUSDT")]
         self.assertEqual([lines.covered_from(found, members) for found in
                           (None, ["BTCUSDT"], ["BTCUSDT", "OPUSDT"], ["BTCUSDT", "WIFUSDT"])],
@@ -159,27 +158,25 @@ class ResearchLineTests(unittest.TestCase):
         def check(line, first, end, today=date(2026, 11, 11), covered=date(2019, 9, 1)):
             lines.check_replay_window(self.conn, line, ns(first), ns(end), date(2026, 11, 10), covered, today=today)
 
-        def refused(*args, **kwargs) -> str:
-            with self.assertRaises(Refusal) as caught:
-                check(*args, **kwargs)
-            return caught.exception.code
+        def code(*args, **kwargs) -> str:
+            return refused(check, *args, **kwargs).code
 
         august = self.select(today=date(2026, 8, 15), market=market(latest_complete_day=date(2026, 8, 14)))
         self.assertEqual(lines.read_line(self.conn, august["line_id"])["dev_end"], "2024-07-01")
         check("ema-trend", date(2021, 7, 1), date(2024, 7, 1))
-        self.assertEqual(refused("ema-trend", date(2024, 6, 1), date(2024, 7, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        self.assertEqual(code("ema-trend", date(2024, 6, 1), date(2024, 7, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
         # without a line: today's period is 2021-10-01 to 2024-10-01, but the open August line's holdout starts at
         # 2024-07-01 and inside it is refused
         check(None, date(2024, 5, 1), date(2024, 7, 1))
-        self.assertEqual(refused(None, date(2024, 8, 1), date(2024, 9, 1)), "WINDOW_OUTSIDE_DEVELOPMENT")
-        self.assertEqual(refused(None, date(2021, 9, 1), date(2021, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
-        self.assertEqual(refused(None, date(2024, 5, 1), date(2024, 6, 1), covered=date(2024, 1, 1)),
+        self.assertEqual(code(None, date(2024, 8, 1), date(2024, 9, 1)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        self.assertEqual(code(None, date(2021, 9, 1), date(2021, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        self.assertEqual(code(None, date(2024, 5, 1), date(2024, 6, 1), covered=date(2024, 1, 1)),
                          "LINE_HISTORY_SHORT", "no line could open on instruments covered for under 12 quarters")
         lines.close_line(self.profile, "ema-trend", b"holdout and forward segment replayed at close", MARKET_DAYS)
         check(None, date(2024, 8, 1), date(2024, 9, 1))  # a closed line's holdout was replayed at its close
-        self.assertEqual(refused(None, date(2024, 9, 1), date(2024, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
-        self.assertEqual(refused("ema-trend", date(2022, 8, 1), date(2022, 9, 1)), "LINE_ENDED")
-        self.assertEqual(refused("none", date(2022, 8, 1), date(2022, 9, 1)), "LINE_UNKNOWN")
+        self.assertEqual(code(None, date(2024, 9, 1), date(2024, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
+        self.assertEqual(code("ema-trend", date(2022, 8, 1), date(2022, 9, 1)), "LINE_ENDED")
+        self.assertEqual(code("none", date(2022, 8, 1), date(2022, 9, 1)), "LINE_UNKNOWN")
 
     def test_selection_refusals(self):
         self.assertEqual(self.code(start="start@9"), "START_NOT_FOUND")
@@ -221,9 +218,9 @@ class ResearchLineTests(unittest.TestCase):
                          "a closed line's trials stay its own")
         self.assertEqual(lines.line_trials(self.conn, "ema-trend")["trials"], [counted, later])
         for name in ("none", 999):
-            with self.subTest(line=name), self.assertRaises(Refusal) as caught:
-                lines.line_trials(self.conn, name)
-            self.assertEqual(caught.exception.code, "LINE_UNKNOWN")
+            with self.subTest(line=name):
+                caught = refused(lines.line_trials, self.conn, name)
+            self.assertEqual(caught.code, "LINE_UNKNOWN")
 
     def test_lines_on_one_market_day_and_window_keep_the_trials_that_name_them(self):
         line = self.select()
@@ -265,16 +262,13 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(later["line"], "ema-later")
 
     def open_code(self, line=None) -> str:
-        with self.assertRaises(Refusal) as caught:
-            lines.open_line(self.conn, line)
-        return caught.exception.code
+        return refused(lines.open_line, self.conn, line).code
 
     def close_code(self, line, summary) -> str:
         seq = self.seq()
-        with self.assertRaises(Refusal) as caught:
-            lines.close_line(self.profile, line, summary, MARKET_DAYS)
+        caught = refused(lines.close_line, self.profile, line, summary, MARKET_DAYS)
         self.assertEqual(self.seq(), seq)
-        return caught.exception.code
+        return caught.code
 
     def research_trial(self, line_id: int, tag: str) -> int:
         """A research trial of the start source on line `line_id`, under a registration of its own."""

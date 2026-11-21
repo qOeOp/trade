@@ -19,7 +19,6 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
 import unittest
@@ -33,7 +32,7 @@ from ledger import service as ledger_service
 from shared.errors import Refusal
 from shared.refusals import refuse
 from tests.ledger.dolt import BINARY, SKIP, Service, source
-from tests.helpers import refused
+from tests.helpers import refused, tempdir
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -42,21 +41,18 @@ class PublishTests(unittest.TestCase):
         self.service = Service()
         self.addCleanup(self.service.close)
         self.profile = self.service.ledger("pub")
-        self.remote = Path(tempfile.mkdtemp(prefix="rm-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, self.remote, True)
+        self.remote = tempdir(self.addCleanup, prefix="rm-", dir="/tmp")
         self.url = self.remote.as_uri()
 
     def code_and_message(self, function, *arguments) -> tuple[str, str]:
-        with self.assertRaises(Refusal) as caught:
-            function(*arguments)
-        return caught.exception.code, caught.exception.message
+        caught = refused(lambda: function(*arguments))
+        return caught.code, caught.message
 
     def head(self) -> str:
         return self.service.sql(self.profile, "SELECT hash FROM dolt_branches WHERE name = 'main'")[0][0]
 
     def clone(self) -> tuple[Path, dict]:
-        home = Path(tempfile.mkdtemp(prefix="cl-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, home, True)
+        home = tempdir(self.addCleanup, prefix="cl-", dir="/tmp")
         environment = {**os.environ, "DOLT_ROOT_PATH": str(home)}
         server.dolt_home(home, {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
         subprocess.run([BINARY, "clone", self.url, str(home / "c")], env=environment, check=True, capture_output=True)
@@ -201,8 +197,7 @@ class PublishTests(unittest.TestCase):
 
     def write(self, tag: str) -> dict:
         """candidate publish through the command line: a ledger write."""
-        folder = Path(tempfile.mkdtemp(prefix="src-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, folder, True)
+        folder = tempdir(self.addCleanup, prefix="src-", dir="/tmp")
         (folder / "strategy.py").write_bytes(source(tag))
         return self.command("candidate", "publish", "--file", str(folder / "strategy.py"), "--strategy-id", tag,
                             "--entry-class", "Fixture", "--description", "a write")
@@ -292,8 +287,7 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(self.remote_head(), self.head())
 
     def test_the_dolt_login_key_is_installed_in_the_service_home(self):
-        user = Path(tempfile.mkdtemp(prefix="u-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, user, True)
+        user = tempdir(self.addCleanup, prefix="u-", dir="/tmp")
         (user / ".dolt" / "creds").mkdir(parents=True)
         (user / ".dolt" / "config_global.json").write_text(json.dumps({"user.creds": "k1"}), encoding="utf-8")
         (user / ".dolt" / "creds" / "k1.jwk").write_bytes(b'{"key": "fixture"}')

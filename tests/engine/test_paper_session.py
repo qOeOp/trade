@@ -19,6 +19,7 @@ from engine.cadence import Cadence
 from engine.config import MINUTE_NS
 from engine import paper_session, protection
 from engine.paper_session import Session
+from tests.helpers import refused
 
 
 class Hooks(Strategy):
@@ -567,9 +568,8 @@ class BackfillTests(unittest.TestCase):
         cache = SimpleNamespace(bar=lambda _: aggregated(T), orders=list)
         with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strategy}, clear=True):
             with mock.patch("engine.paper_session.time.time_ns", return_value=T + QUARTER + 1):
-                with self.assertRaises(checkpoint.Refusal) as caught:
-                    session.cut(cache)
-            self.assertIn("has not reached the source", str(caught.exception))
+                caught = refused(session.cut, cache, error=checkpoint.Refusal)
+            self.assertIn("has not reached the source", str(caught))
             session.backend.snapshot.assert_not_called()
             cache.bar = lambda _: aggregated(T + QUARTER)
             with mock.patch("engine.paper_session.time.time_ns", return_value=T + QUARTER + DELAY):
@@ -776,8 +776,8 @@ class InterruptionTests(unittest.TestCase):
 
     def test_a_touched_order_starts_no_source_and_leaves_the_refusal_for_the_runner(self):
         account = SimpleNamespace(to_dict=lambda: {"calculate_account_state": True})
-        for bars, refused in ((QUIET, False), (minutes(*[("98000.0", "100500.0")] * 4), True)):
-            with self.subTest(refused=refused):
+        for bars, refuses in ((QUIET, False), (minutes(*[("98000.0", "100500.0")] * 4), True)):
+            with self.subTest(refused=refuses):
                 session = self.session(saved={"sources": {}, "cut_ns": 0})
                 session.ready, session.expected_starts, session.warm_at = False, 2, T
                 session.last_bar, session.downtime = {IID: LAST}, {IID: bars}
@@ -786,4 +786,4 @@ class InterruptionTests(unittest.TestCase):
                 session.start(lambda: seen.append("recorder"))
                 session.start(lambda: seen.append("BTC"))
                 self.assertEqual((seen, session.ready, bool(getattr(session, "refused", None))),
-                                 ([], False, True) if refused else (["recorder", "BTC"], True, False))
+                                 ([], False, True) if refuses else (["recorder", "BTC"], True, False))

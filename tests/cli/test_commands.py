@@ -24,6 +24,7 @@ from shared.refusals import CATALOGUE
 from tests.market.directory import directory, seed
 from tests.ledger.dolt import BINARY, SKIP
 from tests.registration.world import clean_checkout
+from tests.helpers import tempdir
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -89,8 +90,7 @@ class CommandTests(unittest.TestCase):
                   "root": directory(cls.addClassCleanup)["root"]}
         profiles.private_write(cls.home / "market.json", active)
         _fill_market(active)
-        cls.tmp = Path(tempfile.mkdtemp(prefix="cli-", dir="/tmp"))
-        cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
+        cls.tmp = tempdir(cls.addClassCleanup, prefix="cli-", dir="/tmp")
         cls.checkout = clean_checkout(cls.tmp / "checkout")
         cls.env = {**os.environ, "TMPDIR": str(cls.tmp), "TRADE_LEDGER_HOME": str(cls.home),
                    "CLI_STANDIN_CHECKOUT": str(cls.checkout), "RESEARCH_DOLT_BINARY": BINARY}

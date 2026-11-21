@@ -6,23 +6,20 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from ledger import evidence
-from shared.errors import Refusal
 from registration import inputs, seams
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, product_bundle
 from tests.registration.world import LINE_WINDOW, FakeMarket, World, months_rows
-from tests.helpers import refused
+from tests.helpers import refused, tempdir
 
 
 class FingerprintTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="fp-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.root = tempdir(self.addCleanup, prefix="fp-", dir="/tmp")
 
     def export(self, name: str, seconds: float, **receipt) -> dict:
         root = self.root / name / "export"
@@ -95,15 +92,14 @@ class FingerprintTests(unittest.TestCase):
         moved = self.export("moved", 1.0)
         os.symlink(moved["membership_file"], self.root / "moved" / "link.json")
         for value in (linked, missing, {**moved, "membership_file": self.root / "moved" / "link.json"}):
-            with self.subTest(value=value), self.assertRaises(Refusal) as caught:
-                inputs.export_fingerprint(value, semantic=True)
-            self.assertEqual(caught.exception.code, "EXPORT_CONTENT_INVALID")
+            with self.subTest(value=value):
+                caught = refused(inputs.export_fingerprint, value, semantic=True)
+            self.assertEqual(caught.code, "EXPORT_CONTENT_INVALID")
 
 
 class MarketInputTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="mi-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.root = tempdir(self.addCleanup, prefix="mi-", dir="/tmp")
         patcher = patch.object(tempfile, "tempdir", str(self.root))
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -117,15 +113,13 @@ class MarketInputTests(unittest.TestCase):
                                         lifecycle_bundle, True, None)
 
     def code(self, **kwargs) -> str:
-        with self.assertRaises(Refusal) as caught:
-            self.call(**kwargs)
-        return caught.exception.code
+        return refused(lambda: self.call(**kwargs)).code
 
     def test_the_universe_selection_takes_every_member_intersecting_the_trading_window(self):
         exported = self.call()
         identity = exported["identity"]
         self.assertEqual((identity["market_day"], identity["universe_rule"], identity["symbols"]),
-                         (MARKET_DAY, "pool-v1", ["AAAUSDT", "BBBUSDT"]))
+                         (MARKET_DAY, "usdt-perp-listed30d-v1", ["AAAUSDT", "BBBUSDT"]))
         self.assertNotIn("membership", identity, "the membership file holds it")
         window = (LINE_WINDOW["start"], LINE_WINDOW["end"])
         path = self.market.membership_path(MARKET_DAY, window[1])["membership"]
@@ -183,17 +177,18 @@ class LifecycleTests(unittest.TestCase):
         cases = [("lifecycle-" + "z" * 32, MARKET_DAY), ("lifecycle-" + "n" * 32, MARKET_DAY),
                  ("lifecycle-" + MARKET_DAY, "n" * 32), ("lifecycle-" + "q" * 32, MARKET_DAY)]
         for bundle, commit in cases:
-            with self.subTest(bundle=bundle, commit=commit), self.assertRaises(Refusal) as caught:
-                inputs.load_lifecycle(world.profile, bundle, commit, market=world.market)
-            self.assertEqual(caught.exception.code, "LIFECYCLE_INPUT")
+            with self.subTest(bundle=bundle, commit=commit):
+                caught = refused(inputs.load_lifecycle, world.profile, bundle, commit, market=world.market)
+            self.assertEqual(caught.code, "LIFECYCLE_INPUT")
         real = evidence._fetch
 
         def altered(conn, bundle):
             head, rows = real(conn, bundle)
             return head, [(path, content + b" ", stored) for path, content, stored in rows]
 
-        with patch.object(evidence, "_fetch", altered), self.assertRaises(Refusal) as caught:
-            inputs.load_lifecycle(world.profile, "lifecycle-" + MARKET_DAY, MARKET_DAY, market=world.market)
-        self.assertEqual(caught.exception.code, "LIFECYCLE_INPUT")
+        with patch.object(evidence, "_fetch", altered):
+            caught = refused(inputs.load_lifecycle, world.profile, "lifecycle-" + MARKET_DAY, MARKET_DAY,
+                             market=world.market)
+        self.assertEqual(caught.code, "LIFECYCLE_INPUT")
         self.assertEqual(refused(inputs.market_inputs, world.market, MARKET_DAY, LINE_WINDOW, {"universe": True},
                                  "lifecycle-" + "n" * 32, True, world.profile).code, "LIFECYCLE_INPUT")

@@ -22,7 +22,7 @@ from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, bind
                                coverage, grid_point, sha, source)
 from tests.ledger.tsa import LocalAuthority
 from tests.registration.world import ACCOUNT, DESIGN, MONTHS, SYMBOLS, FakeMarket, World, capture, config, months_rows
-from tests.helpers import refused
+from tests.helpers import refused, tempdir
 
 GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
@@ -60,8 +60,7 @@ def stale(checkout_root) -> str:
 
 class FreshCheckoutTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="fresh-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.root = tempdir(self.addCleanup, prefix="fresh-", dir="/tmp")
         self.remote, self.clone = checkout(self.root)
 
     def test_a_checkout_containing_main_is_fresh_whatever_its_work_tree_holds(self):
@@ -101,8 +100,7 @@ class CurrentCheckoutTests(unittest.TestCase):
     """Research registers and replays only from the fetched origin/main with a clean work tree, no network."""
 
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="current-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.root = tempdir(self.addCleanup, prefix="current-", dir="/tmp")
         self.remote, self.clone = checkout(self.root)
 
     def test_only_the_fetched_main_with_a_clean_work_tree_is_current(self):
@@ -138,8 +136,7 @@ class MembershipTests(unittest.TestCase):
     months = ["2026-08", "2026-09", "2026-10", "2026-11"]
 
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="members-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.root = tempdir(self.addCleanup, prefix="members-", dir="/tmp")
         patcher = patch.object(tempfile, "tempdir", str(self.root))
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -148,7 +145,7 @@ class MembershipTests(unittest.TestCase):
                                   "2026-03-04": months_rows(self.months[:3]),
                                   "2026-03-05": months_rows(self.months[:2]) + months_rows(self.months[2:3], ["AAAUSDT"])
                                   + months_rows(self.months[3:])})
-        self.registration = {"market_day": MARKET_DAY, "universe_rule": "pool-v1",
+        self.registration = {"market_day": MARKET_DAY, "universe_rule": "usdt-perp-listed30d-v1",
                              "created_at": datetime(2026, 10, 19, 12), "window_start": datetime(2026, 11, 2),
                              "window_end": datetime(2026, 11, 9)}
 
@@ -237,8 +234,7 @@ class ValidationTests(unittest.TestCase):
         world.market.market_days[MARKET_DAY] = months_rows(sorted(set(months) | set(MONTHS)))
         cls.authority = LocalAuthority()
         cls.addClassCleanup(cls.authority.close)
-        cls.git_root = Path(tempfile.mkdtemp(prefix="product-", dir="/tmp"))
-        cls.addClassCleanup(shutil.rmtree, cls.git_root, ignore_errors=True)
+        cls.git_root = tempdir(cls.addClassCleanup, prefix="product-", dir="/tmp")
         cls.remote, product = checkout(cls.git_root)
         environment = patch.dict(os.environ, GIT_ENV)
         environment.start()
@@ -274,8 +270,9 @@ class ValidationTests(unittest.TestCase):
     def register(cls, label: str, **overrides) -> dict:
         start, end = cls.windows.get(label, cls.windows["bound"])
         arguments = {"candidate": cls.unrun["candidate"] if label == "unrun" else "rsi@1", "window_start": start,
-                     "window_end": end, "universe_rule": "pool-v1", "market": MARKET_DAY, "design": DESIGN,
-                     "retry_of": None, "op_id": f"validation:{label}", "unfalsified": decided, **overrides}
+                     "window_end": end, "universe_rule": "usdt-perp-listed30d-v1", "market": MARKET_DAY,
+                     "design": DESIGN, "retry_of": None, "op_id": f"validation:{label}", "unfalsified": decided,
+                     **overrides}
         return validation.validation_register(cls.world.profile, market_profile=cls.world.market, **arguments)
 
     def setUp(self):
@@ -645,10 +642,9 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.refused_bind("checks", inputs=wider), "MEMBERSHIP_CHANGED")
         other_commit = {**inputs, "membership": {**inputs["membership"], "market_day": "2026-03-10"}}  # same members
         self.assertEqual(self.refused_bind("checks", inputs=other_commit), "MEMBERSHIP_CHANGED")
-        with self.assertRaises(Refusal) as caught:
-            self.bind("checks", inputs=other_commit)
+        caught = refused(self.bind, "checks", inputs=other_commit)
         self.assertIn(f"market day {'2026-03-10'}, not the trial's market day {MARKET_DAY}",
-                      caught.exception.message)
+                      caught.message)
         self.assertEqual(self.refused_bind("checks", start=start - timedelta(seconds=1)), "WINDOW_MISMATCH")
         self.assertEqual(self.refused_bind("checks", end=end + timedelta(seconds=1)), "WINDOW_MISMATCH")
         uncovered = {**inputs, "receipts": {SYMBOLS[0]: inputs["receipts"][SYMBOLS[0]]}}

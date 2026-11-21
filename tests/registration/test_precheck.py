@@ -8,7 +8,6 @@ import json
 import unittest
 
 from ledger import db, evidence, execution, lines, problems, trials
-from shared.errors import Refusal
 from registration import precheck
 from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, coverage, market,
                                product_bundle, sha)
@@ -59,7 +58,7 @@ class PrecheckTests(unittest.TestCase):
 
     def identity(self, effective_config: dict | None = None, **overrides) -> dict:
         """The execution identity a registration over both symbols and January fixes."""
-        return {"image_ref": IDENTITY["image_ref"], "market_day": MARKET_DAY, "universe_rule": "pool-v1",
+        return {"image_ref": IDENTITY["image_ref"], "market_day": MARKET_DAY, "universe_rule": "usdt-perp-listed30d-v1",
                 "lifecycle_bundle": None,
                 "comparable_config_sha256": trials.comparable_config_sha256(effective_config or config()),
                 "symbols": ["AAAUSDT", "BBBUSDT"], **overrides}
@@ -318,9 +317,7 @@ class LineStartTests(unittest.TestCase):
                                      slug="passing-start", market=market(), reviews=precheck.review_records)
 
         def code(ref: str) -> str:
-            with self.assertRaises(Refusal) as caught:
-                select(ref)
-            return caught.exception.code
+            return refused(select, ref).code
 
         self.assertEqual(code(world.publish("unreviewed")["candidate"]), "START_REVIEW_REQUIRED")
         failing = world.publish("failing")
@@ -340,10 +337,9 @@ class LineStartTests(unittest.TestCase):
         quiet = {"status": "unresolved", "note": "no order filled, so activity cannot be judged"}
 
         def code(ref: str) -> str:
-            with self.assertRaises(Refusal) as caught:
-                lines.select_line(world.conn, MARKET_DAY, ref,
-                                  slug="untraded-start", market=market(), reviews=precheck.review_records)
-            return caught.exception.code
+            caught = refused(lines.select_line, world.conn, MARKET_DAY, ref, slug="untraded-start", market=market(),
+                             reviews=precheck.review_records)
+            return caught.code
 
         def reviewed(data: bytes, fills: int, *verdicts: dict) -> None:
             """One precheck sealing `fills` fills and positions, with a review per items mapping."""

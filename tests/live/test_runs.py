@@ -170,22 +170,26 @@ class LiveCustodyTests(LiveFixture):
         self.assertEqual(configuration.run_config({"environment": "live", "drawdown_brake": "0.05", "duration_seconds": None,
                                                    "leverage": "3"})["drawdown_brake"], "0.05")
         for limit in ("0", "NaN", "0.1501"):
-            with self.subTest(limit), self.assertRaises(LiveRefusal) as caught:
-                configuration.run_config({"environment": "live", "drawdown_brake": limit, "duration_seconds": None, "leverage": "3"})
-            self.assertEqual(caught.exception.code, "LIVE_CONFIG")
+            with self.subTest(limit):
+                caught = refused(configuration.run_config, {"environment": "live", "drawdown_brake": limit,
+                                                            "duration_seconds": None, "leverage": "3"},
+                                 error=LiveRefusal)
+            self.assertEqual(caught.code, "LIVE_CONFIG")
         for limit in ("0", "NaN", "0.1501"):
-            with self.subTest(limit), self.assertRaises(LiveRefusal) as caught:
-                prepare(self.root, "limit-run", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
-                        self.credentials, IDENTITY["image_ref"], scope=self.scope, environment="live", drawdown_brake=limit,
-                        duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
-                        credential_ref="a" * 32, request_id="prepare-limit")
-            self.assertEqual(caught.exception.code, "LIVE_CONFIG")
+            with self.subTest(limit):
+                caught = refused(prepare, self.root, "limit-run", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
+                                 self.credentials, IDENTITY["image_ref"], scope=self.scope, environment="live",
+                                 drawdown_brake=limit, duration_seconds=60, memory="2g", leverage="3",
+                                 market_root=Path("unused"), credential_ref="a" * 32, request_id="prepare-limit",
+                                 error=LiveRefusal)
+            self.assertEqual(caught.code, "LIVE_CONFIG")
 
     def test_a_key_that_is_refused_takes_no_slot_and_a_reconcile_does_not_ask(self):
         self.key_limits.side_effect = LiveRefusal("LIVE_KEY_WITHDRAWAL", "withdrawals on")
-        with patch.object(runs, "_network") as network, self.assertRaises(LiveRefusal) as caught:
-            launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
-        self.assertEqual(caught.exception.code, "LIVE_KEY_WITHDRAWAL")
+        with patch.object(runs, "_network") as network:
+            caught = refused(launch, self.root, self.run_id, self.credentials, "run", scope=self.scope,
+                             error=LiveRefusal)
+        self.assertEqual(caught.code, "LIVE_KEY_WITHDRAWAL")
         network.assert_not_called()
         self.assertFalse((self.root / "account.jsonl").exists())
         self.key_limits.assert_called_once_with(self.credentials, "live")  # a timed run's key is checked the same way
@@ -407,9 +411,9 @@ class LiveCustodyTests(LiveFixture):
     def test_an_attempted_run_never_cold_restarts(self):
         self.launch_record()
         with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 137}}):
-            with self.assertRaises(LiveRefusal) as caught:
-                launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
-        self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
+            caught = refused(launch, self.root, self.run_id, self.credentials, "run", scope=self.scope,
+                             error=LiveRefusal)
+        self.assertEqual(caught.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
 
     def test_an_interrupted_run_starts_again_unless_it_ended_or_a_stop_was_asked(self):
         class Reached(Exception):
@@ -422,9 +426,9 @@ class LiveCustodyTests(LiveFixture):
             with self.assertRaises(Reached):
                 launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
             state.append(self.directory / "out" / "events.jsonl", "unresolved", self.run_id)
-            with self.assertRaises(LiveRefusal) as caught:
-                launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
-        self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
+            caught = refused(launch, self.root, self.run_id, self.credentials, "run", scope=self.scope,
+                             error=LiveRefusal)
+        self.assertEqual(caught.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
 
     def test_a_runner_that_ended_by_its_own_refusal_or_failure_is_not_started_again(self):
         """20261114-23: with no ending event written (a refusal before the journal, a failed write), the runner's
@@ -438,9 +442,9 @@ class LiveCustodyTests(LiveFixture):
             with self.subTest(exit_code), patch.object(runs, "inspect_runner", return_value={
                     "State": {"Running": False, "ExitCode": exit_code}}), \
                     patch.object(runs.key, "require_limits", side_effect=Reached):
-                with self.assertRaises(LiveRefusal) as caught:
-                    launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
-                self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
+                caught = refused(launch, self.root, self.run_id, self.credentials, "run", scope=self.scope,
+                                 error=LiveRefusal)
+                self.assertEqual(caught.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
         with patch.object(runs, "inspect_runner", return_value={"State": {"Running": False, "ExitCode": 3}}), \
                 patch.object(runs.key, "require_limits", side_effect=Reached):
             with self.assertRaises(Reached):
@@ -569,9 +573,7 @@ class LiveCustodyTests(LiveFixture):
             return runs.review(object(), manifest), read, reader.__enter__.return_value
 
     def refused(self, **review) -> str:
-        with self.assertRaises((LiveRefusal, Refusal)) as caught:
-            self.review(**review)
-        return caught.exception.code
+        return refused(self.review, error=(LiveRefusal, Refusal), **review).code
 
     def test_preflight_shows_the_candidate_and_its_validations(self):
         window = {"window_start": datetime(2026, 1, 1), "window_end": datetime(2026, 2, 1), "universe_rule": "fixed"}
@@ -647,13 +649,13 @@ class LiveCustodyTests(LiveFixture):
             with self.subTest(source=source), patch.object(runs.db, "read_as_of"), \
                     patch.object(runs.strategies, "read_candidate", return_value=found), \
                     patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
-                    self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
-                runs.prepare_locked(root, "unloadable", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
-                                    self.credentials, IDENTITY["image_ref"], environment="live", drawdown_brake="0.15",
-                                    duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
-                                    credential_ref="a" * 32, request_id="prepare-unloadable",
-                                    reconciled=lambda *_: None)
-            self.assertEqual(caught.exception.code, "LIVE_SOURCE_MISSING")
+                    self.scope.serialized(self.root) as root:
+                caught = refused(runs.prepare_locked, root, "unloadable", object(), "a" * 32, "original@2", ["BTCUSDT"],
+                                 b"{}", self.credentials, IDENTITY["image_ref"], environment="live",
+                                 drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
+                                 market_root=Path("unused"), credential_ref="a" * 32, request_id="prepare-unloadable",
+                                 reconciled=lambda *_: None, error=LiveRefusal)
+            self.assertEqual(caught.code, "LIVE_SOURCE_MISSING")
             self.assertFalse(state.directory(self.root, "unloadable").exists())
             self.assertEqual(list((self.root / "staging").iterdir()), [])  # a refusal leaves nothing staged
 
@@ -663,12 +665,13 @@ class LiveCustodyTests(LiveFixture):
                   "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest()}
         with patch.object(runs.db, "read_as_of"), patch.object(runs.strategies, "read_candidate", return_value=origin), \
                 patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
-                self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
-            runs.prepare_locked(root, "declared-run", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
-                                self.credentials, IDENTITY["image_ref"], environment="live", drawdown_brake="0.15",
-                                duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
-                                credential_ref="a" * 32, request_id="prepare-declared", reconciled=lambda *_: None)
-        self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
+                self.scope.serialized(self.root) as root:
+            caught = refused(runs.prepare_locked, root, "declared-run", object(), "a" * 32, "original@2", ["BTCUSDT"],
+                             b"{}", self.credentials, IDENTITY["image_ref"], environment="live", drawdown_brake="0.15",
+                             duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
+                             credential_ref="a" * 32, request_id="prepare-declared", reconciled=lambda *_: None,
+                             error=LiveRefusal)
+        self.assertEqual(caught.code, "LIVE_IDENTITY_CHANGED")
         self.assertFalse(state.directory(self.root, "declared-run").exists())
 
     def prepare_patches(self, stack, origin):
@@ -786,9 +789,8 @@ class LiveCustodyTests(LiveFixture):
         resources = self.inspected(running=False)
         resources[("container", "runner")]["Mounts"][0]["Source"] = "/unrelated-output"
         with patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, [])):
-            with self.assertRaises(LiveRefusal) as caught:
-                maintain(self.root, self.run_id)
-        self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
+            caught = refused(maintain, self.root, self.run_id, error=LiveRefusal)
+        self.assertEqual(caught.code, "LIVE_IDENTITY_CHANGED")
         self.assertEqual(runs.active_run(self.root), self.run_id)
 
     def test_stopped_egress_identity_verified_before_start(self):
@@ -873,9 +875,8 @@ class LiveCustodyTests(LiveFixture):
     def test_unknown_inspect_failure_cannot_be_treated_as_missing(self):
         result = subprocess.CompletedProcess([], 1, "", "Cannot connect to the Docker daemon")
         with patch.object(host_runtime, "docker", return_value=result):
-            with self.assertRaises(LiveRefusal) as caught:
-                host_runtime.inspect("container", "runner")
-        self.assertEqual(caught.exception.code, "LIVE_DOCKER_UNAVAILABLE")
+            caught = refused(host_runtime.inspect, "container", "runner", error=LiveRefusal)
+        self.assertEqual(caught.code, "LIVE_DOCKER_UNAVAILABLE")
 
 
 class FakeHost:
@@ -1056,9 +1057,10 @@ class LiveRecycleTests(LiveFixture):
         self.status(host)
         self.assertTrue(host.containers)
         host.fail.add("rm")
-        with patch.object(host_runtime, "docker", side_effect=host), self.assertRaises(LiveRefusal) as caught:
-            launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
-        self.assertEqual(caught.exception.code, "LIVE_DOCKER_UNAVAILABLE")
+        with patch.object(host_runtime, "docker", side_effect=host):
+            caught = refused(launch, self.root, self.run_id, self.credentials, "run", scope=self.scope,
+                             error=LiveRefusal)
+        self.assertEqual(caught.code, "LIVE_DOCKER_UNAVAILABLE")
         self.assertIsNone(runs.active_run(self.root))
 
         class Reached(Exception):

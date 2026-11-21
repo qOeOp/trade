@@ -7,6 +7,7 @@ import sys
 import unittest
 
 from engine.config import Refusal, effective_configuration, ns as _ns, parse_configuration
+from tests.helpers import refused
 
 
 ARGV = [
@@ -20,9 +21,7 @@ ARGV = [
 
 class ReplayTimeTests(unittest.TestCase):
     def code(self, argv) -> str:
-        with self.assertRaises(Refusal) as caught:
-            parse_configuration(argv)
-        return caught.exception.code
+        return refused(parse_configuration, argv, error=Refusal).code
 
     def test_explicit_offsets_resolve_to_one_instant_and_one_normal_form(self):
         expected = effective_configuration(parse_configuration(ARGV)).values

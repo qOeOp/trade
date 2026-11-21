@@ -10,9 +10,9 @@ from unittest import mock
 
 from deploy import release_host
 from ledger import db, strategies
-from shared.errors import Refusal
 from paper import runs
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
+from tests.helpers import refused
 
 # A source that declares Paper recovery as the runner checks it (engine.paper_session.declares_recovery).
 RECOVERING = b"""from nautilus_trader.trading import Strategy
@@ -34,9 +34,8 @@ RUNNING = [{"name": "a-runner", "running": True}, {"name": "a-egress", "running"
 class DockerClientTests(unittest.TestCase):
     def test_no_docker_client_is_refused_as_unavailable(self):
         with mock.patch("paper.runs.subprocess.run", side_effect=FileNotFoundError("docker")):
-            with self.assertRaises(Refusal) as caught:
-                runs._docker("ps")
-        self.assertEqual(caught.exception.code, "RUNTIME_UNAVAILABLE")
+            caught = refused(runs._docker, "ps")
+        self.assertEqual(caught.code, "RUNTIME_UNAVAILABLE")
 
 
 class AdmissionTests(unittest.TestCase):
@@ -51,10 +50,10 @@ class AdmissionTests(unittest.TestCase):
     def refused(self, need: int, reserved: int, host: int | None) -> str:
         with mock.patch.object(runs, "limits", return_value=reserved), \
                 mock.patch.object(runs, "_host_available", return_value=host), \
-                mock.patch.dict("os.environ", {runs.BUDGET_ENV: "3g"}), self.assertRaises(Refusal) as caught:
-            runs.admit(need, RUNNING)
-        self.assertEqual(caught.exception.code, "PAPER_MEMORY_FULL")
-        return caught.exception.message
+                mock.patch.dict("os.environ", {runs.BUDGET_ENV: "3g"}):
+            caught = refused(runs.admit, need, RUNNING)
+        self.assertEqual(caught.code, "PAPER_MEMORY_FULL")
+        return caught.message
 
     def test_a_runner_reserves_by_its_contracts_in_steps(self):
         one, many = runs.mib(runs.runner_memory(1)), runs.mib(runs.runner_memory(21))
@@ -156,10 +155,9 @@ class StartFailureTests(unittest.TestCase):
                 mock.patch.object(runs, "run_dir", return_value=root), \
                 mock.patch.object(runs, "write_months"), mock.patch.object(runs, "bind", side_effect=failing), \
                 mock.patch.object(runs, "_run_containers", side_effect=AssertionError("no containers after a failure")), \
-                mock.patch.object(runs, "seal", return_value={"paper_id": 7}) as seal, \
-                self.assertRaises(Refusal) as caught:
-            runs.start.__wrapped__(profile, {}, None, "example@1", None, None, research=profile)
-        return caught.exception, seal
+                mock.patch.object(runs, "seal", return_value={"paper_id": 7}) as seal:
+            caught = refused(runs.start.__wrapped__, profile, {}, None, "example@1", None, None, research=profile)
+        return caught, seal
 
     def test_an_input_write_failure_after_the_declaration_seals_start_failed(self):
         with tempfile.TemporaryDirectory() as name:
@@ -207,22 +205,19 @@ class RefusedStartWritesNothingTests(unittest.TestCase):
             runs.start.__wrapped__(self.profile, {}, None, candidate, None, None, research=self.research)
 
     def test_a_start_refused_for_memory_copies_no_source(self):
-        with self.assertRaises(Refusal) as caught:
-            self.start(admit="full")
-        self.assertEqual((caught.exception.code, caught.exception.write_status), ("PAPER_MEMORY_FULL", "not_written"))
+        caught = refused(self.start, admit="full")
+        self.assertEqual((caught.code, caught.write_status), ("PAPER_MEMORY_FULL", "not_written"))
         self.assertEqual(self.copies(), 0)
 
     def test_a_start_refused_for_a_running_run_of_the_source_copies_no_source(self):
         running = [{"name": "r", "paper_id": 1, "role": "runner", "source_sha256": self.sha, "running": True}]
-        with self.assertRaises(Refusal) as caught:
-            self.start(present=running)
-        self.assertEqual((caught.exception.code, caught.exception.write_status), ("PAPER_RUN_ACTIVE", "not_written"))
+        caught = refused(self.start, present=running)
+        self.assertEqual((caught.code, caught.write_status), ("PAPER_RUN_ACTIVE", "not_written"))
         self.assertEqual(self.copies(), 0)
 
     def test_a_source_without_paper_recovery_is_refused_before_its_copy(self):
-        with self.assertRaises(Refusal) as caught:
-            self.start(candidate="plain@1")
-        self.assertEqual((caught.exception.code, caught.exception.write_status, caught.exception.missing),
+        caught = refused(self.start, candidate="plain@1")
+        self.assertEqual((caught.code, caught.write_status, caught.missing),
                          ("PAPER_RECOVERY_UNDECLARED", "not_written", ("PAPER_RECOVERY", "on_save", "on_load")))
         self.assertEqual(self.copies(), 0)
 

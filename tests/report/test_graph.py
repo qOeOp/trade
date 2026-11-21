@@ -27,6 +27,7 @@ from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ide"))
 from research_graph import contract, layout
+from tests.helpers import refused
 
 
 class ComparisonIntervalTests(unittest.TestCase):
@@ -300,9 +301,9 @@ class ResearchGraphTests(unittest.TestCase):
 
         def ledger_down(*arguments, **options):
             raise refuse("LEDGER_UNAVAILABLE", "the ledger service is not running")
-        with patch.object(comparison, "compare", ledger_down), self.assertRaises(Refusal) as caught:
-            graph.research_graph(self.world.profile, line)
-        self.assertEqual(caught.exception.code, "LEDGER_UNAVAILABLE")
+        with patch.object(comparison, "compare", ledger_down):
+            caught = refused(graph.research_graph, self.world.profile, line)
+        self.assertEqual(caught.code, "LEDGER_UNAVAILABLE")
         self.assertEqual(contract.check_graph(graph.research_graph(self.world.profile, line)), [],
                          "a run without a control is a missing comparison, not a refused graph")
 

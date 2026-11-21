@@ -12,8 +12,8 @@ import unittest
 from unittest import mock
 
 from cli import ledger_commands
-from shared.errors import Refusal
 from shared.refusals import refuse
+from tests.helpers import refused
 
 
 class FailedStartTests(unittest.TestCase):
@@ -28,9 +28,9 @@ class FailedStartTests(unittest.TestCase):
 
         stderr = io.StringIO()
         with mock.patch.object(ledger_commands, "ledger_init", side_effect=failed), \
-                contextlib.redirect_stderr(stderr), self.assertRaises(Refusal) as caught:
-            ledger_commands.ledger_temp(str(root))
-        self.assertEqual(caught.exception.code, "LEDGER_START")
+                contextlib.redirect_stderr(stderr):
+            caught = refused(ledger_commands.ledger_temp, str(root))
+        self.assertEqual(caught.code, "LEDGER_START")
         self.assertFalse(root.exists())
         shown = stderr.getvalue()
         self.assertIn("bind: refused", shown)

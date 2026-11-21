@@ -103,9 +103,9 @@ class GateTests(unittest.TestCase):
                           missing=("paper-7-capture",), write_status="written").as_dict()
         warning = "warning: `VIRTUAL_ENV=/opt/venv` does not match the project environment path `.venv`\n"
         done = subprocess.CompletedProcess([], 1, stdout="", stderr=warning + json.dumps(printed, indent=2) + "\n")
-        with mock.patch.object(serve.subprocess, "run", return_value=done), self.assertRaises(serve.Failure) as caught:
-            daemon.cli("start", "--candidate", "a@1")
-        self.assertEqual((caught.exception.status, caught.exception.body), (409, {
+        with mock.patch.object(serve.subprocess, "run", return_value=done):
+            caught = refused(daemon.cli, "start", "--candidate", "a@1", error=serve.Failure)
+        self.assertEqual((caught.status, caught.body), (409, {
             "code": "PAPER_START_FAILED", "message": "paper run 7 did not start and was sealed with START_FAILED",
             "missing": ["paper-7-capture"], "write_status": "written"}))
 
@@ -138,9 +138,9 @@ class GateTests(unittest.TestCase):
         daemon = serve.Daemon.__new__(serve.Daemon)
         for body in ({}, {"candidate": "a@1", "symbols": ["btc usdt"]}, {"candidate": "a@1", "symbols": []},
                      {"candidate": "a@1", "universe": "all"}):
-            with self.subTest(body), self.assertRaises(serve.Failure) as caught:
-                daemon.start(body)
-            self.assertEqual(caught.exception.body["code"], "USAGE_ERROR")
+            with self.subTest(body):
+                caught = refused(daemon.start, body, error=serve.Failure)
+            self.assertEqual(caught.body["code"], "USAGE_ERROR")
         # A non-ASCII coin is a contract as replay takes it (market.sources.SYMBOL): it reaches the candidate read.
         daemon.research_profile = "research"
         with mock.patch.object(serve.db, "read_as_of", side_effect=RuntimeError("read")), \

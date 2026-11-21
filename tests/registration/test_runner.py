@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 
 from ledger import execution, trials
-from shared.errors import Refusal
 from registration import runner, seams
 from tests.helpers import refused
 
@@ -27,9 +26,9 @@ class RunnerTests(unittest.TestCase):
                          "quotes")
         with self.assertRaises(ValueError):
             runner.runner_inputs(["--start", "2025-12-31T00:00:00", "--end", "2026-02-01T00:00:00Z"])
-        with self.assertRaises(Refusal) as caught:  # one unsplit string, as an unquoted shell variable gives
-            runner.runner_inputs(["--start 2025-12-31T00:00:00Z --end 2026-02-01T00:00:00Z"])
-        self.assertEqual(caught.exception.code, "USAGE_ERROR")
+        # one unsplit string, as an unquoted shell variable gives
+        caught = refused(runner.runner_inputs, ["--start 2025-12-31T00:00:00Z --end 2026-02-01T00:00:00Z"])
+        self.assertEqual(caught.code, "USAGE_ERROR")
 
     def test_trade_ticks_are_the_entry_s_and_need_the_quote_environment(self):
         window = ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z", "--symbols", "AAAUSDT"]

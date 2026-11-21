@@ -8,8 +8,8 @@ from datetime import date
 import unittest
 
 from ledger import db, lines, strategies, targets
-from shared.errors import Refusal
 from tests.ledger.dolt import MARKET_DAYS, BINARY, SKIP, Service, market, pinned, reviewed, source
+from tests.helpers import refused
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -31,9 +31,7 @@ class TargetTests(unittest.TestCase):
         return self.service.sql(self.profile, "SELECT COUNT(*) FROM dolt_log")[0][0]
 
     def code(self, *arguments) -> str:
-        with self.assertRaises(Refusal) as caught:
-            lines.set_targets(self.conn, *arguments)
-        return caught.exception.code
+        return refused(lambda: lines.set_targets(self.conn, *arguments)).code
 
     def in_force(self, line: int | None) -> tuple:
         found = targets.targets_for(self.conn, line)

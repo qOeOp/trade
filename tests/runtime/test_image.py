@@ -11,22 +11,15 @@ import unittest
 from unittest.mock import patch
 
 from engine import config as engine_config
-from shared.errors import Refusal
 from runtime import container, image
 from runtime.identity import LAYOUT, validate_identity
+from tests.helpers import assert_refused, refused
 
 
 CONTRACT = engine_config.RUNTIME_CONTRACT
 SOURCE_PATHS = LAYOUT["source_paths"]
 IDENTITY = {"image_ref": "registry.invalid/research/native@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
             "platform": "linux/arm64", "runtime_contract": CONTRACT}
-
-
-def refused(test, code, call, *args, **kwargs):
-    with test.assertRaises(Refusal) as caught:
-        call(*args, **kwargs)
-    test.assertEqual(caught.exception.code, code)
-    return caught.exception
 
 
 class IdentityTests(unittest.TestCase):
@@ -36,9 +29,10 @@ class IdentityTests(unittest.TestCase):
                       {**IDENTITY, "extra": 1}, {key: IDENTITY[key] for key in ("image_ref", "image_digest")},
                       {**IDENTITY, "build_revision": "short"}):
             with self.subTest(value=value):
-                refused(self, "RUNTIME_IDENTITY_INVALID", validate_identity, value)
-        refused(self, "RUNTIME_UNSUPPORTED", validate_identity, {**IDENTITY, "platform": "windows/amd64"})
-        refused(self, "RUNTIME_UNSUPPORTED", validate_identity, {**IDENTITY, "runtime_contract": "replay-contract@v5"})
+                assert_refused(self, "RUNTIME_IDENTITY_INVALID", validate_identity, value)
+        assert_refused(self, "RUNTIME_UNSUPPORTED", validate_identity, {**IDENTITY, "platform": "windows/amd64"})
+        assert_refused(self, "RUNTIME_UNSUPPORTED", validate_identity,
+                       {**IDENTITY, "runtime_contract": "replay-contract@v5"})
         self.assertEqual(validate_identity({**IDENTITY, "build_revision": "1" * 40})["build_revision"], "1" * 40)
 
 
@@ -73,20 +67,20 @@ class ProbeTests(unittest.TestCase):
     def test_a_different_image_or_probe_is_refused(self):
         for actual in ({"RepoDigests": [IDENTITY["image_ref"]], "Os": "linux", "Architecture": "amd64"},
                        {"RepoDigests": ["another@sha256:" + "a" * 64], "Os": "linux", "Architecture": "arm64"}):
-            with self.subTest(actual=actual), self.assertRaises(Refusal) as caught:
-                self.inspect(actual=actual)
-            self.assertEqual(caught.exception.code, "RUNTIME_MISMATCH")
+            with self.subTest(actual=actual):
+                caught = refused(self.inspect, actual=actual)
+            self.assertEqual(caught.code, "RUNTIME_MISMATCH")
         for probe, code in ((self.probe(source_file_paths={}), "RUNTIME_PROBE_INVALID"),
                             (self.probe(source_files_sha256={field: "x" * 64 for field in SOURCE_PATHS}),
                              "RUNTIME_PROBE_INVALID"),
                             (self.probe(effective_config_sha256="0" * 64), "RUNTIME_MISMATCH"),
                             (self.probe(runtime_contract="other"), "RUNTIME_MISMATCH")):
-            with self.subTest(code=code), self.assertRaises(Refusal) as caught:
-                self.inspect(probe=probe)
-            self.assertEqual(caught.exception.code, code)
-        with tempfile.TemporaryDirectory() as folder, self.assertRaises(Refusal) as caught:
-            self.inspect(mounts=[(Path(folder), "/reports", False)])
-        self.assertEqual(caught.exception.code, "RUNTIME_PROBE_INVALID")
+            with self.subTest(code=code):
+                caught = refused(self.inspect, probe=probe)
+            self.assertEqual(caught.code, code)
+        with tempfile.TemporaryDirectory() as folder:
+            caught = refused(self.inspect, mounts=[(Path(folder), "/reports", False)])
+        self.assertEqual(caught.code, "RUNTIME_PROBE_INVALID")
 
     def test_the_runner_describes_the_paths_the_layout_declares(self):
         argv = ["--describe", "--market-root", "/m", "--market-day", "c" * 32, "--symbols", "BTCUSDT",
@@ -162,20 +156,19 @@ class ResolveTests(unittest.TestCase):
         def fails(command, **kwargs):
             return subprocess.CompletedProcess(command, 1, "", "no such image")
         with patch("runtime.image.subprocess.run", side_effect=fails):
-            refused(self, "RUNTIME_UNAVAILABLE", image.resolve, "registry.invalid/x:main")
+            assert_refused(self, "RUNTIME_UNAVAILABLE", image.resolve, "registry.invalid/x:main")
         with patch("runtime.image.subprocess.run", side_effect=self.docker(self.image(contract=None))):
-            refused(self, "RUNTIME_IDENTITY_INVALID", image.resolve)
+            assert_refused(self, "RUNTIME_IDENTITY_INVALID", image.resolve)
         twice = {**self.image(), "RepoDigests": [f"{image.REPOSITORY}@{self.DIGEST}",
                                                  f"{image.REPOSITORY}@sha256:" + "0" * 64]}
         with patch("runtime.image.subprocess.run", side_effect=self.docker(twice)):
-            refused(self, "RUNTIME_DIGEST_AMBIGUOUS", image.resolve)
+            assert_refused(self, "RUNTIME_DIGEST_AMBIGUOUS", image.resolve)
 
     def test_no_docker_client_is_refused_as_unavailable(self):
         with patch("runtime.image.subprocess.run", side_effect=FileNotFoundError("docker")):
-            with self.assertRaises(Refusal) as caught:
-                image._docker("image", "inspect", "x", timeout=1, reference="x")
-        self.assertEqual(caught.exception.code, "RUNTIME_UNAVAILABLE")
-        self.assertIn("Docker must be installed", str(caught.exception))
+            caught = refused(image._docker, "image", "inspect", "x", timeout=1, reference="x")
+        self.assertEqual(caught.code, "RUNTIME_UNAVAILABLE")
+        self.assertIn("Docker must be installed", str(caught))
 
     def test_a_hung_docker_call_is_refused_as_unavailable_within_its_timeout(self):
         def hangs(command, **kwargs):  # a credential helper that never answers
@@ -183,7 +176,7 @@ class ResolveTests(unittest.TestCase):
                 raise subprocess.TimeoutExpired(command, kwargs["timeout"])
             return subprocess.CompletedProcess(command, 1, "", "no such image")
         with patch("runtime.image.subprocess.run", side_effect=hangs) as calls:
-            refusal = refused(self, "RUNTIME_UNAVAILABLE", image.resolve)
+            refusal = assert_refused(self, "RUNTIME_UNAVAILABLE", image.resolve)
         self.assertEqual([call.kwargs["timeout"] for call in calls.call_args_list], [image.PULL_TIMEOUT])
         self.assertIn(f"docker pull {image.CURRENT} did not finish within {image.PULL_TIMEOUT} s", refusal.message)
         self.assertIn("credential helper", refusal.message)
@@ -198,7 +191,7 @@ class ResolveTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, json.dumps([{
                 "RepoDigests": [IDENTITY["image_ref"]], "Os": "linux", "Architecture": "arm64"}]), "")
         with patch("runtime.image.subprocess.run", side_effect=probe_hangs) as calls:
-            refused(self, "RUNTIME_UNAVAILABLE", image.inspect_runtime, IDENTITY, ["--symbols", "BTCUSDT"])
+            assert_refused(self, "RUNTIME_UNAVAILABLE", image.inspect_runtime, IDENTITY, ["--symbols", "BTCUSDT"])
         probe = next(call.args[0] for call in calls.call_args_list if "--describe" in call.args[0])
         self.assertEqual(killed, [probe[probe.index("--name") + 1]], "the hung probe container is killed by name")
 
@@ -287,8 +280,8 @@ class MainBuildTests(unittest.TestCase):
         identity = {"image_ref": f"{image.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
                     "platform": "linux/arm64", "runtime_contract": CONTRACT, "build_revision": self.REVISION}
         with patch("runtime.image.subprocess.run", side_effect=fetch_hangs) as calls:
-            refusal = refused(self, "RUNTIME_UNAVAILABLE", image.require_main_build, identity,
-                              self.inspection(self.FILES))
+            refusal = assert_refused(self, "RUNTIME_UNAVAILABLE", image.require_main_build, identity,
+                                     self.inspection(self.FILES))
         self.assertEqual({call.kwargs["timeout"] for call in calls.call_args_list}, {image.GIT_TIMEOUT})
         self.assertIn(f"git fetch --quiet origin main did not finish within {image.GIT_TIMEOUT} s", refusal.message)
 
@@ -322,25 +315,25 @@ class MainBuildTests(unittest.TestCase):
             with patch("runtime.image.CHECKOUT", checkout):
                 self.assertEqual(image.require_main_build({**identity, "build_revision": runtime},
                                                           self.inspection(self.FILES)), runtime)
-                refused(self, "RUNTIME_NOT_MAIN", image.require_main_build, {**identity, "build_revision": unmerged},
-                        self.inspection(self.FILES))
+                assert_refused(self, "RUNTIME_NOT_MAIN", image.require_main_build,
+                               {**identity, "build_revision": unmerged}, self.inspection(self.FILES))
                 released = self.inspection({**self.FILES, LAYOUT["lock_path"]: lock(project="0.4.3")})
                 self.assertEqual(image.require_main_build({**identity, "build_revision": runtime}, released), runtime,
                                  "the project's own version is no dependency pin")
                 changed = self.inspection({**self.FILES, LAYOUT["lock_path"]: lock(pin="1.1")})
-                refused(self, "RUNTIME_NOT_MAIN", image.require_main_build, {**identity, "build_revision": runtime},
-                        changed)
+                assert_refused(self, "RUNTIME_NOT_MAIN", image.require_main_build,
+                               {**identity, "build_revision": runtime}, changed)
 
     def test_other_builds_are_refused(self):
         for options in ({"on_main": False}, {"repository": "localhost:15000/trade"}, {"revision": None}):
-            with self.subTest(options=options), self.assertRaises(Refusal) as caught:
-                self.check(**options)
-            self.assertEqual(caught.exception.code, "RUNTIME_NOT_MAIN")
+            with self.subTest(options=options):
+                caught = refused(lambda: self.check(**options))
+            self.assertEqual(caught.code, "RUNTIME_NOT_MAIN")
         for field in ("runner_source_sha256", "fingerprint_source_sha256"):
             other = self.inspection({**self.FILES, SOURCE_PATHS[field]: b"changed code"})
-            with self.subTest(field=field), self.assertRaises(Refusal) as caught:
-                self.check(inspection=other)
-            self.assertIn(SOURCE_PATHS[field], caught.exception.message)
+            with self.subTest(field=field):
+                caught = refused(self.check, inspection=other)
+            self.assertIn(SOURCE_PATHS[field], caught.message)
 
 
 class CiBuildTests(unittest.TestCase):
@@ -359,10 +352,10 @@ class CiBuildTests(unittest.TestCase):
             self.assertNotEqual(missing.returncode, 0, "the branch commit starts out of the local history")
             with patch("runtime.image.CHECKOUT", checkout):
                 self.assertEqual(image.require_ci_build(self.identity(side), build_inspection(FILES)), side)
-                refused(self, "RUNTIME_NOT_MAIN", image.require_main_build, self.identity(side),
-                        build_inspection(FILES))
-                refused(self, "RUNTIME_NOT_CI_BUILT", image.require_ci_build, self.identity("e" * 40),
-                        build_inspection(FILES))
+                assert_refused(self, "RUNTIME_NOT_MAIN", image.require_main_build, self.identity(side),
+                               build_inspection(FILES))
+                assert_refused(self, "RUNTIME_NOT_CI_BUILT", image.require_ci_build, self.identity("e" * 40),
+                               build_inspection(FILES))
             # A CI image ships a one-commit .git: the branch commit is fetched into the clone of origin's main.
             shallow = Path(scratch) / "shallow"
             _git("clone", "--quiet", "--depth", "1", f"file://{Path(scratch) / 'origin'}", str(shallow), cwd=scratch)
@@ -381,8 +374,8 @@ class CiBuildTests(unittest.TestCase):
             with patch("runtime.image.CHECKOUT", checkout), patch("runtime.image._image", return_value=unlabelled):
                 for case, (identity, files) in cases.items():
                     with self.subTest(case=case):
-                        refused(self, "RUNTIME_NOT_CI_BUILT", image.require_ci_build, identity,
-                                build_inspection(files))
+                        assert_refused(self, "RUNTIME_NOT_CI_BUILT", image.require_ci_build, identity,
+                                       build_inspection(files))
 
 
 class ContainerTests(unittest.TestCase):

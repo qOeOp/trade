@@ -69,10 +69,9 @@ class ReplayEvidenceTests(LiveFixture):
                                         hashlib.sha256(self.candidate["source"]).hexdigest(), ["AAAUSDT"], IDENTITY["image_ref"])
 
     def refused(self, run_id: str, **options) -> str:
-        with self.assertRaises(LiveRefusal) as caught:
-            self.prepare(run_id, **options)
+        caught = refused(lambda: self.prepare(run_id, **options), error=LiveRefusal)
         self.assertFalse((state.directory(self.root, run_id) / "inputs" / "manifest.json").exists())
-        return caught.exception.code
+        return caught.code
 
     def unbacked(self, run_id: str, **options) -> str:
         """Prepared with no replay recorded, then refused at its start, before any key or container; the runner
@@ -159,12 +158,11 @@ class CandidateReadTests(unittest.TestCase):
             self.assertIsNone(control.candidate(config, "rsi@1")["last_symbols"], "a research trial that never ran")
             world.seal_run(trial_id)
             found = control.candidate(config, "rsi@1")
-            with self.assertRaises(LiveRefusal) as caught:
-                control.candidate(config, "rsi@99")
+            caught = refused(control.candidate, config, "rsi@99", error=LiveRefusal)
         self.assertEqual(found, {"candidate": "rsi@1", "research_at": db.head_commit(world.conn),
                                  "source_sha256": hashlib.sha256(data).hexdigest(),
                                  "entry_class": "Fixture", "last_symbols": ["AAAUSDT", "BBBUSDT"]})
-        self.assertEqual(caught.exception.code, "LIVE_SOURCE_MISSING")
+        self.assertEqual(caught.code, "LIVE_SOURCE_MISSING")
 
 
 class EvidenceReadAheadTests(unittest.TestCase):

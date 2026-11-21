@@ -394,10 +394,9 @@ class ReplayWarmupTests(unittest.TestCase):
         )
         for loaded, code, text in cases:
             with self.subTest(code=code, text=text):
-                with self.assertRaises(Refusal) as caught:
-                    self.replay(loaded, START + 3_600_000)
-                self.assertEqual(caught.exception.code, code)
-                self.assertIn(text, str(caught.exception))
+                caught = refused(self.replay, loaded, START + 3_600_000, error=Refusal)
+                self.assertEqual(caught.code, code)
+                self.assertIn(text, str(caught))
 
 
 IID = "AAAUSDT-PERP.BINANCE"
@@ -506,6 +505,6 @@ class FetchTests(unittest.TestCase):
     def test_a_history_binance_lacks_is_refused(self):
         at = 1_767_225_600_000 * NS + 7 * 60_000 * NS
         get, _ = binance(gaps={at // NS - 2 * 60_000})  # the second of the three minutes
-        with tempfile.TemporaryDirectory() as root, self.assertRaises(Refusal) as caught:
-            history.fetch(IID, at, self.DECLARED, (2, 3), Path(root), None, get)
-        self.assertEqual(caught.exception.code, "WARMUP_INSUFFICIENT")
+        with tempfile.TemporaryDirectory() as root:
+            caught = refused(history.fetch, IID, at, self.DECLARED, (2, 3), Path(root), None, get, error=Refusal)
+        self.assertEqual(caught.code, "WARMUP_INSUFFICIENT")

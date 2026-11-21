@@ -11,7 +11,6 @@ import tempfile
 import unittest
 
 from ledger import db, evidence, execution, problems, strategies, trials
-from shared.errors import Refusal
 from shared.refusals import refuse
 from tests.ledger.dolt import (BINARY, IDENTITY, RUNTIME, SKIP, SYMBOLS, Service, binder, context, coverage,
                                grid_point, select_line, sha, source, window)
@@ -50,10 +49,9 @@ class OpenTrialTests(unittest.TestCase):
 
     def code(self, **kwargs) -> str:
         seq = self.seq()
-        with self.assertRaises(Refusal) as caught:
-            self.open(**kwargs)
+        caught = refused(lambda: self.open(**kwargs))
         self.assertEqual(self.seq(), seq)
-        return caught.exception.code
+        return caught.code
 
     def seq(self) -> int:
         return self.service.sql(self.profile, "SELECT seq FROM ledger_head")[0][0]
@@ -71,7 +69,7 @@ class OpenTrialTests(unittest.TestCase):
                                                "execution, starting_balance, trade_start, runner_argv, line_id "
                                                "FROM trial WHERE trial_id = %s", (opened["trial_id"],))[0]
         self.assertEqual(trial[:9], ("explore", sha(data), IDENTITY["image_digest"], IDENTITY["platform"],
-                                     date(2026, 3, 1), "pool-v1", "e" * 64, "bars", Decimal("100000")))
+                                     date(2026, 3, 1), "usdt-perp-listed30d-v1", "e" * 64, "bars", Decimal("100000")))
         self.assertEqual(trial[9].isoformat(), "2026-01-02T00:00:00")
         self.assertEqual((json.loads(trial[10]), trial[11]), (context(data)["argv"], None))
         self.assertEqual([row[0] for row in self.service.sql(

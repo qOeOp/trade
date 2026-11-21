@@ -7,16 +7,13 @@ import unittest
 from unittest.mock import patch
 
 from ledger import db, strategies
-from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, SOURCE, Service, source
 from tests.helpers import refused
 
 
 class SourceCheckTests(unittest.TestCase):
     def code(self, data, entry) -> str:
-        with self.assertRaises(Refusal) as caught:
-            strategies.check_source(data, entry)
-        return caught.exception.code
+        return refused(strategies.check_source, data, entry).code
 
     def test_a_source_parses_without_running(self):
         strategies.check_source(SOURCE, "Fixture")
@@ -46,9 +43,9 @@ class FakeConnection:
 class ReadCandidateShapeTests(unittest.TestCase):
     def test_references_and_corrupt_rows_are_refused(self):
         for ref in ("x", "x@0", "x@-1", "x@01", "@1", None):
-            with self.subTest(ref=ref), self.assertRaises(Refusal) as caught:
-                strategies.read_candidate(FakeConnection(None), ref)
-            self.assertEqual(caught.exception.code, "BAD_REF")
+            with self.subTest(ref=ref):
+                caught = refused(strategies.read_candidate, FakeConnection(None), ref)
+            self.assertEqual(caught.code, "BAD_REF")
         self.assertEqual(refused(strategies.read_candidate, FakeConnection(None), "x@1").code, "UNKNOWN_CANDIDATE")
         row = {"source": SOURCE + b"tampered", "source_sha256": hashlib.sha256(SOURCE).hexdigest()}
         self.assertEqual(refused(strategies.read_candidate, FakeConnection(row), "x@1").code, "LEDGER_CORRUPT")
@@ -67,9 +64,7 @@ class PublishTests(unittest.TestCase):
         return strategies.publish_candidate(self.profile, data, strategy_id, "Fixture", description, **kwargs)
 
     def code(self, *args, **kwargs) -> str:
-        with self.assertRaises(Refusal) as caught:
-            self.publish(*args, **kwargs)
-        return caught.exception.code
+        return refused(lambda: self.publish(*args, **kwargs)).code
 
     def test_roots_children_and_retries(self):
         root = self.publish(source("root"), "lineage")

@@ -7,9 +7,9 @@ import tempfile
 from unittest import mock
 
 from ledger import db, paper as records
-from shared.errors import Refusal
 from paper import runs, serve
 from tests.paper.test_serve import request, server
+from tests.helpers import refused
 
 OP = "paper-web:12345678-1234-4234-8234-123456789abc"
 ROW = {"paper_id": 8, "symbols": ["BTCUSDT"], "image_ref": "original@sha256:" + "a" * 64,
@@ -36,11 +36,10 @@ class StartIdentityTests(unittest.TestCase):
         with mock.patch.object(db, "connect", connection), mock.patch.object(records, "paper_start_of", return_value=ROW):
             for candidate, symbols, leverage in [("b@1", ["BTCUSDT"], "3"), ("a@1", ["ETHUSDT"], "3"),
                                                  ("a@1", ["BTCUSDT"], "5")]:
-                with self.subTest(candidate=candidate, symbols=symbols, leverage=leverage), \
-                        self.assertRaises(Refusal) as caught:
-                    runs.start.__wrapped__(mock.Mock(), {}, None, candidate, symbols, None, op_id=OP, research=mock.Mock(),
-                                           leverage=leverage)
-                self.assertEqual(caught.exception.code, "OP_ID_CONFLICT")
+                with self.subTest(candidate=candidate, symbols=symbols, leverage=leverage):
+                    caught = refused(runs.start.__wrapped__, mock.Mock(), {}, None, candidate, symbols, None, op_id=OP,
+                                     research=mock.Mock(), leverage=leverage)
+                self.assertEqual(caught.code, "OP_ID_CONFLICT")
 
     def test_http_retry_precedes_mutable_default_selection(self):
         daemon = serve.Daemon.__new__(serve.Daemon)

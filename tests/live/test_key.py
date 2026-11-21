@@ -11,6 +11,7 @@ import urllib.error
 
 from engine.live_errors import LiveRefusal
 from live import key, state
+from tests.helpers import refused
 
 ALLOWED = {"enableWithdrawals": False, "ipRestrict": True, "enableFutures": True}
 
@@ -36,9 +37,8 @@ class KeyLimitsTests(unittest.TestCase):
             return key.require_limits(self.credentials, "live")
 
     def refused(self, answer):
-        with self.assertRaises(LiveRefusal) as caught:
-            self.limits(answer)
-        return caught.exception
+        caught = refused(self.limits, answer, error=LiveRefusal)
+        return caught
 
     def test_a_demo_key_is_not_read(self):
         """Binance Demo Trading serves no apiRestrictions (404, probed 2026-11-21) and its keys reach no real funds."""

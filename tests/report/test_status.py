@@ -27,6 +27,7 @@ from tests.ledger.dolt import MARKET_DAYS, BINARY, IDENTITY, MARKET_DAY, RUNTIME
 from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture, config
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
+from tests.helpers import refused
 
 
 def capture(native_exit=1, outcome="completed", summary="missing", failures="missing") -> dict:
@@ -95,14 +96,11 @@ class UndistinguishedRunsTests(unittest.TestCase):
         self.assertEqual(len(asked), register.REVIEW_EVERY)
         # CF-10 (user authority 2026-11-11): an outage is no run without a comparison; the read refuses at once.
         outage = {trial_id: Refusal("LEDGER_UNAVAILABLE", "stand-in", write_status="not_written") for trial_id in range(1, 9)}
-        with self.assertRaises(Refusal) as refused:
-            self.read(outage)
-        self.assertEqual(refused.exception.code, "LEDGER_UNAVAILABLE")
+        self.assertEqual(refused(self.read, outage).code, "LEDGER_UNAVAILABLE")
         market = Refusal("MARKET_RETURNS_UNAVAILABLE", "stand-in", write_status="not_written")
         market.__cause__ = Refusal("MARKET_UNREACHABLE", "stand-in", write_status="not_written")
-        with self.assertRaises(Refusal) as refused:
-            self.read({1: self.CROSSING, 2: market})
-        self.assertEqual(refused.exception.code, "MARKET_UNREACHABLE", "a market outage under a returns refusal")
+        caught = refused(self.read, {1: self.CROSSING, 2: market})
+        self.assertEqual(caught.code, "MARKET_UNREACHABLE", "a market outage under a returns refusal")
 
 
 class StoppedBeforeStrategyTests(unittest.TestCase):
@@ -146,9 +144,9 @@ class UnresolvedMarketTests(unittest.TestCase):
             self.assertEqual(seams._market_profile(None), local)
             Path(home, "market.json").write_text(json.dumps({**local, "kind": "isolated"}), encoding="utf-8")
             for name in (None, "absent"):
-                with self.subTest(name=name), self.assertRaises(Refusal) as caught:
-                    seams._market_profile(name)
-                self.assertEqual(caught.exception.code, "MARKET_RETURNS_UNAVAILABLE")
+                with self.subTest(name=name):
+                    caught = refused(seams._market_profile, name)
+                self.assertEqual(caught.code, "MARKET_RETURNS_UNAVAILABLE")
 
     def test_the_default_seam_tells_an_unknown_market_day_from_an_unreadable_market(self):
         from datetime import date
@@ -524,10 +522,10 @@ class SameKeyLineCandidatesTests(unittest.TestCase):
         world = self.world
         compared = lambda line, at: status.compared_candidates(world.profile, line, at)
         head = db.head_commit(world.conn)
-        with self.assertRaises(Refusal) as caught:
-            judgments.add_judgment(world.profile, "recommendation", self.started, head, "the start left out",
-                                   subjects=[{"role": "recommended", "candidate": self.follows}], compared=compared)
-        self.assertEqual((caught.exception.code, caught.exception.missing), ("RECOMMENDATION_INCOMPLETE", (self.mine,)))
+        caught = refused(judgments.add_judgment, world.profile, "recommendation", self.started, head,
+                         "the start left out", subjects=[{"role": "recommended", "candidate": self.follows}],
+                         compared=compared)
+        self.assertEqual((caught.code, caught.missing), ("RECOMMENDATION_INCOMPLETE", (self.mine,)))
         judgments.add_judgment(world.profile, "recommendation", self.other, head, "names its own alone",
                                subjects=[{"role": "recommended", "candidate": self.theirs}], compared=compared)
 
@@ -599,11 +597,10 @@ class ExecutionIdentityTests(unittest.TestCase):
         self.assertEqual(status.compared_candidates(world.profile, world.line["line"], self.before), sorted(self.refs))
         self.assertEqual(status.compared_candidates(world.profile, world.line["line"], self.selected), [],
                          "a line without a trial of its own has no identity yet")
-        with self.assertRaises(Refusal) as caught:
-            judgments.add_judgment(world.profile, "recommendation", world.line["line"], self.before, "old image",
-                                   subjects=[{"role": "recommended", "candidate": self.third}],
-                                   compared=lambda line, at: status.compared_candidates(world.profile, line, at))
-        self.assertEqual((caught.exception.code, caught.exception.missing),
+        caught = refused(judgments.add_judgment, world.profile, "recommendation", world.line["line"], self.before,
+                         "old image", subjects=[{"role": "recommended", "candidate": self.third}],
+                         compared=lambda line, at: status.compared_candidates(world.profile, line, at))
+        self.assertEqual((caught.code, caught.missing),
                          ("RECOMMENDATION_INCOMPLETE", tuple(sorted(self.refs))))
 
     def test_c_the_unreviewed_trials_are_those_of_the_lines_identity_and_the_count_keeps_every_one(self):

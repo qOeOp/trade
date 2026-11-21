@@ -6,9 +6,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from decimal import Decimal
-from pathlib import Path
 import shutil
-import tempfile
 import unittest
 from unittest import mock
 
@@ -16,9 +14,9 @@ import numpy as np
 import pyarrow as pa
 
 from market import coverage, export, instrument, read, series, sources, store, universe
-from shared.errors import Refusal
 from shared import clock
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving
+from tests.helpers import assert_refused, tempdir
 
 
 T0 = day_ms(date(2025, 3, 1))
@@ -36,18 +34,9 @@ def bars(rows):
     return {name: np.array([row[i] for row in rows], np.int64) for i, name in enumerate(series.COLUMNS)}
 
 
-class Refusals(unittest.TestCase):
-    def refused(self, code: str, call, *args, **kwargs):
-        with self.assertRaises(Refusal) as caught:
-            call(*args, **kwargs)
-        self.assertEqual(caught.exception.code, code, caught.exception.message)
-        return caught.exception
-
-
-class SourceTests(Refusals):
+class SourceTests(unittest.TestCase):
     def setUp(self):
-        self.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
-        self.addCleanup(shutil.rmtree, self.cache, True)
+        self.cache = tempdir(self.addCleanup, prefix="market-cache-")
         self.exchange = Exchange(server_time=T0)
         self.exchange.contract("BTCUSDT")
         self.exchange.klines("monthly", "LAST", "BTCUSDT", "2025-03", minutes(T0, T0 + 3 * MINUTE))
@@ -74,16 +63,19 @@ class SourceTests(Refusals):
 
         with mock.patch.object(sources, "_get", wrong_checksum):
             shutil.rmtree(self.cache / sources.UM)
-            self.refused("CHECKSUM_MISMATCH", sources.fetch_archive, self.cache, key)
+            assert_refused(self, "CHECKSUM_MISMATCH", sources.fetch_archive, self.cache, key)
         self.assertFalse((self.cache / key).exists())
 
     def test_unpublished_and_unreachable_sources_are_coded(self):
-        self.refused("ARCHIVE_NOT_PUBLISHED", sources.fetch_archive, self.cache, f"{sources.UM}/monthly/x.zip")
+        assert_refused(self, "ARCHIVE_NOT_PUBLISHED", sources.fetch_archive, self.cache, f"{sources.UM}/monthly/x.zip")
         found = sources.monthly_archives(self.cache, "klines", "BTCUSDT", "1m", ["2025-02", "2025-03"])
         self.assertEqual(list(found), ["2025-03"])
-        self.refused("SOURCE_SHAPE", sources.monthly_archives, self.cache, "fundingRate", "BTCUSDT", "1m", ["2025-03"])
-        self.refused("SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTC/USDT", "1m", ["2025-03"])
-        self.refused("SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTCUSDT", "1m", ["2025-3"])
+        assert_refused(self, "SOURCE_SHAPE", sources.monthly_archives, self.cache, "fundingRate", "BTCUSDT", "1m",
+                       ["2025-03"])
+        assert_refused(self, "SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTC/USDT", "1m",
+                       ["2025-03"])
+        assert_refused(self, "SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTCUSDT", "1m",
+                       ["2025-3"])
 
     def test_a_listing_entry_without_a_key_refuses(self):
         months = ["2024-12", "2025-01", "2025-02", "2025-03"]  # more than three: found by one listing
@@ -94,11 +86,12 @@ class SourceTests(Refusals):
                         "<CommonPrefixes></CommonPrefixes>", "<CommonPrefixes><Prefix/></CommonPrefixes>"):
             with self.subTest(entries=entries), mock.patch.object(sources, "_get", lambda url, e=entries, **_:
                                                                   root.format(e).encode()):
-                self.refused("SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTCUSDT", "1m", months)
-                self.refused("SOURCE_SHAPE", sources.archive_symbols)
+                assert_refused(self, "SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTCUSDT", "1m",
+                               months)
+                assert_refused(self, "SOURCE_SHAPE", sources.archive_symbols)
         truncated = root.replace("false", "true").format("")
         with mock.patch.object(sources, "_get", lambda url, **_: truncated.encode()):
-            self.refused("SOURCE_SHAPE", sources.archive_symbols)
+            assert_refused(self, "SOURCE_SHAPE", sources.archive_symbols)
 
     def test_http_answers_map_to_their_codes(self):
         """Through the real request path: 400 with Binance -1121 is an unknown contract, another 400 a
@@ -125,7 +118,7 @@ class SourceTests(Refusals):
         for code, answer in cases:
             with self.subTest(code=code), mock.patch.object(sources, "_connection", lambda host, a=answer: Connection(a)), \
                     mock.patch.object(sources.time, "sleep", lambda seconds: None):
-                self.refused(code, REAL_GET, f"{sources.REST}/fapi/v1/klines?symbol=X")
+                assert_refused(self, code, REAL_GET, f"{sources.REST}/fapi/v1/klines?symbol=X")
 
     def test_a_400_without_a_json_body_quotes_its_text(self):
         refused = sources._bad_request("https://x/fapi/v1/klines", b"<html>Bad Request</html>")
@@ -139,13 +132,13 @@ class SourceTests(Refusals):
         self.assertEqual([row[0] for row in found], [row[0] for row in rows[:3500]])  # three pages
         self.assertEqual(sources.rest_klines("LAST", "BTCUSDT", "1m", T0, T0 + 10 * MINUTE, now_ms=T0 + 5 * MINUTE)[-1][0],
                          T0 + 4 * MINUTE)  # the minute still open at `now` is not returned
-        self.refused("SOURCE_SHAPE", sources.rest_klines, "LAST", "BTCUSDT", "1m", T0 + 1, T0 + MINUTE)
-        self.refused("SOURCE_SHAPE", sources.rest_klines, "LAST", "BTCUSDT", "3m", T0, T0 + MINUTE)
-        self.refused("SOURCE_UNKNOWN_SYMBOL", sources.rest_klines, "MARK", "GONEUSDT", "1m", T0, T0 + MINUTE)
+        assert_refused(self, "SOURCE_SHAPE", sources.rest_klines, "LAST", "BTCUSDT", "1m", T0 + 1, T0 + MINUTE)
+        assert_refused(self, "SOURCE_SHAPE", sources.rest_klines, "LAST", "BTCUSDT", "3m", T0, T0 + MINUTE)
+        assert_refused(self, "SOURCE_UNKNOWN_SYMBOL", sources.rest_klines, "MARK", "GONEUSDT", "1m", T0, T0 + MINUTE)
         self.exchange.funding["BTCUSDT"] = [(T0 + k * 8 * 3_600_000 + 3, "0.0001") for k in range(1500)]
         funding = sources.rest_funding("BTCUSDT", T0, T0 + 1200 * 8 * 3_600_000)
         self.assertEqual((len(funding), funding[0]), (1200, (T0 + 3, "0.0001")))
-        self.refused("SOURCE_SHAPE", sources.rest_funding, "BTCUSDT", T0, T0)
+        assert_refused(self, "SOURCE_SHAPE", sources.rest_funding, "BTCUSDT", T0, T0)
 
     def test_exchange_info_terms_are_verbatim_and_complete(self):
         observed, listed = sources.rest_exchange_info()
@@ -155,15 +148,14 @@ class SourceTests(Refusals):
                          {"symbol": "BTCUSDT", "price_increment": "0.01", "size_increment": "0.001",
                           "contract_type": "PERPETUAL", "underlying_type": "COIN"})
         del self.exchange.info[0]["filters"]
-        self.refused("SOURCE_SHAPE", sources.rest_exchange_info)
+        assert_refused(self, "SOURCE_SHAPE", sources.rest_exchange_info)
 
 
-class StitchTests(Refusals):
+class StitchTests(unittest.TestCase):
     """Monthly, then daily archives, then public REST, one series without a visible seam."""
 
     def setUp(self):
-        self.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
-        self.addCleanup(shutil.rmtree, self.cache, True)
+        self.cache = tempdir(self.addCleanup, prefix="market-cache-")
         self.exchange = Exchange(server_time=T0)
         self.exchange.contract("BTCUSDT")
         context = serving(self.exchange)
@@ -203,8 +195,8 @@ class StitchTests(Refusals):
         self.exchange.klines("monthly", "LAST", "GONEUSDT", "2025-03", minutes(T0, T0 + 10 * MINUTE))
         table, gaps, _ = series.stitch_series(self.cache, "GONEUSDT", "LAST", T0, T0 + DAY, False, False)
         self.assertEqual((table.num_rows, gaps), (10, []))
-        self.refused("SOURCE_UNKNOWN_SYMBOL", series.stitch_series, self.cache, "GONEUSDT", "LAST", T0, T0 + DAY,
-                     True, True)
+        assert_refused(self, "SOURCE_UNKNOWN_SYMBOL", series.stitch_series, self.cache, "GONEUSDT", "LAST", T0,
+                       T0 + DAY, True, True)
 
     def test_conflicting_or_unclosed_minutes_and_unknown_price_types_refuse(self):
         first = klines([(T0, "1.0", "1.0", "1.0", "1.0", "5"), (T0 + MINUTE, "2", "2", "2", "2", "0")])
@@ -212,19 +204,18 @@ class StitchTests(Refusals):
         merged = series._merge([tagged, series._tagged(first.slice(1), 1)], 0, 1 << 62, "X")
         self.assertEqual(merged["open_time"].to_pylist(), [T0, T0 + MINUTE])
         conflict = klines([(T0 + MINUTE, "2", "3", "2", "2", "0")])
-        self.refused("SOURCE_CONFLICT", series._merge, [tagged, series._tagged(conflict, 2)], 0, 1 << 62, "X")
+        assert_refused(self, "SOURCE_CONFLICT", series._merge, [tagged, series._tagged(conflict, 2)], 0, 1 << 62, "X")
         unclosed = first.set_column(6, "close_time", pa.array([T0 + 5 * MINUTE - 1, T0 + 2 * MINUTE - 1], pa.int64()))
-        self.refused("SOURCE_SHAPE", series._merge, [series._tagged(unclosed, 0)], 0, 1 << 62, "X")
-        self.refused("PRICE_TYPE_UNKNOWN", series.stitch_series, self.cache, "BTCUSDT", "INDEX", T0, T0 + DAY, False,
-                     True)
+        assert_refused(self, "SOURCE_SHAPE", series._merge, [series._tagged(unclosed, 0)], 0, 1 << 62, "X")
+        assert_refused(self, "PRICE_TYPE_UNKNOWN", series.stitch_series, self.cache, "BTCUSDT", "INDEX", T0, T0 + DAY,
+                       False, True)
 
 
-class ShapeTests(Refusals):
+class ShapeTests(unittest.TestCase):
     """An archive row outside its own period or off the minute grid refuses before any trimming."""
 
     def setUp(self):
-        self.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
-        self.addCleanup(shutil.rmtree, self.cache, True)
+        self.cache = tempdir(self.addCleanup, prefix="market-cache-")
         self.exchange = Exchange(server_time=T0)
         context = serving(self.exchange)
         context.__enter__()
@@ -233,28 +224,30 @@ class ShapeTests(Refusals):
     def test_microsecond_rows_refuse(self):
         rows = [(r[0] * 1000, *r[1:6], r[6] * 1000 + 999, r[7]) for r in minutes(T0, T0 + 10 * MINUTE)]
         self.exchange.klines("monthly", "LAST", "OLDUSDT", "2025-03", rows)
-        self.refused("SOURCE_SHAPE", series.stitch_series, self.cache, "OLDUSDT", "LAST", T0, T0 + DAY, False, False)
+        assert_refused(self, "SOURCE_SHAPE", series.stitch_series, self.cache, "OLDUSDT", "LAST", T0, T0 + DAY, False,
+                       False)
 
     def test_rows_of_another_period_refuse(self):
         self.exchange.klines("monthly", "LAST", "OLDUSDT", "2025-03", minutes(T0 - 5 * MINUTE, T0 + 5 * MINUTE))
-        self.refused("SOURCE_SHAPE", series.stitch_series, self.cache, "OLDUSDT", "LAST", T0, T0 + DAY, False, False)
+        assert_refused(self, "SOURCE_SHAPE", series.stitch_series, self.cache, "OLDUSDT", "LAST", T0, T0 + DAY, False,
+                       False)
         self.exchange.klines("daily", "LAST", "NEWUSDT", "2025-03-02", minutes(T0, T0 + 5 * MINUTE))  # day 1's rows
-        self.refused("SOURCE_SHAPE", series.stitch_series, self.cache, "NEWUSDT", "LAST", T0, T0 + 2 * DAY, False, True)
+        assert_refused(self, "SOURCE_SHAPE", series.stitch_series, self.cache, "NEWUSDT", "LAST", T0, T0 + 2 * DAY,
+                       False, True)
 
     def test_duplicates_agree_by_value_at_the_stored_scale(self):
         first = series._tagged(klines([(T0, "1.50", "1.5", "1.5", "1.5", "2.0")]), 0)
         same = series._tagged(klines([(T0, "1.5", "1.50000000", "1.5", "1.5", "2")]), 2)
         self.assertEqual(series._merge([first, same], 0, 1 << 62, "X").num_rows, 1)
         other = series._tagged(klines([(T0, "1.5", "1.5", "1.5", "1.50000001", "2")]), 2)
-        self.refused("SOURCE_CONFLICT", series._merge, [first, other], 0, 1 << 62, "X")
+        assert_refused(self, "SOURCE_CONFLICT", series._merge, [first, other], 0, 1 << 62, "X")
 
 
-class FundingSlotTests(Refusals):
+class FundingSlotTests(unittest.TestCase):
     """One settlement per hour slot across sources: equal rates are one row, different ones conflict."""
 
     def setUp(self):
-        self.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
-        self.addCleanup(shutil.rmtree, self.cache, True)
+        self.cache = tempdir(self.addCleanup, prefix="market-cache-")
         self.exchange = Exchange(server_time=T0)
         self.exchange.contract("BTCUSDT")
         context = serving(self.exchange)
@@ -276,9 +269,9 @@ class FundingSlotTests(Refusals):
 
     def test_one_slot_with_two_rates_conflicts(self):
         self.settle("0.0002")
-        self.refused("SOURCE_CONFLICT", store.funding, self.cache, "BTCUSDT", self.feb, T0 + DAY, trading=True)
+        assert_refused(self, "SOURCE_CONFLICT", store.funding, self.cache, "BTCUSDT", self.feb, T0 + DAY, trading=True)
         self.exchange.funding_month("ETHUSDT", "2025-03", [(T0 + 3, "0.0001"), (T0 + 600_000, "0.0001")])
-        self.refused("SOURCE_SHAPE", store.funding, self.cache, "ETHUSDT", T0, T0 + DAY, trading=True)
+        assert_refused(self, "SOURCE_SHAPE", store.funding, self.cache, "ETHUSDT", T0, T0 + DAY, trading=True)
 
 
 class FundingSpacingTests(unittest.TestCase):
@@ -296,7 +289,7 @@ class FundingSpacingTests(unittest.TestCase):
         self.assertEqual(coverage.funding_spacing([T0]), {"spacing": [], "missing_settlements": []})
 
 
-class GapTests(Refusals):
+class GapTests(unittest.TestCase):
     def test_missing_intervals_are_half_open_and_zero_volume_is_not_a_gap(self):
         times = np.array([T0, T0 + MINUTE, T0 + 4 * MINUTE])
         facts = series.missing_intervals(times, T0, T0 + 6 * MINUTE, MINUTE, np.array([0, 3, 0]))
@@ -304,11 +297,11 @@ class GapTests(Refusals):
                                  "missing_count": 3, "present_count": 3, "first_ms": T0, "last_ms": T0 + 4 * MINUTE,
                                  "zero_volume_count": 2})
         self.assertEqual(series.missing_intervals(times, T0, T0, MINUTE)["intervals"], [])
-        self.refused("GRID_MISALIGNED", series.missing_intervals, np.array([T0, T0 + 1]), T0, T0 + DAY, MINUTE)
-        self.refused("GRID_MISALIGNED", series.missing_intervals, times, T0, T0 + DAY, MINUTE, np.array([1]))
+        assert_refused(self, "GRID_MISALIGNED", series.missing_intervals, np.array([T0, T0 + 1]), T0, T0 + DAY, MINUTE)
+        assert_refused(self, "GRID_MISALIGNED", series.missing_intervals, times, T0, T0 + DAY, MINUTE, np.array([1]))
 
 
-class DerivationTests(Refusals):
+class DerivationTests(unittest.TestCase):
     def test_open_high_low_skip_untraded_minutes(self):
         derived = series.derive_bars(bars([(T0, 1878, 1878, 1878, 1878, 0), (T0 + MINUTE, 1877, 1880, 1876, 1879, 10),
                                            (T0 + 2 * MINUTE, 1879, 1879, 1879, 1879, 0),
@@ -325,9 +318,11 @@ class DerivationTests(Refusals):
         self.assertEqual((days["ts_open"].tolist(), days["close"].tolist()), ([T0 - DAY, T0, T0 + 3 * DAY], [1, 2, 3]))
 
     def test_derivation_refuses_unsorted_input_and_overflow(self):
-        self.refused("GRID_MISALIGNED", series.derive_bars, bars([(T0 + MINUTE, 1, 1, 1, 1, 1), (T0, 1, 1, 1, 1, 1)]))
+        assert_refused(self, "GRID_MISALIGNED", series.derive_bars,
+                       bars([(T0 + MINUTE, 1, 1, 1, 1, 1), (T0, 1, 1, 1, 1, 1)]))
         big = np.iinfo(np.int64).max // 2 + 1
-        self.refused("VOLUME_OVERFLOW", series.derive_bars, bars([(T0, 1, 1, 1, 1, big), (T0 + MINUTE, 1, 1, 1, 1, big)]))
+        assert_refused(self, "VOLUME_OVERFLOW", series.derive_bars,
+                       bars([(T0, 1, 1, 1, 1, big), (T0 + MINUTE, 1, 1, 1, 1, big)]))
 
     def test_the_check_against_native_bars_reports_findings_without_changing_either(self):
         derived = bars([(T0, 100_000_000, 120_000_000, 90_000_000, 110_000_000, 50_000),
@@ -341,31 +336,32 @@ class DerivationTests(Refusals):
                          {"ts_open": T0, "kind": "value_mismatch", "field": "open", "derived_value": 100_000_000,
                           "native_value": 100_000_001})
         self.assertEqual(derived["open"][0], 100_000_000)  # neither side is changed
-        self.refused("GRID_MISALIGNED", series.check_derived, bars([(T0 + MINUTE, 1, 1, 1, 1, 1)]), native, 2, 3)
+        assert_refused(self, "GRID_MISALIGNED", series.check_derived, bars([(T0 + MINUTE, 1, 1, 1, 1, 1)]), native, 2,
+                       3)
 
 
-class ScalingTests(Refusals):
+class ScalingTests(unittest.TestCase):
     def test_exact_scaling_and_float_tails(self):
         values, rounded = store.scaled(pa.array(["0.1878", "126208.5", "0"]), 8, "p")
         self.assertEqual((values.tolist(), rounded), ([18_780_000, 12_620_850_000_000, 0], 0))
         values, rounded = store.scaled(pa.array(["108824285.69999999", "12.5"]), 4, "v", float_tails=True)
         self.assertEqual((values.tolist(), rounded), ([1_088_242_857_000, 125_000], 1))
-        self.refused("SCALE_LOSS", store.scaled, pa.array(["0.123456789"]), 8, "p")
-        self.refused("SCALE_LOSS", store.scaled, pa.array(["12.34567"]), 4, "v", float_tails=True)
+        assert_refused(self, "SCALE_LOSS", store.scaled, pa.array(["0.123456789"]), 8, "p")
+        assert_refused(self, "SCALE_LOSS", store.scaled, pa.array(["12.34567"]), 4, "v", float_tails=True)
         values, rounded = store.scaled(pa.array([repr(0.1 + 0.2)]), 4, "v", float_tails=True)
         self.assertEqual((values.tolist(), rounded), ([3_000], 1), "float arithmetic residue is a float tail")
         # a real fifth decimal of a large volume is not a float tail
-        self.refused("SCALE_LOSS", store.scaled, pa.array(["20000000.00001"]), 4, "v", float_tails=True)
-        self.refused("SCALE_RANGE", store.scaled, pa.array(["1000000000000000"]), 8, "v")
+        assert_refused(self, "SCALE_LOSS", store.scaled, pa.array(["20000000.00001"]), 4, "v", float_tails=True)
+        assert_refused(self, "SCALE_RANGE", store.scaled, pa.array(["1000000000000000"]), 8, "v")
         self.assertEqual(store.significant_decimals(pa.array(["0.0010000", "12", "3.25"])), 3)
 
     def test_inconsistent_bars_and_mark_volumes_refuse(self):
-        self.refused("SOURCE_SHAPE", store.bar_rows, klines([(T0, "2", "1.5", "1", "1.5", "0")]), "X", "LAST")
-        self.refused("SOURCE_SHAPE", store.bar_rows, klines([(T0, "1", "1", "1", "1", "3")]), "X", "MARK")
+        assert_refused(self, "SOURCE_SHAPE", store.bar_rows, klines([(T0, "2", "1.5", "1", "1.5", "0")]), "X", "LAST")
+        assert_refused(self, "SOURCE_SHAPE", store.bar_rows, klines([(T0, "1", "1", "1", "1", "3")]), "X", "MARK")
         self.assertEqual(store.bar_rows(klines([(T0, "1", "1", "1", "1", "0")]), "X", "MARK")[0]["volume"].tolist(), [0])
 
 
-class UniverseTests(Refusals):
+class UniverseTests(unittest.TestCase):
 
     def test_classification_reasons(self):
         def item(symbol, contract_type="PERPETUAL", underlying="COIN", base=None):
@@ -381,8 +377,8 @@ class UniverseTests(Refusals):
             with self.subTest(symbol=symbol):
                 found = universe.classify_contract(symbol, given)
                 self.assertEqual((found["eligible"], found["reason"]), (reason is None, reason))
-        self.refused("EXCHANGE_INFO_MALFORMED", universe.classify_contract, "BTCUSDT", item("ETHUSDT"))
-        self.refused("EXCHANGE_INFO_MALFORMED", universe.classify_contract, "BTCUSDT", {"symbol": "BTCUSDT"})
+        assert_refused(self, "EXCHANGE_INFO_MALFORMED", universe.classify_contract, "BTCUSDT", item("ETHUSDT"))
+        assert_refused(self, "EXCHANGE_INFO_MALFORMED", universe.classify_contract, "BTCUSDT", {"symbol": "BTCUSDT"})
 
     @staticmethod
     def days(first: date, last: date) -> set[date]:
@@ -400,7 +396,7 @@ class UniverseTests(Refusals):
         self.assertEqual(universe.monthly_universe(classes, trading, date(2021, 5, 1)), ["GONEUSDT", "OLDUSDT"])
         self.assertEqual(universe.monthly_universe(classes, trading, date(2021, 6, 1)),
                          ["NEWUSDT", "OLDUSDT", "RELISTUSDT"])
-        self.refused("MONTH_NOT_FIRST_DAY", universe.monthly_universe, classes, trading, date(2021, 5, 2))
+        assert_refused(self, "MONTH_NOT_FIRST_DAY", universe.monthly_universe, classes, trading, date(2021, 5, 2))
 
     def test_member_months_merge_into_intervals(self):
         paths = universe.merge_months([(date(2025, 12, 1), "A"), (date(2026, 1, 1), "A"), (date(2026, 3, 1), "A"),
@@ -412,14 +408,14 @@ class UniverseTests(Refusals):
         self.assertEqual(ns(date(1970, 2, 1)), 31 * 86_400 * 10**9)
 
 
-class NativeTests(Refusals):
+class NativeTests(unittest.TestCase):
     def test_native_names_number_episodes_and_spell_non_ascii_coins(self):
         self.assertEqual(export.native_symbol("BTCUSDT"), "BTCUSDT-PERP.BINANCE")
         self.assertEqual(export.native_symbol("1000PEPEUSDT", 2), "1000PEPEUSDT-E2-PERP.BINANCE")
         self.assertEqual(export.native_symbol("币安人生USDT"), "XE5B881E5AE89E4BABAE7949FUSDT-PERP.BINANCE")
-        self.refused("SYMBOL_SHAPE", export.native_symbol, "BTC-USDT")
-        self.refused("SYMBOL_SHAPE", export.native_symbol, "ETHBTC")
-        self.refused("EPISODE_INDEX", export.native_symbol, "BTCUSDT", 0)
+        assert_refused(self, "SYMBOL_SHAPE", export.native_symbol, "BTC-USDT")
+        assert_refused(self, "SYMBOL_SHAPE", export.native_symbol, "ETHBTC")
+        assert_refused(self, "EPISODE_INDEX", export.native_symbol, "BTCUSDT", 0)
 
     def test_episodes_split_a_reused_ticker_and_drop_half_minutes(self):
         def status(iid, action, at):
@@ -437,14 +433,13 @@ class NativeTests(Refusals):
                           for piece in pieces], [(1, "episode-1", 10, 1), (2, "episode-2", 10, 1)])
         single = export.split_episodes("AIAUSDT", None, raw, 0, 1)
         self.assertEqual((single[0]["catalog_dir"], single[0]["instrument_id"]), ("", "AIAUSDT-PERP.BINANCE"))
-        self.refused("EPISODE_SHAPE", export.split_episodes, "AIAUSDT", [{**episodes[0], "instrument_id": second}],
-                     raw, 0, 1)
+        assert_refused(self, "EPISODE_SHAPE", export.split_episodes, "AIAUSDT",
+                       [{**episodes[0], "instrument_id": second}], raw, 0, 1)
 
 
-class WriterTests(Refusals):
+class WriterTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="market-writers-"))
-        self.addCleanup(shutil.rmtree, self.root, True)
+        self.root = tempdir(self.addCleanup, prefix="market-writers-")
 
     def test_writers_refuse_unsorted_or_inexact_data(self):
         from nautilus_trader.model import InstrumentId
@@ -454,17 +449,17 @@ class WriterTests(Refusals):
         backwards = bars([(T0 + MINUTE, 100, 100, 100, 100, 1), (T0, 100, 100, 100, 100, 1)])
         fine = bars([(T0, 1_000_000_000, 1_000_000_000, 1_000_000_000, 1_000_000_000, 10_000)])
         bar_type = f"{iid}-1-MINUTE-LAST-EXTERNAL"
-        self.refused("SERIES_UNSORTED", export.write_bars, catalog, bar_type, backwards, MINUTE, 2, 3)
-        self.refused("EXPORT_INEXACT", export.write_bars, catalog, bar_type,
-                     bars([(T0, 123_456_789, 123_456_789, 123_456_789, 123_456_789, 1)]), MINUTE, 2, 3)
+        assert_refused(self, "SERIES_UNSORTED", export.write_bars, catalog, bar_type, backwards, MINUTE, 2, 3)
+        assert_refused(self, "EXPORT_INEXACT", export.write_bars, catalog, bar_type,
+                       bars([(T0, 123_456_789, 123_456_789, 123_456_789, 123_456_789, 1)]), MINUTE, 2, 3)
         self.assertEqual(export.write_bars(catalog, bar_type, fine, MINUTE, 2, 3), 1)
-        self.refused("SERIES_UNSORTED", export.write_marks, catalog, iid, backwards, MINUTE, 8)
-        self.refused("EXPORT_INEXACT", export.write_marks, catalog, iid,
-                     bars([(T0, 1, 1, 1, 123_456_789, 0)]), MINUTE, 2)
-        self.refused("SERIES_UNSORTED", export.write_funding, self.root, str(iid),
-                     [(T0, Decimal("0.0001")), (T0, Decimal("0.0001"))])
-        self.refused("FUNDING_RATE_SHAPE", export.write_funding, self.root, str(iid), [(T0, "x")])
-        self.refused("FUNDING_RATE_SHAPE", export.write_funding, self.root, str(iid), [(T0, Decimal("NaN"))])
+        assert_refused(self, "SERIES_UNSORTED", export.write_marks, catalog, iid, backwards, MINUTE, 8)
+        assert_refused(self, "EXPORT_INEXACT", export.write_marks, catalog, iid, bars([(T0, 1, 1, 1, 123_456_789, 0)]),
+                       MINUTE, 2)
+        assert_refused(self, "SERIES_UNSORTED", export.write_funding, self.root, str(iid),
+                       [(T0, Decimal("0.0001")), (T0, Decimal("0.0001"))])
+        assert_refused(self, "FUNDING_RATE_SHAPE", export.write_funding, self.root, str(iid), [(T0, "x")])
+        assert_refused(self, "FUNDING_RATE_SHAPE", export.write_funding, self.root, str(iid), [(T0, Decimal("NaN"))])
         self.assertEqual(export.write_funding(self.root, str(iid), []), 0)
 
     def test_instruments_take_terms_widen_precision_only_and_settle_in_usdt(self):
@@ -480,14 +475,14 @@ class WriterTests(Refusals):
         # 2021 BTCUSDT prices sit on the 0.01 grid: same decimals as the current 0.10, a different grid
         self.assertEqual(build(2, on_grid=False), ("0.01", 2, True))
         self.assertEqual(build(2, on_grid=False, price_increment="0.01"), ("0.01", 2, False))
-        self.refused("PRECISION_NARROWED", build, 0)
+        assert_refused(self, "PRECISION_NARROWED", build, 0)
         # Binance writes a tick at the display precision: 0.0001000 is 0.0001, whose four decimals bound the precision
         self.assertEqual(build(7, price_increment="0.0001000"), ("0.0001000", 7, False))
         self.assertEqual(build(4, on_grid=False, price_increment="0.0001000"), ("0.0001", 4, False))
-        self.refused("PRECISION_NARROWED", build, 3, price_increment="0.0001000")
-        self.refused("TERMS_INVALID", build, 2, price_increment="0")
-        self.refused("TERMS_INVALID", build, 2, min_price="9999999")
-        self.refused("UNSUPPORTED_QUOTE", build, 2, symbol="BTCUSDC")
+        assert_refused(self, "PRECISION_NARROWED", build, 3, price_increment="0.0001000")
+        assert_refused(self, "TERMS_INVALID", build, 2, price_increment="0")
+        assert_refused(self, "TERMS_INVALID", build, 2, min_price="9999999")
+        assert_refused(self, "UNSUPPORTED_QUOTE", build, 2, symbol="BTCUSDC")
 
     def test_a_tick_written_with_trailing_zeros_widens_to_the_prices_decimals_off_its_grid(self):
         # 币安人生USDT: exchangeInfo ticks '0.0001000' since 2026-06-10; its history before trades on 0.00001

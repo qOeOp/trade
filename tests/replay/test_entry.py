@@ -23,7 +23,7 @@ from tests.ledger.dolt import BINARY, IDENTITY, MARKET_DAY, SKIP, source
 from tests.registration.world import LINE_WINDOW, RUNNER_ARGV
 from tests.replay.world import DEFAULT_FINGERPRINT, ReplayWorld, inspect, registered_grid
 from tests.runtime.test_image import FILES, branch_build, build_inspection, lock
-from tests.helpers import refused
+from tests.helpers import refused, tempdir
 
 
 ONE = RUNNER_ARGV + ["--symbols", "AAAUSDT"]
@@ -38,8 +38,7 @@ class ProblemTests(unittest.TestCase):
     """Invalidity reasons come from exit codes, files and structured fields, each listed on its own."""
 
     def directory(self, audit=None, failures: str | None = None) -> Path:
-        root = Path(tempfile.mkdtemp())
-        self.addCleanup(__import__("shutil").rmtree, root, True)
+        root = tempdir(self.addCleanup)
         (root / "audit").mkdir()
         (root / "reports").mkdir()
         if audit is not None:
@@ -89,8 +88,7 @@ class ExecutionBindingTests(unittest.TestCase):
 
     def test_the_runner_accepts_the_binding_the_entry_writes_from_its_probe(self):
         from engine import config as engine_config, run as engine_run
-        workdir = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, workdir, True)
+        workdir = tempdir(self.addCleanup)
         (workdir / entry.SOURCE).mkdir()
         argv = ["--market-root", "/inputs/market", "--market-day", "c" * 32, "--symbols", "AAAUSDT",
                 "--start", "2026-01-01T00:00:00Z", "--end", "2026-01-02T00:00:00Z"]
@@ -156,9 +154,9 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                  ({"output": existing}, "PATH_EXISTS"),
                  ({"strategy_class": "Not A Class"}, "ENTRY_CLASS_INVALID")]
         for overrides, code in cases:
-            with self.subTest(code=code), self.assertRaises(Refusal) as caught:
-                self.explore("refused", **overrides)
-            self.assertEqual(caught.exception.code, code)
+            with self.subTest(code=code):
+                caught = refused(lambda: self.explore("refused", **overrides))
+            self.assertEqual(caught.code, code)
         self.assertEqual((self.count("trial"), len(self.world.commands)), (trials_before, commands))
 
     def test_a_runner_without_reports_is_recorded_and_the_auditor_never_starts(self):
@@ -192,9 +190,9 @@ class ExploreAndPrecheckTests(unittest.TestCase):
             if json.loads(command[3])["module"] == "audit":  # the stand-in command carries its spec
                 raise seams.MemoryLimit(137)
             return run(command, stdout, stderr, timeout)
-        with seams.use(run=audit_out_of_memory), self.assertRaises(Refusal) as caught:
-            self.explore("out-of-memory")
-        self.assertEqual(caught.exception.code, "STAGE_MEMORY_LIMIT")
+        with seams.use(run=audit_out_of_memory):
+            caught = refused(self.explore, "out-of-memory")
+        self.assertEqual(caught.code, "STAGE_MEMORY_LIMIT")
         (trial_id,), = self.world.service.sql(self.world.profile, "SELECT MAX(trial_id) FROM trial")[0:1]
         capture = execution.read_capture(self.world.conn, trial_id)
         self.assertEqual((capture["outcome"]["kind"], capture["stages"]["audit"], capture["stages"]["fingerprint"]),
@@ -226,9 +224,9 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                     for case, change in cases.items():
                         with self.subTest(purpose=purpose, case=case):
                             trials_before, commands = self.count("trial"), len(self.world.commands)
-                            with change, self.assertRaises(Refusal) as caught:
-                                call(f"ci-{purpose}-{case}")
-                            self.assertEqual(caught.exception.code, "RUNTIME_NOT_CI_BUILT")
+                            with change:
+                                caught = refused(call, f"ci-{purpose}-{case}")
+                            self.assertEqual(caught.code, "RUNTIME_NOT_CI_BUILT")
                             self.assertEqual((self.count("trial"), len(self.world.commands)),
                                              (trials_before, commands), "a refused image writes no trial")
                     with self.subTest(purpose=purpose, case="branch-build"):
@@ -242,9 +240,9 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                          "output": self.world.output("refused-precheck"), **overrides}
             return entry.precheck(**arguments)
         other = {**IDENTITY, "runtime_contract": "r0-other"}
-        with registration_seams.use(resolve_runtime=lambda ref: dict(other)), self.assertRaises(Refusal) as caught:
-            precheck_call()
-        self.assertEqual(caught.exception.code, "RUNTIME_CONTRACT_MISMATCH")
+        with registration_seams.use(resolve_runtime=lambda ref: dict(other)):
+            caught = refused(precheck_call)
+        self.assertEqual(caught.code, "RUNTIME_CONTRACT_MISMATCH")
         self.assertEqual(refused(precheck_call, candidate="rsi@99").code, "UNKNOWN_CANDIDATE")
 
     def test_a_passed_precheck_hashes_cached_reports_and_a_review_of_it_admits_the_source(self):
@@ -307,10 +305,10 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                 def executed(*args, **kwargs):
                     self.fail("a precheck over the exemption must not execute")
 
-                with patch.object(entry, "execute", executed), self.assertRaises(Refusal) as caught:
-                    entry.precheck(self.world.profile, self.world.market, MARKET_DAY, published["candidate"],
-                                   None, argv, self.world.output("exposure-long"))
-                self.assertEqual(caught.exception.code, "PRECHECK_WINDOW_TOO_LONG")
+                with patch.object(entry, "execute", executed):
+                    caught = refused(entry.precheck, self.world.profile, self.world.market, MARKET_DAY,
+                                     published["candidate"], None, argv, self.world.output("exposure-long"))
+                self.assertEqual(caught.code, "PRECHECK_WINDOW_TOO_LONG")
                 self.assertEqual(self.count("trial"), trials_before, "no trial is opened")
 
 
@@ -425,24 +423,24 @@ class SealedReplayTests(unittest.TestCase):
         existing = self.world.output("already-there")
         existing.mkdir()
         for output, code in ((existing, "PATH_EXISTS"), (Path.home() / "replay-run-kept", "NOT_TEMPORARY_PATH")):
-            with self.subTest(code=code), self.assertRaises(Refusal) as caught:
-                self.run_ref(self.refs[1], output=output)
-            self.assertEqual(caught.exception.code, code)
+            with self.subTest(code=code):
+                caught = refused(self.run_ref, self.refs[1], output=output)
+            self.assertEqual(caught.code, code)
         self.assertEqual(self.rows("SELECT COUNT(*) FROM trial"), [(trials_before,)])
         self.assertFalse((Path.home() / "replay-run-kept").exists())
 
     def test_a_sealed_replay_names_exactly_one_registration(self):
         for overrides in ({"registration": None}, {"validation": 1}):
-            with self.subTest(overrides=overrides), self.assertRaises(Refusal) as caught:
-                self.run_ref(self.refs[1], **overrides)
-            self.assertEqual(caught.exception.code, "REGISTRATION_REQUIRED")
+            with self.subTest(overrides=overrides):
+                caught = refused(lambda: self.run_ref(self.refs[1], **overrides))
+            self.assertEqual(caught.code, "REGISTRATION_REQUIRED")
 
     def test_a_validation_replay_needs_a_fresh_checkout_before_any_export(self):
         stale = Path(tempfile.mkdtemp(dir=self.world.tmp))
         before, exports = self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports
-        with registration_seams.use(checkout=lambda: stale), self.assertRaises(Refusal) as caught:
-            self.run_ref(self.refs[4], registration=None, validation=1)
-        self.assertEqual((caught.exception.code, self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports),
+        with registration_seams.use(checkout=lambda: stale):
+            caught = refused(self.run_ref, self.refs[4], registration=None, validation=1)
+        self.assertEqual((caught.code, self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports),
                          ("STALE_CHECKOUT", before, exports))
 
     def test_a_research_replay_needs_the_fetched_main_with_a_clean_work_tree_before_any_export(self):
@@ -450,11 +448,10 @@ class SealedReplayTests(unittest.TestCase):
         draft.write_text("x = 1\n")
         before, exports = self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports
         try:
-            with self.assertRaises(Refusal) as caught:
-                self.run_ref(self.refs[4])
+            caught = refused(self.run_ref, self.refs[4])
         finally:
             draft.unlink()
-        self.assertEqual((caught.exception.code, self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports),
+        self.assertEqual((caught.code, self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports),
                          ("STALE_CHECKOUT", before, exports))
 
     def test_a_replay_whose_fingerprint_stage_fails_is_stored_invalid(self):
@@ -588,9 +585,9 @@ class SealedReplayTests(unittest.TestCase):
     def test_a_timeout_stops_the_container_of_its_stage_and_is_refused(self):
         def slow(command, stdout, stderr, timeout):
             raise subprocess.TimeoutExpired(command, timeout)
-        with tempfile.TemporaryDirectory() as workdir, seams.use(run=slow), self.assertRaises(Refusal) as caught:
-            entry._stage(["run"], "reconcile-native", Path(workdir), "native", 60.0, 60.0)
-        self.assertEqual((caught.exception.code, caught.exception.write_status), ("REPLAY_TIMEOUT", "not_written"))
+        with tempfile.TemporaryDirectory() as workdir, seams.use(run=slow):
+            caught = refused(entry._stage, ["run"], "reconcile-native", Path(workdir), "native", 60.0, 60.0)
+        self.assertEqual((caught.code, caught.write_status), ("REPLAY_TIMEOUT", "not_written"))
         self.assertEqual(self.world.stopped[-1], "reconcile-native")
 
     def test_a_ledger_restart_while_the_containers_run_still_seals_and_stores_the_run(self):
@@ -616,8 +613,7 @@ class SealedReplayTests(unittest.TestCase):
 
 class StageLogTests(unittest.TestCase):
     def written(self, name: str, chunks) -> bytes:
-        root = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, root, True)
+        root = tempdir(self.addCleanup)
         log = entry.StageLog(root / name)
         for chunk in chunks:
             log.write(chunk)
@@ -650,8 +646,7 @@ class StageLogTests(unittest.TestCase):
         self.assertEqual(self.written("audit.stdout.txt", [b"short\n"]), b"short\n")
 
     def test_a_container_output_reaches_the_log_bounded_as_it_is_written(self):
-        root = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, root, True)
+        root = tempdir(self.addCleanup)
         out, err = entry.StageLog(root / "out.txt"), entry.StageLog(root / "err.txt")
         script = "import sys\nfor i in range(200_000): print(f'[WARN] skipped fill {i}')\nprint('to stderr', file=sys.stderr)"
         with patch.object(entry, "LOG_HEAD", 4096), patch.object(entry, "LOG_TAIL", 1024):

@@ -93,10 +93,9 @@ class SourceIdentityTests(unittest.TestCase):
         self.refused(1, self.builds[2][1])
         self.refused(2, self.builds[1][1])
         helper = image_tests.ProbeTests()
-        with self.assertRaises(Refusal) as caught:
-            helper.inspect(probe=helper.probe(source_file_paths=dict(EARLIER),
-                                              source_files_sha256={key: "d" * 64 for key in EARLIER}))
-        self.assertEqual(caught.exception.code, "RUNTIME_MISMATCH")
+        caught = refused(helper.inspect, probe=helper.probe(source_file_paths=dict(EARLIER),
+                                                            source_files_sha256={key: "d" * 64 for key in EARLIER}))
+        self.assertEqual(caught.code, "RUNTIME_MISMATCH")
 
     def test_direct_main_check_rejects_missing_swapped_extra_or_invalid_fields(self):
         for field in ("strategy_source_sha256", "fill_source_sha256"):
@@ -118,9 +117,9 @@ class SourceIdentityTests(unittest.TestCase):
         for malformed in (None, [], {}, {"source_file_paths": None}):
             # Explicit None should exercise the direct entry, not check()'s convenience default.
             identity = self.builds[1][0]
-            with patch.object(image, "CHECKOUT", self.root), self.assertRaises(Refusal) as caught:
-                image.require_main_build(identity, malformed)
-            self.assertEqual(caught.exception.code, "RUNTIME_NOT_MAIN")
+            with patch.object(image, "CHECKOUT", self.root):
+                caught = refused(image.require_main_build, identity, malformed)
+            self.assertEqual(caught.code, "RUNTIME_NOT_MAIN")
 
     def test_native_metadata_changes_when_either_extracted_module_changes(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -150,10 +149,10 @@ class SourceIdentityTests(unittest.TestCase):
         bad += [{**CURRENT, "fill_source_sha256": "engine/run.py"},
                 {**CURRENT, "extra_source_sha256": "engine/extra.py"}]
         for paths in bad:
-            with self.subTest(paths=paths), self.assertRaises(Refusal) as caught:
-                helper.inspect(probe=helper.probe(source_file_paths=paths,
-                                                  source_files_sha256={key: "d" * 64 for key in paths}))
-            self.assertEqual(caught.exception.code, "RUNTIME_MISMATCH")
+            with self.subTest(paths=paths):
+                probe = helper.probe(source_file_paths=paths, source_files_sha256={key: "d" * 64 for key in paths})
+                caught = refused(helper.inspect, probe=probe)
+            self.assertEqual(caught.code, "RUNTIME_MISMATCH")
 
     def test_trusted_declaration_is_parsed_without_executing_code(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -173,9 +172,9 @@ class SourceIdentityTests(unittest.TestCase):
                     b"RUNTIME_SOURCE_PATHS = {**OTHER}\n",
                     declaration(CURRENT).rstrip()[:-1] + b", 'fill_source_sha256': 'engine/fill.py'}\n"]
         for source in variants:
-            with self.subTest(source=source), self.assertRaises(Refusal) as caught:
-                image._declared_source_paths(source)
-            self.assertEqual(caught.exception.code, "RUNTIME_NOT_MAIN")
+            with self.subTest(source=source):
+                caught = refused(image._declared_source_paths, source)
+            self.assertEqual(caught.code, "RUNTIME_NOT_MAIN")
         identity, inspection = self.builds[1]
         original_git = image._git
 
@@ -184,7 +183,6 @@ class SourceIdentityTests(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 1, b"", b"missing")
             return original_git(*args, **kwargs)
 
-        with patch.object(image, "CHECKOUT", self.root), patch.object(image, "_git", side_effect=changed), \
-                self.assertRaises(Refusal) as caught:
-            image.require_main_build(identity, inspection)
-        self.assertEqual(caught.exception.code, "RUNTIME_NOT_MAIN")
+        with patch.object(image, "CHECKOUT", self.root), patch.object(image, "_git", side_effect=changed):
+            caught = refused(image.require_main_build, identity, inspection)
+        self.assertEqual(caught.code, "RUNTIME_NOT_MAIN")

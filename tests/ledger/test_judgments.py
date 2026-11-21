@@ -6,7 +6,6 @@ from __future__ import annotations
 import unittest
 
 from ledger import db, judgments, strategies, trials
-from shared.errors import Refusal
 from tests.ledger.dolt import (BINARY, RUNTIME, SKIP, Service, binder, context, coverage, grid_point, select_line,
                                sha, source, window)
 from tests.helpers import refused
@@ -36,9 +35,7 @@ class JudgmentTests(unittest.TestCase):
         return judgments.add_judgment(self.profile, **arguments)
 
     def code(self, **overrides) -> str:
-        with self.assertRaises(Refusal) as caught:
-            self.add(**overrides)
-        return caught.exception.code
+        return refused(lambda: self.add(**overrides)).code
 
     def test_a_judgment_cites_its_subjects_and_a_retry_is_a_replay(self):
         subjects = [{"role": "recommended", "candidate": "a@1"}, {"role": "about", "trial_id": self.trial["trial_id"]},
@@ -152,10 +149,9 @@ class JudgmentTests(unittest.TestCase):
             return ["a@1", "b@1"]
 
         exc = None
-        with self.assertRaises(Refusal) as caught:
-            self.add("recommendation", body="only a", compared=compared,
-                     subjects=[{"role": "recommended", "candidate": "a@1"}])
-        exc = caught.exception
+        caught = refused(self.add, "recommendation", body="only a", compared=compared,
+                         subjects=[{"role": "recommended", "candidate": "a@1"}])
+        exc = caught
         self.assertEqual((exc.code, exc.missing), ("RECOMMENDATION_INCOMPLETE", ("b@1",)))
         self.assertEqual(table, [(self.line, self.head)], "the table at the commit the recommendation reads")
         written = self.add("recommendation", body="a over b", compared=compared,
@@ -163,11 +159,10 @@ class JudgmentTests(unittest.TestCase):
         self.assertFalse(written["replayed"])
 
     def test_an_oversized_body_is_refused_with_the_cause_in_the_message(self):
-        with self.assertRaises(Refusal) as caught:
-            self.add(body="x" * 70_000)
-        self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")
-        self.assertIn("too large for column", caught.exception.message)
-        self.assertLess(len(caught.exception.message), 400)
+        caught = refused(self.add, body="x" * 70_000)
+        self.assertEqual(caught.code, "DOLT_SQL_ERROR")
+        self.assertIn("too large for column", caught.message)
+        self.assertLess(len(caught.message), 400)
 
     def test_a_write_landing_during_the_comparison_does_not_roll_a_recommendation_back(self):
         subjects = [{"role": "recommended", "candidate": "a@1"}]

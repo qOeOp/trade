@@ -25,9 +25,8 @@ import pymysql
 
 from ledger import admin, db, publish, server, service, strategies
 from shared import profiles
-from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, source
-from tests.helpers import refused
+from tests.helpers import refused, tempdir
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -62,8 +61,7 @@ class RunTests(unittest.TestCase):
         shutil.rmtree(getattr(cls, "remotes", "/nonexistent"), ignore_errors=True)
 
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="sv-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, self.root, True)
+        self.root = tempdir(self.addCleanup, prefix="sv-", dir="/tmp")
         self.service_root, self.data, self.backups = self.root / "s", self.root / "data", self.root / "backups"
         self.credentials = self.root / "user" / ".dolt"
         (self.credentials / "creds").mkdir(parents=True)
@@ -324,11 +322,10 @@ class RunTests(unittest.TestCase):
                                  self.port, BINARY, None, self.log).code, "BOOTSTRAP_FAILED")
 
     def test_a_first_start_without_an_origin_says_what_to_set(self):
-        with self.assertRaises(Refusal) as caught:
-            service.start(self.service_root, self.data, self.backups, self.credentials, "", self.port, BINARY,
-                          "isolated", self.log)
-        self.assertEqual(caught.exception.code, "USAGE_ERROR")
-        self.assertIn("TRADE_RESEARCH_ORIGIN", str(caught.exception))
+        caught = refused(service.start, self.service_root, self.data, self.backups, self.credentials, "", self.port,
+                         BINARY, "isolated", self.log)
+        self.assertEqual(caught.code, "USAGE_ERROR")
+        self.assertIn("TRADE_RESEARCH_ORIGIN", str(caught))
 
     def test_a_copy_that_is_no_ledger_is_named_as_that(self):
         work = self.root / "unrelated"
@@ -342,10 +339,9 @@ class RunTests(unittest.TestCase):
         subprocess.run([BINARY, "remote", "add", "other", other.as_uri()], cwd=work, env=environment, check=True,
                        capture_output=True)
         subprocess.run([BINARY, "push", "other", "main"], cwd=work, env=environment, check=True, capture_output=True)
-        with self.assertRaises(Refusal) as caught:
-            self.start(origin=other.as_uri())
-        self.assertEqual(caught.exception.code, "BOOTSTRAP_FAILED")
-        self.assertIn("does not hold a research ledger", caught.exception.message)
+        caught = refused(self.start, origin=other.as_uri())
+        self.assertEqual(caught.code, "BOOTSTRAP_FAILED")
+        self.assertIn("does not hold a research ledger", caught.message)
         self.assertEqual(list(self.data.iterdir()), [], "nothing is kept")
         self.assertEqual(list(profiles.home().glob("*.json")), [])
 

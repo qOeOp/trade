@@ -552,9 +552,9 @@ class LiveTests(unittest.TestCase):
         for mode in ("preflight", "run"):
             with self.subTest(mode), mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
                     mock.patch.object(live.BinanceReadOnly, "clock", return_value=bad), \
-                    mock.patch.object(live, "build_node") as build, self.assertRaises(LiveRefusal) as caught:
-                live.execute(self.runner_args(mode))
-            self.assertEqual(caught.exception.code, "LIVE_CLOCK")
+                    mock.patch.object(live, "build_node") as build:
+                caught = refused(live.execute, self.runner_args(mode), error=LiveRefusal)
+            self.assertEqual(caught.code, "LIVE_CLOCK")
             build.assert_not_called()
         (self.output / "armed.json").write_text("{}")
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.held_snapshot()), \
@@ -632,9 +632,9 @@ class LiveTests(unittest.TestCase):
             self.assertEqual(live.execute(self.runner_args("reconcile")), 0)
         (self.output / "runner.lock").unlink()
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value={**self.flat_snapshot(), "orders": None}), \
-                mock.patch.object(live, "build_node") as build, self.assertRaises(LiveRefusal) as caught:
-            live.execute(self.runner_args("reconcile"))
-        self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_RESPONSE")
+                mock.patch.object(live, "build_node") as build:
+            caught = refused(live.execute, self.runner_args("reconcile"), error=LiveRefusal)
+        self.assertEqual(caught.code, "LIVE_ACCOUNT_RESPONSE")
         build.assert_not_called()
         events = [json.loads(line)["event"] for line in (self.output / "events.jsonl").read_text().splitlines()]
         self.assertEqual(events.count("venue_flat"), 1)
@@ -670,9 +670,8 @@ class LiveTests(unittest.TestCase):
                 mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_flat"):
             with (self.output / "runner.lock").open("a") as held:
                 fcntl.flock(held, fcntl.LOCK_EX)
-                with self.assertRaises(LiveRefusal) as caught:
-                    live.execute(args)
-            self.assertEqual(caught.exception.code, "LIVE_ALREADY_RUNNING")
+                caught = refused(live.execute, args, error=LiveRefusal)
+            self.assertEqual(caught.code, "LIVE_ALREADY_RUNNING")
             read.assert_not_called()
             self.assertFalse((self.output / "manifest.json").exists())
             self.assertEqual(live.execute(args), 0)  # With the first runner gone the same execution proceeds.

@@ -7,7 +7,6 @@ import tempfile
 import unittest
 
 from engine.config import RUNTIME_CONTRACT
-from shared.errors import Refusal
 from runtime import container
 from tests.helpers import refused
 
@@ -52,9 +51,9 @@ class PaperCommandTests(unittest.TestCase):
                  ({"module": "engine.run"}, "MODULE_NOT_IN_LAYOUT"),
                  ({"mounts": [(Path(self.reports[0]), "/inputs", True)]}, "REPORTS_MOUNT_MISSING")]
         for options, code in cases:
-            with self.subTest(options=options), self.assertRaises(Refusal) as caught:
-                self.command(**options)
-            self.assertEqual(caught.exception.code, code)
+            with self.subTest(options=options):
+                caught = refused(lambda: self.command(**options))
+            self.assertEqual(caught.code, code)
 
     def test_a_replay_stage_cannot_run_a_paper_module(self):
         self.assertEqual(refused(container.container_command, IDENTITY, [self.reports], "engine.paper", [],

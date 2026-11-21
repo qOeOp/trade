@@ -17,6 +17,7 @@ from engine import membership as membership_months, paper, realtime
 from engine.cadence import Cadence
 from engine.config import MINUTE_NS, Refusal
 from engine.load import DAY_NS
+from tests.helpers import refused
 
 DAYS = 200  # a declared WARMUP 1-DAY
 
@@ -348,9 +349,8 @@ class JournalFailureTests(unittest.TestCase):
         args = SimpleNamespace(symbols=[], strategy_file=Path("s.py"), strategy_class="C", strategy_sha256="x")
         with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(paper, "parse", return_value=args), \
                 mock.patch.object(paper, "_main", return_value=True), mock.patch.object(paper, "Signals"):
-            with self.assertRaises(SystemExit) as raised:
-                paper.main([])
-        self.assertEqual(raised.exception.code, paper.JOURNAL_FAILED_EXIT)
+            raised = refused(paper.main, [], error=SystemExit)
+        self.assertEqual(raised.code, paper.JOURNAL_FAILED_EXIT)
         with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(paper, "parse", return_value=args), \
                 mock.patch.object(paper, "_main", return_value=False), mock.patch.object(paper, "Signals"):
             paper.main([])
@@ -755,10 +755,9 @@ class CredentialTests(unittest.TestCase):
     def test_the_runner_refuses_to_start_with_a_credential_in_its_environment(self):
         with mock.patch.dict("os.environ", {"BINANCE_API_SECRET": "never-read"}), \
                 mock.patch.object(paper, "parse", side_effect=AssertionError("parsed")):
-            with self.assertRaises(Refusal) as raised:
-                paper.main([])
-        self.assertEqual(raised.exception.code, "PAPER_CREDENTIALS_PRESENT")
-        self.assertNotIn("never-read", str(raised.exception))
+            raised = refused(paper.main, [], error=Refusal)
+        self.assertEqual(raised.code, "PAPER_CREDENTIALS_PRESENT")
+        self.assertNotIn("never-read", str(raised))
 
 
 class Reassigned(paper.Strategy):
@@ -857,9 +856,8 @@ class PlanTests(unittest.TestCase):
             planned = paper.plan(["BTCUSDT"], membership, DAY, DAY)
             self.assertEqual(list(planned[0].universe_membership), [(DAY, DAY + 2 * DAY_NS)])
             self.assertEqual((planned[0].instrument_id, planned[0].trade_start_ns), ("BTCUSDT-PERP.BINANCE", DAY))
-            with self.assertRaises(Refusal) as raised:
-                paper.plan(["ETHUSDT"], membership, DAY, DAY)
-        self.assertEqual(raised.exception.code, "PAPER_NOT_IN_UNIVERSE")
+            raised = refused(paper.plan, ["ETHUSDT"], membership, DAY, DAY, error=Refusal)
+        self.assertEqual(raised.code, "PAPER_NOT_IN_UNIVERSE")
 
 
 class OrderFilled:
@@ -937,10 +935,10 @@ class SandboxConfigTests(unittest.TestCase):
 
     def test_a_recorder_the_node_did_not_register_is_refused(self):
         with mock.patch.object(realtime.LiveNode, "builder", return_value=mock.MagicMock()), \
-                mock.patch.object(paper.history, "ACTORS", []), self.assertRaises(Refusal) as caught:
-            paper.build_node([], SimpleNamespace(warmup=()), None, (Decimal("0.0002"), Decimal("0.0005")),
-                             Path("/nonexistent"), "3", {})
-        self.assertEqual(caught.exception.code, "NATIVE_EXECUTION_FAILED")
+                mock.patch.object(paper.history, "ACTORS", []):
+            caught = refused(paper.build_node, [], SimpleNamespace(warmup=()), None,
+                             (Decimal("0.0002"), Decimal("0.0005")), Path("/nonexistent"), "3", {}, error=Refusal)
+        self.assertEqual(caught.code, "NATIVE_EXECUTION_FAILED")
 
 
     def test_a_checkpoint_without_source_state_restores_only_a_source_without_the_protocol_as_held(self):
@@ -952,7 +950,7 @@ class SandboxConfigTests(unittest.TestCase):
         self.addCleanup(paper.strategy_runtime.STRATEGIES.clear)
         # A source with the protocol whose checkpoint has the account and no state was held by an earlier recovery
         # (Session.hold): it is held again.
-        for supported, sources, refused in ((False, {}, False), (True, {}, False), (False, {"BTC": {}}, True),
+        for supported, sources, refuses in ((False, {}, False), (True, {}, False), (False, {"BTC": {}}, True),
                                             (True, {"BTC": {}}, False)):
             with self.subTest(supported=supported, sources=sources):
                 session = paper.Session.__new__(paper.Session)
@@ -964,7 +962,7 @@ class SandboxConfigTests(unittest.TestCase):
                 with mock.patch.object(realtime.LiveNode, "builder", return_value=builder), \
                         mock.patch.object(paper, "Recorder"), mock.patch.object(paper.history, "ACTORS", []), \
                         mock.patch.object(paper.strategy_runtime, "configure_strategy") as configure:
-                    if refused:
+                    if refuses:
                         with self.assertRaises(paper.checkpoint.Refusal):
                             paper.build_node(planned, SimpleNamespace(warmup=()), None,
                                              (Decimal("0.0002"), Decimal("0.0005")), Path("/nonexistent"), "3", {},

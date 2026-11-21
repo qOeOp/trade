@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 import hashlib
 import json
 from pathlib import Path
-import shutil
 import socket
 import stat
 import tempfile
@@ -21,7 +20,7 @@ from ledger import db, server
 from shared import paths, profiles as profile_directory
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service
-from tests.helpers import refused
+from tests.helpers import refused, tempdir
 
 
 def bundle_insert(name: str, wait=None):
@@ -41,8 +40,9 @@ def trial_insert(conn, op, purpose="explore", source_sha256="e" * 64, market_day
     """A trial row written directly (ledger.open_trial derives these columns from a coverage receipt)."""
     conn.rows("INSERT INTO trial (purpose, source_sha256, image_ref, platform, market_day, "
               "universe_rule, export_sha256, comparable_config_sha256, execution, starting_balance, input_start, "
-              "trade_start, trade_end, runner_argv, op_id) VALUES (%s, %s, %s, 'linux/arm64', "
-              "%s, 'pool-v1', %s, %s, 'bars', 100000, '2026-01-01', '2026-01-02', '2026-02-01', '[]', %s)",
+              "trade_start, trade_end, runner_argv, op_id) VALUES (%s, %s, %s, 'linux/arm64', %s, "
+              "'usdt-perp-listed30d-v1', %s, %s, 'bars', 100000, '2026-01-01', '2026-01-02', '2026-02-01', '[]', "
+              "%s)",
               (purpose, source_sha256, "img@sha256:" + "a" * 64, market_day, "e" * 64, "c" * 64, op))
     (trial_id,), = conn.rows("SELECT LAST_INSERT_ID()")
     return trial_id
@@ -53,8 +53,7 @@ class DoltBinaryTests(unittest.TestCase):
     """No Dolt: stand-in executables."""
 
     def executable(self, body: str) -> Path:
-        directory = Path(tempfile.mkdtemp(prefix="dolt-standin-"))
-        self.addCleanup(shutil.rmtree, directory, True)
+        directory = tempdir(self.addCleanup, prefix="dolt-standin-")
         path = directory / "dolt"
         path.write_text("#!/bin/sh\n" + body, encoding="utf-8")
         path.chmod(0o755)
@@ -62,10 +61,9 @@ class DoltBinaryTests(unittest.TestCase):
 
     def test_a_failing_version_check_is_refused_with_its_exit_code_and_stderr(self):
         binary = self.executable("echo 'Failed to load the global config.' >&2\nexit 1\n")
-        with self.assertRaises(Refusal) as caught:
-            server.binary(binary)
-        self.assertEqual(caught.exception.code, "DOLT_BINARY")
-        self.assertIn("exit 1: Failed to load the global config.", caught.exception.message)
+        caught = refused(server.binary, binary)
+        self.assertEqual(caught.code, "DOLT_BINARY")
+        self.assertIn("exit 1: Failed to load the global config.", caught.message)
 
     def test_the_version_check_runs_in_its_own_quiet_home_and_directory_and_removes_them(self):
         binary = self.executable(f"""[ "$(pwd -P)" = "$(cd "$DOLT_ROOT_PATH" && pwd -P)" ] || exit 3
@@ -191,8 +189,7 @@ class LedgerBaseTests(unittest.TestCase):
         unknown = db.LedgerProfile(**{**self.profile.__dict__, "database": "test_missing"})
         self.assertEqual(refused(lambda: db.connect(unknown, "reader")).code, "LEDGER_UNKNOWN")
         self.assertEqual(refused(db.load_profile, "nope").code, "LEDGER_UNKNOWN")
-        stopped = Path(tempfile.mkdtemp(prefix="lgx-", dir="/tmp"))
-        self.addCleanup(__import__("shutil").rmtree, stopped, ignore_errors=True)
+        stopped = tempdir(self.addCleanup, prefix="lgx-", dir="/tmp")
         config = server.service_config(self.profile.service_root)
         (stopped / "service.json").write_text(json.dumps({**config, "socket": str(stopped / "none.sock")}))
         self.assertEqual(refused(lambda: db.connect(db.LedgerProfile(**{**self.profile.__dict__,
@@ -245,8 +242,7 @@ class LedgerBaseTests(unittest.TestCase):
                 cursor.execute(statement)
 
     def test_no_account_reads_or_writes_a_server_file(self):
-        out = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, out)
+        out = tempdir(self.addCleanup)
         for role in ("reader", "writer"):
             with db.connect(self.profile, role) as conn:
                 for statement in (f"SELECT version FROM ledger_schema INTO OUTFILE '{out / role}.txt'",
@@ -510,8 +506,7 @@ class UnansweredServiceTests(unittest.TestCase):
     before the refusal (no pauses here). No Dolt: a listening socket that nobody accepts from is enough."""
 
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="lgh-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.root = tempdir(self.addCleanup, prefix="lgh-", dir="/tmp")
         self.accounts = {"probe": {"reader": {"user": "r", "password": "p"}, "writer": {"user": "w", "password": "p"}}}
         self.profile = db.LedgerProfile(name="probe", database="probe", service_root=self.root)
         for name, value in (("HANDSHAKE_TIMEOUT", 0.5), ("CONNECT_PAUSES", (0, 0))):
@@ -531,9 +526,8 @@ class UnansweredServiceTests(unittest.TestCase):
 
     def refused(self, call) -> tuple[Refusal, float]:
         started = time.monotonic()
-        with self.assertRaises(Refusal) as caught:
-            call()
-        return caught.exception, time.monotonic() - started
+        caught = refused(call)
+        return caught, time.monotonic() - started
 
     def assert_hung(self, refusal: Refusal, elapsed: float, endpoint: str) -> None:
         self.assertEqual(refusal.code, "LEDGER_UNAVAILABLE")
