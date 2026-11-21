@@ -13,11 +13,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 import json
-import os
 from pathlib import Path
 
 from shared import clock
 from shared.errors import Refusal
+from shared.files import atomic_write
 from shared.refusals import refuse
 
 
@@ -168,16 +168,10 @@ def month_files(market: dict, symbols: list[str], after: str) -> dict[str, bytes
             for month in sorted(month for month in held if month > after)}
 
 
-def _replace(path: Path, data: bytes) -> None:
-    temporary = path.with_suffix(".partial")
-    temporary.write_bytes(data)
-    os.replace(temporary, path)
-
-
 def write_months(market: dict, folder: Path, symbols: list[str], after: str,
-                 write: Callable[[Path, bytes], None] = _replace) -> list[str]:
-    """`folder`/<YYYY-MM>.json for each of month_files' months not yet there, each whole (`write`, by default a
-    rename of a written sibling); a written file is never rewritten. Returns the months written."""
+                 write: Callable[[Path, bytes], None] = atomic_write) -> list[str]:
+    """`folder`/<YYYY-MM>.json for each of month_files' months not yet there, each whole (`write`, by default
+    shared.files.atomic_write); a written file is never rewritten. Returns the months written."""
     written = []
     for month, data in month_files(market, symbols, after).items():
         path = folder / f"{month}.json"

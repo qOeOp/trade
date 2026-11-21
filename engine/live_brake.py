@@ -19,7 +19,7 @@ from pathlib import Path
 from engine import live_commands as commands
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_records import journal, keep
-from engine.load import read_regular_file
+from engine.config import read_regular_file
 
 BUDGET_SHARE = Decimal("0.85")
 BRAKE_MAX = Decimal("0.15")  # the user's maximum-drawdown target; a run may set a tighter brake, never a looser one

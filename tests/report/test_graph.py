@@ -14,7 +14,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from ledger import db, execution, lines, metrics, problems, strategies, targets
+from ledger import db, execution, lines, metrics, problems, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import precheck, register
@@ -108,7 +108,7 @@ class ResearchGraphTests(unittest.TestCase):
         world.judge("recommendation", subjects=[{"role": "recommended", "candidate": first},
                                                 {"role": "about", "candidate": second}])
         with db.connect(world.profile, "writer") as conn:
-            targets.set_targets(conn, None, 0.15, 0.2)
+            lines.set_targets(conn, None, 0.15, 0.2)
 
     def graph(self, **options):
         return graph.research_graph(self.world.profile, **options)

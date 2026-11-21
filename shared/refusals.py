@@ -217,6 +217,9 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                                "then move the run with `replay reproduce`. Register a new source for a new research "
                                "hypothesis.",),
     "DUTY_UNKNOWN": ("Use duty IDs A1 to I2 from the duty directory; leave changed_duties empty only for a root.",),
+    "DUTY_HEADER_MISMATCH": ("Name in changed_duties exactly the duties whose header lines the grid candidates change "
+                             "from their parent's. When a line changed whose own rule the change does not touch, "
+                             "publish the source again with that line byte for byte as in the parent.",),
     "PREDICTION_INVALID": ("Write at least one prediction per changed duty on a catalogue slice and measure (or an "
                            "empty slice with a reason).",),
     "INTERPRETATION_REQUIRED": ("Add an interpretation with `judgment add --kind interpretation` about the trials "

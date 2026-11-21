@@ -70,6 +70,7 @@ from engine.config import (
     utc_text,
     effective_configuration,
     parse_configuration,
+    read_regular_file,
     runtime_source_metadata,
 )
 from engine.load import (
@@ -79,7 +80,6 @@ from engine.load import (
     episode_membership,
     load_strategy,
     read_market,
-    read_regular_file,
     read_universe,
     strategy_metadata,
     termination,
@@ -375,15 +375,6 @@ def capital_observer(instrument_ids: tuple[str, ...], exposure_path: Path,
     """engine.capital_observer: the one observer valuing every open position at each input bar timestamp
     into the exposure table, and counting the lifecycle events of `lifecycle_ids`."""
     return CapitalObserver(CapitalObserverConfig(tuple(instrument_ids), str(exposure_path), tuple(lifecycle_ids)))
-
-
-def capital_findings(observer: CapitalObserver, expected_timestamps: int) -> list[str]:
-    """engine.capital_findings: the observation valued every input timestamp and every open position in it."""
-    findings = list(dict.fromkeys(observer.findings))
-    if observer.timestamps != expected_timestamps:
-        findings.append(f"CAPITAL_TIMESTAMP_COUNT_MISMATCH: capital observation valued {observer.timestamps} of "
-                        f"{expected_timestamps} input timestamps")
-    return findings
 
 
 def mark_timestamps(rows: list[dict]) -> int:

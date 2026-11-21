@@ -7,7 +7,8 @@ import { join, relative, dirname, resolve } from "node:path";
 const SRC = resolve(dirname(new URL(import.meta.url).pathname), "../src");
 // recommended, meets, misses, fail, per theme (a single hex in tokens.css is both themes)
 const VALIDATED = { light: ["#3871E1", "#419368", "#B87701", "#A63D47"], dark: ["#3871E1", "#4AA87F", "#BE880A", "#BE5354"] };
-const MAX_LINES = 200;
+// A file's size in bytes (200 lines of about 100 characters): a line count alone pushed code into long lines.
+const MAX_BYTES = 20 * 1024;
 // Which top-level folders a folder may import from (App and main may import anything).
 const MAY = {
   theme: [], lib: [], model: ["lib"], icons: ["theme", "model"], state: ["lib", "model"],
@@ -42,8 +43,8 @@ for (const f of code) {
   if (top !== "components") lines(f, /style=\{\{[^}]*\b(color|background|fill|stroke|border\w*)\s*:/, "colour in an inline style outside components/");
   lines(f, /\b(text|rounded)-\[/, "arbitrary text-[…] or rounded-[…] class (use a token)");
   if (f.rel !== "lib/storage.ts") lines(f, /\blocalStorage\b/, "localStorage outside lib/storage.ts");
-  const n = f.text.split("\n").length;
-  if (n > MAX_LINES) fail(f, `${n} lines (at most ${MAX_LINES})`);
+  const size = Buffer.byteLength(f.text);
+  if (size > MAX_BYTES) fail(f, `${size} bytes (at most ${MAX_BYTES})`);
   for (const m of f.text.matchAll(/from "(\.{1,2}\/[^"]+)"/g)) {
     const target = relative(SRC, resolve(dirname(f.path), m[1])).split("/")[0];
     if (target === top || !(top in MAY)) continue;

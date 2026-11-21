@@ -159,6 +159,24 @@ class RegisterTests(unittest.TestCase):
                                                      "duty": "G3", "reason": "no slice measures queue position"}]
         self.assertFalse(self.world.register(without_slice)["replayed"])
 
+    def test_changed_duties_are_the_duty_lines_each_grid_header_changes(self):
+        def grid(label: str, *changed: tuple[str, ...]) -> tuple[list[str], dict[str, int]]:
+            published = [self.world.publish(f"{label} {index}", changed=item) for index, item in enumerate(changed)]
+            return ([item["candidate"] for item in published],
+                    {item["candidate"]: self.world.prechecked(item["source"]) for item in published})
+
+        cases = {
+            "a changed line it does not name": (grid("unnamed line", ("F3", "G3")), ["G3"]),
+            "a named duty whose line is unchanged": (grid("unchanged line", ("G3",)), ["F3", "G3"]),
+            "one grid candidate changes another line": (grid("uneven grid", ("G3",), ("F2", "G3")), ["G3"]),
+        }
+        for label, ((refs, reviews), changed) in cases.items():
+            with self.subTest(label=label):
+                body = self.world.body(refs, reviews, duties=changed)
+                self.assertEqual(self.code(body), "DUTY_HEADER_MISMATCH")
+        refs, reviews = grid("matching header", ("F3", "G3"), ("F3", "G3"))
+        self.assertFalse(self.world.register(self.world.body(refs, reviews, duties=["G3", "F3"]))["replayed"])
+
     def test_a_root_may_predict_mechanisms_on_any_duty(self):
         root = self.world.body(["rsi@1"], {"rsi@1": self.root_review}, retry_of=self.root)
         root["prediction"]["mechanism"] = [{"slice": "by_period", "measure": "months_won_share", "direction": "up",

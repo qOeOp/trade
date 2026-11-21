@@ -75,6 +75,13 @@ def known_service(root: Path) -> dict:
     return config
 
 
+def dolt_env(home: Path) -> dict:
+    """The environment of a Dolt command whose home (DOLT_ROOT_PATH) is `home`. No usage events: Dolt
+    writes them into its home from a detached process after a command exits, which would refill a home
+    just deleted (measured)."""
+    return {**os.environ, "DOLT_ROOT_PATH": str(home), "DOLT_DISABLE_EVENT_FLUSH": "true"}
+
+
 def dolt_home(home: Path, settings: Mapping[str, str]) -> None:
     """Give a new Dolt home (its DOLT_ROOT_PATH) its global configuration in one atomic write, the file
     `dolt config --global --add` keeps, without starting Dolt once per setting."""
@@ -93,8 +100,7 @@ def binary(given: Path | str | None = None) -> str:
     try:
         dolt_home(work, QUIET)
         checked = subprocess.run([str(found), "version"], cwd=work, capture_output=True, text=True, check=False,
-                                 timeout=30, env={**os.environ, "DOLT_ROOT_PATH": str(work),
-                                                  "DOLT_DISABLE_EVENT_FLUSH": "true"})
+                                 timeout=30, env=dolt_env(work))
         output = " ".join(part.strip() for part in (checked.stdout, checked.stderr) if part.strip())
         problem = None if checked.returncode == 0 and checked.stdout.startswith(expected) else \
             f"exit {checked.returncode}: {output[-300:] or 'no output'}"
@@ -325,12 +331,11 @@ def start_service(root: Path) -> dict:
         return {"running": True, "pid": None, "service": str(root)}
     pid = server_pid(root)
     if pid is None:
-        environment = {**os.environ, "DOLT_ROOT_PATH": str(root / "home")}
         # The service outlives this process: a shell in a new session starts it in the background and
         # exits, and is waited here, so the server is nobody's unreaped child.
         launched = subprocess.run(["/bin/sh", "-c", SERVER_LAUNCH, "sh", config["binary"], "sql-server", "--config",
-                                   str(root / "config.yaml")], cwd=root, env=environment, start_new_session=True,
-                                  capture_output=True, text=True, check=True, timeout=30)
+                                   str(root / "config.yaml")], cwd=root, env=dolt_env(root / "home"),
+                                  start_new_session=True, capture_output=True, text=True, check=True, timeout=30)
         pid = int(launched.stdout)
         (root / "server.pid").write_text(str(pid))
     try:

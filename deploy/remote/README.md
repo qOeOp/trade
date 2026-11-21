@@ -6,6 +6,8 @@ repository (`qOeOp/trade`), image names (`ghcr.io/qoeop/trade-*`) and `deploy-re
 installs it follows the author's versions. Another operator runs the base deployment ([`deploy/README.md`](../README.md))
 and updates it by hand, or forks the repository and changes those names in the fork.
 
+## How a version reaches the host
+
 The [continuous Web release plane](../../docs/plans/remote-continuous-delivery.zh.md) runs the Web, its
 single Agent writer, its Live control and the Paper controller, and publishes admitted versions without recreating Paper
 runs or strategy containers; the ledger mirror and market import follow each version while no Paper operation is in progress and Live is idle
@@ -181,6 +183,14 @@ its token. The control binds the one private chat that messaged the bot and keep
 daily summary at the first check after 00:00 UTC, from the control container to `api.telegram.org` over the backend
 network. Each run notice ends with the run's page, `https://<TRADE_DOMAIN>/?live=<run_id>`, which a phone opens as
 that run's page. `LIVE_ROOT/notify/state.json` records what was sent, so a restart or a second control does not resend.
+
+The page remains a controller: closing it does not stop a strategy. **Request stop** remains available
+while a start response is pending or observations cannot refresh. Wait for native terminal evidence and
+account reconciliation; a recorded control request alone does not prove a fill or a flat account. Use
+explicit request recovery for an uncertain response instead of submitting another start.
+
+### Notices
+
 The release tick sends to the same chat, from the host, what fails outside Live: a tick that failed; a routed Web
 that does not answer, or whose Market overview, Agent or Paper controller health fails through the router; a
 `ledger` or `market-import` container that is unhealthy, whose last exit was out of memory, or that restarted (sent
@@ -189,10 +199,7 @@ failed for 30 minutes or whose origin history changed elsewhere (read through th
 cleared; `/var/lib/trade-release/notices.json` records what was sent. It reads the token file under `LIVE_ROOT`;
 without a saved token nothing is sent.
 
-The page remains a controller: closing it does not stop a strategy. **Request stop** remains available
-while a start response is pending or observations cannot refresh. Wait for native terminal evidence and
-account reconciliation; a recorded control request alone does not prove a fill or a flat account. Use
-explicit request recovery for an uncertain response instead of submitting another start.
+## Installing a host
 
 This overlay puts the existing IDE and Paper deployment behind Caddy HTTPS and OAuth2 Proxy. Only members of
 one GitHub team get in; neither organization membership, an email domain nor the page's CSRF token grants login.
@@ -305,6 +312,8 @@ compose() {
 }
 ```
 
+### Login and HTTPS
+
 Caddy manages certificates in its own volumes. Keep those volumes on updates. Web releases never touch this
 proxy or OAuth2 Proxy: a version whose `CHANGELOG.md` entry changes the `Caddyfile`, `oauth2-proxy.cfg` or either
 service reaches them once it is the active control, by recreating them alone (`compose up -d --no-deps
@@ -323,6 +332,8 @@ from one another; the team is for trusted operators only.
 Acceptance requires: unauthenticated page/API/SSE denial, a GitHub user outside the team denied (a member of the
 organization outside the team included), a team member admitted, expired login does not stop runners, source/host/CSRF checks still hold, logs in the host journal, and a native
 checkpoint resume using the same run. Config validation alone is not an actual GitHub callback/HTTPS test.
+
+### Research mirror and Paper database
 
 The mirror's controller syncs the configured read-only research mirror from DoltHub at start and every
 60 s; the toolbar's **Sync DoltHub** starts one at once. DoltHub itself trails the writing ledger by up to its
@@ -516,6 +527,12 @@ live stop --root "$LIVE_ROOT" --run-id RUN
 `status` and `logs` are pure observations: they do not release custody, archive logs or recycle containers.
 The current paired controller owns host maintenance.
 
+The release host holds the original private `account.lock` read-only over the service-image `live release-inspect`
+call and the transaction and route writes. The systemd service must open that file read-only, see the same
+regular-file inode as the Live control, and use a filesystem with local read-only-fd exclusive flock. The release
+creates the custody root and its lock together, once ([Live control pairing](#live-control-pairing)); it never
+recreates a missing `account.lock` in an existing root or changes its permissions.
+
 ### Backing up the Live root
 
 `LIVE_ROOT` holds what nothing else can give back: each run's inputs, journal, account snapshots, native cache and
@@ -650,9 +667,3 @@ operator's way out; it changes no code and no recovery rule.
 Routes and containers stay as the defective control left them. If it failed from its first tick, it released nothing
 and the routed Web, Agent, Live control and Paper controller are still the previous version's; if it released its own
 version first, the fixed version is released over that one as usual.
-
-The release host holds the original private `account.lock` read-only over the service-image `live release-inspect`
-call and the transaction and route writes. The systemd service must open that file read-only, see the same
-regular-file inode as the Live control, and use a filesystem with local read-only-fd exclusive flock. The release
-creates the custody root and its lock together, once ([Live control pairing](#live-control-pairing)); it never
-recreates a missing `account.lock` in an existing root or changes its permissions.

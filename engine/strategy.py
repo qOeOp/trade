@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import functools
 import json
-import os
 import re
 import traceback
 from dataclasses import dataclass
@@ -20,7 +19,7 @@ from nautilus_trader.model import DataType, InstrumentId, OmsType, StrategyId
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import history, order_rules
-from engine.config import Refusal
+from engine.config import Refusal, atomic
 from engine.load import LoadedStrategy
 
 
@@ -237,14 +236,8 @@ def write_failures() -> None:
     """Replace the receipt file with the current records (written beside it, then renamed into place)."""
     if FAILURE_PATH is None:
         return
-    FAILURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    partial = FAILURE_PATH.with_name("." + FAILURE_PATH.name + ".partial")
-    with partial.open("w", encoding="utf-8") as stream:
-        for receipt in FAILURES:
-            stream.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(partial, FAILURE_PATH)
+    atomic(FAILURE_PATH, "".join(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n"
+                                 for receipt in FAILURES).encode())
 
 
 def execution_failure(stage: str, exc: BaseException, instance) -> None:

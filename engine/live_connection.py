@@ -42,7 +42,7 @@ from engine.live_errors import LiveRefusal as Refusal
 from engine.config import symbol_of
 from engine.live_records import contract as contract_id, keep, owned, strategy_ids
 from engine.live_venue import require_account_mode, require_clock, require_flat, require_own_symbol
-from engine.order_rules import GTD_MINIMUM_NS, native_cache
+from engine.order_rules import GTD_LEAD_NS, native_cache
 
 COMPARE_SPACING_SECONDS = 31  # one native position check (30 s) and open-order check (10 s) between the two reads
 COMPARE_RETRY_SECONDS = 10
@@ -60,7 +60,6 @@ CONTRACT_SECONDS = 60  # while the contract is not TRADING, its status is read t
 ORPHAN_NS = 600 * 10**9  # flat after a missing bar, reduce-only orders still at Binance this long: a notice
 ORPHAN_SLACK_NS = COMPARE_RETRY_SECONDS * 10**9  # reads PERIODIC_SECONDS apart land a little early or late
 HOLD_NS = 60_000_000_000  # an entry is held unsent at most this long after its decision
-SEND_MARGIN_NS = 5_000_000_000  # a GTD entry is sent with at least GTD_MINIMUM_NS plus this left
 # Native order states whose venue state may still be changing; a comparison seeing one is not yet consistent.
 IN_FLIGHT = frozenset({OrderStatus.SUBMITTED, OrderStatus.PENDING_UPDATE, OrderStatus.PENDING_CANCEL})
 
@@ -225,7 +224,7 @@ def deadline(order) -> int:
     send-time rule."""
     found = order.ts_init + HOLD_NS
     if order.time_in_force == TimeInForce.GTD:
-        found = min(found, order.expire_time_ns - GTD_MINIMUM_NS - SEND_MARGIN_NS)
+        found = min(found, order.expire_time_ns - GTD_LEAD_NS)
     return found
 
 
@@ -259,7 +258,7 @@ def hold_queued(session) -> None:
 def require_send_time(pending) -> None:
     """Every entry is sent with time left on a GTD order, and a held one by its deadline."""
     order, now = pending.order, time.time_ns()
-    if order.time_in_force == TimeInForce.GTD and order.expire_time_ns - now < GTD_MINIMUM_NS + SEND_MARGIN_NS:
+    if order.time_in_force == TimeInForce.GTD and order.expire_time_ns - now < GTD_LEAD_NS:
         raise Refusal("LIVE_ORDER_UNSUPPORTED", "a GTD entry is sent with at least 605 seconds left")
     if pending.deadline_ns is not None and now > pending.deadline_ns:
         raise Refusal("LIVE_CONNECTION_UNVERIFIED", "entry_hold_expired: the gate did not reopen in time")
@@ -309,17 +308,22 @@ def on_socket_state(session, event) -> None:
                 session.event("entries_checking", strict=False, reasons=sorted(state.closed))
 
 
-def bar(session, bar) -> None:
+def bar(session, bar) -> bool:
     """Continuity of the external bars the source receives: a missing one closes entries until a restart warms the
-    source up again (rewarm)."""
+    source up again (rewarm). Whether the bar is a repeat: one stamped no later than the latest of its type (Binance
+    pushing a closed kline again, revised or not; rc7's validate_data_sequence passes an equal stamp), which the
+    source must not see, or it decides twice on one bar. A replay never repeats a bar, so this keeps parity."""
     try:
         if not bar.bar_type.is_externally_aggregated():
-            return
+            return False
         kind, step = str(bar.bar_type), bar.bar_type.spec.get_interval_ns()
     except Exception:
-        return
+        return False
     state = session.connection
     previous = state.bars.get(kind)
+    if previous is not None and bar.ts_event <= previous:
+        session.event("bar_repeated", strict=False, bar_type=kind, after_ns=previous, received_ns=bar.ts_event)
+        return True
     state.bars[kind] = bar.ts_event
     if state.reconnected is not None and not state.bar_since_reconnect:
         state.bar_since_reconnect = True
@@ -327,6 +331,7 @@ def bar(session, bar) -> None:
         # The source is rebuilt by the next start (rewarm): its working entries go now, while this process still
         # protects a fill; positions keep their exits (design §3.2 item 3).
         close_entries(session, "bars_missing", bar_type=kind, after_ns=previous, received_ns=bar.ts_event)
+    return False
 
 
 def rewarm_due(session) -> bool:

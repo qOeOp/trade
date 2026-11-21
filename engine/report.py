@@ -265,6 +265,16 @@ def without_unfilled_liquidity(orders):
     result.loc[unfilled, "liquidity_side"] = "NO_LIQUIDITY_SIDE"
     return result
 
+def capital_findings(observer, expected_timestamps: int) -> list[str]:
+    """engine.capital_findings: the capital observer (engine.run.CapitalObserver) valued every input timestamp and
+    every open position in it."""
+    findings = list(dict.fromkeys(observer.findings))
+    if observer.timestamps != expected_timestamps:
+        findings.append(f"CAPITAL_TIMESTAMP_COUNT_MISMATCH: capital observation valued {observer.timestamps} of "
+                        f"{expected_timestamps} input timestamps")
+    return findings
+
+
 def write_native_reports(output: Path, replay, strategies: dict, instruments: list[dict], identity: dict,
                          window: Window, account: AccountContract, limitations: list[str],
                          expected_timestamps: int) -> tuple[dict, list[str]]:
@@ -276,7 +286,6 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
     contract whose lifecycle misses the window); ``instruments`` are engine.read_market's rows;
     ``identity`` is the strategy and runtime identity the summary carries.
     """
-    from engine.run import capital_findings  # engine.run imports this module
     starting_balance = Decimal(account["starting_balance_usdt"])
     integrity_findings = []
     native_account = replay.portfolio.account(venue=Venue(account["venue"]))

@@ -125,7 +125,8 @@ failed check journals a `refusal` (`PAPER_RECOVERY_UNAVAILABLE`, naming the orde
 a pause stops, leaving the restored orders as they were, without a new checkpoint; the daemon seals it. So does a
 refused back-fill (orders it already sent stay as they are) and any other stop of a recovery before it is ready, but
 STOP and the duration, which cancel. The interruption shows
-in the journal as the `resumed` line and the first live bar's `data_gap`. Native Redis readback checks orders,
+in the journal as the `resumed` line and the first live bar's `data_gap`. An external bar stamped no later than the last of its type
+the source had (a closed kline pushed again) is journalled as `bar_repeated` and never reaches the source, as in Live. Native Redis readback checks orders,
 positions and account events (the last carrying balances and margins) before the atomic cut is published; margins
 Nautilus sets only in memory are recomputed from the positions on restore and are not compared.
 

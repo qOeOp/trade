@@ -12,12 +12,13 @@ from unittest.mock import patch
 from engine import config
 from shared.errors import Refusal
 from runtime import image
+from runtime.identity import LAYOUT
 from tests.runtime import test_image as image_tests
 from tests.helpers import refused
 
 
 CONTRACT = config.RUNTIME_CONTRACT
-CURRENT = image.LAYOUT["source_paths"]
+CURRENT = LAYOUT["source_paths"]
 # An incomplete map: five of the current files; no image of this contract reports it.
 INCOMPLETE = {key: CURRENT[key] for key in ("config_source_sha256", "runner_source_sha256", "load_source_sha256",
                                             "report_source_sha256", "fingerprint_source_sha256")}

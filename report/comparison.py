@@ -151,20 +151,6 @@ def _studentized(values: np.ndarray, outer: Mapping, design: Mapping, alpha: flo
     return [observed - float(high) * se, observed - float(low) * se], degenerate
 
 
-def _sensitivity(values: np.ndarray, main: Mapping, design: Mapping, alpha: float) -> list[dict]:
-    """The basic interval and p at half, once and twice the design's block length; `main` is the bootstrap at
-    the block length itself."""
-    block, found = design["block_days"], []
-    for length in (max(1, block // 2), block, 2 * block):
-        if len(values) < 2 * length:
-            found.append({"block_days": length, "available": False})
-            continue
-        outer = main if length == block else _outer(values, length, design["resamples"], design["seed"], alpha)
-        found.append({"block_days": length, "available": True, "mean_log_interval": outer["basic"],
-                      "p_one_sided": outer["p"]})
-    return found
-
-
 def max_drawdown(returns: np.ndarray) -> np.ndarray:
     """The maximum drawdown, a fraction of the running peak, of compounded daily returns along the last axis,
     from a starting equity of 1."""
@@ -186,10 +172,9 @@ def _paired_inputs(left: Sequence, right: Sequence, design: dict, grid_points: i
     return sides
 
 
-def paired(left: Sequence, right: Sequence, design: dict, grid_points: int, *, sensitivity: bool = True) -> dict:
+def paired(left: Sequence, right: Sequence, design: dict, grid_points: int) -> dict:
     """The paired circular block bootstrap of the daily log difference (right minus left); both sides
-    share one matrix of block starts. Effect, intervals, p and robustness numbers; no verdict. Without
-    `sensitivity` the block-length sensitivity is null and not computed."""
+    share one matrix of block starts. Effect, intervals, p and the detectable difference; no verdict."""
     sides = _paired_inputs(left, right, design, grid_points)
     days = len(sides[0])
     logs = [np.log1p(side) for side in sides]
@@ -204,7 +189,8 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int, *, s
                            "empty")
     studentized, degenerate = _studentized(values, outer, design, alpha, limitations)
     normal = NormalDist()
-    detectable = se * (normal.inv_cdf(1 - alpha) + normal.inv_cdf(POWER))
+    # Two-sided at alpha, like the intervals whose excluding zero tells candidate and control apart.
+    detectable = se * (normal.inv_cdf(1 - alpha / 2) + normal.inv_cdf(POWER))
     drawdown = float(max_drawdown(sides[1]) - max_drawdown(sides[0]))
     drawdowns = max_drawdown(sides[1][indices]) - max_drawdown(sides[0][indices])
     drawdown_interval = [float(value) for value in np.quantile(drawdowns, [alpha / 2, 1 - alpha / 2])]
@@ -216,17 +202,14 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int, *, s
     # difference over this control of a candidate whose mean daily log return exceeds the
     # control's by the difference the test detects with POWER.
     detectable_annual = math.exp(control + 365 * detectable) - math.exp(control)
-    absolute = np.sort(np.abs(values))[::-1]
     return {"method": design["method"], "days": days, "mean_daily_log_difference": observed,
             "mean_log_basic_interval": outer["basic"],
             "mean_log_studentized_interval": studentized, "annual_return_difference": annual,
             "annual_return_difference_interval": annual_interval, "max_drawdown_difference": drawdown,
             "max_drawdown_difference_interval": drawdown_interval, "interval_coverage_grid_adjusted": 1 - alpha,
-            "p_one_sided": p, "p_bonferroni": None if p is None else min(1.0, p * grid_points),
+            "p_one_sided": p,
             "predeclared_alpha": design["alpha"], "predeclared_minimum_effect": design["minimum_effect"],
             "detectable_annual_return_difference_80pct_normal_approx": detectable_annual,
-            "top_five_absolute_difference_share": float(absolute[:5].sum() / absolute.sum()) if absolute.sum() else None,
-            "block_sensitivity": _sensitivity(values, outer, design, alpha) if sensitivity else None,
             "degenerate_nested_samples": degenerate, "design": dict(design), "grid_points": grid_points,
             "limitations": limitations}
 
@@ -234,7 +217,7 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int, *, s
 def single(returns: Sequence, design: dict, family_size: int = 1) -> dict:
     """The single-series circular block bootstrap of an out-of-sample window's daily log returns: the
     mean and annualized Sharpe ratio with basic intervals, a studentized interval of the mean, the
-    one-sided p of a mean not above zero and the block-length sensitivity; no verdict."""
+    one-sided p of a mean not above zero; no verdict."""
     register.validate_design(design)
     if not isinstance(family_size, int) or isinstance(family_size, bool) or family_size < 1:
         raise refuse("COMPARISON_UNAVAILABLE", "family_size must be a positive integer", missing=("family_size",))
@@ -263,7 +246,6 @@ def single(returns: Sequence, design: dict, family_size: int = 1) -> dict:
             "mean_log_basic_interval": outer["basic"],
             "mean_log_studentized_interval": studentized, "sharpe_annualised": sharpe, "sharpe_interval": sharpe_interval,
             "p_one_sided": outer["p"], "interval_coverage": 1 - alpha,
-            "block_sensitivity": _sensitivity(values, outer, design, alpha),
             "degenerate_nested_samples": degenerate, "predeclared_alpha": design["alpha"],
             "predeclared_minimum_effect": design["minimum_effect"], "design": dict(design),
             "limitations": limitations}
@@ -432,8 +414,8 @@ def compare(profile, registration_id: int, trial_id: int, at: str | None = None,
 def crossing(profile, registration_id: int, trial_id: int, at: str | None = None, *, checker: Mapping | None = None,
              reviews: list | None = None) -> bool | None:
     """intervals_cross_zero of what `compare` would answer (None for a registration without a control), with the
-    same refusals, computing only the paired test's intervals: no attribution or block
-    sensitivity, which nothing reading the intervals uses (CF-10)."""
+    same refusals, computing only the paired test's intervals: no attribution, which nothing reading the
+    intervals uses (CF-10)."""
     with db.read_as_of(db.profile(profile), at) as conn:
         plan = register.load_registration(conn, registration_id)
         if plan["control_trial_id"] is None:
@@ -442,7 +424,7 @@ def crossing(profile, registration_id: int, trial_id: int, at: str | None = None
         found = gather(conn, plan, trial_id, checker=checker, reviews=reviews)
     left, right = ([value for _, value, _ in found["series"][side]] for side in ("control", "candidate"))
     plan = found["plan"]
-    return intervals_cross_zero(paired(left, right, plan["comparison"], len(plan["grid"]), sensitivity=False))
+    return intervals_cross_zero(paired(left, right, plan["comparison"], len(plan["grid"])))
 
 
 def intervals_cross_zero(evidence: Mapping) -> bool | None:

@@ -440,3 +440,48 @@ class ReadOnlyVenueTest(unittest.TestCase):
         self.assertIn("signature=", seen[-1].full_url)
         self.assertNotIn("hidden", str(caught.exception))
         self.assertNotIn("signature", str(caught.exception))
+
+
+class ReadRetryTest(unittest.TestCase):
+    """A read that fails for a passing reason is sent again a bounded number of times, after Binance's Retry-After
+    on a 429; a ban (418), a Retry-After over the limit, or an answer that will not change is refused at once."""
+
+    def read(self, *answers):
+        client = BinanceReadOnly(Credentials("test-key", "test-secret"))
+        sent = []
+
+        def respond(request, timeout):
+            sent.append(request.full_url)
+            answer = answers[len(sent) - 1]
+            if isinstance(answer, int):
+                headers = {"Retry-After": str(answer // 1000)} if answer >= 1000 else {}
+                raise urllib.error.HTTPError(request.full_url, answer % 1000, "x", headers, io.BytesIO(b""))
+            if isinstance(answer, Exception):
+                raise answer
+            return io.BytesIO(json.dumps(answer).encode())
+
+        client.opener = SimpleNamespace(open=respond)
+        with patch("engine.live_venue.time.sleep") as sleep:
+            try:
+                return client.get("/fapi/v1/exchangeInfo"), len(sent), [call.args[0] for call in sleep.call_args_list]
+            except Refusal as exc:
+                return exc.code, len(sent), [call.args[0] for call in sleep.call_args_list]
+
+    def test_a_429_waits_for_its_retry_after_and_reads_again(self):
+        self.assertEqual(self.read(2429, {"symbols": []}), ({"symbols": []}, 2, [2]))
+
+    def test_a_429_without_retry_after_waits_a_second(self):
+        self.assertEqual(self.read(429, {"symbols": []}), ({"symbols": []}, 2, [1]))
+
+    def test_a_retry_after_over_the_limit_is_refused_without_waiting(self):
+        self.assertEqual(self.read(30429), ("LIVE_ACCOUNT_UNAVAILABLE", 1, []))
+
+    def test_a_ban_is_never_retried(self):
+        self.assertEqual(self.read(418, {"symbols": []}), ("LIVE_ACCOUNT_UNAVAILABLE", 1, []))
+
+    def test_a_client_error_is_not_retried(self):
+        self.assertEqual(self.read(400, {"symbols": []}), ("LIVE_ACCOUNT_UNAVAILABLE", 1, []))
+
+    def test_server_and_connection_failures_are_read_again_a_bounded_number_of_times(self):
+        self.assertEqual(self.read(ConnectionResetError(), {"symbols": []}), ({"symbols": []}, 2, [1]))
+        self.assertEqual(self.read(503, 503, 503, {"symbols": []}), ("LIVE_ACCOUNT_UNAVAILABLE", 3, [1, 2]))

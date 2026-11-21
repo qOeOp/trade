@@ -75,7 +75,7 @@ only JSON bodies. `npm test` and `npm run check` in `agent/`. Design:
 
 With `--paper=URL`, requests under `/api/paper/` go to the paper daemon (`python -m cli.main paper
 serve`, the compose service `paper` on port 8767; `paper/serve.py`), and the page gets paper runs:
-▶ and ■ on each version, and the runs' charts, trades and events on the Runs page. A POST there must come from the
+▶ and ■ on each version, and the runs' charts, trades, orders and events on the Runs page. A POST there must come from the
 page itself (`Sec-Fetch-Site: same-origin`) and carry the token the service generated at start and
 put in the page (`X-Trade-Paper-Token`). The daemon reads the runs and their journals; it starts,
 stops and seals runs through the command line, and seals runs that ended on their own. Design:
@@ -320,7 +320,7 @@ is chunked on word boundaries and translated paragraph by paragraph to retain it
 `npm run check` runs `tsc`, the lineage geometry regression tests (`npm test`), and `scripts/check-rules.mjs`, which fails the build on: a colour literal outside
 `tokens.css`, `var(--…)` in TypeScript outside `roles.ts` (role classes and `v()` instead), `<svg>` outside icons and the
 chart widgets, a `<button>` or colour inline style outside `components/`, arbitrary `text-[…]`/`rounded-[…]` classes,
-storage outside `lib/storage.ts`, an import against the table above, a file over 200 lines, data hues that differ from
+storage outside `lib/storage.ts`, an import against the table above, a file over 20 KiB, data hues that differ from
 the validated set.
 
 Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour

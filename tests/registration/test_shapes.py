@@ -42,6 +42,21 @@ class CatalogueTests(unittest.TestCase):
         linked = {duty for item in duties.measure_catalogue()["slices"] for duty in item["duties"]}
         self.assertEqual(linked, duties.DUTIES)
 
+    def test_the_changed_duties_are_the_header_lines_that_differ(self):
+        """Only the module docstring's duty lines count, as written in any language; a removed line is a change."""
+        parent = ('"""Root.\n\nE1 风险与数量：采用 | 权益的 2% | 实现者\nF3 Stop: adopted | 2 ATR | source\n'
+                  'G3 Impact: default | no cap | implementer\n"""\n# F3 Stop: moved\nX = 1\n')
+        cases = {
+            "unchanged but the code": (parent.replace("X = 1", "X = 2"), []),
+            "one line": (parent.replace("2 ATR", "3 ATR"), ["F3"]),
+            "another language's line": (parent.replace("2%", "3%"), ["E1"]),
+            "a removed and an added line": (parent.replace("G3 Impact", "H2 Margin"), ["G3", "H2"]),
+            "no header": ("X = 1\n", ["E1", "F3", "G3"]),
+        }
+        for label, (child, changed) in cases.items():
+            with self.subTest(label=label):
+                self.assertEqual(duties.header_changes(parent.encode(), child.encode()), changed)
+
 
 class SchemaTests(unittest.TestCase):
     def body(self) -> dict:
