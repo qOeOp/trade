@@ -8,7 +8,7 @@ import { useAtom } from "../../state/atom";
 import { highlighted, showTime, type Stream } from "../../state/paperStream";
 import { paperTab } from "../../state/stage";
 import { Chip } from "./Events";
-import { CELL, DETAIL, HEAD, usePickedScroll } from "./table";
+import { CELL, HEAD, usePickedScroll } from "./table";
 
 const SHOWN = 2000;  // the latest orders listed; older ones stay in Events
 const NONE: Precision = { price: -1, size: -1 };
@@ -31,7 +31,7 @@ function Row({ o, d, contract, picked, stopped }: { o: Order; d: Precision; cont
       <td className={`${CELL} text-left ${o.buy === null ? "text-fg-faint" : o.buy ? "text-pnl-up" : "text-pnl-down"}`}>{o.buy === null ? MISSING : o.buy ? "Buy" : "Sell"}</td>
       <td className={`${CELL} text-left text-fg-muted`}>{o.type || MISSING}{o.reduceOnly && <span className="text-fg-faint"> · reduce only</span>}</td>
       <td className={`${CELL} text-right`}>{priceText(o, d) ?? MISSING}</td>
-      <td className={`${CELL} text-right ${DETAIL}`}>{quantityText(o, d)}</td>
+      <td className={`${CELL} text-right`}>{quantityText(o, d)}</td>
       <td className={`${CELL} text-left`} title={o.reason ?? undefined}>
         <span className="flex min-w-0 items-center gap-2">
           <Chip status={{ text: state, failed: o.failed }} />
@@ -57,7 +57,7 @@ export function Orders({ s, only }: { s: Stream; only: string | null }) {
           <th className={`${HEAD} text-right`}>Placed</th>
           {!only && <th className={`${HEAD} text-left`}>Contract</th>}
           <th className={`${HEAD} text-left`}>Side</th><th className={`${HEAD} text-left`}>Type</th><th className={`${HEAD} text-right`}>Price</th>
-          <th className={`${HEAD} text-right ${DETAIL}`}>Quantity</th><th className={`${HEAD} text-left`}>State</th><th className={`${HEAD} text-right`}>Since</th>
+          <th className={`${HEAD} text-right`}>Qty</th><th className={`${HEAD} text-left`}>State</th><th className={`${HEAD} text-right`}>Since</th>
         </tr></thead>
         <tbody>{list.slice(0, SHOWN).map((o) => (
           <Row key={o.id} o={o} d={digits.get(o.symbol) ?? NONE} contract={!only} picked={picked === o.line} stopped={!!s.seal} />

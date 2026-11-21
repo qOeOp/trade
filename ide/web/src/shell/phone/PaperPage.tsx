@@ -98,7 +98,7 @@ export function PaperPage({ id }: { id: number }) {
           ];
         })} />}
         {placed.length > SHOWN && <p className="px-3 pt-2 text-small text-fg-faint">The latest {SHOWN} of {placed.length} orders.</p>}
-        <p className="px-3 pb-4 pt-2 text-small text-fg-faint">Charts, trades, events, every order and Stop and seal are on the desktop.</p>
+        <p className="px-3 pb-4 pt-2 text-small text-fg-faint">Orders past the last {SHOWN}, charts, trades, events and Stop and seal are on the desktop.</p>
       </PhonePage>
     </>
   );
