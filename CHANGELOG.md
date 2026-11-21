@@ -47,6 +47,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `metrics/BTCUSDT lagging`, a stopped scope's refusal code, an unreadable status), Docker keeps that in the
   container's health log, and the release host's Telegram notice quotes it. The same conditions stay unhealthy.
 
+- Breaking: the four market imports (`market import`, `import-trades`, `import-quotes`, `import-metrics`) return one
+  shape: `month`, `per_symbol` (each contract's `rows` and its own readings), the kind's own fields, `rows` (all
+  contracts), `market_day` and `seconds` (to a tenth). Dropped: `bar_rows`, `trade_rows`, `quote_rows` and
+  `metrics_rows` (now `rows`), the trade and metrics `imports` lists (now `per_symbol`, with the trade `codec` once at
+  the top) and the quote import's `symbols` (the keys of `per_symbol`). The stored files are unchanged.
+
 - Market refusals are the product's one refusal type (`shared.errors.Refusal`); `MarketError` is gone, and the
   codes, conditions and printed refusal JSON stay the same. A market refusal reaching the Paper controller's HTTP API
   is now answered as a refusal with its code, like any other, instead of failing the request.

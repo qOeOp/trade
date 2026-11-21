@@ -134,12 +134,12 @@ class ImportTests(unittest.TestCase):
                             "--cache-root", str(self.cache)])
         result = json.loads(out.getvalue())
         self.assertEqual(rc, 0, result)
-        imported, = result["imports"]  # the month's universe members: BTCUSDT only
-        self.assertEqual((imported["symbols"], imported["from"], imported["through"]), (["BTCUSDT"], "2025-01-01",
-                                                                                        "2025-02-01"))
-        self.assertEqual(result["metrics_rows"], 31 * 288 - 1)
-        self.assertEqual(imported["readings"]["BTCUSDT"]["2025-01-01"]["rows"], 287)
-        self.assertEqual(imported["unpublished"], {"BTCUSDT": []})
+        imported = result["per_symbol"]["BTCUSDT"]  # the month's universe members: BTCUSDT only
+        self.assertEqual((list(result["per_symbol"]), imported["from"], imported["through"]),
+                         (["BTCUSDT"], "2025-01-01", "2025-02-01"))
+        self.assertEqual(result["rows"], 31 * 288 - 1)
+        self.assertEqual(imported["readings"]["2025-01-01"]["rows"], 287)
+        self.assertEqual(imported["unpublished"], [])
         first = tuple(read(profile, "metrics").slice(0, 1).to_pylist()[0].values())
         self.assertEqual(first, ("BTCUSDT", START, Decimal("1000.5"), Decimal("1.25"), Decimal("2.5"), Decimal("0.75")))
         self.assertEqual(read(profile, "metrics", market_day=JAN.isoformat()).num_rows, 287)  # the first day alone
@@ -211,14 +211,14 @@ class ImportTests(unittest.TestCase):
         profile = self.market()
         early = [date(2025, 1, 1), date(2025, 1, 3)]  # the 2nd is never published; the 4th onward not yet
         with serving(self.exchange(early)):
-            first, = metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["imports"]
+            first, = metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["per_symbol"].values()
         self.assertEqual((first["from"], first["through"], first["unpublished"]),
-                         ("2025-01-01", "2025-01-04", {"BTCUSDT": ["2025-01-02"]}))
+                         ("2025-01-01", "2025-01-04", ["2025-01-02"]))
         later = early + [date(2025, 1, n) for n in range(4, 32)]
         with serving(self.exchange(later)):
-            second, = metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["imports"]
+            second, = metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["per_symbol"].values()
         self.assertEqual((second["from"], second["through"], second["unpublished"]),
-                         ("2025-01-04", "2025-02-01", {"BTCUSDT": ["2025-01-02"]}))
+                         ("2025-01-04", "2025-02-01", ["2025-01-02"]))
         self.assertEqual(read(profile, "metrics").num_rows, 30 * 288)
         market = files.open_market(profile, "reader")
         facts = coverage.metrics_facts(market, date(2025, 1, 31).isoformat(), "BTCUSDT", START,
@@ -232,15 +232,15 @@ class ImportTests(unittest.TestCase):
 
     def test_a_day_published_late_fills_in_and_the_days_held_stay(self):
         profile = self.market()
-        imported = lambda: metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["imports"]
+        imported = lambda: metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["per_symbol"].values()
         with serving(self.exchange([date(2025, 1, n) for n in (1, 3)])):
             first, = imported()
-        self.assertEqual((first["through"], first["unpublished"]), ("2025-01-04", {"BTCUSDT": ["2025-01-02"]}))
+        self.assertEqual((first["through"], first["unpublished"]), ("2025-01-04", ["2025-01-02"]))
         held = read(profile, "metrics")
         with serving(self.exchange([date(2025, 1, 2)])):
             second, = imported()
         self.assertEqual((second["from"], second["through"], second["unpublished"]),
-                         ("2025-01-02", "2025-01-03", {"BTCUSDT": []}))
+                         ("2025-01-02", "2025-01-03", []))
         filled = read(profile, "metrics")
         self.assertEqual(filled.num_rows, 3 * 288)
         low, high = day_ms(date(2025, 1, 2)), day_ms(date(2025, 1, 3))
@@ -261,16 +261,16 @@ class ImportTests(unittest.TestCase):
                 def now(cls, tz=None):
                     return datetime(day.year, day.month, day.day, 12, tzinfo=tz)
             return patch.object(metrics, "datetime", Clock)
-        imported = lambda: metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["imports"]
+        imported = lambda: metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["per_symbol"].values()
         with serving(self.exchange([date(2025, 1, n) for n in (1, 3, 4)])), on(date(2025, 1, 5)):
             first, = imported()
-        self.assertEqual((first["through"], first["unpublished"]), ("2025-01-02", {"BTCUSDT": []}))
+        self.assertEqual((first["through"], first["unpublished"]), ("2025-01-02", []))
         self.assertEqual(read(profile, "metrics").num_rows, 288)
         # Settled, the day is a hole the archive left and the days after it land.
         with serving(self.exchange([date(2025, 1, n) for n in (3, 4)])), on(date(2025, 1, 10)):
             second, = imported()
         self.assertEqual((second["from"], second["through"], second["unpublished"]),
-                         ("2025-01-03", "2025-01-05", {"BTCUSDT": ["2025-01-02"]}))
+                         ("2025-01-03", "2025-01-05", ["2025-01-02"]))
         # With nothing before the waiting day to land, the import waits.
         with serving(self.exchange([date(2025, 1, 7)])), on(date(2025, 1, 8)), self.assertRaises(Refusal) as caught:
             imported()

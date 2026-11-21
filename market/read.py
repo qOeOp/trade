@@ -1,4 +1,5 @@
-"""Market reads for the report (`market.daily_returns`) and for source reviewers (`market.stored_bars`).
+"""Market reads for the report (`market.daily_returns`), for source reviewers (`market.stored_bars`) and for
+registration (`market.freshness`).
 
 The day's close is the MARK one-minute bar opening at 23:59 UTC; a day's return is that close over
 the previous day's, minus one. The basket weighs equally the members of the day's month that have a
@@ -134,3 +135,28 @@ def stored_bars(profile: dict, at: str | None, symbol: str, price_type: str, tim
         found["funding"] = {"columns": list(FUNDING_COLUMNS), "count": len(settlements),
                             "rows": [[at, format(rate.normalize(), "f")] for at, rate in settlements]}
     return found
+
+
+# market.freshness
+
+def freshness(profile: dict, ref: str | None = None) -> dict:
+    """market.freshness: a market day's universe months and its latest complete UTC day (the day before the one
+    holding the newest LAST minute's end)."""
+    market = files.open_market(profile, "reader")
+    market_day = files.resolve_day(market, ref)
+    months = sorted({month for month, _ in universe.months_of(market, market_day)})
+    if not months:
+        raise refuse("MARKET_EMPTY", f"market day {market_day} has no universe month", missing=(market_day,))
+    newest = None
+    # A table's files are disjoint in time: the newest minute is in the latest file holding a LAST bar.
+    high = files._visible("bar", market_day, None)
+    for entry in reversed(files.entries(market, "bar", None, None, high)):
+        for batch in files.file_batches(files.file_bytes(market, entry), files.BAR, None, None, high):
+            opens = batch.filter(pc.equal(batch.column("price_type"), "LAST")).column("ts_open")
+            if len(opens):
+                newest = max(newest or 0, pc.max(opens).as_py())
+        if newest is not None:
+            break
+    complete_day = clock.ms_day(newest + MINUTE) - timedelta(days=1) if newest is not None else None
+    return {"market_day": market_day, "universe_months": [value.strftime("%Y-%m") for value in months],
+            "latest_complete_day": complete_day}
