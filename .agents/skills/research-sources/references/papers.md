@@ -3,13 +3,13 @@
 ## OpenAlex — default index
 
 - `GET https://api.openalex.org/works`, key as `-H "Authorization: Bearer $(key OPENALEX_API_KEY)"`.
-  The key buys a daily dollar budget, reported in the `x-ratelimit-*-usd` response headers: a
-  search costs about ten times a filter-only list, a single-work lookup (`/works/doi:10....`) is
-  free. A keyless call works with a tenth of the budget; `page=` paging works too, but `cursor=` past
-  the first page needs the key (401 without it).
+  The key buys a daily dollar budget and a keyless call a smaller one; both are reported in the
+  `x-ratelimit-*-usd` response headers. What a search, a filter-only list and a single-work lookup
+  cost changes: read it from those headers on one call before a large run. Keyless `page=` paging
+  works, but `cursor=` past the first page needs the key (401 without it).
 - Default query: `filter=title_and_abstract.search:` with a URL-encoded boolean expression, e.g.
   `("funding rate" OR basis) AND (perpetual OR cryptocurrency)`; results come relevance-ranked.
-  `search=` adds full text and returns hundreds of times more, mostly noise: use it only to widen.
+  `search=` adds full text and returns far more, mostly noise: use it only to widen.
   `title.search:` finds a known title (strip `?`, `:` and `,` from it); `search.semantic=` takes a
   question in plain words.
 - Combine filters with `,` (AND) and `|` inside one filter (OR): `publication_year:>2019`,
@@ -31,8 +31,8 @@
 ## Crossref — second ranker
 
 - `GET https://api.crossref.org/works?query.bibliographic=...&rows=20&select=DOI,title,author,issued,container-title,type,abstract`
-  with `mailto=$(key RESEARCH_CONTACT_EMAIL)` (the polite pool, ten requests a second; check
-  `x-api-pool`). No key. Its ranking differs from OpenAlex's and surfaces relevant papers OpenAlex
+  with `mailto=$(key RESEARCH_CONTACT_EMAIL)` (the polite pool; check `x-api-pool` and the
+  rate-limit headers before a large run). No key. Its ranking differs from OpenAlex's and surfaces relevant papers OpenAlex
   leaves out of its top results.
 - `filter=prefix:10.2139` restricts to SSRN and `prefix:10.3386` to NBER; add `from-pub-date:YYYY`.
   Abstracts, when present, are JATS XML: strip the tags; SSRN abstracts missing from OpenAlex are
@@ -43,18 +43,12 @@
 
 - Base `https://api.semanticscholar.org`, key as `-H "x-api-key: $(key SEMANTIC_SCHOLAR_API_KEY)"`
   (a wrong key gets 403). Keyless calls share one public pool and get 429 more often. HTTP 429 is
-  frequent even with the key and slow pacing: space calls at least 3 s apart, back off 5, 15 and
-  45 s.
+  frequent even with the key: pace calls and back off 5, 15 and 45 s.
 - `/graph/v1/paper/search?query=...&limit=&fields=title,year,venue,externalIds,abstract,citationCount`
-  ranks well; `/graph/v1/paper/search/bulk` accepts `"phrase"`, `+`, `|`, `-` and
-  `sort=citationCount:desc` and pages by `token`, but is not relevance-ranked.
+  ranks by relevance.
 - `/graph/v1/snippet/search?query=...` returns matched passages with their paper.
-- `/graph/v1/paper/search/match?query=TITLE` and `POST /graph/v1/paper/batch?fields=...` with
-  `{"ids": [...]}` (up to 500; `DOI:...`, `ARXIV:...`, `CorpusId:...`) can land on a different
-  version of the paper than the one you mean: check year and venue before using its citation
-  count. `externalIds` links an arXiv ID to one DOI of the same work but does not list SSRN copies.
-- `/graph/v1/paper/{id}/citations` and `/references`; `POST /recommendations/v1/papers` with
-  `positivePaperIds` for similar papers.
+- A lookup by title or ID can land on a different version of the paper than the one you mean:
+  check year and venue before using its citation count. `externalIds` links an arXiv ID to one DOI of the same work but does not list SSRN copies.
 
 ## Full text
 
