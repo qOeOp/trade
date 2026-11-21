@@ -39,7 +39,7 @@
 
 读数：一个通过运行当前的一份报告读数。首次封存时写；指标口径变了，`replay reseal` 重放、指纹逐项相同后用当前代码覆盖，旧值留在 Dolt 历史和公开副本
 
-<TypeTable type={{ "trial_id": { type: "INT", description: "所属运行", required: true }, "report": { type: "JSON", description: "封存报告（JSON 对象）：度量、切面与标量", required: true }, "product_commit": { type: "CHAR(40)", description: "算出这份读数的产品代码提交", required: true }, "op_id": { type: "VARCHAR(160)", description: "重封操作的 ID；首次封存时为 NULL（属于运行那次写入）", required: false }, "computed_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，插入和每次更新都由触发器写", required: true } }} />
+<TypeTable type={{ "trial_id": { type: "INT", description: "所属运行", required: true }, "report": { type: "JSON", description: "封存报告（JSON 对象）：度量、切面与标量", required: true }, "product_commit": { type: "CHAR(40)", description: "算出这份读数的产品代码提交", required: true }, "op_id": { type: "VARCHAR(160)", description: "重封操作的 ID；首次封存时为 NULL（属于运行那次写入）", required: false } }} />
 
 **键与约束**
 

@@ -187,7 +187,7 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
                tuple(stored.values()))
         (trial_id,), = c.rows("SELECT LAST_INSERT_ID()")
         if columns["instruments"]:
-            c.many("INSERT INTO trial_instrument (trial_id, instrument_id) VALUES (%s, %s)",
+            c.many("INSERT INTO trial_instrument (trial_id, symbol) VALUES (%s, %s)",
                    [(trial_id, symbol) for symbol in columns["instruments"]])
         bundle = execution.start_bundle(c, trial_id, input_coverage, source)
         _require_unreserved(c, source_sha256, row["trade_start"], row["trade_end"],

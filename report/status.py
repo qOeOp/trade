@@ -160,8 +160,8 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
                         "t.comparable_config_sha256, t.input_start, t.trade_start, t.trade_end, r.status FROM trial t LEFT JOIN run r "
                         "ON r.trial_id = t.trial_id ORDER BY t.trial_id")
     instruments: dict[int, list[str]] = {}
-    for trial_id, symbol in conn.rows("SELECT trial_id, instrument_id FROM trial_instrument "
-                                      "ORDER BY trial_id, instrument_id"):
+    for trial_id, symbol in conn.rows("SELECT trial_id, symbol FROM trial_instrument "
+                                      "ORDER BY trial_id, symbol"):
         instruments.setdefault(trial_id, []).append(symbol)
     stopped_ids = _stopped(conn)
     matches = reproduction.matcher(conn)
@@ -334,7 +334,7 @@ def line_instruments(conn: db.LedgerConnection, line_id: int) -> set[str] | None
     if not own:
         return None
     return {symbol for (symbol,) in conn.rows_in(
-        "SELECT DISTINCT instrument_id FROM trial_instrument WHERE trial_id IN ()", own)}
+        "SELECT DISTINCT symbol FROM trial_instrument WHERE trial_id IN ()", own)}
 
 
 def _overlapping_line(conn: db.LedgerConnection, line: str | int, counted: Iterable[Mapping]) -> tuple | None:

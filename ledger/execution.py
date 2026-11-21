@@ -440,13 +440,9 @@ def _require_coverage(workdir: Path, trial_id: int, coverage: bytes) -> None:
                                           "start bundle holds", missing=(problems.COVERAGE,))
 
 
-def _table_hashes(workdir: Path) -> dict[str, str] | None:
-    """{table: semantic hash} of the fingerprint in the working directory, None without one."""
-    tables = _json(read_regular(workdir / problems.FINGERPRINT_RESULT) or b"")
-    if not isinstance(tables, dict):
-        return None
-    return {table: entry["sha256"] for table, entry in tables.items()
-            if isinstance(entry, Mapping) and isinstance(entry.get("sha256"), str)}
+def _table_hashes(workdir: Path) -> dict | None:
+    """The semantic fingerprint in the working directory, in run.fingerprints' shape; None without one."""
+    return problems.json_object(read_regular(workdir / problems.FINGERPRINT_RESULT))
 
 
 def _capture_rows(trial_id: int, listed: Mapping[str, Mapping]) -> list[tuple]:
@@ -463,8 +459,8 @@ def seal_capture(conn: db.LedgerConnection, trial_id: int, workdir: Path, stages
     process record holds them;
     `outcome` {kind: completed | interrupted | host_failure, detail}. The same capture again is an
     idempotent replay; any other capture, or one after recovery material, is refused. `table_hashes`
-    (a reproduction on another image) keeps each table's semantic hash: the capture otherwise holds only
-    the fingerprint file's hash, which cannot agree across images.
+    (a reproduction on another image) keeps the semantic fingerprint itself, in run.fingerprints' shape:
+    the capture otherwise holds only the fingerprint file's hash, which cannot agree across images.
     """
     trial, coverage = _start_of(conn, trial_id)
     if not _stages_valid(stages) or not isinstance(outcome, Mapping) or outcome.get("kind") not in OUTCOMES:

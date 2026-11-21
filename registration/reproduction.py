@@ -25,10 +25,10 @@ def _trials(conn: db.LedgerConnection, where: str = "", args: tuple = ()) -> lis
     """Trial rows with their image digest and instruments (`symbols`), by trial ID."""
     rows = conn.dicts(f"SELECT *, {db.IMAGE_DIGEST} FROM trial{where} ORDER BY trial_id", args)
     symbols: dict[int, list[str]] = {}
-    instruments = "SELECT trial_id, instrument_id FROM trial_instrument"
+    instruments = "SELECT trial_id, symbol FROM trial_instrument"
     if where:
         instruments += f" WHERE trial_id IN (SELECT trial_id FROM trial{where})"
-    for trial_id, symbol in conn.rows(instruments + " ORDER BY trial_id, instrument_id", args):
+    for trial_id, symbol in conn.rows(instruments + " ORDER BY trial_id, symbol", args):
         symbols.setdefault(trial_id, []).append(symbol)
     for row in rows:
         row["symbols"] = symbols.get(row["trial_id"], [])
@@ -83,10 +83,11 @@ def _recorded_tables_of(conn: db.LedgerConnection, trial_ids: list[int]) -> dict
     return found
 
 
-def differing_tables(hashes: Mapping, recorded: Mapping) -> list[str]:
-    """The tables both hold whose hashes differ; a table only one side has is not compared."""
-    return sorted(table for table in hashes.keys() & recorded.keys()
-                  if hashes[table] != (recorded[table] or {}).get("sha256"))
+def differing_tables(fingerprint: Mapping, recorded: Mapping) -> list[str]:
+    """The tables two semantic fingerprints (run.fingerprints' shape) both hold whose hashes differ; a table only
+    one side has is not compared."""
+    return sorted(table for table in fingerprint.keys() & recorded.keys()
+                  if (fingerprint[table] or {}).get("sha256") != (recorded[table] or {}).get("sha256"))
 
 
 ANCHORS = ("precheck", "research", "validation")  # the purposes a reproduction can reproduce

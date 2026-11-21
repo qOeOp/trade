@@ -193,7 +193,7 @@ class AnotherImageTests(unittest.TestCase):
         done = self.replay(self.moved, "moved")
         self.assertEqual((done["image_ref"], done["tables_differing"]), (NEW_IMAGE["image_ref"], ["account", "orders"]))
         capture = execution.read_capture(self.world.conn, done["reproduction_trial_id"])
-        self.assertEqual(capture["table_hashes"]["fills"], ALL_TABLES["fills"]["sha256"])
+        self.assertEqual(capture["table_hashes"]["fills"], ALL_TABLES["fills"])
         record = register.control_trial(self.world.conn, self.moved)
         self.assertEqual([row["image_digest"] for row in record["reproductions"]], [NEW_IMAGE["image_digest"]])
         plan = {**comparability.comparable_identity(record), "image_digest": NEW_IMAGE["image_digest"]}

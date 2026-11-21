@@ -167,8 +167,8 @@ def last_research_symbols(conn: db.LedgerConnection, source_sha256: str) -> dict
                      (source_sha256,))
     if found is None:
         return None
-    symbols = [symbol for (symbol,) in conn.rows("SELECT instrument_id FROM trial_instrument WHERE trial_id = %s "
-                                                 "ORDER BY instrument_id", (found["trial_id"],))]
+    symbols = [symbol for (symbol,) in conn.rows("SELECT symbol FROM trial_instrument WHERE trial_id = %s "
+                                                 "ORDER BY symbol", (found["trial_id"],))]
     return {"trial_id": found["trial_id"], "symbols": symbols}
 
 
