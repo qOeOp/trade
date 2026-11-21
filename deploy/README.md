@@ -24,7 +24,8 @@ Five services on one Docker engine:
 - **market-import**: the unattended import of Binance data (`market follow`; `market/README.md`,
   "Unattended upkeep"): the bars of `--bar-symbols` daily, open interest and long/short ratios daily
   and quotes and aggTrades monthly for the contracts its `--symbols` name, each from its own first month or day, and
-  the open interest and ratios of any other contract a manual import added, from its last day. The
+  the open interest and ratios of any other contract a manual import added, from its last day (with
+  `--metrics-pool`, also of each newest month's universe members, from that month). The
   range is `TRADE_MARKET_ARGS` in `.env` (below) and the directory does not record it; unset, the service refuses and
   keeps restarting, and the rest of the deployment runs. Same image. It is the only
   writer of the market directory `$TRADE_DATA/market`, mounted read-write. Its market profile is the
@@ -92,7 +93,11 @@ and reload:
 first if you want another range. The bars the `.env` above names are enough for a first replay.
 
 Add `--symbols BTCUSDT --metrics-from YYYY-MM-DD --trades-from YYYY-MM --quotes-from YYYY-MM` only when a strategy needs
-aggTrades, quotes or open interest. Measured on one deployment of 30 bar contracts and 3 `--symbols` contracts, 2026-11-07:
+aggTrades, quotes or open interest. Add `--metrics-pool` for the open interest and long/short ratios of the monthly
+pool: each member of the newest month is kept from that month's first day, and a contract entering the pool later
+from the month it enters; no earlier day is imported (`market import-metrics` backfills by hand). Metrics are small:
+the 9 contracts held on 2026-11-18 took 54 MB. Measured on one deployment of 30 bar contracts and 3 `--symbols`
+contracts, 2026-11-07:
 
 | Part | Stored | Note |
 |---|---|---|
