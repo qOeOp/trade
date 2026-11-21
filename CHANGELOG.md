@@ -44,6 +44,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   passed part year is still read in no summary. Breaking: a line whose part veto year sealed invalid now reads
   undecided where it read a verdict before; `line close` is unchanged.
 
+- Reports and IDE: a sealed `history` run (a `line history` segment) now carries economic evidence under the same
+  criterion as a research or validation run (doctor 20261120-04, user 2026-11-21, 「我都授权」): `replay report` no
+  longer masks its readings with `PURPOSE_NOT_COMPARABLE`, `replay report --tables` reads it, and the IDE's Runs and
+  Details pages draw its equity, calendar and trades when picked. It still enters no comparison, ranking, research
+  run count or line candidate selection; a precheck or explore trial keeps the reason.
+
 - Breaking (research lines): a line's development period now grows with its start's coverage instead of stepping
   from 12 to 4 quarters below 24 quarters (user 2026-11-21, doctor 20261120-07). With C complete quarters of the
   start's precheck instruments before Q, the period is C - 12 quarters (the 8-quarter holdout and 4 quarters of veto
