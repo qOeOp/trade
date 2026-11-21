@@ -7,7 +7,7 @@ import { LiveNoReply } from "../../components/LiveNoReply";
 import { TextButton } from "../../components/TextButton";
 import { checkBlocker, launchColumns, launchSymbols, launchValues, ready, refusalText, unavailableReason } from "../../model/liveLaunch";
 import { preparedWith, type LiveRequest, type LiveTradingActions, type LiveTradingView } from "../../model/liveTrading";
-import { useLaunchReading, useLiveEvidence, useLiveSource } from "../../state/liveRun";
+import { useLaunchReading, useLiveEvidence, useLivePaper, useLiveSource } from "../../state/liveRun";
 import { FRESH_DRAFT, liveDraft, openLiveCredentials, showLiveRun, useLiveDraft, type LiveDraft } from "../../state/liveWorkspace";
 
 // A prepared run that has not traded may still start (live/runs.py REPEATABLE).
@@ -28,7 +28,7 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
     liveDraft.set({ ...base, ...change(base) });
   };
   const read = useLiveSource(version), symbols = launchSymbols(read, edits);
-  const evidence = useLiveEvidence(read, symbols), source = read && { ...read, evidence };
+  const evidence = useLiveEvidence(read, symbols), paper = useLivePaper(read, symbols), source = read && { ...read, evidence, paper };
   const checked = view.runs.find((run) => run.id === preparedId) ?? null;
   const { reading, targets } = useLaunchReading(source?.candidate ?? null);
   const input = { view, source, edits, checked, reading, targets };

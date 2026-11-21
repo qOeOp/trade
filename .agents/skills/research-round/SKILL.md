@@ -160,7 +160,8 @@ and makes no change of approach due.
   user names that run, the measures shown and the reason they no longer count.
 - Export candidate source into /tmp before editing and publish the change as a new candidate.
   Read its duty header, edit only the lines of duties whose own rule changes, preserve the others
-  byte for byte and register those ids in `changed_duties`.
+  byte for byte and register exactly those ids in `changed_duties` (`registration add` refuses any
+  other set).
 
 ## Conditional workflows
 

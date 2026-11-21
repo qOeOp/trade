@@ -1,12 +1,12 @@
 /** Live's Runs data owner. Views receive observations/actions; mounting only reads the chosen run. */
 import { useEffect, useState } from "react";
-import type { LiveEvidenceRead, LiveRun, LiveSource, LiveTradingActions, LiveTradingView } from "../model/liveTrading";
+import type { LiveEvidenceRead, LivePaperRead, LiveRun, LiveSource, LiveTradingActions, LiveTradingView } from "../model/liveTrading";
 import { liveEvidencePresentation, liveSourcePresentation } from "../model/liveTradingMap";
 import type { LineageWidget, Targets } from "../model/types";
 import { useView, useWidget } from "../model/view";
 import { lineOf } from "../lib/lines";
 import { liveApi, LiveApiError } from "../lib/liveTradingApi";
-import type { LiveCandidateDto, LiveEvidenceReadDto } from "../lib/liveTradingDto";
+import type { LiveCandidateDto, LiveEvidenceReadDto, LivePaperReadDto } from "../lib/liveTradingDto";
 import { polled } from "../lib/polled";
 import { useResearchLines } from "./researchLines";
 import { useAtom } from "./atom";
@@ -48,7 +48,7 @@ export function useLaunchReading(candidate: string | null): { reading: { annual_
 /** A version the Live control can read: strategy_id@revision (live/configuration.py CANDIDATE). */
 const REF = /^([A-Za-z0-9][A-Za-z0-9_.-]{0,99})@([1-9][0-9]{0,8})$/;
 const candidatePath = (candidate: string) => { const [, id, revision] = REF.exec(candidate)!; return `/candidates/${encodeURIComponent(id!)}/${revision}`; };
-const CHECKING_MS = 3000, UNKNOWN_MS = 30_000;
+const CHECKING_MS = 3000, UNKNOWN_MS = 30_000, UNRECONCILED_MS = 60_000;
 
 /** The launch page's candidate, the version selected in the research graph, as the Live control reads it at the
  *  research head (live/control.py candidate): read once per version, again after a while when Live did not answer. */
@@ -78,4 +78,22 @@ export function useLiveEvidence(source: LiveSource | null, symbols: readonly str
       (read) => setFound({ key, evidence: read ? liveEvidencePresentation(read) : { state: "unknown", replays: [], tolerance: "0" } })).stop;
   }, [key]);
   return key && found?.key === key ? found.evidence : key ? { state: "checking", replays: [], tolerance: "0" } : null;
+}
+
+/** The candidate's Paper reconciliation on `symbols` (live/control.py paper_view), asked of the serving Live control:
+ *  every few seconds while it compares, every minute while no run matches (a run sealed later counts), until one does.
+ *  An answer for another source than the one read is still being compared. Null until `useLiveEvidence` has a key. */
+export function useLivePaper(source: LiveSource | null, symbols: readonly string[] | null): LivePaperRead | null {
+  const candidate = source?.read === "found" ? source.candidate : null, hash = source?.sourceHash ?? null;
+  const key = candidate && symbols ? `${candidate}/${symbols.join(",")}/${hash}` : null;
+  const [found, setFound] = useState<{ key: string; paper: LivePaperRead } | null>(null);
+  useEffect(() => {
+    if (!key || !candidate || !symbols) return;
+    const ask = () => liveApi<LivePaperReadDto>(`${candidatePath(candidate)}/paper/${symbols.join(",")}`).then((read): LivePaperRead =>
+      read.source_sha256 !== hash ? { state: "checking", paperId: null, reasons: [] } : { state: read.state, paperId: read.paper_id, reasons: read.reasons },
+      (): LivePaperRead => ({ state: "unknown", paperId: null, reasons: [] }));
+    return polled(ask, (read) => read.state === "checking" ? CHECKING_MS : read.state === "unknown" ? UNKNOWN_MS : read.state === "unreconciled" ? UNRECONCILED_MS : null,
+      (paper) => setFound({ key, paper })).stop;
+  }, [key]);
+  return key && found?.key === key ? found.paper : key ? { state: "checking", paperId: null, reasons: [] } : null;
 }

@@ -1,0 +1,1 @@
+- The research graph contract check (`research_graph check`, graph loads) validates with `jsonschema` Draft 2020-12; a schema problem reads as `path: jsonschema message` (a missing key is named at its parent).

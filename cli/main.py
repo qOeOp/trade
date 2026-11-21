@@ -34,9 +34,10 @@ from shared.errors import Refusal
 from shared.refusals import refuse
 
 
-# Each group owns its nouns' functions, --help contracts, parsers and dispatch; registered in --help order.
+# Each group declares its nouns (with their help) and commands (cli.common.Command), in --help order.
 GROUPS = (ledger_commands, research_commands, replay_commands, market_commands, paper_commands, live_commands)
-BY_NOUN = {noun: group for group in GROUPS for noun in group.NOUNS}
+NOUNS = {noun: text for group in GROUPS for noun, text in group.NOUNS.items()}
+COMMANDS = [command for group in GROUPS for command in group.COMMANDS]
 
 
 def _contract(reads: str, writes: str, returns: str, refuses: str) -> str:
@@ -44,11 +45,6 @@ def _contract(reads: str, writes: str, returns: str, refuses: str) -> str:
     return "\n".join(textwrap.fill(text, 100, initial_indent=f"{label:<9}", subsequent_indent=" " * 9)
                      for label, text in (("reads", reads), ("writes", writes), ("returns", returns),
                                          ("refuses", refuses)))
-
-
-# (reads, writes, returns, main refusals) of each command, shown in its --help.
-CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
-    key: value for group in GROUPS for key, value in group.CONTRACTS.items()}
 
 
 def product_version() -> str:
@@ -60,31 +56,18 @@ def build_parser() -> Parser:
     parser = Parser(prog="python -m cli.main", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"trade-research {product_version()}")
     nouns = parser.add_subparsers(dest="noun", required=True, parser_class=Parser)
-    groups = {}
-
-    def verbs(name: str, help_text: str):
-        noun = nouns.add_parser(name, help=help_text, description=help_text)
-        groups[name] = noun.add_subparsers(dest="verb", required=True, parser_class=Parser)
-        return groups[name]
-
-    def verb(group, name: str, help_text: str, epilog: str | None = None, takes_runner: bool = False):
-        command = group.add_parser(name, help=help_text, description=help_text, epilog=epilog,
-                                   formatter_class=argparse.RawDescriptionHelpFormatter)
-        command.set_defaults(takes_runner=takes_runner)  # runner arguments after -- (_dispatch)
-        return command
-
-    def runner(group, name: str, help_text: str):
-        return verb(group, name, help_text, RUNNER_EPILOG, takes_runner=True)
-
-    for commands in GROUPS:
-        commands.register(verbs, verb, runner)
-
-    for noun_name, group in groups.items():
-        for verb_name, command in group.choices.items():
-            notes = command.epilog  # a one-paragraph note is wrapped here; a formatted one keeps its lines
-            notes = textwrap.fill(notes, 100) if notes and "\n" not in notes else notes
-            contract = CONTRACTS.get((noun_name, verb_name))
-            command.epilog = "\n\n".join(part for part in (_contract(*contract) if contract else None, notes) if part)
+    verbs = {noun: nouns.add_parser(noun, help=text, description=text).add_subparsers(
+        dest="verb", required=True, parser_class=Parser) for noun, text in NOUNS.items()}
+    for command in COMMANDS:
+        notes = command.epilog  # a one-paragraph note is wrapped here; a formatted one keeps its lines
+        notes = textwrap.fill(notes, 100) if notes and "\n" not in notes else notes
+        epilog = "\n\n".join(part for part in (_contract(*command.contract), notes,
+                                                RUNNER_EPILOG if command.runner else None) if part)
+        verb = verbs[command.noun].add_parser(command.verb, help=command.help, description=command.help,
+                                              epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
+        verb.set_defaults(run=command.run, takes_runner=command.runner)
+        for add in command.options:
+            add(verb)
     return parser
 
 
@@ -92,7 +75,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     """(result, exit code) of one parsed command."""
     if runner_argv and not args.takes_runner:
         raise refuse("USAGE_ERROR", f"{args.noun} {args.verb} takes no runner arguments after --")
-    return BY_NOUN[args.noun].dispatch(args, runner_argv)
+    args.runner_argv = runner_argv
+    result = args.run(args)
+    return result if isinstance(result, tuple) else (result, 0)
 
 
 def main(argv: list[str] | None = None) -> int:

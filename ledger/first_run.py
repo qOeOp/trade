@@ -17,7 +17,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-import os
 from pathlib import Path
 import re
 import shutil
@@ -27,7 +26,7 @@ import sys
 import tempfile
 import threading
 
-from ledger import publish
+from ledger import publish, server
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -53,9 +52,7 @@ def origin_of(repository: str) -> str:
 
 
 def _dolt(binary: str, home: Path, *arguments: str) -> subprocess.CompletedProcess:
-    return subprocess.run([binary, *arguments], env={**os.environ, "DOLT_ROOT_PATH": str(home),
-                                                     "DOLT_DISABLE_EVENT_FLUSH": "true"},
-                          capture_output=True, text=True, cwd=home)
+    return subprocess.run([binary, *arguments], env=server.dolt_env(home), capture_output=True, text=True, cwd=home)
 
 
 def _make_key(binary: str, scratch: Path, credentials: Path) -> None:

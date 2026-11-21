@@ -7,7 +7,10 @@ import { observedCloses, stoppedPositions } from "../../model/stoppedPositions";
 import { holdings, trades, type Closed } from "../../model/trades";
 import { useNow } from "../../components/hooks/useNow";
 import { useAtom } from "../../state/atom";
-import { pickedTrade, pickTrade, type Stream } from "../../state/paperStream";
+import { pickedTrade, pickTrade, tradesTab, type Stream } from "../../state/paperStream";
+import { TextButton } from "../../components/TextButton";
+import { useOrders } from "./Orders";
+import { ordersText } from "../../model/events";
 import { pnlClass } from "../../theme/roles";
 import { CELL, DETAIL, HEAD, usePickedScroll } from "./table";
 
@@ -49,11 +52,18 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
   const book = useMemo(() => holdings(s.lines, s.state?.positions ?? null, s.state?.orders ?? [], !!s.seal), [s.lines, s.state, s.seal]);
   const { done, ended } = useTradeRows(s, only);
   const open = mine(book.open, only), pending = mine(book.pending, only);
+  const placed = useOrders(s, only);
   const of = (symbol: string): Precision => digits.get(symbol) ?? { price: -1, size: -1 };
   const end = s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : now;
   if (!open.length && !pending.length && !done.length && !ended.length) {
     if (!s.state && !s.seal) return <p className="px-3 py-3 text-dense text-fg-faint">No account snapshot yet for this run</p>;
-    return <p className="px-3 py-3 text-dense text-fg-faint">{s.seal ? "The run ended flat, with no trades" : `Flat, no trades yet${only ? ` on ${only}` : ""}`}</p>;
+    // Orders that never filled leave no trade: the count leads to them.
+    return (
+      <p className="flex items-center gap-1 px-3 py-3 text-dense text-fg-faint">
+        {s.seal ? "The run ended flat, with no trades" : `Flat, no trades yet${only ? ` on ${only}` : ""}`}
+        {placed.length > 0 && <> · <TextButton onClick={() => tradesTab.set("orders")}>{ordersText(placed)}</TextButton></>}
+      </p>
+    );
   }
   const contract = (symbol: string, strong = false): Cell | null => (only ? null : [strong ? <span className="font-medium">{symbol}</span> : symbol, "text-left"]);
   const side = (long: boolean): [ReactNode, string] => [long ? "Long" : "Short", `text-left ${long ? "text-pnl-up" : "text-pnl-down"}`];

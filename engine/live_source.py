@@ -11,14 +11,14 @@ from nautilus_trader.model import BarType
 from nautilus_trader.trading import Strategy
 from engine import history, metrics, strategy as strategy_runtime
 from engine.cadence import Cadence
-from engine.config import EXECUTION_BAR_MINUTES, Refusal as ContractRefusal
+from engine.config import EXECUTION_BAR_MINUTES, Refusal as ContractRefusal, read_regular_file
 from engine.live_errors import LiveRefusal as Refusal
 from engine import live_commands as commands, live_connection
 from engine.live_commands import PendingEntry
 from engine.live_records import contract, owned, strategy_ids
 from engine.live_session import Session
 from engine.order_rules import OrderRules, native_cache
-from engine.load import LoadedStrategy, load_strategy, read_regular_file, read_universe
+from engine.load import LoadedStrategy, load_strategy, read_universe
 from engine.membership import MONTHS, Membership, month_end_ns, opening
 
 
@@ -229,7 +229,8 @@ def _gated(name: str, method):
             return None
         if kind == "bar":
             self._live.evidence.bar(args[0])
-            live_connection.bar(self._live, args[0])
+            if live_connection.bar(self._live, args[0]):
+                return None  # a repeated bar: the source decided on it already
             if live_connection.held_bar(self._live, args[0]):
                 return None  # the run ends before the source decides again (engine.live_connection.held_bar)
             if live_connection.rewarm_due(self._live) and live_connection.rewarm_pending(

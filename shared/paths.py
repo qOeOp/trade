@@ -1,4 +1,5 @@
-"""Temporary working locations (`temporary_path`) and the source checkout (`REPOSITORY`).
+"""Temporary working locations (`temporary_path`), the source checkout (`REPOSITORY`) and regular-file reads
+(`read_regular`).
 
 Working copies (exploration and precheck output, sealed replay working directories, temporary
 ledger services) must lie strictly under a platform temporary root and be new; the active ledger
@@ -52,3 +53,11 @@ def is_temporary(path: Path) -> bool:
 
 def inside(path: Path, root: Path) -> bool:
     return Path(path).expanduser().resolve().is_relative_to(root.resolve())
+
+
+def read_regular(path: Path) -> bytes | None:
+    """The bytes of a regular file, never through a link; None when there is none."""
+    try:
+        return path.read_bytes() if path.is_file() and not path.is_symlink() else None
+    except OSError:
+        return None

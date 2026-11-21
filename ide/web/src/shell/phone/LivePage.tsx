@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { PhonePage } from "../../components/PhoneBar";
-import { Amount, Change, EntryMark, heldAside, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
+import { Amount, Change, Contract, EntryMark, heldAside, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
 import { FormButton } from "../../components/chat/Field";
 import { useNow } from "../../components/hooks/useNow";
 import { fixed, signed } from "../../lib/paperApi";
@@ -50,7 +50,7 @@ export function LivePage({ id }: { id: string }) {
         {money && <div className="px-3 pt-3"><LossTrack money={money} /></div>}
         <PhoneHeading title={held.length === 1 ? "Position" : "Positions"} aside={heldAside(held, true)} />
         {held.length > 0 && <PhoneTable head={["Contract", "Side", "Qty", held.length > 1 ? "Entry / Mark ≈" : "Entry", "P&L ≈"]} rows={held.flatMap((h) => [
-          [h.symbol, <Side long={h.long} />, fixed(h.qty), <EntryMark held={h} several={held.length > 1} />, <span className={pnlClass(h.pnl)}>{signed(h.pnl)}</span>],
+          [<Contract symbol={h.symbol} />, <Side long={h.long} />, fixed(h.qty), <EntryMark held={h} several={held.length > 1} />, <span className={pnlClass(h.pnl)}>{signed(h.pnl)}</span>],
           [<StopLine trigger={stopFor(h, working)?.trigger} mark={h.mark} ended={!run.running} missing={heldGap(run.heldAlert, h.symbol, h.long)} />]])} />}
         <PhoneHeading title="Open orders" aside={working.length || "None"} />
         {working.length > 0 && <PhoneTable head={["Type", "Side", "Qty", "Price"]} rows={working.map((o) => [
