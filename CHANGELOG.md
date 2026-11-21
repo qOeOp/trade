@@ -67,6 +67,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `worst_year_return`; `return_without_best_year` annualizes the window's days without the best whole year, the
   part year's included. It was null for every window but three whole years, so lines with a 5–11 quarter
   development period had no per-year reading.
+- Breaking (runtime): a `replay-contract@v8` image built before 2026-11-14, whose probe still reports
+  `engine/live_errors.py` among its source files, is refused with `RUNTIME_MISMATCH` and is no main build:
+  `runtime.image.EARLIER_SOURCE_PATHS` is gone (user 2026-11-21). Every trial in the active ledger ran on an image
+  built after that split (doctor 20261113-113), and every release tag from v0.3.1 on contains it.
+
 - Line close: a part veto year (the first year, cut by the market's first day plus warm-up, or the year cut by the
   development period's start) without a passed run, such as one sealed invalid by an audit failure
   (UNPROTECTED_POSITION), is now named in the closing history test's `missing` (`veto YEAR`), as a whole veto year

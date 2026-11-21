@@ -347,9 +347,7 @@ whose revision is on origin/main and whose observed code equals that commit's by
 
 The v8 source proof covers every file of the replay closure. For main-build validation, the required
 map comes from the unique literal `RUNTIME_SOURCE_PATHS` declaration in the trusted Git revision,
-read without executing it, and must equal the contract's layout or a map its earlier images report
-(`runtime.image.EARLIER_SOURCE_PATHS`): until 2026-11-13 the v8 replay image also held `engine/live_errors.py`,
-which the Live modules alone import, so those images and their runs still reproduce.
+read without executing it, and must equal the contract's layout.
 
 The project is an installable package: `uv run --frozen --project REPO python SCRIPT` imports
 the product packages (`engine`, `market`, `ledger`, `report` and the rest) from a script anywhere, and the image imports `engine` from any
