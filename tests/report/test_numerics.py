@@ -81,7 +81,7 @@ class PairedTests(unittest.TestCase):
                                            DESIGN["resamples"])
         se = float(np.std(logs[indices].mean(axis=1), ddof=1))
         normal = NormalDist()
-        detectable = se * (normal.inv_cdf(1 - DESIGN["alpha"] / 4) + normal.inv_cdf(comparison.POWER))
+        detectable = se * (normal.inv_cdf(1 - DESIGN["alpha"] / 4 / 2) + normal.inv_cdf(comparison.POWER))
         control = 365 * float(np.log1p(np.asarray(left)).mean())
         self.assertAlmostEqual(found["detectable_annual_return_difference_80pct_normal_approx"],
                                math.exp(control + 365 * detectable) - math.exp(control), places=9,
