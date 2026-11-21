@@ -60,7 +60,7 @@ class ReportTests(unittest.TestCase):
         cls.root_registration, (cls.control_ref,) = registered_grid(world, ["control"])
         cls.control = cls.replay(cls.control_ref, cls.root_registration, output=world.output("control-kept"))
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.control["trial_id"]}])
-        child = world.publish("child", parent=cls.control_ref, difference="widen the stop")
+        child = world.publish("child", parent=cls.control_ref, difference="widen the stop", changed=("F3",))
         cls.child_ref = child["candidate"]
         mechanism = [{"slice": "trade_structure", "measure": "win_rate", "direction": "up", "duty": "F3",
                       "reason": "a wider stop is hit less often"},
