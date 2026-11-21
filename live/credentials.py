@@ -2,8 +2,8 @@
 
 All ``*_locked`` functions are called while the caller holds ``state.serialized``
 (or, for listing, ``state.reading``). They never acquire another lock, connect to a
-venue, release custody, or restart a runner. Secret uploads are dispatched once by
-``live.requests``; this module never retries a partially completed upload.
+venue, release custody, or restart a runner. A save sent again with its request (the same version reference)
+finishes what it left undone; a version left unfinished is never selected otherwise.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import stat
 import time
 
 from engine.live_errors import LiveRefusal
-from live import configuration, runs, state
+from live import runs, state
 
 
 REF = re.compile(r"[0-9a-f]{32}\Z")
@@ -105,7 +105,7 @@ def _append(root: Path, event: str, credential_ref: str) -> None:
 UNRESOLVED = "an active or unresolved execution still requires its credentials"
 
 
-def _runs(root: Path, *, exclude_run_id: str | None = None) -> list[tuple[str, Path, dict, list[dict], str]]:
+def _runs(root: Path) -> list[tuple[str, Path, dict, list[dict], str]]:
     """Each retained run of this version with its prepared credential reference (runs.earlier: no other is read)."""
     directory = root / "runs"
     if not os.path.lexists(directory):
@@ -117,8 +117,8 @@ def _runs(root: Path, *, exclude_run_id: str | None = None) -> list[tuple[str, P
         for item in sorted(directory.iterdir()):
             if item.is_symlink() or not item.is_dir() or not state.RUN_ID.fullmatch(item.name):
                 raise ValueError
-            if item.name == exclude_run_id or runs.earlier(item):
-                continue  # Only the explicitly proved local partial-prepare target may be excluded.
+            if runs.earlier(item):
+                continue
             run_dir, manifest = runs.read_manifest(root, item.name)
             events = runs.host_events(run_dir)
             prepared = [row for row in events if row.get("event") == "prepared"]
@@ -152,12 +152,12 @@ def _in_use(root: Path, item: tuple[str, Path, dict, list[dict], str], active: s
     return runs.settled_state(root, run_id, launches[-1]) is None
 
 
-def _require_idle(root: Path, *, credential_ref: str | None = None, exclude_run_id: str | None = None) -> None:
+def _require_idle(root: Path, *, credential_ref: str | None = None) -> None:
     """No state repair: mutation is blocked until the original host path resolves it."""
     blocking = None
     try:
         active = runs.active_run(root)
-        retained = _runs(root, exclude_run_id=exclude_run_id)
+        retained = _runs(root)
         if active is not None and active not in {item[0] for item in retained}:
             raise ValueError
         for item in retained:
@@ -181,11 +181,6 @@ def _require_known(root: Path) -> None:
             raise ValueError
     except (OSError, ValueError, KeyError, TypeError, LiveRefusal):
         raise state.fail("LIVE_CREDENTIAL_BUSY", UNRESOLVED) from None
-
-
-def _clear(root: Path, request_id: str | None) -> None:
-    from live import requests
-    requests.require_clear(root, request_id=request_id)
 
 
 def _require_present(root: Path, credential_ref: str, rows: list[dict]) -> Path:
@@ -213,61 +208,70 @@ def listing_locked(root: Path) -> list[dict]:
             for row in rows if row["event"] == "saved"]
 
 
-def save_locked(root: Path, credential_ref: str, api_key: str, api_secret: str, *,
-                request_id: str | None = None) -> dict:
-    """One upload, one immutable file, one selection; never repair/replay an old ref."""
+def _item(root: Path, credential_ref: str) -> dict:
+    return next(row for row in listing_locked(root) if row["credential_ref"] == credential_ref)
+
+
+def save_locked(root: Path, credential_ref: str, api_key: str, api_secret: str) -> dict:
+    """One upload, one immutable file, one selection. The same version sent again returns what it recorded, or
+    finishes it: a saved one is selected, and files no history names are written again."""
     _ref(credential_ref)
     if any(not isinstance(value, str) or not value or value != value.strip() for value in (api_key, api_secret)):
         raise state.fail("LIVE_CREDENTIAL_FILE", "provide a nonempty API key and secret")
     data = state.encode({"api_key": api_key, "api_secret": api_secret})
     if len(data) > 16384:
         raise state.fail("LIVE_CREDENTIAL_FILE", "the credential input is too large")
-    _clear(root, request_id)
+    recorded = {row["event"] for row in events_locked(root) if row["credential_ref"] == credential_ref}
+    if recorded & {"selected", "removed"}:
+        return _item(root, credential_ref)  # its first send finished
     _require_idle(root)
-    rows = events_locked(root)
     directory = _directory(root, create=True)
     final = directory / (credential_ref + ".json")
     pending = directory / ("." + credential_ref + ".pending")
-    if (any(row["credential_ref"] == credential_ref for row in rows)
-            or os.path.lexists(final) or os.path.lexists(pending)):
-        raise state.fail("LIVE_CREDENTIAL_CONFLICT", "this credential version cannot be saved again")
     try:
-        state.write_new(pending, data)
-        # No overwrite: a fully fsynced file becomes visible under its immutable final name.
-        os.link(pending, final, follow_symlinks=False)
-        state.fsync_parent(final)
-        pending.unlink()
-        state.fsync_parent(pending)
-        _append(root, "saved", credential_ref)
+        if "saved" not in recorded:
+            for path in (pending, final):  # an earlier send of this version stopped before its history
+                if os.path.lexists(path):
+                    if not _available(path):
+                        raise state.fail("LIVE_CREDENTIAL_STORE", "the credential file identity is unavailable")
+                    path.unlink()
+                    state.fsync_parent(path)
+            state.write_new(pending, data)
+            # No overwrite: a fully fsynced file becomes visible under its immutable final name.
+            os.link(pending, final, follow_symlinks=False)
+            state.fsync_parent(final)
+            pending.unlink()
+            state.fsync_parent(pending)
+            _append(root, "saved", credential_ref)
+        _require_present(root, credential_ref, events_locked(root))
         _append(root, "selected", credential_ref)
     except OSError:
-        raise state.fail("LIVE_CREDENTIAL_STORE", "credential saving is incomplete; query the original request") from None
-    return next(row for row in listing_locked(root) if row["credential_ref"] == credential_ref)
+        raise state.fail("LIVE_CREDENTIAL_STORE", "credential saving is incomplete; send the same save again") from None
+    return _item(root, credential_ref)
 
 
-def remove_locked(root: Path, credential_ref: str, *, request_id: str | None = None) -> dict:
+def remove_locked(root: Path, credential_ref: str) -> dict:
     """Remove only this local copy; history remains and no venue revocation occurs."""
     _ref(credential_ref)
-    _clear(root, request_id)
-    _require_idle(root, credential_ref=credential_ref)
     rows = events_locked(root)
     if not any(row["event"] == "saved" and row["credential_ref"] == credential_ref for row in rows):
         raise state.fail("LIVE_CREDENTIAL_UNAVAILABLE", "the credential version is unknown")
-    if not any(row["event"] == "removed" and row["credential_ref"] == credential_ref for row in rows):
-        path = _path(root, credential_ref)
-        if os.path.lexists(path) and not _available(path):
-            raise state.fail("LIVE_CREDENTIAL_STORE", "the credential file identity is unavailable")
-        try:
-            path.unlink(missing_ok=True)
-            state.fsync_parent(path)
-            _append(root, "removed", credential_ref)
-        except OSError:
-            raise state.fail("LIVE_CREDENTIAL_STORE", "credential removal is incomplete; query the original request") from None
-    return next(row for row in listing_locked(root) if row["credential_ref"] == credential_ref)
+    if any(row["event"] == "removed" and row["credential_ref"] == credential_ref for row in rows):
+        return _item(root, credential_ref)
+    _require_idle(root, credential_ref=credential_ref)
+    path = _path(root, credential_ref)
+    if os.path.lexists(path) and not _available(path):
+        raise state.fail("LIVE_CREDENTIAL_STORE", "the credential file identity is unavailable")
+    try:
+        path.unlink(missing_ok=True)
+        state.fsync_parent(path)
+        _append(root, "removed", credential_ref)
+    except OSError:
+        raise state.fail("LIVE_CREDENTIAL_STORE", "credential removal is incomplete; send the same removal again") from None
+    return _item(root, credential_ref)
 
 
-def prepare_path_locked(root: Path, expected_ref: str, *, request_id: str | None = None) -> Path:
-    _clear(root, request_id)
+def prepare_path_locked(root: Path, expected_ref: str) -> Path:
     _require_known(root)
     rows = events_locked(root)
     if _current(rows) != _ref(expected_ref):
@@ -275,70 +279,7 @@ def prepare_path_locked(root: Path, expected_ref: str, *, request_id: str | None
     return _require_present(root, expected_ref, rows)
 
 
-def resolve_prepare_path_locked(root: Path, run_id: str, credential_ref: str, request_id: str) -> Path:
-    """Resolve only the original credential for an explicit local missing-input recovery.
-
-    The target may lack its manifest, but may have no launch/native/account effects.
-    Every other run still goes through the ordinary ownership scan. This establishes
-    scope, not source/configuration validity: the original prepare verifies all frozen
-    values and existing bytes before it fills a missing file.
-    """
-    from live import requests
-    credential_ref = _ref(credential_ref)
-    directory = state.directory(root, run_id)
-    claim = requests.read_locked(root, request_id)
-    required = {"research_at", "candidate", "symbols", "source_sha256", "entry_class", "universe_sha256",
-                "runtime", "config", "universe_file"}
-    config_fields = configuration.CONFIG_KEYS | {"memory"}
-    try:
-        if (claim is None or requests.is_closed(claim) or claim["disposition"] is not None
-                or claim["command"]["action"] != "prepare"
-                or claim["command"]["target"] != {"run_id": run_id, "credential_ref": credential_ref}):
-            raise ValueError
-        inputs = claim["command"]["inputs"]
-        if (not required <= inputs.keys() or not isinstance(inputs["config"], dict)
-                or not config_fields <= inputs["config"].keys()
-                or any(inputs[key] is None for key in required)
-                or any(inputs["config"][key] is None for key in config_fields - {"duration_seconds"})):
-            raise ValueError
-        if os.path.lexists(directory):
-            mode = directory.lstat()
-            if not stat.S_ISDIR(mode.st_mode) or mode.st_mode & 0o077:
-                raise ValueError
-            if {path.name for path in directory.iterdir()} - {"inputs", "out", "egress", "lifecycle.jsonl"}:
-                raise ValueError
-        for name in ("inputs", "out", "egress"):
-            path = directory / name
-            if os.path.lexists(path):
-                mode = path.lstat()
-                if not stat.S_ISDIR(mode.st_mode) or mode.st_mode & 0o077:
-                    raise ValueError
-                if name != "inputs" and any(path.iterdir()):
-                    raise ValueError
-        for path in (root / "account.jsonl", directory / "lifecycle.jsonl"):
-            if os.path.lexists(path) and not _available(path):
-                raise ValueError
-        if any(row.get("run_id") == run_id for row in state.events(root / "account.jsonl")):
-            raise ValueError
-        rows = state.events(directory / "lifecycle.jsonl")
-        if len(rows) > 1 or any(set(row) != {"event", "run_id", "observed_ns", "request_id", "credential_ref"}
-                               or type(row["observed_ns"]) is not int or row["observed_ns"] < 0
-                               or row.get("event") != "prepared" or row.get("run_id") != run_id
-                               or row.get("request_id") != request_id or row.get("credential_ref") != credential_ref
-                               for row in rows):
-            raise ValueError
-    except (OSError, ValueError, KeyError, TypeError):
-        raise state.fail("LIVE_RUN_CONFLICT", "the original local preparation scope cannot be established") from None
-    _clear(root, request_id)
-    _require_idle(root, exclude_run_id=run_id)
-    versions = events_locked(root)
-    if _current(versions) != credential_ref:
-        raise state.fail("LIVE_CREDENTIAL_CHANGED", "the selected credential changed; prepare the run again")
-    return _require_present(root, credential_ref, versions)
-
-
-def run_path_locked(root: Path, run_id: str, mode: str, *, request_id: str | None = None) -> Path:
-    _clear(root, request_id)
+def run_path_locked(root: Path, run_id: str, mode: str) -> Path:
     if mode not in {"run", "preflight", "reconcile"}:
         raise state.fail("LIVE_MODE", "unknown Live operation")
     matches = [item for item in _runs(root) if item[0] == run_id]
@@ -351,38 +292,3 @@ def run_path_locked(root: Path, run_id: str, mode: str, *, request_id: str | Non
         if _current(rows) != credential_ref:
             raise state.fail("LIVE_CREDENTIAL_CHANGED", "the selected credential changed; prepare the run again")
     return _require_present(root, credential_ref, rows)
-
-
-def recover_locked(root: Path, claim: dict) -> str | None:
-    """Explicitly settle this local transaction after reacquiring its original lock.
-
-    Returns an incomplete disposition code, or None for an already-recorded / newly
-    finished removal effect. No secret is read, resent, restored, or selected here.
-    Ambiguous history or an in-use identity raises and keeps the request unknown.
-    """
-    from live import requests
-    if requests.is_closed(claim):
-        raise state.fail("LIVE_REQUEST_CLOSED_UNCLAIMED", "this request ID was closed before acceptance")
-    action = claim["command"]["action"]
-    credential_ref = _ref(claim["command"]["target"]["credential_ref"])
-    if action not in {"credential_save", "credential_remove"}:
-        raise state.fail("LIVE_CREDENTIAL_STORE", "this is not a credential transaction")
-    _clear(root, claim["request_id"])
-    _require_idle(root, credential_ref=credential_ref if action == "credential_remove" else None)
-    rows = [row for row in events_locked(root) if row["credential_ref"] == credential_ref]
-    final = _path(root, credential_ref)
-    pending = final.parent / ("." + credential_ref + ".pending")
-    if any(os.path.lexists(path) and not _available(path) for path in (final, pending)):
-        raise state.fail("LIVE_CREDENTIAL_STORE", "the interrupted credential file identity is unknown")
-    if action == "credential_save":
-        if any(row["event"] == "selected" for row in rows):
-            return None  # The original complete saved/selected association remains authoritative.
-        return "LIVE_CREDENTIAL_INCOMPLETE"  # All remnants remain; a fresh request needs a fresh ref.
-    if not any(row["event"] == "saved" for row in rows):
-        raise state.fail("LIVE_CREDENTIAL_STORE", "the original credential removal identity is unknown")
-    if any(row["event"] == "removed" for row in rows):
-        return None
-    if os.path.lexists(final):
-        return "LIVE_CREDENTIAL_INCOMPLETE"  # Do not replay the deletion.
-    _append(root, "removed", credential_ref)
-    return None

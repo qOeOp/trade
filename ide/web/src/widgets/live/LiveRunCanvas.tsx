@@ -2,6 +2,7 @@ import { useState } from "react";
 import { LiveActionFailure } from "../../components/LiveActionState";
 import { StopButtons, StopPanel, useStopRequest } from "../../components/LiveStop";
 import { LiveAccountCheck } from "../../components/LiveAccountCheck";
+import { LiveNoReplies } from "../../components/LiveNoReply";
 import { LiveRunIdentity } from "../../components/LiveRunIdentity";
 import { LiveChart } from "./LiveChart";
 import { LiveEquity, LiveSwitches, type LiveView } from "./LiveSwitches";
@@ -10,7 +11,7 @@ import { liveReading } from "./liveEquity";
 import { GROUP } from "../paper/ChartSwitches";
 import { TextButton } from "../../components/TextButton";
 import { useLiveCanvas } from "../../state/liveRun";
-import { openLiveLaunch, openLiveRequests } from "../../state/liveWorkspace";
+import { openLiveLaunch } from "../../state/liveWorkspace";
 import { LiveHoldings } from "./LiveHoldings";
 import { LiveLaunch } from "./LiveLaunch";
 import { RunStages } from "../runs/RunStages";
@@ -52,6 +53,7 @@ export function LiveRunCanvas() {
         <LiveHoldings run={run} />
         <StopPanel stop={stop} />
         <LiveActionFailure failed={stop.failed} />
+        <LiveNoReplies view={view} actions={actions} which={(request) => request.target.run_id === run.id && request.action !== "prepare"} />
         {run.accountCheck && <LiveAccountCheck check={run.accountCheck} compact />}
       </div>
       {/* inset as the paper chart card's, so the legend starts on the 12px line of the rows above */}
@@ -59,7 +61,7 @@ export function LiveRunCanvas() {
     </div>}
     <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t border-line px-3 py-2 text-small text-fg-faint">
       {/* pulled out by the buttons' padding, so their text keeps the row's 12px lines */}
-      <div className="-mx-1 flex shrink-0 gap-2"><TextButton onClick={openLiveRequests}>Requests</TextButton><TextButton onClick={() => void actions.refresh?.()}>Refresh observations</TextButton></div>
+      <div className="-mx-1 flex shrink-0 gap-2"><TextButton onClick={() => void actions.refresh?.()}>Refresh observations</TextButton></div>
     </div>
   </section>;
 }

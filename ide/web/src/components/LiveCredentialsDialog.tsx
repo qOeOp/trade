@@ -4,11 +4,13 @@ import { FormButton, TextField } from "./chat/Field";
 import { LiveActionFailure, useLiveAction } from "./LiveActionState";
 import { LiveCredentialVersions } from "./LiveCredentials";
 import { LiveDialogFrame } from "./LiveDialogFrame";
+import { LiveNoReplies } from "./LiveNoReply";
 import { LiveNotifications } from "./LiveNotifications";
 
-/** This component unmounts when closed; secrets live only in this form and its explicit save call. */
-export function LiveCredentialsDialog({ view, actions, close, requests }: {
-  view: LiveTradingView; actions: LiveTradingActions; close: () => void; requests: () => void;
+/** This component unmounts when closed; secrets live only in this form and its explicit save call, which keeps them in
+ *  memory only until Live replies, so Send again can repeat that save (lib/liveTradingCommands.ts). */
+export function LiveCredentialsDialog({ view, actions, close }: {
+  view: LiveTradingView; actions: LiveTradingActions; close: () => void;
 }) {
   const form = useId(), action = useLiveAction();
   const [editing, edit] = useState(view.credentials.length === 0), [key, setKey] = useState(""), [secret, setSecret] = useState("");
@@ -24,6 +26,7 @@ export function LiveCredentialsDialog({ view, actions, close, requests }: {
       <FormButton primary type="submit" form={form} disabled={!actions.saveCredentials || action.busy}>{action.busy ? "Submitting…" : "Save credentials"}</FormButton></>
       : <FormButton onClick={close}>Done</FormButton>}>
     <div className="space-y-4">
+      <LiveNoReplies view={view} actions={actions} which={(request) => request.action === "credential_save" || request.action === "credential_remove"} />
       <LiveCredentialVersions credentials={view.credentials} remove={actions.removeCredential} />
       {editing ? <form id={form} className="space-y-4 border-t border-line pt-4" onSubmit={(event) => { event.preventDefault(); save(); }}>
         <TextField label="API key" type="password" autoComplete="off" spellCheck={false} value={key} onValue={setKey} disabled={!actions.saveCredentials || action.busy} />
@@ -31,7 +34,6 @@ export function LiveCredentialsDialog({ view, actions, close, requests }: {
         <p className="text-small text-fg-muted">Saving creates a local private version. It does not connect to the exchange or check the account. Saved secrets are never shown here.</p>
         <LiveActionFailure failed={action.failed} />
       </form> : <FormButton onClick={() => edit(true)}>Add or replace credentials…</FormButton>}
-      <FormButton onClick={requests}>Request status…</FormButton>
       <LiveNotifications notify={view.notify} actions={actions} />
     </div>
   </LiveDialogFrame>;

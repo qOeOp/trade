@@ -1,13 +1,9 @@
 import type { RuntimeFailure } from "./paperApi";
 
 /** Frozen HTTP projections. Native event rows are observations, never a browser order ledger. */
-export type LiveRequest = {
-  request_id: string; action: string; target: { run_id?: string; credential_ref?: string };
-  outcome: "pending" | "effect_recorded" | "refused" | "outcome_unknown";
-  event_ref?: { source: string; cursor: string }; code?: string;
-};
 export type LiveReply<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string }; request_id?: string };
-export type LiveWriteReply = { request: LiveRequest; run_id?: string; credential_ref?: string };
+/** A command Live did: its request ID and action, and the run or key it names (live/control.py execute). */
+export type LiveWriteReply = { request_id: string; action: string; run_id?: string; credential_ref?: string };
 type LiveCredentialDto = {
   credential_ref: string; observed_ns: string; selected: boolean; removed: boolean; available: boolean; referenced_runs: string[];
 };
