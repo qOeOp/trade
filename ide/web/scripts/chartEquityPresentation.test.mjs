@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { namespace } from "./load.mjs";
 
 const run = { paper_id: 777, readings: { final_equity_usdt: "9876.54" } };
-let shown, stream, moved = true;
+let shown, stream, ret = 0.42;
 const empty = () => null;
 const fixtures = {
   "ui/CoinMenu": { CoinChip: empty, CoinMenu: empty, coinGroups: () => [] },
@@ -20,7 +20,7 @@ const fixtures = {
   "state/shown": { useShown: () => shown },
   "state/paperStream": { useStream: () => stream },
   "lib/paperApi": { amount: Number, fixed: (value, digits) => Number(value).toFixed(digits) },
-  "model/chain": { chainEquity: (_chain, equity) => equity, chainReturn: () => 0.42, equityMoved: () => moved },
+  "model/chain": { chainEquity: (_chain, equity) => equity, chainReturn: () => ret },
   "lib/format": { signedPct: (value) => `${value * 100}%` },
   "theme/roles": { pnlClass: () => "" },
 };
@@ -68,14 +68,14 @@ test("a Paper stage without a selected run never turns a retained stream into an
   assert.match(html, /data-choice="equity" data-disabled="false">Equity<\/span>/);
 });
 
-test("Paper Equity is greyed with no reading until the run's equity moves; Backtest and Live keep theirs", () => {
-  moved = false;
+test("Paper Equity stays selectable with its reading while the run's equity has not moved", () => {
+  ret = 0;
   try {
     const html = render("paper");
-    assert.match(html, /data-choice="equity" data-disabled="true">Equity<\/span>/);
-    noPaperReading(html);
-    for (const stage of ["backtest", "live"]) assert.match(render(stage), /data-choice="equity" data-disabled="false">Equity<\/span>/);
+    assert.match(html, /data-choice="equity" data-disabled="false">Equity/);
+    assert.match(html, /8765<\/span><span[^>]*>\.43/);
+    assert.match(html, /Return/);
   } finally {
-    moved = true;
+    ret = 0.42;
   }
 });
