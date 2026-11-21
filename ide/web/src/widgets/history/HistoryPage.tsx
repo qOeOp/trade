@@ -18,9 +18,11 @@ import { Empty } from "../../ui/Waiting";
 
 const SUMMARY_COLS = ["Whole yrs", "Profitable", "Meeting", "Median", "Worst", "Worst DD", "Veto", "Holdout", "Verdict", "DSR"] as const;
 /** The Verdict and DSR columns stick to the right edge while the table scrolls sideways: DSR at the edge in a fixed
- *  width, Verdict just left of it. */
+ *  width, Verdict just left of it behind a gutter and a shadow over the columns passing under. The Participant column
+ *  sticks to the left edge the same way. */
 const STUCK: Partial<Record<(typeof SUMMARY_COLS)[number], string>> = {
-  Verdict: "sticky right-24 border-l border-line bg-island", DSR: "sticky right-0 w-24 min-w-24 bg-island" };
+  Verdict: "sticky right-24 border-l border-line bg-island pl-4 shadow-pinned-right", DSR: "sticky right-0 w-24 min-w-24 bg-island" };
+const PINNED_LEFT = "sticky left-0 border-r border-line bg-island pl-2 pr-4 shadow-pinned-left";
 
 const METRICS = [{ value: "annual_return", label: "Annual return" }, { value: "mark_max_drawdown", label: "Max drawdown" },
                  { value: "sharpe_365", label: "Sharpe" }] as const;
@@ -120,7 +122,7 @@ function ColumnHeads({ cols, pinned, metric, order, onOrder }: { cols: readonly 
   };
   return (
     <tr>
-      <th scope="col" className={`${th} sticky left-0 ${z} text-left`}>Participant</th>
+      <th scope="col" className={`${th} ${PINNED_LEFT} ${z} text-left`}>Participant</th>
       {cols.map((c) => <th scope="col" key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{label(c.id, c.label)}</th>)}
       {SUMMARY_COLS.map((h) =>
         <th scope="col" key={h} className={`${th} text-right ${h === "Whole yrs" ? "border-l border-line" : ""} ${STUCK[h] ? `${STUCK[h]} ${z}` : ""}`}>{label(h, h, "right")}</th>)}
@@ -145,7 +147,7 @@ function LineRows({ line, first, cols, metric, order, onOrder, all, only, shortD
       {!first && <ColumnHeads cols={cols} pinned={false} metric={metric} order={order} onOrder={onOrder} />}
       {shown.map((row) => (
         <tr key={row.run} className="hover:bg-row-hover">
-          <th className="sticky left-0 z-10 max-w-56 truncate bg-island px-2 text-left font-mono font-normal">
+          <th className={`${PINNED_LEFT} z-10 max-w-56 truncate text-left font-mono font-normal`}>
             <Tip content={<div className="space-y-0.5"><p>Research run {row.run} · source {row.source_sha256.slice(0, 12)}</p><p>{CAUSES_SAID[cause(row)][1]}</p></div>}>
               <span>{row.candidate ?? row.source_sha256.slice(0, 12)}</span></Tip>
           </th>
@@ -194,7 +196,7 @@ export function HistoryPage() {
             <tbody className="border-t border-line">
               {[0, 1, 2, 3, 4].map((r) => (
                 <tr key={r}>
-                  <th className="sticky left-0 z-10 bg-island px-2 py-1 text-left font-normal"><Skeleton className="w-32" /></th>
+                  <th className={`${PINNED_LEFT} z-10 py-1 text-left font-normal`}><Skeleton className="w-32" /></th>
                   {cols.map((c) => <td key={c.id} className="p-0.5"><div className="skeleton h-7 min-w-[4.75rem] rounded-badge opacity-45" /></td>)}
                   {SUMMARY_COLS.map((h) => <td key={h} className={`px-2 text-right ${STUCK[h] ?? ""}`}><Skeleton className="w-8" /></td>)}
                 </tr>
