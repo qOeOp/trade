@@ -163,8 +163,8 @@ older than the trade) exports every stored aggregate trade
 (`market import-trades`) as one native `TradeTick` and counts it in the receipt (`counts.trade`, present
 only then, so an export without trades keeps its bytes). The runner streams the trades of every contract
 whose receipt counts them, each wrapped as `CustomData(DataType("TradeTick", metadata={"instrument_id":
-<id>}), tick)`: a strategy subscribes with `subscribe_data` on that data type and gets the tick as
-`data.data` in `on_data`. The venue never sees custom data, so trades match no order and move no book; a
+<id>}), tick)`; how a source subscribes and reads them is in the research-round skill's
+[Trades and metrics](../.agents/skills/research-round/references/strategy-authoring.md#trades-and-metrics). The venue never sees custom data, so trades match no order and move no book; a
 native `TradeTick` would overwrite the venue's L1 book whatever `trade_execution` says (probed on
 2.0.0rc7: a market order after a trade below the bid filled at the trade's price, not the quoted ask).
 A month of the trading window without exported trades is `TRADES_MISSING`. A source subscribing to trades
@@ -185,11 +185,7 @@ of the 4th decimal (about 1 row in 100) is rounded either way by REST, and nothi
 `live compare` accepts the midpoint's half-down rounding there too, and no other difference. Both stamps are whole minutes, so in the bar environment an order the row prompts fills at the close
 of the bar that ends there, never at a price older than the decision. The receipt counts the rows
 (`counts.metrics`, present only then). The runner streams them as `CustomData(metrics_data_type(<id>),
-Metrics(...))`: `engine.strategy.Metrics` holds `instrument_id`, `sum_open_interest` (base asset), the three
-ratios `count_toptrader_long_short_ratio`, `sum_toptrader_long_short_ratio` and `count_long_short_ratio`
-as exact `Decimal` (`None` where the archive left one empty), `ts_event` and `ts_init`. A strategy
-subscribes with `subscribe_data(DataType("Metrics", metadata={"instrument_id": <id>}))` and reads
-`data.data` in `on_data`. Unlike `--trade-ticks`, `--metrics` is also passed to the runner, which then
+Metrics(...))` (`engine.strategy.Metrics`; subscribing and reading as for trades, above). Unlike `--trade-ticks`, `--metrics` is also passed to the runner, which then
 refuses `METRICS_MISSING` for a month of an active contract's trading window without exported metrics; an
 image older than the option refuses it as `UNKNOWN_OPTION` at the probe. It stays out of the effective
 configuration: the exported metrics files already carry it into the input identity. A subscription to metrics
