@@ -1,5 +1,5 @@
 """Live admission's Paper reconciliation (doctor 20261120-06; decided 2026-11-21 in
-docs/plans/live-paper-reconciliation-gate-review-20261121.zh.md).
+docs/plans/stored-fields.zh.md).
 
 Live prepares a run only for a candidate with a reconciled Paper run: a sealed, complete run (ledger.paper.verdict) of
 the same source on the same contracts, whose image runs Live's replay code (live.admission.replay_code), not held after an

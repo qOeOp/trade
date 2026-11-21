@@ -9,7 +9,7 @@
 
 本文是动手前的设计，只有调研和方案，没有代码。
 
-> 2026-11-11：已实施，之后多处改变，以代码和这些文档为准：存储见[决定记录](paper-run-storage-decision.zh.md)
+> 2026-11-11：已实施，之后多处改变，以代码和这些文档为准：存储见[字段登记表](stored-fields.zh.md)
 > 和独立 Paper 库（#2587）；远程部署见 [Paper compose 部署](paper-compose-deployment.zh.md)、
 > [持续交付](paper-continuous-delivery.zh.md)；中断续跑见[原生恢复](paper-native-recovery.zh.md)；
 > 运行中按月重读成员见[按月成员](paper-monthly-membership-20261111.zh.md)。
@@ -347,7 +347,7 @@ Invalid。runner 每秒把运行时异常写进 `runtime_failures.jsonl`，被�
 哪个独立事实、为什么现有字段和关系表达不了。结论记在 `docs/plans/`。以上公开到 DoltHub 时，和其他账本数据
 一样公开。
 
-审阅结论见 `paper-run-storage-decision.zh.md`：一张声明表 `paper_run`，加证据包 `paper-<id>-capture`。
+审阅结论见[字段登记表](stored-fields.zh.md)：一张声明表 `paper_run`，加证据包 `paper-<id>-capture`。
 和上表不同的一处是**实时 K 线要存**：对账要查的正是实时 K 线和归档 K 线的差，归档补不回实时看到的那根。
 
 ## 5. 模拟盘和回放对账
