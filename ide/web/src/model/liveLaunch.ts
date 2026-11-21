@@ -137,9 +137,8 @@ function account({ source, edits, checked, environment }: LaunchInput, closed: s
       mark: wallet === null ? "wait" : "pass", reason: wallet === null ? notYet ?? "Not observed." : available === null ? null : `${available} USDT available` },
     { id: "budget", label: "Cash floor", value: budget, unit: budget === null ? "Wallet × 85 %" : "USDT", source: "Wallet × 85 % at the start",
       editable: false, required: true,
-      mark: budget === null ? check?.state === "failed" ? "fail" : "wait" : !(Number(budget) > 0) || Number(budget) > 100 || funds === null || Number(budget) > funds ? "fail" : "pass",
+      mark: budget === null ? check?.state === "failed" ? "fail" : "wait" : !(Number(budget) > 0) || funds === null || Number(budget) > funds ? "fail" : "pass",
       reason: budget === null ? notYet ?? closed ?? "Set from the wallet the account check reads."
-        : Number(budget) > 100 ? "The first Live trial takes a cash floor of at most 100 USDT, a wallet up to about 117 USDT."
         : funds === null || Number(budget) > funds ? "More than the USDT the wallet has available. Add USDT at Binance."
         : "Each entry needs this much USDT in the wallet and available, a last line should the drawdown brake fail." },
     { id: "near", label: "Replay at wallet", source: "Replay evidence and the wallet", editable: false, required: Boolean(found),

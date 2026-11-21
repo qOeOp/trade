@@ -244,14 +244,17 @@ class LiveAdmissionTest(unittest.TestCase):
         with self.assertRaises(Refusal):
             require_admission(observation, manifest, Decimal("100"))
 
-    def test_budget_must_be_positive_and_at_most_100(self):
-        for budget in ["101", "0", "-1", "NaN", "Infinity"]:
+    def test_budget_must_be_positive(self):
+        for budget in ["0", "-1", "NaN", "Infinity"]:
             observation, manifest = fixture()
             with self.subTest(budget=budget), self.assertRaises(Refusal) as caught:
                 require_admission(observation, manifest, Decimal(budget))
             self.assertEqual(caught.exception.code, "LIVE_BUDGET")
         observation, manifest = fixture()
         self.assertEqual(require_admission(observation, manifest, Decimal("100")), Decimal("100"))
+        observation, manifest = fixture()  # no fixed cap: the floor follows the wallet (the user, 2026-11-21)
+        observation["account"]["assets"][0].update(walletBalance="5000", availableBalance="5000")
+        self.assertEqual(require_admission(observation, manifest, Decimal("4250")), Decimal("5000"))
 
     def test_admission_returns_the_smaller_of_wallet_and_available(self):
         observation, manifest = fixture()
