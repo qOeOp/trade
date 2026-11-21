@@ -26,6 +26,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- IDE: the Progress and Return vs drawdown charts follow the lineage fold. Runs of folded versions are not drawn, and
+  a Pareto-frontier run is always drawn. Each chart's legend counts them ("N runs in folded versions", a click shows
+  every version). They stay in the value ranges and in the frontier, so the fold no longer hides how many runs the
+  line has tried.
 - IDE, Line-close history: clicking a cell shows that replay (a veto year, the development period, its replay, the
   holdout or the forward part) in Details with its version selected, with Source and Runs links in the page header; a
   row of another line opens that line's page with the replay picked (`trial=`). Trades can open at the bottom of the
@@ -46,6 +50,7 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   instead of the refusal's code and message. A failure whose stderr does not end in a refusal is still
   `PRODUCT_FAILED`, `PAPER_FAILED` or `REPLICA_SYNC_FAILED`.
 
+||||||| parent of 60c3ee001 (feat(ide): the bottom charts follow the lineage fold and count what it hides)
 - `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
   2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
   leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial
