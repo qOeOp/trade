@@ -509,6 +509,35 @@ class GateTests(unittest.TestCase):
         self.assertEqual(set(self.session.connection.closed), {"bars_missing"})
         self.assertFalse(self.session.stopping)
 
+    def test_an_aggregated_bar_delivered_long_after_its_bucket_closes_entries(self):
+        # Re-judge C-142 (doctor 20261114-30): rc7 closes a time bar on a monotonic timer, so after a host sleep or VM
+        # pause every later bar comes late; the source would decide on stale buckets.
+        self.session.cancel_entries = mock.Mock()
+        hour = 3_600_000_000_000
+        kind = BarType.from_str(f"{SYMBOL}-PERP.BINANCE-1-HOUR-LAST-INTERNAL")
+        stamped = 10 * hour + live_connection.history.BUILD_DELAY_US * 1000  # rc7 stamps the build delay after the end
+        for now in (stamped + 40_000_000, 10 * hour + live_connection.AGGREGATE_LATE_NS):
+            with mock.patch.object(live_connection.time, "time_ns", return_value=now):
+                live_connection.bar(self.session, SimpleNamespace(bar_type=kind, ts_event=stamped))
+            self.assertTrue(live_connection.entries_open(self.session), now)  # on time, or not yet late
+        with mock.patch.object(live_connection.time, "time_ns", return_value=10 * hour + live_connection.AGGREGATE_LATE_NS + 1):
+            live_connection.bar(self.session, SimpleNamespace(bar_type=kind, ts_event=stamped))
+        self.assertEqual(set(self.session.connection.closed), {"bars_missing"})
+        self.session.cancel_entries.assert_called_once_with("bars_missing")
+        late = [row for row in self.events() if row["event"] == "entries_closed"]
+        self.assertEqual([(row["bar_type"], row["late_ns"]) for row in late],
+                         [(str(kind), live_connection.AGGREGATE_LATE_NS + 1)])
+
+    def test_a_drifted_aggregated_bar_is_late_by_its_bucket_not_its_stamp(self):
+        # After a pause the timer itself slips: the stamp moves off the bucket end with it.
+        self.session.cancel_entries = mock.Mock()
+        minute = 60_000_000_000
+        kind = BarType.from_str(f"{SYMBOL}-PERP.BINANCE-15-MINUTE-LAST-INTERNAL")
+        stamped = 60 * minute + 2 * minute  # 2 minutes past the 01:00 bucket end, delivered as soon as built
+        with mock.patch.object(live_connection.time, "time_ns", return_value=stamped):
+            live_connection.bar(self.session, SimpleNamespace(bar_type=kind, ts_event=stamped))
+        self.assertEqual(set(self.session.connection.closed), {"bars_missing"})
+
     def test_a_flat_run_starts_again_to_warm_up_after_two_agreeing_reads_since_the_gap(self):
         self.gap()
         cache = Cache()
