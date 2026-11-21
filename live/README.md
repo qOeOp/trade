@@ -292,6 +292,16 @@ nothing could be sent) is reported with `entries_kept`. The check tells; it does
 and closes nothing, and the drawdown brake does not run while it holds. The Live page and Telegram say what the
 latest check found, a position with no stop in its own words.
 
+An order whose submission Binance's answer did not settle (the answer, its user-stream events and the queries for it
+all lost) stays SUBMITTED: rc7 retains it (`SubmissionRecoveryPolicy.RETAIN_UNRESOLVED`) instead of judging it
+rejected after its in-flight check of about 30 s, since Binance may hold or have filled it. From 10 s on the run asks
+Binance for it natively every 10 s and closes entries as `unverified` until it is settled and two venue comparisons
+agree; an order Binance holds or filled settles at its own state and fill as soon as a query is answered. One still
+SUBMITTED after 120 s fails the run through the STOP path (`submission_unresolved`); Nautilus then ends the start
+with the order unresolved, and the run is `unresolved`. While such an order is unsettled, rc7's position check may book
+Binance's position as an EXTERNAL one; the run's own comparison then keeps entries closed and its stop ends
+`unresolved` with the venue flat.
+
 STOP disables opening decisions, cancels owned opening orders, repeating the cancel every 5 seconds while one
 stays open (after a request with an unknown outcome, as a native cancel-all scoped to the order's side, because
 native `cancel_order` sends nothing for a PENDING_CANCEL order; withheld while that side holds a reduce-only order

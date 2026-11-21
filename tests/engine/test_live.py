@@ -440,7 +440,7 @@ class LiveTests(unittest.TestCase):
         source = mock.Mock()
         session.sources, session.node, session.cache_guard = {"BTCUSDT": source}, mock.Mock(), mock.Mock()
         session.cache_guard.health.side_effect = LiveRefusal("LIVE_CACHE_HEALTH", "unavailable")
-        protection = SimpleNamespace(is_reduce_only=True, is_closed=False,
+        protection = SimpleNamespace(is_reduce_only=True, is_closed=False, status=OrderStatus.ACCEPTED,
                                      client_order_id="stop", order_type=OrderType.STOP_MARKET,
                                      strategy_id=self.instance)
         position = SimpleNamespace(id="position", strategy_id=self.instance)
@@ -1003,7 +1003,7 @@ class LiveTests(unittest.TestCase):
         session.sources, session.node = {"BTCUSDT": source}, mock.Mock()
         cache = mock.Mock()
         cache.positions_open.return_value = [SimpleNamespace(id="position", strategy_id=self.instance)]
-        cache.orders.return_value = [SimpleNamespace(is_reduce_only=True, is_closed=False,
+        cache.orders.return_value = [SimpleNamespace(is_reduce_only=True, is_closed=False, status=OrderStatus.SUBMITTED,
             client_order_id="natural-exit", order_type=OrderType.MARKET)]
         cache.orders_active_local.return_value = []
         cache.orders_inflight.return_value = [SimpleNamespace(is_reduce_only=True, client_order_id="natural-exit",
