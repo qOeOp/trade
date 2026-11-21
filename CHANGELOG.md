@@ -26,6 +26,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- IDE: `ide.py serve --dev-assets=http://127.0.0.1:5173` with `npm run dev` in `ide/web` serves the page from Vite with
+  hot updates through the IDE's own origin, which still puts the paper token in the page; both stay on loopback
+  (`ide/README.md`, Developing the page).
+
 - Paper: a host stall no longer ends a run with `PAPER_CACHE_UNAVAILABLE` (user 2026-11-21). The run ends when the
   native cache process has exited, or when PING has gone unanswered at least 5 times in a row over at least 30
   seconds; a shorter miss is written to the runner's log and an answered PING clears it. Before, one PING not

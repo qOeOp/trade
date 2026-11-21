@@ -12,6 +12,7 @@ import io
 import json
 import re
 from pathlib import Path
+import socket
 import sys
 import tempfile
 import threading
@@ -23,7 +24,7 @@ import zlib
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ide"))
 
-from research_graph import serve  # noqa: E402
+from research_graph import cli, serve  # noqa: E402
 from tests.research_graph.test_research_graph import GRAPH  # noqa: E402
 
 POLL = 0.01  # shutdown() waits one poll of serve_forever, 0.5 s by default
@@ -962,6 +963,83 @@ class AgentForwardTests(unittest.TestCase):
         self.assertEqual(self.post("/api/agent/chat", b"{}", Host="elsewhere:1").status, 403)
         self.assertEqual(self.post("/api/view", b"{}").status, 404, "only agent paths take a body")
         self.assertEqual(self.seen, [])
+
+
+class DevAssetsTests(unittest.TestCase):
+    """A stand-in Vite dev server: the page comes from it with the token put in here, its modules and its
+    hot-update WebSocket go to it under its own Host, and the API stays this service's."""
+
+    def setUp(self):
+        self.seen: list[tuple[str, str | None]] = []
+        seen = self.seen
+
+        class Vite(serve.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):
+                seen.append((self.path, self.headers.get("Host")))
+                if self.headers.get("Upgrade") == "websocket":
+                    self.wfile.write(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+                    self.wfile.write(self.rfile.read(4))  # echo one frame's worth of bytes
+                    self.close_connection = True
+                    return
+                body = b"<html><head><script src=/@vite/client></script></head></html>" if self.path == "/" else b"export {}"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html" if self.path == "/" else "text/javascript")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+        self.vite = serve.Server(("127.0.0.1", 0), Vite)
+        threading.Thread(target=self.vite.serve_forever, args=(POLL,), daemon=True).start()
+        self.addCleanup(self.vite.server_close)
+        self.addCleanup(self.vite.shutdown)
+        self.vite_host = "%s:%d" % self.vite.server_address
+        self.server = serve.Server(("127.0.0.1", 0), serve.handler(
+            serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), None, "http://127.0.0.1:1",
+            dev_assets=f"http://{self.vite_host}"))
+        threading.Thread(target=self.server.serve_forever, args=(POLL,), daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def get(self, path, **headers):
+        conn = http.client.HTTPConnection(*self.server.server_address, timeout=5)
+        self.addCleanup(conn.close)
+        conn.request("GET", path, headers={"Host": "here:1", **headers})
+        response = conn.getresponse()
+        return response.status, response.read()
+
+    def test_the_dev_page_carries_the_token_and_its_modules_come_from_vite(self):
+        status, page = self.get("/")
+        self.assertEqual(status, 200)
+        self.assertIn(b"/@vite/client", page)
+        self.assertRegex(page, rb'name="trade-paper-token" content="[^"]+"')
+        self.assertEqual(self.get("/src/main.tsx"), (200, b"export {}"))
+        self.assertEqual(self.get("/api/nothing")[0], 404, "the API stays this service's")
+        self.assertEqual(self.get("/src/main.tsx", Host="elsewhere:1")[0], 403)
+        self.assertEqual(self.seen, [("/", self.vite_host), ("/src/main.tsx", self.vite_host)])
+
+    def test_the_hot_update_socket_reaches_vite(self):
+        with socket.create_connection(self.server.server_address, timeout=5) as client:
+            client.sendall(b"GET /?token=t HTTP/1.1\r\nHost: here:1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                           b"Sec-WebSocket-Protocol: vite-hmr\r\n\r\n")
+            answer = b""
+            while not answer.endswith(b"\r\n\r\n"):
+                answer += client.recv(1)
+            self.assertTrue(answer.startswith(b"HTTP/1.1 101"))
+            client.sendall(b"ping")
+            self.assertEqual(client.recv(4), b"ping")
+        self.assertEqual(self.seen, [("/?token=t", self.vite_host)])
+
+
+class DevAssetsOptionTests(unittest.TestCase):
+    def test_dev_assets_are_refused_off_loopback(self):
+        for argv in (["--dev-assets", "http://example.com:5173"], ["--dev-assets", "http://127.0.0.1:5173", "--host", "0.0.0.0"],
+                     ["--dev-assets", "https://127.0.0.1:5173"]):
+            with self.subTest(argv=argv), mock.patch.object(sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
+                cli.main(["serve", "--ledger", "x", *argv])
 
 
 class PaperForwardTests(unittest.TestCase):

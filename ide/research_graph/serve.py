@@ -43,6 +43,11 @@ nothing, so nothing but a read reaches it.
 With a market-import status file (the one `market follow` writes, mounted read-only), `/api/market-import`
 answers it as it is, read at each request, with whether it is stale by `market.follow.check()`'s rule.
 
+With a dev-assets URL (a Vite dev server of `ide/web` on loopback, for working on the page), the page is the dev
+server's index.html read at each open, the same metas put in it here, and every other GET outside `/api/` (modules,
+styles, Vite's client) and Vite's hot-update WebSocket go to that server, so the browser talks only to this origin and
+the token is still put in the page by this service alone. Both this service and the dev server must be on loopback.
+
 `/api/about` also names the newest released version, the product's latest GitHub release read anonymously at
 most once an hour, so a deployment that does not follow versions is told it is behind.
 
@@ -64,6 +69,7 @@ import json
 from pathlib import Path
 import re
 import secrets
+import socket
 import subprocess
 import sys
 import threading
@@ -89,6 +95,7 @@ GZIP_FROM = 1024  # below this an answer gains little from compressing
 PAPER_TOKEN = "X-Trade-Paper-Token"
 OVERVIEW = "/api/overview/"
 SETUP = "/api/setup/"
+DEV = "/"  # with --dev-assets: what is not the page or under /api/ goes to the Vite dev server
 TRIALS = 16
 BARS = 16
 COMPARISONS = 64
@@ -691,22 +698,29 @@ class Server(ThreadingHTTPServer):
 def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: str | None = None,
             status: Path | None = None, overview: str | None = None,
             research: str | None = None, setup: str | None = None, *,
-            live_socket: Path | None = None, live_router: str | None = None) -> type[BaseHTTPRequestHandler]:
+            live_socket: Path | None = None, live_router: str | None = None,
+            dev_assets: str | None = None) -> type[BaseHTTPRequestHandler]:
     if (live_socket is None) != (live_router is None):
         raise ValueError("Live needs both its private socket and trusted router name")
     token = secrets.token_urlsafe(24)
-    page = _page()
-    if paper or research or setup or live_socket:
-        page = page.replace(b"</head>", f'<meta name="trade-paper-token" content="{token}">'.encode() + b"</head>", 1)
-    if research:
-        page = page.replace(b"</head>", b'<meta name="trade-research-sync" content="enabled"></head>', 1)
+
+    def dressed(page: bytes) -> bytes:
+        """The page with the metas only this service puts in it."""
+        if paper or research or setup or live_socket:
+            page = page.replace(b"</head>", f'<meta name="trade-paper-token" content="{token}">'.encode() + b"</head>", 1)
+        if research:
+            page = page.replace(b"</head>", b'<meta name="trade-research-sync" content="enabled"></head>', 1)
+        return page
+
+    page = b"" if dev_assets else dressed(_page())
     zipped_page = gzip.compress(page, 6, mtime=0)
     page_tag = f'"{hashlib.sha256(page).hexdigest()[:32]}'
     # Each forwarded prefix: its service, the largest body it takes and the code of its absence.
     targets = {prefix: (urlsplit(url), limit, code) for prefix, url, limit, code in (
         (AGENT, agent, AGENT_BODY, "AGENT_UNAVAILABLE"), (PAPER, paper, PAPER_BODY, "PAPER_UNAVAILABLE"),
         (OVERVIEW, overview, 0, "OVERVIEW_UNAVAILABLE"),
-        (RESEARCH, research, 0, "RESEARCH_UNAVAILABLE"), (SETUP, setup, PAPER_BODY, "SETUP_UNAVAILABLE")) if url}
+        (RESEARCH, research, 0, "RESEARCH_UNAVAILABLE"), (SETUP, setup, PAPER_BODY, "SETUP_UNAVAILABLE"),
+        (DEV, dev_assets, 0, "DEV_ASSETS_UNAVAILABLE")) if url}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -716,6 +730,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 
         def show_page(self) -> None:
             """The page, or a 304 when the browser already holds this one. It is private because it carries the token."""
+            if DEV in targets:
+                self.show_dev_page()
+                return
             zipped = self.takes_gzip()
             tag = page_tag + ('-gzip"' if zipped else '"')
             held = (item.strip().removeprefix("W/") for item in self.headers.get("If-None-Match", "").split(","))
@@ -735,6 +752,62 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.send_header("Content-Encoding", "gzip")
             self.end_headers()
             self.wfile.write(body)
+
+        def show_dev_page(self) -> None:
+            """The dev server's page as it is now, with this service's metas; never kept."""
+            target, _, absent = targets[DEV]
+            upstream = http.client.HTTPConnection(target.hostname or "127.0.0.1", target.port, timeout=60)
+            try:
+                upstream.request("GET", "/", headers={"Host": target.netloc, "Accept": "text/html"})
+                response = upstream.getresponse()
+                body = response.read()
+            except OSError as exc:
+                self.json(502, _failure(absent, f"{target.netloc} did not answer: {exc}"))
+                return
+            finally:
+                upstream.close()
+            if response.status != 200:
+                self.json(502, _failure(absent, f"{target.netloc} answered {response.status} for the page"))
+                return
+            self.send(200, dressed(body), "text/html; charset=utf-8")
+
+        def tunnel(self) -> None:
+            """Vite's hot-update WebSocket: the upgrade sent on with the dev server's Host, then bytes both ways
+            until either side closes. Vite checks the Origin and the token its client carries in the query."""
+            target, _, absent = targets[DEV]
+            try:
+                upstream = socket.create_connection((target.hostname or "127.0.0.1", target.port or 80), timeout=10)
+            except OSError as exc:
+                self.refuse(502, _failure(absent, f"{target.netloc} did not answer: {exc}"))
+                return
+            self.close_connection = True
+            lines = [f"{self.command} {self.path} HTTP/1.1", f"Host: {target.netloc}"] + [
+                f"{name}: {value}".replace("\r", "").replace("\n", "")
+                for name, value in self.headers.items() if name.lower() != "host"]
+            try:
+                upstream.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("latin-1"))
+                upstream.settimeout(None)
+
+                def back() -> None:
+                    try:
+                        while chunk := upstream.recv(65536):
+                            self.connection.sendall(chunk)
+                    except OSError:
+                        pass
+                    finally:
+                        for end in (self.connection, upstream):
+                            try:
+                                end.shutdown(socket.SHUT_RDWR)
+                            except OSError:
+                                pass
+
+                threading.Thread(target=back, daemon=True).start()
+                while chunk := self.rfile.read1(65536):
+                    upstream.sendall(chunk)
+            except OSError:
+                pass  # either side went away
+            finally:
+                upstream.close()
 
         def send(self, status: int, body: bytes, kind: str, renew: bool = False) -> None:
             self.send_response(status)
@@ -851,6 +924,12 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.forward(prefix)
                 return
             url = urlsplit(self.path)
+            if DEV in targets and self.headers.get("Upgrade", "").lower() == "websocket":
+                self.tunnel()
+                return
+            if DEV in targets and url.path != "/" and not url.path.startswith("/api/"):
+                self.forward(DEV)
+                return
             query = {name: values[0] for name, values in parse_qs(url.query).items() if values and values[0]}
             if url.path == "/":
                 self.show_page()
@@ -983,11 +1062,12 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str],
           agent: str | None = None, paper: str | None = None, status: Path | None = None,
           overview: str | None = None, research: str | None = None, setup: str | None = None, *,
-          live_socket: Path | None = None, live_router: str | None = None, version: str | None = None) -> None:
+          live_socket: Path | None = None, live_router: str | None = None, version: str | None = None,
+          dev_assets: str | None = None) -> None:
     hub = Hub(product, build, mirror=mirror_head(research) if research else None, version=version, released=Released())
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
                                           status, overview, research, setup,
-                                          live_socket=live_socket, live_router=live_router))
+                                          live_socket=live_socket, live_router=live_router, dev_assets=dev_assets))
     for target in (hub.watch, hub.work, hub.confirm):
         threading.Thread(target=target, daemon=True).start()
     print(f"research graph of {product.ledger} at http://127.0.0.1:{port}/", file=sys.stderr, flush=True)
