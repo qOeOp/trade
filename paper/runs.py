@@ -34,7 +34,7 @@ import time
 import uuid
 
 from deploy.release_host import RELEASE_MEMORY_MIB
-from engine.config import ACCOUNT_CONTRACT, Refusal as RuntimeRefusal, leverage_of
+from engine.config import ACCOUNT_CONTRACT, Refusal as RuntimeRefusal, atomic, leverage_of
 from ledger import db, paper as records, strategies
 from shared.refusals import refuse
 from runtime import container, image
@@ -470,7 +470,7 @@ def request_stop(profile: db.LedgerProfile, paper_id: int) -> dict:
         sealed = records.seal_of(conn, paper_id)
     if sealed is not None:
         return {"paper_id": paper_id, "state": "sealed", "write_status": "replayed"}
-    checkpoint.atomic(run_dir(profile, paper_id) / "out" / "STOP", b"")
+    atomic(run_dir(profile, paper_id) / "out" / "STOP", b"")
     return {"paper_id": paper_id, "state": "stopping", "write_status": "written"}
 
 

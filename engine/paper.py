@@ -119,7 +119,7 @@ from engine.paper_session import Session, declares_recovery, in_flight, unrestor
 from engine.signals import Signals
 from engine.cadence import Cadence
 from engine.realtime import node_base
-from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, instrument_id, leverage_of,
+from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, atomic, MINUTE_NS, Refusal, instrument_id, leverage_of,
                            runtime_source_metadata, terms_changed, utc_text)
 from engine.load import (
     LoadedStrategy, diagnostics, load_strategy, read_universe, strategy_id, strategy_metadata,
@@ -200,10 +200,8 @@ class Journal:
     def state(self, value: dict) -> None:
         if self.failure is not None:
             return
-        partial = self.output / ".state.json.partial"
         try:
-            partial.write_text(json.dumps(value, default=str, sort_keys=True), encoding="utf-8")
-            os.replace(partial, self.output / "state.json")
+            atomic(self.output / "state.json", json.dumps(value, default=str, sort_keys=True).encode())
         except OSError as exc:
             self.fail(exc)
 
@@ -1168,7 +1166,7 @@ def _main(args) -> bool:
                     data = path.read_bytes()
                     target = backend.root / "attempts" / f"{hashlib.sha256(data).hexdigest()}.{name}"
                     if not target.exists():
-                        checkpoint.atomic(target, data)
+                        atomic(target, data)
             journal("resumed", execution=EXECUTION)
             if SESSION and SESSION.fallen:
                 # The source's recovery is refused and the run is held (Session.hold); `paper compare` reads the
@@ -1217,7 +1215,7 @@ def _main(args) -> bool:
             result["runtime_failures"] = len(strategy_runtime.FAILURES)
             if strategy_runtime.FAILURES:
                 disk(strategy_runtime.write_failures)
-            disk(lambda: checkpoint.atomic(args.output / "summary.json",
+            disk(lambda: atomic(args.output / "summary.json",
                                            json.dumps(result, default=str, indent=2, sort_keys=True).encode()))
             journal("summary_written", stop_reason=result["stop_reason"])
             try:

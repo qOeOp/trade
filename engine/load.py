@@ -9,9 +9,7 @@ import hashlib
 import importlib.util
 import inspect
 import json
-import os
 import re
-import stat
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -24,7 +22,8 @@ from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.trading import Strategy
 
 from engine.warmup import declared as declared_warmup, declared_funding
-from engine.config import EXECUTION_BAR_MINUTES, MINUTE_NS, RUNTIME_CONTRACT, Refusal, parse_window, utc_text
+from engine.config import (EXECUTION_BAR_MINUTES, MINUTE_NS, RUNTIME_CONTRACT, Refusal, parse_window,
+                           read_regular_file, utc_text)
 
 
 BAR_INTERVAL_NS = EXECUTION_BAR_MINUTES * MINUTE_NS
@@ -169,22 +168,6 @@ class LoadedStrategy:
     strategy_class: type[Strategy]
     warmup: tuple[tuple[str, int], ...] = ()  # engine.warmup.declared
     funding: int = 0  # engine.warmup.declared_funding
-
-
-def read_regular_file(path: Path) -> bytes:
-    """Read through one descriptor; never follow a symlink at the file boundary. Besides the strategy source it
-    reads the universe file, the execution binding and Live's records, so its refusal names the path."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        if not stat.S_ISREG(path.lstat().st_mode):
-            raise Refusal("SOURCE_UNREADABLE", f"not a regular file: {path}")
-        descriptor = os.open(path, flags)
-    except OSError as error:
-        raise Refusal("SOURCE_UNREADABLE", f"cannot read {path}: {error}") from error
-    with os.fdopen(descriptor, "rb") as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise Refusal("SOURCE_UNREADABLE", f"not a regular file: {path}")
-        return stream.read()
 
 
 # Order APIs outside engine.order_rules, refused when the source names them at all.

@@ -15,7 +15,7 @@ from pathlib import Path
 import threading
 import time
 
-from engine import paper_checkpoint as checkpoint
+from engine.config import atomic
 from ledger import db
 from shared.refusals import refuse
 
@@ -64,7 +64,7 @@ def identity(row: dict, universe: bytes) -> str:
 
 def bind(row: dict, directory: Path) -> None:
     value = identity(row, (directory / "inputs" / "universe.json").read_bytes())
-    checkpoint.atomic(directory / "inputs" / "recovery.json", json.dumps({"identity": value}).encode())
+    atomic(directory / "inputs" / "recovery.json", json.dumps({"identity": value}).encode())
 
 
 def launched(directory: Path, action: str) -> None:
