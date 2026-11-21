@@ -20,24 +20,24 @@ import threading
 
 import pymysql
 
-from ledger import db, publish, service
+from ledger import db, publish, server, service
 from shared.errors import Refusal, printed_refusal
 from shared.refusals import refuse
 
 HISTORY = 10
 SYNC_EVERY = 60  # seconds between the mirror's own syncs from its origin; the page's Sync DoltHub starts one at once
-ORIGIN_MAIN = f"{publish.REMOTE}/{db.BRANCH}"
+ORIGIN_MAIN = f"{server.REMOTE}/{db.BRANCH}"
 
 
 def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers: Path,
           controllers: Path, binary: str | None = None, log=None):
-    existing = db.service_config(root)
+    existing = server.service_config(root)
     if existing and set(existing.get("databases", {}).get("research", {})) != {"reader"}:
         raise refuse("REPLICA_REQUIRED", "this service is not a read-only research mirror; it is left unchanged")
     if not (origin.startswith("file://") or publish.DOLTHUB.fullmatch(origin)):
         raise refuse("USAGE_ERROR", "research origin is a public DoltHub repository, or file:// for isolated "
                                     "verification", expected="https://doltremoteapi.dolthub.com/<owner>/<repository>")
-    server, config = service.start(root, data, backups, None, origin, port, binary, None, log)
+    process, config = service.start(root, data, backups, None, origin, port, binary, None, log)
     try:
         research = db.load_profile("research")
         if status(research)["origin"] != origin:
@@ -51,25 +51,21 @@ def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers
             raise refuse("REPLICA_REQUIRED", "the research mirror and separate Paper database are not intact")
         service.write_readers(readers, config)
         service.write_controllers(controllers, root, backups, config)
-        return server, research
+        return process, research
     except BaseException:
-        service._stop(server)
+        server.stop(process)
         raise
 
 
 def _open(profile: db.LedgerProfile):
-    config = db._known_service(profile.service_root)
-    accounts = config.get("databases", {}).get(profile.database, {})
+    accounts = server.known_service(profile.service_root).get("databases", {}).get(profile.database, {})
     if profile.kind is not None or set(accounts) != {"reader"}:
         raise refuse("REPLICA_REQUIRED", "sync requires a research replica with only a reader account")
-    try:
-        return db._admin(config, database=profile.database)
-    except pymysql.MySQLError as exc:
-        raise db._connection_error(exc) from exc
+    return server.admin(profile)
 
 
 def _origin(cursor) -> str:
-    origin = publish._origin(cursor)
+    origin = server.origin(cursor)
     if origin is None:
         raise refuse("REMOTE_UNSET", "the replica has no configured origin")
     return origin
@@ -79,14 +75,14 @@ def _history(cursor) -> list[dict]:
     """The latest moves of the replica's main, newest first, read from Dolt's reflog: when it moved (UTC)
     and between which commits. Only bootstrap and sync move main. The reflog survives restarts but not
     garbage collection; the oldest move it holds (bootstrap, or the first kept) has no previous commit."""
-    rows = db.cursor_rows(cursor, f"SELECT ref_timestamp, commit_hash FROM dolt_reflog('{db.BRANCH}') LIMIT %s",
+    rows = server.cursor_rows(cursor, f"SELECT ref_timestamp, commit_hash FROM dolt_reflog('{db.BRANCH}') LIMIT %s",
                           (HISTORY + 1,))
     return [{"at": at.strftime("%Y-%m-%dT%H:%M:%SZ"), "previous_commit": rows[i + 1][1] if i + 1 < len(rows) else None,
              "ledger_commit": commit} for i, (at, commit) in enumerate(rows[:HISTORY])]
 
 
 def _head(cursor, branch: str = db.BRANCH) -> str:
-    (head,), = db.cursor_rows(cursor, f"SELECT DOLT_HASHOF('{branch}')")
+    (head,), = server.cursor_rows(cursor, f"SELECT DOLT_HASHOF('{branch}')")
     return head
 
 
@@ -111,29 +107,29 @@ def sync(profile: db.LedgerProfile) -> dict:
     try:
         with raw.cursor() as cursor:
             # The advisory lock serializes both HTTP and independent CLI callers.
-            (locked,), = db.cursor_rows(cursor, "SELECT GET_LOCK(%s, 0)", (f"{profile.database}/replica-sync",))
+            (locked,), = server.cursor_rows(cursor, "SELECT GET_LOCK(%s, 0)", (f"{profile.database}/replica-sync",))
             if not locked:
                 raise refuse("REPLICA_BUSY", "a research sync is already running")
             try:
                 origin = _origin(cursor)
-                if db.cursor_rows(cursor, "SELECT table_name FROM dolt_status"):
+                if server.cursor_rows(cursor, "SELECT table_name FROM dolt_status"):
                     raise refuse("DIRTY_WORKING_SET", "the replica has local changes; they are retained")
                 before = _head(cursor)
-                db.cursor_rows(cursor, f"CALL DOLT_FETCH('{publish.REMOTE}')")
+                server.cursor_rows(cursor, f"CALL DOLT_FETCH('{server.REMOTE}')")
                 target = _head(cursor, ORIGIN_MAIN)
                 # A revision database reads fetched commits without changing the visible head.
                 cursor.execute(f"USE `{profile.database}/{target}`")
-                if db.cursor_rows(cursor, "SELECT version FROM ledger_schema WHERE singleton = 1") != [
+                if server.cursor_rows(cursor, "SELECT version FROM ledger_schema WHERE singleton = 1") != [
                         (db.SCHEMA_VERSION,)]:
                     raise refuse("REPLICA_INVALID", "the published schema is not readable by this product")
                 cursor.execute(f"USE `{profile.database}/{db.BRANCH}`")
                 validated = True
-                db.cursor_rows(cursor, f"CALL DOLT_MERGE('--ff-only', '{ORIGIN_MAIN}')")
+                server.cursor_rows(cursor, f"CALL DOLT_MERGE('--ff-only', '{ORIGIN_MAIN}')")
                 head = _head(cursor)
                 return {"database": profile.database, "origin": origin, "previous_commit": before,
                         "ledger_commit": head, "changed": head != before}
             finally:
-                db.cursor_rows(cursor, "SELECT RELEASE_LOCK(%s)", (f"{profile.database}/replica-sync",))
+                server.cursor_rows(cursor, "SELECT RELEASE_LOCK(%s)", (f"{profile.database}/replica-sync",))
     except pymysql.MySQLError as exc:
         # A lost reply after fast-forward does not prove that nothing changed. Re-read the already
         # validated target instead of resetting or claiming a rollback.
@@ -230,7 +226,7 @@ def handler(sync: Sync, hosts: frozenset[str]):
 def run(root: Path, data: Path, backups: Path, origin: str, port: int, readers: Path, controllers: Path,
         http_host: str, http_port: int, hosts: list[str]) -> tuple[dict, int]:
     """ledger mirror: serve the mirror and its sync page until the server exits (service.serve)."""
-    server, profile = start(root, data, backups, origin, port, readers, controllers)
+    process, profile = start(root, data, backups, origin, port, readers, controllers)
     http = None
     try:
         sync = Sync(profile)
@@ -238,9 +234,9 @@ def run(root: Path, data: Path, backups: Path, origin: str, port: int, readers: 
             f"127.0.0.1:{http_port}", f"localhost:{http_port}"])))
         http.daemon_threads = True
         threading.Thread(target=http.serve_forever, daemon=True).start()
-        return service.serve("mirror", server, False, lambda stop: keep_synced(sync, stop))
+        return service.serve("mirror", process, False, lambda stop: keep_synced(sync, stop))
     finally:
         if http:
             http.shutdown()
             http.server_close()
-        service._stop(server)
+        server.stop(process)

@@ -84,6 +84,17 @@ def failure_origin(error: BaseException) -> str:
     return f"{name} at {where}" if where else name
 
 
+class SourceUnreachable(RuntimeError):
+    """A public git command against GitHub failed: `command` names it, never its output. `first` is set on a fetch
+    whose previous fetch succeeded: a brief GitHub outage fails one tick and the next fetch succeeds (production,
+    2026-11-19), so only a second failure in a row is noticed."""
+
+    def __init__(self, command: str):
+        super().__init__(f"public git {command} failed")
+        self.command = command
+        self.first = False
+
+
 def failure_summary(error: Exception) -> str:
     """Only fixed classifications and code identity cross the journal boundary; exception payloads
     stay private. An unclassified failure names its class and source line so the operator can find
@@ -104,6 +115,8 @@ def failure_summary(error: Exception) -> str:
         return "invariant check failed"
     if isinstance(error, ReaderFailure):  # doctor 20261117-02: which reader, which path, what it answered
         return f"{error.reader} unhealthy at {error.path}: {error.answer}"
+    if isinstance(error, SourceUnreachable):
+        return f"GitHub source unreachable (public git {error.command} failed)"
     if isinstance(error, DockerFailure):  # its stderr can quote what a container printed
         return f"docker {error.command} exited {error.status} (called at {source_line(error, 'docker')})"
     if isinstance(error, (ValueError, KeyError, TypeError)):
@@ -183,7 +196,7 @@ class GitSource:
             check=False,
         )
         if result.returncode:
-            raise RuntimeError(f"public git {args[0]} failed")
+            raise SourceUnreachable(args[0])
         return result.stdout if raw else result.stdout.strip()
 
     def refresh(self) -> None:
@@ -193,14 +206,22 @@ class GitSource:
         self.git("config", "remote.origin.url", f"{SOURCE}.git")
         self.git("config", "remote.origin.promisor", "true")
         self.git("config", "remote.origin.partialclonefilter", "blob:none")
-        self.git(
-            "fetch",
-            "--atomic",
-            "--filter=blob:none",
-            "origin",
-            "refs/heads/main:refs/heads/main",
-            "refs/heads/deploy-ready:refs/heads/deploy-ready",
-        )
+        # git empties FETCH_HEAD when a fetch starts and fills it only when the fetch gets the refs, so a non-empty
+        # one says the previous fetch succeeded.
+        head = self.repo / "FETCH_HEAD"
+        succeeded = head.exists() and head.stat().st_size > 0
+        try:
+            self.git(
+                "fetch",
+                "--atomic",
+                "--filter=blob:none",
+                "origin",
+                "refs/heads/main:refs/heads/main",
+                "refs/heads/deploy-ready:refs/heads/deploy-ready",
+            )
+        except SourceUnreachable as error:
+            error.first = succeeded
+            raise
 
     def ancestor(self, before: str, after: str) -> bool:
         if not REVISION.fullmatch(before) or not REVISION.fullmatch(after):
@@ -871,7 +892,10 @@ def tick(host: DockerHost, notices: Notices) -> bool:
         notices.released(None)
         return handed
     except Exception as error:
-        notices.released(failure_summary(error))
+        # A fetch that failed right after one that succeeded leaves the release kind unobserved: what was sent
+        # stays sent and nothing new is sent. The next tick's failure is noticed.
+        if not (isinstance(error, SourceUnreachable) and error.first):
+            notices.released(failure_summary(error))
         raise
     finally:
         notices.watch(lambda path, routed=False: host.probe(host.disk_route(), path, routed), host.condition)

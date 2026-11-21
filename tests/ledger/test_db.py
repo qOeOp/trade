@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 import pymysql
 
-from ledger import db
+from ledger import db, server
 from shared import paths, profiles as profile_directory
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service
@@ -63,7 +63,7 @@ class DoltBinaryTests(unittest.TestCase):
     def test_a_failing_version_check_is_refused_with_its_exit_code_and_stderr(self):
         binary = self.executable("echo 'Failed to load the global config.' >&2\nexit 1\n")
         with self.assertRaises(Refusal) as caught:
-            db._binary(binary)
+            server.binary(binary)
         self.assertEqual(caught.exception.code, "DOLT_BINARY")
         self.assertIn("exit 1: Failed to load the global config.", caught.exception.message)
 
@@ -73,9 +73,9 @@ class DoltBinaryTests(unittest.TestCase):
 grep -q '"versioncheck.disabled": "true"' "$DOLT_ROOT_PATH/.dolt/config_global.json" || exit 5
 grep -q '"metrics.disabled": "true"' "$DOLT_ROOT_PATH/.dolt/config_global.json" || exit 6
 echo "$DOLT_ROOT_PATH" > "$(dirname "$0")/home"
-echo 'dolt version {db.DOLT_VERSION}'
+echo 'dolt version {server.DOLT_VERSION}'
 """)
-        self.assertEqual(db._binary(binary), str(binary.resolve()))
+        self.assertEqual(server.binary(binary), str(binary.resolve()))
         home = Path((binary.parent / "home").read_text(encoding="utf-8").strip())
         self.assertNotEqual(home, Path.home())
         self.assertFalse(home.exists())
@@ -112,7 +112,7 @@ class LedgerBaseTests(unittest.TestCase):
 
     def test_init_result_holds_no_password(self):
         result = db.init("nopass", "test_nopass", self.profile.service_root, "isolated", dolt_binary=BINARY)
-        config = db.service_config(self.profile.service_root)
+        config = server.service_config(self.profile.service_root)
         secrets = {config["root_password"], *(item["password"] for item in config["databases"]["test_nopass"].values())}
         dumped = json.dumps(result, default=str) + json.dumps(db.load_profile("nopass").as_json())
         self.assertFalse(any(secret in dumped for secret in secrets))
@@ -120,13 +120,13 @@ class LedgerBaseTests(unittest.TestCase):
     def test_long_database_names_have_distinct_private_accounts(self):
         profiles = [db.init(f"long-{suffix}", "x" * 63 + suffix, self.profile.service_root, "isolated",
                             dolt_binary=BINARY)["profile"] for suffix in ("a", "b")]
-        config = db.service_config(self.profile.service_root)
+        config = server.service_config(self.profile.service_root)
         names = [config["databases"][profile.database][role]["user"]
                  for profile in profiles for role in db.ROLES]
         self.assertEqual(len(set(names)), 4)
         self.assertTrue(all(len(name) <= 32 for name in names))
         self.assertEqual(config["databases"][self.profile.database]["writer"]["user"],
-                         db._account_name(self.profile.database, "writer"))
+                         db.account_name(self.profile.database, "writer"))
         for profile, other in ((profiles[0], profiles[1]), (profiles[1], profiles[0])):
             with db.connect(profile, "writer") as writer:
                 self.assertEqual(db.write(writer, "probe", {"bundle": "long"}, "evidence_bundle",
@@ -193,7 +193,7 @@ class LedgerBaseTests(unittest.TestCase):
         self.assertEqual(refused(db.load_profile, "nope").code, "LEDGER_UNKNOWN")
         stopped = Path(tempfile.mkdtemp(prefix="lgx-", dir="/tmp"))
         self.addCleanup(__import__("shutil").rmtree, stopped, ignore_errors=True)
-        config = db.service_config(self.profile.service_root)
+        config = server.service_config(self.profile.service_root)
         (stopped / "service.json").write_text(json.dumps({**config, "socket": str(stopped / "none.sock")}))
         self.assertEqual(refused(lambda: db.connect(db.LedgerProfile(**{**self.profile.__dict__,
                                                                          "service_root": stopped}), "reader")).code,
@@ -211,7 +211,7 @@ class LedgerBaseTests(unittest.TestCase):
         with db.connect(self.profile, "reader") as conn:
             self.assertEqual(conn.raw._read_timeout, 600)
             self.assertEqual(conn.rows("SELECT 1"), [(1,)])
-        root = db._admin(db.service_config(self.profile.service_root))
+        root = server.connect_root(server.service_config(self.profile.service_root))
         self.addCleanup(root.close)
         self.assertIsNone(root._read_timeout)
 
@@ -231,7 +231,7 @@ class LedgerBaseTests(unittest.TestCase):
         self.assertEqual(refused(lambda: reader.rows(
           "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('r', 'agent', 'r')")).code, "LEDGER_PERMISSION")
         self.service.sql(self.profile, "CALL DOLT_BRANCH('side', 'main')")
-        config = db.service_config(self.profile.service_root)
+        config = server.service_config(self.profile.service_root)
         account = config["databases"][self.profile.database]["writer"]
         raw = pymysql.connect(unix_socket=config["socket"], user=account["user"], password=account["password"],
                               database=f"{self.profile.database}/side", autocommit=True)
@@ -467,15 +467,15 @@ class OverTcpTests(unittest.TestCase):
         service = Service()
         self.addCleanup(service.close)
         ledger = service.ledger("research")
-        config = db.service_config(service.service_root)
+        config = server.service_config(service.service_root)
         # As from a container: the service's server is no process it can see.
-        with patch.dict("os.environ", {db.DOLT_HOST: "127.0.0.1"}), patch.object(db, "_server_here", return_value=None):
+        with patch.dict("os.environ", {server.DOLT_HOST: "127.0.0.1"}), patch.object(server, "_server_here", return_value=None):
             with db.connect(ledger, "writer") as writer:
                 self.assertEqual((writer.raw.unix_socket, writer.raw.port), (None, config["port"]))
                 db.write(writer, "tcp", {"bundle": "tcp"}, "evidence_bundle", bundle_insert("tcp"))
             with db.connect(ledger, "reader") as reader:
                 self.assertEqual(reader.rows("SELECT bundle FROM evidence_bundle"), [("tcp",)])
-            root = db._admin(config)
+            root = server.connect_root(config)
             self.addCleanup(root.close)
             self.assertEqual((root.unix_socket, root.port), (None, config["port"]))
             with root.cursor() as cursor:
@@ -488,10 +488,10 @@ class OverTcpTests(unittest.TestCase):
         # service, which listens on no port of that host.
         service = Service()
         self.addCleanup(service.close)
-        with patch.dict("os.environ", {db.DOLT_HOST: "ledger.invalid"}):
+        with patch.dict("os.environ", {server.DOLT_HOST: "ledger.invalid"}):
             ledger = service.ledger("own")
             with db.connect(ledger, "writer") as writer:
-                self.assertEqual(writer.raw.unix_socket, db.service_config(service.service_root)["socket"])
+                self.assertEqual(writer.raw.unix_socket, server.service_config(service.service_root)["socket"])
 
 
 class ServerPidTests(unittest.TestCase):
@@ -500,7 +500,7 @@ class ServerPidTests(unittest.TestCase):
         # even of a missing file, fails with EROFS on Linux.
         with tempfile.TemporaryDirectory() as name, \
                 patch.object(Path, "unlink", side_effect=OSError(30, "Read-only file system")):
-            self.assertIsNone(db.server_pid(Path(name)))
+            self.assertIsNone(server.server_pid(Path(name)))
 
 
 class UnansweredServiceTests(unittest.TestCase):
@@ -514,16 +514,16 @@ class UnansweredServiceTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         self.accounts = {"probe": {"reader": {"user": "r", "password": "p"}, "writer": {"user": "w", "password": "p"}}}
         self.profile = db.LedgerProfile(name="probe", database="probe", service_root=self.root)
-        patcher = patch.object(db, "HANDSHAKE_TIMEOUT", 0.5)
+        patcher = patch.object(server, "HANDSHAKE_TIMEOUT", 0.5)
         patcher.start()
         self.addCleanup(patcher.stop)
 
     def listener(self, family=socket.AF_INET, path: Path | None = None) -> socket.socket:
-        server = socket.socket(family, socket.SOCK_STREAM)
-        self.addCleanup(server.close)
-        server.bind(str(path) if path else ("127.0.0.1", 0))
-        server.listen(8)
-        return server
+        process = socket.socket(family, socket.SOCK_STREAM)
+        self.addCleanup(process.close)
+        process.bind(str(path) if path else ("127.0.0.1", 0))
+        process.listen(8)
+        return process
 
     def service(self, **config) -> None:
         (self.root / "service.json").write_text(json.dumps({**config, "root_password": "p", "databases": self.accounts}))
@@ -551,10 +551,10 @@ class UnansweredServiceTests(unittest.TestCase):
         for role in ("reader", "writer"):
             refusal, elapsed = self.refused(lambda role=role: db.connect(self.profile, role))
             self.assert_hung(refusal, elapsed, f"127.0.0.1:{port}")
-        with patch.dict("os.environ", {db.DOLT_HOST: "127.0.0.1"}):
+        with patch.dict("os.environ", {server.DOLT_HOST: "127.0.0.1"}):
             refusal, elapsed = self.refused(lambda: db.connect(self.profile, "reader"))
         self.assert_hung(refusal, elapsed, f"127.0.0.1:{port}")
-        refusal, elapsed = self.refused(lambda: db.start_service(self.root))
+        refusal, elapsed = self.refused(lambda: server.start_service(self.root))
         self.assertEqual(refusal.code, "LEDGER_START")
         self.assertIn("accepts connections but did not answer", refusal.message)
         self.assertIn("rerun after a minute or two", refusal.expected)
@@ -586,7 +586,7 @@ class InitRecoveryTests(unittest.TestCase):
         self.addCleanup(self.service.close)
 
     def admin(self, statement: str, params=None, database: str | None = None) -> list[tuple]:
-        conn = db._admin(db.service_config(self.service.service_root), database=database)
+        conn = server.connect_root(server.service_config(self.service.service_root), database=database)
         try:
             with conn.cursor() as cursor:
                 cursor.execute(statement, params)
@@ -599,11 +599,11 @@ class InitRecoveryTests(unittest.TestCase):
         service-wide dolt_branch_control is read with a database selected, an empty one of the test's."""
         self.admin("CREATE DATABASE IF NOT EXISTS lookout")
         databases = {name for (name,) in self.admin("SHOW DATABASES")}
-        accounts = {db._account_name(database, role) for role in db.ROLES}
+        accounts = {db.account_name(database, role) for role in db.ROLES}
         users = {user for (user,) in self.admin("SELECT user FROM mysql.user") if user in accounts}
         grants = self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s", (database,), "lookout")
         return {"database": database in databases, "users": users, "grants": grants,
-                "recorded": database in db.service_config(self.service.service_root)["databases"],
+                "recorded": database in server.service_config(self.service.service_root)["databases"],
                 "profile": (self.service.home / f"{profile}.json").exists()}
 
     def init(self, name: str, database: str) -> dict:
@@ -637,7 +637,7 @@ class InitRecoveryTests(unittest.TestCase):
     def test_a_database_dropped_by_the_administrator_is_rebuilt_under_the_same_name(self):
         name = database = "rebuilt"
         self.init(name, database)
-        old = db.service_config(self.service.service_root)["databases"][database]
+        old = server.service_config(self.service.service_root)["databases"][database]
         self.admin(f"DROP DATABASE `{database}`")
         (self.service.home / f"{name}.json").rename(self.service.home / f"{name}.archived")
         self.assertTrue(self.left(database, name)["users"])
@@ -645,8 +645,8 @@ class InitRecoveryTests(unittest.TestCase):
         self.init(name, database)
         state = self.left(database, name)
         self.assertEqual(len(state["grants"]), 1)
-        self.assertEqual(state["users"], {db._account_name(database, role) for role in db.ROLES})
-        new = db.service_config(self.service.service_root)["databases"][database]
+        self.assertEqual(state["users"], {db.account_name(database, role) for role in db.ROLES})
+        new = server.service_config(self.service.service_root)["databases"][database]
         self.assertNotEqual(old["writer"]["password"], new["writer"]["password"])
         with db.connect(db.load_profile(name), "writer") as writer:
             written = db.write(writer, "probe", {"bundle": "again"}, "evidence_bundle", bundle_insert("again"))

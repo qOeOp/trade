@@ -16,8 +16,8 @@ from tests.runtime import test_image as image_tests
 from tests.helpers import refused
 
 
-CONTRACT = "replay-contract@v8"
-CURRENT = image.layout(CONTRACT)["source_paths"]
+CONTRACT = config.RUNTIME_CONTRACT
+CURRENT = image.LAYOUT["source_paths"]
 # An incomplete map: five of the current files; no image of this contract reports it.
 INCOMPLETE = {key: CURRENT[key] for key in ("config_source_sha256", "runner_source_sha256", "load_source_sha256",
                                             "report_source_sha256", "fingerprint_source_sha256")}
@@ -158,7 +158,7 @@ class SourceIdentityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             marker = Path(temporary) / "executed"
             source = f"__import__('pathlib').Path({str(marker)!r}).touch()\n".encode() + declaration(CURRENT)
-            self.assertEqual(image._declared_source_paths(source, CONTRACT), CURRENT)
+            self.assertEqual(image._declared_source_paths(source), CURRENT)
             self.assertFalse(marker.exists())
 
     def test_dynamic_ambiguous_unknown_or_missing_trusted_declaration_is_refused(self):
@@ -173,7 +173,7 @@ class SourceIdentityTests(unittest.TestCase):
                     declaration(CURRENT).rstrip()[:-1] + b", 'fill_source_sha256': 'engine/fill.py'}\n"]
         for source in variants:
             with self.subTest(source=source), self.assertRaises(Refusal) as caught:
-                image._declared_source_paths(source, CONTRACT)
+                image._declared_source_paths(source)
             self.assertEqual(caught.exception.code, "RUNTIME_NOT_MAIN")
         identity, inspection = self.builds[1]
         original_git = image._git

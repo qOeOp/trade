@@ -19,7 +19,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from ledger import db, first_run, publish, service
+from ledger import db, first_run, publish, server, service
 from shared import paths, profiles
 from shared.refusals import refuse
 from tests.ledger.dolt import BINARY, SKIP
@@ -52,13 +52,13 @@ class FirstStartTests(unittest.TestCase):
         for patcher in (patch.dict(os.environ, {"TRADE_LEDGER_HOME": str(self.root / "profiles")}),
                         patch.object(service, "LISTEN", "127.0.0.1"),
                         patch.object(paths, "is_temporary", return_value=False),  # an active service, in a throwaway root
-                        patch.object(db, "_binary", return_value=BINARY)):
+                        patch.object(server, "binary", return_value=BINARY)):
             patcher.start()
             self.addCleanup(patcher.stop)
         with socket.socket() as held:  # held, so the setup port cannot be given the same number
             held.bind(("127.0.0.1", 0))
             self.port = held.getsockname()[1]
-            self.address = f"127.0.0.1:{db._free_port()}"
+            self.address = f"127.0.0.1:{server.free_port()}"
         for signum in (signal.SIGTERM, signal.SIGINT):
             self.addCleanup(signal.signal, signum, signal.getsignal(signum))
 
@@ -99,17 +99,17 @@ class FirstStartTests(unittest.TestCase):
 
         client = threading.Thread(target=act)
         client.start()
-        server = None
+        process = None
         try:
-            server = service._first_start(self.service_root, self.data, self.backups, self.credentials, origin,
+            process = service._first_start(self.service_root, self.data, self.backups, self.credentials, origin,
                                           self.port, readers, self.address)
-            self.addCleanup(service._stop, server)
+            self.addCleanup(server.stop, process)
         except SystemExit as exc:
             self.assertEqual(exc.code, 0)
         client.join(120)
         if failures:
             raise failures[0]
-        return server
+        return process
 
     def stop(self) -> None:
         os.kill(os.getpid(), signal.SIGTERM)
@@ -127,8 +127,8 @@ class FirstStartTests(unittest.TestCase):
             answers["post"] = self.call("POST", {"repository": "someone/else"})
 
         readers = self.root / "readers"
-        server = self.first_start(self.empty.as_uri(), page, readers)
-        self.assertIsNone(server.poll())
+        process = self.first_start(self.empty.as_uri(), page, readers)
+        self.assertIsNone(process.poll())
         self.assertIsNone(answers["done"]["refusal"])
         self.assertEqual(answers["post"][1]["state"], "done", "nothing starts again once the ledger is up")
         self.assertEqual(answers["post"][1]["repository"], self.empty.as_uri())
@@ -153,8 +153,8 @@ class FirstStartTests(unittest.TestCase):
             answers["asked"] = self.call("POST", {"repository": not_a_copy.as_uri()})
             self.until("done")
 
-        server = self.first_start(not_a_copy.as_uri(), page)
-        self.assertIsNone(server.poll())
+        process = self.first_start(not_a_copy.as_uri(), page)
+        self.assertIsNone(process.poll())
         self.assertEqual(answers["failed"]["refusal"]["code"], "BOOTSTRAP_FAILED")
         self.assertEqual(answers["failed"]["repository"], not_a_copy.as_uri(), "the answer stays to correct")
         self.assertEqual((answers["bad"][0], answers["bad"][1]["code"]), (400, "REMOTE_INVALID"))
@@ -259,7 +259,7 @@ class FirstStartTests(unittest.TestCase):
                 shutil.rmtree(self.data, True)
                 for path in self.credentials.iterdir():
                     path.unlink() if path.is_file() else shutil.rmtree(path)
-                self.address = f"127.0.0.1:{db._free_port()}"
+                self.address = f"127.0.0.1:{server.free_port()}"
 
     def test_a_signal_during_the_bootstrap_leaves_nothing_it_made(self):
         def signalled(*_arguments):
@@ -273,7 +273,7 @@ class FirstStartTests(unittest.TestCase):
 
     def test_a_later_start_opens_no_setup_port(self):
         self.first_start(self.empty.as_uri(), lambda: self.until("done"))
-        config = db.service_config(self.service_root)
+        config = server.service_config(self.service_root)
         self.assertIsNotNone(config)
         with patch.object(first_run, "serve", side_effect=AssertionError("a later start asked the page")), \
                 patch.object(service, "start", return_value=(subprocess.Popen(["true"]), config)):

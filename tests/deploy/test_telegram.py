@@ -287,6 +287,34 @@ class Notices(unittest.TestCase):
 
 
 class Tick(unittest.TestCase):
+    def test_a_failed_fetch_is_named_and_noticed_only_when_the_fetch_before_it_failed_too(self):
+        with tempfile.TemporaryDirectory() as directory:
+            host = Mock(state=Path(directory))
+            notices = Mock()
+            source = release.GitSource(Path(directory))
+            source.repo.mkdir()
+            (source.repo / "FETCH_HEAD").write_text("c" * 40 + "\t\tbranch 'main' of https://github.com/x/y\n")
+
+            def git(*args, raw=False):
+                if args[0] == "fetch":
+                    (source.repo / "FETCH_HEAD").write_text("")  # as git does when a fetch fails
+                    raise release.SourceUnreachable("fetch")
+                return ""
+
+            source.git = git
+            with patch.object(release, "Release") as made:
+                made.return_value.tick.side_effect = lambda: source.refresh()
+                with self.assertRaises(RuntimeError):
+                    release.tick(host, notices)
+                notices.released.assert_not_called()  # the previous fetch succeeded: nothing new is sent
+                with self.assertRaises(RuntimeError):
+                    release.tick(host, notices)
+                notices.released.assert_called_once_with("GitHub source unreachable (public git fetch failed)")
+                made.return_value.tick.side_effect = release.SourceUnreachable("show")
+                with self.assertRaises(RuntimeError):
+                    release.tick(host, notices)  # any other git failure is noticed at once
+                notices.released.assert_called_with("GitHub source unreachable (public git show failed)")
+
     def test_a_failed_tick_is_noticed_and_still_raises_and_the_routed_web_is_read_either_way(self):
         host = Mock(state=Path("/never"))
         host.disk_route.return_value = "trade-release-web-" + "a" * 40
