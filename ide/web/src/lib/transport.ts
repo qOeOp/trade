@@ -16,18 +16,33 @@ export const errorText = (e: unknown) => (e instanceof ApiError ? `${e.code}: ${
 /** The page's token for Paper, research-sync, setup and Live writes; empty when none of them is configured. */
 const paperToken = () => document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]')?.content ?? "";
 
-/** A write refused before forwarding after a release can renew its nonce and retry exactly once. */
+// An expired sign-in: OAuth2 Proxy in front of a deployment answers every /api request 401 once its session cookie
+// lapses, and keeps doing so until the operator signs in again, which reloads the page. From the first 401 the page
+// stops asking (whileVisible and every poll check signedOut) and says to sign in (state/session.ts).
+let expired = false;
+let onExpired: () => void = () => {};
+/** What the page says in place of the graph when it cannot read it for an expired sign-in. */
+export const SIGN_IN = "Sign in again to read the ledger.";
+/** Whether an answer of the page's server has said its sign-in expired. */
+export const signedOut = () => expired;
+/** What to do once when the sign-in expires. */
+export const whenSignedOut = (act: () => void) => { onExpired = act; if (expired) act(); };
+
+/** Any request to the page's own server. A write refused before forwarding after a release can renew its nonce and
+ *  retry exactly once. */
 export async function pageFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const writing = !["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase());
   const send = () => {
+    if (!writing) return fetch(url, init);
     const headers = new Headers(init.headers);
-    if (writing) headers.set("x-trade-paper-token", paperToken());
+    headers.set("x-trade-paper-token", paperToken());
     return fetch(url, { ...init, headers });
   };
   let response = await send();
   const renewed = writing && response.status === 403 ? response.headers.get("x-trade-paper-token") : null;
   const meta = renewed && document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]');
   if (meta && renewed) { meta.content = renewed; response = await send(); }
+  if (response.status === 401 && !expired) { expired = true; onExpired(); }
   return response;
 }
 
@@ -61,7 +76,7 @@ const SERVED = new Set(["PRODUCT_UNAVAILABLE", "PRODUCT_FAILED", "BAD_REQUEST", 
 /** One GET of the page's server: its JSON answer, or why there is none. */
 export async function getJson<T>(url: string): Promise<{ kind: "ready"; body: T } | Unread> {
   try {
-    const response = await fetch(url, { cache: "no-store" });
+    const response = await pageFetch(url, { cache: "no-store" });
     const body = await response.json().catch(() => null) as (T & { code?: string; message?: string }) | null;
     if (response.ok && body) return { kind: "ready", body };
     if (body?.code && !SERVED.has(body.code)) return { kind: "refused", code: body.code, message: body.message ?? "" };

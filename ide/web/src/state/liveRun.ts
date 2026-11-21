@@ -7,6 +7,7 @@ import { useView, useWidget } from "../model/view";
 import { lineOf } from "../lib/lines";
 import { liveApi, LiveApiError } from "../lib/liveTradingApi";
 import type { LiveCandidateDto, LiveEvidenceReadDto } from "../lib/liveTradingDto";
+import { signedOut } from "../lib/transport";
 import { useResearchLines } from "./researchLines";
 import { useAtom } from "./atom";
 import { useLiveTrading } from "./liveTrading";
@@ -63,7 +64,7 @@ export function useLiveSource(version: string | null): LiveSource | null {
         if (!live) return;
         const absent = error instanceof LiveApiError && error.code === "LIVE_SOURCE_MISSING";
         setRead({ candidate, found: absent ? "absent" : "unknown" });
-        if (!absent) timer = window.setTimeout(ask, UNKNOWN_MS);
+        if (!absent && !signedOut()) timer = window.setTimeout(ask, UNKNOWN_MS);
       });
     ask();
     return () => { live = false; window.clearTimeout(timer); };
@@ -82,8 +83,8 @@ export function useLiveEvidence(source: LiveSource | null, symbols: readonly str
     if (!key || !candidate || !symbols) return;
     let live = true, timer: number | undefined;
     const ask = () => void liveApi<LiveEvidenceReadDto>(`${candidatePath(candidate)}/evidence/${symbols.join(",")}`).then(
-      (read) => { if (!live) return; setFound({ key, evidence: liveEvidencePresentation(read) }); if (read.state === "checking" || read.state === "unknown") timer = window.setTimeout(ask, read.state === "checking" ? CHECKING_MS : UNKNOWN_MS); },
-      () => { if (!live) return; setFound({ key, evidence: { state: "unknown", replays: [], tolerance: "0" } }); timer = window.setTimeout(ask, UNKNOWN_MS); });
+      (read) => { if (!live) return; setFound({ key, evidence: liveEvidencePresentation(read) }); if ((read.state === "checking" || read.state === "unknown") && !signedOut()) timer = window.setTimeout(ask, read.state === "checking" ? CHECKING_MS : UNKNOWN_MS); },
+      () => { if (!live) return; setFound({ key, evidence: { state: "unknown", replays: [], tolerance: "0" } }); if (!signedOut()) timer = window.setTimeout(ask, UNKNOWN_MS); });
     ask();
     return () => { live = false; window.clearTimeout(timer); };
   }, [key]);

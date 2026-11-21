@@ -2,6 +2,7 @@
 // (GET /api/readings: `line list --all --readings`, as the graph's summary reads it, with no graph drawn), so every
 // line has its reading as soon as the ledger does.
 import type { ResearchLine } from "../lib/lines";
+import { pageFetch } from "../lib/transport";
 import { whileVisible } from "../lib/whileVisible";
 import { atom, useAtom } from "./atom";
 
@@ -17,7 +18,7 @@ export const useLineReadings = () => useAtom(readings);
 
 async function read(): Promise<void> {
   try {
-    const response = await fetch("/api/readings", { cache: "no-store" });
+    const response = await pageFetch("/api/readings", { cache: "no-store" });
     const body = await response.json().catch(() => null) as { lines?: Listed[]; message?: string } | null;
     if (!response.ok || !body?.lines) throw new Error(body?.message ?? `HTTP ${response.status}`);
     readings.set({ lines: Object.fromEntries(body.lines.map((l) => [l.name, l.recommendation])), read: true, error: null });

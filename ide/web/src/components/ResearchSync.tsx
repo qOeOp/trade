@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { MISSING, shortSha, when } from "../lib/format";
+import { signedOut } from "../lib/transport";
 import { placeOf } from "../model/about";
 import { useAtom } from "../state/atom";
 import { readResearchSync, researchSync, syncError, type ResearchSyncMove } from "../state/researchSync";
@@ -24,7 +25,7 @@ export function useResearchSync() {
     let closed = false, timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       await readResearchSync();
-      if (!closed) timer = setTimeout(() => void poll(), researchSync.get()?.state === "syncing" ? 1000 : 15000);
+      if (!closed && !signedOut()) timer = setTimeout(() => void poll(), researchSync.get()?.state === "syncing" ? 1000 : 15000);
     };
     void poll();
     return () => { closed = true; clearTimeout(timer); };
