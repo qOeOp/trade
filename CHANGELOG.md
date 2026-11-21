@@ -33,6 +33,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Live: a run on a non-ASCII coin's contract (such as 币安人生USDT) is no longer refused by the runner's manifest
   check after the configuration accepted it, and the Live page no longer drops it from the run's contracts or a held
   start's unprotected positions; both take a contract as the market names it (`market.sources.SYMBOL`).
+- Paper: a declared run's age before the daemon seals it as an orphan reads the ledger's `created_at` as UTC; on a
+  host outside UTC it used the host's zone, so east of UTC a run just started could be sealed at once and west of it
+  an orphan waited hours (doctor 20261108-02).
 - Paper seal audit (live clock only, doctor 20261121-20): within one contract's burst of partial fills, the venue's
   OrderUpdated resizes of a reduce-only exit recorded after the strategy's cancel request, with earlier stamps, are no
   `EVENT_OUT_OF_ORDER` when the order ends canceled and each resize follows a fill at most a second before the request;
