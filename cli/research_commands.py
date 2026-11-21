@@ -662,7 +662,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "most the target and its annual return at least the target; meets_targets when both pass, or the holdout "
         "alone when the test has no whole veto year. whole_years counts every whole veto year replayed. The verdict "
         "needs every reading it is defined on: a whole veto year whose run is invalid or missing or lacks a reading, "
-        "a control without a run, a holdout without a countable reading and a line without targets are named in "
+        "a part veto year without a passed run (a passed one is read in no summary), a control without a run, a holdout without a countable reading and a line without targets are named in "
         "missing, and with anything missing meets_targets and judged_on are null, whatever the holdout's own verdict. "
         "A falsification test, not "
         "out-of-sample validation; picking by it is a choice among `participants` candidates",
