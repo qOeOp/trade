@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Reports: the single-run report's `trade_structure` slice gives each exit class's closed-cycle net PnL beside
+  `top_exit_share`, as its `exit_net` (`{closing order type: net}`, open cycles left out), derived on read and never
+  stored (doctor 20261121-01). Read paths that need only a few measures (`research status`, `research runs`, the
+  research graph, line history) now derive only those; their output is unchanged.
+
 - Market refusals are the product's one refusal type (`shared.errors.Refusal`); `MarketError` is gone, and the
   codes, conditions and printed refusal JSON stay the same. A market refusal reaching the Paper controller's HTTP API
   is now answered as a refusal with its code, like any other, instead of failing the request.

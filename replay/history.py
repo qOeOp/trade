@@ -25,7 +25,7 @@ from shared import clock
 
 
 def _sharpe(conn: db.LedgerConnection, trial_id: int) -> float | None:
-    return measures.derive_measures(measures.run_facts(conn, trial_id))["sharpe_365"]["value"]
+    return measures.derive_measures(measures.run_facts(conn, trial_id), wanted=("sharpe_365",))["sharpe_365"]["value"]
 
 
 def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, limit: int | None = None) -> dict:
