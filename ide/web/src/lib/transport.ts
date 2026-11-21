@@ -18,7 +18,7 @@ const paperToken = () => document.querySelector<HTMLMetaElement>('meta[name="tra
 
 // An expired sign-in: OAuth2 Proxy in front of a deployment answers every /api request 401 once its session cookie
 // lapses, and keeps doing so until the operator signs in again, which reloads the page. From the first 401 the page
-// stops asking (whileVisible and every poll check signedOut) and says to sign in (state/session.ts).
+// stops asking (lib/polled.ts checks signedOut) and says to sign in (state/session.ts).
 let expired = false;
 let onExpired: () => void = () => {};
 /** What the page says in place of the graph when it cannot read it for an expired sign-in. */

@@ -33,6 +33,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   only a lone fill matching its change, so a burst no longer reads as `FUNDING_BALANCE_MISMATCH`. Anything else stays
   a finding; the replay audit is unchanged. Paper run 3 (`pa-trend-second-entry@52`) failed its seal audit on these
   alone (12 and 14 findings).
+- IDE: every poll of the page (About, market import, line readings, Agent, Market, Paper, Live, a run's comparison and
+  logs, the DoltHub sync, a Live candidate and its evidence) runs on one `lib/polled.ts`: it reads again only after the
+  last read finished, pauses while the page is hidden and reads once on showing again, and stops at the first 401 as
+  before. A run's logs, its comparison and the Live launch page's reads now also pause while the page is hidden.
 
 - Breaking (ledger): research ledger schema generation 2 (doctor 20261114-11, approved 2026-11-14 for the next
   schema generation). `run_reading` no longer stores `computed_at` (its time is the Dolt commit's); its update trigger

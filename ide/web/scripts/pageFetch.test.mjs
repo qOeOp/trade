@@ -36,25 +36,21 @@ test("only the pre-forward renewal marker permits one retry", async () => {
 });
 
 test("a 401 says once that the sign-in expired, and from then on no poll asks again (oauth2-proxy logged one every ~2 s for days)", async () => {
-  const ticks = [], cleared = [], said = [];
-  const window = { setInterval: (tick) => ticks.push(tick) - 1, clearInterval: (id) => cleared.push(id) };
+  const timers = [], said = [];
+  const window = { setTimeout: (tick) => timers.push(tick), clearTimeout: () => {} };
   const context = createContext({
-    window, Headers, document: { hidden: false, querySelector: () => null, addEventListener: () => {} },
+    window, Headers, document: { hidden: false, querySelector: () => null, addEventListener: () => {}, removeEventListener: () => {} },
     fetch: async () => new Response("<html>sign in</html>", { status: 401 }),
   });
-  const graph = loader({ context, sources: ["lib/transport"], packages: [] });
+  const graph = loader({ context, sources: ["lib/transport", "lib/polled"], packages: [] });
   const transport = await graph.namespace("lib/transport.ts");
-  const { whileVisible } = await graph.namespace("lib/whileVisible.ts");
+  const { polled } = await graph.namespace("lib/polled.ts");
   transport.whenSignedOut(() => said.push("sign in"));
-  let asked = 0, read;
-  whileVisible(() => { asked += 1; read = transport.pageFetch("/api/about"); }, 3000);
-  ticks[0]();
-  assert.equal(asked, 1);
-  await read;
+  const answers = [];
+  await polled("/api/about", 3000, (answer) => answers.push(answer?.status)).read();
+  assert.deepEqual(answers, [401]);
   assert.equal(transport.signedOut(), true);
+  assert.equal(timers.length, 0, "nothing is asked again");
   await transport.pageFetch("/api/market-import");
   assert.deepEqual(said, ["sign in"]);
-  ticks[0]();
-  assert.equal(asked, 1);
-  assert.deepEqual(cleared, [0]);
 });
