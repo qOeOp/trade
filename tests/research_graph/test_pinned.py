@@ -1,5 +1,7 @@
-"""A pinned read (the navigation index) is read once across concurrent requests; failures do not poison it."""
+"""A kept read is read once across concurrent requests, what is kept stays under its byte limit, least recently used
+dropped first, and a failure does not poison it."""
 from concurrent.futures import ThreadPoolExecutor
+import json
 from pathlib import Path
 import sys
 import threading
@@ -20,26 +22,26 @@ class PinnedTests(unittest.TestCase):
             release.wait(5)
             return {"ledger_commit": commit, "lines": []}
 
-        index = Pinned(read)
+        index = Pinned(1024)
         with ThreadPoolExecutor(4) as pool:
-            results = [pool.submit(index.get, "a") for _ in range(4)]
+            results = [pool.submit(index.get, ("lines", "a"), lambda: read("a")) for _ in range(4)]
             self.assertTrue(entered.wait(5))
             release.set()
-            self.assertEqual([item.result()["ledger_commit"] for item in results], ["a"] * 4)
+            self.assertEqual([json.loads(item.result())["ledger_commit"] for item in results], ["a"] * 4)
         self.assertEqual(calls, ["a"])
 
-    def test_commit_keys_stay_exact_and_the_cache_stays_bounded(self):
+    def test_keys_stay_exact_and_the_kept_bytes_stay_under_the_limit(self):
         calls = []
 
         def read(commit):
             calls.append(commit)
             return {"ledger_commit": commit}
 
-        index = Pinned(read, capacity=2)
+        index = Pinned(2 * len(b'{"ledger_commit": "a"}'))
         for commit in ("a", "b", "a", "c", "a", "b"):
-            self.assertEqual(index.get(commit)["ledger_commit"], commit)
+            self.assertEqual(json.loads(index.get(("lines", commit), lambda: read(commit)))["ledger_commit"], commit)
         self.assertEqual(calls, ["a", "b", "c", "b"])
-        self.assertLessEqual(len(index.values), 2)
+        self.assertEqual((list(index.values), index.size), ([("lines", "a"), ("lines", "b")], index.limit))
 
     def test_a_failed_read_can_be_retried(self):
         calls = []
@@ -50,8 +52,8 @@ class PinnedTests(unittest.TestCase):
                 raise RuntimeError("temporarily unavailable")
             return {"ledger_commit": commit}
 
-        index = Pinned(read)
+        index = Pinned(1024)
         with self.assertRaisesRegex(RuntimeError, "temporarily"):
-            index.get("a")
-        self.assertEqual(index.get("a"), {"ledger_commit": "a"})
+            index.get(("lines", "a"), lambda: read("a"))
+        self.assertEqual(index.get(("lines", "a"), lambda: read("a")), b'{"ledger_commit": "a"}')
         self.assertEqual(calls, ["a", "a"])
