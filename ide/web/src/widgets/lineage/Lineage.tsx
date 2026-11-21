@@ -5,7 +5,8 @@ import type { LineageWidget, ProgressWidget } from "../../model/types";
 import { useWidget } from "../../model/view";
 import { progressGutter } from "../ProgressLayout";
 import { TextButton } from "../../ui/TextButton";
-import { crosshair, expandedBranches, lineageMode, useAxisView, useCrosshair, useExpandedBranches, useLineageMode } from "../../state/linking";
+import { fold, unfold } from "../useFolded";
+import { crosshair, useAxisView, useCrosshair, useExpandedBranches, useLineageMode } from "../../state/linking";
 import { openSource } from "../../state/editors";
 import { select, selection, useSelection } from "../../state/selection";
 import { ancestors, compactLineage, lineageTree } from "../../model/lineageTree";
@@ -109,12 +110,12 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
               <span>{shown.nodes.length} of {counts.all} shown{hiddenCount > 0 ? ` (${hiddenCount} folded)` : ""}</span>
               <span>·</span>
               {(mode !== "core" || expanded.size > 0) && (
-                <TextButton size="text" onClick={() => { lineageMode.set("core"); expandedBranches.set(new Set()); }}>
+                <TextButton size="text" onClick={fold}>
                   Fold unpassed
                 </TextButton>
               )}
               {hiddenCount > 0 && (
-                <TextButton size="text" onClick={() => { lineageMode.set("all"); expandedBranches.set(new Set()); }}>
+                <TextButton size="text" onClick={unfold}>
                   Expand all
                 </TextButton>
               )}

@@ -3,7 +3,7 @@ import type { PaperRun } from "../../lib/paperApi";
 import { clockTime, displayDay, zoneOffset, type TimeZone } from "../../lib/time";
 import { heldGap, heldGapLine, type HeldGap } from "../../model/liveHeld";
 import type { LiveRun } from "../../model/liveTrading";
-import { away, lastFill, liveHeld, liveMoney, liveObserved, liveStatus, liveWorking, marked, paperEquity, paperHeld, paperIssues, stopFor, type Fill } from "../../model/phoneRuns";
+import { away, liveHeld, liveSnapshot, paperEquity, paperHeld, paperIssues, type Fill } from "../../model/runSnapshot";
 import { Amount, Change, HeldLine, PhoneCard, PhoneNotice, Side } from "../../ui/PhoneParts";
 import { health } from "../../widgets/runs/RunTile";
 import { textClass } from "../../theme/roles";
@@ -57,9 +57,7 @@ export function StopLine({ trigger, mark, ended, missing = null }: { trigger: nu
 /** A Live run on the Runs tab: its state, the account now, the last fill, the loss threshold used, and what it holds
  *  with the stop protecting it. */
 export function LiveCard({ run, now }: { run: LiveRun; now: number }) {
-  const zone = useTimeZone(), coins = useSnapshot()?.coins, status = liveStatus(run), money = liveMoney(run), fill = lastFill(run);
-  const held = marked(liveHeld(run), coins), working = liveWorking(run);
-  const seen = liveObserved(run), ended = !run.running;
+  const zone = useTimeZone(), { status, money, fill, held, observed: seen } = liveSnapshot(run, useSnapshot()?.coins), ended = !run.running;
   return (
     <PhoneCard label={`Live run ${run.candidate}`} onClick={() => openRun({ kind: "live", id: run.id })}>
       <div className="space-y-1 px-3 pb-3 pt-2 pr-6">
@@ -73,7 +71,7 @@ export function LiveCard({ run, now }: { run: LiveRun; now: number }) {
       {held.map((h) => (
         <div key={h.key} className="space-y-0.5 border-t border-line px-3 py-2">
           <HeldLine held={h} />
-          <StopLine trigger={stopFor(h, working)?.trigger} mark={h.mark} ended={ended} missing={heldGap(run.heldAlert, h.symbol, h.long)} />
+          <StopLine trigger={h.stop} mark={h.mark} ended={ended} missing={heldGap(run.heldAlert, h.symbol, h.long)} />
         </div>
       ))}
     </PhoneCard>

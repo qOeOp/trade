@@ -135,7 +135,7 @@ class UnresolvedMarketTests(unittest.TestCase):
             gate, = status._unresolved_market(self.LINE)
         self.assertEqual((gate["code"], gate["missing"]), ("MARKET_DAY_UNRESOLVED", ["a" * 32]))
 
-    def test_a_run_reads_the_market_profile_its_market_database_names_else_the_active_one(self):
+    def test_a_run_reads_the_market_profile_its_market_name_names_else_the_active_one(self):
         local = {"name": "market", "holds": "market", "kind": "active", "root": "/srv/market"}
         copy = {"name": "market-copy", "holds": "market", "root": "/srv/copy"}
         with tempfile.TemporaryDirectory() as home, mock.patch.dict("os.environ", {"TRADE_LEDGER_HOME": home}):
@@ -296,7 +296,7 @@ class MultipleTestingTests(unittest.TestCase):
 
 
 def measured(annual, drawdown, sharpe, win, breakeven=2.0) -> dict:
-    values = dict(zip(status.TABLE_MEASURES, (annual, drawdown, sharpe, win, breakeven), strict=True))
+    values = dict(zip(status.TABLE_MEASURES, (annual, drawdown, sharpe, win, breakeven, 0.0, 1.0), strict=True))
     return {name: {"value": value} for name, value in values.items()}
 
 
@@ -577,10 +577,7 @@ class ExecutionIdentityTests(unittest.TestCase):
         first, second = (rows[ref]["execution_identity"] for ref in self.refs)
         third = rows[self.third]["execution_identity"]
         self.assertEqual(first, second)
-        self.assertEqual((first["runtime_contract"], first["image_digest"]),
-                         (IDENTITY["runtime_contract"], IDENTITY["image_digest"]))
-        self.assertEqual((third["runtime_contract"], third["image_digest"]),
-                         (IDENTITY["runtime_contract"], OTHER_DIGEST))
+        self.assertEqual((first["image_digest"], third["image_digest"]), (IDENTITY["image_digest"], OTHER_DIGEST))
         self.assertNotEqual(first["keys"], third["keys"])
         with db.read_as_of(self.world.profile) as conn:
             receipt = evidence.load_bundle(conn, f"trial-{self.trials[self.third]}-start")["files"][problems.COVERAGE]

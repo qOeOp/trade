@@ -4,7 +4,7 @@ import { MISSING } from "../../lib/format";
 import { fixed, signed } from "../../lib/paperApi";
 import { heldGap } from "../../model/liveHeld";
 import type { LiveRun } from "../../model/liveTrading";
-import { liveHeld, liveWorking, marked, protects, stopFor } from "../../model/phoneRuns";
+import { liveSnapshot } from "../../model/runSnapshot";
 import { useSnapshot } from "../../state/market";
 import { pnlClass, textClass } from "../../theme/roles";
 
@@ -15,16 +15,15 @@ const NOTE = "As the run's native events last say (the phone's run page reads th
  *  position with its protective stop (No stop while it runs without one, in the failure hue once the latest check of
  *  the stops at Binance found none) and an estimated P&L, then each other working order. */
 export function LiveHoldings({ run }: { run: LiveRun }) {
-  const held = marked(liveHeld(run), useSnapshot()?.coins), working = liveWorking(run);
   // A protective stop is shown on its position; the rest are the orders still working.
-  const orders = working.filter((o) => !protects(o, held));
+  const { held, entries: orders } = liveSnapshot(run, useSnapshot()?.coins);
   return <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-1 gap-y-1 text-small">
     <dt className="text-fg-faint">Positions</dt>
     <dd className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
       {held.length ? held.map((h) => {
         // A running position without a stop is flagged always; in the failure hue once the check of the stops at
         // Binance found it without one.
-        const stop = stopFor(h, working)?.trigger ?? null, gap = run.running && heldGap(run.heldAlert, h.symbol, h.long);
+        const stop = h.stop, gap = run.running && heldGap(run.heldAlert, h.symbol, h.long);
         return <span key={h.key} className="whitespace-nowrap tabular-nums">
           {h.symbol} <Side long={h.long} /> {fixed(h.qty)} @ {fixed(h.entry) ?? MISSING}
           <span className="text-fg-faint"> · SL </span>{stop !== null ? fixed(stop) : run.running ? <span className={textClass(gap ? "fail" : "misses")}>No stop</span> : <span className="text-fg-faint">{MISSING}</span>}

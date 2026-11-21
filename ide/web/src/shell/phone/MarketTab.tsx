@@ -11,7 +11,7 @@ import { useSize } from "../../ui/hooks/useSize";
 import { change, funding, price, usd } from "../../lib/format";
 import { fixed } from "../../lib/paperApi";
 import { level, type Coin, type Snapshot } from "../../model/market";
-import { liveHeld, paperHeld, type Held } from "../../model/phoneRuns";
+import { liveHeld, paperHeld, type Held } from "../../model/runSnapshot";
 import { layout } from "../../model/treemap";
 import { ACTIVE } from "../../model/chain";
 import { useLiveTrading } from "../../state/liveTrading";

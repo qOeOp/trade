@@ -222,7 +222,11 @@ observation of a `run`, each open position needs stop coverage (`engine.protecti
 the native cache because Binance Hedge orders carry no `reduceOnly` on the wire. Once a gap outlasts 90 seconds from when it opened (the
 audit's one bar plus the native open-order check, timed by the same `protection.Gaps` as Paper; fills do not extend it), or when the check itself cannot run, the
 run is marked failed and takes the STOP path. A stop the native cache holds but the venue lost is found only by
-native reconciliation. A failed flat run keeps the account slot until `reconcile`. The STOP path submits at most five
+native reconciliation. A failed flat run keeps the account slot until `reconcile`. Before its first close the STOP path
+reads Binance once: a position Binance holds less of (its leg closed by hand, a liquidation or ADL outside the run) is
+closed only for what Binance still holds and journalled `venue_closed`; once nothing else is open and the run's orders
+(the orphan stops included) are canceled, the run ends `venue_flat`. If that read fails, closes go from the cache.
+The STOP path submits at most five
 closes on each one-second tick, half the native submit rate of 10 orders a second, and the next ones once those are
 done, so a stop with many positions open stays under the rate. A close that rate still denies (the instances' own
 orders count toward it) was never sent: it marks the run failed like any denied order and is submitted again on a
@@ -292,6 +296,16 @@ nothing could be sent) is reported with `entries_kept`. The check tells; it does
 and closes nothing, and the drawdown brake does not run while it holds. The Live page and Telegram say what the
 latest check found, a position with no stop in its own words.
 
+An order whose submission Binance's answer did not settle (the answer, its user-stream events and the queries for it
+all lost) stays SUBMITTED: rc7 retains it (`SubmissionRecoveryPolicy.RETAIN_UNRESOLVED`) instead of judging it
+rejected after its in-flight check of about 30 s, since Binance may hold or have filled it. From 10 s on the run asks
+Binance for it natively every 10 s and closes entries as `unverified` until it is settled and two venue comparisons
+agree; an order Binance holds or filled settles at its own state and fill as soon as a query is answered. One still
+SUBMITTED after 120 s fails the run through the STOP path (`submission_unresolved`); Nautilus then ends the start
+with the order unresolved, and the run is `unresolved`. While such an order is unsettled, rc7's position check may book
+Binance's position as an EXTERNAL one; the run's own comparison then keeps entries closed and its stop ends
+`unresolved` with the venue flat.
+
 STOP disables opening decisions, cancels owned opening orders, repeating the cancel every 5 seconds while one
 stays open (after a request with an unknown outcome, as a native cancel-all scoped to the order's side, because
 native `cancel_order` sends nothing for a PENDING_CANCEL order; withheld while that side holds a reduce-only order
@@ -331,9 +345,11 @@ initialization. They are not the authority for entry cash or a claim of full col
 Each Live run keeps what a replay of its source needs for comparison in `evidence/` of its private output
 (`engine/live_evidence.py`), never the ledger:
 
-- `market.jsonl`, in Paper's journal shape: every bar the source received (`bar`; `historical_bar` for one a
-  history request delivered), each funding settlement of its declared history (`historical_funding`: `ts_event`,
-  `rate`) and each metrics row it received (`metrics`: `ts_event` and the four values, a missing ratio null; it
+- `market.jsonl`, the market rows Paper journals (`engine.realtime.MarketRows`): every one-minute bar the source
+  received (`bar`; an aggregation is built from them and not kept), per contract and period the digest of each
+  history its warm-up delivered (`warmup`: `bars`, `first_ts_event`, `last_ts_event`, `sha256`; period `FUNDING` for
+  the funding settlements), Binance's time for each closed kline and its side connection's state (`kline_event`,
+  `kline_socket`), each metrics row it received (`metrics`: `ts_event` and the four values, a missing ratio null; it
   reached the source at `ts_event + 5 min`), and each unsubscribe from a contract's metrics it followed
   (`metrics_unsubscribed`: `instrument_id`). What arrives after a stop request reaches neither the source nor the
   file. Quotes, trades, MARKs and funding rates are not kept: `live compare` settles funding at Binance's published

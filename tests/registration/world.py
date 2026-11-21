@@ -52,7 +52,7 @@ class FakeMarket:
     """A market stand-in: market days hold (month, symbol) universe rows; exports write
     deterministic files under the (patched) temporary root."""
 
-    database = "market"
+    name = "market"
 
     def __init__(self, market_days: dict[str, list[tuple[str, str]]], timeframe: str = "1m"):
         self.market_days, self.timeframe, self.exports = market_days, timeframe, 0

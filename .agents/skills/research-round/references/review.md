@@ -31,4 +31,10 @@ constant also hold up, not the highest reading, and give the neighbours' range o
 return beside it in your message, not the body. State trade-offs and retained references; invalid or diagnostic-only runs stay separate and are
 not recommended.
 
+A candidate whose `fee_stress.breakeven_fee_multiple` is below about 1.5, or whose
+`cost_basis.slippage_stress` annual return at 2 bp per side is at or below zero, gets a
+lower-turnover variant registered before it is recommended. When a candidate's
+`capital.participation` counts fills `above_volume`, its recommendation cites that count and either
+reruns it under `quotes` execution or states that those fills are not credible.
+
 The table's non_dominated set is neither eligibility nor a ranking or gate.

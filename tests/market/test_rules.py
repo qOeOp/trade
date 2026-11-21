@@ -325,7 +325,7 @@ class DerivationTests(Refusals):
         self.assertEqual((days["ts_open"].tolist(), days["close"].tolist()), ([T0 - DAY, T0, T0 + 3 * DAY], [1, 2, 3]))
 
     def test_derivation_refuses_unsorted_input_and_overflow(self):
-        self.refused("INPUT_UNSORTED", series.derive_bars, bars([(T0 + MINUTE, 1, 1, 1, 1, 1), (T0, 1, 1, 1, 1, 1)]))
+        self.refused("GRID_MISALIGNED", series.derive_bars, bars([(T0 + MINUTE, 1, 1, 1, 1, 1), (T0, 1, 1, 1, 1, 1)]))
         big = np.iinfo(np.int64).max // 2 + 1
         self.refused("VOLUME_OVERFLOW", series.derive_bars, bars([(T0, 1, 1, 1, 1, big), (T0 + MINUTE, 1, 1, 1, 1, big)]))
 
@@ -454,14 +454,14 @@ class WriterTests(Refusals):
         backwards = bars([(T0 + MINUTE, 100, 100, 100, 100, 1), (T0, 100, 100, 100, 100, 1)])
         fine = bars([(T0, 1_000_000_000, 1_000_000_000, 1_000_000_000, 1_000_000_000, 10_000)])
         bar_type = f"{iid}-1-MINUTE-LAST-EXTERNAL"
-        self.refused("BARS_UNSORTED", export.write_bars, catalog, bar_type, backwards, MINUTE, 2, 3)
-        self.refused("BAR_RAW_INEXACT", export.write_bars, catalog, bar_type,
+        self.refused("SERIES_UNSORTED", export.write_bars, catalog, bar_type, backwards, MINUTE, 2, 3)
+        self.refused("EXPORT_INEXACT", export.write_bars, catalog, bar_type,
                      bars([(T0, 123_456_789, 123_456_789, 123_456_789, 123_456_789, 1)]), MINUTE, 2, 3)
         self.assertEqual(export.write_bars(catalog, bar_type, fine, MINUTE, 2, 3), 1)
-        self.refused("MARK_UNSORTED", export.write_marks, catalog, iid, backwards, MINUTE, 8)
-        self.refused("MARK_INEXACT", export.write_marks, catalog, iid,
+        self.refused("SERIES_UNSORTED", export.write_marks, catalog, iid, backwards, MINUTE, 8)
+        self.refused("EXPORT_INEXACT", export.write_marks, catalog, iid,
                      bars([(T0, 1, 1, 1, 123_456_789, 0)]), MINUTE, 2)
-        self.refused("FUNDING_UNSORTED", export.write_funding, self.root, str(iid),
+        self.refused("SERIES_UNSORTED", export.write_funding, self.root, str(iid),
                      [(T0, Decimal("0.0001")), (T0, Decimal("0.0001"))])
         self.refused("FUNDING_RATE_SHAPE", export.write_funding, self.root, str(iid), [(T0, "x")])
         self.refused("FUNDING_RATE_SHAPE", export.write_funding, self.root, str(iid), [(T0, Decimal("NaN"))])
@@ -480,10 +480,30 @@ class WriterTests(Refusals):
         # 2021 BTCUSDT prices sit on the 0.01 grid: same decimals as the current 0.10, a different grid
         self.assertEqual(build(2, on_grid=False), ("0.01", 2, True))
         self.assertEqual(build(2, on_grid=False, price_increment="0.01"), ("0.01", 2, False))
-        self.refused("PRECISION_NARROWED", build, 1)
+        self.refused("PRECISION_NARROWED", build, 0)
+        # Binance writes a tick at the display precision: 0.0001000 is 0.0001, whose four decimals bound the precision
+        self.assertEqual(build(7, price_increment="0.0001000"), ("0.0001000", 7, False))
+        self.assertEqual(build(4, on_grid=False, price_increment="0.0001000"), ("0.0001", 4, False))
+        self.refused("PRECISION_NARROWED", build, 3, price_increment="0.0001000")
         self.refused("TERMS_INVALID", build, 2, price_increment="0")
         self.refused("TERMS_INVALID", build, 2, min_price="9999999")
         self.refused("UNSUPPORTED_QUOTE", build, 2, symbol="BTCUSDC")
+
+    def test_a_tick_written_with_trailing_zeros_widens_to_the_prices_decimals_off_its_grid(self):
+        # 币安人生USDT: exchangeInfo ticks '0.0001000' since 2026-06-10; its history before trades on 0.00001
+        terms = {"symbol": "XUSDT", "observed_at": 1, "terms_source": "exchange_info", "price_increment": "0.0001000",
+                 "size_increment": "1", "min_quantity": "1", "max_quantity": "1000", "min_notional": "5",
+                 "min_price": "0.0001000", "max_price": "200"}
+        history = np.array([17_573_000, 17_612_000, 17_539_000, 17_591_000])  # 0.17573 ... at scale 8
+        places, grid = export.needed_decimals(history, 8), export.on_grid(history, terms["price_increment"], 8)
+        self.assertEqual((places, grid), (5, False))
+        precision = export.price_precision(terms["price_increment"], places, grid)
+        made, record = instrument.build_instrument("XUSDT", terms, precision, "XUSDT-PERP.BINANCE", on_grid=grid)
+        self.assertEqual((str(made.price_increment), made.price_precision, record["price_precision_widened"]),
+                         ("0.00001", 5, True))
+        on_tick = np.array([17_570_000, 17_610_000])
+        self.assertEqual(export.price_precision(terms["price_increment"], export.needed_decimals(on_tick, 8),
+                                                export.on_grid(on_tick, terms["price_increment"], 8)), 7)
 
     def test_prices_off_the_terms_grid_get_a_step_a_market_order_fills_on(self):
         from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig

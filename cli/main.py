@@ -31,7 +31,6 @@ from cli import (ledger_commands, live_commands, market_commands, paper_commands
 from cli.common import RUNNER_EPILOG, Parser, _print, refusal_json
 from engine.live_errors import LiveRefusal
 from shared.errors import Refusal
-from shared.refusals import refuse
 
 
 # Each group declares its nouns (with their help) and commands (cli.common.Command), in --help order.
@@ -65,7 +64,8 @@ def build_parser() -> Parser:
                                                 RUNNER_EPILOG if command.runner else None) if part)
         verb = verbs[command.noun].add_parser(command.verb, help=command.help, description=command.help,
                                               epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
-        verb.set_defaults(run=command.run, takes_runner=command.runner)
+        # the command's own parser words its usage errors (cli.common.Parser.usage_error)
+        verb.set_defaults(run=command.run, takes_runner=command.runner, command_parser=verb)
         for add in command.options:
             add(verb)
     return parser
@@ -74,7 +74,7 @@ def build_parser() -> Parser:
 def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     """(result, exit code) of one parsed command."""
     if runner_argv and not args.takes_runner:
-        raise refuse("USAGE_ERROR", f"{args.noun} {args.verb} takes no runner arguments after --")
+        raise args.command_parser.usage_error(f"{args.noun} {args.verb} takes no runner arguments after --")
     args.runner_argv = runner_argv
     result = args.run(args)
     return result if isinstance(result, tuple) else (result, 0)
@@ -84,11 +84,15 @@ def main(argv: list[str] | None = None) -> int:
     """Parse `<noun> <verb> [options] [-- runner arguments]`, run it, print one JSON result."""
     argv = list(sys.argv[1:] if argv is None else argv)
     runner_argv: list[str] = []
-    if "--" in argv:
+    separated = "--" in argv
+    if separated:
         split = argv.index("--")
         argv, runner_argv = argv[:split], argv[split + 1:]
     try:
-        args = build_parser().parse_args(argv)
+        args, unrecognized = build_parser().parse_known_args(argv)
+        if unrecognized:
+            raise args.command_parser.usage_error(f"unrecognized arguments: {' '.join(unrecognized)}", unrecognized,
+                                                  separated)
         result, code = _dispatch(args, runner_argv)
     except Refusal as exc:
         _print(sys.stderr, refusal_json(exc))

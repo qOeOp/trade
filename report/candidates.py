@@ -39,7 +39,7 @@ def assess_runs(conn: db.LedgerConnection, trial_ids: list[int], checker: Mappin
     return {trial_id: assess_listed(conn, trial_id, checker, records, loaded[trial_id]) for trial_id in trial_ids}
 
 
-CANDIDATE_COLUMNS = ("c.strategy_id, c.revision, c.source_sha256, c.entry_class, c.runtime_contract, c.description, "
+CANDIDATE_COLUMNS = ("c.strategy_id, c.revision, c.source_sha256, c.entry_class, c.description, "
                      "c.parent_source_sha256, CONCAT(p.strategy_id, '@', p.revision) AS parent, c.difference, c.created_at")
 CANDIDATES = "candidate c LEFT JOIN candidate p ON p.source_sha256 = c.parent_source_sha256"
 

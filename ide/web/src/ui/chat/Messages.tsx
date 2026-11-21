@@ -3,10 +3,12 @@ import { PROVIDER_LABEL, type Provider } from "../../lib/agentApi";
 import { BrandMark } from "../../icons/Icon";
 import { IconButton } from "../IconButton";
 import { Markdown } from "./Markdown";
-import { ToolCard } from "./ToolCard";
+import { ToolCard, ToolFold } from "./ToolCard";
+import { foldable } from "./toolFold";
 
 // The thread's messages as IntelliJ's AI Assistant draws them, without bubbles: the user's words on a
-// card, the answer on the island under the name of the model that wrote it, its tool calls as cards.
+// card, the answer on the island under the name of the model that wrote it, its tool calls as cards
+// (consecutive ones that answered folded into one line).
 type Written = { agent?: string; provider?: Provider; model?: string };
 
 export function UserMessage() {
@@ -38,14 +40,21 @@ function Writing() {
   return running ? <div className="text-small text-fg-faint motion-safe:animate-pulse">Writing…</div> : null;
 }
 
-// One map for every message: a new map per render would remount a streaming answer's text.
-const PARTS = { Text: Markdown, tools: { Fallback: ToolCard } };
 
 export function AssistantMessage() {
   return (
     <MessagePrimitive.Root className="group space-y-2">
       <WrittenBy />
-      <MessagePrimitive.Parts components={PARTS} />
+      <MessagePrimitive.GroupedParts groupBy={foldable} indicator="never">
+        {({ part, children }) => {
+          switch (part.type) {
+            case "group-reads": return <ToolFold indices={part.indices}>{children}</ToolFold>;
+            case "text": return <Markdown />;
+            case "tool-call": return <ToolCard {...part} />;
+            default: return null;
+          }
+        }}
+      </MessagePrimitive.GroupedParts>
       <Writing />
       <MessagePrimitive.Error>
         <ErrorPrimitive.Root className="rounded-card border border-card-border bg-island-alt px-3 py-2 text-dense text-fail-fg">

@@ -120,7 +120,7 @@ test("live head notifications refresh navigation even while a completed graph is
 
 test("a run of another line's version opens that line with the version selected and the run named", async () => {
   const { lineOf, runHref } = await namespace("lib/lines.ts", { context: createContext({ URL, document: {} }), sources: [], packages: [] });
-  const line = (name, closed, versions) => ({ name, closed, versions, start: "", dev_start: "", dev_end: "" });
+  const line = (name, closed, candidates) => ({ name, closed, candidates, start: "", dev_start: "", dev_end: "" });
   const lines = [line("line-a", false, ["s@1", "s@2"]), line("line-b", true, ["s@2", "t@1"]), line("line-c", false, ["s@2"])];
   assert.equal(lineOf(lines, "s@2").name, "line-c", "the newest open line that draws it");
   assert.equal(lineOf(lines, "t@1").name, "line-b", "a closed line when no open one draws it");

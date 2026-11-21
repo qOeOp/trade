@@ -1,12 +1,20 @@
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import { AssistantRuntimeProvider, RuntimeAdapterProvider, useAui, useRemoteThreadListRuntime,
   type RemoteThreadListAdapter, type ThreadHistoryAdapter } from "@assistant-ui/react";
 import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/ai-sdk";
 import { createAssistantStream } from "assistant-stream";
 import { agentApi } from "../../lib/agentApi";
+import { agentContext, type AgentContext } from "../../model/agentContext";
+import { toolPage } from "../../model/toolScope";
 import { useView } from "../../model/view";
 import { agents, chatControl, chosen, currentChoice } from "../../state/agent";
-import { selection } from "../../state/selection";
+import { useAtom } from "../../state/atom";
+import { marketCoin } from "../../state/market";
+import { useRunData } from "../../state/runData";
+import { useSelection } from "../../state/selection";
+import { useShell } from "../../state/shell";
+import { useShown } from "../../state/shown";
+import { paperTab } from "../../state/stage";
 
 // The chat runtime for the whole page, so an answer keeps streaming while another tool window is
 // open: assistant-ui's AI SDK runtime posting to /api/agent/chat, its threads and their messages kept
@@ -64,16 +72,22 @@ const threads: RemoteThreadListAdapter = {
   },
 };
 
+/** Keeps `into` at what the page shows, for the next question; a component of its own, so the page's changes
+ *  (a paper run's stream among them) do not re-render the runtime. */
+function PageContext({ into }: { into: RefObject<AgentContext | null> }) {
+  const view = useView(), shown = useShown(), run = useRunData(), tab = useAtom(paperTab), market = useAtom(marketCoin);
+  into.current = agentContext(toolPage(useShell().last.left), { version: useSelection(), line: view.line.name,
+    ledger_commit: view.scope?.ledger_commit ?? null }, shown, { chart: run?.view ?? tab, market });
+  return null;
+}
+
 export function AgentRuntime({ children }: { children: ReactNode }) {
-  const view = useView();
-  const page = useRef(view);
-  page.current = view;
+  const page = useRef<AgentContext | null>(null);
   const transport = useMemo(() => new AssistantChatTransport({
     api: "/api/agent/chat",
     body: () => {
       const choice = currentChoice(agents.get(), chosen.get());
-      return { agent: choice?.agent, model: choice?.model, context: {
-        version: selection.get(), line: page.current.line.name, ledger_commit: page.current.scope?.ledger_commit ?? null } };
+      return { agent: choice?.agent, model: choice?.model, context: page.current ?? undefined };
     },
   }), []);
   const runtime = useRemoteThreadListRuntime({ runtimeHook: () => useChatRuntime({ transport }), adapter: threads });
@@ -82,5 +96,5 @@ export function AgentRuntime({ children }: { children: ReactNode }) {
                       draft: async (text) => { await runtime.threads.switchToNewThread(); runtime.thread.composer.setText(text); } });
     return () => chatControl.set(null);
   }, [runtime]);
-  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+  return <AssistantRuntimeProvider runtime={runtime}><PageContext into={page} />{children}</AssistantRuntimeProvider>;
 }

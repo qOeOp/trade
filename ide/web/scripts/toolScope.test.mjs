@@ -77,6 +77,7 @@ test("Details stays on Runs and Market without a research line, and only there",
     "widgets/market/CoinsWindow": { CoinsWindow: empty },
     "widgets/market/NewsWindow": { NewsWindow: empty, NewsTools: empty },
     "widgets/paper/TradesWindow": { TradesWindow: empty, TradesTools: empty },
+    "widgets/VersionTable": { VersionTableTools: empty },
     "shell/agent/AgentWindow": { AgentWindow: empty },
   } });
   const { toolWindows } = await windowsNamespace("shell/toolWindows.ts");

@@ -6,7 +6,7 @@ import { useNow } from "../../ui/hooks/useNow";
 import { fixed, signed } from "../../lib/paperApi";
 import { nsMilliseconds } from "../../lib/time";
 import { heldGap } from "../../model/liveHeld";
-import { lastFill, liveHeld, liveMoney, liveObserved, liveStatus, liveWorking, marked, stopFor, stopRequested } from "../../model/phoneRuns";
+import { liveSnapshot } from "../../model/runSnapshot";
 import { useLiveTrading } from "../../state/liveTrading";
 import { useSnapshot } from "../../state/market";
 import { closeRun } from "../../state/phone";
@@ -26,13 +26,12 @@ export function LivePage({ id }: { id: string }) {
   const { view, actions } = useLiveTrading(), coins = useSnapshot()?.coins, zone = useTimeZone(), now = useNow(5000), [stopping, setStopping] = useState(false);
   const run = view.runs.find((r) => r.id === id) ?? null;
   useEffect(() => { if (run && actions.inspect) void actions.inspect(run.id); }, [run?.id, actions.inspect]);
-  const money = run ? liveMoney(run) : null;
+  const snap = run ? liveSnapshot(run, coins) : null, money = snap?.money ?? null;
   const points = useMemo(() => (run?.equity?.minutes ?? []).flatMap(([t, v]) => (v === null ? [] : [[t, v] as const])), [run?.equity]);
   const levels = useMemo<Level[]>(() => money ? [{ value: money.start, title: "Start" }, ...(money.stopsAt !== null ? [{ value: money.stopsAt, title: "Drawdown brake", loss: true }] : [])] : [], [money?.start, money?.stopsAt]);
   const back = { label: "Runs", onClick: closeRun };
-  if (!run) return <><PhoneTop back={back} aside="Live" /><p className="p-4 text-dense text-fg-faint">{view.availability === "unavailable" ? "Live is not answering." : "This Live run is not listed by Live."}</p></>;
-  const status = liveStatus(run), fill = lastFill(run), held = marked(liveHeld(run), coins), working = liveWorking(run), seen = liveObserved(run);
-  const first = points[0]?.[0], fills = (run.orders ?? []).filter((o) => o.event_type === "OrderFilled").length;
+  if (!run || !snap) return <><PhoneTop back={back} aside="Live" /><p className="p-4 text-dense text-fg-faint">{view.availability === "unavailable" ? "Live is not answering." : "This Live run is not listed by Live."}</p></>;
+  const { status, fill, held, working, observed: seen, fills } = snap, first = points[0]?.[0];
   const sent = nsMilliseconds(view.notify?.lastSentNs), check = run.accountCheck;
   return (
     <>
@@ -51,7 +50,7 @@ export function LivePage({ id }: { id: string }) {
         <PhoneHeading title={held.length === 1 ? "Position" : "Positions"} aside={heldAside(held, true)} />
         {held.length > 0 && <PhoneTable head={["Contract", "Side", "Qty", held.length > 1 ? "Entry / Mark ≈" : "Entry", "P&L ≈"]} rows={held.flatMap((h) => [
           [<Contract symbol={h.symbol} />, <Side long={h.long} />, fixed(h.qty), <EntryMark held={h} several={held.length > 1} />, <span className={pnlClass(h.pnl)}>{signed(h.pnl)}</span>],
-          [<StopLine trigger={stopFor(h, working)?.trigger} mark={h.mark} ended={!run.running} missing={heldGap(run.heldAlert, h.symbol, h.long)} />]])} />}
+          [<StopLine trigger={h.stop} mark={h.mark} ended={!run.running} missing={heldGap(run.heldAlert, h.symbol, h.long)} />]])} />}
         <PhoneHeading title="Open orders" aside={working.length || "None"} />
         {working.length > 0 && <PhoneTable head={["Type", "Side", "Qty", "Price"]} rows={working.map((o) => [
           <span className="font-normal">{o.type}</span>, <Side long={o.buy} word={o.buy === null ? undefined : o.buy ? "Buy" : "Sell"} />, fixed(o.qty) ?? MISSING, fixed(o.trigger ?? o.price) ?? MISSING])} />}
@@ -65,7 +64,7 @@ export function LivePage({ id }: { id: string }) {
         </dl>
       </PhonePage>
       {/* Stop is for a run going as it should; an unresolved one is reconciled on the desktop or closed at Binance. */}
-      {run.running && !stopRequested(run) && liveStatus(run).word !== "Unresolved" && actions.stop && (
+      {run.running && !run.stopRequested && status.word !== "Unresolved" && actions.stop && (
         <div className="shrink-0 border-t border-line bg-island px-3 py-2">
           <FormButton icon="stop" className="w-full text-fail-fg" onClick={() => setStopping(true)}>Request stop…</FormButton>
         </div>

@@ -158,7 +158,7 @@ COMMANDS = [
         "entries_unfilled, partial_fills, fills_paired, adverse_slippage_bps, fees, equity_change, holds}, "
         "replay {status, problems, path}",
         "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_COMPARE_EMPTY (no warm-up, no such trading start, no "
-        "start observation or whole minute); LIVE_COMPARE_UNCOVERED (the market lacks the run's minutes); "
+        "start observation or whole minute); COMPARE_UNCOVERED (the market lacks the run's minutes); "
         "LIVE_RUN_ID; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); RUNTIME_UNAVAILABLE; REPLAY_TIMEOUT (--timeout-seconds)"), ROOT, RUN_ID, MARKET, MARKET_DAY,
          option("--output", required=True, help="new directory under the temporary root"),
          option("--timeout-seconds", type=float, help="stop the replay after this long"),

@@ -190,7 +190,7 @@ def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path)
         segments, unexplained, market_day, week = _week(root, market, run_id, pack, since, bound, fresh, output)
     except Refusal as exc:
         code = exc.code
-        if code == "LIVE_COMPARE_UNCOVERED":
+        if code == "COMPARE_UNCOVERED":
             return {**base, "state": "waiting", "code": code, "failures": streak}
         return {**base, "state": "failed", "code": code, "failures": streak + 1}
     except LiveRefusal as exc:

@@ -496,8 +496,6 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
         describe = _describe(symbols)
         inspection = image.inspect_runtime(identity, describe)
         image.require_main_build(identity, inspection)
-        if found["runtime_contract"] != identity["runtime_contract"]:
-            raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
         admission.unfalsified(research, research_at, found["source_sha256"])
         evidence = _evidence(research, research_at, found["source_sha256"], symbols, inspection, describe)
         if not evidence:

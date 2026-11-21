@@ -34,6 +34,7 @@ class FixtureReader:
     def __init__(self, credential_binding):
         self.credential_binding = credential_binding
         self.calls = []
+        self.positions = []  # what Binance holds, as its position rows
 
     def clock(self):
         return venue_clock()
@@ -49,7 +50,7 @@ class FixtureReader:
                 {"asset": "USDC", "walletBalance": "100", "availableBalance": "199.93889229",
                  "unrealizedProfit": "0", "marginAvailable": True},
             ]},
-            "positions": [], "orders": [], "algo_orders": [],
+            "positions": list(self.positions), "orders": [], "algo_orders": [],
             "symbols": {"AAAUSDT": {
                 "instrument": {"status": "TRADING", "contractType": "PERPETUAL", "marginAsset": "USDT",
                                "filters": [{"filterType": "MIN_NOTIONAL", "notional": "0.1"},
@@ -349,6 +350,8 @@ class NativeConnectionTests(unittest.TestCase):
                     commands.dispatch_entry(session)
                     advance(start + 1_000_000, "89.00", "90.00")
                     self.assertEqual(len(engine.cache.positions_open()), 1)
+                    session.account_reader.positions = [
+                        {"symbol": "AAAUSDT", "positionSide": "LONG", "positionAmt": "0.001"}]
                     observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=engine.cache)
                     live_lifecycle.Observer.observe(observer)
                     self.assertFalse(session.stopping)  # A running source is left alone.
@@ -358,6 +361,7 @@ class NativeConnectionTests(unittest.TestCase):
                     live_lifecycle.Observer.observe(observer)
                     self.assertTrue(session.stopping)
                     self.assertTrue(session.failed)
+                    live_lifecycle.Observer.observe(observer)  # the STOP path closes what Binance still holds
                     advance(start + 2_000_000, "95.00", "96.00")
                     self.assertEqual(engine.cache.positions_open(), [])
                     reasons = [row.get("reason") for row in map(json.loads, (root / "events.jsonl").read_text().splitlines())
