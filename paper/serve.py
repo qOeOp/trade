@@ -38,7 +38,7 @@ from urllib.parse import parse_qs, urlsplit
 from engine import paper_checkpoint as checkpoint
 from engine.config import ACCOUNT_CONTRACT, instrument_id
 from engine.kline_events import LATE_NS
-from ledger import db, paper as records, server, strategies
+from ledger import db, paper as records, run_journal, server, strategies
 from market.sources import SYMBOL  # a contract named as the market holds it, as replay takes it
 from shared.http import encode, send_json, trusted
 from shared.errors import Refusal, printed_refusal
@@ -95,7 +95,7 @@ def read_lines(path: Path, offset: int) -> tuple[int, list[dict], int]:
     except FileNotFoundError:
         return offset, [], 0
     end = data.rfind(b"\n") + 1
-    lines, unreadable = records.journal_lines(data[:end])
+    lines, unreadable = run_journal.journal_lines(data[:end])
     return offset + end, lines, unreadable
 
 
@@ -146,8 +146,8 @@ class Journal:
 
 def readings(row: dict, journal: Journal) -> dict:
     """The readings a seal would compute from the journal so far, with the equity path behind them."""
-    path, funding = records.equity_path(journal.lines)
-    found = records.readings(row, journal.lines, journal.unreadable, None, None, None, path_and_funding=(path, funding))
+    path, funding = run_journal.equity_path(journal.lines)
+    found = run_journal.readings(row, journal.lines, journal.unreadable, None, None, None, path_and_funding=(path, funding))
     return {key: found[key] for key in ("total_return", "max_drawdown", "final_equity_usdt", "funding_usdt",
                                         "fills", "orders_submitted", "positions_closed", "missing_bars",
                                         "late_bars", "protection_gaps", "started_ns")} | {
@@ -204,7 +204,7 @@ def unprotected(lines: list[dict], since: int | None) -> list[dict]:
         if line["kind"] == "protection_gap" and key:
             found[key] = {"position_id": key, "instrument_id": line.get("instrument_id"), "since_ns": line.get("since_ns")}
         elif line["kind"] == "position" and key in found and (
-                line.get("type") == "PositionClosed" or not records.signed_quantity(line)):
+                line.get("type") == "PositionClosed" or not run_journal.signed_quantity(line)):
             del found[key]
     return list(found.values())
 
@@ -619,7 +619,7 @@ class Daemon:
 
     def sealed_lines(self, paper_id: int, files: dict[str, bytes] | None = None) -> list[dict]:
         """The sealed run's whole journal, every contract's bars included."""
-        return records.sealed_journal(self.files(paper_id, "events/") if files is None else files)
+        return run_journal.sealed_journal(self.files(paper_id, "events/") if files is None else files)
 
 
 def orphaned(run: dict, now: float) -> bool:

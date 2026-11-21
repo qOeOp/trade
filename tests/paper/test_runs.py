@@ -107,7 +107,7 @@ class SealCollectTests(unittest.TestCase):
         with mock.patch.object(runs.db, "connect"), \
                 mock.patch.object(runs.records, "read_paper_run", return_value={"paper_id": 7}), \
                 mock.patch.object(runs.records, "seal_of", return_value=stored), \
-                mock.patch.object(runs.records, "capture", return_value={}), \
+                mock.patch.object(runs.run_journal, "capture", return_value={}), \
                 mock.patch.object(runs.records, "seal_paper_run", return_value={"paper_id": 7}), \
                 mock.patch.object(runs, "run_dir", return_value=root), \
                 mock.patch.object(runs, "_running", return_value=False), \

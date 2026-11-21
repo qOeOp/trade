@@ -141,7 +141,7 @@ class CompareOneTests(unittest.TestCase):
         stack.enter_context(patch.object(reconcile, "_paper"))
         stack.enter_context(patch.object(reconcile.db, "connect"))
         stack.enter_context(patch("ledger.paper.paper_files"))
-        stack.enter_context(patch("ledger.paper.sealed_journal", side_effect=lambda _: self.journal))
+        stack.enter_context(patch("ledger.run_journal.sealed_journal", side_effect=lambda _: self.journal))
         self.held = unittest.mock.Mock(return_value=None)
 
     def compare(self, profile, market, at, paper_id, output):

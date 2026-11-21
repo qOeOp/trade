@@ -193,7 +193,7 @@ class Compare(unittest.TestCase):
                 mock.patch("market.read.stored_bars", side_effect=stored), \
                 mock.patch("market.files.open_market"), \
                 mock.patch("market.instrument.terms", return_value=TERMS), \
-                mock.patch.object(compare.records, "published_settlements", return_value={}):
+                mock.patch.object(compare.run_journal, "published_settlements", return_value={}):
             found = compare.compare(self.root, pack.run_id, {}, None, self.root / "out", until=until)
         self.found = found
         return given, json.loads(Path(found["path"]).read_text())

@@ -23,7 +23,7 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from ledger import db, paper as records, strategies
+from ledger import db, paper as records, run_journal, strategies
 from shared.errors import Refusal
 from paper import runs, serve
 from replay import comparison
@@ -182,10 +182,10 @@ class JournalTests(unittest.TestCase):
             found.read(path)
         self.assertEqual((found.bars, found.last_bar_ns), (1, START + MINUTE - 10**6))
         self.assertFalse(any(item["kind"] == "bar" for item in found.lines))
-        with mock.patch.object(records, "equity_path", wraps=records.equity_path) as computed:
+        with mock.patch.object(run_journal, "equity_path", wraps=run_journal.equity_path) as computed:
             live = serve.readings(ROW, found)
         self.assertEqual(computed.call_count, 1, "CF-24: the readings and the drawn path share one equity path")
-        sealed = records.readings(ROW, journal(), 0, None, None, None)
+        sealed = run_journal.readings(ROW, journal(), 0, None, None, None)
         self.assertEqual((live["total_return"], live["max_drawdown"], live["fills"]),
                          (sealed["total_return"], sealed["max_drawdown"], sealed["fills"]))
         self.assertEqual([minute for minute, _ in live["equity"]], [START, START + MINUTE, START + 2 * MINUTE])
@@ -211,7 +211,7 @@ class JournalTests(unittest.TestCase):
             found = serve.Journal()
             found.read(path)
         self.assertEqual([item["kind"] for item in found.lines], ["started"])
-        self.assertEqual((serve.readings(ROW, found)["late_bars"], records.readings(ROW, lines, 0, None, None, None)["late_bars"]),
+        self.assertEqual((serve.readings(ROW, found)["late_bars"], run_journal.readings(ROW, lines, 0, None, None, None)["late_bars"]),
                          (2, 2))
         self.assertEqual([item["kind"] for item in lines if serve._wanted(item, iid)], ["started", "bar", "bar", "bar", "bar"])
         # A page holding the one listed line and the bars resumes with nothing new.

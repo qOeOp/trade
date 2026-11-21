@@ -35,7 +35,7 @@ import uuid
 
 from deploy.release_host import RELEASE_MEMORY_MIB
 from engine.config import ACCOUNT_CONTRACT, Refusal as RuntimeRefusal, leverage_of
-from ledger import db, paper as records, strategies
+from ledger import db, paper as records, run_journal, strategies
 from shared.files import atomic_write
 from shared.refusals import refuse
 from runtime import container, image
@@ -383,7 +383,7 @@ def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = Non
     directory = run_dir(profile, paper_id)
     runner_log = start_error.encode() if start_error else _logs(named["runner"])
     state = None if start_error else _state(named["runner"])
-    files = records.capture(row, directory / "out", directory / "egress" / "egress.log", runner_log,
+    files = run_journal.capture(row, directory / "out", directory / "egress" / "egress.log", runner_log,
                             state.get("ExitCode") if state else None, start_failed=start_error is not None,
                             oom_killed=bool(state and state.get("OOMKilled")))
     with db.connect(profile, "writer") as conn:
@@ -525,9 +525,9 @@ def listing(profile: db.LedgerProfile) -> dict:
                      "containers": sorted(role for paper_id, role in live if paper_id == row["paper_id"]),
                      "created_at": row["created_at"], "image_ref": row["image_ref"],
                      "market_day": row["market_day"], "config": row["config"],
-                     # The status under the current rule (records.verdict), from the reasons sealed; the seal
+                     # The status under the current rule (run_journal.verdict), from the reasons sealed; the seal
                      # keeps the status it was sealed with.
-                     "status": records.verdict(seal_row.get("reasons")) if row["seal"] else None, "reasons": seal_row.get("reasons"),
+                     "status": run_journal.verdict(seal_row.get("reasons")) if row["seal"] else None, "reasons": seal_row.get("reasons"),
                      "total_return": seal_row.get("total_return"), "max_drawdown": seal_row.get("max_drawdown"),
                      "seal": row["seal"]})
     return {"runs": runs, "running": sum(1 for run in runs if run["state"] == "running"),

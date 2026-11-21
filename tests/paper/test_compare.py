@@ -297,7 +297,7 @@ class InputTests(unittest.TestCase):
                 mock.patch.object(rerun, "archive", return_value=("c" * 32, {"BTCUSDT": archived(3)})), \
                 mock.patch("market.files.open_market"), mock.patch("market.instrument.terms", return_value={}), \
                 mock.patch.object(rerun, "archive_warmup", return_value={}), \
-                mock.patch.object(compare.records, "published_settlements", return_value={}), \
+                mock.patch.object(compare.run_journal, "published_settlements", return_value={}), \
                 mock.patch.object(entry, "replay_unrecorded", side_effect=replayed), \
                 mock.patch("paper.runs.ledger_key", return_value="k"):
             found = compare.compare(object(), {}, None, 7, Path(name) / "out")

@@ -633,8 +633,8 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
 
 def run_funding(settled: Iterable[Mapping]) -> dict[str, Decimal]:
     """Each position's funding from a run's settlements ({positions: {position ID: signed quantity}, rate, mark}), as
-    the replay settles each position (ledger.paper.settle)."""
-    from ledger.paper import settle
+    the replay settles each position (ledger.run_journal.settle)."""
+    from ledger.run_journal import settle
     found: dict[str, Decimal] = {}
     for item in settled:
         if item.get("rate") is None or item.get("mark") is None:

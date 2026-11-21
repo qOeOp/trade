@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from ledger import db, paper, strategies
+from ledger import db, paper, run_journal, strategies
 from shared import clock
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, DAY, SKIP, Service, sha, source
@@ -71,11 +71,11 @@ ROW = {"paper_id": 7, "source_sha256": SOURCE, "config": {"leverage": "3"}}
 class ReadingTests(unittest.TestCase):
     def test_a_summary_with_another_leverage_than_declared_is_invalid(self):
         account = {"starting_balance_usdt": "100000", "default_leverage": "5"}
-        found = paper.readings(ROW, journal(), 0, summary(account=account), 0, b"")
+        found = run_journal.readings(ROW, journal(), 0, summary(account=account), 0, b"")
         self.assertEqual((found["status"], found["reasons"]), ("invalid", ["LEVERAGE_MISMATCH"]))
 
     def test_a_clean_run_adds_the_funding_sandbox_does_not_settle(self):
-        found = paper.readings(ROW, journal(), 0, summary(), 0, b"1 ALLOW 10.0.0.2 'CONNECT fapi.binance.com:443 HTTP/1.1'\n")
+        found = run_journal.readings(ROW, journal(), 0, summary(), 0, b"1 ALLOW 10.0.0.2 'CONNECT fapi.binance.com:443 HTTP/1.1'\n")
         self.assertEqual((found["status"], found["reasons"]), ("complete", []))
         self.assertEqual(Decimal(found["funding_usdt"]), Decimal("-0.1"))  # a long pays 0.01 x 100000 x 0.0001
         self.assertEqual(Decimal(found["final_equity_usdt"]), Decimal("100019.9"))
@@ -87,12 +87,12 @@ class ReadingTests(unittest.TestCase):
 
     def test_a_settlement_held_without_a_mark_is_unknown_not_free(self):
         lines = [item if item["kind"] != "funding_settlement" else {**item, "mark": None} for item in journal()]
-        found = paper.readings(ROW, lines, 0, summary(), 0, b"")
+        found = run_journal.readings(ROW, lines, 0, summary(), 0, b"")
         self.assertEqual(Decimal(found["funding_usdt"]), Decimal(0))
         self.assertEqual(found["funding_settlements"], 1)
         self.assertIn("1 funding settlement with a position open has no published rate or MARK: its funding is "
                       "unknown and left out of the equity", found["limitations"])
-        flat = paper.readings(ROW, journal(), 0, summary(), 0, b"")
+        flat = run_journal.readings(ROW, journal(), 0, summary(), 0, b"")
         self.assertFalse(any("unknown" in text for text in flat["limitations"]))
 
     def test_a_settlement_takes_the_positions_held_before_the_bar_closing_after_it(self):
@@ -109,10 +109,10 @@ class ReadingTests(unittest.TestCase):
                       signed_qty="4.9999999998", quantity="5", side="LONG"),
                  line("position", at + MINUTE, type="PositionClosed", instrument_id=iid, position_id="P-2",
                       signed_qty="0")]
-        held = paper.held_at(lines, {iid: [at, at + 2 * MINUTE]})
+        held = run_journal.held_at(lines, {iid: [at, at + 2 * MINUTE]})
         self.assertEqual(held[(iid, at)], {"P-1": Decimal(2), "P-2": Decimal(-1)})
         self.assertEqual(held[(iid, at + 2 * MINUTE)], {"P-1": Decimal(5)})
-        found = paper.settlements(lines, {iid: [(at, Decimal("0.0001"), Decimal("100.123456789")),
+        found = run_journal.settlements(lines, {iid: [(at, Decimal("0.0001"), Decimal("100.123456789")),
                                                 (at + 2 * MINUTE, Decimal("-0.0001"), None)]})
         # Nautilus: each position's notional rounded to 0.00000001, times the rate, rounded half even; a long pays.
         # A position held at a settlement without a MARK has an unknown funding, not none.
@@ -125,20 +125,20 @@ class ReadingTests(unittest.TestCase):
                  for i in range(3)]
         with mock.patch("market.sources.rest_funding", return_value=[(at_ms, "0.0002")]) as funding, \
                 mock.patch("market.sources.rest_klines", return_value=marks) as klines:
-            published = paper.published_settlements(lines, START + 4 * MINUTE)
+            published = run_journal.published_settlements(lines, START + 4 * MINUTE)
         self.assertEqual(funding.call_args.args, ("BTCUSDT", START // 10**6, (START + 4 * MINUTE) // 10**6 + 1))
         self.assertEqual(klines.call_args.args[:3], ("MARK", "BTCUSDT", "1m"))
         # The minute closing 1 ms before the settlement, not the one closing after it.
         self.assertEqual(published, {"BTCUSDT-PERP.BINANCE": [(at_ms * 10**6, Decimal("0.0002"), Decimal(99_001))]})
-        settled = paper.settlements(lines, published)
+        settled = run_journal.settlements(lines, published)
         self.assertEqual([item["funding"] for item in settled], [Decimal("-0.198002")])
         with mock.patch("market.sources.rest_funding") as funding:
-            self.assertEqual(paper.published_settlements(lines[:4], START + 4 * MINUTE), {})
+            self.assertEqual(run_journal.published_settlements(lines[:4], START + 4 * MINUTE), {})
         funding.assert_not_called()  # a run that held nothing asks the exchange nothing
 
     def test_a_drop_below_the_peak_is_the_drawdown(self):
         lines = journal()[:5] + [snapshot(START + MINUTE, "100000", "1000"), snapshot(START + 2 * MINUTE, "100000", "-100")]
-        found = paper.readings(ROW, lines, 0, summary(balance_total="100000 USDT", positions_at_stop=[]), 0, None)
+        found = run_journal.readings(ROW, lines, 0, summary(balance_total="100000 USDT", positions_at_stop=[]), 0, None)
         self.assertAlmostEqual(found["max_drawdown"], 1100 / 101000)
 
     def test_a_run_that_did_not_end_cleanly_keeps_its_reasons_and_is_invalid_only_for_untrusted_evidence(self):
@@ -158,35 +158,35 @@ class ReadingTests(unittest.TestCase):
                               {"EGRESS_DENIED"}, "invalid"),
             "nothing at all": ([], None, None, None, {"JOURNAL_MISSING", "SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"},
                                "invalid"),
-            "journal could not be written, no summary": (journal(), None, paper.JOURNAL_FAILED_EXIT, None,
+            "journal could not be written, no summary": (journal(), None, run_journal.JOURNAL_FAILED_EXIT, None,
                                                          {"PAPER_JOURNAL_WRITE_FAILED", "SUMMARY_MISSING",
                                                           "RUNNER_EXIT_NONZERO"}, "complete"),
             "journal could not be written, summary kept": (
-                journal(), summary(stop_reason="PAPER_JOURNAL_WRITE_FAILED"), paper.JOURNAL_FAILED_EXIT, None,
+                journal(), summary(stop_reason="PAPER_JOURNAL_WRITE_FAILED"), run_journal.JOURNAL_FAILED_EXIT, None,
                 {"PAPER_JOURNAL_WRITE_FAILED", "STOPPED:PAPER_JOURNAL_WRITE_FAILED", "RUNNER_EXIT_NONZERO"},
                 "complete"),
         }
         for name, (lines, found_summary, exit_code, egress, reasons, status) in cases.items():
             with self.subTest(name):
-                found = paper.readings(ROW, lines, 0, found_summary, exit_code, egress)
+                found = run_journal.readings(ROW, lines, 0, found_summary, exit_code, egress)
                 self.assertEqual((found["status"], set(found["reasons"])), (status, reasons))
-        never = paper.readings(ROW, [], 0, None, None, None, start_failed=True)
+        never = run_journal.readings(ROW, [], 0, None, None, None, start_failed=True)
         self.assertEqual((never["status"], set(never["reasons"])),
                          ("complete", {"START_FAILED", "JOURNAL_MISSING", "SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"}))
 
     def test_the_runner_and_the_seal_agree_on_the_exit_status_of_a_failed_journal(self):
         from engine import paper as runner
-        self.assertEqual(runner.JOURNAL_FAILED_EXIT, paper.JOURNAL_FAILED_EXIT)
+        self.assertEqual(runner.JOURNAL_FAILED_EXIT, run_journal.JOURNAL_FAILED_EXIT)
 
     def test_a_runner_killed_from_outside_ends_as_a_stop_with_what_it_journaled(self):
-        found = paper.readings(ROW, journal(), 0, None, 137, None)
+        found = run_journal.readings(ROW, journal(), 0, None, 137, None)
         self.assertEqual((found["status"], found["reasons"], found["stop_reason"]), ("complete", [], "KILLED"))
         self.assertEqual(Decimal(found["final_equity_usdt"]), Decimal("100009.9"))  # 99990 + 20 open, less 0.1 funding
         self.assertEqual(found["stopped_ns"], START + 3 * MINUTE)
         self.assertIn("Killed from outside", found["limitations"][-1])
         # It once counted the summary's open positions, which a run killed before writing one always read as 0.
         self.assertNotIn("positions_open_at_stop", found)
-        self.assertNotIn("positions_open_at_stop", paper.readings(ROW, journal(), 0, summary(), 0, None))
+        self.assertNotIn("positions_open_at_stop", run_journal.readings(ROW, journal(), 0, summary(), 0, None))
         asked = journal() + [line("stop_requested", START + 4 * MINUTE, reason="STOP_FILE")]
         waiting = [line("started", START, source_sha256=SOURCE), line("waiting", START, until_ns=START + DAY)]
         cases = {
@@ -197,7 +197,7 @@ class ReadingTests(unittest.TestCase):
         }
         for name, (lines, oom, failures, reasons) in cases.items():
             with self.subTest(name):
-                found = paper.readings(ROW, lines, 0, None, 137, None, oom_killed=oom, failures=failures)
+                found = run_journal.readings(ROW, lines, 0, None, 137, None, oom_killed=oom, failures=failures)
                 self.assertEqual((found["status"], set(found["reasons"])), ("complete", reasons))
 
     def test_the_seal_audits_the_native_reports_against_the_declaration_and_the_journal(self):
@@ -223,8 +223,8 @@ class ReadingTests(unittest.TestCase):
             (inputs / "membership").mkdir(parents=True)
             (inputs / "universe.json").write_text(json.dumps({"membership": {"BTCUSDT": [[START - DAY, START + 9 * DAY]]}}))
             (inputs / "membership" / "2026-11.json").write_text(json.dumps({"market_day": "x", "members": ["BTCUSDT"]}))
-            audited, coverage = paper.audit_inputs(row, inputs, lines, found)
-            self.assertEqual(paper.audit(row, Path(name, "out"), lines, found)["passed"], None)
+            audited, coverage = run_journal.audit_inputs(row, inputs, lines, found)
+            self.assertEqual(run_journal.audit(row, Path(name, "out"), lines, found)["passed"], None)
         self.assertEqual((audited["input_start_utc"], audited["period_end_utc"]),
                          ("2026-10-25T23:58:00Z", "2026-10-26T00:02:00Z"))  # asked at 00:01:01
         self.assertEqual(coverage["membership"]["membership"],
@@ -237,7 +237,7 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(audited["trade_start_by_strategy"], {"R1-BTC": START})
         for result, reason in (({"passed": False}, "AUDIT_FINDINGS"), ({"passed": None}, "AUDIT_NOT_RUN")):
             with self.subTest(reason):
-                read = paper.readings(ROW, journal(), 0, summary(), 0, b"", audited=result)
+                read = run_journal.readings(ROW, journal(), 0, summary(), 0, b"", audited=result)
                 self.assertEqual((read["status"], read["reasons"], read["audit"]), ("complete", [reason], result))
 
     def test_native_capture_keeps_the_exact_cut_and_interrupted_tail_without_a_second_copy(self):
@@ -248,8 +248,8 @@ class ReadingTests(unittest.TestCase):
             (root / "events.jsonl").write_bytes(raw)
             (root / "recovery/current.json").write_bytes(b'{}')
             (root / "recovery/cache.rdb").write_bytes(b'native original')
-            with mock.patch.object(paper.gzip, "compress", wraps=gzip.compress) as compress:
-                files = paper.capture(ROW, root, root / "missing", None, 1)
+            with mock.patch.object(run_journal.gzip, "compress", wraps=gzip.compress) as compress:
+                files = run_journal.capture(ROW, root, root / "missing", None, 1)
             journals = {key: value for key, value in files.items() if key.startswith("events/")}
             self.assertEqual(list(journals), ["events/native.jsonl.gz"])
             self.assertEqual(compress.call_count, 1, "CF-24: no per-day journal is encoded only to be dropped")
@@ -265,19 +265,19 @@ class ReadingTests(unittest.TestCase):
             (out / "events.jsonl").write_text("".join(json.dumps(item) + "\n" for item in lines) + '{"kind": "bar", "wa',
                                               encoding="utf-8")
             (out / "summary.json").write_text(json.dumps(summary()), encoding="utf-8")
-            first = paper.capture(ROW, out, egress, b"log", 0)
-            again = paper.capture(ROW, out, egress, b"log", 0)
+            first = run_journal.capture(ROW, out, egress, b"log", 0)
+            again = run_journal.capture(ROW, out, egress, b"log", 0)
         self.assertEqual(first, again)
         self.assertEqual(sorted(first), ["events/2026-10-25.jsonl.gz", "events/2026-10-26.jsonl.gz", "runner.log",
                                          "seal.json", "summary.json"])
         kept = [json.loads(raw) for name in sorted(first) if name.startswith("events/")
                 for raw in gzip.decompress(first[name]).splitlines()]
         self.assertEqual(kept, lines)
-        self.assertEqual(paper.sealed_journal(first), lines, "CF-24: the one decoder gives the captured journal back")
+        self.assertEqual(run_journal.sealed_journal(first), lines, "CF-24: the one decoder gives the captured journal back")
         self.assertEqual(json.loads(first["seal.json"])["unreadable_journal_lines"], 1)
         import paper.compare as comparison
         import paper.serve as daemon
-        with mock.patch.object(paper, "sealed_journal", wraps=paper.sealed_journal) as decoded, \
+        with mock.patch.object(run_journal, "sealed_journal", wraps=run_journal.sealed_journal) as decoded, \
                 mock.patch.object(paper, "paper_files", return_value=first) as read:
             streamed = daemon.Daemon.sealed_lines(mock.Mock(), 1, first)
             compared = comparison._journal(mock.Mock(), 1)
