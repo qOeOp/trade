@@ -29,7 +29,6 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.
-||||||| parent of 1fed0169e (fix(ide)!: admit product reads by the container's memory, not a fixed 3)
 - IDE (fix, Breaking: `ide.py serve --reads` is gone): the research graph service starts a product read only while
   the container's memory has room for its peak, instead of up to 3 at once (doctor 20261116-01, recurred
   2026-11-19: the kernel killed 9 reads in the 1.5 GiB Web container, where 3 reads of 385-440 MB each, the server

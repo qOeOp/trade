@@ -10,7 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261116-01 | Web 的产品读取按固定上限 3 个并发，不按容器内存：11-19 生产 Web 容器（1.5 GiB）里内核杀了 9 个读取子进程，页面只见 `PRODUCT_FAILED`（[复发](2026-11-16-web-oom-overview.zh.md#2026-11-21-复发)） | fix（按 cgroup 内存余量与读取峰值放行，被杀的读取答 `OUT_OF_MEMORY`） | doctor | minutes | recurred [记录](2026-11-16-web-oom-overview.zh.md#2026-11-21-复发) | 2026-11-16 | 2026-11-19 |
+| 20261116-01 | Web 的产品读取按固定上限 3 个并发，不按容器内存：11-19 生产 Web 容器（1.5 GiB）里内核杀了 9 个读取子进程，页面只见 `PRODUCT_FAILED`（[复发](2026-11-16-web-oom-overview.zh.md#2026-11-21-复发)） | fix（按 cgroup 内存余量与读取峰值放行，被杀的读取答 `OUT_OF_MEMORY`） | doctor | minutes | in PR [#3256](https://github.com/qOeOp/trade/pull/3256)（2026-11-21 recurred，[记录](2026-11-16-web-oom-overview.zh.md#2026-11-21-复发)） | 2026-11-16 | 2026-11-19 |
 | 20261121-01 | 单次运行读数只给出场类别集中度 `top_exit_share`，不给各出场类别净盈亏（`exit_net` 已算出后丢弃） | measure（数会话手算出场拆分的次数，再定产品读数还是留在技能） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-02 | 回放耗时可随窗口超线性增长（Line 1 根候选窗口 ×3.3、耗时 ×37），按预检线性外推低估约 19 倍 | none（观察，攒例子再定） | user（Data and usage cost） | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-03 | 改技能文字时找不出覆盖被改段落的已有评测用例（244 个用例，只跑新增或改动的） | measure（数近期技能 PR 漏跑的覆盖用例） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
