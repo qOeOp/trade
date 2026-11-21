@@ -188,10 +188,10 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "bars, funding, instrument terms and the month's universe members (a backfill also the members of the "
         "stored months whose look-back it completes), each table's whole file written and renamed into place after "
         "data_tests, bars last",
-        "month, universe_rule, scope, through, instruments_appended, bar_rows, funding_rows, universe_members, "
-        "gaps, source_rows, excluded, inferred_terms, rounded_volumes, derived_findings, per_symbol, "
-        "universe_filled (a backfill: the stored months it gave members), market_day, seconds; progress lines "
-        "on stderr",
+        "month, universe_rule, scope, through, instruments_appended, funding_rows, universe_members, gaps, "
+        "source_rows, excluded, inferred_terms, rounded_volumes, derived_findings, per_symbol (each prepared contract: "
+        "rows (new bars), bars (by price type), funding, source_rows), universe_filled (a backfill: the stored months it "
+        "gave members), rows (all contracts' new bars), market_day, seconds; progress lines on stderr",
         "MONTH_INVALID (the first import takes any closed month; after that only the latest month, to extend "
         "it, the month after it once it is complete, or the month just before the earliest (a backfill); a skipped "
         "month; a month not begun; a first import with no closed UTC day; on the current month's first day the import "
@@ -207,7 +207,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "not stored, its Binance daily aggTrades archive (checksum-verified, cached under --cache-root)",
         "best bid/ask quote rows inferred from the trades, one file per contract and month, placed in symbol order; a "
         "refused contract leaves the others' files",
-        "month, through, quote_rule, symbols, quote_rows, per_symbol, market_day, seconds; progress lines on stderr",
+        "month, through, quote_rule, per_symbol (each contract in symbol order: rows (quote states), eve (the day "
+        "before was read), days and the inference readings), rows (all contracts), market_day, seconds; progress lines "
+        "on stderr",
         "MONTH_INVALID (not YYYY-MM, or the month has not ended; any earlier month is accepted, in any order); "
         "MONTH_EXISTS (a named contract already has the month's quotes); MARKET_EMPTY (no bars yet); UNIVERSE_UNKNOWN "
         "(the month has no members; import its bars or name --symbols); TERMS_UNKNOWN; TRADES_NOT_HELD (no aggTrades "
@@ -219,9 +221,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "under --cache-root, downloaded and parsed in bounded chunks",
         "all eight source fields in agg_trade, one file per contract and month, placed in symbol order; a refused "
         "contract leaves the others' files in place; no change to bars, quotes or replay exports",
-        "month, imports (one per contract in symbol order: month, symbols, codec (binance-aggtrades-int64-scale8-v1: "
-        "price and quantity exactly x1e8), trade_rows, seconds), trade_rows (all contracts), market_day, seconds; a "
-        "line per placed contract on stderr",
+        "month, codec (binance-aggtrades-int64-scale8-v1: price and quantity exactly x1e8), per_symbol (each contract "
+        "in symbol order: rows, seconds), rows (all contracts), market_day, seconds; a line per placed contract on "
+        "stderr",
         "MONTH_INVALID (the month has not ended; any earlier month in any order); EMPTY_SYMBOLS (a repeated or malformed "
         "symbol); the first refused contract's refusal, naming the contracts written; MARKET_EMPTY; MONTH_EXISTS; "
         "SCALE_LOSS (any value is inexact or outside signed int64: refuse the whole month, no rounding or fallback); "
@@ -233,9 +235,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "sum_open_interest and the three long/short ratios at each create_time in metrics: each contract's month file "
         "with the published days it lacks added, through the last closed UTC day; a refused contract leaves the earlier "
         "ones' files; no change to bars, quotes, trades or replay exports",
-        "month, imports (one per contract in symbol order: month, from, through (exclusive end day), symbols, readings "
-        "(daily rows, repeated_rows merged, empty ratios), unpublished (days without an archive), metrics_rows), "
-        "metrics_rows (all contracts), market_day, seconds; daily progress on stderr",
+        "month, per_symbol (each contract in symbol order: from, through (exclusive end day), readings (daily rows, "
+        "repeated_rows merged, empty ratios), unpublished (days without an archive), rows), rows (all contracts), "
+        "market_day, seconds; daily progress on stderr",
         "MONTH_INVALID (no closed UTC day); EMPTY_SYMBOLS; UNIVERSE_UNKNOWN; MONTH_EXISTS (every closed day already "
         "held); ARCHIVE_NOT_PUBLISHED (no day published); SOURCE_SHAPE (header, symbol, a create_time off the "
         "five-minute grid of its day, no open interest, a negative or non-decimal value, two different rows at one "

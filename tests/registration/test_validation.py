@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from ledger import db, trials, witness
 from shared.errors import Refusal
-from registration import inputs as registration_inputs, seams, validation
+from registration import inputs as registration_inputs, runner, seams, validation
 from report import comparison, graph, history as report_history, review as ledger_review
 from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, binder as stand_in_binder,
                                coverage, grid_point, sha, source)
@@ -50,9 +50,9 @@ def decided(conn, source_sha256) -> dict:
 
 
 def stale(checkout_root) -> str:
-    with patch.dict(os.environ, GIT_ENV), seams.use(checkout=lambda: checkout_root):
+    with patch.dict(os.environ, GIT_ENV):
         try:
-            seams.require_fresh()
+            runner.require_fresh(checkout_root)
         except Refusal as exc:
             return exc.code
     return "fresh"
@@ -89,9 +89,9 @@ class FreshCheckoutTests(unittest.TestCase):
 
 
 def current(checkout_root) -> str:
-    with patch.dict(os.environ, GIT_ENV), seams.use(checkout=lambda: checkout_root):
+    with patch.dict(os.environ, GIT_ENV):
         try:
-            seams.require_current()
+            runner.require_current(checkout_root)
         except Refusal as exc:
             return exc.code
     return "current"

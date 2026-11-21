@@ -42,7 +42,7 @@ export const shownCategories = atom<ReadonlySet<Category>>(new Set(CATEGORIES));
 
 let n = 0;
 export const showTime = (ms: number) => chartFocus.set({ from: ms, to: ms, mark: false, n: ++n });
-export const showSpan = (from: number, to: number) => chartFocus.set({ from: Math.min(from, to), to: Math.max(from, to), mark: true, n: ++n });
+const showSpan = (from: number, to: number) => chartFocus.set({ from: Math.min(from, to), to: Math.max(from, to), mark: true, n: ++n });
 /** A closed trade or cycle picked in its table: highlighted there and shown and marked on the chart. */
 export const pickTrade = (id: string, from: number, to: number) => { pickedTrade.set(id); showSpan(from, to); };
 

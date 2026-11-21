@@ -58,8 +58,6 @@ Agent 写完一份完整的单文件策略源码，决定它是根，还是带�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:candidate">candidate</Ref> `ledger.publish_candidate` `ledger.read_candidate`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 ## 3.2　连成谱系：父、对照与分枝 [#T-2]
 
 每个新候选指向一个父版本并写一句改动说明，连成树和森林；任何候选都能再派生，成绩不改变它在谱系里的位置。
@@ -115,8 +113,6 @@ Agent 选一个已有候选当父版本，写一句改动说明，发布新候�
 比如一条路线的清单里，根是参考根，之后每一版都挂在各自的父版本下，每项正式运行都显示是否通过、有没有经济证据资格。最终推荐哪一版不在清单里，而是写在 Agent 的推荐判断里。想看某次复盘时的清单，按那时的账本版本读就行。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `cli.candidate_list` `report.candidates` `ledger.read_as_of`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 待定事项 [#T-pending]
 

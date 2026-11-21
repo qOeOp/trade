@@ -7,7 +7,7 @@ declared once, before its container starts (`paper_run`): the source, the runtim
 contracts, the market day its membership was read at and the effective configuration. It is sealed
 once, after it ends (`paper_seal` with its `paper_file` rows): the runner's journal split by UTC day,
 its summary, the egress and runner logs, and ``seal.json``, the readings computed here once
-(docs/plans/paper-run-storage-decision.zh.md). Every declared run seals with its reasons, however it ended
+(docs/plans/stored-fields.zh.md). Every declared run seals with its reasons, however it ended
 (it crashed, ran out of memory or never started), so every declared run has an outcome; it is ``invalid`` only
 when its evidence cannot be trusted (`verdict`: other code than declared, a denied host, or no journal from a
 runner that started).

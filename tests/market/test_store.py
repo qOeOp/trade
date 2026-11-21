@@ -91,9 +91,9 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(first["universe_members"], [])
         self.assertEqual(first["excluded"], {"BTCDOMUSDT": "index", "USDCUSDT": "stablecoin"})
         self.assertEqual(first["inferred_terms"], ["CCCUSDT"])
-        self.assertEqual(first["bar_rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
+        self.assertEqual(first["rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
         self.assertEqual(first["derived_findings"], {})  # derived daily bars equal the exchange's
-        self.refused("MARKET_EMPTY", store.freshness, self.profile, self.market_days[JAN])
+        self.refused("MARKET_EMPTY", read.freshness, self.profile, self.market_days[JAN])
         # Each month's last day waits for the next month's members, which these imports leave unwritten.
         self.assertEqual(self.market_days, {month: (clock.next_month(month) - timedelta(days=2)).isoformat()
                                         for month in (JAN, FEB, MAR)})
@@ -128,14 +128,14 @@ class ImportTests(unittest.TestCase):
     def test_a_month_missing_from_its_monthly_archive_comes_from_the_daily_archive(self):
         third = self.results[MAR]
         self.assertEqual(third["gaps"], {})
-        self.assertEqual(third["source_rows"], {"monthly": third["bar_rows"] - 1440, "daily": 1440, "rest": 0})
+        self.assertEqual(third["source_rows"], {"monthly": third["rows"] - 1440, "daily": 1440, "rest": 0})
         self.assertEqual(third["per_symbol"]["BTCUSDT"]["bars"], {"LAST": 31 * 1440, "MARK": 31 * 1440})
 
     def test_freshness_reads_the_market_day(self):
-        fresh = store.freshness(self.profile)
+        fresh = read.freshness(self.profile)
         self.assertEqual(fresh, {"market_day": self.market_days[MAR], "universe_months": ["2025-02", "2025-03"],
                                  "latest_complete_day": date(2025, 3, 30)})
-        self.assertEqual(store.freshness(self.profile, self.market_days[FEB])["latest_complete_day"], date(2025, 2, 27))
+        self.assertEqual(read.freshness(self.profile, self.market_days[FEB])["latest_complete_day"], date(2025, 2, 27))
 
     def test_months_import_once_and_in_order(self):
         with serving(self.exchange):
@@ -490,12 +490,12 @@ class LaterImportTests(unittest.TestCase):
         march = self.tail(found)
         with serving(found), on(date(2025, 3, 10)):
             first = store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
-        self.assertEqual((first["through"], first["bar_rows"], first["source_rows"]["rest"]),
+        self.assertEqual((first["through"], first["rows"], first["source_rows"]["rest"]),
                          ("2025-03-10", 2 * 9 * 1440, 2 * 9 * 1440))
         found.archives.update(march)
         with serving(found), on(date(2025, 4, 2)):
             done = store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
-        self.assertEqual((done["through"], done["bar_rows"], done["funding_rows"]), ("2025-04-01", 2 * 22 * 1440, 66))
+        self.assertEqual((done["through"], done["rows"], done["funding_rows"]), ("2025-04-01", 2 * 22 * 1440, 66))
         stored = rows(profile, "funding", ["BTCUSDT"], day_ms(MAR))["funding_time"].to_pylist()
         self.assertEqual((len(stored), stored[0]), (93, day_ms(MAR) + 5))  # one row per settlement; REST's time stays
         with serving(found):
@@ -574,13 +574,13 @@ class LaterImportTests(unittest.TestCase):
             self.assertEqual(store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
                              ["market_day"], first["market_day"])
             self.refused("MONTH_INVALID", store.import_month, profile, APR, self.cache, 1, scope, log=lambda line: None)
-        self.assertEqual((first["through"], first["bar_rows"], first["funding_rows"], first["universe_members"]),
+        self.assertEqual((first["through"], first["rows"], first["funding_rows"], first["universe_members"]),
                          ("2025-03-01", 0, 0, ["BBBUSDT", "BTCUSDT"]))
         self.assertEqual(sorted(set(rows(profile, "universe_month")["month"].to_pylist())), [FEB, MAR])
         with serving(found), on(date(2025, 4, 2)):
             done = store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
         self.assertEqual((done["through"], done["universe_members"]), ("2025-04-01", ["BBBUSDT", "BTCUSDT"]))
-        self.assertEqual(done["bar_rows"], 2 * 2 * 31 * 1440)
+        self.assertEqual(done["rows"], 2 * 2 * 31 * 1440)
 
     def test_a_first_import_needs_a_closed_day(self):
         profile = directory(self.addCleanup)
@@ -731,7 +731,7 @@ class BackfillTests(unittest.TestCase):
         self.assertTrue(terms[0].equals(terms[1]))
         self.assertEqual(self.jan["universe_members"], [])  # the new first month
         self.assertEqual(self.jan["universe_filled"], {"2025-02": ["BTCUSDT", "CCCUSDT"]})
-        self.assertEqual(self.jan["bar_rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
+        self.assertEqual(self.jan["rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
         self.assertEqual(self.mar["universe_members"], ["BBBUSDT", "BTCUSDT"])
         self.assertEqual(sorted(set(rows(self.backfilled, "universe_month")["month"].to_pylist())), [FEB, MAR])
 

@@ -250,11 +250,40 @@ def venue_cancel_lead(order_events: list[dict], fills_ns: list[int]) -> int | No
     return requested - canceled
 
 
+def venue_updates_before_cancel(order_events: list[dict], fills_ns: list[int]) -> bool:
+    """engine.venue_updates_before_cancel: on a live clock (Paper's Sandbox) the venue resizes a working reduce-only
+    order to its position after each partial fill of a burst, while the strategy, called on an earlier fill of that
+    burst, has already asked to cancel it: the venue's OrderUpdated events are recorded after the order's
+    OrderPendingCancel with earlier stamps. True when that is the order's only step back in time (its events are in
+    time order once its one request follows those updates), the order is reduce-only and ends OrderCanceled, and each
+    update follows a fill on its contract (`fills_ns`, sorted) stamped at most VENUE_CANCEL_LEAD_MAX_NS before the
+    request."""
+    if order_events[0].get("reduce_only") is not True or order_events[-1]["type"] != "OrderCanceled":
+        return False
+    requests = [index for index, event in enumerate(order_events) if event["type"] == "OrderPendingCancel"]
+    if len(requests) != 1:
+        return False
+    request = requests[0]
+    updates = order_events[request + 1:-1]
+    if not updates or any(event["type"] != "OrderUpdated" for event in updates):
+        return False
+    ordered = [*order_events[:request], *updates, *order_events[request:request + 1], order_events[-1]]
+    if any(int(left["ts_event"]) > int(right["ts_event"]) for left, right in pairwise(ordered)):
+        return False
+    requested = int(order_events[request]["ts_event"])
+    for update in updates:
+        at = bisect.bisect_right(fills_ns, int(update["ts_event"]))
+        if at == 0 or requested - fills_ns[at - 1] > VENUE_CANCEL_LEAD_MAX_NS:
+            return False
+    return True
+
+
 def event_report_findings(events: list[dict], orders: list[dict], fills: list[dict],
                           venue_cancels: list[int] | None = None) -> list[str]:
     """engine.event_report_findings: the event history holds exactly the reported orders and fills. With
     `venue_cancels` (a live clock) an order whose only step back in time is a venue's cancel crossing the strategy's
-    request (venue_cancel_lead) is no finding, and its lead is appended there."""
+    request (venue_cancel_lead; its lead is appended there) or the venue's resizing during a fill burst crossing it
+    (venue_updates_before_cancel) is no finding."""
     findings, history = [], defaultdict(list)
     fills_ns: defaultdict[str, list[int]] = defaultdict(list)  # each contract's fill times
     for event in events:
@@ -274,11 +303,12 @@ def event_report_findings(events: list[dict], orders: list[dict], fills: list[di
             findings.append(finding("EVENT_NOT_INITIALIZED", f"{identity} does not start with one initialization"))
             continue
         if any(int(left["ts_event"]) > int(right["ts_event"]) for left, right in pairwise(order_events)):
-            lead = None if venue_cancels is None else venue_cancel_lead(order_events, fills_ns[first["instrument_id"]])
-            if venue_cancels is None or lead is None:
-                findings.append(finding("EVENT_OUT_OF_ORDER", f"{identity} events go back in time"))
-            else:
+            contract_fills = fills_ns[first["instrument_id"]]
+            lead = None if venue_cancels is None else venue_cancel_lead(order_events, contract_fills)
+            if venue_cancels is not None and lead is not None:
                 venue_cancels.append(lead)
+            elif venue_cancels is None or not venue_updates_before_cancel(order_events, contract_fills):
+                findings.append(finding("EVENT_OUT_OF_ORDER", f"{identity} events go back in time"))
         accounts = {event.get("account_id") for event in order_events if event.get("account_id")}
         if any((event["strategy_id"], event["instrument_id"]) != (first["strategy_id"], first["instrument_id"])
                for event in order_events) or len(accounts) > 1:
@@ -693,11 +723,12 @@ FILL_ACCOUNT_LAG_MAX_NS = 10**9
 def live_fill_changes(fills: list[dict], positions: list[dict], balance_changes: dict[int, Decimal],
                       ) -> tuple[set[int], list[int], list[str]]:
     """engine.live_fill_changes: on a live clock (Paper's Sandbox, summary clock "live") the account update a fill
-    causes is stamped after the fill, not at its nanosecond as in a replay. A balance change counts as the fill it
-    follows when no other fill or balance change lies between them, it lags the fill by at most
-    FILL_ACCOUNT_LAG_MAX_NS and it equals the fill's effect: minus the commission for a fill that opens or adds;
-    a position whose fills include a reducing one has its fills' changes and its funding together equal its
-    realized PnL (which holds both). Returns (the attributed change times, their lags in ns, findings)."""
+    causes is stamped after the fill, not at its nanosecond as in a replay. Fills with no balance change between them
+    (one, or a burst of partial fills) take the next as many balance changes, one each in order, when no later fill
+    comes before the last of them, each lags its fill by at most FILL_ACCOUNT_LAG_MAX_NS and each equals its fill's
+    effect: minus the commission for a fill that opens or adds; a position whose fills include a reducing one has its
+    fills' changes and its funding together equal its realized PnL (which holds both). Otherwise none of the burst's
+    changes count. Returns (the attributed change times, their lags in ns, findings)."""
     reducing, owner = set(), {}
     for position in positions:
         held = Decimal(0)
@@ -707,23 +738,30 @@ def live_fill_changes(fills: list[dict], positions: list[dict], balance_changes:
                 reducing.add(event["event_id"])
             held += quantity
             owner[event["event_id"]] = position["position_id"]
-    stamped = sorted((pd.Timestamp(fill["ts_event"]).value, fill["event_id"], fill) for fill in fills)
     changes = sorted(time for time, change in balance_changes.items() if change)  # a margin-only update moves no cash
+    bursts: defaultdict[int, list[tuple[int, str, dict]]] = defaultdict(list)  # by the first change at or after them
+    for fill in fills:
+        fill_ns = pd.Timestamp(fill["ts_event"]).value
+        bursts[bisect.bisect_left(changes, fill_ns)].append((fill_ns, fill["event_id"], fill))
     attributed: set[int] = set()
     lags: list[int] = []
     summed: defaultdict[str, Decimal] = defaultdict(Decimal)
-    for index, (fill_ns, event_id, fill) in enumerate(stamped):
-        following = stamped[index + 1][0] if index + 1 < len(stamped) else None
-        at = bisect.bisect_left(changes, fill_ns)
-        change = changes[at] if at < len(changes) else None
-        if (change is None or change in attributed or (following is not None and following <= change)
-                or change - fill_ns > FILL_ACCOUNT_LAG_MAX_NS):
+    starts = sorted(bursts)
+    for number, at in enumerate(starts):
+        burst = sorted(bursts[at])
+        following = min(bursts[starts[number + 1]])[0] if number + 1 < len(starts) else None
+        taken = changes[at:at + len(burst)]
+        if len(taken) < len(burst) or (following is not None and following <= taken[-1]):
             continue
-        if event_id not in reducing and balance_changes[change] != -_money(fill["commission"]):
+        matched = list(zip(taken, burst, strict=True))
+        if any(change - fill_ns > FILL_ACCOUNT_LAG_MAX_NS
+               or (event_id not in reducing and balance_changes[change] != -_money(fill["commission"]))
+               for change, (fill_ns, event_id, fill) in matched):
             continue
-        attributed.add(change)
-        lags.append(change - fill_ns)
-        summed[owner.get(event_id, "")] += balance_changes[change]
+        for change, (fill_ns, event_id, _) in matched:
+            attributed.add(change)
+            lags.append(change - fill_ns)
+            summed[owner.get(event_id, "")] += balance_changes[change]
     found = [finding("FUNDING_BALANCE_MISMATCH", f"the account changes after the fills of position "
                                                  f"{position['position_id']} differ from its realized PnL")
              for position in positions

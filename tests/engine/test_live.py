@@ -98,7 +98,13 @@ class LiveTests(unittest.TestCase):
         path.write_text(json.dumps({**self.manifest, "symbols": ["BTCUSDT", "ETHUSDT"],
                                     "market": {**self.manifest["market"], "terms": terms}}))
         self.assertEqual(live.read_manifest(path)["symbols"], ["BTCUSDT", "ETHUSDT"])  # one instance each
+        # A non-ASCII coin is a contract as live.configuration and the market take it (market.sources.SYMBOL).
+        terms = {"币安人生USDT": self.manifest["market"]["terms"]["BTCUSDT"]}
+        path.write_text(json.dumps({**self.manifest, "symbols": ["币安人生USDT"],
+                                    "market": {**self.manifest["market"], "terms": terms}}))
+        self.assertEqual(live.read_manifest(path)["symbols"], ["币安人生USDT"])
         for change in ({"symbols": ["BTCUSDT", "ETHUSDT"]}, {"symbols": ["BTCUSDT", "BTCUSDT"]}, {"symbols": []},
+                       {"symbols": ["USDT"]}, {"symbols": ["BTC_USDT"]}, {"symbols": ["BTCUSDC"]},
                        {"config": {**self.manifest["config"], "drawdown_brake": "NaN"}},
                        {"config": {**self.manifest["config"], "duration_seconds": True}}):
             with self.subTest(change=change):

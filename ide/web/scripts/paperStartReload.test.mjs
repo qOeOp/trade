@@ -27,7 +27,7 @@ async function reload(sessionStorage, accepted, health = async () => ({})) {
   const graph = loader({ context, sources: ["state/paper", "lib/pendingStarts", "lib/storage"], packages: [], stubs: {
     "lib/transport": { ApiError, errorText: String }, "state/atom": { atom, useAtom: (a) => a.get() },
     "lib/paperApi": { paperApi }, "lib/shared": { shared: (_, next) => next },
-    "lib/whileVisible": { whileVisible: () => {} }, "model/chain": { ACTIVE: new Set() },
+    "lib/polled": { polled: (read) => { const first = read(); return { read: () => first, stop() {} }; } }, "model/chain": { ACTIVE: new Set() },
     "model/paperMemory": { full: () => null }, "state/phone": { phoneNow: () => false },
     "state/shell": { showRunsPage: () => {} }, "state/stage": { chooseRun: () => {}, pickWanted: () => {} },
     "state/session": { sessionRequired: atom(false) },

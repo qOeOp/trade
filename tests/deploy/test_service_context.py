@@ -54,8 +54,8 @@ for name in ("live.authority", "deploy.live_configuration", "deploy.live_host"):
             subprocess.run([sys.executable, "-I", "-c", source, str(installed)], cwd=work,
                            capture_output=True, text=True, check=True)
 
-    def test_the_service_image_carries_the_control_code_a_handoff_copies(self):
-        from deploy.control import IMAGE_DEPLOY
+    def test_the_service_image_carries_the_control_code_and_compose_definition_a_release_copies(self):
+        from deploy.release_host import DEFINITION, IMAGE_DEPLOY
 
         dockerfile = (ROOT / "deploy/Dockerfile").read_text()
         product = dockerfile[dockerfile.index(" AS product"):dockerfile.index(" AS service")]
@@ -66,3 +66,5 @@ for name in ("live.authority", "deploy.live_configuration", "deploy.live_host"):
             service_context(Path(temporary))
             for path in (ROOT / "deploy").glob("*.py"):
                 self.assertTrue((Path(temporary) / "deploy" / path.name).is_file(), path.name)
+            for name in DEFINITION:
+                self.assertTrue((Path(temporary) / "deploy" / name).is_file(), name)

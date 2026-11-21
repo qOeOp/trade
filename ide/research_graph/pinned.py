@@ -1,19 +1,22 @@
-"""A bounded cache of product reads pinned to a ledger commit (the line index by commit, a trial's report by
-trial and commit), shared by concurrent page and menu reads: one read per key at a time."""
+"""Product reads kept as the JSON a page is sent, by what they were read for (a trial's report by trial and commit,
+a contract's bars by days and market day), shared by concurrent reads: one read per key at a time. The least recently
+used are dropped once what is kept passes `limit` bytes; a failed read is not kept."""
 from collections import OrderedDict
-from collections.abc import Callable, Hashable
+from collections.abc import Callable
 from concurrent.futures import Future
+import json
 import threading
 
 
-class Pinned[K: Hashable]:
-    def __init__(self, read: Callable[[K], dict], capacity: int = 8):
-        self.read, self.capacity = read, capacity
+class Pinned:
+    def __init__(self, limit: int):
+        self.limit = limit
         self.lock = threading.Lock()
-        self.values: OrderedDict[K, dict] = OrderedDict()
-        self.pending: dict[K, Future] = {}
+        self.values: OrderedDict[tuple, bytes] = OrderedDict()
+        self.size = 0
+        self.pending: dict[tuple, Future[bytes]] = {}
 
-    def get(self, key: K) -> dict:
+    def get(self, key: tuple, read: Callable[[], dict]) -> bytes:
         with self.lock:
             if key in self.values:
                 self.values.move_to_end(key)
@@ -24,11 +27,12 @@ class Pinned[K: Hashable]:
                 future = self.pending[key] = Future()
         if owner:
             try:
-                value = self.read(key)
+                value = json.dumps(read(), ensure_ascii=False).encode()
                 with self.lock:
+                    self.size += len(value) - len(self.values.pop(key, b""))
                     self.values[key] = value
-                    while len(self.values) > self.capacity:
-                        self.values.popitem(last=False)
+                    while self.size > self.limit and len(self.values) > 1:
+                        self.size -= len(self.values.popitem(last=False)[1])
                 future.set_result(value)
             except Exception as exc:
                 future.set_exception(exc)
@@ -37,7 +41,8 @@ class Pinned[K: Hashable]:
                     del self.pending[key]
         return future.result()
 
-    def clear(self) -> None:
-        """Forget every value kept; a read already running still answers its callers."""
+    def drop(self, which: Callable[[tuple], bool]) -> None:
+        """Forget the values whose keys `which` names; a read already running still answers its callers."""
         with self.lock:
-            self.values.clear()
+            for key in [key for key in self.values if which(key)]:
+                self.size -= len(self.values.pop(key))

@@ -19,12 +19,11 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-import time
 
 import numpy as np
 import pyarrow as pa
 
-from market import aggtrades, files, sources, store
+from market import aggtrades, files, store
 from market.sources import DAY
 from shared import clock
 from shared.refusals import refuse
@@ -106,23 +105,19 @@ def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[li
 
 def import_quotes(profile: dict, month: date, cache_root: Path, symbols: list[str] | None = None, log=print) -> dict:
     """market.import_quotes: one ended UTC month of inferred best bid/ask (RULE) of `symbols` (default: the
-    month's universe members), one file per contract, never written again. The trades are the contract's agg_trade
-    file of the month, which must be held (TRADES_NOT_HELD). Every state change is stored: thinning to per-second
-    extremes moves a liquidation to the second's adverse extreme up to a second late (measured), so there is no
-    thinned form."""
-    started = time.monotonic()
-    scope = store._scope(symbols)
-    start_ms, end_ms = store.closed_month(month)
-    market = files.open_market(profile, "import")
-    with files.lock(market):
-        return _import_quotes(market, month, start_ms, end_ms, Path(cache_root), scope, log, started)
+    month's universe members), one file per contract, never written again (store.import_contracts). The trades are
+    the contract's agg_trade file of the month, which must be held (TRADES_NOT_HELD). Every state change is stored:
+    thinning to per-second extremes moves a liquidation to the second's adverse extreme up to a second late
+    (measured), so there is no thinned form."""
+    def run(market: files.Market, scope: list[str] | None, start_ms: int, end_ms: int) -> dict:
+        return _import_quotes(market, month, start_ms, end_ms, Path(cache_root), scope, log)
+    return store.import_contracts(profile, month, symbols, store.closed_month, run,
+                                  "the market holds no bars yet; quotes need the contracts' terms")
 
 
 def _import_quotes(market: files.Market, month: date, start_ms: int, end_ms: int, cache: Path,
-                   scope: list[str] | None, log, started: float) -> dict:
+                   scope: list[str] | None, log) -> dict:
     label = f"{month:%Y-%m}"
-    if market.empty:
-        raise refuse("MARKET_EMPTY", "the market holds no bars yet; quotes need the contracts' terms")
     if scope is None:
         scope = sorted(store._members(market, month))
         if not scope:
@@ -147,12 +142,8 @@ def _import_quotes(market: files.Market, month: date, start_ms: int, end_ms: int
                      "trades": files.entries(market, "agg_trade", [symbol], start_ms - DAY, end_ms),
                      "earlier": store.earlier_file(market, "quote", symbol, start_ms)})
     # One contract at a time: a contract-day's derivation is held whole.
-    found = store.contract_files(market, jobs, quote_month, 1, log)
-    per_symbol = {item["symbols"][0]: item["per_symbol"] for item in found}
-    return {"month": label, "through": clock.ms_day(end_ms).isoformat(), "quote_rule": RULE,
-            "symbols": scope, "quote_rows": sum(item["quotes"] for item in per_symbol.values()),
-            "per_symbol": per_symbol, "market_day": files.latest_market_day(market),
-            "seconds": round(time.monotonic() - started)}
+    return {"through": clock.ms_day(end_ms).isoformat(), "quote_rule": RULE,
+            "per_symbol": store.contract_files(market, jobs, quote_month, 1, log)}
 
 
 def quote_month(job: dict) -> dict:
@@ -180,13 +171,11 @@ def quote_month(job: dict) -> dict:
         derive(trades(start - DAY), tick, state, f"{symbol} {eve}")
         read_eve = True
     else:
-        key = sources.aggtrades_key(symbol, eve)
-        path = (sources.fetch_archive if job["earlier"] else sources.published)(Path(job["cache"]), key)
-        if path is not None:
-            table = pa.Table.from_batches([aggtrades.record_batch(rows) for rows in aggtrades.batches(
-                path, symbol, eve, aggtrades.State(), {})], files.AGG_TRADE.schema)
-            derive(table, tick, state, f"{symbol} {eve}")
-        read_eve = path is not None
+        found = aggtrades.eve(Path(job["cache"]), symbol, start, job["earlier"], aggtrades.State())
+        if found is not None:
+            derive(pa.Table.from_batches([aggtrades.record_batch(rows) for rows in found], files.AGG_TRADE.schema),
+                   tick, state, f"{symbol} {eve}")
+        read_eve = found is not None
     readings = {"trades": 0, "quote_changes": 0, "stale_side_adjustments": 0, "minutes_with_trades": 0,
                 "trade_gap_max_ms": 0, "trade_gap_p99_ms": 0}
     written_rows = 0
@@ -209,5 +198,5 @@ def quote_month(job: dict) -> dict:
                 readings[key] = max(readings[key], value) if key.startswith("trade_gap") else readings[key] + value
 
     written = files.write_file(market, "quote", clock.ms_day(start), symbol, rows())
-    return {"written": written, "result": {"symbols": [symbol], "quotes": written_rows, "per_symbol": {
-        **readings, "quotes": written_rows, "eve": read_eve, "days": (end - start) // DAY}}}
+    return {"written": written, "result": {**readings, "rows": written_rows, "eve": read_eve,
+                                           "days": (end - start) // DAY}}

@@ -66,8 +66,6 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### 账本之外的去向 [#J-1-2]
 
 账本之外的东西都是临时工作副本；测试只写隔离账本。
@@ -84,8 +82,6 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `shared.paths.temporary_path` `cli.ledger_temp`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 代码仓库只放产品代码和环境构建定义，策略和登记只在账本 [#J-1-2-2]
 
 产品源码里只有产品代码和运行环境的构建定义，不放策略正文（包括模板）、登记、试验记录和回执。策略在临时目录写好后发布成候选；要改已发布的候选，先把它的源码字节导出到临时目录，改完再重新发布。运行环境随产品源码发布：引擎、运行器、审计器和依赖的改动，只能自动构建出新的镜像摘要后才进入回放，本机不构建。
@@ -97,8 +93,6 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 比如要把某个已发布候选的单笔预算从 100 改到 2000，Agent 先把它的源码导出到临时目录，改好后发布成一个新候选；这次改动不会出现在代码仓库里。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 13.2　记录：账本装什么、谁能写什么 [#J-2]
 
@@ -158,8 +152,6 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.publish_candidate` `ledger.check_source` <Ref id="table:candidate">candidate</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 登记在回放前锁成只追加的一行，要改只能另行登记 [#J-2-1-2]
 
 登记（<Ref id="table:research_registration">research_registration</Ref>）锁住父版本、对照、那一处改动、理由来源、网格和检验条件，还锁住登记时探测到的执行身份：镜像、市场日、合约范围、导出哈希和可比配置哈希。网格的每一点另成一行（<Ref id="table:registration_grid_point">registration_grid_point</Ref>）。登记时间由账本写，调用方不能填。要改意图、网格或源码，只能另行登记（失败重试用 `retry_of` 指回原登记），旧登记不改也不删。
@@ -171,8 +163,6 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 比如登记后发现网格里少列了一个参数点，或者想换一个对照，只能另写一份新登记；旧登记原样留在账本里。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.register` `ledger.add_bundle` <Ref id="table:evidence_bundle">evidence_bundle</Ref> <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 回放的记录 [#J-2-2]
 
@@ -190,8 +180,6 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.open_trial` <Ref id="table:trial">trial</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 研究和样本外回放各入账一个运行，记结论和身份 [#J-2-2-2]
 
 运行（<Ref id="table:run">run</Ref>）记下审计结论（通过，或无效及原因）和原生报告的语义指纹；通过的运行另有一行读数（<Ref id="table:run_reading">run_reading</Ref>），由代码从原生报告算出，某一项对账失败只把那一项置空。无效运行没有读数，通过的运行没有无效原因。执行身份不在运行上重复存，按试验的镜像摘要和登记读。
@@ -204,8 +192,6 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:run">run</Ref> `ledger.ingest_run` `ledger.metrics`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 通过的回放只存三样：读数、逐日序列和持仓周期 [#J-2-2-3]
 
 封存时，代码从工作目录里的原生报告一次算出三样存进账本：一行读数（只含存储数据推不出的指标，连同算它的产品提交）、逐日序列（<Ref id="table:run_return">run_return</Ref>：日收益和当日平均名义敞口）、每个持仓周期一行的紧凑记录（<Ref id="table:run_cycle">run_cycle</Ref>）。原生报告本身不入账，账本只记它们的语义指纹。只有通过的运行有这三样，和运行同时写入。
@@ -217,8 +203,6 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 比如一个全池根运行的原生报告可能有好几 GB；按这条规则，它在账本里只有一行读数、每天一行日收益和每个周期一行持仓周期，原始体积很小。日收益仍是配对比较唯一的计算单位。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` `ledger.load_run`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 失败、无效与中断回放的去向 [#J-2-3]
 
@@ -236,21 +220,17 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` `ledger.audit_problems` `ledger.summary_problems`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 每次回放不论成败，都封存原生日志和退出码；源码与覆盖回执只记哈希 [#J-2-3-2]
 
 完成、中断和宿主失败的回放都会封存，这类证据包只由回放代码写，Agent 不能写。内容有各阶段的命令和退出码、原生输出和异常记录。被执行的源码和覆盖回执已经在候选和启动记录里各存了一份，这里只记哈希；研究回放的原生报告和语义指纹也只记哈希。空文件、缺失和没开始各自如实标出，不写占位内容。
 
-失败的原因常常只在原始输出里，不封存，事后只能猜。封存被拒或进程被杀时没有最终封存，就读为缺失。每件事实只存一份，副本之间就不会对不上，也给封存的容量上限留出空间（评审记录 docs/plans/store-once-review.zh.md）。
+失败的原因常常只在原始输出里，不封存，事后只能猜。封存被拒或进程被杀时没有最终封存，就读为缺失。每件事实只存一份，副本之间就不会对不上，也给封存的容量上限留出空间（评审记录见 docs/plans/stored-fields.zh.md）。
 
 <div className="rd-example">
 
 比如一次回放的某个阶段超过内存上限（每阶段 16 GiB）被杀，这次回放被拒为 `STAGE_MEMORY_LIMIT`，封存照样写下，结局记为宿主失败并写明哪个阶段；进程被外部杀掉、来不及封存时，账本里只有启动时写下的记录，读出来就是「缺失」，不会是一份看似正常的空日志。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.seal_capture` `replay.execute`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 中断的回放读为缺失，恢复只能另起证据包追加 [#J-2-3-3]
 
@@ -263,8 +243,6 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 比如一次试验的原始封存缺失。后来恢复的材料另外存放，和原记录分开，不回填成当时的成功。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_capture` `ledger.recover_capture` `ledger.start_bundle`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 写入分工 [#J-2-4]
 
@@ -281,8 +259,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如 Agent 写一条推荐某个候选的判断，正文写「推荐这个候选，依据是它的候选、对应的试验和某个账本版本」，而不是把年化数字抄进去；读的时候，数字从账本当场取。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.add_bundle` `ledger.add_judgment` <Ref id="table:judgment">judgment</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 样本外只认 main 自动构建的环境和含 main 最新提交的代码 [#J-2-4-4]
 
@@ -301,15 +277,13 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 3. 核对镜像里运行器、审计器源码和依赖锁的哈希，逐项等于该版本源码中的字节；任一项不符就拒绝（RUNTIME_NOT_MAIN）。
 4. 核对执行命令的产品 checkout 的 HEAD 含远端 main 的最新提交；证明不了就拒绝（STALE_CHECKOUT）。
 
-<div className="rd-foot"><span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### 读取入口 [#J-2-9]
 
 账本没有 SQL 视图；读命令钉住一个账本版本直接读底表，资格、绩效指标遮蔽和配对检验在代码里算。
 
 #### 读命令直接读底表，资格与遮蔽在读取入口计算 [#J-2-9-1]
 
-候选、试验、运行、判断、证据和样本外的读取都经命令行的读命令（[读取入口与研究史](/zh/docs/design-database-views/)），由读账号直接读底表和关联查询，复用共享函数；路线门槛与研究图共用 `line_trials`。经济证据资格、绩效指标遮蔽与配对检验由读取入口计算，不能由一张可查的底表值替代。读命令从不写入，也不发布。
+候选、试验、运行、判断、证据和样本外的读取都经命令行的读命令（[读取入口与研究史](/zh/docs/design-ledger/#read-entry-points)），由读账号直接读底表和关联查询，复用共享函数；路线门槛与研究图共用 `line_trials`。经济证据资格、绩效指标遮蔽与配对检验由读取入口计算，不能由一张可查的底表值替代。读命令从不写入，也不发布。
 
 账本里不存能从存储数据推出的东西：资格、计数和「不合格」这类状态都是读的时候算的，存一份就会和底表对不上。
 
@@ -318,8 +292,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 一条线上的原始试验、统计计数和路线试验是三个不同的数：统计计数排除复现（含关线历史回测对无效段的重跑）和策略执行前中止的试验，路线计数只数研究用途、属于这条线的试验（含无效和未完成的尝试）。三个数回答不同问题，都由读取入口从同一组底表算出。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.line_trials` `report.research_status` `registration.assess`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 复现历史结果按当时的账本提交读 [#J-2-9-2]
 
@@ -332,8 +304,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如要复现某条路线关闭时的试验计数，就用关线那次提交的 `--at` 去读；之后新增的试验不会混进来。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `ledger.read_as_of` `ledger.line_trials`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 保留只读 SQL；报告遮蔽不是数据访问隔离 [#J-2-9-3]
 
@@ -348,8 +318,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 一份已封存运行后来因源码审查失败而失去经济证据资格，正式报告会将绩效指标置空并说明原因；只读 SQL 仍可查到旧的读数。旧读数保留作诊断，不能因此把这份运行作为合格经济证据。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">实现 `cli.ledger_sql` `registration.assess` `registration.mask` `report.run_report` `report.review_all`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 13.3　写入保护：怎么证明没被改 [#J-3]
 
@@ -405,8 +373,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:dolt_system_tables">dolt_diff_\<table> / dolt_history_\<table></Ref> `report.review_all`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 写错了就追加一条指向原记录的更正，原件不动 [#J-3-1-2]
 
 写错时不改原件，追加一条更正证据包：写明被更正的对象（运行编号、登记编号或证据包名）、它所在的账本版本、更正内容和理由。包名由 Agent 起，但不能落在产品保留的命名范围里。可读摘要在读取时合并最新更正，并标出被更正的表述（见 <Ref id="E.1.1.3" />），原件按需再读。
@@ -418,8 +384,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如运行的入场次数写错、结论概括写错、试验失败原因措辞不准，都靠追加更正改过来，原记录还在。后来的人先读合并了更正的摘要，需要时再查原件。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 你看过的读数失去资格时，下一条消息点名撤回 [#J-3-1-3]
 
@@ -433,8 +397,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 改和删能查到但拦不住：保证的是留痕 [#J-3-1-4]
 
 写入时由数据库挡住正常路径上的错误：写账号只有新增权限（另可更新写入进度和运行读数），外键、CHECK 约束和写时间的触发器随表定义生效，违反就整笔回滚。但管理权限能绕过这些，所以它们不是信任边界。
@@ -446,8 +408,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如有人用管理账号直接删了一条试验，账本当时拦不住；但下次整体复核会在差异历史里看到这次删除，报成一条发现。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `ledger.init` `report.review_all`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 写入事务 [#J-3-2]
 
@@ -471,8 +431,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 4. 写入对象、关系和回执，更新写入进度。
 5. 提交成一个账本版本，各项同时生效；任一步失败整笔回滚。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.write` <Ref id="table:ledger_head">ledger_head</Ref> `shared.errors.Refusal`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 同一操作重试返回原记录，并发冲突时后到的被拒 [#J-3-2-2]
 
 操作身份由写入种类和规范化内容的哈希得出。重试命中已有操作时不再写，直接返回原记录和原版本。两个写入同时改写入进度时，后到的回滚，不会被悄悄合并。
@@ -485,8 +443,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.write` <Ref id="table:ledger_head">ledger_head</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 ### 账号与写入口 [#J-3-3]
 
 账号权限决定谁能写，命令行接口决定从哪里写。
@@ -495,7 +451,7 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 研究账本只有一个写分支 `main`。市场、开发期和研究方向由研究线记录区分，不按它们另开分支；试验计数和关线都沿同一条账本历史读取。
 
-写账号能读取、新增，只能更新 `ledger_head` 写入进度行和每个运行的读数行（`run_reading`，供 `replay reseal` 替换），只能按名调用 `dolt_commit`；它不能改删业务记录，也不能重置、建分支或打标签。读账号只有读取权限。分支写权按 `LIKE` 匹配，名称里的下划线是通配符；同形分支只能由管理员造出来。已知限制：写账号调用 `dolt_commit` 时仍能带 `--amend` 和 `--date`，这类改写由 <Ref id="J.3.5.2" /> 整体复核报出。Paper 库另有一套账号，写账号多一项删除权限（见 [Paper 库](/zh/docs/design-database-paper/)）。
+写账号能读取、新增，只能更新 `ledger_head` 写入进度行和每个运行的读数行（`run_reading`，供 `replay reseal` 替换），只能按名调用 `dolt_commit`；它不能改删业务记录，也不能重置、建分支或打标签。读账号只有读取权限。分支写权按 `LIKE` 匹配，名称里的下划线是通配符；同形分支只能由管理员造出来。已知限制：写账号调用 `dolt_commit` 时仍能带 `--amend` 和 `--date`，这类改写由 <Ref id="J.3.5.2" /> 整体复核报出。Paper 库另有一套账号，写账号多一项删除权限（见 [Paper 库](/zh/docs/design-ledger/#paper-db)）。
 
 管理权限只在初始化里用。研究线由 `line close` 关闭：写一行关线记录（<Ref id="table:line_close">line_close</Ref>，含 Agent 总结），没有关线记录的路线都开着；关线后同步备份。
 
@@ -506,8 +462,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如写账号删除业务记录、改一条试验、创建分支或打标签，都会被数据库拒绝；关线只是新增一行关线记录，不需要额外权限。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `ledger.init` `ledger.write`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 写入只经命令行接口，Agent 不直接写数据库 [#J-3-3-2]
 
@@ -520,8 +474,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如 Agent 想自己写一个 trial-\<编号>-execution 这样的证据包，会被拒绝，因为这类名字属于回放封存；拒绝信息会告诉它改用自己的包名。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `cli.main` `ledger.add_bundle` `CATALOGUE`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 封存产物的保护 [#J-3-4]
 
@@ -539,8 +491,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:evidence_content">evidence_content</Ref> <Ref id="table:evidence">evidence</Ref> `ledger.load_bundle` `ledger.read_capture`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 普通回放封存有容量上限，预检的大原件分块保存 [#J-3-4-2]
 
 普通回放的封存总量有上限，超限就拒绝封存；这样的运行缺原始封存，不能当经济证据。原生预检的大原件分块保存，每块核哈希，读取时重组再核验。
@@ -553,8 +503,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.seal_capture` <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### 备份与整体复核 [#J-3-5]
 
 备份放在服务目录之外；整体复核事后核对，只报发现。
@@ -565,7 +513,7 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 账本还有一份公开的 DoltHub 副本。改账本的命令只在本地提交；compose 下的账本服务每 5 分钟检查一次，远端落后就由管理员把分支普通推送上去，再抓取核对远端头包含本地头，`ledger publish` 则立即推送。公开副本因此最多落后一轮加一次推送；产品不写标签，只推分支。不强推：公开副本在别处被改过就拒绝（PUBLISH_REJECTED）并报给你。推送失败不影响已提交的写入，下一轮或 ledger publish 补推。隔离库和临时库只能推到本地 file:// 远端。
 
-研究账本之外，Paper 的执行记录在独立的 Paper 库里（[Paper 库](/zh/docs/design-database-paper/)），它不是研究数据，不进研究账本、不发布到 DoltHub。市场目录丢了就从交易所归档重算。
+研究账本之外，Paper 的执行记录在独立的 Paper 库里（[Paper 库](/zh/docs/design-ledger/#paper-db)），它不是研究数据，不进研究账本、不发布到 DoltHub。市场目录丢了就从交易所归档重算。
 
 账本是唯一来源，坏了就没有第二份证据。被结论引用的封存不设过期，也不为了腾空间做清理。服务开着 Dolt 的自动 GC，它只回收任何分支、标签和工作集都到不了的块；同步到已有备份只增加新的块，备份因此只随历史增长。服务每次重启前清空 Dolt 中断传输留下的临时文件。
 
@@ -574,8 +522,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如 /tmp 下的工作副本随时可能失效，持久的依据只有账本和它的备份。所以备份必须放在临时目录之外。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.export_history` `cli.ledger_export` `ledger.publish` `cli.ledger_publish` `ledger.service.start`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 整体复核用读账号钉住一个版本，核对全部规则，只报发现 [#J-3-5-2]
 
@@ -588,8 +534,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如复核发现某条试验的时间早于它绑定的登记，就报一条发现，写明是哪条试验、哪个版本；账本里的记录原样不动。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.review_all` `cli.ledger_review`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 13.4　登记先于回放：先后顺序怎么证明 [#J-4]
 
@@ -645,8 +589,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:research_registration">research_registration</Ref> <Ref id="table:trial">trial</Ref> `report.review_all` `cli.ledger_review`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 试验、绑定和启动记录同笔提交后，才启动回放 [#J-4-1-2]
 
 回放入口开一个写事务，在启动容器前把试验、绑定和启动记录一起写下；提交成功，才启动回放容器。
@@ -664,8 +606,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 3. 写下这次执行的启动记录。
 4. 三者和一个账本版本同笔成功，任一被拒就整笔回滚。
 5. 提交成功后，才启动回放容器。
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.open_trial` `ledger.start_bundle` `ledger.write`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 锁定与先后的核对 [#J-4-2]
 
@@ -688,8 +628,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 3. 核对执行身份（镜像、市场日、合约范围、生命周期证据、导出哈希、可比配置）与登记逐项相同（`EXECUTION_MISMATCH`），源码有通过的预检和审查。
 4. 核对这个网格点没用过（`GRID_ALREADY_ATTEMPTED`），试验行本身记下这次消耗。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.bind` `registration.require_precheck` <Ref id="table:trial">trial</Ref> <Ref id="table:registration_grid_point">registration_grid_point</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 样本外登记后取公共时间戳凭证，须早于窗口起点 [#J-4-2-2]
 
 正式样本外登记保留 RFC 3161 公共时间戳凭证。登记入账后，把登记诞生提交的哈希摘要送给时间戳机构，不发送策略、参数或报告正文；普通开发回放不要求这份凭证。
@@ -708,8 +646,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 4. 样本外绑定时，离线复验凭证，并核对凭证时间严格早于窗口起点。失败重试沿 retry_of 追溯最初登记，沿用它的凭证与窗口边界；整体复核使用相同依据，原始凭证缺失、无效或不早于窗口仍报发现。
 
 取证失败不撤销登记；可在窗口开始前通过既有 ledger witness 补取。错过期限后保留原记录，另选未来窗口重新登记，不用服务器时间代替，也不倒填凭证时间。已有凭证的绑定和报告验签不依赖时间戳机构在线；外部服务可用性与证书信任仍是依赖，这不等于永久可验证或完整的长期吊销证明。
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.witness` `ledger.stamped_at` <Ref id="table:witness">table:witness</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 13.5　运行环境钉死：回放在什么里跑 [#J-5]
 
@@ -765,8 +701,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.layout` `runtime.resolve`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 回放按摘要钉死运行环境，身份从镜像本身读出 [#J-5-1-2]
 
 回放、登记、比较和样本外绑定只认按摘要钉死的环境。标签引用先解析成唯一的摘要，不指定时取主干构建。身份从镜像清单和标签读出，调用方不能手写。
@@ -778,8 +712,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如今天主干标签指向摘要 A，下周重新构建后指向摘要 B。登记时记下的是 A，这次登记的回放就一直用 A，不会因为标签挪了而悄悄换环境。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.resolve` `runtime.validate_identity`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 内容、隔离与统一入口 [#J-5-2]
 
@@ -797,8 +729,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.layout` `runtime.inspect_runtime`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 容器不联网、只读、去特权，只挂声明的目录 [#J-5-2-2]
 
 容器命令只由一处代码生成，相同输入得到相同命令。容器没有网络，根文件系统只读，去掉特权并限制进程数。每个回放阶段有内存上限（16 GiB，不给交换区）：超过就被杀，这次回放被拒为 `STAGE_MEMORY_LIMIT`，执行记录照样封存，不会把 Docker 虚拟机拖垮。输入一律只读挂载，唯一可写的是报告目录。
@@ -810,8 +740,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如策略源码里藏了一段下载外部数据的代码，在容器里会直接失败，因为没有网络；它也改不了挂进来的市场数据。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.container_command`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 所有回放走统一入口，在钉死的环境里跑，先写试验 [#J-5-2-3]
 
@@ -831,8 +759,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 4. 在隔离容器里先跑运行器，再跑独立的审计器。
 5. 无论成败都封存执行记录；研究和样本外回放再入账运行。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.execute` `cli.replay_run` `replay.explore`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### 旧、新运行环境配对重放 [#J-5-3]
 
 同一源码、输入、窗口和账户在新旧环境各跑一次，由代码比对两份原生报告。
@@ -849,8 +775,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.compare_reports`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 配对通过只说明这一配对下引擎行为没变，不是认可策略 [#J-5-3-2]
 
 配对通过只对被配对的源码、输入、窗口和账户成立。Agent 写成「这一配对下引擎行为未变」，不推广到别的候选、全部合约或别的窗口。它不是对策略的认可，也不是经济证据，不写进推荐理由的经济部分。
@@ -862,8 +786,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如把候选 A 在旧、新两个环境各跑一次，结果一致。这只说明 A 在这段窗口和这个账户下引擎行为没变，不说明候选 B 也没变，更不说明 A 更好。要在新环境下比较 A 和它的对照 C，仍要先登记并重放 C，再重放 A。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/changes.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 有意变更或证明不了时 [#J-5-4]
 
@@ -882,8 +804,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如把引擎升级到新版本，资金费的算法有意改了。旧环境下的运行都还在、都能读回。契约没变时由 <Ref id="V.2" /> 恢复可比资格；契约随之升级时，开新一代账本，研究在新契约上重新开始。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `runtime.validate_identity` `runtime.resolve`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 13.6　回放身份与复现：每次回放留下什么、怎么重跑 [#J-6]
 
@@ -944,8 +864,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 3. 运行器装载时重算哈希、核对入口类，不符就拒绝装载。
 4. 原生摘要写回实际执行的源码哈希，入账时比对，不符即判无效。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.seal` `engine.load_strategy` `ledger.read_candidate`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 运行环境身份要由镜像清单和镜像内探针核对一致 [#J-6-1-2]
 
 清单身份包括摘要、平台、运行约定和构建源码版本，不能手写。镜像内的探针报告引擎版本、依赖锁，以及运行器、审计器的源码哈希。登记时和每次回放前，都在隔离容器里跑探针，和清单、布局核对。
@@ -957,8 +875,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如清单上写的是某个引擎版本，探针在容器里读出的却是另一个版本，这个环境就不能用于登记和回放。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.inspect_runtime` `engine.describe` `engine.effective_configuration`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 输入身份由市场日和导出内容构成，登记和回放必须相等 [#J-6-1-3]
 
@@ -972,8 +888,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.market_inputs` `registration.export_fingerprint`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 输入数据的覆盖情况在启动前记下，并随执行封存 [#J-6-1-4]
 
 写试验和启动容器之前，代码把每个合约的数据覆盖情况写成记录。这份记录只读交给容器，供审计器核对。回放结束时（包括中断），它随执行一起封存。
@@ -985,8 +899,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如某个合约在窗口里缺了三天的数据，这件事在启动前就记进覆盖记录；事后审计和读取都以这份记录为准，不能再换一份。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.input_coverage` `ledger.original_coverage` `market.coverage_facts`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 复现合同 [#J-6-2]
 
@@ -1004,8 +916,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.export_history` `report.review_all` `cli.ledger_export`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 封存产物读取时就核验，缺失或不符的运行标为不可用 [#J-6-2-3]
 
 源码、登记、证据包和执行封存每次读取都重算哈希。最终封存缺失就读为缺失，不用事后的恢复材料替代。核验不符时不返回任何行，这个运行失去经济证据资格。
@@ -1017,8 +927,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如某个运行的原生报告在存储里坏了一个字节，读的时候哈希对不上，报表一行都不返回，这个运行也不能再当比较证据。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.load_run` `ledger.read_capture` `registration.assess`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 变化的种类 [#J-6-3]
 
@@ -1037,8 +945,6 @@ Agent 只追加证据包和判断；结构化事实由代码写，资格和计�
 比如一条线在 2026 年第四季度开，Q 是 2026-09-30：保留期是 2024-10-01 到 2026-09-30，开发期是之前的 12 个季度。2027 年 1 月新数据到了，这条线的开发期不变；要用到新数据，就在之后的季度另开一条线。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.development_period` `ledger.select_line`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 待定事项 [#J-pending]
 

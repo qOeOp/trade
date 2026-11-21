@@ -490,6 +490,19 @@ def _summary(facts: list[dict], day: str) -> str:
     return "\n".join(lines)
 
 
+def _active(run: dict, day: str) -> bool:
+    """Whether the run was running, filled or ended on `day` (UTC): a minute's result, a fill, a start or its end
+    that day. A running run whose minutes are unread counts, so a summary is never left out for want of a read."""
+    minutes = run.get("minute_results")
+    if (run.get("host") or {}).get("state") == "running" and not minutes:
+        return True
+    times = [minute for minute, _ in minutes or []]
+    times += [_ns(row.get("ts_event")) for row in _fills(run)]
+    times += [_ns(row.get("observed_ns")) for row in run.get("restarts") or []]
+    times.append(_ns((run.get("terminal") or {}).get("observed_ns")))
+    return any(type(ns) is int and metrics.utc_day(ns) == day for ns in times)
+
+
 def _last_day(run: dict) -> str | None:
     """The run's latest day with a fill or its terminal event; it is read until the summary after that day."""
     found = [ns for ns in (_ns((run.get("terminal") or {}).get("observed_ns")),
@@ -525,7 +538,13 @@ def step(record: dict, facts: list[dict], now: int, send: Callable[[str], object
             if (attempt and attempt["next_ns"] > now) or stop() or sent >= MAX_PER_TICK:
                 break  # strict order: nothing overtakes a message still waiting
             if text is None:  # every earlier message is sent, so the previous day's fills are all counted
-                text = _summary(facts, metrics.utc_day(now - daily.DAY_NS))
+                day = metrics.utc_day(now - daily.DAY_NS)
+                if not any(_active(run, day) for run in facts):
+                    done.add(key)  # no Live run ran, filled or ended that day: nothing to summarise
+                    record["done"] = sorted(done)
+                    save()
+                    continue
+                text = _summary(facts, day)
             said = json.dumps(text, ensure_ascii=False)
             try:
                 send(text[:4000])

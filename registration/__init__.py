@@ -6,5 +6,6 @@ measure catalogue (duties), derived reproductions (reproduction) and economic-ev
 top of the research ledger (`ledger`).
 
 The research-chain chapters state the rules; `registration.<name>` in them is the function
-`<name>` in this package. Runtime images and market export go through `registration.seams`.
+`<name>` in this package. Runtime images and market export go through `registration.seams`; runner arguments and
+the checkout gates are `registration.runner`.
 """

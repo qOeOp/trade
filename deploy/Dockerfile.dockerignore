@@ -15,6 +15,10 @@
 !shared/
 !ide/
 !deploy/*.py
+!deploy/compose.yaml
+!deploy/remote/*.yaml
+!deploy/remote/Caddyfile
+!deploy/remote/oauth2-proxy.cfg
 !deploy/entrypoint.sh
 !deploy/docker-api/
 ide/web/node_modules/

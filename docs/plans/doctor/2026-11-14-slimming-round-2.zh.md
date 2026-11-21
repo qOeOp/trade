@@ -23,7 +23,7 @@
 | 20261114-08 | `replay explore` 记录的 `export_sha256` 随共享缓存窗口里别的合约变化 | -148 配对验收（试验 121/132，BTC/ETH 2021-10-01..2024-10-01，市场日 2026-11-10）两侧 BTC/ETH 文件逐字节相同，哈希却是 bf24f808 与 85183449：`registration/inputs.py` `export_fingerprint` 遍历整个导出根，explore 是唯一用 `export_catalogs(fresh=False)` 共享缓存的路径，另一会话同时把 23 个池合约写进了同一窗口目录。消费者是 `report/status.py` `counted_trials`：explore 对 explore 的精确复现要求 `export_sha256` 相等，哈希不同时同一 explore 重跑被算成新测试（偏保守）。fresh 导出（precheck、research、validation、history）只含所选合约，不受影响；`INPUTS_CHANGED` 只在 fresh 导出的封存路径上检查，也不受影响 | fix | none（一对实测） | in PR |
 | 20261114-09 | Live 的 reduce-only 退出单把 `params` 静默丢掉，没有像入场单那样按 `ORDER_RULE` 拒绝 | -118 实施者在 [#2959](https://github.com/qOeOp/trade/pull/2959) 读到：退出提交给 `OrderRules.submit_order` 只传 `client_id`；未构造出实际带 params 的退出，代价未测 | authority（收紧下单规则） | unknown | open |
 | 20261114-10 | 发布改了 `uv.lock` 时不重建回放镜像，发布后的 Live 证据对不上 | -147 的副缺陷，focused diagnosis 在 e83c331ca 上成立 | fix | wrong output | fixed |
-| 20261114-11 | 存储列：删 `run_reading.computed_at`（-123），`trial_instrument.instrument_id` 改 `symbol`、`trial_capture.table_hashes` 改成 `run.fingerprints` 形状（-04） | 用户已批准，等下一代 schema 一起做；本代不改存储 | authority（已批准，延期） | none | open |
+| 20261114-11 | 存储列：删 `run_reading.computed_at`（-123），`trial_instrument.instrument_id` 改 `symbol`、`trial_capture.table_hashes` 改成 `run.fingerprints` 形状（-04） | 用户已批准，等下一代 schema 一起做；本代不改存储 | authority（已批准，延期） | none | fixed 06bab1db2 [#3266](https://github.com/qOeOp/trade/pull/3266) |
 
 ## Decisions
 

@@ -330,14 +330,14 @@ class Notices(unittest.TestCase):
             notices.send()
 
         def unreadable():
-            raise RuntimeError("git ls-tree failed")
+            raise RuntimeError("docker inspect failed")
 
-        drifted = {"drift:checkout:" + "a" * 40: "The host checkout differs."}
+        drifted = {"drift:docker-api:sha256:" + "a" * 64: "docker-api runs another image."}
         tick(lambda: drifted)
         tick(lambda: drifted)
         tick(unreadable)
         tick(lambda: drifted)
-        self.assertEqual(self.call.texts(), ["The host checkout differs."])
+        self.assertEqual(self.call.texts(), ["docker-api runs another image."])
         tick(dict)
         tick(lambda: drifted)
         self.assertEqual(len(self.call.texts()), 2)

@@ -19,7 +19,7 @@ from deploy.release import FOLLOW_RETRY_SECONDS, GitSource, Release, failure_sum
 from deploy.paper_host import CONTROLLER_PROBE, PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
 from deploy.paper_release import PaperRelease
-from deploy.release_host import (AGENT, COMPOSE_FILES, DOCKER_API, DOCKER_API_REF, KEPT_RELEASES, LEDGER, MARKET_IMPORT, WEB, Config,
+from deploy.release_host import (AGENT, DEFINITION, DOCKER_API, DOCKER_API_REF, KEPT_RELEASES, LEDGER, MARKET_IMPORT, WEB, Config,
                                  PROBE, DockerHost, ReaderFailure,
                                  moment, revision, route_config, route_name)
 from tests.deploy.test_paper_release import Host as PaperStandIn
@@ -142,6 +142,9 @@ class Host:
         if getattr(self, "on_pull", None):
             self.on_pull()
         return sha
+
+    def definition(self, service, sha):
+        return []
 
     def create(self, name, image, agent=False, live_socket=None):
         if name in self.containers:
@@ -901,6 +904,7 @@ class RetryTests(unittest.TestCase):
 
 
 OLD_SERVICE = "ghcr.io/qoeop/trade-service@sha256:" + "0" * 64
+COMPOSE = ["/var/lib/trade-release/control/" + A + "/deploy/compose.yaml"]  # what DockerHost.definition gives
 PROXY, OLD_PROXY = ("ghcr.io/qoeop/trade-docker-api@sha256:" + digit * 64 for digit in "34")
 WEB_CREATED, BEFORE, AFTER = ("2026-11-15T10:00:00Z", "2026-11-11T08:00:00.5Z", "2026-11-15T10:00:00.1Z")
 
@@ -920,7 +924,7 @@ class FollowHost(Host):
                          MARKET_IMPORT: {"image": OLD_SERVICE, "created": moment(BEFORE)},
                          DOCKER_API: {"image": PROXY, "created": moment(BEFORE)}}  # already on A's pin
         self.variables = []
-        self.definitions = set()  # services whose compose definition does not read their image variable
+        self.definitions = []  # the versions whose compose files a follow read
         self.pulled = []
         self.runs = {"starting": 0, "runs": [{"id": 1, "state": "sealed", "containers": 0, "recovery": None}]}
         self.after_move = None  # the listing once the services moved, when it differs
@@ -938,14 +942,16 @@ class FollowHost(Host):
     def follower(self, name):
         return self.services.get(name)
 
-    def composes(self, service, variable, image):
-        return service not in self.definitions
+    def definition(self, service, sha):
+        self.definitions.append((service, sha))
+        return COMPOSE
 
     def pull(self, reference, pattern, sha=None):
         self.pulled.append((reference, pattern.pattern, sha))
         return sha
 
-    def recreate(self, service, name, image, healthy, pull=False, variable="TRADE_SERVICE_IMAGE"):
+    def recreate(self, service, name, image, healthy, files, pull=False, variable="TRADE_SERVICE_IMAGE"):
+        assert files == COMPOSE, "the active version's own compose files"
         if self.during:
             self.during()
         self.recreated.append((service, image, healthy))
@@ -1018,6 +1024,7 @@ class FollowTests(unittest.TestCase):
         self.release.follow(WEB + A)
         self.assertEqual(self.host.recreated, [("ledger", TARGET["service"], True),
                                                ("market-import", TARGET["service"], False)])
+        self.assertEqual(self.host.definitions, [(TARGET["service"], A)], "the committed version's own files")
         frozen = paper_route(PAPER + A, "all")
         self.assertEqual(seen, [(frozen, [(WEB + A, True)])] * 2, "Paper writes wait and Live is held idle")
         self.assertIn(("held",), self.controller.calls, "lifecycle operations already admitted drained first")
@@ -1045,13 +1052,6 @@ class FollowTests(unittest.TestCase):
         self.host.recreated.clear()
         self.release.follow(WEB + A)
         self.assertEqual(self.host.recreated, [], "nothing moves twice")
-
-    def test_docker_api_waits_for_a_checkout_whose_definition_names_its_image_variable(self):
-        self.host.services[DOCKER_API]["image"] = OLD_PROXY
-        self.host.definitions = {"docker-api"}  # a checkout from before TRADE_DOCKER_API_IMAGE: compose ignores it
-        self.release.follow(WEB + A)
-        self.assertEqual([service for service, _, _ in self.host.recreated], ["ledger", "market-import"])
-        self.assertNotIn(PROXY, [reference for reference, _, _ in self.host.pulled])
 
     def test_a_failed_docker_api_move_puts_every_service_back(self):
         self.host.services[DOCKER_API]["image"] = OLD_PROXY
@@ -1302,13 +1302,13 @@ class RecreateTests(unittest.TestCase):
         with patch("deploy.release_host.subprocess.run", return_value=done) as run, \
                 patch.object(DockerHost, "inspect", return_value={"image": TARGET["service"], "running": True,
                                                                   "restarts": 0}):
-            host.recreate("ledger", LEDGER, TARGET["service"], True)
+            host.recreate("ledger", LEDGER, TARGET["service"], True, COMPOSE)
         command, env = run.call_args.args[0], run.call_args.kwargs["env"]
         self.assertEqual(env["TRADE_SERVICE_IMAGE"], TARGET["service"])
         self.assertEqual(command[:5], ["docker", "--config", str(host.state / "docker"), "--host",
                                        "unix:///var/run/docker.sock"])
         self.assertEqual(command[5:8], ["compose", "--env-file", "/etc/trade/remote.env"])
-        self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == "-f"], list(COMPOSE_FILES))
+        self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == "-f"], COMPOSE)
         self.assertEqual(command[-1], "ledger")
         for flag in ("--no-deps", "--wait", "--detach"):
             self.assertIn(flag, command)
@@ -1318,27 +1318,64 @@ class RecreateTests(unittest.TestCase):
                 patch.object(DockerHost, "inspect", return_value={"image": OLD_SERVICE, "running": True,
                                                                   "restarts": 0}):
             with self.assertRaisesRegex(RuntimeError, "did not start"):
-                host.recreate("market-import", MARKET_IMPORT, TARGET["service"], False)
+                host.recreate("market-import", MARKET_IMPORT, TARGET["service"], False, COMPOSE)
 
-    def test_docker_api_takes_the_pin_in_its_own_variable_and_its_definition_is_read_with_it(self):
+    def test_docker_api_takes_the_pin_in_its_own_variable(self):
         host = DockerHost(Config(state=Path(tempfile.mkdtemp())))
         self.addCleanup(shutil.rmtree, host.state)
-        config = subprocess.CompletedProcess([], 0, json.dumps({"services": {"docker-api": {"image": PROXY}}}), "")
-        with patch("deploy.release_host.subprocess.run", return_value=config) as run:
-            self.assertTrue(host.composes("docker-api", "TRADE_DOCKER_API_IMAGE", PROXY))
-            self.assertFalse(host.composes("docker-api", "TRADE_DOCKER_API_IMAGE", OLD_PROXY))
-        command = run.call_args.args[0]
-        self.assertEqual(run.call_args.kwargs["env"]["TRADE_DOCKER_API_IMAGE"], OLD_PROXY)
-        self.assertEqual(command[command.index("config"):], ["config", "--format", "json", "docker-api"])
         done = subprocess.CompletedProcess([], 0, "", "")
         with patch("deploy.release_host.subprocess.run", return_value=done) as run, \
                 patch("deploy.release_host.time.sleep"), \
                 patch.object(DockerHost, "inspect", return_value={"image": PROXY, "running": True, "restarts": 0}):
-            host.recreate("docker-api", DOCKER_API, PROXY, False, variable="TRADE_DOCKER_API_IMAGE")
+            host.recreate("docker-api", DOCKER_API, PROXY, False, COMPOSE, variable="TRADE_DOCKER_API_IMAGE")
         self.assertEqual(run.call_args.kwargs["env"]["TRADE_DOCKER_API_IMAGE"], PROXY)
         self.assertNotIn("TRADE_SERVICE_IMAGE", {key for key in run.call_args.kwargs["env"]
                                                  if run.call_args.kwargs["env"][key] == PROXY})
         self.assertEqual(run.call_args.args[0][-1], "docker-api")
+
+    def test_the_compose_definition_is_read_once_from_the_running_versions_service_image(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        image = {name: f"# {name}\n" for name in DEFINITION}
+
+        class Extracting(DockerHost):
+            CODE = root / "control" / A / "deploy"
+
+            def __init__(self):
+                super().__init__(Config(state=root))
+                self.calls = []
+
+            def pull(self, reference, pattern, sha=None):
+                self.calls.append(("pull", reference, sha))
+                return sha
+
+            def docker(self, *args, check=True, timeout=120, env=None):
+                self.calls.append(args[:1])
+                if args[0] == "cp":
+                    for name, text in image.items():
+                        (Path(args[2]) / name).parent.mkdir(parents=True, exist_ok=True)
+                        (Path(args[2]) / name).write_text(text)
+                return ""
+
+        Extracting.CODE.mkdir(parents=True)
+        host = Extracting()
+        files = host.definition(TARGET["service"], A)
+        self.assertEqual(files, [str(Extracting.CODE / name) for name in
+                                 ("compose.yaml", "remote/compose.yaml", "remote/cd.compose.yaml",
+                                  "remote/paper-cd.compose.yaml")])
+        for name in DEFINITION:
+            self.assertEqual((Extracting.CODE / name).read_text(), image[name])
+        self.assertEqual(host.calls, [("pull", TARGET["service"], A), ("rm",), ("create",), ("cp",), ("rm",)])
+        self.assertFalse((root / "control" / A / "definition.new").exists())
+        host.calls.clear()
+        self.assertEqual(host.definition(TARGET["service"], A), files)
+        self.assertEqual(host.calls, [], "read once")
+        with self.assertRaisesRegex(RuntimeError, "running control is not the version"):
+            host.definition(TARGET["service"], B)
+        (Extracting.CODE / "remote/Caddyfile").unlink()
+        del image["remote/Caddyfile"]
+        with self.assertRaisesRegex(RuntimeError, "holds no compose definition"):
+            host.definition(TARGET["service"], A)
 
     def test_creation_times_compare_whatever_fraction_docker_trims(self):
         self.assertLess(moment("2026-11-15T10:00:00Z"), moment("2026-11-15T10:00:00.1Z"))
@@ -1347,12 +1384,10 @@ class RecreateTests(unittest.TestCase):
 
 
 class DriftTests(unittest.TestCase):
-    """The host checkout and docker-api against the active version, read from a real local Git repository."""
+    """docker-api and the compose services against the active version, read from a real local Git repository."""
 
     PIN = "ghcr.io/qoeop/trade-docker-api@sha256:" + "1" * 64
-    FILES = {"deploy/compose.yaml": f"services:\n  docker-api:\n    image: {PIN}  # moved only by a pull request\n",
-             "deploy/remote/compose.yaml": "services: {}\n", "deploy/remote/README.md": "how\n",
-             "deploy/release.py": "outside what is compared\n"}
+    FILES = {"deploy/compose.yaml": f"services:\n  docker-api:\n    image: {PIN}  # moved only by a pull request\n"}
 
     def setUp(self):
         root = Path(tempfile.mkdtemp())
@@ -1379,20 +1414,11 @@ class DriftTests(unittest.TestCase):
         self.addCleanup(clock.stop)
 
     def drift(self):
-        return release.drift(self.host, self.source, self.checkout)
+        return release.drift(self.host, self.source)
 
-    def test_a_checkout_and_docker_api_that_follow_the_active_version_say_nothing(self):
-        (self.checkout / "deploy/remote/README.md").write_text("documentation only\n")
-        (self.checkout / "deploy/release.py").unlink()
+    def test_a_docker_api_that_follows_the_active_version_says_nothing(self):
         self.assertEqual(self.drift(), {})
         self.host.inspect.assert_called_once_with("trade-ide-docker-api-1")
-
-    def test_a_changed_or_missing_compose_file_is_one_fact_of_this_version(self):
-        (self.checkout / "deploy/compose.yaml").write_text(self.FILES["deploy/compose.yaml"] + "# edited\n")
-        (self.checkout / "deploy/remote/compose.yaml").unlink()
-        facts = self.drift()
-        self.assertEqual(list(facts), [f"drift:checkout:{self.sha}"])
-        self.assertIn("in deploy/compose.yaml, deploy/remote/compose.yaml.", facts[f"drift:checkout:{self.sha}"])
 
     def test_a_docker_api_the_release_no_longer_moves_is_named_and_one_it_will_move_is_not(self):
         running = "ghcr.io/qoeop/trade-docker-api@sha256:" + "2" * 64

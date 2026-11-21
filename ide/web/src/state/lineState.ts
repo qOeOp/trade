@@ -7,7 +7,7 @@ import { getJson } from "../lib/transport";
 import { useView } from "../model/view";
 import { atom, useAtom } from "./atom";
 
-export type LineState = {
+type LineState = {
   ledger_commit: string;
   gates: { code: string; message: string }[];
   review_every: number;

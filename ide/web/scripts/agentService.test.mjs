@@ -9,7 +9,10 @@ const atom = (initial) => { let value = initial; return { get: () => value, set:
 /** The page with its server's replies: a status for `/health`, and for `/agents` a list or an Error. */
 async function page(health, agents = []) {
   const ticks = [], asked = [];
-  const context = createContext({ fetch: async (url) => {
+  const context = createContext({
+    window: { setTimeout: (tick, ms) => ticks.push({ tick, ms }), clearTimeout: () => {} },
+    document: { hidden: false, addEventListener: () => {}, removeEventListener: () => {} },
+    fetch: async (url) => {
     asked.push(url);
     const reply = health.shift();
     if (reply instanceof Error) throw reply;
@@ -22,12 +25,11 @@ async function page(health, agents = []) {
       if (reply instanceof Error) throw reply;
       return reply;
     } },
-    "lib/whileVisible": { whileVisible: (tick, ms) => ticks.push({ tick, ms }) },
     "state/atom": { atom, persistedAtom: (_key, fallback) => atom(fallback), useAtom: (a) => a.get() },
   };
-  const module = await namespace("state/agent.ts", { context, stubs, sources: ["lib/transport"], packages: [] });
+  const module = await namespace("state/agent.ts", { context, stubs, sources: ["lib/transport", "lib/polled"], packages: [] });
   const tick = async () => {
-    ticks[0].tick();
+    ticks.at(-1).tick();
     await new Promise((done) => setImmediate(done));
   };
   return { ...module, ticks, asked, tick };
@@ -59,8 +61,7 @@ for (const [name, failure] of [["a 502", 502], ["an unreachable server", new Typ
     await p.tick();
     assert.equal(p.agentService.get(), "present");
     assert.deepEqual(p.agents.get(), [{ id: "a" }]);
-    await p.tick();
-    assert.equal(p.asked.length, 3);  // answered: the poll asks nothing more
+    assert.equal(p.ticks.length, 2);  // answered: the poll asks nothing more
   });
 }
 

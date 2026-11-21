@@ -54,9 +54,9 @@ The release plane reads these host paths; the install steps below make the first
 | Path | What it is | Made by |
 |---|---|---|
 | `/etc/trade/remote.env` | the deployment settings (`env.example`), read by every compose command | the operator, before installing |
-| `/opt/trade-app` | a checkout holding `deploy/compose.yaml` and `deploy/remote/compose.yaml` | the operator, before installing |
-| `/opt/trade-release` | the launcher `trade-release-tick`, the bootstrap copy of `deploy/*.py`, `cd.compose.yaml` and `paper-cd.compose.yaml` | `install-release.sh` |
-| `/var/lib/trade-release` | release state, including `router/active.json` and the release control code under `control/` | `install-release.sh`, then the release control |
+| `/opt/trade-app` | a checkout from which the operator installs the release plane (steps 3 to 6 below) and reinstalls its launcher, unit and timer; the release never reads it | the operator, before installing |
+| `/opt/trade-release` | the launcher `trade-release-tick` and the bootstrap copy of `deploy/*.py` | `install-release.sh` |
+| `/var/lib/trade-release` | release state, including `router/active.json`, and each control's code and compose definition under `control/` | `install-release.sh`, then the release control |
 
 The host runs only the release control code inside the service image `deploy-ready` names
 ([Release control code](#release-control-code)). Release handoffs can renew only a positively
@@ -83,26 +83,25 @@ admitted version ([Release control code](#release-control-code)).
 The compose services `ledger` (`ledger mirror`) and `market-import` run the service image too, and follow the version
 the release committed ([design](../../docs/plans/release-moves-ledger-mirror-20261116.zh.md)). On the first settled
 tick after a version commits (never in the tick that releases it), each of the two that runs another image and was
-created before the routed Web is recreated on that version's admitted service digest, with the compose files
-`install-release.sh` names and `TRADE_SERVICE_IMAGE` passed in the environment: `/etc/trade/remote.env` is not
-written. The ledger must pass its health check within 10 minutes; market import must still run 30 seconds later. Only
-the image changes: their command and mounts stay those of `/opt/trade-app`, which the operator updates as for `edge`.
+created before the routed Web is recreated on that version's admitted service digest, from that version's own
+compose definition and with `TRADE_SERVICE_IMAGE` passed in the environment: `/etc/trade/remote.env` is not
+written. The definition is `deploy/compose.yaml`, `deploy/remote/*.yaml`, the `Caddyfile` and `oauth2-proxy.cfg` as
+the version's service image carries them; the control copies them out of that image once, as the handoff copies its
+code, into `control/<revision>/deploy/` beside the code. A version's command, mounts and settings for these services
+therefore arrive with the version, with no operator step. The ledger must pass its health check within 10 minutes;
+market import must still run 30 seconds later.
 The Docker API proxy follows the same way, on the same tick and under the same conditions, to the digest the routed
 version's `deploy/compose.yaml` pins (the user, 2026-11-16): a version's Paper controller creates runs only with the
 container options its own proxy's `docker-api/check.go` admits. The release pulls that digest (this repository,
 amd64), then recreates `docker-api` with `TRADE_DOCKER_API_IMAGE` passed in the environment, so compose makes the
 container and its mounts anew, as after a moved data directory, where a restart would not; it must still run 30
-seconds later, and the Paper controller's listing, which reads Docker through it, must answer. It moves only when the
-checkout's definition takes its image from that variable (`compose config`); an older checkout keeps it, and the tick
-says why. While it is recreated the Paper controller's Docker calls are refused (`RUNTIME_UNAVAILABLE`): the Paper
+seconds later, and the Paper controller's listing, which reads Docker through it, must answer. While it is recreated the Paper controller's Docker calls are refused (`RUNTIME_UNAVAILABLE`): the Paper
 page's run list, starts, stops, resumes and seals fail for those seconds and its seal loop skips a round. Running runs
 go on: their runner and egress containers are the engine's own and never call the proxy. A comparison already running
 on the Paper page attaches its replay through the proxy and fails, as it does for a ledger move.
-Every tick compares that checkout's `deploy/compose.yaml` and `deploy/remote/` (documentation aside) with the routed
-version's, and sends a Telegram notice (below) while they differ, and the running docker-api with the digest that
-version pins once the release no longer moves it (it was recreated after the routed Web, a move undone or by hand,
-and the release's retries below are spent).
-The release never changes the checkout: update it to the routed version as for `edge`.
+Every tick compares the running docker-api with the digest the routed version pins, and sends a Telegram notice
+(below) while they differ once the release no longer moves it (it was recreated after the routed Web, a move undone
+or by hand, and the release's retries below are spent).
 A service that is stopped or absent (market import before step 5 below) is never started.
 
 It waits, and the tick says why, until no Paper operation is in progress and Live is idle: no Paper run is starting,
@@ -123,7 +122,8 @@ makes at most three moves an hour apart. After the last a Telegram drift notice 
 image, and it stays until the next version (no state is kept: the containers' creation times are the count). To move
 them by hand, name the active version's images (`python3 -m deploy.images --revision <revision>
 --env /etc/trade/remote.env`) and `compose up -d --no-deps ledger` (`--profile local-research-import` for market
-import; for docker-api, the checkout at that version and `compose up -d --no-deps docker-api`). An operator's own
+import, `docker-api` for the Docker API proxy), with the compose files under
+`/var/lib/trade-release/control/current/deploy/` (below). An operator's own
 recreate of any of them after a release counts the same: within those two hours the release moves it again an hour
 later.
 
@@ -155,7 +155,7 @@ The candidate, its contracts and leverage are chosen for each run on the Live pa
 version selected in the research graph, read from the research ledger's head when the run is prepared and frozen in
 it. No strategy file is staged and no API key or secret is written on the host.
 
-A release waits until Live is idle: no run holds account custody and no request is unresolved. The current control
+A release waits until Live is idle: no run holds account custody and every runner it started is seen. The current control
 inspects the account inside the account lock (`live release-inspect`) before anything is prepared, and the
 candidate's control again before the journal and at commit; a host with no runs answers idle (one 256 MiB helper
 run). While Live is busy or unresolved, or a read in progress holds the lock, the current Web/control pair stays,
@@ -165,7 +165,7 @@ or migrate a run an earlier version prepared. Such a run stays on disk under `ru
 still runs the account counts as unavailable. During a paired update, new effect-producing Live requests wait for a
 committed owner; reads and STOP remain available. Existing runners are never restarted for publication. Once the new
 route is committed, still inside the account lock under which Live answered idle, the release stops every other
-control (`docker stop`, verified by its revision label): idle means none of them holds a run or an unresolved request.
+control (`docker stop`, verified by its revision label): idle means none of them holds a run or an unseen runner.
 A rollback stops the candidate's control the same way. A stopped control keeps its restart policy, so starting it
 again restores it. Pairing does not query a venue, read a key, arm a strategy or change
 account settings. See the [storage and locking decision](../../docs/plans/live-web-control.zh.md).
@@ -291,11 +291,24 @@ not a tested capacity result; do not change an existing deployment's cap without
    that tag's commit (`git log -p origin/deploy-ready -- release.json`, `git tag --points-at <revision>`). If step 3
    named images before the version was admitted, run its `deploy.images` again. Then run `sh deploy/remote/install-release.sh`
    as root from `/opt/trade-app`. It stops at the first failure; remove the `trade-release-*` containers and
-   the `router` and `paper-router` directories under `/var/lib/trade-release` it left, then run it again.
+   the `router` and `paper-router` directories under `/var/lib/trade-release` it left, then run it again. Once it
+   has handed over, it recreates OAuth2 Proxy and `edge` from the admitted version's compose definition, so their
+   configuration files follow the active control from then on. The release never reads the checkout.
+
+From then on, every compose command names the active control's definition:
+
+```sh
+compose() {
+  d=/var/lib/trade-release/control/current/deploy
+  docker compose --env-file /etc/trade/remote.env -f $d/compose.yaml -f $d/remote/compose.yaml \
+    -f $d/remote/cd.compose.yaml -f $d/remote/paper-cd.compose.yaml "$@"
+}
+```
 
 Caddy manages certificates in its own volumes. Keep those volumes on updates. Web releases never touch this
-proxy: a `Caddyfile` change reaches it by updating the host's checkout and recreating `edge` alone
-(`up -d --no-deps --force-recreate edge`, with the compose files `install-release.sh` names). OAuth2 Proxy keeps encrypted
+proxy or OAuth2 Proxy: a version whose `CHANGELOG.md` entry changes the `Caddyfile`, `oauth2-proxy.cfg` or either
+service reaches them once it is the active control, by recreating them alone (`compose up -d --no-deps
+--force-recreate oauth2 edge`). OAuth2 Proxy keeps encrypted
 sessions in secure HttpOnly cookies and does not pass provider tokens or user headers into the IDE.
 The GitHub identity session is independent of Paper process lifetime. `/api/…` returns 401 when login
 expires; a full page navigation uses GitHub login. After login, the existing same-origin/CSRF checks still
@@ -476,8 +489,8 @@ removed when it exits) that replays each run's previous day on the market direct
 A Live contract outside `TRADE_MARKET_ARGS` is never covered, so its comparison waits.
 
 The release state holds that fixed private root (`LIVE_ROOT`), outside `TRADE_DATA`, the Paper directories and Git.
-Saved credentials have private versions under `LIVE_ROOT/credentials/`, and each run's contract membership under
-`LIVE_ROOT/universes/`.
+Saved credentials have private versions under `LIVE_ROOT/credentials/`; a run being prepared is written under
+`LIVE_ROOT/staging/` and then moved whole into `LIVE_ROOT/runs/`.
 
 `live status`, `logs` and `stop` stay on the command line for observation and STOP; they read the root and its containers. Run
 them as a one-off container of the admitted service image, named for the currently committed owner revision: read
@@ -558,18 +571,36 @@ release failure. A version later marked failed keeps its control, and that contr
 over. `deploy/control.py` is the handoff every next version passes through: keep it small and its contract stable
 (`deploy.release` and `deploy.control` importable with the host's `python3`, exit status 3).
 
-`install-release.sh` installs the launcher, the unit and timer, the compose overlays and a bootstrap copy of
-`deploy/*.py` in `/opt/trade-release`. The bootstrap copy has no revision: it recovers nothing and only hands over
+`install-release.sh` installs the launcher, the unit and timer and a bootstrap copy of `deploy/*.py` in
+`/opt/trade-release`. The bootstrap copy has no revision: it recovers nothing and only hands over
 to the admitted version, whose control then recovers a pending transaction; with no admitted version to hand over to,
 it refuses one. On a new host
 the installer runs that handoff itself (`python3 -m deploy.release handoff`) before the first release.
 
-A version that changes the launcher, the unit, the timer or the compose overlays (`deploy/remote/`) needs them
-reinstalled. Stop the timer (`sudo systemctl stop trade-release.timer`) and wait until `systemctl show -p
-ActiveState --value trade-release.service` says `inactive` or `failed`; do not kill a running tick. Once
-`deploy-ready` admits that version, update `/opt/trade-app` to its tag (`git fetch --tags && git checkout vX.Y.Z`)
-and run `sudo sh deploy/remote/install-release.sh control` from it. It refuses while the timer or a tick runs;
-otherwise it installs them and the bootstrap copy, reloads systemd and starts the timer.
+A version that changes the launcher, the unit or the timer needs them reinstalled. Stop the timer (`sudo systemctl
+stop trade-release.timer`) and wait until `systemctl show -p ActiveState --value trade-release.service` says
+`inactive` or `failed`; do not kill a running tick. Once `deploy-ready` admits that version, update `/opt/trade-app`
+to its tag (`git fetch --tags && git checkout vX.Y.Z`) and run `sudo sh deploy/remote/install-release.sh control`
+from it. It refuses while the timer or a tick runs; otherwise it installs them and the bootstrap copy, reloads
+systemd and starts the timer.
+
+### Upgrading a host to 0.5.0
+
+Before 0.5.0 the release recreated the ledger, market import and the Docker API proxy from the checkout
+`/opt/trade-app` and the overlays in `/opt/trade-release/deploy/remote/`, and OAuth2 Proxy and `edge` mount their
+configuration from that checkout. 0.5.0 needs no step before it: the 0.4 control hands over to it as to any version,
+and the 0.5.0 control reads its compose definition from its own service image on its first tick. Once 0.5.0 is the
+routed version (`/var/lib/trade-release/control/current` names its revision), recreate OAuth2 Proxy and `edge` from
+that definition, a few seconds of login and HTTPS outage:
+
+```sh
+d=/var/lib/trade-release/control/current/deploy
+docker compose --env-file /etc/trade/remote.env -f $d/compose.yaml -f $d/remote/compose.yaml \
+  -f $d/remote/cd.compose.yaml -f $d/remote/paper-cd.compose.yaml up -d --no-deps --force-recreate oauth2 edge
+```
+
+`/opt/trade-release/deploy/remote/` may then be removed. Keep `/opt/trade-app` for a later reinstall of the
+launcher, unit or timer (above); the release no longer reads it, so it no longer has to follow the routed version.
 
 ### When the running control fails before it hands over
 

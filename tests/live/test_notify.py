@@ -208,6 +208,21 @@ class Sending(Base):
         self.assertIn("Fills: 2", after[0])
         self.assertEqual(self.tick(DAY + 25 * HOUR).calls, [])
 
+    def test_a_day_no_live_run_ran_filled_or_ended_on_gets_no_summary(self):
+        prepared = run(state_="prepared", minute_results=[])
+        self.facts = [prepared]
+        self.tick(DAY)  # baseline on 2026-11-09
+        self.assertEqual(self.tick(DAY + 24 * HOUR + 10).calls, [])
+        self.assertIn(notify.DAILY + "2026-11-10", self.record()["done"])  # the day is done, never sent later
+        self.assertEqual(self.tick(DAY + 25 * HOUR).calls, [])
+        prepared["minute_results"] = [[DAY + 24 * HOUR + 60 * 10**9, "0"]]  # it ran on 11-10
+        prepared["host"] = {"state": "running", "mode": "run", "exit_code": None}
+        sent = self.tick(DAY + 48 * HOUR + 10).texts()
+        self.assertIn("Live daily summary for 2026-11-10 (UTC)", sent[-1])
+        self.facts = [run("run-b", "clean_stopped", minute_results=[], terminal={"observed_ns": str(DAY + 49 * HOUR)})]
+        self.assertIn("Live daily summary for 2026-11-11 (UTC)", self.tick(DAY + 72 * HOUR + 10).texts()[-1])  # it ended
+        self.assertEqual(self.tick(DAY + 96 * HOUR + 10).texts(), [])  # nothing on 11-12
+
     def test_ended_and_unresolved_runs_say_why_and_a_closed_run_is_no_longer_read(self):
         self.tick(DAY)
         self.facts = [run("run-a", "clean_stopped", mode="run", stop_reason="drawdown", minute_results=[["1", "-1.5"], ["2", None]],

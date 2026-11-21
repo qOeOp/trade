@@ -47,8 +47,6 @@ class ReplayEvidenceTests(LiveFixture):
 
     def prepare(self, run_id: str, evidence_code: dict = CODE, **options) -> dict:
         """Preparation at the ledger's head; the execution image runs CODE, every replay image `evidence_code`."""
-        universe = self.root / f"{run_id}-universe.json"
-        universe.write_text("{}")
         described = lambda identity, _: CODE if identity["image_ref"] == IDENTITY["image_ref"] else evidence_code
         with patch("engine.load.read_universe"), \
                 patch.object(runs.image, "resolve",
@@ -56,9 +54,10 @@ class ReplayEvidenceTests(LiveFixture):
                 patch.object(runs.image, "inspect_runtime", side_effect=described), \
                 patch.object(runs.image, "require_main_build"):
             return prepare(self.root, run_id, self.world.profile, db.head_commit(self.world.conn),
-                           self.candidate["candidate"], ["AAAUSDT"], universe, self.credentials, IDENTITY["image_ref"],
-                           scope=self.scope, drawdown_brake="0.15", duration_seconds=60,
-                           memory="2g", leverage="3", market_root=Path("unused"), credential_ref="a" * 32, **options)
+                           self.candidate["candidate"], ["AAAUSDT"], b"{}", self.credentials, IDENTITY["image_ref"],
+                           scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
+                           market_root=Path("unused"), credential_ref="a" * 32, request_id="prepare-" + run_id,
+                           **options)
 
     def read_ahead(self) -> list[dict]:
         """runs.replay_evidence, which the page shows before preparing, on the same images as prepare."""
@@ -97,7 +96,8 @@ class ReplayEvidenceTests(LiveFixture):
         found = {"trial_id": backing, "starting_balance_usdt": "100000", "image_ref": RUNTIME["image_ref"]}
         self.assertEqual(manifest["evidence"], [found])
         self.assertEqual(self.read_ahead(), [found], "the page shows what preparation records")
-        review = runs.review(self.world.profile, db.head_commit(self.world.conn), manifest)
+        self.assertEqual(manifest["research_at"], db.head_commit(self.world.conn))
+        review = runs.review(self.world.profile, manifest)
         self.assertEqual(review["evidence"], [found])
 
         # The runner compares that balance with the USDT wallet the venue reports when it starts.

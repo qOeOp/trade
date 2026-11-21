@@ -1,86 +1,71 @@
 import { liveApi, LiveApiError, type LiveApi } from "./liveTradingApi";
-import { finishLiveRequest, keepLiveRequest, liveOperationKey, pendingLiveRequests, type LivePending } from "./liveTradingPending";
-import type { LiveRequest, LiveWriteReply } from "./liveTradingDto";
+import type { LiveWriteReply } from "./liveTradingDto";
 
-type Options = { api?: LiveApi; onRequest: (request: LiveRequest) => void; onError: (error: LiveApiError) => void; onNotice?: (text: string) => void; refresh: () => Promise<void> };
-const errorOf = (error: unknown) => error instanceof LiveApiError ? error : new LiveApiError("LIVE_RESPONSE_UNKNOWN", "The request result is unknown. Check the original request before trying again.");
-const receipt = (value: LiveRequest, id: string): LiveRequest => {
-  if (value?.request_id !== id || typeof value.action !== "string" || !value.target || typeof value.target !== "object" ||
-      !["pending", "effect_recorded", "refused", "outcome_unknown"].includes(value.outcome))
-    throw new LiveApiError("LIVE_RESPONSE_UNKNOWN", "The response did not identify the original request. Its outcome remains unknown.");
-  return value;
+/** One user command as this page sent it: `no_reply` when no answer from Live came back, so whether it took effect is
+ *  read from the run or key it names. */
+export type LiveRequest = {
+  request_id: string; action: string; target: { run_id?: string; credential_ref?: string };
+  outcome: "sending" | "effect_recorded" | "refused" | "no_reply"; code?: string;
 };
+type Sent = { request: LiveRequest; path: string; body: Record<string, unknown> };
+type Options = { api?: LiveApi; onRequest: (request: LiveRequest) => void; onDrop?: (id: string) => void; onError: (error: LiveApiError) => void; refresh: () => Promise<void> };
 
-/** A user-command client, not a retry queue. A restored pending identity is only ever queried. */
-export function createLiveCommands({ api = liveApi, onRequest, onError, onNotice = () => {}, refresh }: Options) {
-  const active = new Map<string, Promise<LiveRequest | null>>();
-  const resolving = new Map<string, Promise<void>>();
-  const settled = new Map<string, number>();
-  const observe = (request: LiveRequest) => {
-    if (request.outcome === "effect_recorded" || request.outcome === "refused") {
-      settled.set(request.request_id, (settled.get(request.request_id) ?? 0) + 1);
-      finishLiveRequest(request.request_id);
-    }
-    else keepLiveRequest(request);
-    onRequest(request);
-  };
-  const recoverOne = async (pending: LivePending): Promise<LiveRequest | null> => {
-    const generation = settled.get(pending.request_id) ?? 0;
-    const current = () => (settled.get(pending.request_id) ?? 0) === generation;
-    try {
-      const request = receipt(await api<LiveRequest>(`/requests/${encodeURIComponent(pending.request_id)}`), pending.request_id);
-      if (current()) { observe(request); return request; }
-    }
-    catch (error) {
-      if (!current()) return null;
-      const failed = errorOf(error);
-      onError(failed);
-      const request: LiveRequest = { ...pending, outcome: "outcome_unknown", code: failed.code };
-      onRequest(request);
-      return request;
-    }
-    return null;
-  };
-  const recover = async () => { await Promise.all(pendingLiveRequests().map(recoverOne)); };
-  const invoke = (action: string, path: string, target: LivePending["target"], payload: () => Record<string, unknown>): Promise<LiveRequest | null> => {
-    const key = liveOperationKey(action, target);
-    const current = active.get(key);
+// No answer from Live itself: the page could not reach it, could not read it, the session lapsed, or Live could not
+// confirm its own records. Every other code is Live's refusal.
+const NO_REPLY = new Set(["LIVE_UNAVAILABLE", "LIVE_RESPONSE_UNKNOWN", "AUTH_REQUIRED", "LIVE_RECORD_UNAVAILABLE"]);
+const errorOf = (error: unknown) => error instanceof LiveApiError ? error
+  : new LiveApiError("LIVE_RESPONSE_UNKNOWN", "No reply from Live could be read. The run or key shows what Live recorded.");
+const operationKey = (action: string, target: LiveRequest["target"]) =>
+  [action, action === "prepare" || action === "credential_save" ? "" : target.run_id ?? target.credential_ref ?? ""].join(":");
+
+export const newLiveRunId = () => `web-${Array.from(crypto.getRandomValues(new Uint8Array(10)), (v) => v.toString(16).padStart(2, "0")).join("").slice(0, 19)}`;
+
+/** A user-command client, not a retry queue: each click sends once. A command with no reply keeps its body in this
+ *  tab's memory only (never storage), so Send again repeats it with the same request ID; Live does it at most once and
+ *  answers a repeat of a done command without doing it again. A reply of any kind drops the body. */
+export function createLiveCommands({ api = liveApi, onRequest, onDrop = () => {}, onError, refresh }: Options) {
+  const active = new Map<string, Promise<LiveRequest>>();
+  const unanswered = new Map<string, Sent>();
+  const send = (sent: Sent): Promise<LiveRequest> => {
+    const key = operationKey(sent.request.action, sent.request.target), current = active.get(key);
     if (current) return current;
     const work = (async () => {
-      const prior = pendingLiveRequests().find((p) => liveOperationKey(p.action, p.target) === key);
-      if (prior) { const request = await recoverOne(prior); onNotice("Checked the earlier request. This click did not submit a new action."); await refresh(); return request; }
-      const pending = { request_id: `web-${crypto.randomUUID()}`, action, target };
-      keepLiveRequest(pending);
-      onRequest({ ...pending, outcome: "outcome_unknown" });
-      let request: LiveRequest | null;
+      const { request } = sent, id = request.request_id;
+      if (!unanswered.has(id)) onRequest({ ...request, outcome: "sending" });  // a resend keeps its card until it is answered
+      let answered: LiveRequest;
       try {
-        const result = await api<LiveWriteReply>(path, { body: { ...payload(), request_id: pending.request_id } });
-        request = receipt(result.request, pending.request_id);
-        observe(request);
+        const reply = await api<LiveWriteReply>(sent.path, { body: { ...sent.body, request_id: id } });
+        if (reply?.request_id !== id || reply.action !== request.action)
+          throw new LiveApiError("LIVE_RESPONSE_UNKNOWN", "The reply did not name this request. The run or key shows what Live recorded.");
+        const target = { ...request.target, ...(typeof reply.run_id === "string" ? { run_id: reply.run_id } : {}),
+          ...(typeof reply.credential_ref === "string" ? { credential_ref: reply.credential_ref } : {}) };
+        answered = { ...request, target, outcome: "effect_recorded" };
       } catch (error) {
         const failed = errorOf(error);
         onError(failed);
-        // Only the same-ID durable RequestView can settle this intent, including after a 4xx.
-        request = await recoverOne(pending);
+        answered = { ...request, outcome: NO_REPLY.has(failed.code) ? "no_reply" : "refused", code: failed.code };
       }
+      if (answered.outcome === "no_reply") unanswered.set(id, sent); else unanswered.delete(id);
+      // A later click of the same command that Live did settles an earlier one that had no reply; its body is dropped.
+      if (answered.outcome === "effect_recorded") for (const [other, { request: earlier }] of unanswered)
+        if (operationKey(earlier.action, earlier.target) === key) { unanswered.delete(other); onDrop(other); }
+      onRequest(answered);
       await refresh();
-      return request;
+      return answered;
     })();
     active.set(key, work);
     void work.then(() => active.delete(key), () => active.delete(key));
     return work;
   };
-  const resolve = (id: string): Promise<void> => {
-    const key = `resolve:${id}`, current = resolving.get(key);
-    if (current) return current;
-    const work = (async () => {
-      try { observe(receipt((await api<LiveWriteReply>(`/requests/${encodeURIComponent(id)}/resolve`, { body: { request_id: id } })).request, id)); }
-      catch (error) { onError(errorOf(error)); await recover(); }
-      await refresh();
-    })();
-    resolving.set(key, work);
-    void work.then(() => resolving.delete(key), () => resolving.delete(key));
-    return work;
+  /** A new click: a new request ID. A second click while the first is still on its way shares that one. */
+  const invoke = (action: string, path: string, target: LiveRequest["target"], payload: () => Record<string, unknown>) => {
+    const current = active.get(operationKey(action, target));
+    return current ?? send({ request: { request_id: `web-${crypto.randomUUID()}`, action, target, outcome: "sending" }, path, body: payload() });
   };
-  return { invoke, recover, resolve };
+  /** Send again: the same request, its same ID and body, only for one that had no reply. */
+  const resend = (id: string): Promise<LiveRequest | null> => {
+    const sent = unanswered.get(id);
+    return sent ? send(sent) : Promise.resolve(null);
+  };
+  return { invoke, resend };
 }

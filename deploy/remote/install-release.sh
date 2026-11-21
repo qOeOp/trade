@@ -1,12 +1,12 @@
 #!/bin/sh
-# Bootstrap the release plane once: the launcher, the unit and timer, the compose overlays and a bootstrap copy of
-# deploy/*.py whose only job is to hand control to the newest admitted version (`deploy-ready`, which CI moves only
-# for a version tag). That version's own control code, copied out of its service image, does everything else.
+# Bootstrap the release plane once: the launcher, the unit and timer and a bootstrap copy of deploy/*.py whose only
+# job is to hand control to the newest admitted version (`deploy-ready`, which CI moves only for a version tag). That
+# version's own control code and compose definition, copied out of its service image, do everything else.
 #
 #   install-release.sh          a new host, after the whole-project `up` of README.md: the first Paper controller,
 #                               Web and Agent, then the timer
-#   install-release.sh control  with the timer stopped, after a version changed the launcher, the unit, the timer or
-#                               the compose overlays: reinstalls them and the bootstrap copy
+#   install-release.sh control  with the timer stopped, after a version changed the launcher, the unit or the timer:
+#                               reinstalls them and the bootstrap copy
 set -eu
 [ "$(id -u)" = 0 ] || { echo 'Install the release plane as the deployment administrator'; exit 1; }
 source_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -28,11 +28,9 @@ case "$mode" in
     esac ;;
   *) echo 'usage: install-release.sh [control]'; exit 1 ;;
 esac
-install -d -m 755 /opt/trade-release /opt/trade-release/deploy /opt/trade-release/deploy/remote
+install -d -m 755 /opt/trade-release /opt/trade-release/deploy
 rm -f /opt/trade-release/deploy/*.py
 install -m 644 "$source_root"/deploy/*.py /opt/trade-release/deploy/
-install -m 644 "$source_root/deploy/remote/cd.compose.yaml" "$source_root/deploy/remote/paper-cd.compose.yaml" \
-  /opt/trade-release/deploy/remote/
 install -m 755 "$source_root/deploy/remote/trade-release-tick" /opt/trade-release/
 install -d -m 700 /var/lib/trade-release
 units() {
@@ -54,14 +52,17 @@ install -d -m 700 -o "${user%%:*}" -g "${user##*:}" "$data/paper-tmp"
 python3 -m deploy.release handoff
 cd "$(readlink -f /var/lib/trade-release/control/current)"
 python3 -m deploy.release install
+# `install` read the admitted version's compose definition beside its code; compose commands name it from now on.
+d=/var/lib/trade-release/control/current/deploy
 compose() {
-  docker compose --env-file /etc/trade/remote.env \
-    -f /opt/trade-app/deploy/compose.yaml -f /opt/trade-app/deploy/remote/compose.yaml \
-    -f /opt/trade-release/deploy/remote/cd.compose.yaml -f /opt/trade-release/deploy/remote/paper-cd.compose.yaml "$@"
+  docker compose --env-file /etc/trade/remote.env -f $d/compose.yaml -f $d/remote/compose.yaml \
+    -f $d/remote/cd.compose.yaml -f $d/remote/paper-cd.compose.yaml "$@"
 }
 compose config --quiet
-# The routers read the routes `install` wrote; OAuth2 Proxy already forwards to the Web router.
+# The routers read the routes `install` wrote; OAuth2 Proxy already forwards to the Web router. OAuth2 Proxy and
+# edge are made anew so their configuration files are those of the active control, not of this checkout.
 compose up -d --no-deps ide-router paper-router
+compose up -d --no-deps --force-recreate oauth2 edge
 python3 -m deploy.release verify
 units
 systemctl enable --now trade-release.timer
