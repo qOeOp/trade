@@ -303,7 +303,7 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     symbols = list(manifest["symbols"])
     start, end = window(pack)
     balance, snapshot = wallet(pack)
-    market_day, archived = shared.archive(market, at, symbols, start, end, "LIVE_COMPARE_UNCOVERED")
+    market_day, archived = shared.archive(market, at, symbols, start, end, "COMPARE_UNCOVERED")
     lines = journal(pack, start)
     run = run_record(pack, balance, snapshot, records.settlements(lines, records.published_settlements(lines, end)))
     output, replayed, compared = shared.replay_and_compare(

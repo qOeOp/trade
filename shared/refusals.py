@@ -387,7 +387,6 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "TRADE_INEXACT": ("Report the contract named; the agg_trade table and the instrument terms disagree.",),
     "QUOTES_UNSORTED": ("Report the contract named; the exporter never reorders quotes.",),
     "GRID_MISALIGNED": ("Pass bars read from the market at one market day.",),
-    "INPUT_UNSORTED": ("Pass bars read from the market at one market day.",),
     "VOLUME_OVERFLOW": ("Report the contract and timeframe named; derivation never truncates.",),
     "EXCHANGE_INFO_MALFORMED": ("Rerun the import; report the contract if exchangeInfo keeps the shape.",),
     "MONTH_NOT_FIRST_DAY": ("Pass a month start.",),
@@ -399,12 +398,9 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "SYMBOL_SHAPE": ("Export USDT perpetuals by their public names.",),
     "EPISODE_INDEX": ("Number episodes 1, 2, ... in time order.",),
     "EPISODE_SHAPE": ("Fix the lifecycle manifest and write a new bundle with `market lifecycle`.",),
-    "BARS_UNSORTED": ("Report the contract named; the market is inconsistent.",),
-    "BAR_RAW_INEXACT": ("Report the contract named; the exporter never rounds.",),
-    "MARK_UNSORTED": ("Report the contract named; the market is inconsistent.",),
-    "MARK_INEXACT": ("Report the contract named; the exporter never rounds.",),
+    "SERIES_UNSORTED": ("Report the contract named; the market is inconsistent.",),
+    "EXPORT_INEXACT": ("Report the contract named; the exporter never rounds.",),
     "FUNDING_FILE_MISSING": ("Re-import the month named with `market import`; a funding file is never optional.",),
-    "FUNDING_UNSORTED": ("Report the contract named; the market is inconsistent.",),
     "FUNDING_RATE_SHAPE": ("Report the contract named; the market is inconsistent.",),
     "INTERVAL_INVALID": ("Pass --start and --end as UTC times on whole minutes, start before end; daily bars take "
                          "whole UTC days of LAST prices.",),
@@ -421,14 +417,11 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                                   "implements `on_save` and `on_load` (research-round "
                                   "`references/strategy-authoring.md`), then start that one.",),
     "PAPER_START_FAILED": ("Read the error, repair the runtime or Docker, then start a new run.",),
-    # Paper comparison (paper/compare.py)
+    # Paper and Live comparison (paper/compare.py, live/compare.py)
     "PAPER_COMPARE_EMPTY": ("Compare a run that received at least one bar.",),
-    "PAPER_COMPARE_UNCOVERED": ("Import the run's month with `market import --month YYYY-MM` over the market's "
-                                "contract scope once its days are archived, then compare at the new market day.",),
-    # Live comparison (live/compare.py)
     "LIVE_COMPARE_EMPTY": ("Compare a run whose source started and received at least one minute.",),
-    "LIVE_COMPARE_UNCOVERED": ("Import the run's month with `market import --month YYYY-MM` over the market's "
-                               "contract scope once its days are archived, then compare at the new market day.",),
+    "COMPARE_UNCOVERED": ("Import the run's month with `market import --month YYYY-MM` over the market's "
+                          "contract scope once its days are archived, then compare at the new market day.",),
 }
 
 

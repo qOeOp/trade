@@ -119,7 +119,7 @@ def compare_one(root: Path, paper_ledger: Path, market_root: Path, paper_id: int
                                 attempt / "compare")
             except Refusal as exc:  # the comparison was not done: compared again after RETRY_NS
                 return {"paper_id": paper_id, "market_day": None, "retry": True,
-                        "reason": UNCOVERED if exc.code == "PAPER_COMPARE_UNCOVERED" else f"{exc.code}: {exc.message}"}
+                        "reason": UNCOVERED if exc.code == "COMPARE_UNCOVERED" else f"{exc.code}: {exc.message}"}
             result = json.loads(Path(found["path"]).read_text(encoding="utf-8"))
             return {"paper_id": paper_id, "market_day": result["market_day"], "retry": False,
                     "reason": unreconciled(result)}

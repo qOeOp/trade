@@ -325,7 +325,7 @@ class DerivationTests(Refusals):
         self.assertEqual((days["ts_open"].tolist(), days["close"].tolist()), ([T0 - DAY, T0, T0 + 3 * DAY], [1, 2, 3]))
 
     def test_derivation_refuses_unsorted_input_and_overflow(self):
-        self.refused("INPUT_UNSORTED", series.derive_bars, bars([(T0 + MINUTE, 1, 1, 1, 1, 1), (T0, 1, 1, 1, 1, 1)]))
+        self.refused("GRID_MISALIGNED", series.derive_bars, bars([(T0 + MINUTE, 1, 1, 1, 1, 1), (T0, 1, 1, 1, 1, 1)]))
         big = np.iinfo(np.int64).max // 2 + 1
         self.refused("VOLUME_OVERFLOW", series.derive_bars, bars([(T0, 1, 1, 1, 1, big), (T0 + MINUTE, 1, 1, 1, 1, big)]))
 
@@ -454,14 +454,14 @@ class WriterTests(Refusals):
         backwards = bars([(T0 + MINUTE, 100, 100, 100, 100, 1), (T0, 100, 100, 100, 100, 1)])
         fine = bars([(T0, 1_000_000_000, 1_000_000_000, 1_000_000_000, 1_000_000_000, 10_000)])
         bar_type = f"{iid}-1-MINUTE-LAST-EXTERNAL"
-        self.refused("BARS_UNSORTED", export.write_bars, catalog, bar_type, backwards, MINUTE, 2, 3)
-        self.refused("BAR_RAW_INEXACT", export.write_bars, catalog, bar_type,
+        self.refused("SERIES_UNSORTED", export.write_bars, catalog, bar_type, backwards, MINUTE, 2, 3)
+        self.refused("EXPORT_INEXACT", export.write_bars, catalog, bar_type,
                      bars([(T0, 123_456_789, 123_456_789, 123_456_789, 123_456_789, 1)]), MINUTE, 2, 3)
         self.assertEqual(export.write_bars(catalog, bar_type, fine, MINUTE, 2, 3), 1)
-        self.refused("MARK_UNSORTED", export.write_marks, catalog, iid, backwards, MINUTE, 8)
-        self.refused("MARK_INEXACT", export.write_marks, catalog, iid,
+        self.refused("SERIES_UNSORTED", export.write_marks, catalog, iid, backwards, MINUTE, 8)
+        self.refused("EXPORT_INEXACT", export.write_marks, catalog, iid,
                      bars([(T0, 1, 1, 1, 123_456_789, 0)]), MINUTE, 2)
-        self.refused("FUNDING_UNSORTED", export.write_funding, self.root, str(iid),
+        self.refused("SERIES_UNSORTED", export.write_funding, self.root, str(iid),
                      [(T0, Decimal("0.0001")), (T0, Decimal("0.0001"))])
         self.refused("FUNDING_RATE_SHAPE", export.write_funding, self.root, str(iid), [(T0, "x")])
         self.refused("FUNDING_RATE_SHAPE", export.write_funding, self.root, str(iid), [(T0, Decimal("NaN"))])

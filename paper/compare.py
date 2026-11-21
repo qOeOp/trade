@@ -158,7 +158,7 @@ def compare(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: i
         market, fetched = rest.overlay(market, symbols, shared.history_start(start, run["warmup"]), end,
                                        bool(run["metrics"]), output / "market")
         at = None
-    market_day, archived = shared.archive(market, at, symbols, start, end, "PAPER_COMPARE_UNCOVERED")
+    market_day, archived = shared.archive(market, at, symbols, start, end, "COMPARE_UNCOVERED")
     output, replayed, compared = shared.replay_and_compare(
         run, market, market_day, archived, candidate["source"], candidate["entry_class"], row["image_ref"], symbols,
         start, end,
