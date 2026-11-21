@@ -22,7 +22,7 @@
 | 20261121-09 | 研究图服务把产品命令 stderr 整段当 JSON 解析，`uv` 先打警告时拒绝码丢失、页面显示 `PRODUCT_FAILED` | fix | doctor | unknown | fixed c0791651e [#3243](https://github.com/qOeOp/trade/pull/3243) | 2026-11-21 | 2026-11-21 |
 | 20261121-10 | Paper 与回测的成交表、周期表、对照表点一行不会把图移到那笔交易（只有图到表） | fix（改交互先给截图） | doctor | unknown | fixed 062e86be4 [#3244](https://github.com/qOeOp/trade/pull/3244) | 2026-11-21 | 2026-11-21 |
 | 20261121-11 | K 线周期随缩放自动切换，不能固定（写明的做法） | question（是否加周期固定开关） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
-| 20261121-12 | ⌘K 给每个没在跑的版本各列一条 `Run paper: <id>` | question | doctor | unknown | in PR [#3245](https://github.com/qOeOp/trade/pull/3245) | 2026-11-21 | 2026-11-21 |
+| 20261121-12 | ⌘K 给每个没在跑的版本各列一条 `Run paper: <id>` | fix（一条入口打开版本选择，选中版本排第一） | doctor | unknown | in PR [#3245](https://github.com/qOeOp/trade/pull/3245) | 2026-11-21 | 2026-11-21 |
 | 20261121-13 | 文档跟不上实现、同一事实多处复述，读起来费力 | restate（按[第三轮瘦身计划](../slimming-round-3-20261121.zh.md)分批，先量重复） | user（Product contracts and delivery） | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-14 | 开发期逐年读数只在恰为三个整年时给出，按覆盖分级得到的 4–11 个季度开发期没有最差年与去最佳年读数 | fix（按实际长度切年，先定切法） | doctor | unknown | fixed 2657b756b [#3238](https://github.com/qOeOp/trade/pull/3238) | 2026-11-21 | 2026-11-21 |
 | 20261121-15 | Agent 回答里的版本链接在 Market、Runs 页面只改选中，不切回版本图 | fix（点链接时回到显示画布的页面；改交互先给截图） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |

@@ -135,6 +135,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   a Pareto-frontier run is always drawn. Each chart's legend counts them ("N runs in folded versions", a click shows
   every version). They stay in the value ranges and in the frontier, so the fold no longer hides how many runs the
   line has tried.
+- IDE ⌘K: the separate `Run paper: <version>` entry for every version not running paper is replaced by one
+  `Run paper…` entry that opens a version picker, the selected version first (doctor 20261121-12). Backspace on an
+  empty query goes back.
 - IDE, Line-close history: clicking a cell shows that replay (a veto year, the development period, its replay, the
   holdout or the forward part) in Details with its version selected, with Source and Runs links in the page header; a
   row of another line opens that line's page with the replay picked (`trial=`). Trades can open at the bottom of the
