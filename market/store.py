@@ -28,7 +28,10 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from market import files, instrument, series, sources, universe
-from market.sources import DAY, MINUTE, MarketError, _refuse
+from market.sources import DAY, MINUTE
+from shared import clock
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 def default_cache() -> Path:
@@ -48,7 +51,7 @@ def _int64(decimal: pa.Array, label: str) -> np.ndarray:
     words = np.frombuffer(decimal.buffers()[1], dtype=np.int64)[
         decimal.offset * 2:(decimal.offset + len(decimal)) * 2].reshape(-1, 2)
     if not np.all(words[:, 1] == words[:, 0] >> 63):
-        raise _refuse(f"{label}: a scaled value exceeds int64", "SCALE_RANGE")
+        raise refuse("SCALE_RANGE", f"{label}: a scaled value exceeds int64")
     return words[:, 0].copy()
 
 
@@ -66,14 +69,14 @@ def scaled(column, scale: int, label: str, *, float_tails: bool = False) -> tupl
         return _int64(pc.cast(wide, pa.decimal128(38, scale), safe=True), label), 0
     except pa.ArrowInvalid:
         if not float_tails:
-            raise _refuse(f"{label}: a value has more than {scale} decimals", "SCALE_LOSS") from None
+            raise refuse("SCALE_LOSS", f"{label}: a value has more than {scale} decimals") from None
     rounded = pc.cast(pc.round(wide, ndigits=scale, round_mode="half_to_even"), pa.decimal128(38, scale))
     exact = pc.cast(rounded, pa.decimal128(38, 18))
     changed = pc.not_equal(exact, wide)
     given = pc.cast(wide, pa.float64()).to_numpy(zero_copy_only=False)
     near = pc.cast(exact, pa.float64()).to_numpy(zero_copy_only=False)
     if np.any(np.abs(given - near) > FLOAT_TAIL_ULPS * np.spacing(np.abs(near))):
-        raise _refuse(f"{label}: a value has more than {scale} decimals", "SCALE_LOSS")
+        raise refuse("SCALE_LOSS", f"{label}: a value has more than {scale} decimals")
     return _int64(rounded, label), int(pc.sum(changed).as_py() or 0)
 
 
@@ -94,12 +97,12 @@ def bar_rows(table: pa.Table, symbol: str, price_type: str) -> tuple[dict[str, n
     volume, rounded = scaled(table["volume"], series.VOLUME_SCALE, f"{label} volume", float_tails=True)
     if price_type == "MARK" and volume.any():
         at = table["open_time"][int(np.argmax(volume != 0))]
-        raise _refuse(f"{label}: a mark-price kline at {at} carries a volume", "SOURCE_SHAPE", missing=(label,))
+        raise refuse("SOURCE_SHAPE", f"{label}: a mark-price kline at {at} carries a volume", missing=(label,))
     o, h, lo, c = (prices[name] for name in ("open", "high", "low", "close"))
     bad = (lo > np.minimum(o, c)) | (h < np.maximum(o, c)) | (lo <= 0) | (volume < 0)
     if bad.any():
-        raise _refuse(f"{label}: inconsistent bar at open_time {table['open_time'][int(np.argmax(bad))]}",
-                      "SOURCE_SHAPE", missing=(label,))
+        at = table["open_time"][int(np.argmax(bad))]
+        raise refuse("SOURCE_SHAPE", f"{label}: inconsistent bar at open_time {at}", missing=(label,))
     return {"ts_open": table["open_time"].to_numpy().astype(np.int64), **prices, "volume": volume}, rounded
 
 
@@ -150,9 +153,8 @@ def prepare(job: dict) -> dict:
     for the month's new file."""
     try:
         return _prepare(job)
-    except MarketError as exc:
-        raise MarketError(f"{job['symbol']}: {exc.message}", code=exc.code,
-                          missing=(job["symbol"], *exc.missing)) from exc
+    except Refusal as exc:
+        raise refuse(exc.code, f"{job['symbol']}: {exc.message}", missing=(job["symbol"], *exc.missing)) from exc
 
 
 def pace(rest: float, funding: float) -> None:
@@ -237,9 +239,9 @@ def _compare_bars(job: dict, price_type: str, reread: dict[str, np.ndarray]) -> 
     if not times:
         differs = np.nonzero(np.any([stored[name] != reread[name] for name in series.COLUMNS], axis=0))[0]
         times = stored["ts_open"][differs].tolist()
-    label = series.ms_day(job["start"]).strftime("%Y-%m")
-    raise _refuse(f"{price_type}: the sources now differ from the stored {label} rows at {times[:5]}", "MONTH_EXISTS",
-                  missing=(label, *map(str, times[:5])))
+    label = clock.ms_day(job["start"]).strftime("%Y-%m")
+    raise refuse("MONTH_EXISTS", f"{price_type}: the sources now differ from the stored {label} rows at {times[:5]}",
+                 missing=(label, *map(str, times[:5])))
 
 
 def _derived_findings(symbol: str, bars: dict, job: dict, trading: bool) -> list[dict] | None:
@@ -253,7 +255,7 @@ def _derived_findings(symbol: str, bars: dict, job: dict, trading: bool) -> list
     derived = series.derive_bars({name: values[keep] for name, values in bars.items()})
     try:
         rows = sources.rest_klines("LAST", symbol, "1d", first, last)
-    except MarketError as exc:
+    except Refusal as exc:
         if exc.code == "SOURCE_UNKNOWN_SYMBOL" and not trading:
             return None
         raise
@@ -282,7 +284,7 @@ def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool) ->
     settlements in a slot refuses SOURCE_SHAPE."""
     if start >= end:
         return []
-    months = series._months(start, end)
+    months = clock.month_names(start, end)
     monthly = sources.monthly_archives(cache, "fundingRate", symbol, None, months)
     slots: dict[int, tuple[int, str]] = {}
 
@@ -291,22 +293,22 @@ def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool) ->
         for time_ms, rate in found:
             slot = funding_slot(time_ms)
             if slot in seen:
-                raise _refuse(f"{symbol} funding: {label} holds two settlements in the hour of {time_ms}",
-                              "SOURCE_SHAPE", missing=(str(time_ms),))
+                raise refuse("SOURCE_SHAPE", f"{symbol} funding: {label} holds two settlements in the hour of {time_ms}",
+                             missing=(str(time_ms),))
             seen.add(slot)
             if slot in slots and Decimal(slots[slot][1]) != Decimal(rate):
-                raise _refuse(f"{symbol} funding: sources disagree on the settlement at {time_ms}", "SOURCE_CONFLICT",
-                              missing=(str(time_ms),))
+                raise refuse("SOURCE_CONFLICT", f"{symbol} funding: sources disagree on the settlement at {time_ms}",
+                             missing=(str(time_ms),))
             slots.setdefault(slot, (time_ms, rate))
 
     for month in sorted(monthly):
         add(sources.funding_rows(monthly[month]), f"the {month} archive")
     missing = [month for month in months if month not in monthly]
     if missing:
-        low = max(start, series._day_ms(date.fromisoformat(missing[0] + "-01")))
+        low = max(start, clock.day_ms(date.fromisoformat(missing[0] + "-01")))
         try:
             add(sources.rest_funding(symbol, low, end), "public REST")
-        except MarketError as exc:
+        except Refusal as exc:
             if exc.code != "SOURCE_UNKNOWN_SYMBOL" or trading:
                 raise
     return sorted(row for row in slots.values() if start <= row[0] < end)
@@ -319,8 +321,9 @@ def _scope(symbols) -> list[str] | None:
         return None
     if (not isinstance(symbols, (list, tuple)) or not symbols or len(set(symbols)) != len(symbols)
             or any(not isinstance(item, str) or not sources.SYMBOL.fullmatch(item) for item in symbols)):
-        raise _refuse("the engineering symbol allowlist is empty, repeats a contract or names a malformed one",
-                      "EMPTY_SYMBOLS", missing=("--symbols",))
+        raise refuse("EMPTY_SYMBOLS",
+                     "the engineering symbol allowlist is empty, repeats a contract or names a malformed one",
+                     missing=("--symbols",))
     return sorted(symbols)
 
 
@@ -328,11 +331,11 @@ def month_bounds(month: date) -> tuple[int, int]:
     """[start, end) of an import of `month`: the month through the last closed UTC day (MONTH_INVALID for
     a malformed or future month)."""
     if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
-        raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
-    start = series._day_ms(month)
-    end = min(series._day_ms(universe.next_month(month)), series._day_ms(datetime.now(UTC).date()))
+        raise refuse("MONTH_INVALID", f"{month!r} is not the first day of a month", missing=(str(month),))
+    start = clock.day_ms(month)
+    end = min(clock.day_ms(clock.next_month(month)), clock.day_ms(datetime.now(UTC).date()))
     if start > end:
-        raise _refuse(f"{month:%Y-%m} has not begun", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
+        raise refuse("MONTH_INVALID", f"{month:%Y-%m} has not begun", missing=(f"{month:%Y-%m}",))
     return start, end
 
 
@@ -340,9 +343,9 @@ def closed_month(month: date) -> tuple[int, int]:
     """[start, end) of a month an import takes only whole, once it has ended: its file is never written again, and
     nothing says a shorter one is short (MONTH_INVALID)."""
     start, end = month_bounds(month)
-    if end < series._day_ms(universe.next_month(month)):
-        raise _refuse(f"{month:%Y-%m} has not ended; this table is imported a whole month at a time", "MONTH_INVALID",
-                      missing=(f"{month:%Y-%m}",))
+    if end < clock.day_ms(clock.next_month(month)):
+        raise refuse("MONTH_INVALID", f"{month:%Y-%m} has not ended; this table is imported a whole month at a time",
+                     missing=(f"{month:%Y-%m}",))
     return start, end
 
 
@@ -368,25 +371,26 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     label = f"{month:%Y-%m}"
     through = files.bar_months_through(market)
     if not through and start_ms == end_ms:
-        raise _refuse(f"{label} has no closed UTC day yet, and the first import has no members to give",
-                      "MONTH_INVALID", missing=(label,))
-    if through.get(month) == universe.next_month(month):
-        raise _refuse(f"the market already holds {label} through its end", "MONTH_EXISTS", missing=(label,))
+        raise refuse("MONTH_INVALID", f"{label} has no closed UTC day yet, and the first import has no members to give",
+                     missing=(label,))
+    if through.get(month) == clock.next_month(month):
+        raise refuse("MONTH_EXISTS", f"the market already holds {label} through its end", missing=(label,))
     held = sorted(through)
     earliest, latest = (held[0], held[-1]) if held else (month, month)
     # Months extend at either end: the latest month completed or the month after it, or the month just
     # before the earliest (a backfill: the later months' files stay as they are).
-    backfill = bool(held) and universe.next_month(month) == earliest
-    if held and not backfill and (month not in (latest, universe.next_month(latest)) or (
-            month == universe.next_month(latest) and through[latest] != month)):
-        raise _refuse(f"the stored months run from {earliest:%Y-%m} to {latest:%Y-%m} through {through[latest]}; import "
-                      f"the month after {latest:%Y-%m} or the month before {earliest:%Y-%m}", "MONTH_INVALID",
-                      missing=(f"{earliest:%Y-%m}", f"{latest:%Y-%m}"))
+    backfill = bool(held) and clock.next_month(month) == earliest
+    if held and not backfill and (month not in (latest, clock.next_month(latest)) or (
+            month == clock.next_month(latest) and through[latest] != month)):
+        raise refuse("MONTH_INVALID",
+                     f"the stored months run from {earliest:%Y-%m} to {latest:%Y-%m} through {through[latest]}; import "
+                     f"the month after {latest:%Y-%m} or the month before {earliest:%Y-%m}",
+                     missing=(f"{earliest:%Y-%m}", f"{latest:%Y-%m}"))
     first_month = month if backfill else earliest
     if backfill:
         _check_empty(market, month, start_ms, end_ms)
     # The days the month's file holds: its new file repeats them, compared with the sources.
-    held_ms = series._day_ms(through[month]) if month in through else None
+    held_ms = clock.day_ms(through[month]) if month in through else None
 
     observed, listed = sources.rest_exchange_info()
     by_symbol = {item["symbol"]: item for item in listed}
@@ -492,11 +496,11 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     member_files += [_members_file(market, at, found) for at, found in filled.items() if found]
     failed = files.data_tests(market)
     if failed:
-        raise _refuse(f"the import fails {', '.join(failed)}", "DATA_TESTS_FAILED", missing=failed)
+        raise refuse("DATA_TESTS_FAILED", f"the import fails {', '.join(failed)}", missing=tuple(failed))
     # Bars last: the market's newest day comes from them.
     files.place(market, [item for item in (*member_files, funding_file, terms_file, bar_file) if item is not None])
     result = {"month": label, "universe_rule": universe.RULE, "scope": scope or "all",
-              "through": series.ms_day(end_ms).isoformat(), "instruments_appended": len(appended_terms),
+              "through": clock.ms_day(end_ms).isoformat(), "instruments_appended": len(appended_terms),
               "bar_rows": totals["bar_rows"], "funding_rows": totals["funding_rows"], "universe_members": members,
               "gaps": dict(sorted(totals["gaps"].items())), "source_rows": totals["source_rows"], "excluded": excluded,
               "inferred_terms": sorted(totals["inferred_terms"]), "rounded_volumes": totals["rounded_volumes"],
@@ -546,7 +550,7 @@ def funding_batch(rows: list[tuple]) -> pa.RecordBatch:
     try:
         rates = pa.array([Decimal(rate) for _, _, rate in rows], kind)
     except (pa.ArrowInvalid, InvalidOperation) as exc:
-        raise _refuse(f"a funding rate does not fit {kind} exactly: {exc}", "SCALE_LOSS", missing=("funding",)) from exc
+        raise refuse("SCALE_LOSS", f"a funding rate does not fit {kind} exactly: {exc}", missing=("funding",)) from exc
     return pa.RecordBatch.from_arrays([pa.array([row[0] for row in rows], pa.string()),
                                        pa.array([row[1] for row in rows], pa.int64()), rates],
                                       schema=files.FUNDING.schema)
@@ -614,8 +618,9 @@ def _compare_funding(symbol: str, stored: dict[int, Decimal], reread: list[tuple
     rates = {funding_slot(at): Decimal(rate) for at, rate in reread}
     if stored != rates:
         slots = sorted(slot for slot in set(stored) | set(rates) if stored.get(slot) != rates.get(slot))
-        raise _refuse(f"{symbol} funding: the sources now differ from the stored {label} settlements in hours "
-                      f"{slots[:5]}", "MONTH_EXISTS", missing=(label, symbol))
+        raise refuse("MONTH_EXISTS",
+                     f"{symbol} funding: the sources now differ from the stored {label} settlements in hours "
+                     f"{slots[:5]}", missing=(label, symbol))
 
 
 def _terms_rows(market: files.Market) -> tuple[dict[str, dict], dict[str, dict]]:
@@ -638,7 +643,7 @@ def trading_days(market: files.Market, symbols: list[str], low: date, high: date
     found: dict[str, set[date]] = {symbol: set() for symbol in symbols}
     if not symbols:
         return found
-    for batch in files.scan(market, None, "bar", symbols, series._day_ms(low), series._day_ms(high)):
+    for batch in files.scan(market, None, "bar", symbols, clock.day_ms(low), clock.day_ms(high)):
         traded = batch.filter(pc.and_(pc.equal(batch.column("price_type"), "LAST"),
                                       pc.greater(batch.column("volume"), 0)))
         days = pa.table({"symbol": traded.column("symbol"),
@@ -653,14 +658,14 @@ def _first_members(first_month: date) -> date:
     LISTED_DAYS lies inside the held months."""
     first = first_month
     while first - timedelta(days=universe.LISTED_DAYS) < first_month:
-        first = universe.next_month(first)
+        first = clock.next_month(first)
     return first
 
 
 def _members(market: files.Market, month: date) -> set[str]:
     found: set[str] = set()
-    for batch in files.scan(market, None, "universe_month", None, series._day_ms(month),
-                            series._day_ms(universe.next_month(month))):
+    for batch in files.scan(market, None, "universe_month", None, clock.day_ms(month),
+                            clock.day_ms(clock.next_month(month))):
         found.update(batch.filter(pc.equal(batch.column("universe_rule"), universe.RULE)).column("symbol").to_pylist())
     return found
 
@@ -674,8 +679,8 @@ def _universe(market: files.Market, month: date, first_month: date) -> tuple[lis
     stored = _members(market, month)
     if month < first:
         if stored:
-            raise _refuse(f"{month:%Y-%m} has stored members before the second imported month", "UNIVERSE_CHANGED",
-                          missing=(f"{month:%Y-%m}",))
+            raise refuse("UNIVERSE_CHANGED", f"{month:%Y-%m} has stored members before the second imported month",
+                         missing=(f"{month:%Y-%m}",))
         return [], []
     rows, _ = _terms_rows(market)
     classifications = [universe.classify_contract(symbol, _item_of(symbol, row))
@@ -684,9 +689,9 @@ def _universe(market: files.Market, month: date, first_month: date) -> tuple[lis
     days = trading_days(market, [item["symbol"] for item in classifications if item["eligible"]], look_back, month)
     computed = set(universe.monthly_universe(classifications, days, month))
     if stored and computed != stored:
-        raise _refuse(f"{month:%Y-%m} recomputes to other members than stored: "
-                      + ", ".join(sorted(computed ^ stored)), "UNIVERSE_CHANGED",
-                      missing=(f"{month:%Y-%m}", *sorted(computed ^ stored)))
+        raise refuse("UNIVERSE_CHANGED", f"{month:%Y-%m} recomputes to other members than stored: "
+                     + ", ".join(sorted(computed ^ stored)),
+                     missing=(f"{month:%Y-%m}", *sorted(computed ^ stored)))
     return sorted(computed), ([] if stored else sorted(computed))
 
 
@@ -697,7 +702,7 @@ def _check_empty(market: files.Market, month: date, start_ms: int, end_ms: int) 
     for batch in files.scan(market, None, "bar", None, start_ms, end_ms):
         if batch.num_rows:
             symbol = batch.column("symbol")[0].as_py()
-            raise _refuse(f"the market already holds {symbol} rows in {label}", "MONTH_EXISTS", missing=(label, symbol))
+            raise refuse("MONTH_EXISTS", f"the market already holds {symbol} rows in {label}", missing=(label, symbol))
 
 
 def _check_funding_left(market: files.Market, month: date, start_ms: int, end_ms: int,
@@ -711,8 +716,8 @@ def _check_funding_left(market: files.Market, month: date, start_ms: int, end_ms
     computed = rows_of([funding_batch(settlements)])
     if stored and stored != computed:
         label, symbol = f"{month:%Y-%m}", min((stored - computed) or (computed - stored))[0]
-        raise _refuse(f"the market already holds other {symbol} funding rows in {label}", "MONTH_EXISTS",
-                      missing=(label, symbol))
+        raise refuse("MONTH_EXISTS", f"the market already holds other {symbol} funding rows in {label}",
+                     missing=(label, symbol))
 
 
 def _fill_universe(market: files.Market, month: date, earliest: date, latest: date) -> dict[date, list[str]]:
@@ -722,7 +727,7 @@ def _fill_universe(market: files.Market, month: date, earliest: date, latest: da
     filled, at = {}, _first_members(month)
     while at < _first_members(earliest) and at <= latest:
         filled[at] = _universe(market, at, month)[1]
-        at = universe.next_month(at)
+        at = clock.next_month(at)
     return filled
 
 
@@ -735,7 +740,7 @@ def freshness(profile: dict, ref: str | None = None) -> dict:
     market_day = files.resolve_day(market, ref)
     months = sorted({month for month, _ in universe.months_of(market, market_day)})
     if not months:
-        raise _refuse(f"market day {market_day} has no universe month", "MARKET_EMPTY", missing=(market_day,))
+        raise refuse("MARKET_EMPTY", f"market day {market_day} has no universe month", missing=(market_day,))
     newest = None
     # A table's files are disjoint in time: the newest minute is in the latest file holding a LAST bar.
     high = files._visible("bar", market_day, None)
@@ -746,7 +751,7 @@ def freshness(profile: dict, ref: str | None = None) -> dict:
                 newest = max(newest or 0, pc.max(opens).as_py())
         if newest is not None:
             break
-    complete_day = series.ms_day(newest + MINUTE) - timedelta(days=1) if newest is not None else None
+    complete_day = clock.ms_day(newest + MINUTE) - timedelta(days=1) if newest is not None else None
     return {"market_day": market_day, "universe_months": [value.strftime("%Y-%m") for value in months],
             "latest_complete_day": complete_day}
 
@@ -782,9 +787,9 @@ def contract_files(market: files.Market, jobs: list[dict], write, workers: int, 
     if failed is not None:
         symbol, error = failed
         placed = ", ".join(item["symbols"][0] for item in done)
-        if placed and isinstance(error, MarketError):
-            raise MarketError(f"{symbol}: {error.message}; written meanwhile: {placed}", code=error.code,
-                              missing=error.missing) from error
+        if placed and isinstance(error, Refusal):
+            raise refuse(error.code, f"{symbol}: {error.message}; written meanwhile: {placed}",
+                         missing=error.missing) from error
         raise error
     return done
 

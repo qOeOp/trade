@@ -5,8 +5,7 @@ import { createContext } from "node:vm";
 import { namespace } from "./load.mjs";
 
 const setupApi = (fetch = () => { throw new Error("no fetch"); }) => namespace("lib/setupApi.ts", {
-  context: createContext({ fetch }), sources: [], packages: [],
-  stubs: { "lib/transport": { pageFetch: () => { throw new Error("no post"); } } },
+  context: createContext({}), sources: [], packages: [], stubs: { "lib/transport": { pageFetch: fetch } },
 });
 
 const waiting = (repository = null) => ({ state: "waiting", repository, public_key: "k", step: null, refusal: null });

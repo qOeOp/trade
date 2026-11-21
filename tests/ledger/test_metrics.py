@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 from ledger import metrics
+from shared import clock
 from shared.errors import Refusal
 from tests.helpers import refused
 from tests.ledger.dolt import DAY, JAN
@@ -39,7 +40,7 @@ def order(order_id: str, side: str, ts_init: int, ts_last: int, plan: str | None
 
 def position(pid: str, fills: list[dict], closed: bool, realized: str, opening: str, closing: str) -> dict:
     events = [{"event_id": f["event_id"], "order_side": f["order_side"], "last_qty": f["last_qty"],
-               "last_px": f["last_px"], "ts_event": metrics.utc_ns(f["ts_event"])} for f in fills]
+               "last_px": f["last_px"], "ts_event": clock.utc_ns(f["ts_event"])} for f in fills]
     last = max(event["ts_event"] for event in events)
     return {"position_id": pid, "events": repr(events), "adjustments": "[]", "instrument_id": IID,
             "opening_order_id": opening, "closing_order_id": closing if closed else "", "entry": fills[0]["order_side"],

@@ -40,6 +40,10 @@ class LiveFixture(unittest.TestCase):
             evidence = patch.object(runs, "_evidence", return_value=EVIDENCE)
             evidence.start()
             self.addCleanup(evidence.stop)
+        # The closing history verdict: tests/live/test_replay_evidence.py reads it from the ledger.
+        decided = patch.object(runs.admission, "unfalsified")
+        decided.start()
+        self.addCleanup(decided.stop)
         patcher = patch.object(runs.key, "require_limits")  # tests/live/test_key.py covers the read.
         self.key_limits = patcher.start()
         self.addCleanup(patcher.stop)
@@ -648,7 +652,7 @@ class LiveCustodyTests(LiveFixture):
                 runs.prepare_locked(root, "unloadable", object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
                                     self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
                                     duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
-                                    credential_ref="a" * 32)
+                                    credential_ref="a" * 32, reconciled=lambda *_: None)
             self.assertEqual(caught.exception.code, "LIVE_SOURCE_MISSING")
             self.assertFalse(state.directory(self.root, "unloadable").exists())
 
@@ -666,7 +670,7 @@ class LiveCustodyTests(LiveFixture):
                 runs.prepare_locked(root, "declared-run", object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
                                     self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
                                     duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
-                                    credential_ref="a" * 32, source_sha256=declared)
+                                    credential_ref="a" * 32, reconciled=lambda *_: None, source_sha256=declared)
             self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
             self.assertFalse(state.directory(self.root, "declared-run").exists())
 

@@ -63,7 +63,7 @@ header template, the entry class, the two hooks and a sizing helper.
   position or a working order left at a termination without a settlement price.
 - Paper resumes an interrupted run (a release, `docker stop`, a restart, a crash) only if the source
   declares `PAPER_RECOVERY = 1` and implements `on_save` and `on_load` (the protocol is in Paper
-  trading, `engine/README.md`); a source written to these rules does not, so after an interruption its
+  trading, `paper/README.md`); a source written to these rules does not, so after an interruption its
   run sends no new entry: holding a position, it keeps its stops and targets working until flat, then ends; flat, it
   ends at once. With the protocol a run resumes with its positions and working orders, unless the market
   reached one of them while it was down (a GTD that expired meanwhile: before its expiry; a trailing
@@ -116,6 +116,9 @@ header template, the entry class, the two hooks and a sizing helper.
   (SMA, highest high) are exact once the window is full. A path-dependent state rebuilt from the
   first input (swing points, a trend state machine) is ready only at the input count from which two
   different warm-up starts give the same state; gate decisions on that count.
+- Keep state bounded and update it per input: hold histories (bars, swing points, levels) in a
+  `deque(maxlen=...)` or prune them past the longest lookback, and never rescan the whole history
+  on each bar, which makes replay time grow faster than the window.
 
 ## Trades and metrics
 
@@ -230,7 +233,7 @@ native reports. Never run the replay with `docker run` or `python -m engine...` 
 A candidate written to the rules below runs in Live as it is: replay, Paper and Live run the one file
 and its validations cover it. Write a candidate that may go to Live this way when it is created, as a
 candidate version replayed like any other; Live accepts no other file. What Live enforces during a run
-is in `engine/README.md`.
+is in `live/README.md`.
 
 - Before the user starts it, replay the candidate at the account's USDT wallet the user names:
   `candidate export`, then `replay explore` of that file with `--starting-balance` the wallet and

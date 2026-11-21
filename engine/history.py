@@ -74,6 +74,19 @@ def clear() -> None:
     ACTORS.clear()
 
 
+def read_until(fn: Callable[[], Any], deadline_ns: int, retry_ns: int = RETRY_NS) -> Any:
+    """fn()'s answer, on the caller's background thread (rc7 has no executor for it): an OSError (the network) reads
+    again after retry_ns while that is still before deadline_ns (wall clock) and is raised after; any other exception
+    is raised at once."""
+    while True:
+        try:
+            return fn()
+        except OSError:
+            if time.time_ns() + retry_ns >= deadline_ns:
+                raise
+            time.sleep(retry_ns / SECOND_NS)
+
+
 def start_at(now_ns: int) -> int:
     """The first whole minute at least START_MARGIN_NS after `now_ns`: a Paper or Live start's T."""
     return -(-(now_ns + START_MARGIN_NS) // MINUTE_NS) * MINUTE_NS
@@ -224,21 +237,20 @@ class Warming:
             return self._warming_stop("WARMUP_INSUFFICIENT", f"{state['instrument_id']}: the venue gave no instrument")
         precisions = (instrument.price_precision, instrument.size_precision)
 
+        def fetch():
+            try:
+                return state["fetch"](state["instrument_id"], state["at"], state["declared"], precisions,
+                                      funding=state["funding"], follow=state["follow"], since=state["since"])
+            except OSError as exc:  # a timeout while it is read again names it
+                state["result"] = exc
+                raise
+
         def work():
-            while True:
-                try:
-                    state["result"] = state["fetch"](state["instrument_id"], state["at"], state["declared"],
-                                                     precisions, funding=state["funding"], follow=state["follow"],
-                                                     since=state["since"])
-                except OSError as exc:  # the network: try again while the deadline allows
-                    state["result"] = exc
-                    if time.time_ns() + RETRY_NS < state["at"] + DEADLINE_NS:
-                        time.sleep(RETRY_NS / SECOND_NS)
-                        continue
-                except BaseException as exc:  # handed to the node's thread by _warming_wait
-                    state["result"] = exc
-                state["fetched_ns"] = time.time_ns()
-                return
+            try:
+                state["result"] = read_until(fetch, state["at"] + DEADLINE_NS)
+            except BaseException as exc:  # handed to the node's thread by _warming_wait
+                state["result"] = exc
+            state["fetched_ns"] = time.time_ns()
 
         state["thread"] = threading.Thread(target=work, name=f"warmup-{state['instrument_id']}", daemon=True)
         state["thread"].start()

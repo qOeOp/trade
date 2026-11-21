@@ -19,7 +19,9 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from market import coverage, export, files, instrument, series, universe
-from market.sources import DAY as DAY_MS, MINUTE, _refuse
+from market.sources import DAY as DAY_MS, MINUTE
+from shared import clock
+from shared.refusals import refuse
 
 
 DAY = timedelta(days=1)
@@ -59,27 +61,27 @@ def daily_returns(profile: dict, market_day: str, universe_rule: str | None, sta
         days.append(first.date().isoformat())
         first += DAY
     if not days:
-        raise _refuse("the window holds no whole UTC day", "MARKET_RETURNS_WINDOW", missing=("window",))
+        raise refuse("MARKET_RETURNS_WINDOW", "the window holds no whole UTC day", missing=("window",))
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, files.check_day(market_day))
     rule = universe.rule_of(market, market_day)
     if rule != universe_rule:
-        raise _refuse(f"market day {market_day} produces {rule}, not {universe_rule}", "RULE_VERSION_MISMATCH",
-                      missing=("universe_rule",))
+        raise refuse("RULE_VERSION_MISMATCH", f"market day {market_day} produces {rule}, not {universe_rule}",
+                     missing=("universe_rule",))
     months = {day[:7] for day in days}
     members: dict[str, set[str]] = {}
     for month, symbol in universe.months_of(market, market_day):
         if month.strftime("%Y-%m") in months:
             members.setdefault(month.strftime("%Y-%m"), set()).add(symbol)
     symbols = sorted({BTC, *(symbol for found in members.values() for symbol in found)})
-    first_close = series._day_ms(date.fromisoformat(days[0]) - DAY) + CLOSE_OFFSET_MS
+    first_close = clock.day_ms(date.fromisoformat(days[0]) - DAY) + CLOSE_OFFSET_MS
     closes: dict[str, dict[str, int]] = {}
     for batch in files.scan(market, market_day, "bar", symbols, first_close, first_close + len(days) * DAY_MS + MINUTE):
         marks = batch.filter(pc.equal(batch.column("price_type"), "MARK"))
         found = marks.filter(pa.array(marks.column("ts_open").to_numpy() % DAY_MS == CLOSE_OFFSET_MS))
         for symbol, ts_open, close in zip(*(found.column(name).to_pylist() for name in ("symbol", "ts_open", "close")),
                                           strict=True):
-            closes.setdefault(symbol, {})[series.ms_day(ts_open).isoformat()] = close
+            closes.setdefault(symbol, {})[clock.ms_day(ts_open).isoformat()] = close
     return {**returns_from(closes, members, days), "market_day": market_day, "universe_rule": universe_rule}
 
 
@@ -109,9 +111,9 @@ def stored_bars(profile: dict, at: str | None, symbol: str, price_type: str, tim
     coverage._interval(start_ms, end_ms)
     step = STEPS[timeframe]
     if timeframe == "1d" and (start_ms % DAY_MS or end_ms % DAY_MS):
-        raise _refuse(f"[{start}, {end}) is not whole UTC days", "INTERVAL_INVALID", missing=("start", "end"))
+        raise refuse("INTERVAL_INVALID", f"[{start}, {end}) is not whole UTC days", missing=("start", "end"))
     if timeframe == "1d" and price_type != "LAST":
-        raise _refuse(f"daily bars are LAST bars, not {price_type}", "INTERVAL_INVALID", missing=("price_type",))
+        raise refuse("INTERVAL_INVALID", f"daily bars are LAST bars, not {price_type}", missing=("price_type",))
     stop = end_ms if limit is None else min(end_ms, start_ms + limit * step)
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, at)

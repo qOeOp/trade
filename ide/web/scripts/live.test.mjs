@@ -15,7 +15,7 @@ async function page(stored = null, views = []) {
     fetch: (url) => new Promise((resolve) => requests.push({ url, resolve })),
     EventSource: class { constructor(url) { events = this; urls.push(url); streams++; this.closed = false; } close() { this.closed = true; streams--; } },
   });
-  const live = await namespace("live.ts", { context, sources: ["lib/lines"], packages: [], stubs: {
+  const live = await namespace("live.ts", { context, sources: ["lib/lines", "lib/transport"], packages: [], stubs: {
     "state/researchLines": { readResearchLines: () => Promise.resolve(), researchLines: { get: () => ({ lines: [] }) } },
     "lib/storage": {
       keep: (kind, key, value) => { kept.push([kind, key, value.scope.ledger_commit, value.scope.drawn_commit]); return Promise.resolve(); },

@@ -6,6 +6,7 @@ needs it."""
 
 from __future__ import annotations
 
+from datetime import date
 import itertools
 import json
 import os
@@ -16,6 +17,7 @@ from unittest import mock
 
 from engine.live_venue import MANIFEST_FORMAT
 from live import compare, daily, state
+from shared import clock
 from shared.refusals import refuse
 from tests.live.test_compare import MINUTE, RESTART, START, Pack, restart
 from tests.live.durable import assert_durable_replace
@@ -63,13 +65,13 @@ class Daily(unittest.TestCase):
                 "measures": found.get("measures", measures()), "unexplained": found.get("unexplained", [])}
 
     def day(self, today: str = TODAY) -> dict | None:
-        record = daily.compare_run(self.root, {}, self.pack.run_id, daily._ns(today), self.root / "out")
+        record = daily.compare_run(self.root, {}, self.pack.run_id, clock.day_ns(date.fromisoformat(today)), self.root / "out")
         if record is not None:
             daily._write(self.root, self.pack.run_id, record)
         return record
 
     def test_a_running_run_compares_every_trading_start_in_the_week_to_yesterday_cut_at_its_end(self):
-        bound = daily._ns(TODAY)
+        bound = clock.day_ns(date.fromisoformat(TODAY))
         self.results = {1: {"measures": measures(fills=1, slippage=2.0, held=(5,), equity=("1", "2"))},
                         2: {"measures": measures(fills=3, slippage=6.0, held=(1, 9), equity=("2", "0")),
                             "unexplained": [{"at": "b", "at_ns": RESTART + MINUTE, "class": "run_only"},
@@ -89,7 +91,7 @@ class Daily(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
 
     def test_the_record_is_replaced_durably(self):
-        record = daily.compare_run(self.root, {}, self.pack.run_id, daily._ns(TODAY), self.root / "out")
+        record = daily.compare_run(self.root, {}, self.pack.run_id, clock.day_ns(date.fromisoformat(TODAY)), self.root / "out")
         assert_durable_replace(self, self.root / "runs" / self.pack.run_id / daily.RECORD,
                                lambda: daily._write(self.root, self.pack.run_id, record))
 
@@ -100,7 +102,7 @@ class Daily(unittest.TestCase):
         self.status = {"state": "clean_stopped", "mode": "run"}
         os.remove(self.root / "runs" / self.pack.run_id / daily.RECORD)
         self.day("2026-11-13")  # ended on 11-11: compared to the end of that day, not yesterday
-        self.assertEqual({call[2] for call in self.calls}, {daily._ns("2026-11-12")})
+        self.assertEqual({call[2] for call in self.calls}, {clock.day_ns(date.fromisoformat("2026-11-12"))})
 
     def test_an_uncovered_day_waits_and_is_tried_again_and_an_empty_one_is_final(self):
         self.results = {1: refuse("LIVE_COMPARE_UNCOVERED", "not yet")}
@@ -123,7 +125,7 @@ class Daily(unittest.TestCase):
         self.assertEqual((record["state"], record["failures"]), ("done", 0))
 
     def test_a_decision_already_reported_is_not_reported_again(self):
-        late = {"at": "late", "at_ns": daily._ns("2026-11-12") + DAY // 2, "class": "replay_only"}
+        late = {"at": "late", "at_ns": clock.day_ns(date.fromisoformat("2026-11-12")) + DAY // 2, "class": "replay_only"}
         early = {"at": "early", "at_ns": START + MINUTE, "class": "run_only"}
         self.results = {2: {"unexplained": [early]}}
         self.assertEqual(self.day()["unexplained_count"], 1)
@@ -196,7 +198,8 @@ class Container(unittest.TestCase):
                                 "CapAdd": ["DAC_READ_SEARCH"], "SecurityOpt": ["no-new-privileges:true"]}}
 
     def test_the_comparison_container_is_the_controls_own_with_its_own_limits(self):
-        argv = daily.launch_argv(self.INSPECTED, Path("/srv/live"), Path("/srv/market"), TODAY)
+        argv = daily.launch_argv(self.INSPECTED, "trade-live-daily", [
+            "live", "compare-daily", "--root", "/srv/live", "--market-root", "/srv/market", "--today", TODAY])
         self.assertEqual(argv[:4], ["docker", "run", "--rm", "--init"])
         pairs = list(itertools.pairwise(argv))
         for pair in (("--volumes-from", "c0ffee"), ("--network", "trade-backend"), ("--memory", "2g"),
@@ -210,7 +213,7 @@ class Container(unittest.TestCase):
             "--root", "/srv/live", "--market-root", "/srv/market", "--today", TODAY])
 
     def test_it_starts_from_half_past_midnight_at_most_once_an_hour(self):
-        midnight = daily._ns(TODAY)
+        midnight = clock.day_ns(date.fromisoformat(TODAY))
         minute = 60 * 10**9
         self.assertFalse(daily.due(midnight + 29 * minute, None))
         self.assertTrue(daily.due(midnight + 31 * minute, None))
@@ -250,7 +253,7 @@ class Needed(unittest.TestCase):
 
     def hours(self) -> int:
         """`docker run`s of the comparer looking once a minute from midnight to 03:00."""
-        last, midnight = None, daily._ns(TODAY)
+        last, midnight = None, clock.day_ns(date.fromisoformat(TODAY))
         for minute in range(3 * 60):
             last = daily.tick(self.root, Path("/market"), midnight + minute * 60 * 10**9, last)
         return len(self.started)

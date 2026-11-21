@@ -65,6 +65,7 @@ class _LiveConfigured(history.Warming, metrics.Feed):
         self._replay_input_start_ns = kwargs["trade_start_ns"]
         self._live_cadence = Cadence()
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
+        strategy_runtime.STRATEGIES[str(args[0])] = self  # type: ignore[assignment]  # self is a combined Strategy subclass
 
     def _metrics_unfollow(self, instrument_id: str) -> None:
         """An unsubscribe of metrics the source followed goes to the evidence pack: `live compare` expects no row after
@@ -307,10 +308,6 @@ def _own_denial(method, hook):
 def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str = "engine.live") -> dict:
     """One instance of the source per contract of the run, each trading only its own (the user, 2026-11-13): symbol ->
     instance. Instances coordinate through state the source shares between them, as in a replay."""
-    history.clear()  # one Live source per process; its node adds the warm-up actor after its instances
-    # Metrics of the run's contracts come from REST (engine.metrics.Feed); trades are served nowhere in Live.
-    strategy_runtime.SERVED["Metrics"].clear()
-    strategy_runtime.SERVED["Metrics"].update(str(contract(symbol)) for symbol in session.manifest["symbols"])
     callbacks = strategy_runtime.guarded_callbacks(loaded.strategy_class)
     funding = callbacks.get("on_funding_rate")
     # The settlement of T's hour reaches the source as the stream's would, past the cadence (engine.history, step 6).

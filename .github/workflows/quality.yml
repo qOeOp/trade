@@ -104,6 +104,7 @@ jobs:
           fi
 
   # Every PR, eval-only ones included (docs/plans/skill-continuous-audit.zh.md); a push to main has no base to compare.
+  # The conflict-marker check rides here because this job runs on every event.
   skill-names:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -112,6 +113,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: No tracked text file holds a merge conflict marker
+        run: python3 .github/scripts/conflict-markers.py
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
       - run: uv python install 3.14
       - run: uv sync --frozen

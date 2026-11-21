@@ -2,6 +2,7 @@
 // the model chosen for the next message (kept in browser storage), which pane the panel shows, and
 // the open thread's controls, registered by the chat runtime.
 import { agentApi, type Agent, type Provider } from "../lib/agentApi";
+import { pageFetch } from "../lib/transport";
 import { whileVisible } from "../lib/whileVisible";
 import { atom, persistedAtom, useAtom } from "./atom";
 
@@ -44,7 +45,7 @@ export async function refreshAgents(): Promise<void> {
  *  again every 30 s while the page shows, so the Agent window comes back without a reload. Only a 404 says there is none. */
 export async function detectAgentService(): Promise<void> {
   const ask = async () => {
-    const health = await fetch("/api/agent/health", { cache: "no-store" }).catch(() => null);
+    const health = await pageFetch("/api/agent/health", { cache: "no-store" }).catch(() => null);
     if (health?.status === 404) return agentService.set("absent");
     const listed = health?.ok && await refreshAgents().then(() => true, () => false);
     agentService.set(listed ? "present" : "offline");

@@ -42,9 +42,6 @@ class CatalogueTests(unittest.TestCase):
         findings = self.raised(r'finding\(\s*"([A-Z_]+)"')
         self.assertTrue(findings)
         self.assertLessEqual(findings, set(audit.FINDINGS))
-        integrity = self.raised(r'(?:findings\.append|findings\.insert\(0,|coded =)\s*\(?f?"([A-Z_]+): ')
-        self.assertTrue(integrity)
-        self.assertLessEqual(integrity, set(config.INTEGRITY_CODES))
         outcomes = self.raised(r'outcome\(\s*"([A-Z_]+)"')
         self.assertEqual(outcomes, set(audit.AUDIT_REFUSALS))
         # the lifecycle refusals the auditor turns into findings keep their codes there

@@ -24,6 +24,7 @@ import numpy.typing as npt
 from ledger import db, metrics
 from registration import duties
 from report import profit
+from shared import clock
 
 
 HOUR_NS = 3_600 * 10**9
@@ -132,7 +133,7 @@ def facts_of(loaded: Mapping) -> dict:
             "evidence": loaded["evidence"], "returns": returns, "cycles": loaded["cycles"],
             "native_economics": profit.native_economics(capture), "effective_config": dict(config),
             "starting_balance": starting, "final_equity": final_equity(starting, returns),
-            "trade_start_ns": metrics.moment_ns(trial["trade_start"]), "trade_end_ns": metrics.moment_ns(trial["trade_end"]),
+            "trade_start_ns": clock.moment_ns(trial["trade_start"]), "trade_end_ns": clock.moment_ns(trial["trade_end"]),
             "input_identity": (capture.get("start") or {}).get("input_identity") or {}}
 
 

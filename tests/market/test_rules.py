@@ -16,7 +16,8 @@ import numpy as np
 import pyarrow as pa
 
 from market import coverage, export, instrument, read, series, sources, store, universe
-from market.sources import MarketError
+from shared.errors import Refusal
+from shared import clock
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving
 
 
@@ -37,7 +38,7 @@ def bars(rows):
 
 class Refusals(unittest.TestCase):
     def refused(self, code: str, call, *args, **kwargs):
-        with self.assertRaises(MarketError) as caught:
+        with self.assertRaises(Refusal) as caught:
             call(*args, **kwargs)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
         return caught.exception
@@ -404,7 +405,7 @@ class UniverseTests(Refusals):
     def test_member_months_merge_into_intervals(self):
         paths = universe.merge_months([(date(2025, 12, 1), "A"), (date(2026, 1, 1), "A"), (date(2026, 3, 1), "A"),
                                        (date(2025, 12, 1), "B")])
-        ns = universe._month_ns
+        ns = clock.day_ns
         self.assertEqual(paths["A"], [[ns(date(2025, 12, 1)), ns(date(2026, 2, 1))],
                                       [ns(date(2026, 3, 1)), ns(date(2026, 4, 1))]])
         self.assertEqual(paths["B"], [[ns(date(2025, 12, 1)), ns(date(2026, 1, 1))]])

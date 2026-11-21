@@ -16,6 +16,7 @@ import unittest
 from unittest import mock
 
 from ledger import db, paper, strategies
+from shared import clock
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, DAY, SKIP, Service, sha, source
 from tests.helpers import refused
@@ -217,7 +218,7 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual((audited["input_start_utc"], audited["period_end_utc"]),
                          ("2026-10-25T23:58:00Z", "2026-10-26T00:02:00Z"))  # asked at 00:01:01
         self.assertEqual(coverage["membership"]["membership"],
-                         {"BTCUSDT": [[START, month]], "ETHUSDT": [[month, paper._month_end(month)]]})
+                         {"BTCUSDT": [[START, month]], "ETHUSDT": [[month, clock.month_end(month // clock.MS_NS) * clock.MS_NS]]})
         self.assertEqual((audited["closed_trades"], audited["winning_trades"], audited["denied_orders"],
                           audited["integrity_passed"], audited["final_equity_usdt"]), (1, 1, 1, True, "99990.00000000"))
         self.assertEqual(coverage["export_receipts"]["ETHUSDT"]["assumed"], {"maker_fee": "0.0002", "taker_fee": "0.0005"})

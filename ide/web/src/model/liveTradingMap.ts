@@ -5,7 +5,7 @@ import type { LiveAccountCheck, LiveEvidenceRead, LiveFact, LiveRun, LiveSource,
 
 const yesNo = (value: boolean | null | undefined) => value == null ? null : value ? "Yes" : "No";
 const fact = (label: string, value: string | null, format?: LiveFact["format"]): LiveFact => ({ label, value, ...format ? { format } : {} });
-// The host states of an ended run (live/runs.py ENDED; engine/README.md): no runner is left to stop. An
+// The host states of an ended run (live/runs.py ENDED; live/README.md): no runner is left to stop. An
 // unresolved run is not one, since its recovery begins with a stop.
 const ENDED = new Set(["clean_stopped", "reconciled_flat", "venue_flat", "not_armed", "preflight_complete", "preflight_failed"]);
 

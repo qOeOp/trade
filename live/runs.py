@@ -8,6 +8,7 @@ up its containers and network; its directory remains the execution record.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
 import hashlib
 from datetime import UTC, datetime
@@ -22,7 +23,7 @@ from ledger import db, strategies
 from shared.errors import Refusal
 from runtime import image
 from live import host as host_runtime
-from live import configuration, key, requests, state
+from live import admission, configuration, key, requests, state
 
 
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
@@ -32,7 +33,7 @@ VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, pass
 FLAT = {"clean_stop": "clean_stopped", "reconciled_flat": "reconciled_flat", "venue_flat": "venue_flat"}
 ENDED = {*FLAT.values(), "not_armed", "preflight_complete", "preflight_failed"}
 UNRESOLVED_NOTE = ("Exposure may remain at Binance and nothing will close it: follow 'Unresolved Live runs' in "
-                   "engine/README.md now (live stop, close and cancel at Binance, then Reconcile account on the "
+                   "live/README.md now (live stop, close and cancel at Binance, then Reconcile account on the "
                    "Live page).")
 REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
 # The runner's events that end a run (engine.live.ENDED_EVENTS). An armed run whose latest start ended in none of them,
@@ -343,16 +344,12 @@ def _candidate(research: db.LedgerProfile, research_at: str, candidate: str, sou
     return found
 
 
-# What --describe reports of the replay closure: equal values mean the same replay code (R2, user 2026-11-12).
-REPLAY_CODE = ("source_files_sha256", "audit_source_sha256", "dependency_lock_sha256")
-
-
 def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, symbols: list[str],
               inspection: dict, runner_args: list[str]) -> list[dict]:
     """The replays at research_at that back running this source live: on exactly Live's instruments, in the bars
     environment, either a passed sealed run or a completed explore whose audit passed (`replay explore` of the
     candidate at the wallet's balance) trading only inside a research trial's window of this source (a window it
-    already saw: no new exposure, no holdout spent), on an image whose replay code (REPLAY_CODE) equals this
+    already saw: no new exposure, no holdout spent), on an image whose replay code (admission.REPLAY_CODE) equals this
     execution image's. A sealed run on other replay code still counts through an explore that reproduces it on
     matching code."""
     from ledger import execution
@@ -387,11 +384,8 @@ def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, 
 
     def same_code(image_ref: str) -> bool:
         if image_ref not in described:
-            try:
-                found = image.inspect_runtime(image.resolve(image_ref), runner_args)
-                described[image_ref] = all(found[name] == inspection[name] for name in REPLAY_CODE)
-            except Refusal:
-                described[image_ref] = False  # an image that cannot be read now backs nothing
+            described[image_ref] = (admission.replay_code(image_ref, runner_args)
+                                  == {name: inspection[name] for name in admission.REPLAY_CODE})
         return described[image_ref]
 
     result = []
@@ -422,10 +416,13 @@ def replay_evidence(research: db.LedgerProfile, research_at: str, source_sha256:
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: Path, credentials: Path, runtime: str, *,
                     drawdown_brake: str, duration_seconds: int | None, memory: str, leverage: str,
-                    market_root: Path, credential_ref: str, source_sha256: str | None = None,
-                    request_id: str | None = None, recover_partial: bool = False) -> dict:
+                    market_root: Path, credential_ref: str, reconciled: Callable[[str, list[str]], None],
+                    source_sha256: str | None = None, request_id: str | None = None,
+                    recover_partial: bool = False) -> dict:
     """Capture immutable source inputs using the reader, before any account effect. The source is the candidate's
-    own, read from the ledger; `source_sha256`, when the request froze it, must be that candidate's."""
+    own, read from the ledger; `source_sha256`, when the request froze it, must be that candidate's. `reconciled`
+    (live.reconcile.require) refuses LIVE_PAPER_UNRECONCILED unless a Paper run of the source on the contracts
+    reconciles with its replay."""
     requests.require_clear(root, request_id)
     directory = state.directory(root, run_id)
     bound_prepared = _bound_credential(root, run_id, directory, credentials, "preflight", request_id)
@@ -492,12 +489,14 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     image.require_main_build(identity, inspection)
     if found["runtime_contract"] != identity["runtime_contract"]:
         raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
+    admission.unfalsified(research, research_at, found["source_sha256"])
     evidence = _evidence(research, research_at, found["source_sha256"], symbols, inspection, describe)
     if not evidence:
         raise state.fail("LIVE_EVIDENCE_MISSING", "no passed run, or audited explore inside a research window, of this "
                                                   "source on these instruments in bars runs the replay code of this "
                                                   "execution image; replay it at the wallet's balance on a matching "
                                                   "replay image (engine/README.md)")
+    reconciled(found["source_sha256"], symbols)
     market = _market_terms(market_root, symbols)
     source_bytes = found["source"]
     key = hashlib.sha256(run_id.encode()).hexdigest()[:12]
@@ -540,14 +539,13 @@ def _market_terms(market_root: Path, symbols: list[str]) -> dict:
     """The market's latest market day and each contract's terms there, which the runner compares with exchangeInfo
     before each entry (TERMS_CHANGED)."""
     from market import files, instrument
-    from market.sources import MarketError
     try:
         opened = files.open_market({"root": str(market_root)}, "reader")
         market_day = files.resolve_day(opened, None)
         return {"market_day": market_day,
                 "terms": {symbol: instrument.terms(opened, market_day, symbol) for symbol in symbols}}
-    except MarketError as exc:
-        raise state.fail("LIVE_MARKET_TERMS", str(exc)) from None
+    except Refusal as exc:
+        raise state.fail("LIVE_MARKET_TERMS", exc.message) from None
 
 
 def require_frozen_prepare(root: Path, request_id: str, manifest: dict, research_at: str, candidate: str,

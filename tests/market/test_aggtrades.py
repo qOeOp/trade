@@ -19,6 +19,7 @@ import numpy as np
 
 from cli import main
 from market import aggtrades as trades, export, files, sources, store
+from shared.errors import Refusal
 from tests.market.directory import directory, read, seed
 from tests.market.exchange import aggtrades_csv, day_ms, zipped
 from tests.helpers import refused
@@ -55,11 +56,11 @@ class CodecTests(unittest.TestCase):
             self.assertEqual(trades.scaled('12345.12345678', 'price'), 1234512345678)
         for text in ('0.000000001', '92233720368.54775808', '100000000000000000000000000000.00000001',
                      '1E+1000000000', '1E-1000000000'):
-            with self.subTest(text=text), self.assertRaises(sources.MarketError) as caught:
+            with self.subTest(text=text), self.assertRaises(Refusal) as caught:
                 trades.scaled(text, 'price')
             self.assertEqual(caught.exception.code, 'SCALE_LOSS')
         for text in ('NaN', 'Infinity', '-1', '0', 'oops'):
-            with self.subTest(text=text), self.assertRaises(sources.MarketError) as caught:
+            with self.subTest(text=text), self.assertRaises(Refusal) as caught:
                 trades.scaled(text, 'quantity')
             self.assertEqual(caught.exception.code, 'SOURCE_SHAPE')
 
@@ -78,7 +79,7 @@ class CodecTests(unittest.TestCase):
                 for text in spellings:
                     self.assertEqual(trades.scaled(text, "price"), integer, text)
                 finer = f"{value:.8f}{draw.randint(1, 9)}"
-                self.assertEqual(refused(trades.scaled, finer, "price", error=sources.MarketError).code, "SCALE_LOSS",
+                self.assertEqual(refused(trades.scaled, finer, "price", error=Refusal).code, "SCALE_LOSS",
                                  finer)
 
     def test_stream_retains_every_field_equal_timestamps_headers_and_no_header(self):
@@ -99,11 +100,11 @@ class CodecTests(unittest.TestCase):
                                             ((1, 2), (10, -1), 'SOURCE_SHAPE')]:
                 rows = [(i, '100', '0.1', i, i, START + t, True) for i, t in zip(identities, times, strict=True)]
                 path = archive(temp, '2025-01-01', rows)
-                with self.subTest(identities=identities, times=times), self.assertRaises(sources.MarketError) as caught:
+                with self.subTest(identities=identities, times=times), self.assertRaises(Refusal) as caught:
                     list(trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(), {}, size=1))
                 self.assertEqual(caught.exception.code, code)
             path = archive(temp, '2025-01-01', source_rows(START, 7))
-            with self.assertRaises(sources.MarketError) as caught:
+            with self.assertRaises(Refusal) as caught:
                 list(trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(5, START - 1), {}, size=1))
             self.assertEqual(caught.exception.code, 'SEQUENCE_GAP')
 
@@ -119,7 +120,7 @@ class CodecTests(unittest.TestCase):
             for second in [(1, '100', '0.1', 1, 1, START + 10, True), (1, '101', '0.2', 3, 3, START + 10, False),
                            (1, '101', '0.2', 1, 1, START + 11, False)]:
                 path = archive(temp, '2025-01-01', [rows[0], second])
-                with self.subTest(second=second), self.assertRaises(sources.MarketError) as caught:
+                with self.subTest(second=second), self.assertRaises(Refusal) as caught:
                     list(trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(), {}, size=1))
                 self.assertEqual(caught.exception.code, 'SEQUENCE_GAP')
 
@@ -215,7 +216,7 @@ class CompleteImportTests(unittest.TestCase):
         self.assertEqual(stored(profile, JAN.isoformat()), [row for row in self.expected if row[1] < START + store.DAY])
         self.assertEqual(trade_files(profile), ['2025-01/BTCUSDT.parquet'])
         self.assertEqual(refused(trades.import_month, profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None,
-                                 error=sources.MarketError).code, 'MONTH_EXISTS')
+                                 error=Refusal).code, 'MONTH_EXISTS')
 
     def test_late_gap_or_precision_failure_writes_nothing_and_the_import_lock_is_shared(self):
         profile = self.market()
@@ -229,13 +230,13 @@ class CompleteImportTests(unittest.TestCase):
                 else:
                     rows[1] = (rows[1][0], rows[1][1], '0.000000001', *rows[1][3:])
                 archive(temp, '2025-01-31', rows)
-                with self.subTest(bad=bad), self.assertRaises(sources.MarketError) as caught:
+                with self.subTest(bad=bad), self.assertRaises(Refusal) as caught:
                     trades.import_month(profile, JAN, Path(temp), ['BTCUSDT'], log=lambda _: None)
                 self.assertEqual(caught.exception.code, code)
             self.assertEqual(trade_files(profile), [])
         with files.lock(files.open_market(profile, 'import')):
             self.assertEqual(refused(trades.import_month, profile, JAN, self.cache, ['BTCUSDT'],
-                                     error=sources.MarketError).code, 'CONCURRENT_IMPORT')
+                                     error=Refusal).code, 'CONCURRENT_IMPORT')
 
     def test_contracts_of_one_month_are_written_at_once_one_file_each_and_a_refusal_keeps_the_others(self):
         days = list(enumerate(range(START - store.DAY, day_ms(date(2025, 2, 1)), store.DAY)))
@@ -249,7 +250,7 @@ class CompleteImportTests(unittest.TestCase):
                         rows[1] = (99, *rows[1][1:])
                     archive(temp, datetime.fromtimestamp(at / 1000, UTC).date().isoformat(), rows, symbol='ETHUSDT')
                 if bad:
-                    with self.assertRaises(sources.MarketError) as caught:
+                    with self.assertRaises(Refusal) as caught:
                         trades.import_month(profile, JAN, Path(temp), ['ETHUSDT', 'BTCUSDT'], log=lambda _: None)
                 else:
                     imported = trades.import_month(profile, JAN, Path(temp), ['ETHUSDT', 'BTCUSDT'], log=lambda _: None)
@@ -273,7 +274,7 @@ class CompleteImportTests(unittest.TestCase):
             for index, at in enumerate(range(START - store.DAY, day_ms(date(2025, 2, 1)), store.DAY)):
                 archive(temp, datetime.fromtimestamp(at / 1000, UTC).date().isoformat(), source_rows(at, 1 + index * 2),
                         symbol='ETHUSDT')
-            with self.assertRaises(sources.MarketError) as caught:
+            with self.assertRaises(Refusal) as caught:
                 trades.import_month(profile, JAN, Path(temp), ['ETHUSDT', 'BTCUSDT'], log=lambda _: None)
         self.assertEqual(caught.exception.code, 'MONTH_EXISTS')
         self.assertIn('written meanwhile: ETHUSDT', caught.exception.message)
@@ -325,7 +326,7 @@ class StoredTradeExportTests(unittest.TestCase):
         coarse = self.imported('0.001')
         self.assertEqual(refused(export.export_catalogs, coarse, None, ['BTCUSDT'], low, high, fresh=True,
                                  root=Path(self.temp.name), workers=1, include_trades=True,
-                                 error=sources.MarketError).code, 'TRADE_INEXACT')
+                                 error=Refusal).code, 'TRADE_INEXACT')
 
 if __name__ == '__main__':
     unittest.main()

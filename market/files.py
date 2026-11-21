@@ -30,9 +30,10 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from market import series, universe
-from market.sources import DAY, _refuse
-from shared import paths, profiles
+from market import universe
+from market.sources import DAY
+from shared import clock, paths, profiles
+from shared.refusals import refuse
 
 
 ROW_GROUP = 1_000_000  # rows per row group, fixed so the same rows give the same bytes however they were batched
@@ -209,10 +210,10 @@ def open_market(profile: dict, role: Literal["import", "reader"]) -> Market:
     if role not in ("import", "reader"):
         raise ValueError(f"role {role!r} is not import or reader")
     if not profile.get("root"):
-        raise _refuse("the market profile names no market directory (root)", "MARKET_UNREACHABLE")
+        raise refuse("MARKET_UNREACHABLE", "the market profile names no market directory (root)")
     root = Path(profile["root"])
     if not root.is_dir():
-        raise _refuse(f"the market directory {root} does not exist", "MARKET_UNREACHABLE", missing=(str(root),))
+        raise refuse("MARKET_UNREACHABLE", f"the market directory {root} does not exist", missing=(str(root),))
     return Market(root=root, role=role)
 
 
@@ -226,7 +227,7 @@ def relative_path(table: str, month: date | None, symbol: str | None = None) -> 
 
 
 def data_file(table: str, month: date | None, symbol: str | None = None) -> DataFile:
-    low, high = (series._day_ms(month), series._day_ms(universe.next_month(month))) if month is not None else (0, FOREVER)
+    low, high = (clock.day_ms(month), clock.day_ms(clock.next_month(month))) if month is not None else (0, FOREVER)
     return DataFile(relative_path(table, month, symbol), table, symbol, low, high)
 
 
@@ -284,8 +285,8 @@ def parse_day(market_day: str) -> date | None:
 
 def check_day(market_day) -> str:
     if parse_day(market_day) is None:
-        raise _refuse(f"{market_day!r} is not a resolved market day", "MARKET_DAY_UNRESOLVED",
-                      missing=(str(market_day),))
+        raise refuse("MARKET_DAY_UNRESOLVED", f"{market_day!r} is not a resolved market day",
+                     missing=(str(market_day),))
     return market_day
 
 
@@ -303,7 +304,7 @@ def last_day(market: Market, table: str) -> date | None:
     for entry in reversed(entries(market, table)):
         moment = last_time(market, entry)
         if moment is not None:
-            return series.ms_day(moment)
+            return clock.ms_day(moment)
     return None
 
 
@@ -313,7 +314,7 @@ def bar_months_through(market: Market) -> dict[date, date]:
     for entry in entries(market, "bar"):
         moment = last_time(market, entry)
         if moment is not None:
-            found[series.ms_day(entry.start_ms)] = series.ms_day(moment) + timedelta(days=1)
+            found[clock.ms_day(entry.start_ms)] = clock.ms_day(moment) + timedelta(days=1)
     return found
 
 
@@ -324,13 +325,13 @@ def followed_metrics(market: Market) -> dict[str, date]:
     held = entries(market, "metrics")
     if not held:
         return {}
-    since = series._day_ms((series.ms_day(held[-1].start_ms) - timedelta(days=1)).replace(day=1))
+    since = clock.day_ms((clock.ms_day(held[-1].start_ms) - timedelta(days=1)).replace(day=1))
     latest: dict[str, date] = {}
     for entry in held:
         moment = last_time(market, entry) if entry.start_ms >= since else None
         if moment is not None:
             symbol = str(entry.symbol)
-            latest[symbol] = max(latest.get(symbol, series.ms_day(moment)), series.ms_day(moment))
+            latest[symbol] = max(latest.get(symbol, clock.ms_day(moment)), clock.ms_day(moment))
     return latest
 
 
@@ -349,7 +350,7 @@ def latest_day(market: Market) -> date | None:
     metrics = _metrics_day(market)
     day = bars if metrics is None else min(bars, metrics)
     after = day + timedelta(days=1)
-    if after.day == 1 and not entries(market, "universe_month", None, series._day_ms(after), series._day_ms(universe.next_month(after))):
+    if after.day == 1 and not entries(market, "universe_month", None, clock.day_ms(after), clock.day_ms(clock.next_month(after))):
         return day - timedelta(days=1)
     return day
 
@@ -363,15 +364,15 @@ def resolve_day(market: Market, ref: str | None) -> str:
     if ref is None or ref in ("", "head"):
         market_day = latest_market_day(market)
         if market_day is None:
-            raise _refuse("the market holds no bars yet", "MARKET_EMPTY")
+            raise refuse("MARKET_EMPTY", "the market holds no bars yet")
         return market_day
     day = parse_day(ref)
     if day is None:
-        raise _refuse(f"{ref!r} is not head or a market day (YYYY-MM-DD)", "MARKET_DAY_UNRESOLVED", missing=(ref,))
+        raise refuse("MARKET_DAY_UNRESOLVED", f"{ref!r} is not head or a market day (YYYY-MM-DD)", missing=(ref,))
     latest = latest_day(market)
     if latest is None or day > latest:
-        raise _refuse(f"{ref!r} is after the newest day this market holds, {latest}", "MARKET_DAY_UNRESOLVED",
-                      missing=(ref,))
+        raise refuse("MARKET_DAY_UNRESOLVED", f"{ref!r} is after the newest day this market holds, {latest}",
+                     missing=(ref,))
     return ref
 
 
@@ -390,10 +391,10 @@ def day_end(table: str, market_day: str) -> int:
     then)."""
     day = parse_day(market_day)
     if day is None:
-        raise _refuse(f"{market_day!r} is not a market day", "MARKET_DAY_UNRESOLVED", missing=(str(market_day),))
+        raise refuse("MARKET_DAY_UNRESOLVED", f"{market_day!r} is not a market day", missing=(str(market_day),))
     if table == "universe_month":
-        return series._day_ms(universe.next_month((day + timedelta(days=1)).replace(day=1)))
-    return series._day_ms(day) + (2 if table == "instrument" else 1) * DAY
+        return clock.day_ms(clock.next_month((day + timedelta(days=1)).replace(day=1)))
+    return clock.day_ms(day) + (2 if table == "instrument" else 1) * DAY
 
 
 def _visible(table: str, market_day: str | None, end_ms: int | None) -> int | None:
@@ -480,7 +481,7 @@ def lock(market: Market) -> Iterator[None]:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise _refuse(f"another import holds the lock of {market.root}", "CONCURRENT_IMPORT") from None
+            raise refuse("CONCURRENT_IMPORT", f"another import holds the lock of {market.root}") from None
         for leftover in market.root.rglob(".*.tmp"):
             leftover.unlink(missing_ok=True)
         market.pending, market.seen = {}, {}
@@ -524,7 +525,7 @@ def check_rows(table: str, definition: Table, batch: pa.RecordBatch, symbol: str
     def fail(rule: str, rows: pa.Array) -> None:
         index = pc.index(rows, False).as_py()
         key = {name: batch.column(name)[index].as_py() for name in definition.key}
-        raise _refuse(f"{table} row {key} breaks {rule}", "CHECK_FAILED", missing=(table,))
+        raise refuse("CHECK_FAILED", f"{table} row {key} breaks {rule}", missing=(table,))
 
     for name in definition.schema.names:
         if not definition.schema.field(name).nullable and batch.column(name).null_count:
@@ -570,16 +571,16 @@ def write_file(market: Market, table: str, month: date | None, symbol: str | Non
 
             for batch in batches:
                 if (batch.schema.names, batch.schema.types) != (definition.schema.names, definition.schema.types):
-                    raise _refuse(f"{table} rows have columns {batch.schema.names} {batch.schema.types}, "
-                                  f"the table has {definition.schema.names} {definition.schema.types}",
-                                  "CHECK_FAILED", missing=(table,))
+                    raise refuse("CHECK_FAILED",
+                                 f"{table} rows have columns {batch.schema.names} {batch.schema.types}, "
+                                 f"the table has {definition.schema.names} {definition.schema.types}", missing=(table,))
                 batch = pa.RecordBatch.from_arrays(batch.columns, schema=definition.schema)
                 check_rows(table, definition, batch, symbol, entry.start_ms, entry.end_ms)
                 bad = first_out_of_order(previous, batch, definition.key)
                 if bad is not None:
                     key = {name: batch.column(name)[bad].as_py() for name in definition.key}
-                    raise _refuse(f"{table} row {key} does not follow the row before it in key order",
-                                  "CHECK_FAILED", missing=(table,))
+                    raise refuse("CHECK_FAILED",
+                                 f"{table} row {key} does not follow the row before it in key order", missing=(table,))
                 if batch.num_rows:
                     previous = batch
                     pending.append(batch)
@@ -606,7 +607,7 @@ def place(market: Market, written: Iterable[Written]) -> None:
     items = list(written)
     for item in items:
         if _stamp(market.root / item.relative) != item.stamp:
-            raise _refuse(f"{item.relative} changed under this import", "CONCURRENT_IMPORT", missing=(item.relative,))
+            raise refuse("CONCURRENT_IMPORT", f"{item.relative} changed under this import", missing=(item.relative,))
     for item in items:
         target = market.root / item.relative
         os.replace(item.temporary, target)
@@ -624,7 +625,7 @@ def data_tests(market: Market) -> list[str]:
     latest = pc.max(months.column("month")).as_py()
     newest = months.filter(pc.equal(months.column("month"), pa.scalar(latest, pa.date32())))
     members = sorted(set(newest.column("symbol").to_pylist()))
-    eve = series._day_ms(latest) - DAY
+    eve = clock.day_ms(latest) - DAY
     traded = set()
     for batch in read_table(market, None, "bar", members, eve, eve + DAY):
         minute = pa.array(batch.column("ts_open").to_numpy(zero_copy_only=False) % 60_000 == 0)
@@ -653,22 +654,23 @@ def init_market(name: str, root: Path, kind: str) -> dict:
     """An empty market directory (its lock alone: the first import writes the first file) and its profile
     {name, holds: market, kind, root} in the profile directory."""
     if not isinstance(name, str) or not profiles.NAME.fullmatch(name) or kind not in profiles.KINDS:
-        raise _refuse("the profile name or kind is malformed", "INVALID_NAME", missing=(str(name), str(kind)))
+        raise refuse("INVALID_NAME", "the profile name or kind is malformed", missing=(str(name), str(kind)))
     root = Path(root).expanduser().absolute()
     path = profiles.new_file(name)
     markets = [value for value in profiles.entries().values() if value.get("holds") == "market"]
     active = [value for value in markets if value.get("kind") == "active" and value.get("root")]
     if kind == "active" and active:
-        raise _refuse("an active market directory already exists; there is only one", "MARKET_EXISTS",
-                      missing=(active[0]["root"],))
+        raise refuse("MARKET_EXISTS", "an active market directory already exists; there is only one",
+                     missing=(active[0]["root"],))
     if kind == "active" and (paths.inside(root, paths.REPOSITORY) or paths.is_temporary(root)):
-        raise _refuse("the active market directory lies outside the source checkout and temporary roots",
-                      "ISOLATION_BREACH", missing=(str(root),))
+        raise refuse("ISOLATION_BREACH",
+                     "the active market directory lies outside the source checkout and temporary roots",
+                     missing=(str(root),))
     if kind != "active" and any(paths.inside(root, Path(value["root"])) for value in active):
-        raise _refuse(f"{root} is the active market's directory; use another", "ISOLATION_BREACH",
-                      missing=(str(root),))
+        raise refuse("ISOLATION_BREACH", f"{root} is the active market's directory; use another",
+                     missing=(str(root),))
     if root.exists() and (not root.is_dir() or any(root.iterdir())):
-        raise _refuse(f"{root} is not an empty directory", "MARKET_EXISTS", missing=(str(root),))
+        raise refuse("MARKET_EXISTS", f"{root} is not an empty directory", missing=(str(root),))
     root.mkdir(parents=True, exist_ok=True)
     (root / "lock").touch()
     _sync_dir(root)

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { paperApi } from "../../lib/paperApi";
+import { signedOut } from "../../lib/transport";
 import { SkeletonLines } from "../../components/Missing";
 import { TextButton } from "../../components/TextButton";
 
@@ -24,7 +25,7 @@ export function Logs({ paperId }: { paperId: number }) {
         if (closed) return;
         setError(e instanceof Error ? e.message : String(e));
       }
-      timer = setTimeout(() => void read(), 5000);
+      if (!signedOut()) timer = setTimeout(() => void read(), 5000);
     };
     void read();
     return () => { closed = true; clearTimeout(timer); };

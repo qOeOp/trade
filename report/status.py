@@ -17,8 +17,9 @@ import statistics
 
 import numpy as np
 
-from ledger import db, evidence, judgments, lines, metrics, problems, witness
+from ledger import db, evidence, judgments, lines, problems, witness
 from ledger import targets as line_targets
+from shared import clock
 from shared.errors import Refusal
 from registration import availability, comparability, precheck, register, reproduction
 from report import candidates as report_candidates, comparison, measures, seams
@@ -416,7 +417,7 @@ def multiple_testing(conn: db.LedgerConnection, line: str | int, counted: Iterab
     record, instruments, found = overlap
     research = [trial for trial in found if trial["purpose"] == "research"]
     evidenced = available([trial["trial_id"] for trial in research if trial["status"] not in (None, "invalid")])
-    bounds = {trial["trial_id"]: (metrics.moment_ns(trial["trade_start"]), metrics.moment_ns(trial["trade_end"]))
+    bounds = {trial["trial_id"]: (clock.moment_ns(trial["trade_start"]), clock.moment_ns(trial["trade_end"]))
               for trial in research if trial["trial_id"] in evidenced}
     series: dict[int, dict[int, float]] = {trial_id: {} for trial_id in bounds}
     for trial_id, ts, value in conn.rows_in("SELECT trial_id, ts_event_ns, native_return FROM run_return WHERE "

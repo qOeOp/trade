@@ -130,10 +130,10 @@ class LiveHost:
             raise RuntimeError("Live custody root differs from its product installation")
 
     def prepare(self, owner: str | None, target: dict) -> None:
-        """Build the candidate's snapshot from this host's inputs, creating the custody root on the first pairing.
+        """Build the candidate's snapshot from this host's inputs, creating the custody root on a new host's install.
 
         A running control and its prepared runs keep what they started with. The custody root never moves.
-        `owner` is the revision of the routed Web, whose control owns the account, or None when it has no Live.
+        `owner` is the revision of the routed Web, whose control owns the account; None only at install.
         """
         self.ensure_root()
         host = self.facts()
@@ -226,10 +226,9 @@ class LiveHost:
             self.web.docker("start", facts["id"])
 
     def restore(self, web: str) -> None:
-        """Keep the control of a Web that uses Live running: it owns the account."""
-        if self.web.requires_live(web):
-            self.start(web)
-            self.health(web)
+        """Keep the routed Web's control running: it owns the account."""
+        self.start(web)
+        self.health(web)
 
     def health(self, name: str) -> None:
         facts = self.checked(name)
@@ -305,31 +304,6 @@ class LiveHost:
         finally:
             os.close(descriptor)
 
-    def kept(self, name: str) -> bool:
-        """The control of the committed or loaded Web owns the account and is never drained, so STOP stays reachable."""
-        return name in {self.web.disk_route(), self.web.live_route()}
-
-    def _retired(self, name: str, identifier: str) -> dict:
-        if (self.state / "transaction.json").exists() or self.kept(name):
-            raise RuntimeError("Live controller is still selected or a release is pending; keep it running")
-        facts = self.checked(name)
-        if facts["id"] != identifier:
-            raise RuntimeError("retired Live controller identity changed")
-        return facts
-
-    def drain(self, name: str) -> bool:
-        """Send a cooperative signal to a verified retired process; never force-stop or delete it."""
-        if not self.web.exists(self.name(name)):
-            return True
-        facts = self.checked(name)
-        identifier = facts["id"]
-        if not self._retired(name, identifier)["running"]:
-            return True
-        self.web.docker("update", "--restart=no", identifier)
-        if self._retired(name, identifier)["running"]:
-            self.web.docker("kill", "--signal", "SIGTERM", identifier)
-        return not self._retired(name, identifier)["running"]
-
     def runtimes(self) -> set[str]:
         """The runtime images the retained Live snapshots and every Live run name. A Live run launches on its
         manifest's image with `--pull never` (runtime/container.py), so whatever its state that image stays."""
@@ -349,9 +323,11 @@ class LiveHost:
             if REVISION.fullmatch(path.name) and path.name not in here and not path.is_symlink() and path.is_dir():
                 shutil.rmtree(path)
 
-    def retire(self) -> None:
+    def stop_others(self, kept: str) -> None:
+        """Stop every running control but the one of Web `kept`, which owns the account. The caller holds the account
+        lock and saw Live idle (or holds a pending journal, under which no other control admits an effect), so no
+        other control holds a run or an unresolved request. A stopped control keeps its restart policy: a rollback
+        starts it again (`restore`), and Docker does not restart a container stopped by hand."""
         for control in self.web.managed(LIVE, running_only=True):
-            name = WEB + revision(control, LIVE)
-            if not self.kept(name):
-                if not self.drain(name):
-                    print(f"Retired Live controller {control} is draining; it remains retained", flush=True)
+            if WEB + revision(control, LIVE) != kept:
+                self.web.docker("stop", "--time", "30", self.web.checked(control, LIVE)["id"], timeout=60)
