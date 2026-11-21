@@ -3,3 +3,5 @@
   brings back the graph from Market or Runs instead of doing nothing. The saved tool window layout resets once.
 - IDE: the Agent can dock under Details at the right (its header's "Dock under Details" or the palette), so both show
   at once, as IntelliJ's split mode; by default they still take turns in one slot.
+- IDE: a backtest's cycles in Trades list Held and P&L before the times, and drop the opening time on a narrow page
+  (beside a left tool window), so the table fits instead of cutting P&L off.
