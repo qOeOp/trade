@@ -292,9 +292,19 @@ test("a shown Live run lists what its native events leave held and working, and 
       orders: [row("OrderAccepted", T, { client_order_id: "S-1", order_side: "BUY", order_type: "STOP_MARKET", trigger_price: "75880.0", quantity: "0.002" })],
       positions: [row("PositionOpened", T, { position_id: "P-1", side: "SHORT", signed_qty: "-0.002", avg_px_open: "74652.3" })] };
     const html = render("LiveRunCanvas", {});
-    assert.match(html, /Positions.*BTCUSDT.*Short.*0\.002 @ 74,652\.3.* · SL <\/span>75,880.*Open orders.*BTCUSDT stop market.*Buy.*0\.002 @ 75,880/s);
+    assert.match(html, /Positions.*BTCUSDT.*Short.*0\.002 @ 74,652\.3.* · SL <\/span>75,880.*Open orders.*None/s,
+      "the protective stop is shown on its position, not again among the open orders");
     assert.match(html, />New run<\/button>.*>Request stop…<\/button>/s);
     assert.doesNotMatch(html, /Confirm stop|Stop this Live run/, "nothing is armed before the first click");
+    const entry = row("OrderAccepted", T, { client_order_id: "E-2", order_side: "SELL", order_type: "LIMIT", price: "76000.0", quantity: "0.001" });
+    canvasRun = { ...canvasRun, orders: [entry] };
+    const bare = render("LiveRunCanvas", {});
+    assert.match(bare, /SL <\/span><span class="text-misses-fg">No stop<\/span>/, "a running position without a stop is flagged before any check");
+    assert.match(bare, /Open orders.*BTCUSDT limit.*Sell.*0\.001 @ 76,000/s);
+    canvasRun = { ...canvasRun, heldAlert: { word: "No stop", tone: "fail", body: "", gaps: [{ symbol: "BTCUSDT", side: "SHORT", position: "0.002", stops: "0" }] } };
+    assert.match(render("LiveRunCanvas", {}), /SL <\/span><span class="text-fail-fg">No stop<\/span>/, "in the failure hue once the check found it");
+    canvasRun = { ...canvasRun, heldAlert: undefined, running: false, ended: true, hostState: "unresolved" };
+    assert.match(render("LiveRunCanvas", {}), /SL <\/span><span class="text-fg-faint">-<\/span>/, "an ended run shows no flag");
     canvasRun = { ...run, running: true, hostState: "running", orders: [], positions: [] };
     assert.match(render("LiveRunCanvas", {}), /Positions.*None open.*Open orders.*None/s);
   } finally { canvasView = undefined; canvasRun = undefined; draft = null; }

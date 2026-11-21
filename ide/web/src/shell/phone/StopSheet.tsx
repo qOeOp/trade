@@ -52,7 +52,7 @@ export function StopSheet({ run, open, onClose }: { run: LiveRun; open: boolean;
           <p className="text-small text-fg-faint">You can close this. Telegram tells you when the run has ended.</p>
           <FormButton className="w-full" onClick={onClose}>Close</FormButton>
         </> : <>
-          <StopEffects held={held} working={working} />
+          <StopEffects phone held={held} working={working} />
           <HoldButton onHeld={send} disabled={!actions.stop || run.ended || action.busy}>Hold to stop</HoldButton>
           <FormButton className="w-full" onClick={onClose}>Cancel</FormButton>
         </>}
