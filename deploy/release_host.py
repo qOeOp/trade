@@ -444,6 +444,12 @@ class DockerHost:
             profiles / "research.json",
             {"name": "research", "holds": "research", "kind": None, "database": "research", "service": "/run/trade/ledger-readers"},
         )
+        # Live admission reads the Paper runs through it (live/reconcile.py); the readers volume holds each
+        # database's reader account.
+        durable_json(
+            profiles / "paper.json",
+            {"name": "paper", "holds": "paper", "kind": None, "database": "paper", "service": "/run/trade/ledger-readers"},
+        )
         durable_json(
             profiles / "market.json", {"name": "market", "holds": "market", "kind": None, "root": str(self.config.data / "market")}
         )

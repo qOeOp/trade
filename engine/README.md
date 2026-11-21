@@ -774,6 +774,17 @@ review shows them. In `preflight` and `run` the runner then needs one that start
 observes, or refuses `LIVE_EVIDENCE_BALANCE`. To back a run, replay the candidate at the wallet: `candidate export`,
 then `replay explore` of that file with `--starting-balance` the wallet and the run's `--symbols`, inside the
 window of one of its research trials.
+Last, preparation needs a reconciled Paper run of the source (`live/reconcile.py`): a sealed run whose status is
+`complete`, of the same `source_sha256` on the same contract set, whose image reports Live's replay code, not held after
+an interruption, whose `paper compare` on the archive (never the preliminary REST minutes) has at least one order
+group, no group of cause `unexplained`, no look-ahead suspect and no unexplained equity minute. Leverage need not match
+and no duration is required. Nothing is stored: the serving control lists the runs through the Paper reader profile
+each release writes beside the research reader (`profiles/paper.json`) and compares each in a child container of its
+own image (`live paper-compare`), keeping the answer in memory, so a restart derives it again. Preparation runs in
+`live web-command` and asks the serving control over its socket
+(`GET /api/live/candidates/<strategy>/<revision>/paper/<SYMBOLS>`); until the answer is reconciled it refuses
+`LIVE_PAPER_UNRECONCILED` with the reason: no matching run, the comparison not done yet (the first ask starts it; a
+run the market does not cover yet is compared again an hour later), or the check that failed.
 `start` takes the prepared run ID, the same saved credential version and the run's `source_sha256` as the
 confirmation, then repeats
 account admission. A run trades each of its contracts with its own instance of the source, as a replay does: each

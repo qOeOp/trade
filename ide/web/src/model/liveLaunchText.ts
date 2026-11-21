@@ -21,6 +21,7 @@ export function refusalText(code: string | undefined): string {
     LIVE_EVIDENCE_BALANCE: "No replay started near your wallet's balance. The Agent replays the candidate at the wallet.",
     LIVE_CANDIDATE_FALSIFIED: "The line's closing history test found this candidate short of its targets. Select a candidate it passed.",
     LIVE_HISTORY_UNDECIDED: "The line's closing history test has not decided this candidate. Close its line first, or select a candidate the test passed.",
+    LIVE_PAPER_UNRECONCILED: "No sealed Paper run of this candidate on these contracts matches its replay yet. Run it in Paper, wait for the market to cover the run, then try again.",
     LIVE_CREDENTIAL_UNAVAILABLE: "The saved API key is no longer on the server. Save it again in Settings.",
     LIVE_CREDENTIAL_CHANGED: "The API key changed since the account was checked. Check the account again.",
     LIVE_CREDENTIAL_BUSY: "A Live run that has not ended still uses the saved API key. Stop or reconcile it first.",
