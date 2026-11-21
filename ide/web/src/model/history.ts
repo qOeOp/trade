@@ -1,12 +1,14 @@
 // The History page's heatmap (docs/plans/line-close-history-test-20261110.zh.md 4) from `research history` as it is:
 // rows are each closed line's participants, grouped by line; columns the calendar years every line's veto
 // segments fall in (shared, so lines compare), then the development period, the holdout and the forward part.
-// Everything shown is read from the command; nothing is derived here but layout, order and colour.
+// Everything shown is read from the command; nothing is derived here but layout, order, colour and the display-only
+// cause class (cause).
 import type { HistoryCell, HistoryLine, HistoryRow, HistorySummary } from "../lib/historyApi";
 import { rangesOf, stepOf, type Step } from "./heat";
 
 export type Metric = "annual_return" | "mark_max_drawdown" | "sharpe_365";
-export type Order = "development" | "median" | "meeting";
+export type Order = "development" | "median" | "meeting" | "holdout_return" | "holdout_sharpe" | "holdout_drawdown";
+export type Cause = "sign_flip" | "positive_outside" | "other";
 export type Column = { id: string; label: string; kind: "year" | "development" | "holdout" | "forward" };
 
 /** The shared columns: every veto year of every line, oldest first, then the three segments after them. */
@@ -81,13 +83,44 @@ export function noEdge(row: HistoryRow): boolean {
   return veto && (s.holdout.annual_return ?? Infinity) <= 0;
 }
 
-/** The rows in the order chosen: as the command gives them (development-period Sharpe), by the median whole-year return
- *  or by the years meeting targets, highest first and unknowns last; ties keep the command's order. */
+/** A row's cause class, for display only, derived from its readings: `sign_flip` when the development period made money
+ *  but the whole veto years' median or the holdout lost it; `positive_outside` when the holdout and the whole veto
+ *  years' median (if the test has whole years) both made money; `other` for the rest (a development period that lost,
+ *  a flat or missing reading, or no summary). */
+export function cause(row: HistoryRow): Cause {
+  const s = row.summary;
+  if (!s) return "other";
+  const dev = row.development.measures?.annual_return ?? null, held = s.holdout.annual_return, years = s.veto.whole_years > 0,
+        median = s.veto.median_annual_return;
+  if (dev !== null && dev > 0 && ((held !== null && held < 0) || (years && median !== null && median < 0))) return "sign_flip";
+  if (held !== null && held > 0 && (!years || (median !== null && median > 0))) return "positive_outside";
+  return "other";
+}
+
+/** Each cause class's name and what it means. */
+export const CAUSES_SAID: Record<Cause, readonly [string, string]> = {
+  sign_flip: ["Sign flip", "Sign flip: the development period made money, the whole veto years' median or the holdout lost it"],
+  positive_outside: ["Positive outside development", "Positive outside development: the holdout and the whole veto years' median both made money"],
+  other: ["Other", "Other: neither a sign flip nor positive outside development"],
+};
+
+/** The sort key of a row and whether higher is better: the holdout's drawdown sorts lowest first, the rest highest first. */
+function key(r: HistoryRow, by: Exclude<Order, "development">): number | null {
+  const s = r.summary;
+  if (by === "median") return s?.veto.median_annual_return ?? null;
+  if (by === "meeting") return s?.veto.years_meeting_targets ?? null;
+  if (by === "holdout_return") return s?.holdout.annual_return ?? null;
+  if (by === "holdout_drawdown") return s?.holdout.mark_max_drawdown == null ? null : -s.holdout.mark_max_drawdown;
+  return r.cells.find((c) => c.kind === "holdout")?.measures?.sharpe_365 ?? null;
+}
+
+/** The rows in the order chosen: as the command gives them (development-period Sharpe), by the median whole-year return,
+ *  the years meeting targets, the holdout's annual return or Sharpe (highest first) or its max drawdown (lowest first);
+ *  unknowns last, ties keep the command's order. */
 export function ordered(rows: readonly HistoryRow[], by: Order): HistoryRow[] {
   if (by === "development") return [...rows];
-  const key = (r: HistoryRow) => (by === "median" ? r.summary?.veto.median_annual_return : r.summary?.veto.years_meeting_targets) ?? null;
   return rows.map((r, i) => [r, i] as const).sort(([a, i], [b, j]) => {
-    const x = key(a), y = key(b);
+    const x = key(a, by), y = key(b, by);
     return x === null && y === null ? i - j : x === null ? 1 : y === null ? -1 : y - x || i - j;
   }).map(([r]) => r);
 }

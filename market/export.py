@@ -141,7 +141,7 @@ def price_grid(market: files.Market, market_day: str, symbol: str, increment: st
 def require_funding_files(market: files.Market, symbol: str, opens: np.ndarray) -> None:
     """Every month holding one of the window's LAST bars has its funding file: without it Nautilus would replay that
     month without a single settlement and no check would see it (FUNDING_FILE_MISSING)."""
-    months = sorted({series._ms_day(int(day) * DAY).replace(day=1) for day in np.unique(np.asarray(opens) // DAY)})
+    months = sorted({series.ms_day(int(day) * DAY).replace(day=1) for day in np.unique(np.asarray(opens) // DAY)})
     held = {entry.relative for entry in files.entries(market, "funding")}
     absent = [files.relative_path("funding", month) for month in months
               if files.relative_path("funding", month) not in held]
@@ -318,7 +318,7 @@ def quote_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, 
 
 def _month_end(ts_ms: int) -> int:
     """The first millisecond of the UTC month after the one holding `ts_ms`."""
-    return series._day_ms(universe.next_month(series._ms_day(ts_ms)))
+    return series._day_ms(universe.next_month(series.ms_day(ts_ms)))
 
 
 def write_trades(catalog, instrument_id, rows, price_precision: int, size_precision: int) -> int:

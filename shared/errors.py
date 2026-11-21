@@ -10,6 +10,7 @@ the commands come from `shared.refusals`, passed in by the raiser.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Literal
 
@@ -58,3 +59,16 @@ class Refusal(Exception):
     def __reduce__(self):  # a refusal raised in a worker process reaches its caller whole
         return (Refusal, (self._code, self._message, self._missing, self._write_status, self._operation_id,
                           self._expected, self._next_actions))
+
+
+def printed_refusal(stderr: str) -> dict | None:
+    """The refusal a command printed on stderr (`cli.main`: one JSON object, the stream's last output), read past any
+    lines a launcher such as `uv` wrote before it; None when stderr does not end in one, as after a crash."""
+    text = stderr.rstrip()
+    for start in reversed([match.start() for match in re.finditer(r"^\{", text, re.MULTILINE)]):
+        try:
+            value = json.loads(text[start:])
+        except ValueError:
+            continue
+        return value if isinstance(value, dict) and isinstance(value.get("code"), str) else None
+    return None

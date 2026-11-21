@@ -68,8 +68,7 @@ def plan_schema() -> dict:
                 "description": "The falsifiable prediction: mechanism lists, for each changed duty, at least one "
                                "{slice, measure, direction (up or down), duty, reason} on the measure catalogue "
                                "(slice null with a reason when no slice measures the duty); outcomes gives one "
-                               "next step for each of improved, not_significant, loss, zero_activity and invalid; "
-                               "optional interaction {base, a, b} declares a two-by-two of candidate references.",
+                               "next step for each of improved, not_significant, loss, zero_activity and invalid.",
                 "type": "object", "required": ["mechanism", "outcomes"], "additionalProperties": False,
                 "properties": {
                     "mechanism": {"type": "array", "items": {
@@ -79,9 +78,7 @@ def plan_schema() -> dict:
                                        "direction": {"enum": ["up", "down"]}, "duty": {"type": "string"},
                                        "reason": _PROSE}}},
                     "outcomes": {"type": "object", "required": list(OUTCOMES), "additionalProperties": False,
-                                 "properties": {name: _TEXT for name in OUTCOMES}},
-                    "interaction": {"type": "object", "required": ["base", "a", "b"], "additionalProperties": False,
-                                    "properties": {"base": _REF, "a": _REF, "b": _REF}}}},
+                                 "properties": {name: _TEXT for name in OUTCOMES}}}},
             "changed_duties": {"description": "The duty IDs (A1 to I2) the one change touches: empty for a root (grid "
                                               "candidates without a parent), at least one for a derived registration.",
                                "type": "array", "items": {"type": "string"}},
@@ -590,9 +587,9 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
                      "universe_rule": inputs["universe_rule"], "lifecycle_bundle": inputs.get("lifecycle_bundle"),
                      "export_sha256": inputs["export_content_sha256"],
                      "comparable_config_sha256": trials.comparable_config_sha256(inspection.get("effective_config")),
-                     "input_start": trials._utc(runner["window"]["start"]),
-                     "trade_start": trials._utc(runner["window"]["trade_start"]),
-                     "trade_end": trials._utc(runner["window"]["end"]),
+                     "input_start": trials.utc(runner["window"]["start"]),
+                     "trade_start": trials.utc(runner["window"]["trade_start"]),
+                     "trade_end": trials.utc(runner["window"]["end"]),
                      "symbols": sorted(set(inputs.get("symbols") or ()))}
         body["sources"] = list(dict.fromkeys([*body["sources"], *(name for name, _ in sources)]))
         if body["rationale"]["external"].strip() and not body["sources"]:

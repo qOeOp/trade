@@ -456,7 +456,6 @@ class ReportTests(unittest.TestCase):
         """CF-10: research state's reading of a comparison computes the intervals alone and refuses what compare does."""
         evidence = comparison.compare(self.profile, self.child_registration, self.candidate["trial_id"])["evidence"]
         with mock.patch.object(comparison.report_attribution, "attribute") as attribute, \
-                mock.patch.object(comparison, "interaction_of") as interaction, \
                 mock.patch.object(comparison, "_sensitivity") as sensitivity:
             found = comparison.crossing(self.profile, self.child_registration, self.candidate["trial_id"])
             self.assertIsNone(comparison.crossing(self.profile, self.root_registration, self.control["trial_id"]),
@@ -467,7 +466,7 @@ class ReportTests(unittest.TestCase):
                 self.assertEqual(refused(comparison.crossing, self.profile, *arguments).code, code)
         self.assertEqual(found, comparison.intervals_cross_zero(evidence))
         self.assertIsNotNone(found)
-        self.assertEqual((attribute.call_count, interaction.call_count, sensitivity.call_count), (0, 0, 0))
+        self.assertEqual((attribute.call_count, sensitivity.call_count), (0, 0))
 
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
         found = comparison.compare(self.profile, self.root_registration, self.control["trial_id"])

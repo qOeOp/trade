@@ -1,7 +1,7 @@
 # Interpreting attribution
 
-Reports supply the slices, registered prediction signs and any declared interaction; attribution
-does not change the account test.
+Reports supply the slices and registered prediction signs; attribution does not change the account
+test.
 
 ## Evidence scope
 
@@ -27,10 +27,3 @@ Connect the observed pattern to the strategy policy that could produce it, using
 and directory to locate responsibility. State competing explanations and what a proposed change
 could distinguish. An unexplored duty is a design choice to consider, not evidence that adding it
 will help. Technical engine guarantees do not certify an economic policy.
-
-## Interactions
-
-Declare the four corners of a two-change comparison in the registration that adds the last
-corner. Use the product's interaction to explain that fixed contrast, never as improvement
-acceptance; do not select corners retrospectively. A four-corner result is conditional on its
-settings and window, not independent data or a universal effect.

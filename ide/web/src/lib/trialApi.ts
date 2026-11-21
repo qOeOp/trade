@@ -9,9 +9,9 @@ type Measure = {
   value: number | string | null; standard_error?: number | null; return_sum?: number | null;
   sample_size?: number | null; null_reason?: string | null; definition_note?: string | null;
 } | undefined;
-/** One development year of a 12-quarter window, cut at the trade start's anniversaries (`measures.dev_years`):
- *  its UTC dates and compound return. */
-type DevYear = { start: string; end: string; return: number };
+/** One development year, cut at the trade start's anniversaries (`measures.dev_years`), or the window's last
+ *  part year (`partial`): its UTC dates and compound return. */
+type DevYear = { start: string; end: string; return: number; partial: boolean };
 /** The development years, the worst year's return and the window's annual return without the best year. */
 type DevYears = { years: DevYear[]; worst_year_return: number; return_without_best_year: number } | null;
 /** Closed cycles of one UTC close year, by that year (`measures.closed_by_year`): money as decimal text. */

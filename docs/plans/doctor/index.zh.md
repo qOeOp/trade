@@ -18,7 +18,7 @@
 | 20261121-06 | 桌面 Live 的 `Request stop` 一点就发，不先列出会撤的单与会平的仓（手机端是确认单加按住） | question（桌面停止的形式；改外观先给截图） | doctor | unknown | in PR [#3240](https://github.com/qOeOp/trade/pull/3240) | 2026-11-21 | 2026-11-21 |
 | 20261121-07 | 桌面 Live 不显示当前持仓与在途止损：图只在缺止损时画持仓线，不画工作单 | question（是否像手机一样按原生事件显示） | doctor | unknown | in PR [#3240](https://github.com/qOeOp/trade/pull/3240) | 2026-11-21 | 2026-11-21 |
 | 20261121-08 | 选中已有 Live 运行时新建运行只能从 ⌘K 进入，工具栏注释说运行选择器里也有 | fix（可见入口或改注释；加入口先给截图） | doctor | unknown | in PR [#3240](https://github.com/qOeOp/trade/pull/3240) | 2026-11-21 | 2026-11-21 |
-| 20261121-09 | 研究图服务把产品命令 stderr 整段当 JSON 解析，`uv` 先打警告时拒绝码丢失、页面显示 `PRODUCT_FAILED` | fix | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-09 | 研究图服务把产品命令 stderr 整段当 JSON 解析，`uv` 先打警告时拒绝码丢失、页面显示 `PRODUCT_FAILED` | fix | doctor | unknown | in PR [#3243](https://github.com/qOeOp/trade/pull/3243) | 2026-11-21 | 2026-11-21 |
 | 20261121-10 | Paper 与回测的成交表、周期表、对照表点一行不会把图移到那笔交易（只有图到表） | fix（改交互先给截图） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-11 | K 线周期随缩放自动切换，不能固定（写明的做法） | question（是否加周期固定开关） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-12 | ⌘K 给每个没在跑的版本各列一条 `Run paper: <id>` | question | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
@@ -28,7 +28,7 @@
 | 20261120-02 | `Line-close history` 默认隐藏 `noEdge` 行只看否决年收益中位数，留出期为正的候选也被藏起 | fix | doctor | unknown | fixed 509f4dadd [#3215](https://github.com/qOeOp/trade/pull/3215) | 2026-11-20 | 2026-11-20 |
 | 20261120-03 | `line history` 把 `invalid` 历史段当作已完成，续跑不重跑，瞬时故障让候选永久缺项 | authority（改历史段重跑规则） | doctor | unknown | fixed bb2fa47aa [#3225](https://github.com/qOeOp/trade/pull/3225) | 2026-11-20 | 2026-11-20 |
 | 20261120-04 | IDE 的 `Runs` 与 `Details` 只绘制研究运行，`history`、`validation` 运行看不到曲线与成交 | fix | doctor | unknown | fixed d83254243 [#3224](https://github.com/qOeOp/trade/pull/3224)（`validation` 运行见 [#3216](https://github.com/qOeOp/trade/pull/3216)） | 2026-11-20 | 2026-11-20 |
-| 20261120-05 | 样本外验证登记不要求候选先经关线证伪 | authority（新增拒绝、改技能流程） | user（Product contracts and delivery） | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
+| 20261120-05 | 样本外验证登记不要求候选先经关线证伪 | authority（新增拒绝、改技能流程） | user（Product contracts and delivery） | unknown | in PR [#3237](https://github.com/qOeOp/trade/pull/3237) | 2026-11-20 | 2026-11-20 |
 | 20261120-06 | Live 准入不看关线证伪，也不要求 Paper 运行并通过 `paper compare` 对账 | authority（新增 Live 拒绝；保存对账结论属存储字段，需评审后问用户） | user（Product contracts and delivery） | unknown | open [关线证伪与准入](2026-11-20-close-line-and-live-gates.zh.md) | 2026-11-20 | 2026-11-20 |
 | 20261120-07 | 开发期按覆盖季度二选一（12 或 4 季度），覆盖 23 季度的组合也只得 1 年开发期 | authority（改用户 2026-11-11 定的窗口划分） | doctor | unknown | in PR [#3221](https://github.com/qOeOp/trade/pull/3221) | 2026-11-20 | 2026-11-20 |
 | 20261120-08 | `replay run --registration` 不带 `--market-day` 时取市场最新日而非登记的市场日，跨日后必报 `EXECUTION_MISMATCH` | fix | doctor | unknown | fixed 726862a0d [#3213](https://github.com/qOeOp/trade/pull/3213) | 2026-11-20 | 2026-11-20 |

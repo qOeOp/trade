@@ -55,9 +55,6 @@ class PairedTests(unittest.TestCase):
         swapped = comparison.paired(right, left, DESIGN, 1)
         self.assertAlmostEqual(swapped["max_drawdown_difference"], -expected, places=15)
         self.assertAlmostEqual(swapped["max_drawdown_difference_interval"][0], -high, places=12, msg="shared block starts")
-        weighted = comparison.paired([left, right], [right, left], DESIGN, 1, weights=(1.0, -1.0, -1.0, 1.0))
-        self.assertIsNone(weighted["max_drawdown_difference"])
-        self.assertIsNone(weighted["max_drawdown_difference_interval"])
 
     def test_the_block_indices_keep_the_stream_of_drawing_each_row_alone(self):
         # Published comparisons are recomputed from a locked seed, so the draws must never change.
@@ -118,15 +115,6 @@ class PairedTests(unittest.TestCase):
         self.assertIsNone(found["p_bonferroni"])
         self.assertIsNone(found["mean_log_studentized_interval"])
         self.assertTrue(any(item.startswith("DEGENERATE_SE") for item in found["limitations"]))
-
-    def test_a_weighted_contrast_tests_the_weighted_sum_of_log_series(self):
-        series = [[0.01, 0.0, -0.01, 0.02], [0.0, 0.01, 0.0, 0.0], [0.02, -0.01, 0.0, 0.01], [0.0, 0.0, 0.01, -0.02]]
-        found = comparison.paired(series[:2], series[2:], DESIGN, 1, weights=(1, -1, -1, 1))
-        manual = [math.log1p(a) - math.log1p(b) - math.log1p(c) + math.log1p(d)
-                  for a, b, c, d in zip(*series, strict=True)]
-        self.assertAlmostEqual(found["mean_daily_log_difference"], sum(manual) / 4, places=15)
-        self.assertIsNone(found["annual_return_difference"])
-        self.assertIsNone(found["detectable_annual_return_difference_80pct_normal_approx"])
 
     def test_malformed_inputs_are_refused_before_any_number(self):
         self.assertEqual(refused(comparison.paired, [0.0] * 3, [0.0] * 3, DESIGN, 1).code, "COMPARISON_UNAVAILABLE")
@@ -400,8 +388,9 @@ class DevYearTests(unittest.TestCase):
         assert found is not None
         lengths = [365, 365, 366]
         expected = [(1 + rate) ** n - 1 for rate, n in zip((-0.0003, -0.0001, 0.002), lengths, strict=True)]
-        self.assertEqual([(item["start"], item["end"]) for item in found["years"]],
-                         [("2021-10-01", "2022-10-01"), ("2022-10-01", "2023-10-01"), ("2023-10-01", "2024-10-01")])
+        self.assertEqual([(item["start"], item["end"], item["partial"]) for item in found["years"]],
+                         [("2021-10-01", "2022-10-01", False), ("2022-10-01", "2023-10-01", False),
+                          ("2023-10-01", "2024-10-01", False)])
         for item, value in zip(found["years"], expected, strict=True):
             self.assertAlmostEqual(item["return"], value, places=12)
             self.assertEqual(item["at_target"], value >= 0.2)
@@ -420,10 +409,26 @@ class DevYearTests(unittest.TestCase):
         self.assertIsNone(found["years_at_target"])
         self.assertNotIn("at_target", found["years"][0])
 
-    def test_any_other_window_has_none(self):
+    def test_a_window_of_whole_years_and_quarters_ends_in_a_partial_segment(self):
+        end = date(2023, 7, 1)  # 7 quarters: one whole year and three quarters
+        run = {**self.run, "trade_end_ns": self.ns(end),
+               "returns": [item for item in self.returns if item[0] < self.ns(end)]}
+        found = measures.dev_years(run, 0.2)
+        assert found is not None
+        self.assertEqual([(item["start"], item["end"], item["partial"]) for item in found["years"]],
+                         [("2021-10-01", "2022-10-01", False), ("2022-10-01", "2023-07-01", True)])
+        first, tail = (1 - 0.0003) ** 365 - 1, (1 - 0.0001) ** 273 - 1
+        self.assertAlmostEqual(found["years"][1]["return"], tail, places=12)
+        self.assertNotIn("at_target", found["years"][1], "a part year is not read against an annual target")
+        self.assertEqual(found["years_at_target"], 0, "only whole years are counted")
+        self.assertAlmostEqual(found["worst_year_return"], first, places=12, msg="only whole years are compared")
+        self.assertAlmostEqual(found["return_without_best_year"], (1 + tail) ** (365 / 273) - 1, places=12,
+                               msg="the window's days without the best whole year, the part year's included")
+
+    def test_a_window_of_one_year_or_less_has_none(self):
         one_year = {**self.run, "trade_end_ns": self.ns(date(2022, 10, 1))}
         self.assertIsNone(measures.dev_years(one_year, 0.2), "a 4-quarter window is one year: the window itself")
-        short = {**self.run, "trade_end_ns": self.ns(date(2024, 9, 30))}
+        short = {**self.run, "trade_end_ns": self.ns(date(2022, 9, 30))}
         self.assertIsNone(measures.dev_years(short, 0.2))
 
 
@@ -520,35 +525,6 @@ class PairwiseTests(unittest.TestCase):
         found = attribution._pairwise({"cycles": [], "returns": days}, {"cycles": [], "returns": days}, {}, {}, market,
                                       {"scalars": {}})
         self.assertTrue(found["beta_basket"]["null_reason"].startswith("REGRESSION_UNAVAILABLE"))
-
-
-class InteractionShapeTests(unittest.TestCase):
-    BASE = b"a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n"
-
-    def test_two_changes_on_different_lines_merge_into_both(self):
-        a = self.BASE.replace(b"b = 2", b"b = 20")
-        b = self.BASE.replace(b"e = 5", b"e = 50")
-        self.assertEqual(attribution.merge3(self.BASE, a, b), self.BASE.replace(b"b = 2", b"b = 20").replace(
-            b"e = 5", b"e = 50"))
-        self.assertEqual(attribution.merge3(self.BASE, b, a), attribution.merge3(self.BASE, a, b))
-        self.assertEqual(attribution.merge3(self.BASE, a, a), a, "the same change on both sides is taken once")
-
-    def test_two_changes_of_one_line_conflict(self):
-        a = self.BASE.replace(b"c = 3", b"c = 30")
-        b = self.BASE.replace(b"c = 3", b"c = 31")
-        self.assertIsNone(attribution.merge3(self.BASE, a, b))
-
-    def test_insertions_and_deletions_merge_around_the_kept_lines(self):
-        a = b"x = 0\n" + self.BASE
-        b = self.BASE.replace(b"d = 4\n", b"")
-        self.assertEqual(attribution.merge3(self.BASE, a, b), b"x = 0\na = 1\nb = 2\nc = 3\ne = 5\n")
-
-    def test_the_contributions_average_both_orders_and_sum_to_the_corner_difference(self):
-        found = attribution.contributions({"base": 0.0, "a": 0.002, "b": 0.001, "ab": 0.005})
-        self.assertAlmostEqual(found["a"], (0.002 + 0.004) / 2)
-        self.assertAlmostEqual(found["b"], (0.001 + 0.003) / 2)
-        self.assertAlmostEqual(found["a"] + found["b"], found["total"])
-        self.assertAlmostEqual(found["interaction"], 0.002)
 
 
 class PairTradeTests(unittest.TestCase):
