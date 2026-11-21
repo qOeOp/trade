@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper: a host stall no longer ends a run with `PAPER_CACHE_UNAVAILABLE` (user 2026-11-21). The run ends when the
+  native cache process has exited, or when PING has gone unanswered at least 5 times in a row over at least 30
+  seconds; a shorter miss is written to the runner's log and an answered PING clears it. Before, one PING not
+  answered within 2 seconds ended the run: release host runs 3 and 4 ended together on 2026-11-20 while the VM stalled.
+
 - Breaking (research lines): a line's development period now grows with its start's coverage instead of stepping
   from 12 to 4 quarters below 24 quarters (user 2026-11-21, doctor 20261120-07). With C complete quarters of the
   start's precheck instruments before Q, the period is C - 12 quarters (the 8-quarter holdout and 4 quarters of veto
