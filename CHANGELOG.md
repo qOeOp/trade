@@ -73,6 +73,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   enters without a backfill of earlier days. Off by default; the deployment's `TRADE_MARKET_ARGS` is unchanged
   (`deploy/README.md`).
 
+- Breaking (market scope, doctor 20261118-01): the deployment imports the bars of every eligible contract instead of
+  a `--bar-symbols` list chosen today (`deploy/README.md` example `.env`, `README.md`). The cutover is a new market
+  directory imported whole from 2020-01 with an empty bar list (about 26 GB, about 45 GB of archive cache, 10 to 15
+  hours), then made the active one. After it, the monthly universe and so `--universe pool` runs and the report's
+  basket (`beta_basket`, `alpha_basket`, regimes, up and down months) are computed over the full eligible set,
+  delisted contracts included; earlier pool runs no longer replay on the new `market` (their universe input
+  differs), and single-contract runs replay unchanged. The basket's definition note says so.
+
 ## 0.4.4 (2026-11-21)
 
 - Replay identity: `dependency_lock_sha256` now hashes `uv.lock` parsed, without the project's own version (its

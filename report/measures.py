@@ -29,9 +29,9 @@ from report import profit
 HOUR_NS = 3_600 * 10**9
 MINUTE_NS = 60 * 10**9
 TOP = 5
-BASKET_NOTE = ("The basket is the equal weight of the contracts this deployment's market directory holds "
-               "(--bar-symbols), a list with no written selection criterion, not every contract the universe "
-               "rule describes.")
+BASKET_NOTE = ("The basket is the equal weight of the month's universe members among the contracts the market "
+               "directory holds: every eligible contract, unless the deployment narrows the bars to a list "
+               "(--bar-symbols), which then has no written selection criterion.")
 # Read-time explanations, not new measure definitions or sealed facts.
 MEASURE_NOTES = {
     "level_term": "Account-currency PnL decomposition on exposed days: T * mean(N) * mean(PnL/N). "
