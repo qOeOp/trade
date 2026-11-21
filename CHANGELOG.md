@@ -38,6 +38,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   (`recovery_declared`) marks it as before. Sources without recovery can no longer start Paper; publish a new version
   with the protocol (doctor 20261121-27, decided under the user's delegation of 2026-11-21).
 
+- Live account reads (doctor 20261114-29, delegated decision): a read that fails with HTTP 429, a 5xx or a
+  dropped connection is sent again, at most three times in all, after Binance's `Retry-After` on a 429 (refused at
+  once when it asks for more than 5 s); a ban (418) or another 4xx is still refused at once.
 - Host files (`shared.files.atomic_write`): the market-import status, profile and service files and the ledger's
   DoltHub key and Dolt config are replaced through one durable write (synced file, rename, synced directory). The
   market status and Dolt config were not synced before, and the DoltHub key was rewritten in place.
