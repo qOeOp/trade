@@ -28,7 +28,7 @@ import tomllib
 
 from cli import (ledger_commands, live_commands, market_commands, paper_commands, replay_commands,
                  research_commands)
-from cli.common import RUNNER_EPILOG, Parser, _market_refusal, _print, refusal_json
+from cli.common import RUNNER_EPILOG, Parser, _print, refusal_json
 from engine.live_errors import LiveRefusal
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -97,7 +97,6 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
 
 def main(argv: list[str] | None = None) -> int:
     """Parse `<noun> <verb> [options] [-- runner arguments]`, run it, print one JSON result."""
-    from market import store
     argv = list(sys.argv[1:] if argv is None else argv)
     runner_argv: list[str] = []
     if "--" in argv:
@@ -111,9 +110,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except LiveRefusal as exc:
         _print(sys.stderr, {"code": exc.code, "message": exc.message})
-        return 1
-    except store.MarketError as exc:
-        _print(sys.stderr, refusal_json(_market_refusal(exc)))
         return 1
     try:
         _print(sys.stdout, result)

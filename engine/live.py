@@ -36,7 +36,7 @@ from engine.live_errors import LiveRefusal as Refusal
 from engine.live_cache import LiveCache
 from engine.live_venue import MANIFEST_FORMAT, BinanceReadOnly, read_credentials, require_clock, require_account_mode, require_admission, require_evidence, require_flat
 from engine.load import read_regular_file
-from engine.live_records import journal, keep, write_json
+from engine.live_records import contract, journal, keep, write_json
 from engine.live_commands import pending_orders
 from engine.live_session import ENDED_EVENTS, Session
 from engine.live_source import source_for_run
@@ -274,8 +274,8 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
         if venue_flat(session, snapshot, observation):
             return 0
         require_account_mode(snapshot, manifest)
-    strategy_runtime.clear_failures()
-    strategy_runtime.FAILURE_PATH = args.output / "runtime_failures.jsonl"
+    # Metrics of the run's contracts come from REST (engine.metrics.Feed); trades are served nowhere in Live.
+    strategy_runtime.begin_run(args.output, {"Metrics": {str(contract(symbol)) for symbol in manifest["symbols"]}})
     signals = {signal.SIGTERM, signal.SIGINT}
     signal.pthread_sigmask(signal.SIG_BLOCK, signals)
     def await_signal():
@@ -315,9 +315,15 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
                 node.dispose()
             session.node, session.entry_gate = None, None
             session.sources, session.keepers = {}, {}
+            strategy_runtime.STRATEGIES.clear()  # its instances are released here too, on the thread that built them
             if session.warmup_catalog is not None:
                 shutil.rmtree(session.warmup_catalog, ignore_errors=True)
         finally:
+            try:
+                if strategy_runtime.FAILURES:
+                    strategy_runtime.write_failures()  # the final counts
+            except Exception as error:  # the failure that ends the run must stay the one raised
+                print(f"runtime failure receipts not written: {error}", file=sys.stderr)
             try:
                 cache.close()
             except Refusal:

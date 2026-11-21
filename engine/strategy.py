@@ -19,6 +19,7 @@ from typing import Any
 from nautilus_trader.model import DataType, InstrumentId, OmsType, StrategyId
 from nautilus_trader.trading import Strategy, StrategyConfig
 
+from engine import history, order_rules
 from engine.config import Refusal
 from engine.load import LoadedStrategy
 
@@ -278,6 +279,23 @@ def execution_failure(stage: str, exc: BaseException, instance) -> None:
 def clear_failures() -> None:
     FAILURES.clear()
     _SIGNATURES.clear()
+
+
+def begin_run(output: Path, served: dict[str, set[str]]) -> None:
+    """Start this process's run (replay, Paper or Live): every registry above, engine.order_rules' and
+    engine.history's empty, SERVED the instrument IDs `served` names per kind, receipts written under `output`."""
+    global FAILURE_PATH
+    STRATEGIES.clear()
+    BREACHES.clear()
+    DECLARED.clear()
+    for kind, ids in SERVED.items():
+        ids.clear()
+        ids.update(served.get(kind, ()))
+    order_rules.WARMING.clear()
+    order_rules.CONTRACTS.clear()
+    history.clear()
+    clear_failures()
+    FAILURE_PATH = output / "runtime_failures.jsonl"
 
 
 # Data callbacks. An instance gets no data stamped before its start (engine.run.plan_instances: later than the

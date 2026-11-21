@@ -1,6 +1,6 @@
 # 第三轮瘦身计划（2026-11-21）
 
-前两轮见 [瘦身审计](doctor/2026-11-13-whole-product-slimming-audit.zh.md) 与 [第二轮](doctor/2026-11-14-slimming-round-2.zh.md)。本轮的材料是 2026-11-20 Gemini（Google Antigravity）会话的审计意见；Claude 评审 [#3201](https://github.com/qOeOp/trade/pull/3201)、[#3202](https://github.com/qOeOp/trade/pull/3202) 时删掉了其中大部分。本文逐条写明：Gemini 说了什么，Claude 核实后是多少，做还是不做、为什么。仍开着的问题记在诊断记录 [2026-11-21 Gemini 审计发现复核](doctor/2026-11-21-gemini-findings-recheck.zh.md) 和 [doctor 索引](doctor/index.zh.md) 里。
+前两轮见 [瘦身审计](https://github.com/qOeOp/trade/blob/4f02ebc1a/docs/plans/doctor/2026-11-13-whole-product-slimming-audit.zh.md) 与 [第二轮](doctor/2026-11-14-slimming-round-2.zh.md)。本轮的材料是 2026-11-20 Gemini（Google Antigravity）会话的审计意见；Claude 评审 [#3201](https://github.com/qOeOp/trade/pull/3201)、[#3202](https://github.com/qOeOp/trade/pull/3202) 时删掉了其中大部分。本文逐条写明：Gemini 说了什么，Claude 核实后是多少，做还是不做、为什么。仍开着的问题记在诊断记录 [2026-11-21 Gemini 审计发现复核](doctor/2026-11-21-gemini-findings-recheck.zh.md) 和 [doctor 索引](doctor/index.zh.md) 里。
 
 ## 用户的目标
 

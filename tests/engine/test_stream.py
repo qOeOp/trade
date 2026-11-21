@@ -19,13 +19,13 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.persistence import ParquetDataCatalog
 
-from engine import strategy as strategy_runtime
+from engine import order_rules, strategy as strategy_runtime
 from engine import run
 from engine.config import ACCOUNT_CONTRACT, Refusal, execution_account, parse_window, utc_text
 from engine.fill import fill_model
 from engine.load import load_strategy, read_market, read_universe
 from market import export, instrument, lifecycle
-from market.sources import MarketError
+from shared import errors
 from tests.helpers import refused
 
 
@@ -356,7 +356,7 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
     node = BacktestNode([config])
     node.build()
     for registry in (strategy_runtime.STRATEGIES, strategy_runtime.DECLARED, run.OBSERVERS, run.history.STATES,
-                     run.history.ACTORS, run.order_rules.WARMING):
+                     run.history.ACTORS, order_rules.WARMING):
         registry.clear()
     planned, _ = run.plan_instances(rows, window, loaded, run.history_stamps(rows, window, loaded, output))
     if any(period != "1-MINUTE" for period, _ in loaded.warmup):
@@ -800,7 +800,7 @@ class StreamTests(unittest.TestCase):
             self.assertEqual(run.months_missing(row, "TradeTick", START * 10**6, (march + DAY) * 10**6), ["2026-02"])
             self.assertEqual(run.months_missing(row, "TradeTick", START * 10**6, february * 10**6), [])
             self.assertEqual(refused(export.write_trades, store, iid, [[(march + 1, 4, 10**10 + 1, 10**5, 0)]], 2, 3,
-                                     error=MarketError).code, "TRADE_INEXACT")
+                                     error=errors.Refusal).code, "TRADE_INEXACT")
 
     def test_metrics_months_follow_create_time_not_the_delivery_past_month_end(self):
         """January's last rows (23:50, 23:55) are delivered on 1 February; they never make February held. A

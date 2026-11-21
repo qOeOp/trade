@@ -15,7 +15,7 @@ from unittest import mock
 from cli.replay_commands import replay_report
 from ledger import db, metrics, strategies
 from shared.refusals import refuse
-from market.sources import MarketError
+from shared.errors import Refusal
 from registration import availability, duties, precheck, register
 from replay import entry, reproduce
 from report import candidates, comparison, graph, measures, runs, seams, status
@@ -38,7 +38,7 @@ def market_returns(market_database, commit, universe_rule, start, end) -> dict:
 
 def unreachable(*window):
     """A market whose service refuses the connection."""
-    cause = MarketError("connection refused", code="MARKET_UNREACHABLE")
+    cause = Refusal("MARKET_UNREACHABLE", "connection refused")
     raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{cause.code}: {cause.message}") from cause
 
 

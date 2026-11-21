@@ -17,6 +17,7 @@ import numpy as np
 
 from market import read, sources
 from replay import preliminary
+from shared.errors import Refusal
 from tests.helpers import refused
 from tests.market import directory
 
@@ -93,7 +94,7 @@ class Limits(unittest.TestCase):
         with mock.patch.object(sources, "_connection", return_value=connection), \
                 mock.patch.object(sources.time, "sleep", side_effect=AssertionError("waited")):
             self.assertEqual(refused(sources._get, f"{sources.REST}/fapi/v1/klines", patient=False,
-                                     error=sources.MarketError).code,
+                                     error=Refusal).code,
                              "SOURCE_UNREACHABLE")
 
 

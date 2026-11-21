@@ -16,7 +16,7 @@ type Step = { text: ReactNode; state: "done" | "doing" | "todo" | "failed" };
 const ICON = { done: "passed", doing: "loading", todo: "untested", failed: "failed" } as const;
 const TONE = { done: "meets", doing: "recommended", todo: "fg-faint", failed: "fail" } as const;
 
-/** What a stop does to `run` as its working orders and positions stand now (engine/README.md, the STOP path). */
+/** What a stop does to `run` as its working orders and positions stand now (live/README.md, the STOP path). */
 function Effects({ held, working }: { held: readonly Held[]; working: readonly Working[] }) {
   const entries = working.filter((o) => !protects(o, held)), stops = working.filter((o) => protects(o, held));
   return (

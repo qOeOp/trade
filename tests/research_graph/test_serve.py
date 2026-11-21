@@ -583,11 +583,15 @@ class HttpTests(unittest.TestCase):
         return conn.getresponse()
 
     def test_about_names_the_version_the_build_and_the_ledger_or_the_refusal_reading_it(self):
-        self.hub.product.service = lambda: {"running": True, "remote": "https://r/o/l", "ledger_commit": "abc", "pid": 7}
-        self.assertEqual(json.loads(self.get("/api/about").read()),
-                         {"version": "1.2.3", "build": "build", "released": None, "ledger": {"running": True, "remote": "https://r/o/l", "unpublished": False,
-                                                       "behind_seconds": None, "diverged": False, "commit": "abc"}})
+        asked = []
+        self.hub.product.service = lambda: asked.append(1) or {"running": True, "remote": "https://r/o/l", "ledger_commit": "abc", "pid": 7}
+        for _ in range(2):  # every open page asks each minute: one status read serves them for STATUS_SECONDS
+            self.assertEqual(json.loads(self.get("/api/about").read()),
+                             {"version": "1.2.3", "build": "build", "released": None, "ledger": {"running": True, "remote": "https://r/o/l", "unpublished": False,
+                                                           "behind_seconds": None, "diverged": False, "commit": "abc"}})
+        self.assertEqual(len(asked), 1)
         self.hub.product.service = lambda: {"running": False, "address": None}
+        self.hub.status.clear()
         self.assertEqual(json.loads(self.get("/api/about").read())["ledger"],
                          {"running": False, "remote": None, "unpublished": False, "behind_seconds": None,
                           "diverged": False, "commit": None})
@@ -595,6 +599,7 @@ class HttpTests(unittest.TestCase):
         def refused():
             raise serve.ProductError({"code": "LEDGER_UNKNOWN", "message": "no accounts"})
         self.hub.product.service = refused
+        self.hub.status.clear()
         answer = self.get("/api/about")
         self.assertEqual((answer.status, json.loads(answer.read())),
                          (200, {"version": "1.2.3", "build": "build", "released": None, "ledger": None,
@@ -813,52 +818,101 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.get("/api/agent/health").status, 404)
 
 
+# A stand-in product command line in a checkout of its own: `python -m cli.main <what> ...` answers JSON, refuses after a
+# warning (the product's own refusal text, `refusal` beside the marks), crashes, is killed by the kernel (SIGKILL), or runs until `release` exists while it marks itself running.
+STAND_IN = """import json, os, signal, sys, time
+from pathlib import Path
+what, mark = sys.argv[1], Path(sys.argv[-1])
+if what == "hold":
+    mine = mark / str(os.getpid())
+    mine.touch()
+    while not (mark / "release").exists():
+        time.sleep(0.01)
+    mine.unlink()
+    print(json.dumps({"read": sys.argv[2]}))
+elif what == "refuse":
+    sys.stderr.write("warning: something first\\n" + (mark / "refusal").read_text())
+    sys.exit(2)
+elif what == "crash":
+    sys.stderr.write('Traceback (most recent call last):\\n{"code": "X"} is not JSON here\\nKeyError: 1\\n')
+    sys.exit(1)
+elif what == "killed":
+    os.kill(os.getpid(), signal.SIGKILL)
+"""
+MiB = 2**20
+
+
+def stand_in() -> Path:
+    root = Path(tempfile.mkdtemp())
+    (root / "cli").mkdir()
+    (root / "cli" / "__init__.py").write_text("")
+    (root / "cli" / "main.py").write_text(STAND_IN)
+    (root / ".venv" / "bin").mkdir(parents=True)
+    (root / ".venv" / "bin" / "python").symlink_to(sys.executable)
+    return root
+
+
 class ProductReadsTests(unittest.TestCase):
-    def test_no_more_than_the_bound_of_product_processes_run_at_once_and_every_read_is_answered(self):
-        product = serve.Product(Path("/nowhere"), "copy", reads=3)
-        lock, running, peak, release = threading.Lock(), [0], [0], threading.Event()
+    def setUp(self):
+        self.root, self.marks = stand_in(), Path(tempfile.mkdtemp())
 
-        def process(argv, **options):
-            with lock:
-                running[0] += 1
-                peak[0] = max(peak[0], running[0])
-            release.wait(5)
-            with lock:
-                running[0] -= 1
-            return serve.subprocess.CompletedProcess(argv, 0, stdout=json.dumps({"read": argv[-1]}), stderr="")
+    def running(self) -> int:
+        return sum(1 for mark in self.marks.iterdir() if mark.name.isdigit())
 
+    def burst(self, product: serve.Product, reads: list[tuple[str, ...]], expected: int) -> list[dict]:
+        """Start every read at once; see `expected` running together and no more, then let them all answer."""
         answers: list[dict] = []
-        with mock.patch.object(serve.subprocess, "run", side_effect=process):
-            threads = [threading.Thread(target=lambda n=n: answers.append(product.run("ledger", "sql", str(n))))
-                       for n in range(12)]
-            for thread in threads:
-                thread.start()
-            deadline = time.monotonic() + 5
-            while running[0] < 3 and time.monotonic() < deadline:
-                time.sleep(0.01)
-            time.sleep(0.05)  # an unbounded run would start the other nine here
-            self.assertEqual(running[0], 3)
-            release.set()
-            for thread in threads:
-                thread.join(5)
-        self.assertEqual(peak[0], 3)
-        self.assertEqual(sorted(answer["read"] for answer in answers), sorted(str(n) for n in range(12)))
+        threads = [threading.Thread(target=lambda r=r: answers.append(product.run(*r))) for r in reads]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + 10
+        while self.running() < expected and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.3)  # a read past the room would start here
+        self.assertEqual(self.running(), expected)
+        (self.marks / "release").touch()
+        for thread in threads:
+            thread.join(10)
+        return answers
 
-    def test_a_bound_below_one_is_refused(self):
-        with self.assertRaises(ValueError):
-            serve.Product(Path("/nowhere"), "copy", reads=0)
+    def test_reads_start_only_while_the_containers_memory_has_room_for_their_peak_and_every_read_is_answered(self):
+        # The production Web container: 1.5 GiB, its server and overview holding 420 MiB when no read runs.
+        held = []
+        product = serve.Product(self.root, "copy", memory=lambda: held.append(1) or (1536 * MiB, 420 * MiB))
+        heavy = [("hold", str(n), "research", "comparison", str(self.marks)) for n in range(6)]
+        answers = self.burst(product, heavy, 2)
+        self.assertEqual(sorted(answer["read"] for answer in answers), [str(n) for n in range(6)])
+        self.assertEqual(len(held), 1)  # what the container holds is read only while no read runs
 
-    def test_a_refusal_printed_after_a_launcher_warning_keeps_its_code_and_any_other_failure_stays_product_failed(self):
-        printed = io.StringIO()
-        _print(printed, refusal_json(Refusal("LEDGER_UNAVAILABLE", "the ledger service is not answering")))
-        warning = "warning: `VIRTUAL_ENV=/opt/venv` does not match the project environment path `.venv`\n"
-        crashed = 'Traceback (most recent call last):\n  File "cli/main.py"\n{"code": "X"} is not JSON here\nKeyError: 1\n'
-        product = serve.Product(Path("/nowhere"), "copy")
-        for stderr, code in ((warning + printed.getvalue(), "LEDGER_UNAVAILABLE"), (crashed, "PRODUCT_FAILED"),
-                             (warning + printed.getvalue() + "Segmentation fault\n", "PRODUCT_FAILED")):
-            with self.subTest(code), mock.patch.object(serve.subprocess, "run", return_value=serve.subprocess.CompletedProcess(
-                    [], 1, stdout="", stderr=stderr)), self.assertRaises(serve.ProductError) as caught:
-                product.run("ledger", "sql")
+    def test_a_light_read_does_not_wait_behind_heavy_ones(self):
+        product = serve.Product(self.root, "copy", memory=lambda: (1536 * MiB, 420 * MiB))
+        heavy = [("hold", str(n), "research", "graph", str(self.marks)) for n in range(4)]
+        with mock.patch.object(serve, "LIGHT_READS", (("hold", "light"),)):
+            answers = self.burst(product, [*heavy, ("hold", "light", str(self.marks))], 3)
+        self.assertEqual(len(answers), 5)
+
+    def test_one_read_runs_at_a_time_when_the_container_has_no_room_for_one(self):
+        product = serve.Product(self.root, "copy", memory=lambda: (1024 * MiB, 900 * MiB))
+        answers = self.burst(product, [("hold", str(n), str(self.marks)) for n in range(3)], 1)
+        self.assertEqual(len(answers), 3)
+
+    def test_the_containers_limit_and_what_it_holds_are_read_from_its_cgroup(self):
+        cgroup = Path(tempfile.mkdtemp())
+        (cgroup / "memory.max").write_text("1610612736\n")
+        (cgroup / "memory.stat").write_text("anon 190889984\nfile 412061696\nkernel 7540736\nkernel_stack 294912\n"
+                                            "pagetables 3723264\nsec_pagetables 0\npercpu 2736\nsock 0\n")
+        self.assertEqual(serve.container_memory(cgroup), (1610612736, 190889984 + 7540736))
+        (cgroup / "memory.max").write_text("max\n")
+        self.assertEqual(serve.container_memory(cgroup)[1], 0)
+        self.assertGreater(serve.container_memory(cgroup)[0], 0)
+
+    def test_a_read_the_kernel_kills_is_out_of_memory_a_refusal_keeps_its_code_and_any_other_failure_is_product_failed(self):
+        _print(printed := io.StringIO(), refusal_json(Refusal("LEDGER_UNAVAILABLE", "the ledger service is not answering")))
+        (self.marks / "refusal").write_text(printed.getvalue())
+        product = serve.Product(self.root, "copy")
+        for what, code in (("killed", "OUT_OF_MEMORY"), ("refuse", "LEDGER_UNAVAILABLE"), ("crash", "PRODUCT_FAILED")):
+            with self.subTest(what), self.assertRaises(serve.ProductError) as caught:
+                product.run(what, str(self.marks))
             self.assertEqual(caught.exception.body["code"], code)
 
 

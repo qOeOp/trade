@@ -3,6 +3,7 @@
 // shows, and once when it opens) and the picked coin's details (read when it is picked, then with the snapshot), and where the heatmap
 // is: the drill-down path, the coin picked, what the tiles' area and colour follow.
 import { shared } from "../lib/shared";
+import { pageFetch } from "../lib/transport";
 import { whileVisible } from "../lib/whileVisible";
 import type { CoinDetail, Color, NewsItem, Path, Size, Snapshot } from "../model/market";
 import { atom, useAtom } from "./atom";
@@ -44,7 +45,7 @@ export const pricesWanted = atom(false);
 const onPage = () => shell.get().last.left === "market" || pricesWanted.get();
 
 async function read(path: string): Promise<Response | null> {
-  try { return await fetch(path, { cache: "no-store" }); } catch { return null; }
+  try { return await pageFetch(path, { cache: "no-store" }); } catch { return null; }
 }
 
 async function readSnapshot(): Promise<void> {

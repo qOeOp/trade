@@ -10,7 +10,7 @@ import unittest
 import numpy as np
 
 from market import export
-from market.sources import MarketError
+from shared.errors import Refusal
 from tests.market.directory import directory, seed
 from tests.market.exchange import DAY, MINUTE, day_ms
 
@@ -43,7 +43,7 @@ class FundingFileTests(unittest.TestCase):
 
     def test_a_window_reaching_a_month_without_its_funding_file_is_refused(self):
         self.assertEqual(self.export(day_ms(FEB))["pieces"][0]["counts"]["funding"], 3)
-        with self.assertRaises(MarketError) as caught:
+        with self.assertRaises(Refusal) as caught:
             self.export(day_ms(FEB) + DAY)
         self.assertEqual((caught.exception.code, caught.exception.missing),
                          ("FUNDING_FILE_MISSING", ("funding/2025-02.parquet",)))

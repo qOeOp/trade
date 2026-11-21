@@ -4,7 +4,7 @@
 Only data.binance.vision archives (each checked against the `.CHECKSUM` published beside it) and
 the public `fapi` market endpoints are read; no account, key or private endpoint. Values stay the
 exchange's decimal strings here; `market.store` scales them exactly. Every market refusal is a
-`MarketError` with its catalogued code.
+`shared.errors.Refusal` with its catalogued code.
 """
 
 from __future__ import annotations
@@ -24,6 +24,9 @@ import zipfile
 
 import pyarrow as pa
 import pyarrow.csv as pcsv
+
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 ARCHIVE = "https://data.binance.vision/"
@@ -45,28 +48,9 @@ MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])\Z")
 _S3 = "{http://s3.amazonaws.com/doc/2006-03-01/}"
 
 
-class MarketError(Exception):
-    """A coded market refusal; nothing was written by the refused call."""
-
-    def __init__(self, message: str, *, code: str, missing=()):
-        super().__init__(message)
-        self.code, self.message = code, str(message)
-        self.missing = tuple(str(item) for item in missing)
-
-    def __reduce__(self):  # a refusal crosses from a worker process with its code
-        return _refuse, (self.message, self.code), {"missing": self.missing}
-
-    def as_dict(self) -> dict:
-        return {"code": self.code, "message": self.message, "missing": list(self.missing)}
-
-
-def _refuse(message: str, code: str, **extra) -> MarketError:
-    return MarketError(message, code=code, **extra)
-
-
 def check_symbol(symbol) -> str:
     if not isinstance(symbol, str) or not SYMBOL.fullmatch(symbol):
-        raise _refuse(f"{symbol!r} is not an exchange contract code", "SOURCE_SHAPE", missing=(str(symbol),))
+        raise refuse("SOURCE_SHAPE", f"{symbol!r} is not an exchange contract code", missing=(str(symbol),))
     return symbol
 
 
@@ -124,7 +108,7 @@ def _get(url: str, path: Path | None = None, patient: bool = True) -> bytes:
         except (OSError, http.client.HTTPException) as exc:
             _drop(parts.netloc)
             if attempt == ATTEMPTS - 1:
-                raise _refuse(f"{url}: {exc}", "SOURCE_UNREACHABLE", missing=(url,)) from exc
+                raise refuse("SOURCE_UNREACHABLE", f"{url}: {exc}", missing=(url,)) from exc
             time.sleep(delay)
             delay = min(delay * 2, 60)
             continue
@@ -136,7 +120,7 @@ def _get(url: str, path: Path | None = None, patient: bool = True) -> bytes:
             raise _bad_request(url, body)
         if status not in (403, 418, 429, 500, 502, 503, 504) or attempt == ATTEMPTS - 1 or (
                 not patient and status in (403, 418, 429)):
-            raise _refuse(f"{url}: HTTP {status}", "SOURCE_UNREACHABLE", missing=(url,))
+            raise refuse("SOURCE_UNREACHABLE", f"{url}: HTTP {status}", missing=(url,))
         # 403 (WAF), 418 and 429 are Binance's rate limits: wait them out.
         retry_after = headers.get("Retry-After")
         wait = (float(retry_after) if retry_after and retry_after.isdigit()
@@ -149,7 +133,7 @@ def _get(url: str, path: Path | None = None, patient: bool = True) -> bytes:
 UNKNOWN_SYMBOL_CODE = -1121  # Binance's "Invalid symbol."
 
 
-def _bad_request(url: str, body: bytes) -> MarketError:
+def _bad_request(url: str, body: bytes) -> Refusal:
     """HTTP 400 from the public endpoints: SOURCE_UNKNOWN_SYMBOL only for Binance's error -1121 (the
     contract is unknown); any other rejection is a malformed request, SOURCE_SHAPE."""
     try:
@@ -159,9 +143,9 @@ def _bad_request(url: str, body: bytes) -> MarketError:
     code = found.get("code") if isinstance(found, dict) else None
     detail = found.get("msg") if isinstance(found, dict) else body[:200].decode("utf-8", "replace")
     if code == UNKNOWN_SYMBOL_CODE:
-        return _refuse(f"{url}: the public endpoint does not know the contract ({detail})", "SOURCE_UNKNOWN_SYMBOL",
-                       missing=(url,))
-    return _refuse(f"{url}: HTTP 400 {code} {detail}", "SOURCE_SHAPE", missing=(url,))
+        return refuse("SOURCE_UNKNOWN_SYMBOL", f"{url}: the public endpoint does not know the contract ({detail})",
+                      missing=(url,))
+    return refuse("SOURCE_SHAPE", f"{url}: HTTP 400 {code} {detail}", missing=(url,))
 
 
 # Archives (market.fetch_archive, market.monthly_archives)
@@ -196,19 +180,19 @@ def fetch_archive(cache_root: Path, key: str) -> Path:
         expected = _get(url + ".CHECKSUM")
         published = expected.split()[0].decode("ascii", errors="replace") if expected.split() else ""
         if not re.fullmatch(r"[0-9a-fA-F]{64}", published):
-            raise _refuse(f"{key}: invalid .CHECKSUM", "CHECKSUM_MISMATCH", missing=(key,))
+            raise refuse("CHECKSUM_MISMATCH", f"{key}: invalid .CHECKSUM", missing=(key,))
         target.parent.mkdir(parents=True, exist_ok=True)
         _get(url, partial)
         digest = _sha256(partial)
         if digest != published.lower():
-            raise _refuse(f"{key}: SHA-256 {digest} differs from its .CHECKSUM {published}", "CHECKSUM_MISMATCH",
-                          missing=(key,))
+            raise refuse("CHECKSUM_MISMATCH", f"{key}: SHA-256 {digest} differs from its .CHECKSUM {published}",
+                         missing=(key,))
         checksum_partial = checksum.with_name(checksum.name + ".part")
         checksum_partial.write_bytes(expected)
         checksum_partial.replace(checksum)
         partial.replace(target)
     except _NotPublished as exc:
-        raise _refuse(f"{key} is not published", "ARCHIVE_NOT_PUBLISHED", missing=(key,)) from exc
+        raise refuse("ARCHIVE_NOT_PUBLISHED", f"{key} is not published", missing=(key,)) from exc
     finally:
         partial.unlink(missing_ok=True)
     return target
@@ -218,7 +202,7 @@ def published(cache_root: Path, key: str) -> Path | None:
     """fetch_archive, None for an archive Binance has not published."""
     try:
         return fetch_archive(cache_root, key)
-    except MarketError as exc:
+    except Refusal as exc:
         if exc.code != "ARCHIVE_NOT_PUBLISHED":
             raise
         return None
@@ -256,8 +240,8 @@ def fetch_all(cache_root: Path, keys: list[str]) -> list[Path]:
 def _listed(prefix: str, node: ElementTree.Element | None) -> str:
     """The text of one listing entry (a Key or a CommonPrefixes Prefix); an entry without text is no key."""
     if node is None or not node.text:
-        raise _refuse(f"the archive listing {prefix} holds an entry without a key", "SOURCE_SHAPE",
-                      missing=(prefix,))
+        raise refuse("SOURCE_SHAPE", f"the archive listing {prefix} holds an entry without a key",
+                     missing=(prefix,))
     return node.text
 
 
@@ -272,8 +256,8 @@ def _listing(prefix: str, *, delimiter: str | None) -> tuple[list[str], list[str
         try:
             root = ElementTree.fromstring(_get(f"{LISTING}?{urllib.parse.urlencode(query)}"))
         except _NotPublished as exc:
-            raise _refuse(f"the archive listing {prefix} is not reachable", "SOURCE_UNREACHABLE",
-                          missing=(prefix,)) from exc
+            raise refuse("SOURCE_UNREACHABLE", f"the archive listing {prefix} is not reachable",
+                         missing=(prefix,)) from exc
         page_keys = [_listed(prefix, node) for node in root.iter(f"{_S3}Key")]
         page_prefixes = [_listed(prefix, node.find(f"{_S3}Prefix")) for node in root.iter(f"{_S3}CommonPrefixes")]
         keys += page_keys
@@ -283,8 +267,8 @@ def _listing(prefix: str, *, delimiter: str | None) -> tuple[list[str], list[str
         # A truncated page continues after its marker, else after its own last entry; one with neither cannot continue.
         marker = root.findtext(f"{_S3}NextMarker") or (page_keys or page_prefixes or [""])[-1]
         if not marker:
-            raise _refuse(f"the archive listing {prefix} is truncated with no entry to continue from",
-                          "SOURCE_SHAPE", missing=(prefix,))
+            raise refuse("SOURCE_SHAPE",
+                         f"the archive listing {prefix} is truncated with no entry to continue from", missing=(prefix,))
 
 
 def archive_symbols() -> list[str]:
@@ -309,8 +293,8 @@ def period(key: str) -> str:
 def _check_series(kind: str, symbol: str, interval: str | None) -> None:
     if kind not in KINDS or (kind == "fundingRate") != (interval is None) or (
             interval is not None and interval not in STEP_MS):
-        raise _refuse(f"archive kind {kind!r} with interval {interval!r} is no published series", "SOURCE_SHAPE",
-                      missing=(str(kind),))
+        raise refuse("SOURCE_SHAPE", f"archive kind {kind!r} with interval {interval!r} is no published series",
+                     missing=(str(kind),))
     check_symbol(symbol)
 
 
@@ -323,7 +307,7 @@ def monthly_archives(cache_root: Path, kind: str, symbol: str, interval: str | N
     """
     _check_series(kind, symbol, interval)
     if not isinstance(months, list) or any(not isinstance(month, str) or not MONTH.fullmatch(month) for month in months):
-        raise _refuse(f"months {months!r} are not YYYY-MM", "SOURCE_SHAPE", missing=("months",))
+        raise refuse("SOURCE_SHAPE", f"months {months!r} are not YYYY-MM", missing=("months",))
     stem = _stem("monthly", kind, symbol, interval)
     if len(months) > 3:
         listed, _ = _listing(stem, delimiter=None)
@@ -352,7 +336,7 @@ def _csv(path: Path) -> bytes:
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
         if len(names) != 1:
-            raise _refuse(f"{path}: expected one CSV, found {names}", "SOURCE_SHAPE", missing=(str(path),))
+            raise refuse("SOURCE_SHAPE", f"{path}: expected one CSV, found {names}", missing=(str(path),))
         return archive.read(names[0])
 
 
@@ -369,14 +353,14 @@ def archive_table(path: Path, period: str, low: int, high: int) -> pa.Table:
             convert_options=pcsv.ConvertOptions(include_columns=list(COLUMNS),
                                                 column_types={field.name: field.type for field in KLINE_SCHEMA}))
     except pa.ArrowInvalid as exc:
-        raise _refuse(f"{path}: rows do not parse as klines ({exc})", "SOURCE_SHAPE", missing=(str(path),)) from exc
+        raise refuse("SOURCE_SHAPE", f"{path}: rows do not parse as klines ({exc})", missing=(str(path),)) from exc
     table = table.select(list(COLUMNS)).cast(KLINE_SCHEMA)
     opens, closes = table["open_time"].to_numpy(), table["close_time"].to_numpy()
     bad = (opens < low) | (opens >= high) | (opens % MINUTE != 0) | (closes != opens + MINUTE - 1)
     if bad.any():
         at = int(opens[int(bad.argmax())])
-        raise _refuse(f"{path.name}: the row at {at} is no closed one-minute kline of {period}", "SOURCE_SHAPE",
-                      missing=(str(path.name),))
+        raise refuse("SOURCE_SHAPE", f"{path.name}: the row at {at} is no closed one-minute kline of {period}",
+                     missing=(str(path.name),))
     return table
 
 
@@ -394,7 +378,7 @@ def funding_rows(path: Path) -> list[tuple[int, str]]:
             continue
         cells = line.split(",")
         if len(cells) != 3 or not cells[0].isdigit():
-            raise _refuse(f"{path}: {line!r} is no funding row", "SOURCE_SHAPE", missing=(str(path),))
+            raise refuse("SOURCE_SHAPE", f"{path}: {line!r} is no funding row", missing=(str(path),))
         rows.append((int(cells[0]), cells[2]))
     return rows
 
@@ -423,9 +407,9 @@ def _rest(path: str, params: dict, patient: bool = True):
     try:
         return json.loads(_get(f"{REST}{path}?{urllib.parse.urlencode(params)}", patient=patient))
     except _NotPublished as exc:
-        raise _refuse(f"{path} answered 404", "SOURCE_UNREACHABLE", missing=(path,)) from exc
+        raise refuse("SOURCE_UNREACHABLE", f"{path} answered 404", missing=(path,)) from exc
     except ValueError as exc:
-        raise _refuse(f"{path} did not answer JSON", "SOURCE_SHAPE", missing=(path,)) from exc
+        raise refuse("SOURCE_SHAPE", f"{path} did not answer JSON", missing=(path,)) from exc
 
 
 def rest_klines(price_type: str, symbol: str, interval: str, start_ms: int, end_ms: int,
@@ -435,8 +419,9 @@ def rest_klines(price_type: str, symbol: str, interval: str, start_ms: int, end_
     if price_type not in KIND_OF or interval not in STEP_MS or not isinstance(start_ms, int) \
             or not isinstance(end_ms, int) or start_ms >= end_ms or _off_grid(start_ms, interval) \
             or _off_grid(end_ms, interval):
-        raise _refuse(f"rest_klines({price_type!r}, {interval!r}, {start_ms}, {end_ms}) is no closed-kline request",
-                      "SOURCE_SHAPE", missing=("interval",))
+        raise refuse("SOURCE_SHAPE",
+                     f"rest_klines({price_type!r}, {interval!r}, {start_ms}, {end_ms}) is no closed-kline request",
+                     missing=("interval",))
     check_symbol(symbol)
     path = "/fapi/v1/klines" if price_type == "LAST" else "/fapi/v1/markPriceKlines"
     now = int(time.time() * 1000) if now_ms is None else now_ms
@@ -445,12 +430,12 @@ def rest_klines(price_type: str, symbol: str, interval: str, start_ms: int, end_
         page = _rest(path, {"symbol": symbol, "interval": interval, "startTime": cursor, "endTime": end_ms - 1,
                             "limit": PAGE[path]}, patient)
         if not isinstance(page, list):
-            raise _refuse(f"{path} for {symbol} did not answer a list", "SOURCE_SHAPE", missing=(symbol,))
+            raise refuse("SOURCE_SHAPE", f"{path} for {symbol} did not answer a list", missing=(symbol,))
         if not page:
             break
         for item in page:
             if not isinstance(item, list) or len(item) < 8 or _off_grid(int(item[0]), interval):
-                raise _refuse(f"{path} for {symbol}: {item!r} is no kline row", "SOURCE_SHAPE", missing=(symbol,))
+                raise refuse("SOURCE_SHAPE", f"{path} for {symbol}: {item!r} is no kline row", missing=(symbol,))
             if int(item[0]) < end_ms and int(item[6]) < now:
                 rows.append((int(item[0]), *(str(value) for value in item[1:6]), int(item[6]), str(item[7])))
         following = int(page[-1][0]) + 1
@@ -467,20 +452,20 @@ def _off_grid(ms: int, interval: str) -> bool:
 def rest_funding(symbol: str, start_ms: int, end_ms: int, patient: bool = True) -> list[tuple[int, str]]:
     """market.rest_funding: (funding_time_ms, rate) settled in [start_ms, end_ms), in settlement order."""
     if not isinstance(start_ms, int) or not isinstance(end_ms, int) or start_ms >= end_ms:
-        raise _refuse(f"funding interval [{start_ms}, {end_ms}) is empty", "SOURCE_SHAPE", missing=("interval",))
+        raise refuse("SOURCE_SHAPE", f"funding interval [{start_ms}, {end_ms}) is empty", missing=("interval",))
     check_symbol(symbol)
     rows, cursor = [], start_ms
     while cursor < end_ms:
         page = _rest("/fapi/v1/fundingRate", {"symbol": symbol, "startTime": cursor, "endTime": end_ms - 1,
                                               "limit": PAGE["/fapi/v1/fundingRate"]}, patient)
         if not isinstance(page, list):
-            raise _refuse(f"fundingRate for {symbol} did not answer a list", "SOURCE_SHAPE", missing=(symbol,))
+            raise refuse("SOURCE_SHAPE", f"fundingRate for {symbol} did not answer a list", missing=(symbol,))
         if not page:
             break
         for item in page:
             if not isinstance(item, dict) or "fundingTime" not in item or "fundingRate" not in item:
-                raise _refuse(f"fundingRate for {symbol}: {item!r} lacks its time or rate", "SOURCE_SHAPE",
-                              missing=(symbol,))
+                raise refuse("SOURCE_SHAPE", f"fundingRate for {symbol}: {item!r} lacks its time or rate",
+                             missing=(symbol,))
             if start_ms <= int(item["fundingTime"]) < end_ms:
                 rows.append((int(item["fundingTime"]), str(item["fundingRate"])))
         following = int(page[-1]["fundingTime"]) + 1
@@ -512,13 +497,13 @@ def rest_metrics(symbol: str, start_ms: int, end_ms: int, patient: bool = True) 
             page = _rest(f"/futures/data/{endpoint}", {"symbol": symbol, "period": "5m", "startTime": cursor,
                                                         "endTime": last, "limit": METRICS_PAGE}, patient)
             if not isinstance(page, list):
-                raise _refuse(f"{endpoint} for {symbol} did not answer a list", "SOURCE_SHAPE", missing=(symbol,))
+                raise refuse("SOURCE_SHAPE", f"{endpoint} for {symbol} did not answer a list", missing=(symbol,))
             if not page:
                 break
             for item in page:
                 if not isinstance(item, dict) or not str(item.get("timestamp", "")).isdigit():
-                    raise _refuse(f"{endpoint} for {symbol}: {item!r} has no timestamp", "SOURCE_SHAPE",
-                                  missing=(symbol,))
+                    raise refuse("SOURCE_SHAPE", f"{endpoint} for {symbol}: {item!r} has no timestamp",
+                                 missing=(symbol,))
                 created = int(item["timestamp"]) - METRICS_DESCRIBES_MS
                 if start_ms <= created < end_ms and item.get(field) not in (None, ""):
                     found.setdefault(created, {})[name] = str(item[field])
@@ -539,10 +524,10 @@ def rest_exchange_info() -> tuple[int, list[dict]]:
     try:
         info = json.loads(_get(f"{REST}/fapi/v1/exchangeInfo"))
     except (_NotPublished, ValueError) as exc:
-        raise _refuse("exchangeInfo did not answer JSON", "SOURCE_UNREACHABLE", missing=("exchangeInfo",)) from exc
+        raise refuse("SOURCE_UNREACHABLE", "exchangeInfo did not answer JSON", missing=("exchangeInfo",)) from exc
     if not isinstance(info, dict) or not isinstance(info.get("serverTime"), int) or not isinstance(
             info.get("symbols"), list):
-        raise _refuse("exchangeInfo lacks its server time or contracts", "SOURCE_SHAPE", missing=("serverTime",))
+        raise refuse("SOURCE_SHAPE", "exchangeInfo lacks its server time or contracts", missing=("serverTime",))
     return info["serverTime"], [contract_terms(item) for item in info["symbols"]]
 
 
@@ -562,15 +547,16 @@ def contract_terms(item: dict) -> dict:
                  "min_price": price.get("minPrice"), "max_price": price.get("maxPrice"),
                  "onboard_date": item.get("onboardDate")}
     except (KeyError, TypeError) as exc:
-        raise _refuse(f"exchangeInfo contract {item.get('symbol') if isinstance(item, dict) else item!r} lacks a "
-                      f"required field ({exc})", "SOURCE_SHAPE", missing=(str(exc),)) from exc
+        raise refuse("SOURCE_SHAPE",
+                     f"exchangeInfo contract {item.get('symbol') if isinstance(item, dict) else item!r} lacks a "
+                     f"required field ({exc})", missing=(str(exc),)) from exc
     if not all(isinstance(found[key], str) and found[key] for key in ("symbol", "status", "price_increment",
                                                                       "size_increment")):
-        raise _refuse(f"exchangeInfo contract {found['symbol']!r} lacks its status or increments", "SOURCE_SHAPE",
-                      missing=(str(found["symbol"]),))
+        raise refuse("SOURCE_SHAPE", f"exchangeInfo contract {found['symbol']!r} lacks its status or increments",
+                     missing=(str(found["symbol"]),))
     if found["onboard_date"] is not None and not isinstance(found["onboard_date"], int):
-        raise _refuse(f"exchangeInfo contract {found['symbol']!r} has a malformed onboardDate", "SOURCE_SHAPE",
-                      missing=(str(found["symbol"]),))
+        raise refuse("SOURCE_SHAPE", f"exchangeInfo contract {found['symbol']!r} has a malformed onboardDate",
+                     missing=(str(found["symbol"]),))
     return found
 
 
