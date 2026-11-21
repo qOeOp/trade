@@ -14,7 +14,7 @@ or lagging, or its status is a day old.」。当时的原因已无法取回：�
 
 | id | Finding | Evidence | Action | Cost | Status |
 |---|---|---|---|---|---|
-| 20261121-21 | 每日轮次跑得久时，market-import 的健康检查在轮次进行中就报过期（不健康） | `market/follow.py`：`run_round` 的 `at` 是该轮开始时刻，状态只在一轮结束时写；一轮开始时 `follow` 保留上一轮的 `at`，只加 `running_since`；`check` 只看 `at` 是否超过 `STALE`（26 小时）。00:30 UTC 开始的每日轮次跑过约 02:30 就报不健康。主机上该轮的 K 线文件写于 11-20 08:30 UTC，与长轮次相符，未证实。[#3287](https://github.com/qOeOp/trade/pull/3287) 起检查会打印原因 | authority（改健康检查判定） | unknown | in PR |
+| 20261121-21 | 每日轮次跑得久时，market-import 的健康检查在轮次进行中就报过期（不健康） | `market/follow.py`：`run_round` 的 `at` 是该轮开始时刻，状态只在一轮结束时写；一轮开始时 `follow` 保留上一轮的 `at`，只加 `running_since`；`check` 只看 `at` 是否超过 `STALE`（26 小时）。00:30 UTC 开始的每日轮次跑过约 02:30 就报不健康。主机上该轮的 K 线文件写于 11-20 08:30 UTC，与长轮次相符，未证实。[#3287](https://github.com/qOeOp/trade/pull/3287) 起检查会打印原因 | authority（改健康检查判定） | unknown | in PR [#3297](https://github.com/qOeOp/trade/pull/3297) |
 
 ## 决定
 
