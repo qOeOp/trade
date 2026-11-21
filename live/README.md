@@ -264,7 +264,7 @@ the refusal's `code`), whether the final account read after a completed native e
 again found no native cache or changed account modes, or anything else raised; and the control never starts again a
 runner that exited with status 1 or 2, even where it could write no event. Two refusals give the start back
 instead, before anything is built or written: a start again whose first account read fails
-(`LIVE_ACCOUNT_UNAVAILABLE`), or whose read shows this clock outside the limits (`LIVE_CLOCK`; the limits are
+(`LIVE_ACCOUNT_UNAVAILABLE`, after the bounded retries of `engine.live_venue.READ_ATTEMPTS`), or whose read shows this clock outside the limits (`LIVE_CLOCK`; the limits are
 unchanged), exits 3 with no event, and the control starts the run again within the same hourly limit (finding
 20261114-23, the user 2026-11-15). Both pass by themselves, a host clock that steps aside included, and the account
 may hold a position. While the clock stays outside the limits the run stays `interrupted`: nothing checks its
