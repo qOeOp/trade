@@ -31,6 +31,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   seconds; a shorter miss is written to the runner's log and an answered PING clears it. Before, one PING not
   answered within 2 seconds ended the run: release host runs 3 and 4 ended together on 2026-11-20 while the VM stalled.
 
+- IDE, desktop Live (doctor 20261121-06, -07, -08): `Request stop…` no longer sends at once; the first click arms
+  it inline (no dialog) and lists what the stop does now (entry orders cancelled, each position closed at market
+  once, protective stops kept until flat), and `Confirm stop` within 10 seconds sends it, as in the run canvas,
+  Review run and the prepared run's review. A shown run lists its positions (with stop and estimated P&L) and
+  working orders from its native events, as the phone does, and its Coins chart draws the position and its
+  protective stops. `New run` beside `Request stop…` opens the launch page over a shown run (until now only the
+  command palette did).
 - `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
   2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
   leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial

@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { FormButton } from "../../components/chat/Field";
 import { HoldButton } from "../../components/HoldButton";
-import { Side } from "../../components/PhoneParts";
 import { Sheet } from "../../components/Sheet";
 import { useLiveAction, LiveActionFailure } from "../../components/LiveActionState";
+import { StopEffects } from "../../components/LiveStop";
 import { Icon } from "../../icons/Icon";
 import { fixed } from "../../lib/paperApi";
 import type { LiveRun } from "../../model/liveTrading";
@@ -15,20 +15,6 @@ import { Version } from "./RunCards";
 type Step = { text: ReactNode; state: "done" | "doing" | "todo" | "failed" };
 const ICON = { done: "passed", doing: "loading", todo: "untested", failed: "failed" } as const;
 const TONE = { done: "meets", doing: "recommended", todo: "fg-faint", failed: "fail" } as const;
-
-/** What a stop does to `run` as its working orders and positions stand now (engine/README.md, the STOP path). */
-function Effects({ held, working }: { held: readonly Held[]; working: readonly Working[] }) {
-  const entries = working.filter((o) => !protects(o, held)), stops = working.filter((o) => protects(o, held));
-  return (
-    <ul className="list-disc space-y-2 pl-6 text-dense">
-      <li>Stops new entries and cancels its entry orders. {entries.length ? `${entries.length} open now.` : "It has none open now."}</li>
-      {held.map((h) => <li key={h.key}>Closes {h.symbol} <Side long={h.long} word={h.long ? "long" : "short"} /> {fixed(h.qty)} at market{h.mark !== null ? ` (now ≈ ${fixed(h.mark)})` : ""}, one attempt.</li>)}
-      {stops.map((o) => <li key={o.key}>Keeps the protective stop at {fixed(o.trigger)} until the position is flat.</li>)}
-      <li>The run ends once Binance shows the account flat. It cannot be resumed; a new run starts from the desktop.
-        If the close is refused, the run is left unresolved and Telegram tells you.</li>
-    </ul>
-  );
-}
 
 /** Where a requested stop is, from the request and the run as Live reads it again. */
 function steps(run: LiveRun, outcome: string | undefined, held: readonly Held[], working: readonly Working[]): Step[] {
@@ -66,7 +52,7 @@ export function StopSheet({ run, open, onClose }: { run: LiveRun; open: boolean;
           <p className="text-small text-fg-faint">You can close this. Telegram tells you when the run has ended.</p>
           <FormButton className="w-full" onClick={onClose}>Close</FormButton>
         </> : <>
-          <Effects held={held} working={working} />
+          <StopEffects held={held} working={working} />
           <HoldButton onHeld={send} disabled={!actions.stop || run.ended || action.busy}>Hold to stop</HoldButton>
           <FormButton className="w-full" onClick={onClose}>Cancel</FormButton>
         </>}
