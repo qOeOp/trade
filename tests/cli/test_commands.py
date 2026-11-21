@@ -369,10 +369,13 @@ class CommandTests(unittest.TestCase):
         reproduced = self.ok("replay", "reproduce", *ledger, "--trial-id", str(ran["trial_id"]),
                              "--output", str(self.tmp / "reproduce"))
         self.assertTrue(reproduced["fingerprints_match"])
-        validation = self.ok("validation", "registration", *ledger, "--candidate", "fixture@2",
-                             "--window-start", "2030-01-01T00:00:00Z", "--window-end", "2030-02-01T00:00:00Z",
-                             "--universe-rule", "usdt-perp-listed30d-v1", "--design", self.write("design.json", DESIGN),
-                             "--tsa-url", "https://timestamp.example.invalid")
+        registration = ("validation", "registration", *ledger, "--candidate", "fixture@2",
+                        "--window-start", "2030-01-01T00:00:00Z", "--window-end", "2030-02-01T00:00:00Z",
+                        "--universe-rule", "usdt-perp-listed30d-v1", "--design", self.write("design.json", DESIGN),
+                        "--tsa-url", "https://timestamp.example.invalid")
+        undecided = self.refused("HISTORY_UNDECIDED", *registration)  # 20261120-05: no closing history test yet
+        self.assertEqual(undecided["missing"], ["line history"])
+        validation = self.ok(*registration, scenario={"history_decided": True})
         self.assertEqual(validation["witness"]["status"], "failed")
         self.assertTrue(validation["next_actions"])
         self.refused("WINDOW_INVALID", "validation", "registration", *ledger, "--candidate", "fixture@2",

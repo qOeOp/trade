@@ -81,6 +81,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   contributions, the `INTERACTION_UNATTESTED` refusal). A body that still declares one is refused with
   `REGISTRATION_INVALID`; none of the active ledger's 81 registrations declared one (user 2026-11-21).
 
+- Breaking (validation): `validation registration` takes only a candidate its line's closing history test decided
+  meets the targets (user 2026-11-21, doctor 20261120-05). A candidate the test judged not meeting them is refused
+  `CANDIDATE_FALSIFIED`; one without a history test, or whose verdict lacks a reading (a veto year, the control, the
+  holdout, the targets, or its economic evidence), is refused `HISTORY_UNDECIDED`, naming what is missing. The
+  research-round skill asks about validation when the user picks a candidate after `line close`, no longer when a
+  candidate is accepted during research.
 - Breaking (research lines): a line's development period now grows with its start's coverage instead of stepping
   from 12 to 4 quarters below 24 quarters (user 2026-11-21, doctor 20261120-07). With C complete quarters of the
   start's precheck instruments before Q, the period is C - 12 quarters (the 8-quarter holdout and 4 quarters of veto

@@ -243,6 +243,12 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "PRECHECK_CAPTURE_MISSING": ("Run `replay precheck` for the source and review that trial.",),
     # Validation (registration/validation.py)
     "CANDIDATE_UNKNOWN": ("Pass a candidate shown by `candidate list` as strategy_id@revision.",),
+    # The closing history test's verdict (report/history.py), required by validation and Live
+    "CANDIDATE_FALSIFIED": ("Pick another candidate whose line's closing history test meets the targets "
+                            "(`research history`); a falsified candidate takes no validation or Live run.",),
+    "HISTORY_UNDECIDED": ("Supply what the message names: `line history` for the candidate's line (it resumes "
+                          "where it stopped), the line's targets, or the economic evidence of its research run; then "
+                          "read `research history` and pick a candidate it decided.",),
     "DESIGN_INVALID": ("Declare method, block_days, resamples, inner_resamples, seed, alpha, minimum_effect and "
                        "design_reason.",),
     "RETRY_NOT_ALLOWED": ("Retry only attempts whose replay was captured without a run, invalid or without "

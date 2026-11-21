@@ -53,7 +53,9 @@ class TamperTests(unittest.TestCase):
         other = world.publish("other", parent=None)
         window = (datetime(2030, 1, 1, tzinfo=UTC), datetime(2030, 2, 1, tzinfo=UTC))
         arguments = {"window_start": window[0], "window_end": window[1], "universe_rule": "pool-v1",
-                     "market": MARKET_DAY, "design": DESIGN, "retry_of": None, "market_profile": world.market}
+                     "market": MARKET_DAY, "design": DESIGN, "retry_of": None, "market_profile": world.market,
+                     # the fixture's candidates have no closing history test (report.history.require_unfalsified)
+                     "unfalsified": lambda conn, source_sha256: None}
         with patch.object(witness, "_post", side_effect=cls.authority.respond):
             cls.witnessed = validation.validation_register(world.profile, "rsi@1", op_id="v:witnessed", **arguments)
         with patch.object(witness, "_post", side_effect=OSError("offline")):
