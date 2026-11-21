@@ -587,8 +587,8 @@ def market_events(rows: list[dict], start: int, end: int, quotes: bool = False):
                     files.append((native, path, *bounds))
         if "metrics" in row["counts"]:
             small.append(_keyed(_metrics_events(row), base + STREAM_TYPES.index("Metrics")))
-        for kind in ("FundingRateUpdate", "InstrumentStatus", "InstrumentClose"):
-            small.append(_keyed(_small_events(row, kind), base + STREAM_TYPES.index(kind)))
+        small.extend(_keyed(_small_events(row, kind), base + STREAM_TYPES.index(kind))
+                     for kind in ("FundingRateUpdate", "InstrumentStatus", "InstrumentClose"))
     pending = heapq.merge(*small, key=lambda item: item[:3])  # each source is in file (ts_init) order
     following = next(pending, None)
 

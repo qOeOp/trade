@@ -72,7 +72,7 @@ class Failure(Exception):
         self.status, self.body = status, {"code": code, "message": message}
 
     @classmethod
-    def refused(cls, found: dict) -> "Failure":
+    def refused(cls, found: dict) -> Failure:
         """A product refusal (Refusal.as_dict(), as a command prints it) as HTTP: the caller's mistake 400, a
         service it needs not answering 503, the command's own unreadable failure 500, and every other refusal (the
         ledger's or the runs' state) 409. The body keeps what the refusal says it wrote and what it names."""

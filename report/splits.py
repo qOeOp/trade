@@ -6,7 +6,7 @@ daily returns, never stored; the single-run report gives them beside the measure
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from decimal import Decimal
 import itertools
 import math
@@ -19,7 +19,7 @@ def closed_by_year(cycles: list[dict]) -> dict:
     """Closed cycles' count, price PnL, commissions and funding by the UTC year of their close."""
     years: dict[str, dict] = {}
     for cycle in closed_cycles(cycles):
-        year = str(datetime.fromtimestamp(cycle["ts_closed_ns"] // 10**9, timezone.utc).year)
+        year = str(datetime.fromtimestamp(cycle["ts_closed_ns"] // 10**9, UTC).year)
         item = years.setdefault(year, {"closed_trades": 0, "price": Decimal(0), "commissions": Decimal(0),
                                        "funding": Decimal(0)})
         item["closed_trades"] += 1
@@ -56,8 +56,8 @@ def _segments(run: Mapping, months: int) -> tuple[list[datetime], int, list[floa
     """(cuts, whole, returns) of a run's trading window cut every `months` months from its trade start, a last part
     segment when the window does not end on a cut: each segment's compound return over the stored daily returns
     dated in it. None for a window of one whole segment or less, or a start whose day some month lacks."""
-    start = datetime.fromtimestamp(run["trade_start_ns"] // 10**9, timezone.utc)
-    end = datetime.fromtimestamp(run["trade_end_ns"] // 10**9, timezone.utc)
+    start = datetime.fromtimestamp(run["trade_start_ns"] // 10**9, UTC)
+    end = datetime.fromtimestamp(run["trade_end_ns"] // 10**9, UTC)
 
     def shifted(k: int) -> datetime:
         month = start.month - 1 + k * months
@@ -120,7 +120,7 @@ def dev_quarters(run: Mapping) -> dict | None:
     when it does not end on a cut, each quarter's compound return, the worst whole quarter's return and the window's
     annual return over its days without the best whole quarter. Not read against the annual target. A slice of
     one continuous run, like dev_years. None for a window of two whole years or more, or of one quarter or less."""
-    start = datetime.fromtimestamp(run["trade_start_ns"] // 10**9, timezone.utc)
+    start = datetime.fromtimestamp(run["trade_start_ns"] // 10**9, UTC)
     if run["trade_end_ns"] >= int(start.replace(year=start.year + 2, day=min(start.day, 28)).timestamp()) * 10**9:
         return None
     if (cut := _segments(run, 3)) is None:

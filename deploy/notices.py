@@ -1,5 +1,6 @@
 """The release tick's failure notices: what fails outside Live, sent from the host to the chat the Live page bound."""
 
+import contextlib
 from datetime import UTC, datetime
 import json
 from pathlib import Path
@@ -150,10 +151,8 @@ class Notices:
 
     def drifted(self, read) -> None:
         """What on the host does not follow the active version: `read()` is `drift`'s facts."""
-        try:
+        with contextlib.suppress(Exception):  # unknown this tick: what was sent stays sent
             self.observe("drift", read())
-        except Exception:
-            pass  # unknown this tick: what was sent stays sent
 
     def send(self) -> None:
         try:

@@ -5,6 +5,7 @@ object holding MEDIA_URL as a value (query and fragment ignored) that also names
 else the smallest object holding it. Every URL inside loses its query and fragment. Exit 1 with none or several.
 """
 import json, re, sys
+from pathlib import Path
 from urllib.parse import unquote
 
 TIME_KEYS = {"created_at", "createdAt", "dateCreated", "datePublished", "uploadDate", "published_at", "publishedAt", "pubdate"}
@@ -30,7 +31,7 @@ def clean(value):
     return [clean(v) for v in value] if isinstance(value, list) else value
 
 
-page, want = open(sys.argv[1], encoding="utf-8", errors="replace").read(), bare(sys.argv[2])
+page, want = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace"), bare(sys.argv[2])
 records = {}
 for text in BLOCK.findall(page):
     try:

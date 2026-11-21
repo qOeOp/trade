@@ -24,6 +24,7 @@ from engine import run
 from engine.strategy import STRATEGIES
 from engine.run import StrategyInputs, effective_configuration, execution_metadata, parse_configuration
 from tests.helpers import refused
+from datetime import UTC
 
 
 def importable(loaded) -> str:
@@ -464,7 +465,7 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertEqual(found, strategy_runtime.CLOCK_CALLBACK_APIS)
 
     def test_a_raising_clock_callback_leaves_a_receipt_though_the_engine_goes_on(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
         from datetime import timedelta
         from decimal import Decimal
         from nautilus_trader.model import (
@@ -482,7 +483,7 @@ class StrategyLoaderTests(unittest.TestCase):
                 self.subscribe_bars(native.BAR_TYPE)
                 self.clock.set_timer("tick", timedelta(minutes=5), callback=self.tick)
                 self.clock.set_time_alert_ns("alert", self.clock.timestamp_ns() + 60 * 10**9, self.alert)
-                start = datetime.fromtimestamp(self.clock.timestamp_ns() / 10**9, tz=timezone.utc)
+                start = datetime.fromtimestamp(self.clock.timestamp_ns() / 10**9, tz=UTC)
                 self.clock.set_timer_zoned("zoned", "PT5M", start, callback=self.zoned)
                 self.clock.set_timer_zoned("placed", "PT5M", start, None, self.placed)
 

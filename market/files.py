@@ -124,10 +124,9 @@ def row_rules(table: str, batch: pa.RecordBatch) -> list[tuple[str, pa.Array]]:
         return [("bid > 0 and ask > bid", pc.and_(pc.greater(c("bid"), 0), pc.greater(c("ask"), c("bid"))))]
     if table == "metrics":
         times = c("create_time").to_numpy(zero_copy_only=False)
-        rules = [("create_time on a 5-minute grid", pa.array(times % 300_000 == 0))]
-        for name in METRICS_VALUES:
-            rules.append((f"{name} >= 0", pc.fill_null(pc.greater_equal(c(name), _zero(c(name).type)), True)))
-        return rules
+        return [("create_time on a 5-minute grid", pa.array(times % 300_000 == 0)),
+                *((f"{name} >= 0", pc.fill_null(pc.greater_equal(c(name), _zero(c(name).type)), True))
+                  for name in METRICS_VALUES)]
     return []
 
 
@@ -411,9 +410,9 @@ def file_batches(data: pa.Buffer, table: Table, symbols: list[str] | None = None
     wanted = pa.array(names, STRING) if names is not None else None
     for group in range(reader.num_row_groups):
         stats = reader.metadata.row_group(group).column(reader.schema_arrow.get_field_index(table.time)).statistics
-        if stats is not None and stats.has_min_max and table.schema.field(table.time).type == INT:
-            if (start_ms is not None and stats.max < start_ms) or (end_ms is not None and stats.min >= end_ms):
-                continue
+        if (stats is not None and stats.has_min_max and table.schema.field(table.time).type == INT
+                and ((start_ms is not None and stats.max < start_ms) or (end_ms is not None and stats.min >= end_ms))):
+            continue
         if names is not None:  # files of several contracts are sorted by symbol first: a row group holds a few
             stats = reader.metadata.row_group(group).column(reader.schema_arrow.get_field_index("symbol")).statistics
             if stats is not None and stats.has_min_max and not any(stats.min <= name <= stats.max for name in names):
@@ -475,7 +474,7 @@ def lock(market: Market) -> Iterator[None]:
         raise ValueError("only the import role takes the import lock")
     if market.locked:
         raise RuntimeError("this market already holds its import lock")
-    handle = open(market.root / "lock", "a+")
+    handle = open(market.root / "lock", "a+")  # noqa: SIM115 (closed by its owner)
     try:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)

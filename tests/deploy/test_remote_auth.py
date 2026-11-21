@@ -90,7 +90,7 @@ class RemoteAuthTests(unittest.TestCase):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             cls.port = probe.getsockname()[1]
-        cls.log = tempfile.TemporaryFile()
+        cls.log = tempfile.TemporaryFile()  # noqa: SIM115 (closed by its owner)
         cls.addClassCleanup(cls.log.close)
         config = Path(__file__).resolve().parents[2] / "deploy/remote/oauth2-proxy.cfg"
         cls.proxy = subprocess.Popen([

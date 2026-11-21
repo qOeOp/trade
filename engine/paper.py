@@ -80,7 +80,7 @@ if __name__ == "__main__":
     block()
 
 import argparse
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 import functools
 import hashlib
 import importlib.metadata
@@ -97,7 +97,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, cast
+from collections.abc import Callable
 
 from nautilus_trader.adapters.sandbox import SandboxExecutionClientConfig, SandboxExecutionClientFactory
 from nautilus_trader.common import CacheConfig, DataActor, Environment
@@ -497,10 +498,8 @@ def release_before(value) -> None:
             strategy._paper_held = [item for item in held if item[1] == dispatch]
     for (_, _, held_ns, callback, data), strategy in sorted(due, key=lambda pair: pair[0][0]):
         strategy._paper_released_ns = max(strategy._paper_released_ns, held_ns)
-        try:
+        with suppress(Exception):  # engine.strategy.execution_failure recorded it
             callback(strategy, data)
-        except Exception:  # engine.strategy.execution_failure recorded it
-            pass
 
 
 def _hold(self, callback, value, dispatched, *, release: bool = True) -> None:
@@ -971,7 +970,7 @@ class Membership(membership_months.Membership):
 
 def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: str | None,
                fees: tuple[Decimal, Decimal], catalog: Path, leverage: str, terms: dict,
-               session: Session | None = None) -> tuple[Any, "Recorder"]:
+               session: Session | None = None) -> tuple[Any, Recorder]:
     """The node, and the recorder it holds."""
     account = ACCOUNT_CONTRACT
     usdt = Currency.from_str(account["base_currency"])

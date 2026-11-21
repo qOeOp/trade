@@ -16,7 +16,7 @@ def account(events, flag=True, total="100 USDT", margin="4 USDT"):
                            last_event=SimpleNamespace(to_dict=lambda: copy.deepcopy(events[-1])),
                            balance_total=lambda _: total, balance_free=lambda _: "96 USDT",
                            balance_locked=lambda _: "4 USDT", margins=lambda: {"BTC": margin},
-                           account_margins=lambda: {})
+                           account_margins=dict)
 
 
 class NativeReadbackTests(unittest.TestCase):

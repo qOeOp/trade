@@ -10,6 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261121-46 | 质量检查不查 ruff 的 UP、PIE、PERF、SIM（开启后 98 处） | authority（收紧质量检查；委托决定） | doctor | none | in PR（[记录](2026-11-21-ruff-rules.zh.md)） | 2026-11-21 | 2026-11-21 |
 | 20261121-31 | Live 的 Binance 适配器发不出、回放与 Paper 照收的订单（O-02：TRAILING_STOP_LIMIT、MARKET_TO_LIMIT、DAY 等有效期、非基点的移动偏移、post-only 的 GTD、`close_position` 的 DAY 或 GTD），以及 600–605 秒的 GTD（20261114-26 留下的错位） | authority（订单规则 5 加挡；用户委托决定） | doctor | unknown | in PR [#3311](https://github.com/qOeOp/trade/pull/3311)（[记录](../order-rules-live-shapes-20261121.zh.md)） | 2026-11-14 | 2026-11-21 |
 | 20261121-40 | Live 与 Paper 把 `ts_event` 不晚于上一根的外部 K 线（重复或修订的收盘 K 线）照样交给源码，同一根 K 线决策两次（审计 T-15，回环 `s10_dup_live`） | authority（源码收到前丢弃并记 `bar_repeated`；Claude 按用户委托决定） | doctor | unknown | open [记录](../repeated-bar-20261121.zh.md) | 2026-11-14 | 2026-11-21 |
 | 20261121-27 | `paper start` 不检查源码是否声明恢复协议：没有 `PAPER_RECOVERY = 1` 与 `on_save`/`on_load` 的源码照常启动，远端运行 2、3、4 各在一次中断后结束 | authority（启动前拒绝缺这三个名字的源码；Claude 按用户委托决定） | doctor | unknown | in PR [#3306](https://github.com/qOeOp/trade/pull/3306)（[记录](2026-11-21-paper-start-recovery.zh.md)） | 2026-11-21 | 2026-11-21 |

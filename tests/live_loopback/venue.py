@@ -18,6 +18,7 @@ Faults are injected through the public methods: `fail` (an HTTP answer for the n
 from __future__ import annotations
 
 import base64
+import contextlib
 from dataclasses import dataclass, field
 from decimal import Decimal
 import hashlib
@@ -815,8 +816,6 @@ class Socket:
         if self.closed:
             return
         self.closed = True
-        try:
+        with contextlib.suppress(OSError):
             self.raw.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
         self.raw.close()

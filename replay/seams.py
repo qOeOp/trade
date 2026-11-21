@@ -7,7 +7,7 @@ running and stopping a named container.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, replace
 import subprocess
 import threading
@@ -43,11 +43,9 @@ def _remove(name: str) -> bool:
                                text=True, check=False, timeout=60)
     except (OSError, subprocess.TimeoutExpired):
         state = None
-    try:
+    with suppress(OSError, subprocess.TimeoutExpired):
         subprocess.run(["docker", "rm", "--force", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                        check=False, timeout=60)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
     return state is not None and state.returncode == 0 and state.stdout.strip() == "true"
 
 

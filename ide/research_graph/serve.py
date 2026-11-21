@@ -63,6 +63,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Callable
+import contextlib
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 import gzip
@@ -276,10 +277,8 @@ class Product:
         self._start(cost)
         try:
             with subprocess.Popen(argv, cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
-                try:
+                with contextlib.suppress(OSError):  # no /proc (macOS): no OOM killer to steer
                     Path(f"/proc/{process.pid}/oom_score_adj").write_text("1000")
-                except OSError:
-                    pass  # no /proc (macOS): no OOM killer to steer
                 try:
                     stdout, stderr = process.communicate(timeout=600)
                 except subprocess.TimeoutExpired:
@@ -556,10 +555,9 @@ class Hub:
                 if replaced:  # reads pinned to the replaced history's commits; a day's bars stay
                     self.reads.drop(lambda key: key[0] != "bars")
                 if head != self.head:
-                    try:
+                    # navigation metadata has its own error path; it must not block a valid graph
+                    with contextlib.suppress(ProductError):
                         index = json.loads(self.kept("lines", head))
-                    except ProductError:
-                        pass  # navigation metadata has its own error path; it must not block a valid graph
             except ProductError as exc:
                 with self.lock:
                     self.fault, self.checked = exc.body, time.monotonic()
@@ -858,10 +856,8 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                         pass
                     finally:
                         for end in (self.connection, upstream):
-                            try:
+                            with contextlib.suppress(OSError):
                                 end.shutdown(socket.SHUT_RDWR)
-                            except OSError:
-                                pass
 
                 threading.Thread(target=back, daemon=True).start()
                 while chunk := self.rfile.read1(65536):

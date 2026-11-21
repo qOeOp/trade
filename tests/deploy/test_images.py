@@ -125,8 +125,9 @@ class ResolveTests(unittest.TestCase):
                 if args[0] == "log":
                     return "commit"
                 if args[0] == "show":
-                    return ('{"revision":"%s","image":"%s@%s","service":"ghcr.io/qoeop/trade-service@%s",'
-                            '"runtime":"ghcr.io/qoeop/trade-runtime@%s"}' % (NEW, IDE, AMD, AMD, AMD))
+                    return json.dumps({"revision": NEW, "image": f"{IDE}@{AMD}",
+                                       "service": f"ghcr.io/qoeop/trade-service@{AMD}",
+                                       "runtime": f"ghcr.io/qoeop/trade-runtime@{AMD}"}, separators=(",", ":"))
                 return LATEST
 
             def ancestor(self, before, after):

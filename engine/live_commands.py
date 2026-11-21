@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 import threading
 import time
-from typing import Any, Callable, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
+from collections.abc import Callable
 from nautilus_trader.model import AccountId, OrderStatus, TimeInForce
 from nautilus_trader.trading import Strategy
 from engine import live_connection

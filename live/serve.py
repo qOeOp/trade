@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 import errno
 from http.server import BaseHTTPRequestHandler
 import json
@@ -132,10 +132,8 @@ def handler(config_file: Path, config: configuration.Configuration, *, binding: 
             self.send_header("Connection", "close")
             self.end_headers()
             self.close_connection = True
-            try:
+            with suppress(OSError):
                 self.wfile.write(body)
-            except OSError:
-                pass
 
         def route(self):
             url = urlsplit(self.path)
@@ -242,10 +240,10 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
             with scope.mutation(maintenance=True) as root:
                 observed = runs.observe_locked(root, path.name)
                 if observed["state"] in ("running", "interrupted") and observed.get("mode") == "run":
-                    try:  # the next month's membership, before a start reads it (engine.membership)
+                    # the next month's membership, before a start reads it (engine.membership):
+                    # until it is written the runner denies entries on the contract; the next pass retries
+                    with suppress(Exception):
                         runs.write_months_locked(root, path.name, config.market_root, time.time_ns())
-                    except Exception:
-                        pass  # until it is written the runner denies entries on the contract; the next pass retries
                 if observed["state"] == "interrupted":
                     control.restart_interrupted_locked(root, path.name, time.time_ns())
                 elif observed["state"] == "running" and observed["mode"] == "run":

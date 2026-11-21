@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 from bisect import bisect_left
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 VIEW_FORMAT = "research-graph-view"
 EVENT_KINDS = ("recommendation", "eligibility_change", "line_change")
@@ -36,7 +36,7 @@ MEASURES = ("annual_return", "max_drawdown", "sharpe", "plan_win_rate")  # a run
 def seconds(value: str) -> float:
     """Epoch seconds; a time without an offset is UTC (the ledger stores UTC without a zone)."""
     moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    return (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).timestamp()
+    return (moment if moment.tzinfo else moment.replace(tzinfo=UTC)).timestamp()
 
 
 def first_trial(candidate: dict) -> int | None:

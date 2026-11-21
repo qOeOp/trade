@@ -4,7 +4,7 @@ Holm's correction, the regressions, the read-time measures and the one trade pai
 from __future__ import annotations
 
 from decimal import Decimal
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, UTC
 import math
 from statistics import NormalDist
 import unittest
@@ -401,7 +401,7 @@ class DevYearTests(unittest.TestCase):
         self.start = date(2021, 10, 1)
         self.days = (date(2024, 10, 1) - self.start).days
         def ns(day: date) -> int:
-            return int(datetime(day.year, day.month, day.day, tzinfo=timezone.utc).timestamp()) * 10**9
+            return int(datetime(day.year, day.month, day.day, tzinfo=UTC).timestamp()) * 10**9
         self.ns = ns
         daily = {2021: -0.0003, 2022: -0.0001, 2023: 0.002}  # by the year the development year starts in
 

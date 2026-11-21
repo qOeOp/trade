@@ -89,10 +89,9 @@ def unused_definitions() -> list[str]:
                 continue
     found = []
     for module, path in sorted(modules.items()):
-        for node in parsed(path).body:
-            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-                    and node.name not in used[module] | words):
-                found.append(f"{path}:{node.lineno} {node.name}")
+        found.extend(f"{path}:{node.lineno} {node.name}" for node in parsed(path).body
+                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                     and node.name not in used[module] | words)
     return found
 
 

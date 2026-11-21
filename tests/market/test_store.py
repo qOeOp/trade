@@ -4,7 +4,7 @@ export the engine streams whole."""
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, UTC
 from decimal import Decimal
 import json
 import os
@@ -182,13 +182,13 @@ class ImportTests(unittest.TestCase):
 
     def test_daily_returns_of_btc_and_the_equal_weight_universe(self):
         found = read.daily_returns(self.profile, self.market_days[MAR], universe.RULE,
-                                   datetime(2025, 3, 2, tzinfo=timezone.utc), datetime(2025, 3, 4, tzinfo=timezone.utc))
+                                   datetime(2025, 3, 2, tzinfo=UTC), datetime(2025, 3, 4, tzinfo=UTC))
         self.assertEqual(found["days"], ["2025-03-02", "2025-03-03"])
         self.assertEqual(found["btc"], found["basket"])  # both members walk the same prices
         self.refused("MARKET_RETURNS_WINDOW", read.daily_returns, self.profile, self.market_days[MAR], universe.RULE,
-                     datetime(2025, 3, 2, 5, tzinfo=timezone.utc), datetime(2025, 3, 2, 9, tzinfo=timezone.utc))
+                     datetime(2025, 3, 2, 5, tzinfo=UTC), datetime(2025, 3, 2, 9, tzinfo=UTC))
         self.refused("RULE_VERSION_MISMATCH", read.daily_returns, self.profile, self.market_days[MAR], "other-v1",
-                     datetime(2025, 3, 2, tzinfo=timezone.utc), datetime(2025, 3, 4, tzinfo=timezone.utc))
+                     datetime(2025, 3, 2, tzinfo=UTC), datetime(2025, 3, 4, tzinfo=UTC))
 
     def test_stored_bars_are_the_exporters_reads_at_the_pinned_market_day_with_their_catalog_times(self):
         market_day, day = self.market_days[MAR], day_ms(date(2025, 3, 2))
@@ -417,11 +417,9 @@ class LaterImportTests(unittest.TestCase):
         self.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))  # its own: what is published differs per test
         self.addCleanup(shutil.rmtree, self.cache, True)
         found = exchange()
-        results = []
         with serving(found):
-            for month in months:
-                results.append(store.import_month(profile, month, self.cache, workers, list(scope),
-                                                  log=lambda line: None))
+            results = [store.import_month(profile, month, self.cache, workers, list(scope), log=lambda line: None)
+                       for month in months]
         return profile, found, results
 
     def refused(self, code: str, call, *args, **kwargs) -> Refusal:
@@ -528,7 +526,7 @@ class LaterImportTests(unittest.TestCase):
         with serving(found), on(day), patch.object(follow, "_bars_ready", return_value=True), \
                 patch.object(follow, "_monthly"), patch.object(follow, "_holes"):
             return follow.run_round(profile, scope, self.cache, follow.Memory(),
-                                    datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), lambda line: None)
+                                    datetime(day.year, day.month, day.day, 12, tzinfo=UTC), lambda line: None)
 
     def fingerprint(self, profile: dict, market_day: str) -> str:
         """export_content_sha256 of a fresh export of February at `market_day`, with its membership file."""

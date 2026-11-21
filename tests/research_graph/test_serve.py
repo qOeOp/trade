@@ -999,7 +999,7 @@ class AgentForwardTests(unittest.TestCase):
         self.addCleanup(self.agent.server_close)
         self.addCleanup(self.agent.shutdown)
         hub = serve.Hub(FakeProduct(), "build")
-        url = "http://%s:%d" % self.agent.server_address
+        url = "http://{}:{}".format(*self.agent.server_address)
         self.server = serve.Server(("127.0.0.1", 0), serve.handler(hub, frozenset({"here:1"}), url))
         threading.Thread(target=self.server.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.server.server_close)
@@ -1017,7 +1017,8 @@ class AgentForwardTests(unittest.TestCase):
         self.assertEqual(response.fp.readline(), b"data: one\n", "the first piece arrives before the answer ends")
         self.release.set()
         self.assertEqual(response.read(), b"\ndata: two\n\n")
-        self.assertEqual(self.seen, [{"path": "/api/agent/chat", "host": "%s:%d" % self.agent.server_address, "body": b'{"q": 1}'}])
+        host = "{}:{}".format(*self.agent.server_address)
+        self.assertEqual(self.seen, [{"path": "/api/agent/chat", "host": host, "body": b'{"q": 1}'}])
 
     def test_a_chat_answer_is_not_gzipped(self):
         response = self.post("/api/agent/chat", b"{}", **{"Accept-Encoding": "gzip"})
@@ -1070,7 +1071,7 @@ class DevAssetsTests(unittest.TestCase):
         threading.Thread(target=self.vite.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.vite.server_close)
         self.addCleanup(self.vite.shutdown)
-        self.vite_host = "%s:%d" % self.vite.server_address
+        self.vite_host = "{}:{}".format(*self.vite.server_address)
         self.server = serve.Server(("127.0.0.1", 0), serve.handler(
             serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), None, "http://127.0.0.1:1",
             dev_assets=f"http://{self.vite_host}"))
@@ -1144,7 +1145,7 @@ class PaperForwardTests(unittest.TestCase):
         threading.Thread(target=self.paper.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.paper.server_close)
         self.addCleanup(self.paper.shutdown)
-        url = "http://%s:%d" % self.paper.server_address
+        url = "http://{}:{}".format(*self.paper.server_address)
         self.server = serve.Server(("127.0.0.1", 0), serve.handler(
             serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), None, url))
         threading.Thread(target=self.server.serve_forever, args=(POLL,), daemon=True).start()
@@ -1220,7 +1221,7 @@ class SetupForwardTests(unittest.TestCase):
         threading.Thread(target=self.setup.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.setup.server_close)
         self.addCleanup(self.setup.shutdown)
-        self.upstream = "127.0.0.1:%d" % self.setup.server_address[1]
+        self.upstream = f"127.0.0.1:{self.setup.server_address[1]}"
         self.server = serve.Server(("127.0.0.1", 0), serve.handler(
             serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), setup=f"http://{self.upstream}"))
         self.without = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"), frozenset({"here:1"})))
@@ -1295,7 +1296,7 @@ class OverviewForwardTests(unittest.TestCase):
         threading.Thread(target=self.overview.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.overview.server_close)
         self.addCleanup(self.overview.shutdown)
-        url = "http://%s:%d" % self.overview.server_address
+        url = "http://{}:{}".format(*self.overview.server_address)
         self.server = serve.Server(("127.0.0.1", 0), serve.handler(
             serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), overview=url))
         threading.Thread(target=self.server.serve_forever, args=(POLL,), daemon=True).start()

@@ -456,17 +456,16 @@ def _passed_research_runs(conn: db.LedgerConnection, checker: Mapping, records: 
     trade_start, trade_end, universe_rule} (`without` adds the reasons). With `window`, only runs of that trading
     window and `universe_rule`: a line's comparison table. With `line_ids`, only the runs of those lines. The one
     population the comparison table and `research runs` read."""
-    found, excluded, rows = [], [], []
+    found, excluded = [], []
     on = "" if line_ids is None else f" AND t.line_id IN ({db.marks(line_ids)})"
     if line_ids is not None and not line_ids:
         return [], []
-    for row in conn.dicts("SELECT r.trial_id, t.trade_start, t.trade_end, t.universe_rule, c.strategy_id, c.revision "
-                          "FROM run r "
-                          "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = "
-                          f"t.source_sha256 WHERE t.purpose = 'research' AND r.status = 'passed'{on} ORDER BY r.trial_id",
-                          tuple(line_ids or ())):
-        if window is None or ((row["trade_start"], row["trade_end"]) == window and row["universe_rule"] == universe_rule):
-            rows.append(row)
+    rows = [row for row in conn.dicts(
+                "SELECT r.trial_id, t.trade_start, t.trade_end, t.universe_rule, c.strategy_id, c.revision FROM run r "
+                "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = t.source_sha256 "
+                f"WHERE t.purpose = 'research' AND r.status = 'passed'{on} ORDER BY r.trial_id", tuple(line_ids or ()))
+            if window is None or ((row["trade_start"], row["trade_end"]) == window
+                                  and row["universe_rule"] == universe_rule)]
     assessments = report_candidates.assess_runs(conn, [row["trial_id"] for row in rows], checker, records)
     for row in rows:
         assessed = assessments[row["trial_id"]]

@@ -76,7 +76,7 @@ class RunTests(unittest.TestCase):
         listen.start()
         self.addCleanup(listen.stop)
         self.port = server.free_port()
-        self.log = open(self.root / "server.log", "ab")
+        self.log = open(self.root / "server.log", "ab")  # noqa: SIM115 (closed by its owner)
         self.addCleanup(self.log.close)
 
     def start(self, origin: str | None = None, credentials: Path | None = None, readers: Path | None = None,

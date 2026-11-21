@@ -17,7 +17,7 @@ class ResearchSyncTests(unittest.TestCase):
         self.sync.status.return_value = {"state": "idle", "ledger_commit": "a" * 32}
         self.sync.request.return_value = {"state": "syncing"}
         self.upstream = serve.Server(("127.0.0.1", 0), replica.handler(self.sync, frozenset()))
-        host = "127.0.0.1:%d" % self.upstream.server_port
+        host = f"127.0.0.1:{self.upstream.server_port}"
         self.upstream.RequestHandlerClass = replica.handler(self.sync, frozenset({host}))
         threading.Thread(target=self.upstream.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.upstream.server_close)
@@ -46,7 +46,7 @@ class ResearchSyncTests(unittest.TestCase):
         self.assertEqual(len(calls), 3, "a sync at start and one per interval, none after stop")
 
     def test_a_mirror_head_comes_from_the_controller_and_a_page_follows_it_with_no_product_read(self):
-        address = "http://127.0.0.1:%d" % self.upstream.server_port
+        address = f"http://127.0.0.1:{self.upstream.server_port}"
         product = FakeProduct()
         hub = serve.Hub(product, "build", mirror=serve.mirror_head(address))
         hub.refresh(wait=True)
@@ -57,7 +57,7 @@ class ResearchSyncTests(unittest.TestCase):
         self.assertFalse(product.reading.is_set(), "no product process per read")
 
     def test_without_a_head_from_the_controller_the_product_answers(self):
-        address = "http://127.0.0.1:%d" % self.upstream.server_port
+        address = f"http://127.0.0.1:{self.upstream.server_port}"
         self.sync.status.side_effect = replica.refuse("REPLICA_REQUIRED", "the mirror is not intact")
         product = FakeProduct()
         hub = serve.Hub(product, "build", mirror=serve.mirror_head(address))

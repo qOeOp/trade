@@ -983,7 +983,10 @@ def replay(market: dict, market_day: str, source: bytes, entry_class: str, image
                                            output.with_name(output.name + "-metrics"), name, timeout, membership_end)
     reports = Path(replayed["path"]) / entry.REPORTS
     events_file = reports / "order_events.jsonl.gz"
-    events = [json.loads(raw) for raw in gzip.open(events_file)] if events_file.is_file() else None
+    events = None
+    if events_file.is_file():
+        with gzip.open(events_file) as stream:
+            events = [json.loads(raw) for raw in stream]
     return (replayed, events,
             reports if (reports / "account.csv").is_file() else None)
 

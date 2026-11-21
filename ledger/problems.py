@@ -110,8 +110,8 @@ def audit_problems(native_exit: int | None, audit_exit: int | None, audit: bytes
             reasons.append(reason("AUDIT_RESULT_UNREADABLE", "the audit result is not a JSON object", AUDIT_RESULT))
         else:
             findings = parsed.get("findings") if isinstance(parsed.get("findings"), list) else []
-            for finding in findings:
-                reasons.append(reason("AUDIT_FINDINGS", "the independent audit found a problem", finding))
+            reasons.extend(reason("AUDIT_FINDINGS", "the independent audit found a problem", finding)
+                           for finding in findings)
             if parsed.get("passed") is not True and not findings:
                 reasons.append(reason("AUDIT_FINDINGS", "the independent audit did not pass", AUDIT_RESULT))
     if failures is not None:
@@ -126,8 +126,7 @@ def audit_problems(native_exit: int | None, audit_exit: int | None, audit: bytes
                 reasons.append(reason("RUNTIME_FAILURE_MALFORMED", "a runtime failure receipt is not structured",
                                       RUNTIME_ERRORS))
             else:
-                for group in failure_groups(lines):
-                    reasons.append(_failure_reason(group))
+                reasons.extend(_failure_reason(group) for group in failure_groups(lines))
     return cause_first(reasons)
 
 

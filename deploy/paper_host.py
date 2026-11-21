@@ -1,6 +1,6 @@
 """The Paper controller release boundary. Strategy containers are inspect-only here."""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 import json
 import select
 import subprocess
@@ -293,10 +293,8 @@ class PaperHost(DockerHost):
             held()
             yield held
         finally:
-            try:
+            with suppress(OSError):
                 process.stdin.close()
-            except OSError:
-                pass
             process.stdin = None
             try:
                 process.communicate(timeout=15)

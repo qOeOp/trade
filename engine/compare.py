@@ -34,7 +34,7 @@ import heapq
 import json
 from pathlib import Path
 import re
-from typing import Iterator
+from collections.abc import Iterator
 import zlib
 
 from engine.native_csv import dict_reader

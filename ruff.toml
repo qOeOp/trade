@@ -9,9 +9,10 @@ target-version = "py314"
 "tests/deploy/**" = "py312"
 
 [lint]
-extend-select = ["B"]
+extend-select = ["B", "UP", "PIE", "PERF", "SIM"]
 ignore = [
   "E731",  # style: a short lambda bound to a local name reads as well as a def here
+  "SIM117",  # nested with blocks: one with per context reads as well as a combined one
 ]
 
 [lint.per-file-ignores]

@@ -6,7 +6,8 @@ version's own control releases it (deploy/control.py). Git and Docker use no exi
 """
 
 import argparse
-from datetime import datetime, timezone
+import contextlib
+from datetime import datetime, UTC
 import fcntl
 import json
 import os
@@ -160,11 +161,9 @@ def report_failure(phase: str, error: Exception) -> None:
               "previous": "Previous Web left running", "control": "Previous Live control left running",
               "cleanup": "Release cleanup skipped", "release": "Release tick failed",
               "services": "Compose service move failed"}
-    try:
+    with contextlib.suppress(OSError, ValueError):  # A closed diagnostic stream must not prevent transaction recovery.
         print(f"{labels.get(phase, 'Release failure')}: {failure_summary(error)}",
               file=sys.stderr, flush=True)
-    except (OSError, ValueError):
-        pass  # A closed diagnostic stream must not prevent transaction recovery.
 
 
 # Paper states whose run the controller is about to stop, resume or seal: a lifecycle operation is due.
@@ -310,7 +309,7 @@ FOLLOW_RETRY_SECONDS, FOLLOW_ATTEMPTS = 3600, 3
 def epoch(created: tuple[str, str]) -> float:
     """A `moment` as seconds since the epoch (to the microsecond)."""
     whole, fraction = created
-    return datetime.fromisoformat(f"{whole}.{fraction[:6]}").replace(tzinfo=timezone.utc).timestamp()
+    return datetime.fromisoformat(f"{whole}.{fraction[:6]}").replace(tzinfo=UTC).timestamp()
 
 
 def retry(since: tuple[str, str], created: tuple[str, str], now: float) -> str:

@@ -40,7 +40,8 @@ The source cannot name submit_order_list, bracket, add_exec_algorithm or close_a
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from nautilus_trader.model import (
     ClientId, Currency, OrderType, Price, TimeInForce, TrailingOffsetType, TriggerType, Venue,
