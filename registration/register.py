@@ -307,11 +307,9 @@ def _check_header(body: Mapping, parent: dict | None, sources: Mapping[str, byte
                          missing=tuple(sorted(set(edited) ^ set(changed))), expected=", ".join(edited) or "none")
 
 
-def _check_grid(conn: db.LedgerConnection, grid: list[str], execution: Mapping
-                ) -> tuple[list[dict], dict | None, dict[str, bytes]]:
+def _check_grid(conn: db.LedgerConnection, grid: list[str]) -> tuple[list[dict], dict | None, dict[str, bytes]]:
     """The grid points {candidate, source_sha256}, their shared parent (None for a root) and their sources by
-    reference: every grid candidate has the first one's parent and published difference, a distinct source and the
-    execution's runtime contract."""
+    reference: every grid candidate has the first one's parent and published difference and a distinct source."""
     points, seen, first, sources = [], set(), None, {}
     for index, ref in enumerate(grid):
         row = _candidate(conn, ref, f"grid[{index}]")
@@ -325,9 +323,6 @@ def _check_grid(conn: db.LedgerConnection, grid: list[str], execution: Mapping
         if row["difference"] != first["difference"]:
             raise refuse("LINEAGE_MISMATCH", f"grid candidate {ref} was published with another difference than "
                                              f"{grid[0]}; a registration tests one change", missing=(ref,))
-        if row["runtime_contract"] != execution.get("runtime_contract"):
-            raise refuse("CONFIG_MISMATCH", f"grid candidate {ref} needs runtime contract {row['runtime_contract']}, "
-                                            f"the execution has {execution.get('runtime_contract')}", missing=(ref,))
         points.append({"candidate": ref, "source_sha256": row["source_sha256"]})
         sources[ref] = row["source"]
     assert first is not None  # the schema requires one grid point
@@ -472,7 +467,7 @@ def validate(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, bindi
     if absent:
         raise _invalid("source bundles are not in the ledger: " + ", ".join(absent), *absent)
     chain = _retry_chain(conn, plan.get("retry_of"))
-    points, parent, sources = _check_grid(conn, plan["grid"], execution)
+    points, parent, sources = _check_grid(conn, plan["grid"])
     _check_duties(body, parent is None)
     _check_prediction(body, parent is None)
     _check_header(body, parent, sources)
@@ -603,7 +598,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
             registration_inputs.cleanup(exported)
         inputs = exported["identity"]
         execution = {"image_ref": identity["image_ref"], "image_digest": identity["image_digest"],
-                     "runtime_contract": identity["runtime_contract"], "market_day": inputs["market_day"],
+                     "market_day": inputs["market_day"],
                      "universe_rule": inputs["universe_rule"], "lifecycle_bundle": inputs.get("lifecycle_bundle"),
                      "export_sha256": inputs["export_content_sha256"],
                      "comparable_config_sha256": trials.comparable_config_sha256(inspection.get("effective_config")),

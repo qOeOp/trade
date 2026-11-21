@@ -128,7 +128,7 @@ COMMANDS = [
         "maximum_exempt_days, note}; exit 1 unless passed",
         "BAD_REF, UNKNOWN_CANDIDATE; PRECHECK_WINDOW_TOO_LONG (the trading window is over the exemption, refused "
         "before anything runs); RUNTIME_NOT_CI_BUILT (the image is no CI build of this repository; any "
-        "branch's passes); RUNTIME_CONTRACT_MISMATCH (the candidate's contract is not the image's); "
+        "branch's passes); RUNTIME_CONTRACT_MISMATCH (the image's contract is not this release's); "
         "NOT_TEMPORARY_PATH, PATH_EXISTS; UNIVERSE_EMPTY; "
         "WINDOW_OUTSIDE_DEVELOPMENT (outside --line's development period, or without --line outside the period a "
         "line opened today would get or inside an open line's holdout); LINE_HISTORY_SHORT (without --line: no line "

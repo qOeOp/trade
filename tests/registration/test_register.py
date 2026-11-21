@@ -8,7 +8,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from ledger import db, judgments, lines, strategies, trials
+from ledger import db, judgments, lines, trials
 from shared.errors import Refusal
 from registration import precheck, register
 from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_DAY, RUNTIME, SKIP, coverage, market, product_bundle, reviewed,
@@ -201,9 +201,6 @@ class RegisterTests(unittest.TestCase):
                          "LINEAGE_MISMATCH", "one registration tests one change")
         self.assertEqual(self.code(self.derived(grid=[self.child["candidate"], "rsi@1"])), "LINEAGE_MISMATCH",
                          "one registration has one parent")
-        with patch.object(strategies, "RUNTIME_CONTRACT", "r0-retired"):
-            retired = self.world.publish("retired contract")
-        self.assertEqual(self.code(self.derived(grid=[retired["candidate"]])), "CONFIG_MISMATCH")
         self.assertEqual(self.code(self.derived(control_trial_id=999)), "RUN_NOT_PASSED")
 
     def test_every_grid_source_needs_a_passing_review_and_no_prior_exposure(self):
@@ -488,7 +485,7 @@ class BindTests(unittest.TestCase):
         exc = self.refused_trial(registration, data, runtime={**RUNTIME, "runtime_contract": contract,
                                                               "inspection": {**RUNTIME["inspection"],
                                                                              "runtime_contract": contract}})
-        self.assertEqual(exc.code, "CONFIG_MISMATCH")
+        self.assertEqual(exc.code, "RUNTIME_CONTRACT_MISMATCH")
         self.world.research_trial(registration, data)
 
     def test_the_trial_row_is_checked_not_a_caller_supplied_execution(self):

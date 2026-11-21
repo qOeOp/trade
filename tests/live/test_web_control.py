@@ -161,8 +161,7 @@ class LiveWebControlTests(unittest.TestCase):
         ref = saved["data"]["credential_ref"]
         source_hash = hashlib.sha256(self.source.read_bytes()).hexdigest()
         origin = {"strategy_id": "example", "revision": 1, "entry_class": "Example",
-                  "source": self.source.read_bytes(), "source_sha256": source_hash,
-                  "runtime_contract": RUNTIME_CONTRACT}
+                  "source": self.source.read_bytes(), "source_sha256": source_hash}
         identity = {"image_ref": self.config.runtime, "image_digest": "sha256:" + "b" * 64,
                     "platform": "linux/amd64", "runtime_contract": RUNTIME_CONTRACT}
         body = {"request_id": "prepare-lifecycle-one", "run_id": "lifecycle", "candidate": "example@1",
@@ -303,7 +302,7 @@ class LiveWebControlTests(unittest.TestCase):
     def origin(self):
         data = self.source.read_bytes()
         return {"strategy_id": "example", "revision": 2, "entry_class": "Example", "source": data,
-                "source_sha256": hashlib.sha256(data).hexdigest(), "runtime_contract": RUNTIME_CONTRACT}
+                "source_sha256": hashlib.sha256(data).hexdigest()}
 
     def test_a_prepare_freezes_the_head_the_source_the_contracts_and_their_membership(self):
         identity = {"image_ref": self.config.runtime, "image_digest": "sha256:" + "b" * 64,

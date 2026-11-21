@@ -617,8 +617,7 @@ class LiveCustodyTests(LiveFixture):
 
     def test_prepare_captures_the_candidates_own_source_and_never_stores_credentials(self):
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
-                  "source": b"class Original: pass\n", "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(),
-                  "runtime_contract": RUNTIME_CONTRACT}
+                  "source": b"class Original: pass\n", "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest()}
         with patch.object(runs.db, "read_as_of") as read, \
                 patch.object(runs.strategies, "read_candidate", return_value=origin), \
                 patch("engine.load.read_universe"), \
@@ -644,7 +643,7 @@ class LiveCustodyTests(LiveFixture):
     def test_a_candidate_whose_source_does_not_load_is_no_source_to_prepare(self):
         for source, entry_class in ((b"not python (", "Original"), (b"class Other: pass\n", "Original")):
             found = {"strategy_id": "original", "revision": 2, "entry_class": entry_class, "source": source,
-                     "source_sha256": hashlib.sha256(source).hexdigest(), "runtime_contract": RUNTIME_CONTRACT}
+                     "source_sha256": hashlib.sha256(source).hexdigest()}
             with self.subTest(source=source), patch.object(runs.db, "read_as_of"), \
                     patch.object(runs.strategies, "read_candidate", return_value=found), \
                     patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
@@ -661,8 +660,7 @@ class LiveCustodyTests(LiveFixture):
     def test_a_stored_source_that_does_not_hash_to_its_source_sha256_is_never_prepared(self):
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"class Original: pass  # other\n",
-                  "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(),
-                  "runtime_contract": RUNTIME_CONTRACT}
+                  "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest()}
         with patch.object(runs.db, "read_as_of"), patch.object(runs.strategies, "read_candidate", return_value=origin), \
                 patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
                 self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
@@ -683,7 +681,7 @@ class LiveCustodyTests(LiveFixture):
         return stack.enter_context(patch.object(runs.db, "read_as_of"))
 
     ORIGIN = {"strategy_id": "original", "revision": 2, "entry_class": "Original", "source": b"class Original: pass\n",
-              "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(), "runtime_contract": RUNTIME_CONTRACT}
+              "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest()}
     SAME = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": b"{}", "runtime": IDENTITY["image_ref"],
             "drawdown_brake": "0.15", "duration_seconds": 60, "memory": "2g", "leverage": "3",
             "market_root": Path("unused"), "credential_ref": "a" * 32, "request_id": "prepare-conflict"}

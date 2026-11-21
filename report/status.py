@@ -34,7 +34,7 @@ DOMINANCE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365")
 LOWER_IS_BETTER = ("mark_max_drawdown",)
 # Display-only columns of the development years (splits.dev_years); no dominance.
 DEV_YEAR_COLUMNS = {"worst_dev_year_return": "worst_year_return", "return_without_best_year": "return_without_best_year"}
-IDENTITY_COLUMNS = ("trial_id, purpose, source_sha256, runtime_contract, execution, comparable_config_sha256, "
+IDENTITY_COLUMNS = ("trial_id, purpose, source_sha256, execution, comparable_config_sha256, "
                     f"export_sha256, input_start, trade_start, trade_end, {db.IMAGE_DIGEST}")
 
 
@@ -46,13 +46,13 @@ def _key(row: Mapping) -> str:
 
 
 def _identities(conn: db.LedgerConnection, wanted: Iterable[int] | None = None) -> dict[int, dict]:
-    """The execution identity of every trial, by trial ID: its runtime contract, execution and image digest,
+    """The execution identity of every trial, by trial ID: its execution and image digest,
     and `keys`: the hash of what registration.check_comparable compares (the trial row's comparable
     identity) and those of the trial's exact reproductions, looked for only among `wanted` trials when
     given (a caller that reads no other trial's keys). Runs compare only under one key."""
     rows = conn.dicts(f"SELECT {IDENTITY_COLUMNS} FROM trial ORDER BY trial_id")
     identities = {
-        row["trial_id"]: {"runtime_contract": row["runtime_contract"], "execution": row["execution"],
+        row["trial_id"]: {"execution": row["execution"],
                           "image_digest": row["image_digest"], "keys": [_key(row)]} for row in rows}
     kept = None if wanted is None else set(wanted)
     by_source: dict[str, list[int]] = {}
@@ -71,7 +71,7 @@ def _identities(conn: db.LedgerConnection, wanted: Iterable[int] | None = None) 
 
 def line_identity(conn: db.LedgerConnection, line: str | int, identities: Mapping[int, dict]) -> dict | None:
     """The execution identity of a research line: that of its latest research trial (ledger.line_trials),
-    None before the first. A contract or execution change ends a line; within one, a rebuilt image
+    None before the first. An execution change ends a line (a contract change starts a new ledger); within one, a rebuilt image
     replaces the identity (research-round's changes.md)."""
     own = lines.line_trials(conn, line)["trials"]
     return identities[own[-1]] if own else None
@@ -637,7 +637,7 @@ def research_runs(ledger, at: str | None = None, line: str | None = None, by: st
             identity = identities[row["trial_id"]]
             if item["group"] not in described:
                 described[item["group"]] = {
-                    "group": item["group"], "runtime_contract": identity["runtime_contract"],
+                    "group": item["group"],
                     "execution": identity["execution"], "image_digest": identity["image_digest"],
                     "window_start": _day(row["trade_start"]), "window_end": _day(row["trade_end"]),
                     "universe_rule": row["universe_rule"]}
