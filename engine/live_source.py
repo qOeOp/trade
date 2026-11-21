@@ -10,6 +10,7 @@ from typing import Any
 from nautilus_trader.model import BarType
 from nautilus_trader.trading import Strategy
 from engine import history, metrics, strategy as strategy_runtime
+from engine.live_venue import VENUES
 from engine.cadence import Cadence
 from engine.config import EXECUTION_BAR_MINUTES, Refusal as ContractRefusal, read_regular_file
 from engine.live_errors import LiveRefusal as Refusal
@@ -58,7 +59,8 @@ class _LiveConfigured(history.Warming, metrics.Feed):
         strategy_runtime.declare(self, loaded.warmup)
         self._warming_setup(kwargs["strategy_id"], args[0], kwargs["trade_start_ns"], loaded.warmup, loaded.funding,
                             functools.partial(history.fetch, catalog=session.catalog(),
-                                              proxy_url=session.manifest["config"].get("proxy_url")),
+                                              proxy_url=session.manifest["config"].get("proxy_url"),
+                                              base=VENUES[session.manifest["config"]["environment"]]["rest"]),
                             follows=self._runner_reads_funding)
         self._metrics_setup(functools.partial(metrics.read, proxy_url=session.manifest["config"].get("proxy_url")))
         super().__init__(*args, **kwargs)

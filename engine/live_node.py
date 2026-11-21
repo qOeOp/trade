@@ -19,6 +19,8 @@ from engine.live_session import Session
 from engine.live_source import live_source
 
 ENTRY_GATE = ExecAlgorithmId("LIVE-GATE")
+# The native adapter's environment of each Live environment (engine.live_venue.VENUES): DEMO is Binance Demo Trading.
+NATIVE = {"live": BinanceEnvironment.LIVE, "demo": BinanceEnvironment.DEMO}
 ACCOUNT_PURGE_MINUTES = 60
 ACCOUNT_LOOKBACK_MINUTES = 24 * 60  # a start's account.csv keeps the last day of account states
 
@@ -29,8 +31,9 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
     instrument_ids = [instrument_id(symbol) for symbol in manifest["symbols"]]
     proxy = manifest["config"].get("proxy_url")
     # A run warms its source up from its Catalog; a reconciliation constructs no source.
+    binance = NATIVE[manifest["config"]["environment"]]
     builder = node_base("live", manifest["trader_id"], Environment.LIVE,
-                        session.catalog() if session.mode == "run" else None, instrument_ids, proxy)
+                        session.catalog() if session.mode == "run" else None, instrument_ids, proxy, binance)
     builder.with_cache_config(CacheConfig(use_instance_id=False, flush_on_start=False,
                                           bar_capacity=history.bar_capacity(loaded.warmup if loaded else ())))
     builder.with_cache_database_factory(cache_config)
@@ -49,7 +52,7 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
     builder.with_delay_post_stop_secs(5)
     builder.add_exec_client("BINANCE", BinanceExecutionClientFactory(), BinanceExecutionClientConfig(
         account_id=AccountId(manifest["account_id"]), product_type=BinanceProductType.USD_M,
-        environment=BinanceEnvironment.LIVE, api_key=credentials.api_key, api_secret=credentials.api_secret,
+        environment=binance, api_key=credentials.api_key, api_secret=credentials.api_secret,
         use_ws_trading=False, instrument_provider=BinanceInstrumentProviderConfig(load_all=False, load_ids=instrument_ids),
         proxy_url=proxy,
         oms_type=OmsType.HEDGING, use_position_ids=False, futures_leverages=None, futures_margin_types=None))

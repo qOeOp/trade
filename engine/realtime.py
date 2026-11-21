@@ -21,10 +21,10 @@ from engine.config import ACCOUNT_CONTRACT
 
 
 def node_base(name: str, trader_id: str, environment: Environment, catalog: Path | None, instrument_ids: list[str],
-              proxy_url: str | None):
+              proxy_url: str | None, binance: BinanceEnvironment = BinanceEnvironment.LIVE):
     """A LiveNode builder with the data engine a replay builds (ACCOUNT_CONTRACT), the run's Catalog when given (the
     warm-ups are requested from it, which they fill at T: engine.history), warnings-only logging and the public data
-    client of `instrument_ids`, reached through `proxy_url`."""
+    client of `instrument_ids` in the `binance` environment, reached through `proxy_url`."""
     account = ACCOUNT_CONTRACT
     data = LiveDataEngineConfig(
         time_bars_timestamp_on_close=account["time_bars_timestamp_on_close"],
@@ -38,7 +38,7 @@ def node_base(name: str, trader_id: str, environment: Environment, catalog: Path
     builder.with_logging(LoggerConfig(stdout_level=LogLevel.WARNING, print_config=False))
     builder.with_data_engine_config(data)
     builder.add_data_client(account["venue"], BinanceDataClientFactory(), BinanceDataClientConfig(
-        product_type=BinanceProductType.USD_M, environment=BinanceEnvironment.LIVE, proxy_url=proxy_url,
+        product_type=BinanceProductType.USD_M, environment=binance, proxy_url=proxy_url,
         instrument_provider=BinanceInstrumentProviderConfig(load_all=False, load_ids=instrument_ids)))
     return builder
 

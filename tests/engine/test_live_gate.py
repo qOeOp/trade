@@ -24,7 +24,7 @@ BAR = BarType.from_str(f"{SYMBOL}-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")
 def manifest(binding: str) -> dict:
     return {"run_id": "gate", "symbols": [SYMBOL], "account_id": "BINANCE-001", "trader_id": "LIVE-001",
             "credential_binding": binding, "source": {"source_sha256": "0" * 64},
-            "config": {"duration_seconds": 3600, "leverage": "50", "drawdown_brake": "0.15"}}
+            "config": {"environment": "live", "duration_seconds": 3600, "leverage": "50", "drawdown_brake": "0.15"}}
 
 
 class Cache:

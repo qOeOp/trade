@@ -121,7 +121,8 @@ def _slot(ns: int) -> int:
     return (ns + HOUR_NS // 2) // HOUR_NS * HOUR_NS
 
 
-def settlements(instrument_id, at: int, count: int, proxy_url: str | None, get=klines.get_json) -> tuple[list, list]:
+def settlements(instrument_id, at: int, count: int, proxy_url: str | None, get=klines.get_json,
+                base: str | None = None) -> tuple[list, list]:
     """The last `count` settlements at or before `at` (engine.klines.settlements), and those stamped after `at` up to a
     minute after it (the settlement of `at`'s hour when Binance stamped it some milliseconds after the hour).
     FundingPending while the latest settlement due at or before `at` by the contract's funding interval now
@@ -129,10 +130,10 @@ def settlements(instrument_id, at: int, count: int, proxy_url: str | None, get=k
     hour gets it as a replay does; WARMUP_INSUFFICIENT when Binance holds fewer. The interval, not the latest
     settlements' spacing: Binance changes it after a settlement (2026-11 probe: 8 to 1 hours, 1 to 4), and either
     interval makes that settlement due."""
-    seen = klines.settlements(instrument_id, at + MINUTE_NS, max(count, 1) + 1, proxy_url, get)
+    seen = klines.settlements(instrument_id, at + MINUTE_NS, max(count, 1) + 1, proxy_url, get, base)
     known = [update for update in seen if update.ts_event <= at]
     if known:
-        interval = klines.funding_interval(instrument_id, proxy_url, get)
+        interval = klines.funding_interval(instrument_id, proxy_url, get, base)
         due = at // interval * interval
         if due > _slot(known[-1].ts_event) and not any(_slot(update.ts_event) == due for update in seen):
             raise FundingPending(f"{instrument_id}: the settlement of {utc(due)} is not in Binance's funding-rate "
@@ -145,12 +146,13 @@ def settlements(instrument_id, at: int, count: int, proxy_url: str | None, get=k
 
 def fetch(instrument_id, at: int, declared, precisions: tuple[int, int], catalog: Path, proxy_url: str | None,
           get=klines.get_json, funding: int = 0, follow: bool = False,
-          since: dict[str, int] | None = None) -> tuple[list[list], list, list]:
+          since: dict[str, int] | None = None, base: str | None = None) -> tuple[list[list], list, list]:
     """Read the bars of every request at `at` from Binance's klines into `catalog`, each bar type once over the
     span its requests cover, and (`funding` declared or `follow`) the settlements: the last `funding` at or before `at`
     and the one of `at`'s hour (see settlements); returns each request's bars and both. WARMUP_INSUFFICIENT when
-    Binance lacks a declared history or the minutes of a bucket. `since`: see requests."""
-    settled, following = settlements(instrument_id, at, funding, proxy_url, get) if funding or follow else ([], [])
+    Binance lacks a declared history or the minutes of a bucket. `since`: see requests. `base`: the REST origin
+    (engine.klines.bars)."""
+    settled, following = settlements(instrument_id, at, funding, proxy_url, get, base) if funding or follow else ([], [])
     since = since or {}
     planned = requests(at, declared, since)
     spans: dict[str, tuple[int, int]] = {}
@@ -161,7 +163,7 @@ def fetch(instrument_id, at: int, declared, precisions: tuple[int, int], catalog
     written = {}
     for period, (first, last) in spans.items():
         found = klines.bars(instrument_id, period, warmup.bucket_start(first, period), last, precisions, proxy_url,
-                            get)
+                            get, base)
         if not found:
             raise Refusal("WARMUP_INSUFFICIENT", f"{instrument_id}: Binance has no {period} kline in "
                                                  f"[{utc(first)}, {utc(last)}]")

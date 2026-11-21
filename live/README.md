@@ -209,7 +209,8 @@ than its limit. The native global notional cap is omitted because it also reject
 all other native risk checks remain enabled. Reductions also require the position to be the instance's own, on
 the run's account and the instance's contract. Live does not claim hostile-code isolation for the source.
 
-Before a `preflight` or `start` takes the account, the control's process reads the key's own permissions once from
+Before a `preflight` or `start` of a live run takes the account (a demo run's key is not read: [Demo](#demo)), the
+control's process reads the key's own permissions once from
 `api.binance.com`, which the runner's egress deliberately cannot reach: a key that can withdraw is refused
 (`LIVE_KEY_WITHDRAWAL`), an unclear answer or failed read is refused (`LIVE_KEY_UNVERIFIED`), and so is a key with
 no IP restriction (`LIVE_KEY_IP_UNRESTRICTED`), for every run, timed or not. The runner then bounds its own clock against the venue's time, because native
@@ -326,7 +327,7 @@ never reused; this run's native records may lack the close, and the account snap
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-5`) binds the checks to the runner: an older image refuses it before arming. 0.x
+A manifest's format (`live-run-6`) binds the checks to the runner: an older image refuses it before arming. 0.x
 keeps no compatibility between versions: a run an earlier version prepared stays on disk under `runs/`, and no
 listing, release check or operation reads it; only its runner container, while still running, keeps the account
 (`live/inventory.py`). A run without a credential version is unknown ownership and blocks credential changes
@@ -339,6 +340,37 @@ preflighted may still `start` and gets a new network and egress.
 Reconciliation accepts the retained account modes without requiring positive funds or an empty account.
 Native Multi-assets cached balances can differ from reported balances after zero updates or margin
 initialization. They are not the authority for entry cash or a claim of full collateral accounting.
+
+## Demo
+
+A run trades either the real Binance account (`live`) or [Binance Demo Trading](https://www.binance.com/en/demo-trading)
+(`demo`): its own account, API keys, order book, prices and funding, on `demo-fapi.binance.com` and
+`demo-fstream.binance.com` (Nautilus's `BinanceEnvironment.DEMO`). The Live page's Live/Demo switch picks the
+environment: the key shown, saved, removed and checked, and the environment a prepared run uses, which its manifest
+keeps (`config.environment`). Each environment keeps its own saved key versions and selection under
+`credentials/<environment>/`; saving one never replaces the other, and a run binds a version of its own environment
+only (`LIVE_CREDENTIAL_CHANGED` for the other's). The venue refuses the other environment's key as well: a demo key
+in a live run at the key check on `api.binance.com` (`LIVE_KEY_UNVERIFIED`), a live key in a demo run at its first
+signed read on `demo-fapi` (`LIVE_ACCOUNT_UNAVAILABLE`). Demo keys come from Binance Demo Trading's API Management.
+
+A demo run goes through the same preparation, admission and runner as a live one: the closing history test, the
+replay evidence at its wallet, the Paper reconciliation, the account modes, `TERMS_CHANGED`, the clock and every
+order rule. Only these differ:
+
+- Its trading, account reads, klines, funding and kline side connection use the demo hosts; its metrics come from
+  production (`fapi.binance.com/futures/data`), which demo does not serve. Its egress admits those three hosts alone,
+  a live run's egress production's two.
+- The key permission check is skipped: demo serves no `apiRestrictions` (`demo-api.binance.com` answers 404) and its
+  keys reach no real funds.
+- `TERMS_CHANGED` compares demo's instrument terms with the market's: on 2026-11-21 demo's BTCUSDT step was 0.0001
+  against the archive's 0.001, so a BTCUSDT demo run is refused; ETHUSDT and SOLUSDT matched.
+- It is labelled Demo on the Live page, in Telegram (`Demo run …`) and in the daily summary, which reports demo runs
+  in their own section. `live compare` and the daily comparison run as for a live run, but demo's prices and funding
+  are not the archive's: the comparison says so (`note`) and is never evidence that Live and the replay agree.
+
+Use demo to rehearse the start path, orders, stops, restarts, stops and reconciliation before the real account
+([trial checklist](../docs/plans/live-real-account-trial-0.5.zh.md)); fees and funding actually charged, the
+available-balance basis, liquidation and real depth still need the real account.
 
 ## Evidence pack
 

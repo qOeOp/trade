@@ -111,8 +111,8 @@ test("prepare run IDs fit the native limit", async () => {
 test("Live bootstrap, refresh and visible polling only read; disabled deployment exposes no writes", async () => {
   const h = await harness(new Map(), true);
   h.handle((call) => call.url === "/api/live" ? ok({
-    availability: "ready", write_enabled: false, maintenance_enabled: false, write_reason: "Configuration incomplete", credentials: [], runs: [],
-    defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 },
+    availability: "ready", write_enabled: false, maintenance_enabled: false, write_reason: "Configuration incomplete", credentials: { live: [], demo: [] }, runs: [],
+    defaults: { environment: "live", drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 },
   }) : refused("UNEXPECTED"));
   await h.state.detectLiveTrading();
   await h.state.detectLiveTrading();
@@ -134,12 +134,12 @@ test("a home-read failure retains explicit stop and local maintenance for a know
   const retainedRun = {
     run_id: "run-a", source: { source_sha256: "source", entry_class: "Strategy" }, candidate: { strategy_id: "fixture", revision: "1" },
     runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: [],
-    config: { drawdown_brake: "0.15", duration_seconds: "8100", leverage: "3" },
+    config: { environment: "live", drawdown_brake: "0.15", duration_seconds: "8100", leverage: "3" },
     host: { state: "running", mode: "run", account_owned: true, exit_code: null }, stop_requested: false, terminal: null,
     custody: { released: false, release_reason: null, archived: false }, account: null, orders: null, positions: null, event_limit: 200, evidence: [], complete: false,
   };
-  h.handle(() => ok({ availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, credentials: [], runs: [retainedRun],
-    defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } }));
+  h.handle(() => ok({ availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, credentials: { live: [], demo: [] }, runs: [retainedRun],
+    defaults: { environment: "live", drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } }));
   await h.state.detectLiveTrading();
   h.handle((call) => call.method === "POST" ? done(call, "stop", { run_id: "run-a" }) : refused("LIVE_OBSERVATION_UNAVAILABLE", 503));
   await h.state.refreshLiveTrading();
@@ -157,8 +157,8 @@ test("a home-read failure retains explicit stop and local maintenance for a know
 test("release admission never hides STOP and only the maintenance owner exposes cleanup", async () => {
   const h = await harness(new Map(), true);
   const home = { availability: "ready", write_enabled: false, maintenance_enabled: true,
-    write_reason: "LIVE_RELEASE_UNAVAILABLE", credentials: [], runs: [],
-    defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } };
+    write_reason: "LIVE_RELEASE_UNAVAILABLE", credentials: { live: [], demo: [] }, runs: [],
+    defaults: { environment: "live", drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } };
   h.handle(() => ok(home));
   await h.state.detectLiveTrading();
   let actions = h.state.liveTrading.get().actions;

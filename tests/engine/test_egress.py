@@ -6,7 +6,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from urllib.parse import urlsplit
+
 from engine import egress
+from engine.live_venue import VENUES
 
 
 class EgressTests(unittest.TestCase):
@@ -19,6 +22,21 @@ class EgressTests(unittest.TestCase):
                      "CONNECT fapi.binance.com:443", ""):
             with self.subTest(line=line):
                 self.assertIsNone(egress.admitted(line))
+
+    def test_each_environment_admits_its_own_hosts_alone(self):
+        """A demo run reaches Binance Demo Trading and production's REST host (its metrics), never production's
+        stream; a live run or Paper never a demo host (D-102)."""
+        demo = egress.ALLOWED["demo"]
+        for host in ("demo-fapi.binance.com", "demo-fstream.binance.com", "fapi.binance.com"):
+            with self.subTest(host=host):
+                self.assertEqual(egress.admitted(f"CONNECT {host}:443 HTTP/1.1", demo), (host, 443))
+                self.assertEqual(egress.admitted(f"CONNECT {host}:443 HTTP/1.1") is not None,
+                                 not host.startswith("demo-"))
+        self.assertIsNone(egress.admitted("CONNECT fstream.binance.com:443 HTTP/1.1", demo))
+        for environment, hosts in VENUES.items():
+            with self.subTest(environment=environment):
+                self.assertLessEqual({(urlsplit(hosts["rest"]).hostname, 443), (hosts["stream"], 443)},
+                                     egress.ALLOWED[environment])
 
     def test_a_refused_request_gets_403_and_is_logged(self):
         with tempfile.TemporaryDirectory() as root:

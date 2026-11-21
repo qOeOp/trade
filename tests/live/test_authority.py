@@ -85,7 +85,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         (self.root / "account.lock").unlink()
         self.refused(lambda: authority.from_file(self.fixture.file, self.fixture.binding))
         status, body = control.execute(self.fixture.config, "credential_save", None,
-                                       {"request_id": "missing-lock-save", "api_key": "fake", "api_secret": "fake"},
+                                       {"request_id": "missing-lock-save", "environment": "live", "api_key": "fake", "api_secret": "fake"},
                                        binding=self.fixture.binding)
         self.assertEqual((status, body["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
         self.assertFalse((self.root / "account.lock").exists())
@@ -115,7 +115,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.refused(lambda: scope.admit_locked(self.root, maintenance=True))
 
     def test_a_retired_control_saves_nothing_new_or_sent_again(self):
-        body = {"request_id": "original-save", "api_key": "fake-key", "api_secret": "fake-secret"}
+        body = {"request_id": "original-save", "environment": "live", "api_key": "fake-key", "api_secret": "fake-secret"}
         first = control.execute(self.fixture.config, "credential_save", None, body, binding=self.fixture.binding)
         self.assertEqual(first[0], 200, first)
         durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
@@ -157,7 +157,7 @@ class InstalledAuthorityTests(unittest.TestCase):
             self.skipTest("this host has an installation; run missing-mount case in isolated container")
         result = subprocess.run([sys.executable, "-m", "cli.main", "live", "web-command", "--configuration",
                                  str(self.fixture.file), "--action", "credential_save"],
-                                input=json.dumps({"request_id": "unbound-save", "api_key": "fake", "api_secret": "fake"}),
+                                input=json.dumps({"request_id": "unbound-save", "environment": "live", "api_key": "fake", "api_secret": "fake"}),
                                 capture_output=True, text=True, check=False)
         response = json.loads(result.stdout)
         self.assertEqual(response["status"], 503)

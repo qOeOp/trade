@@ -80,25 +80,25 @@ class LiveWebControlTests(unittest.TestCase):
     def test_first_get_does_not_create_custody_and_socket_is_private(self):
         status, body = self.call("GET", "/api/live")
         self.assertEqual(status, 200)
-        self.assertEqual(body["data"]["credentials"], [])
+        self.assertEqual(body["data"]["credentials"], {"live": [], "demo": []})
         self.assertEqual(list(self.root.iterdir()), [self.root / "account.lock"])
         self.assertEqual(self.config.socket.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.config.socket.parent.stat().st_mode & 0o777, 0o700)
 
     def test_fake_credential_lifecycle_reaches_real_cli_without_secret_response_or_replay(self):
-        upload = {"request_id": "save-request-one", "api_key": "fake-key-sentinel", "api_secret": "fake-secret-sentinel"}
+        upload = {"request_id": "save-request-one", "environment": "live", "api_key": "fake-key-sentinel", "api_secret": "fake-secret-sentinel"}
         status, body = self.call("POST", "/api/live/credentials", upload)
         self.assertEqual(status, 200, body)
         self.assertEqual(body["data"]["request_id"], "save-request-one")
         ref = body["data"]["credential_ref"]
-        credential = self.root / "credentials" / (ref + ".json")
+        credential = self.root / "credentials" / "live" / (ref + ".json")
         self.assertEqual(json.loads(credential.read_bytes())["api_key"], upload["api_key"])
         self.assertEqual(credential.stat().st_mode & 0o777, 0o600)
         for secret in (upload["api_key"], upload["api_secret"]):
             self.assertNotIn(secret, json.dumps(body))
             self.assertEqual([path for path in self.root.rglob("*") if path.is_file() and path != credential
                               and secret.encode() in path.read_bytes()], [])
-        status, removed = self.call("POST", f"/api/live/credentials/{ref}/remove", {"request_id": "remove-request-one"})
+        status, removed = self.call("POST", f"/api/live/credentials/{ref}/remove", {"request_id": "remove-request-one", "environment": "live"})
         self.assertEqual(status, 200, removed)
         self.assertFalse(credential.exists())
         before = {str(path): path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
@@ -107,7 +107,7 @@ class LiveWebControlTests(unittest.TestCase):
         self.assertFalse(credential.exists())
         self.assertEqual(before, {str(path): path.read_bytes() for path in self.root.rglob("*") if path.is_file()})
         _, listing = self.call("GET", "/api/live")
-        item = listing["data"]["credentials"][0]
+        item = listing["data"]["credentials"]["live"][0]
         self.assertTrue(item["removed"])
         self.assertFalse(item["selected"])
         self.assertFalse(item["available"])
@@ -118,7 +118,7 @@ class LiveWebControlTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(list(self.root.iterdir()), [self.root / "account.lock"])
         status, body = self.call("POST", "/api/live/credentials", {
-            "request_id": "save-extra-field", "api_key": "fake", "api_secret": "fake", "credentials_file": "/private"})
+            "request_id": "save-extra-field", "environment": "live", "api_key": "fake", "api_secret": "fake", "credentials_file": "/private"})
         self.assertEqual(status, 400, body)
         self.assertEqual(list(self.root.iterdir()), [self.root / "account.lock"])
         self.assertNotIn("/private", json.dumps(body))
@@ -157,7 +157,7 @@ class LiveWebControlTests(unittest.TestCase):
     def test_prepare_preflight_start_reuse_original_inputs_through_operator_control(self):
         """Use real custody/protocol functions; only research, image and venue/host IO are fake."""
         _, saved = self.execute( "credential_save", None, {
-            "request_id": "save-lifecycle-one", "api_key": "fake-key", "api_secret": "fake-secret"})
+            "request_id": "save-lifecycle-one", "environment": "live", "api_key": "fake-key", "api_secret": "fake-secret"})
         ref = saved["data"]["credential_ref"]
         source_hash = hashlib.sha256(self.source.read_bytes()).hexdigest()
         origin = {"strategy_id": "example", "revision": 1, "entry_class": "Example",
@@ -205,12 +205,12 @@ class LiveWebControlTests(unittest.TestCase):
             self.assertEqual((directory / "inputs" / "manifest.json").read_bytes(), manifest)
             launches = [row for row in runs.host_events(directory) if row["event"] == "launch_requested"]
             self.assertEqual([row["mode"] for row in launches], ["preflight", "run"])
-            self.assertTrue(all(row["credentials_path"] == str((self.root / "credentials" / f"{ref}.json").resolve())
+            self.assertTrue(all(row["credentials_path"] == str((self.root / "credentials" / "live" / f"{ref}.json").resolve())
                                 for row in launches))
 
     def test_a_prepare_cut_short_is_redone_by_the_same_request_with_the_installed_market(self):
         _, saved = self.execute("credential_save", None, {
-            "request_id": "save-again-one", "api_key": "fake-key", "api_secret": "fake-secret"})
+            "request_id": "save-again-one", "environment": "live", "api_key": "fake-key", "api_secret": "fake-secret"})
         ref = saved["data"]["credential_ref"]
         identity = {"image_ref": self.config.runtime, "image_digest": "sha256:" + "b" * 64,
                     "platform": "linux/amd64", "runtime_contract": RUNTIME_CONTRACT}
@@ -235,7 +235,7 @@ class LiveWebControlTests(unittest.TestCase):
             self.assertEqual(list((self.root / "staging").iterdir()), [])
 
     def test_private_command_uses_fixed_argv_and_stdin_only_and_discards_raw_errors(self):
-        fake = {"request_id": "save-command-one", "api_key": "sentinel-key", "api_secret": "sentinel-secret"}
+        fake = {"request_id": "save-command-one", "environment": "live", "api_key": "sentinel-key", "api_secret": "sentinel-secret"}
         completed = type("Completed", (), {"returncode": 1, "stdout": b"", "stderr": b"secret-sentinel"})()
         with patch.object(serve.subprocess, "run", return_value=completed) as run:
             status, body = serve.command(self.config_file, "credential_save", None, fake)
@@ -295,7 +295,7 @@ class LiveWebControlTests(unittest.TestCase):
     def prepared(self, body):
         """Save a key, then prepare `body` (its request ID, run ID and choices) through the control."""
         _, saved = self.execute("credential_save", None, {
-            "request_id": "save-" + body["request_id"], "api_key": "fake-key", "api_secret": "fake-secret"})
+            "request_id": "save-" + body["request_id"], "environment": "live", "api_key": "fake-key", "api_secret": "fake-secret"})
         body = {**body, "credential_ref": saved["data"]["credential_ref"]}
         return body, self.execute("prepare", None, body)
 
@@ -324,7 +324,7 @@ class LiveWebControlTests(unittest.TestCase):
                               "source": {"source_sha256": self.origin()["source_sha256"], "entry_class": "Example"},
                               "universe_sha256": hashlib.sha256(data).hexdigest()})
             self.assertEqual({name: manifest["config"][name] for name in configuration.CONFIG_KEYS | {"memory"}},
-                             {"drawdown_brake": "0.15", "duration_seconds": None, "leverage": "5",
+                             {"environment": "live", "drawdown_brake": "0.15", "duration_seconds": None, "leverage": "5",
                               "memory": configuration.RUNNER_MEMORY})
             self.assertFalse((self.root / "universes").exists())
             view = control.run_view(self.config, "choices", review=False)
