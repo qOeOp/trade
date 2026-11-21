@@ -95,7 +95,7 @@ def compare_instant(text: str) -> int:
 
 
 def register(verbs, verb, runner) -> None:
-    """Add the live nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
+    """Add the live nouns to the parser with `cli.main.build_parser`'s verbs, verb and runner."""
     live = verbs("live", "private Binance USD-M execution, prepared, started and reconciled from the Live page. It "
                          "places real orders with real money, a loss can exceed the limits you set, and nothing here "
                          "is investment advice")

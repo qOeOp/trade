@@ -55,7 +55,7 @@ def product_version() -> str:
     return tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["project"]["version"]
 
 
-def _parser() -> Parser:
+def build_parser() -> Parser:
     parser = Parser(prog="python -m cli.main", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"trade-research {product_version()}")
     nouns = parser.add_subparsers(dest="noun", required=True, parser_class=Parser)
@@ -103,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         split = argv.index("--")
         argv, runner_argv = argv[:split], argv[split + 1:]
     try:
-        args = _parser().parse_args(argv)
+        args = build_parser().parse_args(argv)
         result, code = _dispatch(args, runner_argv)
     except Refusal as exc:
         _print(sys.stderr, refusal_json(exc))

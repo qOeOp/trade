@@ -99,7 +99,7 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
             clipped = (max(lo, metrics.moment_ns(start)), min(hi, metrics.moment_ns(end)))
             if clipped[0] < clipped[1] and not _covered(clipped, given.get(symbol)):
                 raise changed(f"{symbol} is removed from or shortened in the strategy's membership",
-                              _month_of(trials._utc(clipped[0])), symbol)
+                              _month_of(trials.utc(clipped[0])), symbol)
 
 
 def candidate_registrations(conn: db.LedgerConnection, source_sha256: str) -> list[dict]:

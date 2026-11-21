@@ -161,7 +161,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 
 def register(verbs, verb, runner) -> None:
-    """Add the replay nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
+    """Add the replay nouns to the parser with `cli.main.build_parser`'s verbs, verb and runner."""
     replay = verbs("replay", "replays")
     command = runner(replay, "explore", "replay an unpublished strategy file (not evidence)")
     command.epilog = textwrap.fill(

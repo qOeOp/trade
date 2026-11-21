@@ -24,7 +24,7 @@ def directory(cleanup) -> dict:
 
 def _months(batch: pa.RecordBatch, table: str):
     """The batch split by the month of its time column, in month order."""
-    days = [series._ms_day(at) for at in batch.column(files.TABLES[table].time).to_pylist()]
+    days = [series.ms_day(at) for at in batch.column(files.TABLES[table].time).to_pylist()]
     for month in sorted({day.replace(day=1) for day in days}):
         low, high = series._day_ms(month), series._day_ms(universe.next_month(month))
         yield month, batch.filter(pa.array([low <= series._day_ms(day) < high for day in days]))
