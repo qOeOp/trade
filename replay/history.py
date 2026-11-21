@@ -7,7 +7,10 @@ forward segment after the holdout. Each segment replays the
 candidate's latest passed research run by its identity (source, image, configuration, instrument rule),
 only over another window, on one market day, from zero position and the same starting balance; it is a
 history trial, sealed as a run like any other. Candidates go by their development-period Sharpe, highest
-first; a segment that already has a history run is skipped, so an interrupted test resumes.
+first; a segment that already has a history run is skipped, so an interrupted test resumes. A segment whose latest
+history run is invalid (an environment or transient failure, or the strategy's own audit failure) is replayed
+again, once per call and after every segment without a run; the new trial supersedes the invalid one, which
+stays in the ledger. Replays are deterministic, so a failure of the strategy's own fails again.
 """
 
 from __future__ import annotations
@@ -25,8 +28,10 @@ def _sharpe(conn: db.LedgerConnection, trial_id: int) -> float | None:
 
 
 def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, limit: int | None = None) -> dict:
-    """Run the segments of `line`'s closing history test that have no history run, at most `limit` of them;
-    returns what ran, what is left and the participants left out for want of economic evidence."""
+    """Run the segments of `line`'s closing history test that have no history run, then once more those whose
+    latest history run is invalid, at most `limit` runs in all; returns what ran (`replaces`: the invalid history
+    trial a rerun supersedes, else None), the segments left without a run (`left`) and with an invalid run not
+    replayed this time (`invalid_left`), and the participants left out for want of economic evidence."""
     source = registration_seams.current.market(market)
     market_day = source.resolve_day(at)
     first_day, latest = source.days(market_day)
@@ -36,8 +41,10 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
         candidates, without = report_history.candidates(conn, record["line_id"])
         plan = lines.history_plan(conn, record["line_id"], first_day, after_last, candidates)
         order = {trial_id: _sharpe(conn, trial_id) for trial_id in {item["trial_id"] for item in plan}}
-    todo = [item for item in plan if item["window"] is not None and item["done"] is None]
-    todo.sort(key=lambda item: (order[item["trial_id"]] is None, -(order[item["trial_id"]] or 0), item["trial_id"]))
+    todo = [item for item in plan if item["window"] is not None
+            and (item["done"] is None or item["status"] == "invalid")]
+    todo.sort(key=lambda item: (item["done"] is not None, order[item["trial_id"]] is None,
+                                -(order[item["trial_id"]] or 0), item["trial_id"]))
     ran = []
     for item in todo[:limit]:
         with db.connect(ledger, "reader") as conn:
@@ -61,8 +68,10 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
         finally:
             registration_inputs.cleanup(exported)
         ran.append({"source_sha256": item["source_sha256"], "segment": item["label"], "run": item["trial_id"],
-                    "history_trial_id": sealed["trial_id"], "status": sealed["status"]})
+                    "history_trial_id": sealed["trial_id"], "status": sealed["status"], "replaces": item["done"]})
+    rest = todo[len(ran):]
     return {"line": record["name"], "market_day": market_day, "ran": ran,
-            "left": max(len(todo) - len(ran), 0),
+            "left": sum(item["done"] is None for item in rest),
+            "invalid_left": sum(item["done"] is not None for item in rest),
             "participants": len({item["source_sha256"] for item in plan}), "without_economic_evidence": without,
             "segments_without_trading": sum(item["window"] is None for item in plan)}

@@ -293,8 +293,9 @@ Invalid。runner 每秒把运行时异常写进 `runtime_failures.jsonl`，被�
 没收到第一根 K 线就被杀的判 `STOPPED_BEFORE_START`；内存超限加 `OUT_OF_MEMORY`。这条只改封存时的判定，
 不管是谁杀的；要不要重开仍按上面的判据（守护进程启动前被杀）。
 
-**缓存进程死掉的运行按拒绝停止（用户 2026-11-15 授权，发现 20261114-34）**。runner 里的 Redis 子进程退出或不答
-`PING`，运行就以 `PAPER_CACHE_UNAVAILABLE` 结束：日志记一条 `refusal`，停止序列照常（撤单、写概要，持仓留着），
+**缓存进程死掉的运行按拒绝停止（用户 2026-11-15 授权，发现 20261114-34）**。runner 里的 Redis 子进程退出，或
+`PING`（每次等 2 秒）连续至少 5 次、跨至少 30 秒都不答（用户 2026-11-21 放宽：主机卡顿几秒不再结束运行，更短的
+未应答只记进 runner 日志，一次应答就清零），运行就以 `PAPER_CACHE_UNAVAILABLE` 结束：日志记一条 `refusal`，停止序列照常（撤单、写概要，持仓留着），
 封存 `reasons` 带 `REFUSED:PAPER_CACHE_UNAVAILABLE` 和 `STOPPED:PAPER_CACHE_UNAVAILABLE`，状态仍是 Complete，
 证据不受影响。此前这样的运行要么悄悄停止处理数据（声明了恢复协议的源码），要么带着死缓存照常交易、`paper stop`
 等 92 秒后被强杀；细节见[原生恢复](paper-native-recovery.zh.md)“缓存进程中途死掉”一节。

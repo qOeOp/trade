@@ -46,6 +46,28 @@ test("returns colour by sign and size; rows with no edge hide; orders put unknow
   assert.deepEqual(h.ordered([a, b, c], "development").map((r) => r.run), [1, 2, 3]);
 });
 
+test("the holdout orders: its return and Sharpe highest first, its drawdown lowest first, unknowns last", () => {
+  const held = (run, annual, dd, sharpe) => ({ ...row(run, [cell("holdout", "holdout", annual, dd, { measures: { annual_return: annual, mark_max_drawdown: dd,
+    sharpe_365: sharpe, cycles: 3, plan_win_rate: 0.5 } })], {}, { annual_return: annual, mark_max_drawdown: dd }) });
+  const a = held(1, 0.1, 0.3, 0.2), b = held(2, 0.3, 0.1, 1.5), c = held(3, -0.2, 0.2, -0.4), d = { ...row(4, []), summary: null };
+  assert.deepEqual(h.ordered([a, b, c, d], "holdout_return").map((r) => r.run), [2, 1, 3, 4]);
+  assert.deepEqual(h.ordered([a, b, c, d], "holdout_sharpe").map((r) => r.run), [2, 1, 3, 4]);
+  assert.deepEqual(h.ordered([a, b, c, d], "holdout_drawdown").map((r) => r.run), [2, 3, 1, 4]);
+});
+
+test("the cause class: a development gain lost outside it, gains on both outside parts, or the rest", () => {
+  const of = (dev, median, holdout, veto = {}) => h.cause({ ...row(1, [], { median_annual_return: median, ...veto }, { annual_return: holdout }),
+    development: cell("development", "development", dev) });
+  assert.equal(of(0.2, -0.1, 0.1), "sign_flip", "the veto years' median lost");
+  assert.equal(of(0.2, 0.1, -0.1), "sign_flip", "the holdout lost");
+  assert.equal(of(0.2, 0.1, 0.05), "positive_outside");
+  assert.equal(of(-0.1, 0.1, 0.05), "positive_outside", "whatever the development period did");
+  assert.equal(of(-0.1, -0.1, -0.1), "other", "no gain to flip");
+  assert.equal(of(0.2, null, 0.1, { whole_years: 0 }), "positive_outside", "with no whole veto year the holdout alone counts");
+  assert.equal(of(0.2, 0.1, 0), "other", "a flat holdout");
+  assert.equal(h.cause({ ...row(1, []), summary: null }), "other", "no summary");
+});
+
 test("a row hides only when the verdict rejects it and neither the veto years nor the holdout made money (20261120-02)", () => {
   const hidden = (...args) => h.noEdge(row(1, [], ...args));
   assert.equal(hidden({ median_annual_return: 0 }, { annual_return: -0.05 }), true);

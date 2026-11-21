@@ -337,6 +337,9 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--symbols", nargs="+", default=[], help="contracts whose metrics, quotes and aggTrades to keep "
                          "(default: none, bars only); it needs the three options below")
     command.add_argument("--metrics-from", type=_day_arg, help="first day of the metrics, YYYY-MM-DD")
+    command.add_argument("--metrics-pool", action="store_true",
+                         help="also keep the metrics of the newest month's universe members, each from the first day "
+                              "of the month it is found in (no earlier days)")
     command.add_argument("--quotes-from", type=_month_arg, help="first month of the quotes, YYYY-MM")
     command.add_argument("--trades-from", type=_month_arg, help="first month of the aggTrades, YYYY-MM")
     command.add_argument("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
@@ -400,7 +403,8 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         # With no --symbols nothing reads the three first dates.
         metrics_from, trades_from, quotes_from = firsts if args.symbols else (args.bars_from,) * 3
         scope = follow.Scope(symbols=args.symbols, bars_from=args.bars_from, metrics_from=metrics_from,
-                             trades_from=trades_from, quotes_from=quotes_from, bar_symbols=args.bar_symbols)
+                             trades_from=trades_from, quotes_from=quotes_from, bar_symbols=args.bar_symbols,
+                             metrics_pool=args.metrics_pool)
         return market_follow(profiles.market(args.market), scope, args.cache_root, args.status), 0
     if key == ("market", "coverage"):
         return market_coverage(profiles.market(args.market), args.market_day, args.symbols, args.start, args.end, args.ledger,

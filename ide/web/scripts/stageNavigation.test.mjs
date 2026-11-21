@@ -4,12 +4,12 @@ import { createContext } from "node:vm";
 import { loader } from "./load.mjs";
 
 const paper = { paper_id: 7, candidate: "paper@1", symbols: ["BTCUSDT"] };
-async function navigation({ backtest = false } = {}) {
-  const location = new URL(`https://fixture.invalid/?line=line-a&at=snapshot&run=7${backtest ? "&stage=backtest" : ""}#paper@1`);
+async function navigation({ backtest = false, address } = {}) {
+  const location = new URL(address ?? `https://fixture.invalid/?line=line-a&at=snapshot&run=7${backtest ? "&stage=backtest" : ""}#paper@1`);
   const saved = new Map();
   const window = { location, addEventListener() {}, localStorage: { getItem: (key) => saved.get(key), setItem: (key, value) => saved.set(key, value) } };
   const context = createContext({ URL, URLSearchParams, window,
-    history: { replaceState: (_state, _title, path) => { window.location = new URL(path, window.location.href); } },
+    history: { replaceState: (_state, _title, path) => { const { assign } = window.location; window.location = new URL(path, window.location.href); window.location.assign = assign; } },
     fetch: () => { throw new Error("Navigation cannot submit or read a service"); },
   });
   const graph = loader({ context, packages: [], stubs: {
@@ -28,7 +28,9 @@ async function navigation({ backtest = false } = {}) {
       else stage.restoreStage("live");
     }
   };
-  return { stage, shell, choice, arriveResearch, url: () => window.location };
+  const assigned = [];
+  window.location.assign = (path) => assigned.push(path);
+  return { stage, shell, choice, arriveResearch, url: () => window.location, assigned, selected };
 }
 
 for (const order of ["research-late", "paper-list-late"]) {
@@ -68,3 +70,20 @@ for (const order of ["research-late", "paper-list-late"]) {
     });
   }
 }
+
+test("a History cell picks its replay in this view, or opens its line with the replay named", async () => {
+  const here = await navigation({ address: "https://fixture.invalid/?line=line-a&at=snapshot" });
+  here.arriveResearch();
+  here.stage.openTrial("line-a", "live@1", 12);
+  assert.equal(here.selected.selection.get(), "live@1");
+  assert.deepEqual([here.choice().stage, here.choice().trial], ["backtest", 12]);
+  here.stage.openTrial("line-b", "other@3", 40);
+  assert.equal(here.assigned.at(-1), "/?line=line-b&at=snapshot&trial=40#other@3", "a version this view lacks opens its line");
+  const there = await navigation({ address: "https://fixture.invalid/?line=line-b&at=snapshot&trial=40#other@3" });
+  assert.equal(there.url().searchParams.has("trial"), false, "the address drops the replay once read");
+  {
+    there.selected.initSelection(new Set(["other@3"]), null);
+    assert.equal(there.selected.selection.get(), "other@3");
+    assert.deepEqual([there.choice().stage, there.choice().trial], ["backtest", 40]);
+  }
+});

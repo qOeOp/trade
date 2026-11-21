@@ -432,10 +432,13 @@ test("the stage shown is the one picked while the version has it, else paper, el
   assert.equal(stage.stageOf("paper", { backtest: true, paper: false }), "backtest");
   assert.equal(stage.stageOf(null, { backtest: false, paper: false }), null);
   const trials = [{ trial_id: 1, purpose: "research", eligible: true }, { trial_id: 2, purpose: "research", eligible: false },
-    { trial_id: 3, purpose: "validation", eligible: true }, { trial_id: 4, purpose: "history", eligible: null }];
+    { trial_id: 3, purpose: "validation", eligible: true }, { trial_id: 4, purpose: "history", eligible: true },
+    { trial_id: 5, purpose: "history", eligible: false }, { trial_id: 6, purpose: "precheck", eligible: null }];
   assert.equal(stage.backtestTrial(trials).trial_id, 1, "unpicked: the last research replay with evidence");
   assert.equal(stage.backtestTrial(trials, 3).trial_id, 3, "a validation replay with evidence draws when picked (20261120-04)");
-  assert.equal(stage.backtestTrial(trials, 4).trial_id, 1, "a history replay's report carries no evidence");
+  assert.equal(stage.backtestTrial(trials, 4).trial_id, 4, "a history segment with evidence draws when picked (20261120-04)");
+  assert.equal(stage.backtestTrial(trials, 5).trial_id, 1, "one without evidence does not");
+  assert.equal(stage.backtestTrial(trials, 6).trial_id, 1, "a precheck seals no run");
   assert.deepEqual([["BTCUSDT"], ["BTCUSDT", "ETHUSDT"], ["A", "B", "C"]].map(stage.contracts), ["BTCUSDT", "BTCUSDT, ETHUSDT", "3 contracts"]);
   assert.equal(stage.stageName("paper", null, sealed(6, { symbols: ["ETHUSDT"] })), "Paper · ETHUSDT", "a run is named by its contracts, after its version");
 });
