@@ -202,9 +202,9 @@ class Market:
                          missing=(str(at),)) from exc
 
     def _freshness(self, market_day: str) -> dict:
-        from market import store
+        from market import read
         try:
-            return store.freshness(self.profile, market_day)
+            return read.freshness(self.profile, market_day)
         except Refusal as exc:
             raise refuse("MARKET_DAY_UNRESOLVED", f"market day {market_day} has no complete day ({exc.code})",
                          missing=(str(market_day),)) from exc

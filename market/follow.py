@@ -179,7 +179,7 @@ def _bars(profile: dict, listing: dict, scope: Scope, cache: Path, today: date, 
                 end - timedelta(days=1) >= today - timedelta(days=LAG_DAYS):
             return
         found = store.import_month(profile, month, cache, symbols=scope.bar_symbols, log=log)
-        entry["rows"] += found["bar_rows"] + found["funding_rows"]
+        entry["rows"] += found["rows"] + found["funding_rows"]
         through[month] = date.fromisoformat(found["through"])
         listing["members"][month] = found["universe_members"]
 
@@ -257,11 +257,8 @@ def _sound(cache: Path, symbol: str, month: date, earlier: bool) -> bool:
 
 def _import(kind: str, profile: dict, month: date, cache: Path, symbols: list[str], log) -> list[dict]:
     """One month of `symbols` by the kind's importer: [{symbol, rows}]."""
-    if kind == "quotes":
-        found = quotes.import_quotes(profile, month, cache, symbols=symbols, log=log)
-        return [{"symbol": symbol, "rows": found["per_symbol"][symbol]["quotes"]} for symbol in symbols]
-    found = aggtrades.import_month(profile, month, cache, symbols, log=log)
-    return [{"symbol": item["symbols"][0], "rows": item["trade_rows"]} for item in found["imports"]]
+    found = (quotes.import_quotes if kind == "quotes" else aggtrades.import_month)(profile, month, cache, symbols, log)
+    return [{"symbol": symbol, "rows": item["rows"]} for symbol, item in found["per_symbol"].items()]
 
 
 def _held(profile: dict, kind: str, symbols: list[str]) -> dict[str, set[date]]:
@@ -504,7 +501,7 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
                 if not _fetched(cache, symbol, days, today, memory):
                     continue
                 found = metrics.import_month(profile, month, cache, [symbol], log=log, first=first)
-                kinds["metrics"][symbol]["rows"] += found["metrics_rows"]
+                kinds["metrics"][symbol]["rows"] += found["rows"]
             except Exception as exc:
                 if _stop("metrics", symbol, exc, memory):
                     break

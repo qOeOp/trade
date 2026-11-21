@@ -247,7 +247,7 @@ class BarsTests(unittest.TestCase):
     def importing(self, profile, month, cache, symbols=None, log=print):
         self.calls.append((month, symbols))
         end = min(clock.next_month(month), self.today)
-        return {"month": f"{month:%Y-%m}", "through": end.isoformat(), "bar_rows": 1, "funding_rows": 0,
+        return {"month": f"{month:%Y-%m}", "through": end.isoformat(), "rows": 1, "funding_rows": 0,
                 "universe_members": ["BTCUSDT"]}
 
     def run_bars(self, through: date, today: date, bar_symbols=None, members=None):

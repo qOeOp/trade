@@ -12,11 +12,11 @@ Nautilus Catalogs the runner reads. The tables are on the site's market database
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a market day and the engine instrument built from it |
 | `universe.py` | the rule `usdt-perp-listed30d-v1`: classification, monthly members, membership paths |
-| `store.py` | `import_month` (one month's files; after the latest month or just before the earliest), exact scaling, what the importers share, `freshness` |
+| `store.py` | `import_month` (one month's files; after the latest month or just before the earliest), exact scaling, what the importers share (`import_contracts`) |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark, funding, quote, trade and metrics writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a market day, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a market day (`coverage_facts`, `metrics_facts`, `diagnose_coverage`) |
-| `read.py` | BTC and equal-weight daily returns of the universe members the directory holds, for the report (`daily_returns`); one contract's stored bars and funding at a market day for source reviewers (`stored_bars`) |
+| `read.py` | BTC and equal-weight daily returns of the universe members the directory holds, for the report (`daily_returns`); one contract's stored bars and funding at a market day for source reviewers (`stored_bars`); a market day's universe months and latest complete day (`freshness`) |
 | `quotes.py` | best bid/ask inferred from the stored aggTrades under `RULE`, the checks it applies (`derive`) and the quote import (`import_quotes`) |
 | `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact integers at the trade scale, one file per contract month, several contracts of a month written at once |
 | `metrics.py` | open interest and three long/short ratios from the daily `metrics` archives, exact decimals, the days of a month not yet held appended per contract |

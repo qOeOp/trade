@@ -18,7 +18,6 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import io
 from pathlib import Path
-import time
 import zipfile
 import zlib
 
@@ -117,38 +116,29 @@ def held_days(market: files.Market, symbol: str, month: date | None = None) -> s
 def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | None = None, log=print,
                  first: date | None = None) -> dict:
     """market.import_metrics: add each contract's days of `month` (from `first`) not yet held, through the last closed
-    UTC day, one file per contract (default: the month's universe members). A refused contract leaves the earlier
-    contracts' files in place; its refusal names them."""
-    started = time.monotonic()
-    scope = store._scope(symbols)
-    start, end = store.month_bounds(month)
-    if start >= end:
-        raise refuse("MONTH_INVALID", f"{month:%Y-%m} has no closed UTC day yet", missing=(f"{month:%Y-%m}",))
-    if first is not None:
-        start = max(start, clock.day_ms(first))
-    market = files.open_market(profile, "import")
-    imports: list[dict] = []
-    with files.lock(market):
-        if market.empty:
-            raise refuse("MARKET_EMPTY", "the market holds no bars yet")
+    UTC day, one file per contract (default: the month's universe members; store.import_contracts). A refused
+    contract leaves the earlier contracts' files in place; its refusal names them."""
+    def bounds(month: date) -> tuple[int, int]:
+        start, end = store.month_bounds(month)
+        if start >= end:
+            raise refuse("MONTH_INVALID", f"{month:%Y-%m} has no closed UTC day yet", missing=(f"{month:%Y-%m}",))
+        return start if first is None else max(start, clock.day_ms(first)), end
+
+    def run(market: files.Market, scope: list[str] | None, start: int, end: int) -> dict:
         if scope is None:
             scope = sorted(store._members(market, month))
             if not scope:
                 raise refuse("UNIVERSE_UNKNOWN",
                              f"{month:%Y-%m} has no universe members in the market; import its bars first or name "
                              "--symbols", missing=(f"{month:%Y-%m}",))
+        per_symbol: dict[str, dict] = {}
         for symbol in scope:
             try:
-                imports.append(_import(market, month, start, end, cache, symbol, log))
+                per_symbol[symbol] = _import(market, month, start, end, cache, symbol, log)
             except Refusal as exc:
-                placed = ", ".join(item["symbols"][0] for item in imports)
-                if placed:
-                    raise refuse(exc.code, f"{symbol}: {exc.message}; written meanwhile: {placed}",
-                                 missing=exc.missing) from exc
-                raise
-        market_day = files.latest_market_day(market)
-    return {"month": f"{month:%Y-%m}", "imports": imports, "metrics_rows": sum(item["metrics_rows"] for item in imports),
-            "market_day": market_day, "seconds": round(time.monotonic() - started, 1)}
+                store.reraise_naming(exc, symbol, list(per_symbol))
+        return {"per_symbol": per_symbol}
+    return store.import_contracts(profile, month, symbols, bounds, run, "the market holds no bars yet")
 
 
 def _import(market: files.Market, month: date, start: int, end: int, cache: Path, symbol: str, log) -> dict:
@@ -186,10 +176,9 @@ def _import(market: files.Market, month: date, start: int, end: int, cache: Path
         [(name, "ascending") for name in files.METRICS.key]).combine_chunks()
     written = files.write_file(market, "metrics", month, symbol, merged.to_batches())
     files.place(market, [written])
-    return {"month": label, "from": min(found).isoformat(), "through": (max(found) + timedelta(days=1)).isoformat(),
-            "symbols": [symbol], "readings": {symbol: readings},
-            "unpublished": {symbol: [day.isoformat() for day in days if day not in found and day < max(found)]},
-            "metrics_rows": sum(item.num_rows for item in new)}
+    return {"from": min(found).isoformat(), "through": (max(found) + timedelta(days=1)).isoformat(),
+            "readings": readings, "unpublished": [day.isoformat() for day in days if day not in found and day < max(found)],
+            "rows": sum(item.num_rows for item in new)}
 
 
 def batch(found: list[tuple]) -> pa.RecordBatch:
