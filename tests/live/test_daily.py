@@ -18,6 +18,7 @@ from engine.live_venue import MANIFEST_FORMAT
 from live import compare, daily, state
 from shared.refusals import refuse
 from tests.live.test_compare import MINUTE, RESTART, START, Pack, restart
+from tests.live.durable import assert_durable_replace
 
 
 DAY = daily.DAY_NS
@@ -86,6 +87,11 @@ class Daily(unittest.TestCase):
         self.assertEqual(daily.read_record(self.root / "runs" / self.pack.run_id)["state"], "done")
         self.assertIsNone(self.day())  # done for the day: not compared again
         self.assertEqual(len(self.calls), 2)
+
+    def test_the_record_is_replaced_durably(self):
+        record = daily.compare_run(self.root, {}, self.pack.run_id, daily._ns(TODAY), self.root / "out")
+        assert_durable_replace(self, self.root / "runs" / self.pack.run_id / daily.RECORD,
+                               lambda: daily._write(self.root, self.pack.run_id, record))
 
     def test_a_trading_start_outside_the_week_or_after_the_cut_is_not_replayed(self):
         self.day("2026-11-19")  # Y is 11-18: the week from 11-12 holds neither start (the second runs on)
@@ -170,7 +176,7 @@ class Pass(unittest.TestCase):
         self.assertEqual(json.loads((self.root / "runs" / "run-a" / daily.RECORD).read_text())["state"], "done")
 
     def test_a_second_pass_while_one_holds_the_lock_does_nothing(self):
-        with daily._exclusive(self.root) as held, mock.patch.object(daily, "compare_run") as compared:
+        with state.lock(self.root / daily.LOCK, blocking=False) as held, mock.patch.object(daily, "compare_run") as compared:
             self.assertTrue(held)
             self.assertEqual(daily.run(self.root, Path("/market"), TODAY), {"state": "busy", "runs": {}})
         compared.assert_not_called()

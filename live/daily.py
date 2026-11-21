@@ -11,10 +11,8 @@ failures (live.notify). An execution record: nothing reaches a ledger, and the c
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -72,11 +70,7 @@ def _write(root: Path, run_id: str, value: dict) -> None:
         directory = state.directory(root, run_id)
         if directory.is_symlink() or not directory.is_dir():
             return
-        temporary = directory / f".{RECORD}.{secrets.token_hex(4)}"
-        with open(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "w",
-                  encoding="utf-8") as stream:
-            json.dump({"format": FORMAT, **value}, stream, sort_keys=True, default=str)
-        os.replace(temporary, directory / RECORD)
+        state.replace(directory / RECORD, json.dumps({"format": FORMAT, **value}, sort_keys=True, default=str).encode())
 
 
 # Measures of several trading starts
@@ -218,19 +212,6 @@ def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path)
 
 # The comparison container
 
-@contextmanager
-def _exclusive(root: Path):
-    """Yield whether this process holds the root's compare.lock (never waiting)."""
-    descriptor = os.open(root / LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "r+") as stream:
-        try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            yield False
-            return
-        yield True
-
-
 def _clean(scratch: Path) -> None:
     """Under the lock: the stage containers and working directories a stopped comparison left."""
     try:
@@ -301,7 +282,7 @@ def run(root: Path, market_root: Path, today: str) -> dict:
     root = Path(root).expanduser().absolute()
     with state.reading(root) as root:
         listed = _listed(root)
-    with _exclusive(root) as held:
+    with state.lock(root / LOCK, blocking=False) as held:
         if not held:
             return {"state": "busy", "runs": {}}
         scratch = _scratch(root)

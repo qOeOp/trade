@@ -133,13 +133,10 @@ def write_months_locked(root: Path, run_id: str, market_root: Path, now_ns: int)
     found = []
     for name, data in month_files({"holds": "market", "root": str(market_root)}, list(manifest["symbols"]),
                                   last).items():
-        path, partial = folder / f"{name}.json", folder / f"{name}.partial"
+        path = folder / f"{name}.json"
         if path.exists():
             continue
-        if partial.exists():
-            partial.unlink()
-        state.write_new(partial, data)
-        os.replace(partial, path)  # whole, as the runner reads it
+        state.replace(path, data)  # whole, as the runner reads it
         found.append(name)
     return found
 
@@ -253,12 +250,7 @@ def _recycle(root: Path, run_id: str, directory: Path, result: str, launch: dict
                 if output.returncode:
                     return
                 # Whole or absent: the container is removed on the strength of this file.
-                path = _log_file(directory, name)
-                pending = path.with_suffix(".pending")
-                pending.unlink(missing_ok=True)
-                state.write_new(pending, (output.stdout + output.stderr).encode())
-                os.replace(pending, path)
-                state.fsync_parent(path)
+                state.replace(_log_file(directory, name), (output.stdout + output.stderr).encode())
             # Recorded first: a removal cut short is finished later and never leaves a run that looks unended.
             state.append(directory / "lifecycle.jsonl", "recycled", run_id, state=result, exit_code=exit_code)
         elif since_removal(directory):
