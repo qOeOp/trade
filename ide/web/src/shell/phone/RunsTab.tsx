@@ -1,8 +1,8 @@
-import { PhonePage } from "../../components/PhoneBar";
-import { PhoneHeading, PhoneNotice } from "../../components/PhoneParts";
-import { useNow } from "../../components/hooks/useNow";
+import { PhonePage } from "../../ui/PhoneBar";
+import { PhoneHeading, PhoneNotice } from "../../ui/PhoneParts";
+import { useNow } from "../../ui/hooks/useNow";
 import { ACTIVE } from "../../model/chain";
-import { liveStatus } from "../../model/phoneRuns";
+import { liveStatus } from "../../model/runSnapshot";
 import type { LiveRun } from "../../model/liveTrading";
 import { useLiveTrading } from "../../state/liveTrading";
 import { usePaperRuns, usePaperService } from "../../state/paper";

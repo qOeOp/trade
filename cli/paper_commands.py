@@ -156,7 +156,7 @@ COMMANDS = [
         "replay_only, consequences, look_ahead_suspects, missing_bars, late_bars, unknown_bars, side_down_bars, published_late_bars, early_bars, differing_bars, "
         "warmup_differs, terms_differ, equity_max_difference, equity_unexplained_minutes}, replay {status, problems, path}",
         "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (not sealed); PAPER_COMPARE_EMPTY (no interval); "
-        "PAPER_COMPARE_UNCOVERED (the market lacks the interval's minutes); NOT_TEMPORARY_PATH, PATH_EXISTS "
+        "COMPARE_UNCOVERED (the market lacks the interval's minutes); NOT_TEMPORARY_PATH, PATH_EXISTS "
         "(--output); RUNTIME_UNAVAILABLE; REPLAY_TIMEOUT (--timeout-seconds); SOURCE_UNREACHABLE (--preliminary: "
         "REST refused, a rate limit included)"), PAPER, MARKET, MARKET_DAY, PAPER_ID,
          option("--output", required=True, help="new directory under the temporary root"),

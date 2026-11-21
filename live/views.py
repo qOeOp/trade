@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import threading
 import time
 
 from engine.live_errors import REFUSALS, LiveRefusal
@@ -101,7 +102,7 @@ def _sample(path: Path, source: str, *, journal=False) -> _Sample:
             if not stat.S_ISREG(before.st_mode) or (not journal and before.st_size > MAX_BYTES):
                 raise ValueError
             if journal:
-                size, kept = _journal(stream, digest)
+                size, digest, kept = _journal(path, stream, before)
                 lines, data = tuple(index for index, _ in kept), [row for _, row in kept]
             else:
                 raw = stream.read(MAX_BYTES + 1)
@@ -128,27 +129,74 @@ def _sample(path: Path, source: str, *, journal=False) -> _Sample:
         return _Sample(path, source, None, None, "invalid", None, read_ns)
 
 
-def _journal(stream, digest):
+@dataclass
+class _Read:
+    """How far a journal was read: its file identity and size, the digest of those bytes, the bytes before `size`
+    that a later read checks are still there, the next line's number and the rows kept so far (_journal)."""
+    identity: tuple[int, int]
+    size: int
+    digest: "hashlib._Hash"
+    tail: bytes
+    number: int
+    kept: list
+    latest: dict
+
+
+_READS: dict[Path, _Read] = {}  # each journal's last complete read: a later one parses only what was appended
+_READS_LOCK = threading.Lock()
+_TAIL = 4096
+READS_KEPT = 16  # journals whose reads are kept: a few runs' lifecycle and native journals and the custody one
+
+
+def _journal(path: Path, stream, info):
     """Read a journal a row at a time, checking every row, and keep each run's and event's first row and its
     latest MAX_MINUTES rows, as (line, row) in journal order: every projection below reads only those, so a run
-    that never ends is read whole without holding its whole journal."""
-    size, kept, latest = 0, [], {}
-    for number, line in enumerate(iter(lambda: stream.readline(MAX_BYTES + 1), b"")):
-        if len(line) > MAX_BYTES or not line.endswith(b"\n"):
-            raise ValueError
-        digest.update(line)
-        row = json.loads(line)
-        if not (isinstance(row, dict) and isinstance(row.get("event"), str)
-                and isinstance(row.get("run_id"), str) and _integer(row.get("observed_ns")) is not None):
-            raise ValueError
+    that never ends is read whole without holding its whole journal. A journal only grows: a read goes on from the
+    last one of the same file when the bytes before where that one stopped are unchanged, else from the start, so
+    a request costs what was appended since, not the run's length. Returns (size, digest, kept)."""
+    with _READS_LOCK:
+        last = _READS.get(path)
+    read = None
+    if last is not None and last.identity == (info.st_dev, info.st_ino) and info.st_size >= last.size:
+        stream.seek(last.size - len(last.tail))
+        if stream.read(len(last.tail)) == last.tail:
+            read = _Read(last.identity, last.size, last.digest.copy(), last.tail, last.number, list(last.kept),
+                         {key: deque(queue, maxlen=MAX_MINUTES) for key, queue in last.latest.items()})
+    if read is None:
+        stream.seek(0)
+        read = _Read((info.st_dev, info.st_ino), 0, hashlib.sha256(), b"", 0, [], {})
+    tail = read.tail
+    for line in iter(lambda: stream.readline(MAX_BYTES + 1), b""):
+        row = _row(line)
+        read.digest.update(line)
         key = (row["run_id"], row["event"])
-        if key in latest:
-            latest[key].append((number, row))
+        if key in read.latest:
+            read.latest[key].append((read.number, row))
         else:
-            latest[key] = deque(maxlen=MAX_MINUTES)
-            kept.append((number, row))
-        size += len(line)
-    return size, sorted(kept + [item for queue in latest.values() for item in queue], key=lambda item: item[0])
+            read.latest[key] = deque(maxlen=MAX_MINUTES)
+            read.kept.append((read.number, row))
+        read.number += 1
+        read.size += len(line)
+        tail = (tail + line)[-_TAIL:]
+    read.tail = tail
+    with _READS_LOCK:
+        _READS.pop(path, None)
+        _READS[path] = read
+        while len(_READS) > READS_KEPT:  # the least recently read journal goes first
+            del _READS[next(iter(_READS))]
+    kept = sorted(read.kept + [item for queue in read.latest.values() for item in queue], key=lambda item: item[0])
+    return read.size, read.digest.copy(), kept
+
+
+def _row(line: bytes) -> dict:
+    """One journal line: a complete JSON object with its event, run and observation time, else ValueError."""
+    if len(line) > MAX_BYTES or not line.endswith(b"\n"):
+        raise ValueError
+    row = json.loads(line)
+    if not (isinstance(row, dict) and isinstance(row.get("event"), str)
+            and isinstance(row.get("run_id"), str) and _integer(row.get("observed_ns")) is not None):
+        raise ValueError
+    return row
 
 
 def _stop_marker(path: Path) -> _Sample:

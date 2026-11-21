@@ -83,7 +83,8 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   rule is tested again only by out-of-sample validation at the user's request (research-round's
   validation), never on months already past, the holdout included.
 - When no existing candidate can start a line, read closed lines' summaries and history
-  (`line list --all`, `research history`), then design two or three complete new starts yourself:
+  (`line list --all`, `research history`; of a history whose holdout overlaps the new line's, only
+  development and veto cells), then design two or three complete new starts yourself:
   each a source that has never run (a revision with a substantive change, or a root), marked not yet replayed, with its contract scope and why,
   market day, execution environment (research-round), readiness result and
   Goal objective, so that one choice approves both the line and its Goal, and the answer can overrule

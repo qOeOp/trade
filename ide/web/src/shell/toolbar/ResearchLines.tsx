@@ -6,8 +6,8 @@ import { pct } from "../../lib/format";
 import { lineHref, type ResearchLine } from "../../lib/lines";
 import { readResearchLines, type LineIndex } from "../../state/researchLines";
 import { followReadings, useLineReadings, type LineReading } from "../../state/researchReadings";
-import { DropdownGrid, DropdownGridLabel, DropdownGridLink, DropdownGridPlaceholder, DropdownGridSeparator, DropdownItem, DropdownLabel } from "../../components/Dropdown";
-import { Missing, Skeleton } from "../../components/Missing";
+import { DropdownGrid, DropdownGridLabel, DropdownGridLink, DropdownGridPlaceholder, DropdownGridSeparator, DropdownItem, DropdownLabel } from "../../ui/Dropdown";
+import { Missing, Skeleton } from "../../ui/Missing";
 
 // Check, name, development, recommended version, annual return, max drawdown; the two numbers share one width.
 const COLS = "grid-cols-[1.5rem_repeat(3,max-content)_repeat(2,minmax(5rem,max-content))]";

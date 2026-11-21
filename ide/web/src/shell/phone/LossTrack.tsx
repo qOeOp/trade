@@ -1,5 +1,5 @@
 import { fixed } from "../../lib/paperApi";
-import type { Money } from "../../model/phoneRuns";
+import type { Money } from "../../model/runSnapshot";
 import { Track } from "../../widgets/detail/ReadingsBoard";
 
 /** How much of a Live run's drawdown brake is used, on the desktop's drawdown track: the deepest fall below the

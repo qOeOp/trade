@@ -57,6 +57,11 @@ export type LiveRun = {
   observedNs: { account: string | null; terminal: string | null }; running: boolean;
   /** The host reports the run ended, so Request stop has nothing to stop. */
   ended: boolean;
+  /** A stop was requested of the run. */
+  stopRequested?: boolean;
+  /** The drawdown brake as a fraction (0.15), the equity the run armed with and its highest equity so far, in USDT
+   *  (engine/live_brake.py); null where not known. */
+  brake?: { ratio: number | null; start: number | null; peak: number | null };
   orders?: readonly LiveEventRow[] | null; positions?: readonly LiveEventRow[] | null;
   /** The strategy's runtime failure receipts, as a paper run's; null when unreadable. */
   failures?: readonly RuntimeFailure[] | null;
@@ -110,8 +115,8 @@ export const LIVE_UNAVAILABLE: LiveTradingView = {
 /** Whether `run` was prepared with exactly this candidate, these contracts and settings, so it can be started as it is. */
 export function preparedWith(run: LiveRun, candidate: string, symbols: readonly string[], values: Readonly<Record<string, string>>): boolean {
   const config = Object.fromEntries(run.config.map((fact) => [fact.label, fact.value]));
-  const brake = config["Drawdown brake"], seconds = Number(values.duration_seconds || 0);
+  const brake = run.brake?.ratio ?? null, seconds = Number(values.duration_seconds || 0);
   return run.candidate === candidate && (run.symbols ?? []).join(",") === symbols.join(",")
-    && brake != null && Math.abs(Number(brake) * 100 - Number(values.drawdown_brake)) < 1e-9
+    && brake !== null && Math.abs(brake * 100 - Number(values.drawdown_brake)) < 1e-9
     && (config["Duration (seconds)"] ?? null) === (seconds >= 1 ? String(seconds) : null) && config["Leverage"] === values.leverage;
 }

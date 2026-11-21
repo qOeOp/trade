@@ -4,15 +4,15 @@ import { coinsAt, level, into, MORE, type Color, type Node, type Size } from "..
 import { layout } from "../../model/treemap";
 import { hoverAt, ripple } from "../../model/ripple/layout";
 import { marketCoin, marketColor, marketSize, openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
-import { Breadcrumbs, type Crumb } from "../../components/Breadcrumbs";
-import { DropdownChoice } from "../../components/Dropdown";
-import { HeatLegend } from "../../components/HeatLegend";
-import { HeatTile } from "../../components/HeatTile";
-import { Skeleton } from "../../components/Missing";
+import { Breadcrumbs, type Crumb } from "../../ui/Breadcrumbs";
+import { DropdownChoice } from "../../ui/Dropdown";
+import { HeatLegend } from "../../ui/HeatLegend";
+import { HeatTile } from "../../ui/HeatTile";
+import { Skeleton } from "../../ui/Missing";
 import { marketDown } from "./CoinsWindow";
-import { TextButton } from "../../components/TextButton";
-import { Empty } from "../../components/Waiting";
-import { useSize } from "../../components/hooks/useSize";
+import { TextButton } from "../../ui/TextButton";
+import { Empty } from "../../ui/Waiting";
+import { useSize } from "../../ui/hooks/useSize";
 
 const SIZES = [{ value: "marketCap", label: "Market cap" }, { value: "volume24h", label: "Volume 24h" }, { value: "oi", label: "Open interest" }] as const;
 const COLORS = [{ value: "change1h", label: "Change 1h" }, { value: "change4h", label: "Change 4h" }, { value: "change24h", label: "Change 24h" },

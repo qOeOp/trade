@@ -2,8 +2,8 @@ import { Fragment, type ReactNode } from "react";
 import { MISSING, pct, signedPct } from "../../lib/format";
 import { fixed, signed } from "../../lib/paperApi";
 import type { MarketExposure as ExposureRow, PeriodBreakdown } from "../../model/backtest";
-import { Section } from "../../components/Section";
-import { Tip } from "../../components/Tip";
+import { Section } from "../../ui/Section";
+import { Tip } from "../../ui/Tip";
 
 const tone = (v: number | null) => (v === null || v === 0 ? "text-fg-muted" : v > 0 ? "text-pnl-up" : "text-pnl-down");
 

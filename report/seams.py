@@ -19,22 +19,22 @@ from shared.errors import Refusal
 from shared.refusals import refuse
 
 
-def _market_profile(database: str | None = None) -> dict:
-    """The market profile in the ledger profile directory named `database` (a run's market_database), or the
-    active one."""
+def _market_profile(name: str | None = None) -> dict:
+    """The market profile in the ledger profile directory named `name` (a run's market_name), or the active
+    one."""
     try:
-        return profiles.market(database)
+        return profiles.market(name)
     except Refusal:
-        raise refuse("MARKET_RETURNS_UNAVAILABLE", f"no market profile {database or '(the active one)'} in the "
+        raise refuse("MARKET_RETURNS_UNAVAILABLE", f"no market profile {name or '(the active one)'} in the "
                      "ledger profile directory", missing=("market profile",)) from None
 
 
-def _market_returns(market_database: str | None, market_day: str | None, universe_rule: str | None, start: datetime,
+def _market_returns(market_name: str | None, market_day: str | None, universe_rule: str | None, start: datetime,
                     end: datetime) -> dict:
     """market.daily_returns on the run's market (read only). The values are the run's stored
     input identity, which may lack them: the reader refuses a missing market day or universe rule."""
     from market import read
-    profile = _market_profile(market_database)
+    profile = _market_profile(market_name)
     try:
         return read.daily_returns(profile, market_day or "", universe_rule, start, end)
     except Refusal as exc:

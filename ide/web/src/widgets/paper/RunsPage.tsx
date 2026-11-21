@@ -4,7 +4,7 @@ import { useAtom } from "../../state/atom";
 import { useRunData } from "../../state/runData";
 import { paperTab } from "../../state/stage";
 import { useShown, useTargets } from "../../state/shown";
-import { ChartSkeleton } from "../../components/Missing";
+import { ChartSkeleton } from "../../ui/Missing";
 import { ChartCard } from "./ChartCard";
 import { LiveRunCanvas } from "../live/LiveRunCanvas";
 

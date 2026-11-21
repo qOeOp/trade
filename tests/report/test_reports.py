@@ -30,7 +30,7 @@ CANDIDATE_RETURNS = [0.002, -0.001, 0.0015, -0.0005, 0.001]
 DAYS = [(date(2026, 1, 1) + timedelta(days=k)).isoformat() for k in range(31)]
 
 
-def market_returns(market_database, commit, universe_rule, start, end) -> dict:
+def market_returns(market_name, commit, universe_rule, start, end) -> dict:
     """A market stand-in: the basket and BTC daily returns over January 2026."""
     return {"days": list(DAYS), "basket": [0.01 * ((k % 4) - 1.5) for k in range(31)],
             "btc": [0.005 * ((k % 3) - 1) for k in range(31)]}
@@ -156,7 +156,9 @@ class ReportTests(unittest.TestCase):
         self.assertIsNotNone(exposure["beta_basket"]["value"])
         self.assertEqual(report["closed_by_year"]["2026"]["closed_trades"], 1)
         self.assertIsNone(report["dev_years"], "a 31-day window has no development years")
-        self.assertEqual(report["cost_basis"]["taker_fill_share"], 0.5)
+        self.assertIsNone(report["dev_quarters"], "a 31-day window has no development quarters")
+        self.assertEqual([item["net_pnl_usdt"] for item in report["closed_by_instrument"].values()],
+                         [bridge["account"]["value"]], "one instrument's closed net is the account's")
         notional = sum(Decimal(item["notional"]) for item in report["cost_basis"]["by_liquidity_side"].values())
         stress = report["cost_basis"]["slippage_stress"]
         self.assertEqual([item["bps_per_side"] for item in stress], [2, 5])
@@ -455,8 +457,7 @@ class ReportTests(unittest.TestCase):
     def test_the_interval_reading_is_the_comparison_s_without_its_attribution(self):
         """CF-10: research state's reading of a comparison computes the intervals alone and refuses what compare does."""
         evidence = comparison.compare(self.profile, self.child_registration, self.candidate["trial_id"])["evidence"]
-        with mock.patch.object(comparison.report_attribution, "attribute") as attribute, \
-                mock.patch.object(comparison, "_sensitivity") as sensitivity:
+        with mock.patch.object(comparison.report_attribution, "attribute") as attribute:
             found = comparison.crossing(self.profile, self.child_registration, self.candidate["trial_id"])
             self.assertIsNone(comparison.crossing(self.profile, self.root_registration, self.control["trial_id"]),
                               "a registration without a control gives no reading")
@@ -466,7 +467,7 @@ class ReportTests(unittest.TestCase):
                 self.assertEqual(refused(comparison.crossing, self.profile, *arguments).code, code)
         self.assertEqual(found, comparison.intervals_cross_zero(evidence))
         self.assertIsNotNone(found)
-        self.assertEqual((attribute.call_count, sensitivity.call_count), (0, 0))
+        self.assertEqual(attribute.call_count, 0)
 
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
         found = comparison.compare(self.profile, self.root_registration, self.control["trial_id"])

@@ -26,6 +26,7 @@ import re
 from typing import TypeGuard
 
 from engine.compare import TABLES
+from engine.config import RUNTIME_CONTRACT
 from ledger import db, evidence, problems
 from shared.errors import Refusal
 from shared.paths import read_regular
@@ -39,8 +40,7 @@ IMAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}\Z")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 IDENTITY_FIELDS = ("image_ref", "image_digest", "platform", "runtime_contract")
-TRIAL_COLUMNS = ("trial_id, purpose, source_sha256, image_ref, runtime_contract, platform, build_revision, "
-                 "runner_argv, op_id")
+TRIAL_COLUMNS = "trial_id, purpose, source_sha256, image_ref, platform, build_revision, runner_argv, op_id"
 
 
 def pinned_identity(value) -> dict | None:
@@ -65,9 +65,10 @@ def pinned_identity(value) -> dict | None:
 
 
 def runtime_identity(trial: Mapping) -> dict:
-    """The runtime identity a trial row records (the digest read from its image reference)."""
+    """The runtime identity a trial row records (the digest read from its image reference); its contract is the
+    one this ledger's generation runs (a contract change starts a new ledger)."""
     identity = {"image_ref": trial["image_ref"], "image_digest": trial["image_ref"].rsplit("@", 1)[-1],
-                "platform": trial["platform"], "runtime_contract": trial["runtime_contract"]}
+                "platform": trial["platform"], "runtime_contract": RUNTIME_CONTRACT}
     if trial.get("build_revision"):
         identity["build_revision"] = trial["build_revision"]
     return identity

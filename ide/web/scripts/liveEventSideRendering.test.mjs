@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { namespace } from "./load.mjs";
 
-const { LiveEvents, eventNotes } = await namespace("components/LiveEvents.tsx", { stubs: {
+const { LiveEvents, eventNotes } = await namespace("widgets/live/LiveEvents.tsx", { stubs: {
   "state/linking": { hoverProps: () => ({}) },
   "icons/Icon": { Icon: () => null },
   "state/timeZone": { useTimeZone: () => "UTC" },

@@ -15,7 +15,9 @@ export type HistoryCell = {
 export type HistorySummary = {
   veto: { whole_years: number; profitable_years: number; median_annual_return: number | null; worst_annual_return: number | null;
           worst_mark_max_drawdown: number | null; years_meeting_targets: number | null; meets_targets: boolean | null };
-  holdout: { annual_return: number | null; mark_max_drawdown: number | null; meets_targets: boolean | null; deflated_sharpe?: number | null };
+  holdout: { annual_return: number | null; mark_max_drawdown: number | null; meets_targets: boolean | null; deflated_sharpe?: number | null;
+             /** The holdout's deflated Sharpe with the line's earlier holdout searches added to the participants. */
+             deflated_sharpe_with_prior_trials?: number | null };
   meets_targets: boolean | null; judged_on: "veto and holdout" | "holdout" | null;
   /** What the combined verdict lacks (it is then null whatever the holdout's own verdict): `veto YEAR` for a whole veto
    *  year without both readings, `control` without a control run, `holdout` without a countable reading, `targets`
@@ -30,7 +32,7 @@ export type HistoryLine = {
   line: string; closed: boolean; dev_start: string; dev_end: string;
   targets: { max_drawdown: number | null; annual_return: number | null } | null;
   participants: number; research_trials: number;
-  discount?: { trials: number; holdouts_with_returns: number; daily_sharpe_variance: number | null };
+  discount?: { trials: number; trials_with_prior?: number | null; holdouts_with_returns: number; daily_sharpe_variance: number | null };
   /** The earlier searches of the holdout in this ledger (counted trials on the line's instruments overlapping it, the
    *  line's own history trials left out); null before the line's first research trial. */
   holdout_prior_trials?: { trials: number; instruments: string[]; by_line: { line: string | null; purpose: string; trials: number }[] } | null;

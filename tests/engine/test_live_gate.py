@@ -168,7 +168,7 @@ class GateTests(unittest.TestCase):
         source = SimpleNamespace(_live=self.session)
         self.session.evidence = mock.Mock()
         bar = SimpleNamespace(bar_type=BAR)
-        with mock.patch.object(live_connection, "bar"):
+        with mock.patch.object(live_connection, "bar", return_value=False):
             on_bar(source, bar)  # the source decides on this bar: an entry it submits now carries its type
             self.assertEqual(seen, [(bar, BAR)])
             self.assertIsNone(self.session.deciding)
@@ -558,11 +558,61 @@ class GateTests(unittest.TestCase):
         with mock.patch.object(live_source, "native_cache", return_value=Cache()):
             on_bar(source, bar)
         self.assertEqual(seen, [])
-        self.session.evidence.bar.assert_called_once_with(bar)  # still in the evidence pack
+        self.session.evidence.market.assert_called_once_with("bar", bar)  # still in the evidence pack
         held = Cache(positions=[SimpleNamespace(strategy_id=self.strategy, is_open=True)])
         with mock.patch.object(live_source, "native_cache", return_value=held):
             on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=6 * 60_000_000_000))
         self.assertEqual(len(seen), 1)  # its exits are managed as before
+
+    def test_a_repeated_or_revised_bar_never_reaches_the_source_twice(self):
+        # Binance may push a closed kline again (audit loopback s10_dup_live): the source would decide twice on one bar.
+        seen = []
+        on_bar = live_source._gated("on_bar", lambda source, bar: seen.append(bar))
+        source = SimpleNamespace(_live=self.session)
+        self.session.evidence = mock.Mock()
+        minute = 60_000_000_000
+        first = SimpleNamespace(bar_type=BAR, ts_event=minute)
+        with mock.patch.object(live_source, "native_cache", return_value=Cache()):
+            on_bar(source, first)
+            on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=minute))  # the same bar again, revised or not
+            on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=0))  # an earlier one
+            on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=2 * minute))
+        self.assertEqual([bar.ts_event for bar in seen], [minute, 2 * minute])
+        self.assertEqual(self.session.evidence.market.call_count, 4)  # every bar Binance sent stays in the evidence pack
+        self.assertEqual([(row["received_ns"], row["after_ns"]) for row in self.events() if row["event"] == "bar_repeated"],
+                         [(minute, minute), (0, minute)])
+        self.assertEqual(self.session.connection.closed, {})  # neither a gap nor a reason to close entries
+
+    def test_a_stop_closes_only_what_binance_still_holds_of_each_leg(self):
+        # Re-judge C-140 (doctor 20261114-25): a leg closed outside the run stays open in the native cache; a close of
+        # it from there is rejected and the run ended unresolved with the orphan stop left at Binance.
+        from nautilus_trader.model import Quantity
+        from engine import live_lifecycle
+        iid = InstrumentId.from_str(f"{SYMBOL}-PERP.BINANCE")
+        owner = mock.Mock()
+        self.session.owner = mock.Mock(return_value=owner)
+
+        def position(key, side, quantity):
+            return SimpleNamespace(id=key, strategy_id=self.strategy, instrument_id=iid, side=side,
+                                   quantity=Quantity.from_str(quantity))
+        a, b, c = position("A", PositionSide.LONG, "0.002"), position("B", PositionSide.LONG, "0.003"), \
+            position("C", PositionSide.SHORT, "0.001")
+        read = {"positions": [{"symbol": SYMBOL, "positionSide": "LONG", "positionAmt": "0.004"},
+                              {"symbol": SYMBOL, "positionSide": "SHORT", "positionAmt": "0"}]}
+        self.session.account_observation = SimpleNamespace(purpose="stop", deadline=time.monotonic() + 30,
+                                                           result=SimpleNamespace(done=lambda: True, result=lambda: read,
+                                                                                  cancel=lambda: None))
+        held = live_lifecycle.venue_held(self.session, [a, b, c])
+        self.assertEqual(held, {"A": Decimal("0.002"), "B": Decimal("0.002"), "C": Decimal(0)})
+        for found in (a, b, c):
+            live_lifecycle.close_held(self.session, found, held)
+        owner.close_position.assert_called_once_with(a, reduce_only=True)  # held in full
+        (order,), kwargs = owner.submit_order.call_args  # B: only the 0.002 Binance holds
+        self.assertEqual((owner.order_factory.market.call_args.args[1:], kwargs["position_id"]),
+                         ((OrderSide.SELL, Quantity.from_str("0.002")), "B"))
+        self.assertEqual(self.session.phantoms, {"B", "C"})  # C: nothing to send
+        self.assertEqual([(row["position_id"], row["venue"]) for row in self.events() if row["event"] == "venue_closed"],
+                         [("B", "0.002"), ("C", "0")])
 
     def test_a_stop_asked_for_while_warming_up_again_ends_the_run(self):
         self.gap()

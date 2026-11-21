@@ -6,13 +6,13 @@ import { useHistory } from "../../state/history";
 import { useResearchLines } from "../../state/researchLines";
 import { showToolWindow } from "../../state/shell";
 import { openTrial } from "../../state/stage";
-import { DropdownChoice } from "../../components/Dropdown";
-import { HistoryTile } from "../../components/HistoryTile";
-import { Skeleton } from "../../components/Missing";
+import { DropdownChoice } from "../../ui/Dropdown";
+import { HistoryTile } from "../../ui/HistoryTile";
+import { Skeleton } from "../../ui/Missing";
 import { LineHeader, PriorTip } from "./LineHeader";
 import { LineSummary, PickedBar, usePicked, type Picked } from "./LinePanels";
-import { Tip } from "../../components/Tip";
-import { Empty } from "../../components/Waiting";
+import { Tip } from "../../ui/Tip";
+import { Empty } from "../../ui/Waiting";
 
 const SUMMARY_COLS = ["Whole yrs", "Profitable", "Meeting", "Median", "Worst", "Worst DD", "Veto", "Holdout", "Verdict", "DSR"] as const;
 
@@ -75,12 +75,12 @@ const Verdict = ({ ok, tip: why }: { ok: boolean | null | undefined; tip?: React
 };
 
 /** A row's summary as the command gives it: the veto years' counts and readings, the two verdicts and the combined one,
- *  and, on a row meeting the targets (the candidates "picked by this reading", line-close-history-test-20261110.zh.md 3.7),
- *  its holdout's Sharpe deflated at the line's participant count. */
+ *  and, on every row with a reading, its holdout's Sharpe deflated at the line's participant count and, after a slash,
+ *  at that count plus the line's earlier searches of the holdout. */
 function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
   const s = row.summary, td = "px-2 text-right tabular-nums whitespace-nowrap";
   if (!s) return <td colSpan={10} className="px-2 text-misses-fg">Control replay differs from the research run: no verdict</td>;
-  const veto = s.veto, dsr = s.holdout.deflated_sharpe;
+  const veto = s.veto, dsr = s.holdout.deflated_sharpe, prior = s.holdout.deflated_sharpe_with_prior_trials, withPrior = line.discount?.trials_with_prior;
   return (
     <>
       <td className={td}>{veto.whole_years}</td>
@@ -93,9 +93,9 @@ function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
       <td className={td}><Verdict ok={s.holdout.meets_targets} tip={<PriorTip line={line} lead={`Holdout ${pct(s.holdout.annual_return)} a year, drawdown ${pct(s.holdout.mark_max_drawdown)}`} />} /></td>
       <td className={`${td} font-semibold`}><Verdict ok={s.meets_targets} tip={combinedTip(s)} /></td>
       <td className={`${td} text-fg-muted`}>
-        {!s.meets_targets && <span className="text-fg-faint">{MISSING}</span>}
-        {s.meets_targets && <Tip content={<PriorTip line={line} lead={`The holdout's deflated Sharpe with ${line.participants} participants as the trials: the probability its Sharpe beats the best of that many by luck`} />}>
-          <span>{dsr == null ? MISSING : dsr.toFixed(2)}</span></Tip>}
+        {dsr == null ? <span className="text-fg-faint">{MISSING}</span>
+          : <Tip content={<PriorTip line={line} lead={`The holdout's deflated Sharpe with ${line.participants} participants as the trials: the probability its Sharpe beats the best of that many by luck${prior == null || withPrior == null ? "" : `; ${prior.toFixed(2)} with the ${withPrior} trials that include the earlier searches below`}`} />}>
+            <span>{dsr.toFixed(2)}{prior != null && <span className="text-fg-faint"> / {prior.toFixed(2)}</span>}</span></Tip>}
       </td>
     </>
   );

@@ -23,7 +23,6 @@ class UserStreamTests(unittest.TestCase):
 
 
 class DuplicateKlineTests(unittest.TestCase):
-    @unittest.expectedFailure  # re-judge C-067: a repeated closed kline reaches the source twice (2026-11-21)
     def test_a_closed_kline_pushed_twice_reaches_the_source_once(self):
         with Loopback() as run:
             run.start()

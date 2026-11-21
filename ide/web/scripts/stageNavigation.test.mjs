@@ -15,7 +15,8 @@ async function navigation({ backtest = false, address } = {}) {
   const graph = loader({ context, packages: [], stubs: {
     react: { useSyncExternalStore: () => { throw new Error("State navigation uses no hooks"); } },
   } });
-  const shell = await graph.namespace("state/shell.ts");
+  const navigate = await graph.namespace("state/navigate.ts");
+  const shell = graph.loaded("state/shell.ts");
   const stage = graph.loaded("state/stage.ts");
   const selected = graph.loaded("state/selection.ts");
   const choice = () => stage.choiceOf(stage.choices.get(), selected.selection.get());
@@ -30,7 +31,7 @@ async function navigation({ backtest = false, address } = {}) {
   };
   const assigned = [];
   window.location.assign = (path) => assigned.push(path);
-  return { stage, shell, choice, arriveResearch, url: () => window.location, assigned, selected };
+  return { stage, shell, navigate, choice, arriveResearch, url: () => window.location, assigned, selected };
 }
 
 for (const order of ["research-late", "paper-list-late"]) {
@@ -86,4 +87,29 @@ test("a History cell picks its replay in this view, or opens its line with the r
     assert.equal(there.selected.selection.get(), "other@3");
     assert.deepEqual([there.choice().stage, there.choice().trial], ["backtest", 40]);
   }
+});
+
+test("a version link goes back to the canvas from any page; on the research page it keeps the tool window", async () => {
+  const h = await navigation({ address: "https://fixture.invalid/?line=line-a&at=snapshot" });
+  h.arriveResearch();
+  const page = () => h.shell.shell.get().last.left;
+  for (const show of [h.shell.showRunsPage, h.shell.showMarketPage, h.shell.showHistoryPage]) {
+    show();
+    h.navigate.showVersion("live@1");
+    assert.equal(page(), "versions");
+    assert.equal(h.selected.selection.get(), "live@1");
+    h.navigate.showVersion("paper@1");
+  }
+  h.shell.showToolWindow("sources", "left");
+  h.navigate.showVersion("live@1");
+  assert.equal(page(), "sources", "a research tool window stays as it is");
+  assert.equal(h.url().hash, "#live@1");
+});
+
+test("a replay picked in Details on the research page shows its backtest on the Runs page", async () => {
+  const h = await navigation({ address: "https://fixture.invalid/?line=line-a&at=snapshot" });
+  h.arriveResearch();
+  h.navigate.showTrial(5);
+  assert.equal(h.shell.shell.get().last.left, "runs");
+  assert.deepEqual([h.choice().stage, h.choice().trial], ["backtest", 5]);
 });

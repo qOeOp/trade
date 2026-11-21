@@ -239,7 +239,7 @@ def derive_bars(minute_bars: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     the last minute's close; volume is the sum. A bucket without minutes does not exist."""
     if not len(minute_bars["ts_open"]):
         return minute_bars
-    _check_minutes(minute_bars, "INPUT_UNSORTED")
+    _check_minutes(minute_bars, "GRID_MISALIGNED")
     start = buckets(np.asarray(minute_bars["ts_open"], dtype=np.int64))
     first = np.nonzero(np.concatenate([[True], start[1:] != start[:-1]]))[0]
     o, h, lo, c, v = (np.asarray(minute_bars[name], dtype=np.int64) for name in COLUMNS[1:])

@@ -85,6 +85,16 @@ class ReadingTests(unittest.TestCase):
         self.assertAlmostEqual(found["total_return"], 0.000199)
         self.assertEqual((found["fills"], found["orders_submitted"], found["missing_bars"], found["bars"]), (1, 1, 2, 1))
 
+    def test_a_settlement_held_without_a_mark_is_unknown_not_free(self):
+        lines = [item if item["kind"] != "funding_settlement" else {**item, "mark": None} for item in journal()]
+        found = paper.readings(ROW, lines, 0, summary(), 0, b"")
+        self.assertEqual(Decimal(found["funding_usdt"]), Decimal(0))
+        self.assertEqual(found["funding_settlements"], 1)
+        self.assertIn("1 funding settlement with a position open has no published rate or MARK: its funding is "
+                      "unknown and left out of the equity", found["limitations"])
+        flat = paper.readings(ROW, journal(), 0, summary(), 0, b"")
+        self.assertFalse(any("unknown" in text for text in flat["limitations"]))
+
     def test_a_settlement_takes_the_positions_held_before_the_bar_closing_after_it(self):
         """A replay settles after the bars stamped before the settlement and the fills they caused, before the bar
         stamped after it; the journal's order of bars and position events says the same."""
@@ -105,8 +115,8 @@ class ReadingTests(unittest.TestCase):
         found = paper.settlements(lines, {iid: [(at, Decimal("0.0001"), Decimal("100.123456789")),
                                                 (at + 2 * MINUTE, Decimal("-0.0001"), None)]})
         # Nautilus: each position's notional rounded to 0.00000001, times the rate, rounded half even; a long pays.
-        self.assertEqual([item["funding"] for item in found], [Decimal("-0.02002469") + Decimal("0.01001235"),
-                                                               Decimal(0)])
+        # A position held at a settlement without a MARK has an unknown funding, not none.
+        self.assertEqual([item["funding"] for item in found], [Decimal("-0.02002469") + Decimal("0.01001235"), None])
 
     def test_a_seal_settles_what_binance_published_at_the_mark_a_replay_uses(self):
         at_ms = (START + 2 * MINUTE) // 10**6  # 00:00 UTC

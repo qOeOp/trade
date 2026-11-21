@@ -8,16 +8,16 @@ import { valueDomain } from "../lib/valueDomain";
 import { tint, v } from "../theme/roles";
 import { hovered as hoveredAtom, hoverProps, requestFocus, useHovered } from "../state/linking";
 import { select, useSelection } from "../state/selection";
-import { useGlide } from "../components/hooks/useGlide";
-import { useSize } from "../components/hooks/useSize";
-import { useZoom } from "../components/hooks/useZoom";
-import { TextButton } from "../components/TextButton";
-import { ChartPill, PILL_H, pillWidth } from "../components/ChartPill";
-import { chartKeys } from "../components/chartKeys";
-import { tickCount } from "../components/ProgressLayout";
-import { Tip } from "../components/Tip";
-import { FoldedRuns } from "../components/FoldedRuns";
-import { useFolded } from "../components/hooks/useFolded";
+import { useGlide } from "../ui/hooks/useGlide";
+import { useSize } from "../ui/hooks/useSize";
+import { useZoom } from "../ui/hooks/useZoom";
+import { TextButton } from "../ui/TextButton";
+import { ChartPill, PILL_H, pillWidth } from "../ui/ChartPill";
+import { chartKeys } from "../ui/chartKeys";
+import { tickCount } from "./ProgressLayout";
+import { Tip } from "../ui/Tip";
+import { FoldedRuns } from "./FoldedRuns";
+import { useFolded } from "./useFolded";
 
 type Point = ScatterWidget["points"][number];
 

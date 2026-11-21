@@ -656,7 +656,7 @@ class DockerHost:
             for run in self.answer(name, "/api/paper/runs")["runs"]
             if run["state"] in {"running", "stopping", "ended", "unsealed"}
         ]
-        found = {line["name"] for line in lines if any(candidate in line["versions"] for candidate in active)}
+        found = {line["name"] for line in lines if any(candidate in line["candidates"] for candidate in active)}
         return sorted(found or {max(lines, key=lambda line: line["created_at"])["name"]})
 
     def health(self, name: str, lines: list[str], routed: bool = False, live: bool = True) -> None:

@@ -4,8 +4,8 @@ import { meets } from "../../model/semantics";
 import { duration } from "../../lib/format";
 import { signed } from "../../lib/paperApi";
 import { pnlClass } from "../../theme/roles";
-import { Missing, Skeleton } from "../../components/Missing";
-import { Tip } from "../../components/Tip";
+import { Missing, Skeleton } from "../../ui/Missing";
+import { Tip } from "../../ui/Tip";
 
 const STEPS = 5;  // the drawdown track is graduated in fifths of the limit
 

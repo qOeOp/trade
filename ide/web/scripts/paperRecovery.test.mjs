@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { loader } from "./load.mjs";
 
 const recovery = await loader().namespace("model/recovery.ts"), { unresumable, heldOnInterruption } = recovery;
-const { paperIssues } = await loader().namespace("model/phoneRuns.ts");
+const { paperIssues } = await loader().namespace("model/runSnapshot.ts");
 const refused = (message, code = "PAPER_RECOVERY_UNAVAILABLE") => ({ state: "ended", recovery: { code, message } });
 
 test("a resume refused for what stays (no checkpoint, a changed input) cannot pass; one refused for what passes can", () => {

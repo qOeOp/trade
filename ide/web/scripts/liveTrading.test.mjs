@@ -9,14 +9,14 @@ import { loader, src } from "./load.mjs";
 
 let canvasRun, canvasView, draft = null;
 const components = new SourceTextModule(`
-  export { LiveCredentialsDialog } from "./components/LiveCredentialsDialog";
-  export { LiveRunReview } from "./components/LiveRunReview";
-  export { LiveFacts } from "./components/LiveFacts";
-  export { LiveNoReply } from "./components/LiveNoReply";
-  export { LiveFrozenPlan } from "./components/LiveLaunchReview";
-  export { LiveRunIdentity } from "./components/LiveRunIdentity";
+  export { LiveCredentialsDialog } from "./widgets/live/LiveCredentialsDialog";
+  export { LiveRunReview } from "./widgets/live/LiveRunReview";
+  export { LiveFacts } from "./widgets/live/LiveFacts";
+  export { LiveNoReply } from "./widgets/live/LiveNoReply";
+  export { LiveFrozenPlan } from "./widgets/live/LiveLaunchReview";
+  export { LiveRunIdentity } from "./widgets/live/LiveRunIdentity";
   export { LiveRunCanvas } from "./widgets/live/LiveRunCanvas";
-  export { CoinChip } from "./components/CoinMenu";
+  export { CoinChip } from "./ui/CoinMenu";
 `, { identifier: resolve(src, "live-component-test.ts") });
 await components.link(loader({ stubs: {
   "state/shown": { useShown: () => ({ liveRun: canvasRun, version: null, trial: null }) },
@@ -38,7 +38,7 @@ await components.link(loader({ stubs: {
   "widgets/paper/ChartSwitches": { GROUP: "" },
   "icons/Icon": { Icon: () => null },
   // SSR has no portal host. Inspect actual dialog contents; browser checks cover the Radix frame.
-  "components/LiveDialogFrame": {
+  "widgets/live/LiveDialogFrame": {
     LiveDialogFrame: ({ open, title, description, notice, children, footer }) => open
       ? createElement(Fragment, null, "[dialog]", title, description, notice, children, footer) : null,
   },
@@ -55,7 +55,7 @@ const run = {
   id: "run-fixture", candidate: "fixture-strategy@1", sourceHash: "a".repeat(64), entryClass: "FixtureStrategy",
   runtimeDigest: `sha256:${"b".repeat(64)}`, symbols: ["BTCUSDT"], config: [{ label: "Entry quantity", value: "0.001000000000000001" }],
   host: [{ label: "Container", value: "Running" }], execution: [{ label: "Admission", value: null }],
-  account: [], ending: [{ label: "Venue flat", value: null }], evidence: [], accountCheck: null,
+  account: [], ending: [{ label: "Venue flat", value: null }], evidence: [], accountCheck: null, observedNs: { account: null, terminal: null },
 };
 const wizard = (view, actions = {}) => render("LiveRunReview", { runId: run.id, open: true, close: noOp, view, actions });
 

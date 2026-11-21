@@ -1,0 +1,40 @@
+import type { LiveRun, LiveTradingActions, LiveTradingView } from "../../model/liveTrading";
+import { FormButton } from "../../ui/chat/Field";
+import { LiveActionFailure, useLiveAction } from "./LiveActionState";
+import { LiveDialogFrame } from "./LiveDialogFrame";
+import { LiveEvidenceList, LiveFacts } from "./LiveFacts";
+import { LiveFrozenPlan } from "./LiveLaunchReview";
+import { LiveNoReplies } from "./LiveNoReply";
+import { LiveRunIdentity } from "./LiveRunIdentity";
+import { StopButtons, StopPanel, useStopRequest } from "./LiveStop";
+import { Section } from "../../ui/Section";
+
+/** A retained execution or reconciliation is reviewed through observations, outside preparation. */
+export function LiveRunReviewDialog({ run, open, close, view, actions }: {
+  run: LiveRun; open: boolean; close: () => void; view: LiveTradingView; actions: LiveTradingActions;
+}) {
+  const reading = useLiveAction(), stopping = useStopRequest(run, actions);
+  return <LiveDialogFrame notice={view.notice} open={open} close={close} title="Review live run"
+    description="Review the retained run, its account observations and completion. Closing this window does not change the run."
+    footer={<>
+      <FormButton disabled={!actions.refresh || reading.busy} onClick={() => void reading.submit(() => actions.refresh?.())}>{reading.busy ? "Reading…" : "Refresh observations"}</FormButton>
+      <StopButtons form stop={stopping} />
+    </>}>
+    <div className="space-y-4">
+      <header className="space-y-3">
+        <h2 className="break-words font-semibold">{run.candidate}</h2>
+        <LiveRunIdentity run={run} />
+      </header>
+      <StopPanel stop={stopping} />
+      <LiveActionFailure failed={reading.failed || stopping.failed} />
+      <LiveNoReplies view={view} actions={actions} which={(request) => request.target.run_id === run.id && request.action !== "prepare"} />
+      <p className="text-small text-fg-muted">Account details are retained observations from this run. Startup checks the account before trading.</p>
+      <LiveFacts title="Account observation" facts={run.account} />
+      <LiveFacts title="Native completion" facts={run.execution} />
+      <LiveFacts title="Stopping and custody" facts={run.ending} />
+      <p className="text-small text-fg-faint">A stop request still waits for exit and account verification. Host state alone does not confirm a fill, completion or a flat account.</p>
+      <Section title="Frozen plan" open={false}><LiveFrozenPlan run={run} credentials={view.credentials} /></Section>
+      <LiveEvidenceList evidence={run.evidence} />
+    </div>
+  </LiveDialogFrame>;
+}

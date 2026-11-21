@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { MISSING, pct, plural } from "../../lib/format";
 import type { HistoryLine } from "../../lib/historyApi";
 import { priorGroups, priorTrials } from "../../model/history";
-import { Tip } from "../../components/Tip";
+import { Tip } from "../../ui/Tip";
 
 /** What a line's `holdout_prior_trials` says in words: the holdout's earlier searches in this ledger, which the holdout
  *  verdict and the deflated Sharpe are to be read with. The deflated Sharpe counts only this line's participants. */
@@ -20,7 +20,7 @@ export function PriorTip({ line, lead }: { line: HistoryLine; lead?: string }) {
         : <p>{n === 0 ? "No counted trial in this ledger overlapped the holdout" : `${plural(n, "counted trial")} on the line's instruments overlapped the holdout`}
             {p && p.instruments.length > 0 && ` (${p.instruments.join(", ")})`}; its own history trials are left out</p>}
       {groups.map((g) => <p key={g}>{g}</p>)}
-      <p>Searches outside this ledger are not counted, so none here does not mean the holdout is unseen. The deflated Sharpe counts only this line's participants, not these searches.</p>
+      <p>Searches outside this ledger are not counted, so none here does not mean the holdout is unseen. The DSR column's second figure adds these searches to the participants as trials.</p>
     </div>
   );
 }

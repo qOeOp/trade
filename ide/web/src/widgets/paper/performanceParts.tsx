@@ -4,7 +4,7 @@ import { signed } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
 import type { Account, TradeStats } from "../../model/account";
 import { pnlClass } from "../../theme/roles";
-import { Tip } from "../../components/Tip";
+import { Tip } from "../../ui/Tip";
 
 const EXITS = [["target", "Target", "bg-pnl-up"], ["stop", "Stop", "bg-pnl-down"], ["other", "Other", "bg-fg-muted"]] as const;
 

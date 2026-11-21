@@ -1,5 +1,5 @@
-"""The Live evidence pack: the market data a run received and the native record of what it did, in the forms
-Paper journals and a replay seals, for comparing the run with a replay of its source
+"""The Live evidence pack: the market data a run received (engine.realtime.MarketRows, the rows Paper journals) and the
+native record of what it did, as a replay seals it, for comparing the run with a replay of its source
 (docs/plans/live-evidence-pack-20261110.zh.md). It stays in the run's private directory, never the ledger.
 
 Recording never changes the run: a failed write is journaled once per part and the run goes on.
@@ -13,7 +13,7 @@ import threading
 import time
 from typing import Callable
 
-from engine import metrics
+from engine.realtime import MarketRows
 
 EVIDENCE = "evidence"
 MARKET = "market.jsonl"
@@ -27,6 +27,7 @@ class Evidence:
         self._report_failure = report_failure
         self.failed: set[str] = set()
         self._lock = threading.Lock()
+        self._rows = MarketRows(self._append)
 
     def _fail(self, part: str, exc: BaseException) -> None:
         if part not in self.failed:
@@ -43,53 +44,13 @@ class Evidence:
         except (OSError, ValueError, TypeError) as exc:
             self._fail("market", exc)
 
-    def bar(self, bar, kind: str = "bar") -> None:
-        """A bar the source received: ``bar`` live, ``historical_bar`` from a history request (warm-up)."""
+    def market(self, name: str, *args) -> None:
+        """One call of engine.realtime.MarketRows (`name`: bar, warmup, metrics, metrics_unsubscribed, kline_events):
+        its rows, in the format Paper journals them, go to ``market.jsonl``."""
         try:
-            fields = dict(bar_type=str(bar.bar_type), instrument_id=str(bar.bar_type.instrument_id),
-                          ts_event=bar.ts_event, ts_init=bar.ts_init, open=str(bar.open), high=str(bar.high),
-                          low=str(bar.low), close=str(bar.close), volume=str(bar.volume))
+            getattr(self._rows, name)(*args)
         except Exception as exc:
             self._fail("market", exc)
-            return
-        self._append(kind, **fields)
-
-    def settlement(self, update) -> None:
-        """A funding settlement the source received from its history (warm-up): ``historical_funding``."""
-        try:
-            # A settlement's stamps are all its time (engine.warmup.funding_update): ts_event alone.
-            fields = dict(instrument_id=str(update.instrument_id), ts_event=update.ts_event, rate=str(update.rate))
-        except Exception as exc:
-            self._fail("market", exc)
-            return
-        self._append("historical_funding", **fields)
-
-    def metrics(self, row) -> None:
-        """An open interest and long/short ratio row the source received (engine.metrics): ``metrics``, its values as
-        text or null; it reached the source at ts_event + 5 minutes (engine.metrics.VISIBLE_NS)."""
-        try:
-            fields = dict(instrument_id=str(row.instrument_id), ts_event=row.ts_event,
-                          **{name: None if (value := getattr(row, name)) is None else str(value)
-                             for name in metrics.ENDPOINTS})
-        except Exception as exc:
-            self._fail("market", exc)
-            return
-        self._append("metrics", **fields)
-
-    def kline_event(self, instrument_id: str, close: int, sent: int) -> None:
-        """Binance's time for a closed one-minute kline (engine.kline_events): ``kline_event`` with its close
-        (``ts_event``, as the bar is stamped) and Binance's event time (``event_ns``)."""
-        self._append("kline_event", instrument_id=instrument_id, ts_event=close, event_ns=sent)
-
-    def kline_socket(self, state: str, at: int, reason: str | None) -> None:
-        """A change of the side connection's state (engine.kline_events): ``kline_socket`` with ``state`` (up or
-        down), ``at_ns`` and, on a down, its ``reason``."""
-        self._append("kline_socket", state=state, at_ns=at, **({"reason": reason} if reason else {}))
-
-    def metrics_unsubscribed(self, instrument_id: str) -> None:
-        """The source stopped following `instrument_id`'s metrics (engine.metrics.Feed._metrics_unfollow):
-        ``metrics_unsubscribed``. No row reaches it after wall_ns until it subscribes again."""
-        self._append("metrics_unsubscribed", instrument_id=str(instrument_id))
 
     def reports(self, cache, venue) -> None:
         """Every order, fill, position and account state in the native cache as a replay writes them, into

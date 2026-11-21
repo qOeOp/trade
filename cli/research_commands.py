@@ -66,7 +66,7 @@ def candidate_publish(args):
     published = strategies.publish_candidate(_research(args), source, args.strategy_id, args.entry_class,
                                              args.description, args.parent, args.difference, args.op_id)
     return {"candidate": published["candidate"], "source_sha256": published["source_sha256"], "parent": args.parent,
-            "runtime_contract": published["runtime_contract"], "ledger_commit": published["ledger_commit"],
+            "ledger_commit": published["ledger_commit"],
             "replayed": published["replayed"]}
 
 
@@ -75,7 +75,7 @@ def _candidate_record(conn: db.LedgerConnection, row: Mapping, commit: str) -> d
               if row.get("parent_source_sha256") else None)
     return {"candidate": f"{row['strategy_id']}@{row['revision']}", "strategy_id": row["strategy_id"],
             "revision": row["revision"], "source_sha256": row["source_sha256"], "entry_class": row["entry_class"],
-            "runtime_contract": row["runtime_contract"], "description": row["description"], "parent": parent,
+            "description": row["description"], "parent": parent,
             "difference": row["difference"], "created_at": row["created_at"], "ledger_commit": commit}
 
 
@@ -507,7 +507,7 @@ COMMANDS = [
         "(writer, head)",
         "one candidate row (revision = the strategy ID's highest + 1); the same strategy ID, source, entry class "
         "and parent again is a replay returning the stored record",
-        "candidate, source_sha256, parent, runtime_contract, ledger_commit, replayed",
+        "candidate, source_sha256, parent, ledger_commit, replayed",
         "SOURCE_EXISTS (these bytes are already a candidate); SOURCE_SYNTAX, SOURCE_SIZE; ENTRY_CLASS_NOT_UNIQUE "
         "(not exactly one top-level class of that name); LINEAGE_INCOMPLETE (--parent and --difference go "
         "together); UNKNOWN_CANDIDATE, BAD_REF (parent); OP_ID_CONFLICT"), LEDGER,
@@ -520,7 +520,7 @@ COMMANDS = [
     command(candidate_show, "candidate", "show", "a candidate record without its source", (
         "the candidate at --at (reader); its source hash is recomputed",
         "nothing",
-        "candidate, strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent, "
+        "candidate, strategy_id, revision, source_sha256, entry_class, description, parent, "
         "difference, created_at, ledger_commit",
         "BAD_REF (not ID@N); UNKNOWN_CANDIDATE; UNKNOWN_REF (--at); LEDGER_CORRUPT (source does not match its "
         "hash)"), LEDGER, CANDIDATE, AT),
@@ -549,7 +549,7 @@ COMMANDS = [
         "run's economic evidence availability",
         "nothing",
         "ledger_commit, checker, candidates [{strategy_id, revision, source_sha256, entry_class, "
-        "runtime_contract, description, parent_source_sha256, parent, difference, created_at, attempts "
+        "description, parent_source_sha256, parent, difference, created_at, attempts "
         "[{registration_id, trial_id, run_status, availability}], valid_evidence}]; large",
         "UNKNOWN_REF (--at); a run whose records do not verify is listed as unavailable, not refused"), LEDGER, AT),
     command(evidence_add, "evidence", "add", "append an evidence bundle", (
@@ -606,8 +606,8 @@ COMMANDS = [
         "with --readings the recommendation judgments and each recommended version's latest research run; no market",
         "nothing",
         "ledger_commit, lines [{line_id, name, start, dev_start, dev_end, market_day, created_at, closed, summary, "
-        "targets, versions, recommendation (with --readings: {recommended, since, research_runs, runs_since, trial_id, "
-        "eligible, annual_return, max_drawdown} or null)}] oldest first; versions are the candidates its research "
+        "targets, candidates, recommendation (with --readings: {recommended, since, research_runs, runs_since, trial_id, "
+        "eligible, annual_return, max_drawdown} or null)}] oldest first; candidates are those its research "
         "graph draws, oldest first; a recommendation is the latest current judgment's version, since the first of the "
         "latest judgments naming it, and its latest sealed research run on the line read as the graph reads it "
         "(measures only while it is eligible)",
@@ -758,11 +758,13 @@ COMMANDS = [
         "product_commit; comparison (the line's comparison table: line, dev_start, dev_end, universe_rule, "
         "execution_identity (the line's, from its "
         "latest research trial since line select; null before the first), runs [{candidate, trial_id, "
-        "execution_identity {runtime_contract, execution, image_digest, keys}, measures, deflated_sharpe "
+        "execution_identity {execution, image_digest, keys}, measures (annual_return, "
+        "mark_max_drawdown, sharpe_365, plan_win_rate, breakeven_fee_multiple), deflated_sharpe "
         "{effective_trials, trials_with_sweeps} (the run's deflated Sharpe at each multiple_testing count with its "
         "daily_sharpe_variance; null without that reading), worst_dev_year_return and return_without_best_year "
         "(replay report dev_years, display only), dominated_by, non_dominated}] (dominance only within one "
-        "identity), candidates (those of the line's identity, which a "
+        "identity and only on dominance_measures: annual_return, mark_max_drawdown, sharpe_365; the plan win rate "
+        "and breakeven_fee_multiple are shown only), candidates (those of the line's identity, which a "
         "recommendation names), without_economic_evidence; null without a line)",
         "LINE_UNKNOWN (--line); "
         "UNKNOWN_REF (--at)"), LEDGER,
@@ -805,7 +807,7 @@ COMMANDS = [
         "trials, runs, candidates, lines, targets and every listed run's stored facts at --at (reader); no market",
         "nothing",
         "ledger_commit, line, by, runs_listed (before --limit), without_economic_evidence (a count), groups [{group, "
-        "runtime_contract, execution, image_digest, window_start, window_end, universe_rule}], lines [{line, "
+        "execution, image_digest, window_start, window_end, universe_rule}], lines [{line, "
         "targets {max_drawdown, annual_return, source} or null}], runs [{candidate, trial_id, group, lines (those "
         "the run belongs to), measures {annual_return, mark_max_drawdown, sharpe_365, sharpe_lo, "
         "plan_win_rate, cycles, daily_turnover} (values as `replay report` derives them), null_reasons (only "
@@ -831,8 +833,9 @@ COMMANDS = [
         "history trials: an invalid run `line history` replayed again)}], control_reproduces, summary "
         "{veto {whole_years, profitable_years, median_annual_return, worst_annual_return, worst_mark_max_drawdown, "
         "years_meeting_targets, meets_targets}, holdout {annual_return, mark_max_drawdown, meets_targets, "
-        "deflated_sharpe}, meets_targets, judged_on (veto and holdout, holdout, or null), missing [veto YEAR, "
-        "control, holdout or targets]} or null when the control does not reproduce}], discount {trials (the participants), holdouts_with_returns, daily_sharpe_variance (of "
+        "deflated_sharpe (at the participant count), deflated_sharpe_with_prior_trials (at the participants plus "
+        "holdout_prior_trials, same variance; null without that count)}, meets_targets, judged_on (veto and holdout, holdout, or null), missing [veto YEAR, "
+        "control, holdout or targets]} or null when the control does not reproduce}], discount {trials (the participants), trials_with_prior (plus holdout_prior_trials), holdouts_with_returns, daily_sharpe_variance (of "
         "their per-day holdout Sharpe ratios)}, holdout_prior_trials {trials, instruments, by_line [{line, purpose, "
         "trials}]} (the earlier searches of the holdout: counted trials of any purpose and line on the line's "
         "instruments whose trading window overlaps it, the line's own history trials left out; searches outside this "

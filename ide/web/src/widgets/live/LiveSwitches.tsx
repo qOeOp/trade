@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { CoinChip, CoinMenu, coinGroups, type Coin } from "../../components/CoinMenu";
-import { Tabs } from "../../components/Tabs";
+import { CoinChip, CoinMenu, coinGroups, type Coin } from "../../ui/CoinMenu";
+import { Tabs } from "../../ui/Tabs";
 import { symbolOf } from "../../lib/paperApi";
 import { sideOf } from "../../model/liveChart";
 import { heldGap } from "../../model/liveHeld";

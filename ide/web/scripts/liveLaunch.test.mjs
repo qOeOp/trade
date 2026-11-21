@@ -17,7 +17,7 @@ const source = (evidence, over = {}) => ({ candidate: "rsi@4", read: "found", so
 const key = { ref: "abcdef0123456789", savedAt: null, selected: true, available: true, runIds: [] };
 const view = (over = {}) => ({ availability: "ready", notice: null, reason: null, credentials: [key],
   planFields: fields, runs: [], requests: [], notify: { configured: true, lastSentNs: null, lastError: null, dropped: 0 }, ...over });
-const checked = (over = {}) => ({ id: "web-check", candidate: "rsi@4", symbols: ["BTCUSDT"], sourceHash: HASH, config, host: [], running: false, ended: true,
+const checked = (over = {}) => ({ id: "web-check", candidate: "rsi@4", symbols: ["BTCUSDT"], sourceHash: HASH, config, brake: { ratio: 0.15, start: null, peak: null }, host: [], running: false, ended: true,
   hostState: "preflight_complete", accountOwned: false, accountCheck: { state: "passed", readAt: null },
   venue: { canTrade: true, hedgeMode: true, multiAssets: true, wallet: "100", available: "98" }, ...over });
 const columns = (v, c = null, extra = {}) => model.launchColumns({ view: v, source: source(found), edits: {}, checked: c, reading: null, targets: null, ...extra });
@@ -171,8 +171,8 @@ async function page(state) {
     useEffect() {},
   };
   const exports = await namespace("widgets/live/LiveLaunch.tsx", { stubs: {
-    react: hooks, "icons/Icon": { Icon: () => null }, "components/IconButton": { IconButton: () => null },
-    "components/LiveNoReply": { LiveNoReply: () => null },
+    react: hooks, "icons/Icon": { Icon: () => null }, "ui/IconButton": { IconButton: () => null },
+    "widgets/live/LiveNoReply": { LiveNoReply: () => null },
     "state/liveRun": { useLaunchReading: () => ({ reading: null, targets: null }),
       useLiveSource: (version) => version ? source(null, { candidate: version }) : null, useLiveEvidence: (read, symbols) => read && symbols ? found : null,
       useLivePaper: (read, symbols) => read && symbols ? reconciled : null },

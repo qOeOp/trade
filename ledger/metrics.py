@@ -640,16 +640,21 @@ def equity_path(summary: dict, account: list[dict], exposures) -> list[dict]:
     return path
 
 
-def year_cuts(start_ns: int, end_ns: int) -> tuple[list[int], int] | None:
-    """(bounds in UTC ns, whole years) of a trade window's development years: cut at its start's anniversaries,
-    the window's end closing a last part year when it falls on none. None for a window of one whole year or less,
-    and for a 29 February start, which has no anniversaries."""
+def segment_cuts(start_ns: int, end_ns: int, months: int) -> tuple[list[int], int] | None:
+    """(bounds in UTC ns, whole segments) of a trade window cut every `months` months from its start (development
+    years at 12), the window's end closing a last part segment when it falls on no cut. None for a window of one
+    whole segment or less, or a start whose day some month lacks."""
     start, end = datetime.fromtimestamp(start_ns // 10**9, UTC), datetime.fromtimestamp(end_ns // 10**9, UTC)
+
+    def shifted(k: int) -> datetime:
+        month = start.month - 1 + k * months
+        return start.replace(year=start.year + month // 12, month=month % 12 + 1)
+
     cuts = [start]
     try:
-        while (following := start.replace(year=start.year + len(cuts))) <= end:
+        while (following := shifted(len(cuts))) <= end:
             cuts.append(following)
-    except ValueError:
+    except ValueError:  # a start on a day some month lacks (29-31) has no regular cuts
         return None
     whole = len(cuts) - 1
     if end > cuts[-1]:
@@ -677,11 +682,11 @@ def _falls(starting: Decimal, path: list[dict], bounds: list[int]) -> list[tuple
 
 def mark_drawdown(summary: dict, path: list[dict]) -> dict:
     """Largest fall of bar-close mark equity from its running peak (from the starting balance), over the trade
-    window and in each of its development years (year_cuts; null for a window of one year or less), the peak
+    window and in each of its development years (segment_cuts at 12 months; null for a window of one year or less), the peak
     carried across years."""
     starting = Decimal(summary["starting_balance_usdt"])
     (worst, worst_peak_at, worst_at), = _falls(starting, path, [-1, 2**63])
-    cut = year_cuts(clock.utc_ns(summary["period_start_utc"]), clock.utc_ns(summary["period_end_utc"]))
+    cut = segment_cuts(clock.utc_ns(summary["period_start_utc"]), clock.utc_ns(summary["period_end_utc"]), 12)
     years = None if cut is None else [
         {"mark_max_drawdown": float(fall), "peak_utc": iso_minute(peak_at), "trough_utc": iso_minute(trough_at)}
         for fall, peak_at, trough_at in _falls(starting, path, cut[0])]

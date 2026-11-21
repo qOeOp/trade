@@ -308,17 +308,22 @@ def on_socket_state(session, event) -> None:
                 session.event("entries_checking", strict=False, reasons=sorted(state.closed))
 
 
-def bar(session, bar) -> None:
+def bar(session, bar) -> bool:
     """Continuity of the external bars the source receives: a missing one closes entries until a restart warms the
-    source up again (rewarm)."""
+    source up again (rewarm). Whether the bar is a repeat: one stamped no later than the latest of its type (Binance
+    pushing a closed kline again, revised or not; rc7's validate_data_sequence passes an equal stamp), which the
+    source must not see, or it decides twice on one bar. A replay never repeats a bar, so this keeps parity."""
     try:
         if not bar.bar_type.is_externally_aggregated():
-            return
+            return False
         kind, step = str(bar.bar_type), bar.bar_type.spec.get_interval_ns()
     except Exception:
-        return
+        return False
     state = session.connection
     previous = state.bars.get(kind)
+    if previous is not None and bar.ts_event <= previous:
+        session.event("bar_repeated", strict=False, bar_type=kind, after_ns=previous, received_ns=bar.ts_event)
+        return True
     state.bars[kind] = bar.ts_event
     if state.reconnected is not None and not state.bar_since_reconnect:
         state.bar_since_reconnect = True
@@ -326,6 +331,7 @@ def bar(session, bar) -> None:
         # The source is rebuilt by the next start (rewarm): its working entries go now, while this process still
         # protects a fill; positions keep their exits (design §3.2 item 3).
         close_entries(session, "bars_missing", bar_type=kind, after_ns=previous, received_ns=bar.ts_event)
+    return False
 
 
 def rewarm_due(session) -> bool:
