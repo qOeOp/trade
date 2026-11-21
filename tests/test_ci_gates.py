@@ -303,14 +303,17 @@ class ReplaySelectorTests(unittest.TestCase):
         self.assertTrue(self.select("push", built=None))  # no readable image: build
         self.assertTrue(self.select("push", built="f" * 40))  # a revision this history lacks: build
 
-    def test_a_release_selects_no_build_and_a_dependency_pin_does(self):
-        def write(version, pinned="1.0"):
+    def test_a_release_or_dev_pin_selects_no_build_and_a_dependency_pin_does(self):
+        def write(version, pinned="1.0", dev="1.0"):
             (self.repo / "pyproject.toml").write_text(
-                f'[project]\nname = "trade-research"\nversion = "{version}"\ndependencies = ["a"]\n')
+                f'[project]\nname = "trade-research"\nversion = "{version}"\ndependencies = ["a"]\n\n'
+                f'[dependency-groups]\ndev = ["d=={dev}"]\n')
             (self.repo / "uv.lock").write_text(
                 f'version = 1\n\n[[package]]\nname = "a"\nversion = "{pinned}"\n\n'
+                f'[[package]]\nname = "d"\nversion = "{dev}"\n\n'
                 f'[[package]]\nname = "trade-research"\nversion = "{version}"\n'
-                'source = { editable = "." }\n')
+                'source = { editable = "." }\ndependencies = [{ name = "a" }]\n\n'
+                '[package.dev-dependencies]\ndev = [{ name = "d" }]\n')
             self.git("add", ".")
             self.git("-c", "user.name=CI", "-c", "user.email=ci@example.com", "commit", "-qm", version)
             return self.git("rev-parse", "HEAD")
@@ -320,6 +323,8 @@ class ReplaySelectorTests(unittest.TestCase):
             return self.selector.changed("push", ["pyproject.toml", "uv.lock"], "", "registry.example/name:main")
         write("0.3.0")
         self.assertFalse(select(), "dependency_lock_sha256 leaves out the project's own version")
+        write("0.3.0", dev="2.0")
+        self.assertFalse(select(), "no image installs the dev group")
         write("0.3.0", pinned="1.1")
         self.assertTrue(select(), "a dependency pin is a replay input")
 

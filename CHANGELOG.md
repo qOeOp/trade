@@ -43,6 +43,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Paper: a declared run's age before the daemon seals it as an orphan reads the ledger's `created_at` as UTC; on a
   host outside UTC it used the host's zone, so east of UTC a run just started could be sealed at once and west of it
   an orphan waited hours (doctor 20261108-02).
+- Breaking, replay identity: `dependency_lock_sha256` hashes only what the images install from `uv.lock`
+  (`uv sync --no-dev`: the packages the project's runtime dependencies reach, without the project's own version), so a
+  ruff, mypy or type-stub pin no longer rebuilds the replay image or leaves earlier replays unable to back a Live run.
+  Every image's value changes: a replay sealed before this version no longer matches a newer execution image for Live
+  admission (`live/admission.py` REPLAY_CODE); 0.5.0 starts on a new ledger (doctor 20261121-30).
 - Paper seal audit (live clock only, doctor 20261121-20): within one contract's burst of partial fills, the venue's
   OrderUpdated resizes of a reduce-only exit recorded after the strategy's cancel request, with earlier stamps, are no
   `EVENT_OUT_OF_ORDER` when the order ends canceled and each resize follows a fill at most a second before the request;

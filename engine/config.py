@@ -550,14 +550,44 @@ def runtime_source_metadata() -> dict:
     }
 
 
-def dependency_lock_sha256(lock: bytes) -> str:
-    """The hash of `uv.lock`'s dependency pins: the parsed lock without the project's own version (its editable
-    package), which only a release changes and no replay reads, serialized canonically."""
+def runtime_lock(lock: bytes) -> dict:
+    """`uv.lock` as the images install it (`uv sync --no-dev`): its `requires-python` and the package entries the
+    project's runtime dependencies reach, each with what it needs (an extra's dependencies included, markers kept),
+    without the project's own version, which only a release changes. The dev group (ruff, mypy, type stubs) and
+    what only it reaches are left out: no image installs them and no replay reads them."""
     data = tomllib.loads(lock.decode())
-    for package in data.get("package", []):
-        if package.get("source") == {"editable": "."}:
-            package.pop("version", None)
-    return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    packages = data.get("package", [])
+    project = next(package for package in packages if package.get("source") == {"editable": "."})
+    found: dict[tuple, dict] = {}
+    pending = [{key: value for key, value in project.items() if key not in ("version", "dev-dependencies", "metadata")}]
+    while pending:
+        package = pending.pop()
+        key = (package["name"], package.get("version"))
+        if key in found:
+            continue
+        found[key] = package
+        needs = list(package.get("dependencies", []))
+        for dependency in needs:
+            for extra in dependency.get("extra", []):
+                needs += [item for item in _locked(packages, dependency).get("optional-dependencies", {})
+                          .get(extra, []) if item not in needs]
+        pending += [_locked(packages, dependency) for dependency in needs]
+    return {"requires-python": data.get("requires-python"),
+            "package": [found[key] for key in sorted(found, key=lambda key: (key[0], str(key[1])))]}
+
+
+def _locked(packages: list[dict], dependency: dict) -> dict:
+    """The one package entry a dependency names (by its version too when the lock pins several)."""
+    named = [package for package in packages if package["name"] == dependency["name"]
+             and dependency.get("version", package.get("version")) == package.get("version")]
+    if len(named) != 1:
+        raise ValueError(f"uv.lock names {len(named)} packages for {dependency['name']}")
+    return named[0]
+
+
+def dependency_lock_sha256(lock: bytes) -> str:
+    """The hash of `uv.lock`'s runtime pins (runtime_lock), serialized canonically."""
+    return hashlib.sha256(json.dumps(runtime_lock(lock), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def describe(config: RunnerConfiguration) -> dict:
