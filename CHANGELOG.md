@@ -26,6 +26,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Reports and IDE: a sealed `history` run (a `line history` segment) now carries economic evidence under the same
+  criterion as a research or validation run (doctor 20261120-04, user 2026-11-21, 「我都授权」): `replay report` no
+  longer masks its readings with `PURPOSE_NOT_COMPARABLE`, `replay report --tables` reads it, and the IDE's Runs and
+  Details pages draw its equity, calendar and trades when picked. It still enters no comparison, ranking, research
+  run count or line candidate selection; a precheck or explore trial keeps the reason.
+
 ## 0.4.4 (2026-11-21)
 
 - Replay identity: `dependency_lock_sha256` now hashes `uv.lock` parsed, without the project's own version (its

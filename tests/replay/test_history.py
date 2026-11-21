@@ -17,7 +17,7 @@ from cli import research_commands
 from ledger import admin, lines, strategies, targets
 from registration import precheck
 from replay import entry, history
-from report import history as report_history, measures, status
+from report import graph, history as report_history, measures, runs, status
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP
 from tests.registration.test_register import second_line
@@ -233,6 +233,21 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual((row["summary"]["meets_targets"], row["summary"]["judged_on"], row["summary"]["missing"]),
                          (None, None, ["holdout", "targets"]),
                          "no whole veto year; no countable holdout to judge by, and the fixture line has no targets")
+
+        # 20261120-04: a sealed history run reads as a research run does, on the Runs page and in `replay report`,
+        # and still enters no research comparison or ranking (the research_runs assertions below).
+        control = cells["control"]["trial_id"]
+        report = runs.run_report(world.profile, control)
+        self.assertEqual((report["availability"]["economic_evidence_available"], report["availability"]["reasons"]),
+                         (True, []))
+        self.assertIsNotNone(report["headline"], "its readings are not masked")
+        self.assertTrue(runs.tables(control, world.profile)["daily_returns"], "--tables reads it")
+        drawn = graph.research_graph(world.profile, line, comparisons=False, counts=False)
+        found = next(t for c in drawn["candidates"] for t in c["trials"] if t["trial_id"] == control)
+        self.assertEqual((found["purpose"], found["eligible"]), ("history", True))
+        self.assertIsNotNone(found["annual_return"])
+        self.assertEqual([item["trial_id"] for item in status.research_runs(world.profile)["runs"]], [passed["trial_id"]],
+                         "no history run among the line's research runs")
 
         backups = Path(tempfile.mkdtemp(prefix="backups-", dir="/tmp"))
         self.addCleanup(shutil.rmtree, backups, True)
