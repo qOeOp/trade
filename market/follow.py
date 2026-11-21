@@ -1,10 +1,11 @@
 """Unattended upkeep of the market (market.follow): the bars of the configured contracts from the configured month
 through the last closed UTC day, each named contract's open interest and long/short ratios through the same day (and
-those of any contract the market's newest day waits for, from the day after its last), its complete aggTrades and the quotes inferred from them by closed month, each imported by its existing importer once
-Binance publishes the archives. What is due is what the configured range
-lacks on disk. It adds no import rule; each refusal of an import is sorted into retrying next round,
-stopping one kind of data (or one contract's), skipping a month whose archive breaks the aggTrade sequence, or stopping
-everything."""
+those of any contract the market's newest day waits for, from the day after its last, and with the metrics pool those
+of the newest month's universe members, from that month's first day), its complete aggTrades and the quotes inferred
+from them by closed month, each imported by its existing importer once Binance publishes the archives. What is due is
+what the configured range lacks on disk. It adds no import rule; each refusal of an import is sorted into retrying next
+round, stopping one kind of data (or one contract's), skipping a month whose archive breaks the aggTrade sequence, or
+stopping everything."""
 
 from __future__ import annotations
 
@@ -53,6 +54,7 @@ class Scope:
     trades_from: date
     quotes_from: date
     bar_symbols: list[str] | None = None
+    metrics_pool: bool = False  # also the metrics of the newest month's universe members, from that month on
 
 
 @dataclass
@@ -409,17 +411,22 @@ def _stop(kind: str, symbol: str, exc: BaseException, memory: Memory) -> bool:
 
 # A round
 
-def _listings(profile: dict, symbols: list[str]) -> dict:
+def _listings(profile: dict, scope: Scope) -> dict:
     """What the market directory holds: bars {month: first day not held}, members {month: symbols}, metrics {symbol:
-    days} of `symbols` and of the contracts whose metrics the newest day waits for (files.followed_metrics), each
-    of the latter that `symbols` lacks due from the day after its last (metrics_from), trades and quotes {symbol:
-    months}."""
+    days} of the scope's contracts and of the others a round keeps (metrics_from {symbol: first day due}): each
+    contract whose metrics the newest day waits for (files.followed_metrics) from the day after its last and, with the
+    metrics pool, each other member of the newest month from that month's first day (a member is kept from the month
+    it is found in, never backfilled); trades and quotes {symbol: months}."""
+    symbols = scope.symbols
     market = files.open_market(profile, "reader")
     members: dict[date, list[str]] = {}
     for month, symbol in universe.months_of(market, None):
         members.setdefault(month, []).append(symbol)
-    others = {symbol: last + timedelta(days=1) for symbol, last in sorted(files.followed_metrics(market).items())
-              if symbol not in symbols}
+    newest = max(members, default=None)
+    pool = {symbol: newest for symbol in members[newest]} if scope.metrics_pool and newest is not None else {}
+    others = {**pool, **{symbol: last + timedelta(days=1)
+                         for symbol, last in files.followed_metrics(market).items()}}
+    others = {symbol: first for symbol, first in sorted(others.items()) if symbol not in symbols}
     return {"bars": files.bar_months_through(market), "members": members,
             "metrics": {symbol: metrics.held_days(market, symbol) for symbol in [*symbols, *others]},
             "metrics_from": others, **{kind: _held(profile, kind, symbols) for kind in MONTHLY}}
@@ -471,7 +478,7 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
                     "kinds": kinds, "round_refusal": None}
     listing: dict | None = None
     try:
-        listing = _listings(profile, symbols)
+        listing = _listings(profile, scope)
     except Exception as exc:  # every failure of a round is reported, never raised
         status["round_refusal"] = _refusal(exc)
         if sort("bars", exc) == "all":
@@ -517,7 +524,7 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
     if listing is not None and "*" not in memory.stopped and holes_due:
         memory.holes_tried = _month(today)
     try:
-        listing = _listings(profile, symbols)
+        listing = _listings(profile, scope)
     except Exception as exc:
         status["round_refusal"] = status["round_refusal"] or _refusal(exc)
         listing = None

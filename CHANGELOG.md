@@ -62,6 +62,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   earlier months keep their archives and are imported as before). The files a month writes are unchanged; a
   full-scope import from 2020 no longer waits hours on throttled REST requests for contracts not yet listed.
 
+- `market follow --metrics-pool`: keeps the open interest and long/short ratios of the newest month's universe
+  members, each from that month's first day, so a contract entering the monthly pool is followed from the month it
+  enters without a backfill of earlier days. Off by default; the deployment's `TRADE_MARKET_ARGS` is unchanged
+  (`deploy/README.md`).
+
 ## 0.4.4 (2026-11-21)
 
 - Replay identity: `dependency_lock_sha256` now hashes `uv.lock` parsed, without the project's own version (its
