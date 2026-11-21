@@ -26,6 +26,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Live: a run on a non-ASCII coin's contract (such as 币安人生USDT) is no longer refused by the runner's manifest
+  check after the configuration accepted it, and the Live page no longer drops it from the run's contracts or a held
+  start's unprotected positions; both take a contract as the market names it (`market.sources.SYMBOL`).
 - Paper seal audit (live clock only, doctor 20261121-20): within one contract's burst of partial fills, the venue's
   OrderUpdated resizes of a reduce-only exit recorded after the strategy's cancel request, with earlier stamps, are no
   `EVENT_OUT_OF_ORDER` when the order ends canceled and each resize follows a fill at most a second before the request;
@@ -33,6 +36,18 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   only a lone fill matching its change, so a burst no longer reads as `FUNDING_BALANCE_MISMATCH`. Anything else stays
   a finding; the replay audit is unchanged. Paper run 3 (`pa-trend-second-entry@52`) failed its seal audit on these
   alone (12 and 14 findings).
+- IDE: every poll of the page (About, market import, line readings, Agent, Market, Paper, Live, a run's comparison and
+  logs, the DoltHub sync, a Live candidate and its evidence) runs on one `lib/polled.ts`: it reads again only after the
+  last read finished, pauses while the page is hidden and reads once on showing again, and stops at the first 401 as
+  before. A run's logs, its comparison and the Live launch page's reads now also pause while the page is hidden.
+
+- market-import health (check change, delegated decision): a round in progress counts as fresh while its
+  `running_since` is younger than 26 hours, so a long daily round no longer reports unhealthy; a round running
+  longer is unhealthy as "a round running since ... is stuck", and a finished status older than 26 hours still is.
+
+- Live notices: the daily Telegram summary is sent only for a UTC day on which a Live run was running, filled or
+  ended (a minute's result, a fill, a start or its end that day; a running run whose minutes are unread counts).
+  A day with none is marked done and never sent later.
 
 - Breaking (ledger): research ledger schema generation 2 (doctor 20261114-11, approved 2026-11-14 for the next
   schema generation). `run_reading` no longer stores `computed_at` (its time is the Dolt commit's); its update trigger
@@ -47,6 +62,20 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `entry_filled_share` (entry orders whose final status is FILLED), derived from the sealed order funnel and never
   stored, so a change to entry placement or waiting (C1, G1, G2) can predict a measure instead of writing no slice
   (`docs/plans/duty-directory-recheck-20261121.zh.md`).
+
+- **Breaking** (Live): the Live request log is gone. A page action's request ID now rides on the effect's own rows
+  (the `prepared` and `launch_requested` lifecycle rows, a saved credential's version), so the same ID sent again does
+  the effect at most once; a page that got no reply shows "No reply received", the run's or key's state, and **Send
+  again**, which resends the same request. Gone: `GET /api/live/requests/<id>`, the resolve action, the page's
+  Requests dialog, and the refusals `LIVE_REQUEST_COMMAND`, `LIVE_REQUEST_UNAVAILABLE`, `LIVE_REQUEST_MISSING`,
+  `LIVE_REQUEST_UNRESOLVED`, `LIVE_REQUEST_CLOSED_UNCLAIMED` and `LIVE_CREDENTIAL_INCOMPLETE`; `LIVE_REQUEST_CONFLICT`
+  now compares the effect rows. A run's `research_at` moves into its manifest (format `live-run-5`; earlier runs are
+  skipped as before). Preparation writes under `staging/<run_id>` and renames the run into `runs/` whole; it no
+  longer writes `universes/`. A save cut short finishes when sent again. While a run's latest launched container
+  cannot be found and nothing recycled it, every new launch of it is refused (`LIVE_DOCKER_UNAVAILABLE`), the
+  control's own restart included; STOP still works. Upgrade: Live must be idle; an old `requests/` (and
+  `universes/`) directory is no longer read and is left on disk
+  ([decision](docs/plans/live-request-log-removal-20261121.zh.md)).
 
 - Release tick notices: a failed public git command names itself ("GitHub source unreachable (public git fetch
   failed)") instead of "unclassified runtime failure", and a failed fetch right after one that succeeded sends no

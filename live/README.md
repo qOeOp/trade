@@ -13,9 +13,19 @@ controller performs host cleanup. Native account/order/position ownership is unc
 
 As for Paper, the Live page chooses the run: the candidate is the version selected in the research graph, and the
 contracts (default: its last research replay's) and leverage are typed there. Preparation reads the candidate at the
-research ledger's head, which becomes the run's `research_at`; a candidate absent there or whose source does not load
-is refused (`LIVE_SOURCE_MISSING`). The contracts' membership comes from the market directory (`LIVE_UNIVERSE` when it
-cannot), written once to `universes/<sha256>.json` under the Live root and frozen by hash in the request.
+research ledger's head, which becomes the run's `research_at` (kept in its manifest); a candidate absent there or whose
+source does not load is refused (`LIVE_SOURCE_MISSING`). The contracts' membership comes from the market directory
+(`LIVE_UNIVERSE` when it cannot) and is frozen in the run's inputs. Preparation writes everything under
+`staging/<run_id>` and renames it into `runs/` whole, so a run is either prepared completely or not at all.
+
+Every page action carries a request ID, and the effect's own rows carry it: the `prepared` and `launch_requested`
+lifecycle rows, and a saved credential's version reference, which is derived from it. When the page gets no reply, it
+shows the run's or key's state as Live reads it and offers **Send again**, which sends the same request: a published
+preparation is returned as it is (never read again at a new head), a launch whose `launch_requested` row exists is
+not made again and reads no key, and a save cut short finishes. The same ID naming another operation is refused
+(`LIVE_REQUEST_CONFLICT`). `launch_requested` is fsynced before `docker run` under a deterministic container name;
+while that container cannot be found and nothing recycled the run since, no new launch of it is made, the control's
+own restart included (`LIVE_DOCKER_UNAVAILABLE`), and STOP stays available.
 `preflight` captures immutable source inputs from the research reader at that commit, pins a main-CI
 runtime digest, queries the account and applies the account and source checks `start` will repeat, so `status`
 says `preflight_failed` and `logs` gives the refusal before any account slot is taken. Live runs only the
@@ -303,7 +313,7 @@ never reused; this run's native records may lack the close, and the account snap
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-4`) binds the checks to the runner: an older image refuses it before arming. 0.x
+A manifest's format (`live-run-5`) binds the checks to the runner: an older image refuses it before arming. 0.x
 keeps no compatibility between versions: a run an earlier version prepared stays on disk under `runs/`, and no
 listing, release check or operation reads it; only its runner container, while still running, keeps the account
 (`live/inventory.py`). A run without a credential version is unknown ownership and blocks credential changes

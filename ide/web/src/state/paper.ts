@@ -4,7 +4,7 @@
 import { ApiError, errorText } from "../lib/transport";
 import { paperApi, type Listing, type PaperRun } from "../lib/paperApi";
 import { shared } from "../lib/shared";
-import { whileVisible } from "../lib/whileVisible";
+import { polled } from "../lib/polled";
 import { ACTIVE } from "../model/chain";
 import { full as fullMemory } from "../model/paperMemory";
 import { atom, useAtom } from "./atom";
@@ -95,10 +95,8 @@ async function poll(): Promise<void> {
 
 /** With a daemon behind the page's server, follows it: its runs while it answers, its health while not. */
 export async function detectPaperService(): Promise<void> {
-  await poll();
-  if (paperService.get() === "absent") return;
+  await polled(poll, () => paperService.get() === "absent" ? null : phoneNow() ? PHONE_POLL_MS : POLL_MS).read();
   if (paperService.get() === "present") await Promise.all(unconfirmedStarts().map(checkStart));
-  whileVisible(() => void poll(), phoneNow() ? PHONE_POLL_MS : POLL_MS);
 }
 
 async function checkStart(p: PendingStart): Promise<void> { // an earlier page's unanswered start, never resent

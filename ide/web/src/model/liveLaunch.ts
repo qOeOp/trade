@@ -19,7 +19,7 @@ export type LaunchColumn = { id: "strategy" | "account" | "limits"; title: strin
 /* The user changes each run setting here (live/configuration.py CONFIG_KEYS) and the contracts, which default to the
  * candidate's last research replay's as for Paper; the candidate is the version selected in the research graph. */
 /** engine/live_brake.py: the loosest brake (the drawdown target), and the cash floor from a wallet (85%, to the cent). */
-export const BRAKE_MAX_PERCENT = 15, cashFloor = (wallet: string) => (Math.floor(Number(wallet) * 85 + 1e-9) / 100).toFixed(2);
+const BRAKE_MAX_PERCENT = 15, cashFloor = (wallet: string) => (Math.floor(Number(wallet) * 85 + 1e-9) / 100).toFixed(2);
 export type LaunchInput = {
   view: LiveTradingView; source: LiveSource | null; edits: Readonly<Record<string, string>>;
   checked: LiveRun | null; // the run this page prepared to check the account; its check and observation fill the account rows
@@ -35,7 +35,7 @@ const value = (view: LiveTradingView, edits: LaunchInput["edits"], id: string) =
 export const launchValues = (view: LiveTradingView, edits: LaunchInput["edits"]): Record<string, string> =>
   Object.fromEntries(view.planFields.map((field) => [field.id, value(view, edits, field.id) ?? field.value]));
 /** The contracts as typed here, else the candidate's last research replay's; null while there are none. */
-export const contractsText = (source: LiveSource | null, edits: LaunchInput["edits"]) => edits.contracts ?? source?.lastSymbols?.join(", ") ?? null;
+const contractsText = (source: LiveSource | null, edits: LaunchInput["edits"]) => edits.contracts ?? source?.lastSymbols?.join(", ") ?? null;
 /** The contracts this page would prepare: distinct USDT perpetuals, or null when the text names none or a malformed one. */
 export const launchSymbols = (source: LiveSource | null, edits: LaunchInput["edits"]) => contractsOf(contractsText(source, edits));
 

@@ -7,7 +7,6 @@ import { Mermaid } from './mdx/mermaid';
 import { Ref } from './mdx/ref';
 import { ChapterMap } from './mdx/chapter-map';
 import { ArchitectureOverview } from './mdx/architecture-overview';
-import { TypeTable } from './mdx/type-table';
 
 /** The page's locale reaches every component that has one; MDX sources never write it. */
 function withLang<P extends { lang: Locale }>(Component: ComponentType<P>, lang: Locale) {
@@ -25,7 +24,6 @@ export function getMDXComponents(lang: Locale, components?: MDXComponents) {
     Ref: withLang(Ref, lang),
     Step,
     Steps,
-    TypeTable: withLang(TypeTable, lang),
     ...components,
   } satisfies MDXComponents;
 }

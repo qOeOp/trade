@@ -48,6 +48,7 @@ class LiveViewTests(LiveViewFixture):
         self.manifest["config"].update(drawdown_brake="0.1",
                                        duration_seconds=8100, proxy_url="https://SECRET_PROXY", secret="SECRET_CONFIG")
         self.manifest["source"]["secret"] = "SECRET_SOURCE"
+        self.manifest["symbols"] = ["BTCUSDT", "币安人生USDT", "SECRET_SYMBOL"]
         (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(self.manifest))
         self.account(reason="SECRET_ACCOUNT")
         self.native("source_shutdown", source_reason="SECRET_REASON")
@@ -63,6 +64,7 @@ class LiveViewTests(LiveViewFixture):
         self.assertNotIn(self.manifest["credential_binding"], text)
         self.assertEqual(result["runtime"]["digest"], "sha256:" + "a" * 64)
         self.assertEqual(result["config"]["duration_seconds"], "8100")
+        self.assertEqual(result["symbols"], ["BTCUSDT", "币安人生USDT"])  # a non-ASCII coin is a contract too
         self.assertEqual(result["orders"][0]["ts_event"], "1794000000000000001")
         self.assertEqual(result["account"]["usdt_wallet"], "100.12345678")
         self.assertEqual(before, self.files())
@@ -166,6 +168,7 @@ class LiveViewTests(LiveViewFixture):
         self.native("held_uncovered", holding=1, entries=[{"symbol": "BTCUSDT", "side": "LONG"}], entries_kept=True,
                     unreadable=False, observation="held-account-1.json",
                     positions=[{"symbol": "BTCUSDT", "side": "LONG", "position": "0.002", "stops": "0"},
+                               {"symbol": "币安人生USDT", "side": "SHORT", "position": "-3", "stops": "3"},
                                {"symbol": "<script>", "side": "UP", "position": "x", "stops": None}, "junk"])
         self.native("held_covered", holding=1, observation="held-account-2.json")
         rows = views.run_view(self.root, self.run_id)["restarts"]
@@ -174,6 +177,7 @@ class LiveViewTests(LiveViewFixture):
         self.assertEqual({key: rows[1][key] for key in ("holding", "uncovered", "entries", "entries_kept", "unreadable")},
                          {"holding": 1, "entries": 1, "entries_kept": True, "unreadable": False, "uncovered": [
                              {"symbol": "BTCUSDT", "side": "LONG", "position": "0.002", "stops": "0"},
+                             {"symbol": "币安人生USDT", "side": "SHORT", "position": "-3", "stops": "3"},
                              {"symbol": None, "side": None, "position": None, "stops": None}]})
         self.assertEqual((rows[2]["holding"], rows[2]["uncovered"], rows[2]["entries"]), (1, [], 0))
 
