@@ -85,9 +85,10 @@ export function EntryMark({ held, several, places }: { held: Held; several: bool
   return several ? <>{entry}<span className="block text-small text-fg-muted">{fixed(held.mark, places) ?? MISSING}</span></> : entry;
 }
 
-/** The Positions heading's aside: the mark when exactly one position is held (several show theirs in the table). */
-export const heldAside = (held: readonly Held[], approx: boolean): ReactNode =>
-  !held.length ? "None open" : held.length === 1 && held[0]!.mark !== null && `mark ${approx ? "≈ " : ""}${fixed(held[0]!.mark)}`;
+/** The Positions heading's aside: the mark when exactly one position is held (several show theirs in the table), at
+ *  `places` decimals (unknown: as many as it needs). */
+export const heldAside = (held: readonly Held[], approx: boolean, places = -1): ReactNode =>
+  !held.length ? "None open" : held.length === 1 && held[0]!.mark !== null && `mark ${approx ? "≈ " : ""}${fixed(held[0]!.mark, places)}`;
 
 /** A plain table of a few columns at the page's edges: the first column left, the others right; a row of one cell
  *  is a note under the row above it, across the columns. The page's 12 px margin is kept at its edges only: five
