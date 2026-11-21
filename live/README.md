@@ -218,8 +218,8 @@ requests may sign with it while signed reads here carry the venue's time: at mos
 How to write a candidate that
 runs in Live: `.agents/skills/research-round/references/strategy-authoring.md`, section Live. On every one-second
 observation of a `run`, each open position needs stop coverage (`engine.protection`, the audit's rule), read from
-the native cache because Binance Hedge orders carry no `reduceOnly` on the wire. After 90 seconds without cover from when the gap opened (the
-audit's one bar plus the native open-order check; fills do not extend it), or when the check itself cannot run, the
+the native cache because Binance Hedge orders carry no `reduceOnly` on the wire. Once a gap outlasts 90 seconds from when it opened (the
+audit's one bar plus the native open-order check, timed by the same `protection.Gaps` as Paper; fills do not extend it), or when the check itself cannot run, the
 run is marked failed and takes the STOP path. A stop the native cache holds but the venue lost is found only by
 native reconciliation. A failed flat run keeps the account slot until `reconcile`. The STOP path submits at most five
 closes on each one-second tick, half the native submit rate of 10 orders a second, and the next ones once those are
