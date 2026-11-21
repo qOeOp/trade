@@ -163,7 +163,7 @@ export function HistoryPage() {
       <div className="flex min-h-(--header-h) shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1 text-dense">
         <span className="whitespace-nowrap font-semibold">Line-close history</span>
         <span className="whitespace-normal text-fg-faint">{history ? <>{plural(lines.length, "line")} · each cell replayed from flat{reading ? " · reading…" : ""}{error ? ` · ${error}` : ""}</> : <Skeleton className="w-40" />}</span>
-        <PickedBar picked={picked} />
+        <PickedBar lines={lines} picked={picked} />
         <span className="ml-auto flex shrink-0 items-center gap-3">
           <DropdownChoice<Causes> name="Cause" label="Cause" options={CAUSES} value={only} onChange={setOnly} />
           <Tip content={only === "all" ? null : "A Cause shows its rows whatever their edge"}>

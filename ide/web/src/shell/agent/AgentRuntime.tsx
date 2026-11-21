@@ -78,7 +78,8 @@ export function AgentRuntime({ children }: { children: ReactNode }) {
   }), []);
   const runtime = useRemoteThreadListRuntime({ runtimeHook: () => useChatRuntime({ transport }), adapter: threads });
   useEffect(() => {
-    chatControl.set({ newThread: () => void runtime.threads.switchToNewThread() });
+    chatControl.set({ newThread: () => void runtime.threads.switchToNewThread(),
+                      draft: async (text) => { await runtime.threads.switchToNewThread(); runtime.thread.composer.setText(text); } });
     return () => chatControl.set(null);
   }, [runtime]);
   return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;

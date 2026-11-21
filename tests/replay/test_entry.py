@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ledger import db, evidence, execution, metrics, problems, trials
+from ledger import db, evidence, execution, metrics, problems, server, trials
 from shared.errors import Refusal
 from registration import inputs as registration_inputs, precheck, seams as registration_seams
 from replay import entry, seams
@@ -598,8 +598,8 @@ class SealedReplayTests(unittest.TestCase):
 
         def restarted(command, stdout, stderr, timeout):
             if len(self.world.commands) == 1:  # the native stage
-                db.stop_service(root)
-                db.start_service(root)
+                server.stop_service(root)
+                server.start_service(root)
             return run(command, stdout, stderr, timeout)
 
         def reconnect():

@@ -38,7 +38,7 @@ PAGE_URL = re.compile(rf"(?:https?://)?(?:www\.)?dolthub\.com/repositories/({pub
 PLAIN = re.compile(rf"(?:{re.escape(publish.HOST)})?({publish.REPOSITORY})/?")
 
 
-def _log(text: str) -> None:
+def log(text: str) -> None:
     print(f"ledger service run: {text}", file=sys.stderr, flush=True)
 
 
@@ -136,7 +136,7 @@ class _Page:
         return self.answer()
 
     def say(self, text: str) -> None:
-        _log(text)
+        log(text)
         with self.changed:
             self.step = text
 
@@ -150,7 +150,7 @@ class _Page:
             return self.origin
 
     def failed(self, refusal: Refusal) -> None:
-        _log(str(refusal))
+        log(str(refusal))
         with self.changed:
             # The page asks for the key anyway, so the deployment's own try is no failure to show.
             quiet = self.unasked and refusal.code == "DOLTHUB_CREDENTIALS"
@@ -158,7 +158,7 @@ class _Page:
             self.refusal = None if quiet else {"code": refusal.code, "message": refusal.message}
 
     def blocked(self, refusal: Refusal) -> None:
-        _log(str(refusal))
+        log(str(refusal))
         with self.changed:
             self.state, self.wanted = "blocked", False
             self.refusal = {"code": refusal.code, "message": refusal.message}
@@ -246,7 +246,7 @@ def serve(address: str, origin: str | None, credentials: Path, binary: str, list
         page.blocked(exc)
     http = _Server((listen, int(address.rpartition(":")[2])), _handler(page, address))
     threading.Thread(target=http.serve_forever, daemon=True).start()
-    _log(f"waiting for the first start on the IDE's page ({address})")
+    log(f"waiting for the first start on the IDE's page ({address})")
     while True:
         wanted = page.take()
         try:

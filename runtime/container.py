@@ -46,14 +46,7 @@ def _covers(target: str, protected: str) -> bool:
             or protected.startswith(target.rstrip("/") + "/"))
 
 
-def _modules(identity: dict) -> set[str]:
-    found = image.layout(identity["runtime_contract"])
-    return {found[key] for key in ("runner_module", "audit_module", "fingerprint_module")}
-
-
-def _execution_modules(identity: dict, keys: tuple[str, ...]) -> set[str]:
-    found = image.execution_modules(identity["runtime_contract"])
-    return {found[key] for key in keys}
+REPLAY_MODULES = {image.LAYOUT[key] for key in ("runner_module", "audit_module", "fingerprint_module")}
 
 
 def _check_mounts(mounts: list[tuple[Path, str, bool]], require_reports: bool) -> list[tuple[Path, str, bool]]:
@@ -105,7 +98,7 @@ def command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, a
     """The identity probe's docker run argument list: the checks of `container_command` without requiring
     /reports (the probe writes nothing), removed on exit."""
     identity = image.validate_identity(identity)
-    return _run(identity, mounts, module, argv, _modules(identity), False,
+    return _run(identity, mounts, module, argv, REPLAY_MODULES, False,
                 ["--name", name, "--rm", "--network", "none"])
 
 
@@ -116,14 +109,14 @@ def container_command(identity: dict, mounts: list[tuple[Path, str, bool]], modu
     writable mount, /reports. `name` names the container so an interrupt can stop it and its exit state can be
     read; it has STAGE_MEMORY and no swap, and is not removed on exit (replay.seams removes it)."""
     identity = image.validate_identity(identity)
-    return _run(identity, mounts, module, argv, _modules(identity), True,
+    return _run(identity, mounts, module, argv, REPLAY_MODULES, True,
                 ["--name", name, "--network", "none", "--memory", STAGE_MEMORY, "--memory-swap", STAGE_MEMORY])
 
 
 def _detached(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str],
               modules: tuple[str, ...], *, name: str, network: str, memory: str, labels: dict[str, str],
               stop_seconds: int, cpus: str | None = None) -> list[str]:
-    """A detached Paper or Live container: one of the contract's `modules` (execution_modules), on one named
+    """A detached Paper or Live container: one of `modules`, keys of `image.LAYOUT`, on one named
     Docker network (never `host`, `bridge` or `none`: the caller creates it), with a memory limit (and a CPU limit
     when given), `stop_seconds` to stop, string labels, and the stage checks of `container_command`. It is kept
     after it exits, so its exit code and log stay readable until the caller removes it."""
@@ -143,7 +136,7 @@ def _detached(identity: dict, mounts: list[tuple[Path, str, bool]], module: str,
         options += ["--cpus", cpus]
     for key, value in sorted(labels.items()):
         options += ["--label", f"{key}={value}"]
-    return _run(identity, mounts, module, argv, _execution_modules(identity, modules), True, options)
+    return _run(identity, mounts, module, argv, {image.LAYOUT[key] for key in modules}, True, options)
 
 
 def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str], *,

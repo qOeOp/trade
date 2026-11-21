@@ -26,11 +26,23 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Release tick notices: a failed public git command names itself ("GitHub source unreachable (public git fetch
+  failed)") instead of "unclassified runtime failure", and a failed fetch right after one that succeeded sends no
+  Telegram notice; a second failure in a row does. A brief GitHub outage failed one tick on the release host
+  (2026-11-19) and the next tick fetched again.
+
 - Market refusals are the product's one refusal type (`shared.errors.Refusal`); `MarketError` is gone, and the
   codes, conditions and printed refusal JSON stay the same. A market refusal reaching the Paper controller's HTTP API
   is now answered as a refusal with its code, like any other, instead of failing the request.
 - Documentation: Paper trading and Live execution moved out of `engine/README.md` into `paper/README.md` and
   `live/README.md`; the Live page's unresolved-run note and its Telegram message now name `live/README.md`.
+- Ledger: the Dolt service (its directory, process, config.yaml, readiness wait and administrator connection) is
+  `ledger/server.py`, split out of `ledger/db.py`, which keeps profiles, databases, connections and writes. One
+  administrator connection serves backup, publish and sync: when the service does not accept it,
+  `ledger export --kind backup` now refuses with `LEDGER_UNAVAILABLE` or `LEDGER_PERMISSION` (was `DOLT_BACKUP`), as
+  publish and sync do. A service `ledger service run` starts that accepts but does not answer its first connection is
+  `LEDGER_START` at once instead of being retried.
+
 - IDE Line-close history: a hatched cell (part of a year) keeps its hatching when its colour or the too-short grey
   changes; it set the `background` shorthand beside `backgroundImage`, which React warned about and which could drop
   the hatching on rerender.
@@ -48,6 +60,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   routed Web has no paired Live control are gone: every release since 0.4.0 paired one, and the custody root is
   created only by a new host's install. Returning to the previous version by hand no longer needs
   `docker update --restart`.
+- IDE phone, Paper and Live run pages: the Positions heading shows a mark only when one position is held; it showed
+  the first position's mark whatever else was held. With several positions each row shows its mark under its entry
+  (column Entry / Mark): a sixth column does not fit a phone's width.
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.
@@ -84,6 +99,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   (doctor 20261121-10): the equity chart glides to its span with as much again either side, the candle chart shows
   it with at least twenty candles either side, and both mark the span with a band in the focus blue. The row stays
   highlighted; a Comparison click picks the whole order group.
+- IDE, Line-close history: the picked replay's header links add Run paper…, which asks with the same Run paper start
+  as ⌘K and the graph's ▶ (shown while the page reaches a paper daemon and the version has no run on paper), and, when
+  the picked row's verdict meets the targets and the page has an Agent, Validate…, which opens a new Agent chat holding
+  a message naming the line and the version and asking to register out-of-sample validation; the user sends it, and
+  the page registers nothing itself.
+
 - IDE: the Progress and Return vs drawdown charts follow the lineage fold. Runs of folded versions are not drawn, and
   a Pareto-frontier run is always drawn. Each chart's legend counts them ("N runs in folded versions", a click shows
   every version). They stay in the value ranges and in the frontier, so the fold no longer hides how many runs the

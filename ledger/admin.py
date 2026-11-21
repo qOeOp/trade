@@ -28,7 +28,7 @@ from typing import overload
 
 import pymysql
 
-from ledger import db, metrics, strategies
+from ledger import db, metrics, server, strategies
 from shared import paths
 from shared.refusals import refuse
 
@@ -107,11 +107,11 @@ def backup_head(backup: Path) -> str | None:
     work = Path(tempfile.mkdtemp(prefix="backup-head-"))
     phase = "find Dolt"
     try:
-        binary = db._binary(None)
+        binary = server.binary(None)
         phase = "configure"
         # Dolt flushes usage events from a detached process that would recreate the deleted home.
         environment = {**os.environ, "DOLT_ROOT_PATH": str(work / "home"), "DOLT_DISABLE_EVENT_FLUSH": "1"}
-        db.dolt_home(work / "home", {**db.QUIET, **db.IDENTITY})
+        server.dolt_home(work / "home", {**server.QUIET, **server.IDENTITY})
         phase = "open"
         repository = work / "repository"
         repository.mkdir()
@@ -170,23 +170,19 @@ def _json(value) -> bytes:
     return (json.dumps(value, sort_keys=True, indent=1, ensure_ascii=False, default=str) + "\n").encode("utf-8")
 
 
-def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> None:
+def sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> None:
     """Sync the whole history to `target`. An existing backup whose head is no commit of the branch's history (a rewritten commit, or another
     database's backup) is BACKUP_DIVERGED: dolt_backup would overwrite it silently."""
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     existing = target.is_dir() and any(target.iterdir())
     previous = backup_head(target) if existing else None
-    config = db._known_service(profile.service_root)
-    try:
-        admin = db._admin(config, database=profile.database)
-    except pymysql.MySQLError as exc:
-        raise refuse("DOLT_BACKUP", "the service administrator could not connect for the backup") from exc
+    admin = server.admin(profile)
     try:
         with admin.cursor() as cursor:
             if existing:
-                cursor.execute("SELECT COUNT(*) FROM dolt_log(%s) WHERE commit_hash = %s",
-                               (db.BRANCH, previous))
-                if previous is None or not cursor.fetchone()[0]:
+                found = server.cursor_rows(cursor, "SELECT COUNT(*) FROM dolt_log(%s) WHERE commit_hash = %s",
+                                           (db.BRANCH, previous))
+                if previous is None or not found[0][0]:
                     raise refuse("BACKUP_DIVERGED", f"the backup head {previous} at {target} is no commit of the "
                                                     f"history of {profile.database}; nothing was synced",
                                  missing=(str(target),))
@@ -260,7 +256,7 @@ def export_history(profile: db.LedgerProfile, destination: Path, at: str | None 
                 "check": "replay each run by its identity (replay.reproduce) and compare with engine.compare_reports"}
     encoded = _json(manifest)
     backup = backup_path(profile, destination)
-    _sync_backup(profile, backup, head)
+    sync_backup(profile, backup, head)
     staging = destination / f".{REPRODUCE}.{os.getpid()}"
     shutil.rmtree(staging, ignore_errors=True)
     for path, data in {**files, MANIFEST: encoded}.items():

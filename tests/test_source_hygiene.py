@@ -26,7 +26,6 @@ OVERSIZED = frozenset({
     "engine/paper.py",
     "engine/run.py",
     "ide/research_graph/serve.py",
-    "ledger/db.py",
     "ledger/metrics.py",
     "paper/serve.py",
     "replay/comparison.py",

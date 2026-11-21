@@ -307,7 +307,7 @@ class RecordTests(unittest.TestCase):
                 db.profile(name, holds=holds)
             self.assertEqual(caught.exception.code, "LEDGER_KIND")
         grants = " ".join(row[0] for row in self.service.sql(self.research, "SHOW GRANTS FOR "
-                                                              f"'{db._account_name(self.research.database, 'writer')}'@'%'"))
+                                                              f"'{db.account_name(self.research.database, 'writer')}'@'%'"))
         self.assertNotIn("DELETE", grants, "the research writer never deletes")
 
     def test_a_declared_run_is_sealed_once_and_listed_with_its_readings(self):

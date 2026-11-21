@@ -118,3 +118,23 @@ test("a decided verdict keeps its tips; without the field the old words stand", 
   assert.equal(h.combinedTip(summary()), "Nothing countable to judge");
   assert.equal(h.vetoTip(summary({ veto: { whole_years: 0 } })), "No whole veto year to judge");
 });
+
+test("the picked replay's way on: nothing with nothing picked; Validate only when its row's verdict meets the targets", () => {
+  const meets = row(1, [cell("holdout", "holdout", 0.4, 0.1, { trial_id: 11 })], {}, {}, { meets_targets: true });
+  const misses = row(2, [cell("holdout", "holdout", 0.4, 0.1, { trial_id: 12 })]);
+  const undecided = { ...row(3, []), summary: decided({}, {}, { meets_targets: null }) }, unreproduced = { ...row(4, []), summary: null };
+  const lines = [{ ...line([meets, misses, undecided, unreproduced]), line: "momentum" }];
+  assert.equal(h.pickedWay(lines, { version: null, trial: null }), null);
+  assert.equal(h.pickedWay(lines, { version: "c@1", trial: null }), null, "Details shows no trial of it");
+  assert.equal(h.pickedWay(lines, { version: "other@1", trial: 1 }), null, "not a participant on the page");
+  assert.deepEqual(h.pickedWay(lines, { version: "c@1", trial: 11 }), { line: "momentum", version: "c@1", validate: true });
+  assert.equal(h.pickedWay(lines, { version: "c@2", trial: 12 }).validate, false);
+  assert.equal(h.pickedWay(lines, { version: "c@3", trial: 1 }).validate, false, "an undecided verdict is not a meeting one");
+  assert.equal(h.pickedWay(lines, { version: "c@4", trial: 1 }).validate, false, "a control that differs has no verdict");
+});
+
+test("Validate's message names the line and the version and asks the Agent to register out-of-sample validation", () => {
+  const ask = h.validationAsk("momentum", "mom@3");
+  assert.equal(ask, "On the Line-close history page I picked mom@3 of line momentum: its closing history test meets the targets. "
+    + "I want to register out-of-sample validation for it. Read its verdict in `research history`, then propose a window rule and universe.");
+});
