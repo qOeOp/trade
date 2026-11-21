@@ -100,8 +100,7 @@ batch. Do not add points or tune source within a batch.
 Keep iterating within the turn after interpreting results and recording priority. Reports,
 judgments and a due change of approach do not end the loop. Stop only for the user, an authority
 boundary or a line that cannot continue ([changes.md](references/changes.md)). Reaching both targets is no
-stop: when a recommendation first does, tell the user once that validation is theirs to start and
-only a window after its registration counts, then keep working, asking nothing.
+stop and raises no validation question: keep working, asking nothing.
 A change of approach is due when the last `review_every` research runs in a row each
 leave candidate and control undistinguished (none of `mean_log_basic_interval`,
 `mean_log_studentized_interval`, `annual_return_difference_interval` and
