@@ -1,4 +1,4 @@
-"""The user's two research targets (`ledger.targets_for`, `ledger.set_targets`).
+"""The user's two research targets (`ledger.targets_for`; `ledger.set_targets` is in ledger.lines).
 
 Targets are a maximum drawdown and a minimum annual return, bound to one research line or, with no
 line, to the whole ledger as its default. They are the user's: they are recorded only as the user
@@ -50,12 +50,12 @@ def _tips(conn: db.LedgerConnection, scopes: tuple[int, ...] | None = None) -> d
         f"WHERE NOT EXISTS (SELECT 1 FROM {TABLE} n WHERE n.supersedes = t.target_id){where}", scopes or ())}
 
 
-def _tip(conn: db.LedgerConnection, line_id: int | None) -> dict | None:
+def tip(conn: db.LedgerConnection, line_id: int | None) -> dict | None:
     """The row in force for one scope: the one no later row supersedes."""
     return _tips(conn, (line_id or 0,)).get(line_id or 0)
 
 
-def _reading(row: dict, source: str) -> dict:
+def reading(row: dict, source: str) -> dict:
     return {"max_drawdown": float(row["max_drawdown"]), "annual_return": float(row["annual_return"]),
             "source": source, "target_id": row["target_id"], "created_at": row["created_at"]}
 
@@ -63,8 +63,8 @@ def _reading(row: dict, source: str) -> dict:
 def _in_force(tips: dict[int, dict], line_id: int | None) -> dict | None:
     own = tips.get(line_id) if line_id is not None else None
     if own is not None:
-        return _reading(own, "line")
-    return _reading(tips[0], "default") if 0 in tips else None
+        return reading(own, "line")
+    return reading(tips[0], "default") if 0 in tips else None
 
 
 def targets_for(conn: db.LedgerConnection, line_id: int | None) -> dict | None:
@@ -77,29 +77,3 @@ def targets_by_line(conn: db.LedgerConnection) -> Callable[[int | None], dict | 
     """targets_for for any line, from one read of every scope's targets in force."""
     tips = _tips(conn)
     return lambda line_id: _in_force(tips, line_id)
-
-
-def set_targets(conn: db.LedgerConnection, line_id: int | None, max_drawdown, annual_return) -> dict:
-    """Record the user's targets for the open line `line_id`, or the ledger default when it is None.
-    The same targets as the ones in force write nothing. Called inside a write (as `line select` does),
-    it joins that transaction and sees its uncommitted line."""
-    from ledger import lines
-    drawdown, annual = check(max_drawdown, annual_return)
-    if line_id is not None:
-        lines.open_line(conn, line_id)
-    tip = _tip(conn, line_id)
-    source = "line" if line_id is not None else "default"
-    if tip is not None and (tip["max_drawdown"], tip["annual_return"]) == (drawdown, annual):
-        return {**_reading(tip, source), "line_id": line_id, "written": False, "commit": None}
-    payload = {"line_id": line_id, "max_drawdown": str(drawdown), "annual_return": str(annual),
-               "supersedes": tip["target_id"] if tip is not None else None}
-
-    def insert(c, op):
-        c.rows(f"INSERT INTO {TABLE} (line_id, max_drawdown, annual_return, supersedes, op_id) "
-               "VALUES (%s, %s, %s, %s, %s)", (line_id, drawdown, annual, payload["supersedes"], op))
-        return c.one(f"SELECT target_id, line_id, max_drawdown, annual_return, created_at FROM {TABLE} "
-                     "WHERE op_id = %s", (op,))
-
-    written = db.write(conn, "set_targets", payload, TABLE, insert)
-    return {**_reading(written["record"], source), "line_id": line_id,
-            "written": not written["replayed"], "commit": written["commit"]}

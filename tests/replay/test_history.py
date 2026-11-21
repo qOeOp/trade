@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from cli import research_commands
-from ledger import admin, lines, strategies, targets
+from ledger import admin, lines, strategies
 from registration import precheck
 from replay import entry, history
 from report import graph, history as report_history, measures, runs, status
@@ -395,7 +395,7 @@ class HistoryRunTests(unittest.TestCase):
         world = self.world
         line = world.line["line"]
         world.market = YearsMarket({MARKET_DAY: months_rows(YEARS_MONTHS)})
-        targets.set_targets(world.conn, world.line["line_id"], 0.2, 0.2)
+        lines.set_targets(world.conn, world.line["line_id"], 0.2, 0.2)
         registration, (ref,) = registered_grid(world, ["kept"])
         entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
         segments = lines.history_segments

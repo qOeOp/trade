@@ -1,7 +1,10 @@
 // The Events list's rows: lines in time order, the orders of one bracket (or other order list) folded
-// under one row that says what the bracket was and how it stands.
+// under one row that says what the bracket was and how it stands; and the Orders list's: each order the run
+// placed as one row, filled or not.
+import { MISSING, plural } from "../lib/format";
 import { amount, fixed, symbolOf, type JournalLine, type Precision } from "../lib/paperApi";
 import { eventMs, last, word } from "./paper";
+import { orderType } from "./trades";
 
 type Item = { line: JournalLine; children?: JournalLine[]; key: string; at: number };
 /** A row's status, if it has one: failed (denied, rejected) stands out; the rest is quiet. */
@@ -66,3 +69,59 @@ export function bracketStatus(children: readonly JournalLine[]): Status {
 
 /** A single order line's status chip, when it is one. */
 export const lineStatus = (line: JournalLine): Status | null => (line.kind === "order" && FAILED.has(status(line)) ? { text: status(line), failed: true } : null);
+
+/** One order the run placed, folded from its events: when it was placed, its contract, side, type, price (a stop's
+ *  trigger apart), quantity and how much filled; its state now (Filled, Canceled, Expired, Rejected, Denied, else
+ *  Working, or Partly filled while some of it is) and when that state came. `line` is its first event. */
+export type Order = {
+  id: string; symbol: string; placed: number; buy: boolean | null; type: string; price: number | null; trigger: number | null;
+  quantity: number | null; filled: number; reduceOnly: boolean; state: string; failed: boolean; done: boolean; at: number;
+  reason: string | null; line: JournalLine;
+};
+const ENDED = new Set(["Canceled", "Expired", ...FAILED]);
+// What leaves the order as it stands: a refused modify or cancel, or a request still pending.
+const ASIDE = new Set(["ModifyRejected", "CancelRejected", "PendingUpdate", "PendingCancel"]);
+
+/** Every order among `lines`, newest placed first. */
+export function orders(lines: readonly JournalLine[]): Order[] {
+  const found = new Map<string, Order>();
+  for (const l of lines) {
+    if (l.kind !== "order" || !l.client_order_id) continue;
+    const id = String(l.client_order_id), what = status(l), ms = eventMs(l);
+    let o = found.get(id);
+    if (!o) {
+      o = { id, symbol: symbolOf(l.instrument_id), placed: ms, buy: null, type: "", price: null, trigger: null, quantity: null, filled: 0,
+            reduceOnly: false, state: "Working", failed: false, done: false, at: ms, reason: null, line: l };
+      found.set(id, o);
+    }
+    if (l.order_side) o.buy = last(l.order_side) === "BUY";
+    if (l.order_type) o.type = orderType(l.order_type);
+    if (l.reduce_only != null) o.reduceOnly = l.reduce_only === true;
+    if (what !== "Filled") {  // a fill's own price is its last_px
+      o.price = amount(l.price) ?? o.price;
+      o.trigger = amount(l.trigger_price) ?? o.trigger;
+      o.quantity = amount(l.quantity) ?? o.quantity;
+    }
+    if (o.done || ASIDE.has(what)) continue;
+    if (what === "Filled") o.filled += amount(l.last_qty) ?? 0;
+    const full = what === "Filled" && (o.quantity === null || o.filled >= o.quantity - 1e-12);
+    o.state = full ? "Filled" : what === "Filled" ? "Partly filled" : ENDED.has(what) ? what : "Working";
+    o.done = full || ENDED.has(what);
+    o.failed = FAILED.has(what);
+    if (o.failed) o.reason = l.reason == null ? null : String(l.reason);
+    o.at = ms;
+  }
+  return [...found.values()].sort((a, b) => b.placed - a.placed);
+}
+
+/** How many orders there are and how many filled: "2 orders · 0 filled". */
+export const ordersText = (list: readonly Order[]) => `${plural(list.length, "order")} · ${list.filter((o) => o.filled > 0).length} filled`;
+
+/** An order's price: a stop's trigger, a limit's price, both for a stop limit; null for a market order, which has none. */
+export function priceText(o: Order, d: Precision): string | null {
+  const trigger = o.trigger !== null ? `trigger ${fixed(o.trigger, d.price)}` : null, price = o.price !== null ? fixed(o.price, d.price) : null;
+  return [trigger, price].filter(Boolean).join(" · ") || null;
+}
+/** An order's quantity, with what filled of it when that is part of it: "0.004 of 0.010". */
+export const quantityText = (o: Order, d: Precision) =>
+  o.filled > 0 && o.quantity !== null && o.filled < o.quantity ? `${fixed(o.filled, d.size)} of ${fixed(o.quantity, d.size)}` : fixed(o.quantity, d.size) ?? MISSING;

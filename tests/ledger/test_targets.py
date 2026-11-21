@@ -32,7 +32,7 @@ class TargetTests(unittest.TestCase):
 
     def code(self, *arguments) -> str:
         with self.assertRaises(Refusal) as caught:
-            targets.set_targets(self.conn, *arguments)
+            lines.set_targets(self.conn, *arguments)
         return caught.exception.code
 
     def in_force(self, line: int | None) -> tuple:
@@ -42,20 +42,20 @@ class TargetTests(unittest.TestCase):
     def test_a_line_reads_its_own_targets_else_the_default_and_the_latest_change(self):
         first = self.select("ema-trend", date(2026, 2, 1))
         self.assertIsNone(self.in_force(first))
-        targets.set_targets(self.conn, None, 0.15, 0.2)
+        lines.set_targets(self.conn, None, 0.15, 0.2)
         self.assertEqual(self.in_force(first), (0.15, 0.2, "default"))
         before = self.commits()
         second = self.select("ema-wider", date(2026, 3, 1), ("0.1", "0.3"))
         self.assertEqual(self.commits(), before + 1, "the line and its targets are one commit")
         self.assertEqual(self.in_force(second), (0.1, 0.3, "line"))
         for drawdown in (0.2, 0.1):  # back to an earlier value is a new change, not a replay of the first
-            self.assertTrue(targets.set_targets(self.conn, second, drawdown, 0.3)["written"])
+            self.assertTrue(lines.set_targets(self.conn, second, drawdown, 0.3)["written"])
         self.assertEqual(self.in_force(second), (0.1, 0.3, "line"))
-        self.assertFalse(targets.set_targets(self.conn, second, "0.10", "0.30")["written"])
+        self.assertFalse(lines.set_targets(self.conn, second, "0.10", "0.30")["written"])
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM line_target WHERE line_id = %s",
                                           (second,)), [(3,)])
         self.assertEqual(self.in_force(None), (0.15, 0.2, "default"))
-        self.assertTrue(targets.set_targets(self.conn, first, 0.12, 0.2)["written"], "every open line takes targets")
+        self.assertTrue(lines.set_targets(self.conn, first, 0.12, 0.2)["written"], "every open line takes targets")
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM line_target t WHERE t.line_id = %s AND "
                                                         "NOT EXISTS (SELECT 1 FROM line_target n WHERE n.supersedes = "
                                                         "t.target_id)", (second,)), [(1,)], "one chain end per scope")

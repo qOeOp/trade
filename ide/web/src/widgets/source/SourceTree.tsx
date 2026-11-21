@@ -4,9 +4,9 @@ import { Icon } from "../../icons/Icon";
 import { openSource } from "../../state/editors";
 import { hoverProps } from "../../state/linking";
 import { sourceTreeControl } from "../../state/versionTree";
-import { TreeRow } from "../../components/TreeRow";
-import { ROOT, useSelectionTree } from "../../components/hooks/useSelectionTree";
-import { VersionMenu } from "../../components/VersionMenu";
+import { TreeRow } from "../../ui/TreeRow";
+import { ROOT, useSelectionTree } from "../useSelectionTree";
+import { VersionMenu } from "../runs/VersionMenu";
 
 const DIR = "dir:";
 

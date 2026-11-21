@@ -6,15 +6,15 @@ import { valueDomain } from "../lib/valueDomain";
 import { v, type ColorRole } from "../theme/roles";
 import { crosshair, hovered, hoverProps, requestFocus, useAxisView, useCrosshair } from "../state/linking";
 import { select } from "../state/selection";
-import { useGlide } from "../components/hooks/useGlide";
-import { useSize } from "../components/hooks/useSize";
-import { ChartPill, PILL_H } from "../components/ChartPill";
-import { progressGutter, tickCount, VALUE_GUTTER as GUTTER } from "../components/ProgressLayout";
-import { chartKeys } from "../components/chartKeys";
-import { EventTip } from "../components/EventTip";
-import { Tip } from "../components/Tip";
-import { FoldedRuns } from "../components/FoldedRuns";
-import { useFolded } from "../components/hooks/useFolded";
+import { useGlide } from "../ui/hooks/useGlide";
+import { useSize } from "../ui/hooks/useSize";
+import { ChartPill, PILL_H } from "../ui/ChartPill";
+import { progressGutter, tickCount, VALUE_GUTTER as GUTTER } from "./ProgressLayout";
+import { chartKeys } from "../ui/chartKeys";
+import { EventTip } from "../ui/EventTip";
+import { Tip } from "../ui/Tip";
+import { FoldedRuns } from "./FoldedRuns";
+import { useFolded } from "./useFolded";
 
 // The top margin holds the legend (the panel names the chart); the plot starts right of the tick labels' gutter, the
 // labels and the readout pill's text ending GUTTER short of it (as in the scatter). The linked

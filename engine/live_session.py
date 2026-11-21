@@ -26,7 +26,7 @@ from engine.order_rules import native_cache
 STOP_GRACE_SECONDS = 30
 CANCEL_RETRY_SECONDS = 5
 # engine.protection's allowance plus its Live detection lag. A false alarm flattens a healthy trade.
-PROTECTION_SECONDS = (protection.ALLOWANCE_NS + protection.LIVE_DETECTION_NS) // 1_000_000_000
+PROTECTION_NS = protection.ALLOWANCE_NS + protection.LIVE_DETECTION_NS
 MARK_SECONDS = 60  # With a position open and no mark for this long, the run stops (design §3.2.4).
 # The runner's events after which the run is over; a run whose latest start ended in none of them (interrupted,
 # held until flat, or killed without a word) starts again as itself.
@@ -83,7 +83,7 @@ class Session:
     cache_guard: Any = None
     canceled: dict[str, float] = field(default_factory=dict)
     exits: set[str] = field(default_factory=set)
-    protection_gaps: dict[str, float] = field(default_factory=dict)
+    gaps: protection.Gaps = field(default_factory=lambda: protection.Gaps(PROTECTION_NS))  # position ID -> gap start
     marks: dict[str, tuple[float, Any]] = field(default_factory=dict)  # contract -> when its latest mark arrived, its value
     exposed_since: dict[str, float] = field(default_factory=dict)  # contract -> since when the run holds a position on it
     warmup_catalog: Path | None = None  # the run's temporary Catalog of warm-up bars (engine.history)
@@ -185,21 +185,21 @@ class Session:
         return next(iter(self.sources.values()), None)
 
     def check_protection(self, cache, now: float) -> None:
-        """engine.protection on the native cache (native orders keep reduce-only; Binance Hedge orders carry none)."""
+        """engine.protection on the native cache (native orders keep reduce-only; Binance Hedge orders carry none),
+        timed by its Gaps as Paper's, on the monotonic clock `now` in seconds."""
         try:
-            gaps = {}
+            uncovered = []
             for position in owned(cache.positions_open, self.manifest):
                 quantity = position.quantity.as_decimal()
                 held = quantity if position.side == PositionSide.LONG else -quantity
                 if not protection.covered(held, protection.of_position(cache, position)):
-                    gaps[str(position.id)] = self.protection_gaps.get(str(position.id), now)
+                    uncovered.append(str(position.id))
         except Exception as exc:
             self.failed = True
             self.event("protection_unverified", strict=False, failure_type=type(exc).__name__)
             self.begin_stop("protection_unverified")
             return
-        self.protection_gaps = gaps
-        late = sorted(key for key, since in gaps.items() if now - since >= PROTECTION_SECONDS)
+        late = self.gaps.update(round(now * 1_000_000_000), uncovered)
         if late:
             self.failed = True
             self.event("protection_missing", strict=False, positions=late)

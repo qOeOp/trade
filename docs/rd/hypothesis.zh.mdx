@@ -82,7 +82,7 @@
 
 ### 从相关策略政策与证据提出可检验假设，登记受影响职责 [#H-1-1-4]
 
-27 项职责声明用于定位策略政策、缺省选择与适用范围。选择假设时围绕当前证据检查相关政策及其依赖，说明一个实际规则改动能区分哪些解释，并在 changed_duties 声明受影响职责；不要求每轮重列全部候选的职责清单。
+27 项职责声明用于定位策略政策、缺省选择与适用范围。选择假设时围绕当前证据检查相关政策及其依赖，说明一个实际规则改动能区分哪些解释，并在 changed_duties 声明受影响职责；不要求每轮重列全部候选的职责清单。登记时代码对账：每个格点候选的文件头相对父版本改动的职责行（增删一行也算）必须正好是 changed_duties，否则拒绝为 DUTY_HEADER_MISMATCH。
 
 职责编号定位改动范围；缺省或未探索本身不证明增加规则有价值，参数选择仍需证据或明确标作探索。
 
@@ -463,4 +463,5 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 - **不进文档**　独立审查者的独立性如何保证：代码只核对审查、预检与精确源码及运行环境的身份绑定，不核对审查者本人
 - **不进文档**　预检窗口长度、探针范围与预检成本上限：属于参数值与 Agent 判断；正文只写针对改动及必要依赖的最小预检
 - **不进文档**　来源证据的命名、摘录格式、视频处理步骤与发布时点规则：留在 research-sources、video-evidence、research-round 的运行时参考文件里；视频职责见 [video-evidence skill](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/SKILL.md)
+- **已定（11-21，Claude 决定）**　派生登记的 changed_duties 与格点候选文件头改动的职责行对账，不一致拒绝（DUTY_HEADER_MISMATCH）。依据：复核 108 个已登记的派生候选，20 个不一致，18 个在 Line 1（[职责目录复核](https://github.com/qOeOp/trade/blob/main/docs/plans/duty-directory-recheck-20261121.zh.md)）。用户授权：「需要我定的部份最后也是一样由你决定按推荐做」。
 - **已定（10-19）**　登记与审查只由产品命令写，Agent 经 evidence add 写不进（第 1 代账本起两者是 research_registration 与 source_review 表里的行）。此前 Agent 可在别的名字下放一份审查文件绕过 record_review 的校验。

@@ -2,8 +2,8 @@ import { useView } from "../../model/view";
 import { shortSha } from "../../lib/format";
 import { copyText } from "../../lib/clipboard";
 import { Icon } from "../../icons/Icon";
-import { Dropdown, DropdownFacts, DropdownItem, DropdownSeparator } from "../../components/Dropdown";
-import { ResearchSyncItem, useResearchSync } from "../../components/ResearchSync";
+import { Dropdown, DropdownFacts, DropdownItem, DropdownSeparator } from "../../ui/Dropdown";
+import { ResearchSyncItem, useResearchSync } from "../../widgets/ResearchSync";
 
 /** Where the graph was read, as IntelliJ's branch widget holds the branch's update: the ledger commit it
  *  was read at, and where this IDE follows DoltHub, the sync, its icon turning on the widget while it runs

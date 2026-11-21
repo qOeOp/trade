@@ -4,7 +4,7 @@ import { test } from "node:test";
 import * as React from "react";
 import { namespace } from "./load.mjs";
 
-const model = await namespace("model/liveLaunch.ts", { sources: ["model/liveLaunchText"], packages: [] });
+const model = await namespace("model/liveLaunch.ts", { sources: ["model/liveLaunchText", "model/livePaper"], packages: [] });
 const HASH = "c".repeat(64);
 const fields = [{ id: "drawdown_brake", label: "Drawdown brake", value: "15" },
   { id: "duration_seconds", label: "Duration (seconds)", value: "8100" }, { id: "leverage", label: "Leverage", value: "3" }];
@@ -12,7 +12,8 @@ const fields = [{ id: "drawdown_brake", label: "Drawdown brake", value: "15" },
 const config = [{ label: "Drawdown brake", value: "0.15" }, { label: "Duration (seconds)", value: "8100" }, { label: "Leverage", value: "3" }];
 const found = { state: "found", replays: [{ trialId: 12, balance: "95" }], tolerance: "0.1" };
 // The selected version as the Live control read it: found at the research head, its last research replay on BTCUSDT.
-const source = (evidence, over = {}) => ({ candidate: "rsi@4", read: "found", sourceHash: HASH, entryClass: "Rsi", lastSymbols: ["BTCUSDT"], evidence, ...over });
+const reconciled = { state: "reconciled", paperId: 7, reasons: [] };
+const source = (evidence, over = {}) => ({ candidate: "rsi@4", read: "found", sourceHash: HASH, entryClass: "Rsi", lastSymbols: ["BTCUSDT"], evidence, paper: reconciled, ...over });
 const key = { ref: "abcdef0123456789", savedAt: null, selected: true, available: true, runIds: [] };
 const view = (over = {}) => ({ availability: "ready", notice: null, reason: null, credentials: [key],
   planFields: fields, runs: [], requests: [], notify: { configured: true, lastSentNs: null, lastError: null, dropped: 0 }, ...over });
@@ -117,6 +118,23 @@ test("missing replay evidence fails its row, says the Agent replays the candidat
   for (const state of ["checking", "unknown"]) assert.equal(row(columns(view(), null, { source: source({ state, replays: [], tolerance: "0.1" }) }), "evidence").mark, "wait");
 });
 
+test("the Paper reconciliation says it is comparing, why none matches, or which run does; only a match opens the check", () => {
+  const paper = (state, reasons = []) => columns(view(), null, { source: source(found, { paper: { state, paperId: state === "reconciled" ? 7 : null, reasons } }) });
+  const blocker = (state, reasons = []) => model.checkBlocker({ view: view(), source: source(found, { paper: { state, paperId: null, reasons } }), edits: {} }, true);
+  assert.deepEqual([row(paper("reconciled"), "paper").value, row(paper("reconciled"), "paper").mark], ["Paper 7", "pass"]);
+  assert.equal(blocker("reconciled"), null);
+  const checking = row(paper("checking", ["the serving Live control has not finished comparing this candidate's Paper runs"]), "paper");
+  assert.equal(checking.mark, "wait");
+  assert.match(checking.reason, /^Checking: .* The serving Live control has not finished comparing/);
+  assert.match(blocker("checking"), /Waiting for the Paper reconciliation/);
+  const none = row(paper("unreconciled", ["Paper run 3: the run was held after an interruption"]), "paper");
+  assert.deepEqual([none.value, none.mark], ["None", "fail"]);
+  assert.match(none.reason, /^Paper run 3: the run was held after an interruption\. Run the candidate in Paper/);
+  assert.match(blocker("unreconciled"), /Needs a reconciled Paper run/);
+  assert.equal(row(paper("unknown"), "paper").mark, "wait");
+  assert.equal(model.ready(paper("checking")), false);
+});
+
 test("the account rows answer from the check: modes, funds, and a replay that started near the wallet", () => {
   assert.equal(row(columns(view()), "hedge").mark, "wait", "nothing observed before the check");
   assert.match(row(columns(view(), checked({ venue: { ...checked().venue, hedgeMode: false } })), "hedge").reason, /needs hedge mode/);
@@ -153,10 +171,11 @@ async function page(state) {
     useEffect() {},
   };
   const exports = await namespace("widgets/live/LiveLaunch.tsx", { stubs: {
-    react: hooks, "icons/Icon": { Icon: () => null }, "components/IconButton": { IconButton: () => null },
-    "components/LiveNoReply": { LiveNoReply: () => null },
+    react: hooks, "icons/Icon": { Icon: () => null }, "ui/IconButton": { IconButton: () => null },
+    "widgets/live/LiveNoReply": { LiveNoReply: () => null },
     "state/liveRun": { useLaunchReading: () => ({ reading: null, targets: null }),
-      useLiveSource: (version) => version ? source(null, { candidate: version }) : null, useLiveEvidence: (read, symbols) => read && symbols ? found : null },
+      useLiveSource: (version) => version ? source(null, { candidate: version }) : null, useLiveEvidence: (read, symbols) => read && symbols ? found : null,
+      useLivePaper: (read, symbols) => read && symbols ? reconciled : null },
     "state/liveWorkspace": { FRESH_DRAFT: { version: null, edits: {}, preparedId: null }, liveDraft: { get: () => state.draft, set: (next) => { state.draft = next; } },
       useLiveDraft: () => state.draft, openLiveCredentials: () => {}, showLiveRun: (id) => state.shown.push(id) },
   } });

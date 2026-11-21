@@ -22,7 +22,7 @@ from nautilus_trader.infrastructure import RedisCacheDatabase  # type: ignore[at
 from nautilus_trader.model import TraderId, Venue
 
 from engine import paper_checkpoint as checkpoint, redis_child
-from engine.config import ACCOUNT_CONTRACT
+from engine.config import ACCOUNT_CONTRACT, atomic
 
 
 MARKER = "paper-recovery"
@@ -55,7 +55,7 @@ class NativeCache:
             original = checkpoint.retain_used(output, self.restored)
             if port is None:
                 # Never bootstrap from a mutable cache left behind by the process which crashed.
-                checkpoint.atomic(self.rdb, original.read_bytes())
+                atomic(self.rdb, original.read_bytes())
         if port is None:
             try:
                 self.process, port = redis_child.start(

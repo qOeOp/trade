@@ -295,8 +295,8 @@ class MultipleTestingTests(unittest.TestCase):
         self.assertIsNone(status.effective_trials(None, 30))
 
 
-def measured(annual, drawdown, sharpe, win) -> dict:
-    values = dict(zip(status.TABLE_MEASURES, (annual, drawdown, sharpe, win), strict=True))
+def measured(annual, drawdown, sharpe, win, breakeven=2.0) -> dict:
+    values = dict(zip(status.TABLE_MEASURES, (annual, drawdown, sharpe, win, breakeven), strict=True))
     return {name: {"value": value} for name, value in values.items()}
 
 
@@ -307,13 +307,17 @@ class RunMeasuresTests(unittest.TestCase):
 
 
 class DominanceTests(unittest.TestCase):
-    def test_a_run_dominates_when_no_worse_on_all_four_and_better_on_one(self):
+    def test_a_run_dominates_when_no_worse_on_return_drawdown_and_sharpe_and_better_on_one(self):
         base = measured(0.10, 0.20, 1.0, 0.5)
         self.assertTrue(status._dominates(measured(0.10, 0.15, 1.0, 0.5), base), "a smaller drawdown is better")
         self.assertTrue(status._dominates(measured(0.12, 0.20, 1.1, 0.6), base))
-        self.assertFalse(status._dominates(base, base), "equal on all four is no dominance")
+        self.assertFalse(status._dominates(base, base), "equal on all three is no dominance")
         self.assertFalse(status._dominates(measured(0.20, 0.30, 2.0, 0.9), base), "a larger drawdown trades off")
-        self.assertFalse(status._dominates(measured(0.20, 0.10, 2.0, None), base), "a missing measure never compares")
+        self.assertFalse(status._dominates(measured(0.20, 0.10, None, 0.9), base), "a missing measure never compares")
+        self.assertTrue(status._dominates(measured(0.12, 0.20, 1.1, 0.1, 0.5), base),
+                        "the plan win rate and the fee breakeven multiple are shown, not compared")
+        self.assertFalse(status._dominates(measured(0.10, 0.20, 1.0, 0.9, 9.0), base),
+                         "a higher win rate alone is no dominance")
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -370,8 +374,10 @@ class ComparisonTableTests(unittest.TestCase):
         self.assertEqual([item["trial_id"] for item in table["runs"]], [self.runs[ref]["trial_id"] for ref in self.refs])
         for item in table["runs"]:
             report = runs.run_report(self.world.profile, item["trial_id"])
+            measured_ = {**{name: value for item_ in report["slices"] for name, value in item_["measures"].items()},
+                         **report["headline"]}
             self.assertEqual({name: item["measures"][name]["value"] for name in table["measures"]},
-                             {name: report["headline"][name]["value"] for name in table["measures"]},
+                             {name: measured_[name]["value"] for name in table["measures"]},
                              "the single-run report's measures, not a recomputation")
             self.assertEqual((item["worst_dev_year_return"], item["return_without_best_year"]), (None, None),
                              "a one-month window has no development years")
@@ -379,7 +385,7 @@ class ComparisonTableTests(unittest.TestCase):
         for item, other in ((first, second), (second, first)):
             dominated = status._dominates(other["measures"], item["measures"])
             self.assertEqual(item["dominated_by"], [other["trial_id"]] if dominated else [])
-            complete = all(item["measures"][name]["value"] is not None for name in table["measures"])
+            complete = all(item["measures"][name]["value"] is not None for name in table["dominance_measures"])
             self.assertEqual(item["non_dominated"], (not dominated) if complete else None)
 
     def test_x_the_state_lists_the_runs_behind_the_current_image(self):

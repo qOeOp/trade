@@ -2,9 +2,9 @@ import { dateTime, utcInstant, type TimeZone } from "../../lib/time";
 import { useTimeZone } from "../../state/timeZone";
 import { usd } from "../../lib/format";
 import type { Coin, Sides, VenueRow } from "../../model/market";
-import { columns, DataTable, type Column } from "../../components/DataTable";
-import { KeyValues } from "../../components/KeyValues";
-import { Section } from "../../components/Section";
+import { columns, DataTable, type Column } from "../../ui/DataTable";
+import { KeyValues } from "../../ui/KeyValues";
+import { Section } from "../../ui/Section";
 
 const DAY_MS = 86_400_000;
 type Liquidated = { venue: string } & Sides;
