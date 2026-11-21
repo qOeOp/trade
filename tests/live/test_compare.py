@@ -71,7 +71,7 @@ class Pack:
     """A Live run's private directory as prepare, the runner and its evidence pack leave it."""
 
     def __init__(self, root: Path, *, minutes: int = 12, maker: str = "0.0002", source: bytes = SOURCE,
-                 reports: bool = True, warmed: bool = True):
+                 reports: bool = True, warmed: bool = True, environment: str = "live"):
         self.root, self.run_id = root, "trial-1"
         directory = root / "runs" / self.run_id
         (directory / "inputs").mkdir(parents=True)
@@ -80,7 +80,7 @@ class Pack:
         manifest = {"run_id": self.run_id, "candidate": {"strategy_id": "s", "revision": 1},
                     "source": {"source_sha256": hashlib.sha256(SOURCE).hexdigest(), "entry_class": "S"},
                     "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "e" * 64},
-                    "symbols": ["BTCUSDT"], "config": {"leverage": "5"},
+                    "symbols": ["BTCUSDT"], "config": {"environment": environment, "leverage": "5"},
                     "market": {"market_day": "2026-11-10", "terms": {"BTCUSDT": TERMS}}}
         (directory / "inputs" / "manifest.json").write_text(json.dumps(manifest))
         (directory / "inputs" / "strategy.py").write_bytes(source)
@@ -275,6 +275,12 @@ class Compare(unittest.TestCase):
         self.assertEqual([row["role"] for row in group["orders"]], ["entry", "stop", "target"])
         self.assertEqual(result["equity"]["run"][0], [START, "57.5"])
         self.assertEqual(Decimal(summary["equity_max_difference"]), 0)
+        self.assertEqual((result["environment"], result["note"]), ("live", None))
+
+    def test_a_demo_runs_comparison_says_it_is_no_evidence_of_consistency(self):
+        _, result = self.compared(Pack(self.root, environment="demo"))
+        self.assertEqual((result["environment"], result["note"]), ("demo", compare.DEMO_NOTE))
+        self.assertEqual(result["summary"]["same"], 1)  # the comparison itself runs as for a live run
 
     def test_the_accounts_fee_rates_explain_a_fee_difference(self):
         _, result = self.compared(Pack(self.root, maker="0.00018"))

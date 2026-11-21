@@ -6,14 +6,14 @@ import { TextButton } from "../../ui/TextButton";
  *  where Live is closed, which the page says above), or `blocker`, what holds it back beyond them. The first
  *  click only arms it ("Confirm start · <source>"), the second starts; Cancel, or any change, disarms it. A refused
  *  start is said here, in place. Reset limits sits beside Start while a value differs from the Live settings. */
-export function LiveLaunchStart({ ready, waiting, blocker, armed, busy, sourceHash, refused, reset, arm, disarm, start }: {
-  ready: boolean; waiting: readonly string[] | null; blocker: string | null; armed: boolean; busy: boolean; sourceHash: string | null;
+export function LiveLaunchStart({ demo, ready, waiting, blocker, armed, busy, sourceHash, refused, reset, arm, disarm, start }: {
+  demo: boolean; ready: boolean; waiting: readonly string[] | null; blocker: string | null; armed: boolean; busy: boolean; sourceHash: string | null;
   refused: string | null; reset: (() => void) | null; arm: () => void; disarm: () => void; start: () => void;
 }) {
   const confirm = armed && ready;
   const line = busy ? { text: "Checking the account, then starting.", tone: "text-fg-faint" }
     : refused ? { text: refused, tone: "text-fail-fg" }
-    : confirm ? { text: "Places real orders on Binance.", tone: "text-fg-muted" }
+    : confirm ? { text: demo ? "Places orders on Binance Demo Trading, not the real account." : "Places real orders on Binance.", tone: "text-fg-muted" }
     : ready || waiting === null ? null
     : blocker ? { text: blocker, tone: "text-fg-faint" }
     : { text: waiting.length ? `Waiting on ${listed(waiting)}` : "Live takes no new runs right now.", tone: "text-fg-faint" };
@@ -25,7 +25,7 @@ export function LiveLaunchStart({ ready, waiting, blocker, armed, busy, sourceHa
             Confirm start · <span className="tabular-nums">{sourceHash?.slice(0, 8)}</span></FormButton>
           <TextButton size="form" onClick={disarm}>Cancel</TextButton>
         </> : <>
-          <FormButton primary icon="run" disabled={!ready} onClick={arm}>Start live run</FormButton>
+          <FormButton primary icon="run" disabled={!ready} onClick={arm}>{demo ? "Start demo run" : "Start live run"}</FormButton>
           {reset && <TextButton size="form" onClick={reset}>Reset limits</TextButton>}
         </>}
     </div>

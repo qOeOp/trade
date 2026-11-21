@@ -1,4 +1,4 @@
-import type { LiveRequest, LiveTradingActions, LiveTradingView } from "../../model/liveTrading";
+import { ENVIRONMENT_NAMES, selectedCredential, type LiveRequest, type LiveTradingActions, type LiveTradingView } from "../../model/liveTrading";
 import { liveStatus } from "../../model/runSnapshot";
 import { FormButton } from "../../ui/chat/Field";
 import { useLiveAction } from "./LiveActionState";
@@ -10,8 +10,10 @@ const CREDENTIAL = new Set(["credential_save", "credential_remove"]);
 /** What Live now reads for the request's run or key: the answer the lost reply would have carried, or near it. */
 function stateNow(request: LiveRequest, view: LiveTradingView): string {
   if (CREDENTIAL.has(request.action)) {
-    const selected = view.credentials.find((item) => item.selected);
-    return selected ? `Selected key · ${selected.ref.slice(0, 12)}` : "No key is selected";
+    return (["live", "demo"] as const).map((environment) => {
+      const selected = selectedCredential(view, environment);
+      return `${ENVIRONMENT_NAMES[environment]} key · ${selected ? selected.ref.slice(0, 12) : "none selected"}`;
+    }).join(" · ");
   }
   const run = view.runs.find((item) => item.id === request.target.run_id);
   return run ? `This run · ${liveStatus(run).word}` : "Live lists no such run";

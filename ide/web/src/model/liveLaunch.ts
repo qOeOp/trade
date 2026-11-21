@@ -1,7 +1,7 @@
 // The Live launch page as rows (widgets/live/LiveLaunch.tsx draws them): three columns, each row a value, where it
 // comes from, whether the user may change it here (editable), and whether it passes, with a plain reason when it does
 // not. Start opens only when every required row has a value and passes; the server still checks everything again.
-import type { LiveCredential, LiveRun, LiveSource, LiveTradingView } from "./liveTrading";
+import { selectedCredential, type LiveCredential, type LiveEnvironment, type LiveRun, type LiveSource, type LiveTradingView } from "./liveTrading";
 import { contractsOf, unavailableReason } from "./liveLaunchText";
 import { paperBlocker, paperRow } from "./livePaper";
 export { refusalText, restText, SPAN_UNITS, spanText, unavailableReason } from "./liveLaunchText";
@@ -23,6 +23,7 @@ export type LaunchColumn = { id: "strategy" | "account" | "limits"; title: strin
 const BRAKE_MAX_PERCENT = 15, cashFloor = (wallet: string) => (Math.floor(Number(wallet) * 85 + 1e-9) / 100).toFixed(2);
 export type LaunchInput = {
   view: LiveTradingView; source: LiveSource | null; edits: Readonly<Record<string, string>>;
+  environment: LiveEnvironment; // the Demo/Live switch: whose key the run binds and where it trades
   checked: LiveRun | null; // the run this page prepared to check the account; its check and observation fill the account rows
   // The candidate's research reading and its line's targets, when the drawn research graph has them.
   reading: { annual_return: number | null; max_drawdown: number | null } | null;
@@ -91,7 +92,8 @@ function strategy({ view, source, edits, reading, targets }: LaunchInput, closed
   ];
 }
 
-function account({ source, edits, checked }: LaunchInput, closed: string | null, credential: LiveCredential | undefined): LaunchRow[] {
+function account({ source, edits, checked, environment }: LaunchInput, closed: string | null, credential: LiveCredential | undefined): LaunchRow[] {
+  const demo = environment === "demo";
   const check = checked?.accountCheck ?? null, venue = checked?.venue ?? null, passed = check?.state === "passed";
   const notYet = !checked ? "Shown after the account check." : check?.state === "running" ? "The account check is running." : null;
   const flag = (id: string, label: string, got: boolean | null | undefined, want: boolean, failing: string): LaunchRow => ({
@@ -109,10 +111,12 @@ function account({ source, edits, checked }: LaunchInput, closed: string | null,
     ? found.replays.reduce((best, row) => Math.abs(Number(row.balance) - Number(wallet)) < Math.abs(Number(best.balance) - Number(wallet)) ? row : best) : null;
   const near = nearest !== null && wallet !== null && Math.abs(Number(nearest.balance) - Number(wallet)) <= tolerance * Number(wallet);
   return [
-    { id: "key", label: "API key", value: credential ? `Binance Futures · ${credential.ref.slice(0, 8)}` : null, source: "Saved in Settings", editable: false,
+    { id: "key", label: "API key", value: credential ? `${demo ? "Binance Demo" : "Binance Futures"} · ${credential.ref.slice(0, 8)}` : null,
+      source: demo ? "Demo key saved in Settings" : "Live key saved in Settings", editable: false,
       required: true, mark: credential ? credential.available === false ? "fail" : "pass" : "fail",
       reason: credential ? credential.available === false ? "Its copy on the server is gone. Save the key again in Settings." : null
-        : closed ?? "Save a Binance Futures API key (no withdrawals, restricted to this server's IP) in Settings." },
+        : closed ?? (demo ? "Save a Binance Demo Trading API key (binance.com demo trading, API Management) in Settings, under Demo."
+          : "Save a Binance Futures API key (no withdrawals, restricted to this server's IP) in Settings, under Live.") },
     { id: "check", label: "Account check", source: "Read-only, by the Live service", editable: false, required: true,
       value: check ? { passed: "Passed", failed: "Failed", running: "Running", unknown: "Unknown" }[check.state] : null,
       mark: passed ? "pass" : check?.state === "failed" ? "fail" : "wait",
@@ -124,7 +128,9 @@ function account({ source, edits, checked }: LaunchInput, closed: string | null,
     flag("trading", "Trading enabled", venue?.canTrade, true, "Binance reports trading disabled for this account."),
     flag("hedge", "Hedge mode", venue?.hedgeMode, true, "Live needs hedge mode. Turn it on in Binance Futures preferences."),
     flag("multi", "Multi-assets mode", venue?.multiAssets, true, "Live needs multi-assets margin mode. Turn it on in Binance Futures preferences."),
-    { id: "withdraw", label: "Key cannot withdraw", source: CHECK, editable: false, required: true, value: passed ? "Confirmed" : null,
+    demo ? { id: "withdraw", label: "Key cannot withdraw", source: "Binance Demo Trading", editable: false, required: false, value: "Not checked",
+      mark: "shown", reason: "It reports no key permissions, and its keys reach no real funds." }
+    : { id: "withdraw", label: "Key cannot withdraw", source: CHECK, editable: false, required: true, value: passed ? "Confirmed" : null,
       mark: passed ? "pass" : check?.state === "failed" ? "fail" : "wait",
       reason: passed ? null : notYet ?? "Not confirmed by the last check. A key that allows withdrawals or has no IP restriction is refused; change that at Binance." },
     { id: "wallet", label: "Futures wallet", value: wallet, unit: wallet === null ? null : "USDT", source: CHECK, editable: false, required: true,
@@ -175,7 +181,7 @@ function limits({ view, edits, checked }: LaunchInput, closed: string | null): L
 const WAITS = "Waits for Live (see above).";
 export function launchColumns(input: LaunchInput): LaunchColumn[] {
   const closed = unavailableReason(input.view) === null ? null : WAITS;
-  const credential = input.view.credentials.find((item) => item.selected && !item.removed);
+  const credential = selectedCredential(input.view, input.environment);
   return [
     { id: "strategy", title: "Strategy", rows: strategy(input, closed) },
     { id: "account", title: "Account", rows: account(input, closed, credential) },
@@ -197,7 +203,7 @@ export function checkBlocker(input: LaunchInput, canPrepare: boolean): string | 
   if (!source) return NO_VERSION;
   if (source.read !== "found") return source.read === "absent" ? "This version cannot run live (Strategy)." : "Waiting for the candidate.";
   if (!launchSymbols(source, input.edits)) return "Needs valid contracts first (Strategy).";
-  if (!input.view.credentials.some((item) => item.selected && !item.removed)) return "Save an API key in Settings first.";
+  if (!selectedCredential(input.view, input.environment)) return `Save a ${input.environment === "demo" ? "Demo" : "Live"} API key in Settings first.`;
   return paperBlocker(source.paper ?? null);
 }
 

@@ -208,6 +208,23 @@ class Sending(Base):
         self.assertIn("Fills: 2", after[0])
         self.assertEqual(self.tick(DAY + 25 * HOUR).calls, [])
 
+    def test_a_demo_run_is_named_demo_and_summarised_apart_from_the_real_account(self):
+        demo = {"config": {"environment": "demo"}}
+        self.facts = [run(account={"usdt_wallet": "100.5", "observed_ns": str(DAY - HOUR)}, config={"environment": "live"}),
+                      run("run-d", account={"usdt_wallet": "5000", "observed_ns": str(DAY - HOUR)}, **demo)]
+        self.tick(DAY + 22 * HOUR)  # baseline on 2026-11-09
+        self.facts[1]["orders"] = [fill("t1", DAY + 23 * HOUR)]
+        self.assertEqual(self.tick(DAY + 24 * HOUR - 10**9).texts(),
+                         ["Demo run run-d (example) fill: BUY 0.001 BTCUSDT-PERP.BINANCE at 75000."])
+        [summary] = self.tick(DAY + 24 * HOUR + 5 * 10**9).texts()
+        live, demo_part = summary.split("\n\n")
+        self.assertIn("Live daily summary for 2026-11-09 (UTC)", live)
+        self.assertIn("Wallet: 100.5 USDT", live)
+        self.assertIn("Fills: 0", live)
+        self.assertIn("Demo daily summary for 2026-11-09 (UTC), Binance Demo Trading, not the real account", demo_part)
+        self.assertIn("Wallet: 5000 USDT", demo_part)
+        self.assertIn("Fills: 1", demo_part)
+
     def test_a_day_no_live_run_ran_filled_or_ended_on_gets_no_summary(self):
         prepared = run(state_="prepared", minute_results=[])
         self.facts = [prepared]

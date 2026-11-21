@@ -209,9 +209,10 @@ FILES["engine/config.py"] = ("RUNTIME_SOURCE_PATHS = " + repr(SOURCE_PATHS) + "\
 
 
 def lock(project: str = "0.4.2", pin: str = "1.0") -> bytes:
-    """A `uv.lock` pinning dependency `a` and holding the project's own editable package."""
+    """A `uv.lock` pinning dependency `a` of the project's own editable package."""
     return (f'version = 1\n\n[[package]]\nname = "a"\nversion = "{pin}"\nsource = {{ registry = "https://pypi.org/simple" }}\n\n'
-            f'[[package]]\nname = "trade-research"\nversion = "{project}"\nsource = {{ editable = "." }}\n').encode()
+            f'[[package]]\nname = "trade-research"\nversion = "{project}"\nsource = {{ editable = "." }}\n'
+            'dependencies = [{ name = "a" }]\n').encode()
 
 
 FILES[LAYOUT["lock_path"]] = lock()

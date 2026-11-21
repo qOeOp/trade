@@ -11,6 +11,8 @@ import arrowDown from "lucide-static/icons/arrow-down.svg?raw";
 import newspaper from "lucide-static/icons/newspaper.svg?raw";
 import triangleAlert from "lucide-static/icons/triangle-alert.svg?raw";
 import arrowUp from "lucide-static/icons/arrow-up.svg?raw";
+import arrowLeft from "lucide-static/icons/arrow-left.svg?raw";
+import pin from "lucide-static/icons/pin.svg?raw";
 import bot from "lucide-static/icons/bot.svg?raw";
 import circleCheck from "lucide-static/icons/circle-check.svg?raw";
 import circleDashed from "lucide-static/icons/circle-dashed.svg?raw";
@@ -45,6 +47,7 @@ import locate from "lucide-static/icons/locate.svg?raw";
 import minus from "lucide-static/icons/minus.svg?raw";
 import panelBottom from "lucide-static/icons/panel-bottom.svg?raw";
 import panelRight from "lucide-static/icons/panel-right.svg?raw";
+import rows2 from "lucide-static/icons/rows-2.svg?raw";
 import search from "lucide-static/icons/search.svg?raw";
 import settings from "lucide-static/icons/settings.svg?raw";
 import table from "lucide-static/icons/table.svg?raw";
@@ -58,6 +61,7 @@ export const ICONS = {
   close: { svg: x },
   minus: { svg: minus },
   "arrow-up": { svg: arrowUp },
+  "arrow-left": { svg: arrowLeft },
   "arrow-down": { svg: arrowDown },
   "chevron-down": { svg: chevronDown },
   "chevron-left": { svg: chevronLeft },
@@ -67,7 +71,9 @@ export const ICONS = {
   theme: { grid: 21, svg: '<svg><g fill-rule="evenodd"><path d="M10.5 14.5c2.219 0 4-1.763 4-3.982a4.003 4.003 0 0 0-4-4.018c-2.219 0-4 1.781-4 4s1.781 4 4 4M4.136 4.136L5.55 5.55m9.9 9.9l1.414 1.414M1.5 10.5h2m14 0h2M4.135 16.863L5.55 15.45m9.899-9.9l1.414-1.415M10.5 19.5v-2m0-14v-2" opacity=".3"/><g transform="translate(-210 -1)"><path d="M220.5 2.5v2m6.5.5l-1.5 1.5"/><circle cx="220.5" cy="11.5" r="4"/><path d="m214 5l1.5 1.5m5 14v-2m6.5-.5l-1.5-1.5M214 18l1.5-1.5m-4-5h2m14 0h2"/></g></g></svg>' },
   "panel-bottom": { svg: panelBottom },
   "panel-right": { svg: panelRight },
+  "rows-2": { svg: rows2 },
   locate: { svg: locate },
+  pin: { svg: pin },
   "expand-all": { svg: chevronsUpDown },
   "collapse-all": { svg: chevronsDownUp },
   more: { svg: ellipsisVertical },

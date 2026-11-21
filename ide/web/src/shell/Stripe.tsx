@@ -14,12 +14,13 @@ import type { ToolWindow } from "./toolWindows";
  *  (the Market page in the editor, the left tool window closed), the left tool windows, then Runs (the
  *  Runs page likewise; one of these at a time) and Line-close history (the History page likewise), Runs with the dot
  *  the phone's Runs tab shows (model/runSnapshot.ts runsDot), and the bottom ones at
- *  the foot, as IntelliJ places them; the right one lists the right tool windows. Each stripe ends in the
+ *  the foot, as IntelliJ places them; the right one lists the right tool windows, and at its foot the one in
+ *  the right side's lower slot while it is split. Each stripe ends in the
  *  toggle for the side it serves: the left one in the window's lower-left corner for the bottom side,
  *  the right one in the lower-right for the right side. The pages and side toggles run the palette's
  *  commands (commands.ts), with their shortcuts. */
 export function Stripe({ side, windows, actions }: { side: "left" | "right"; windows: readonly ToolWindow[]; actions: readonly Action[] }) {
-  const { open, last } = useShell();
+  const { open, page: shown } = useShell();
   const dot = runsDot(useLiveTrading().view.runs, usePaperRuns(), usePaperService());
   const overview = useOverviewService();
   const command = (id: string) => actions.find((a) => a.id === id);
@@ -29,11 +30,11 @@ export function Stripe({ side, windows, actions }: { side: "left" | "right"; win
   );
   const page = (id: "market" | "runs" | "history", icon: IconName, label: string, mark?: DataRole) => {
     const a = side === "left" && command(id);
-    return a && <StripeButton icon={icon} label={label} keys={a.keys} active={last.left === id} dot={mark} onClick={a.run} />;
+    return a && <StripeButton icon={icon} label={label} keys={a.keys} active={shown === id} dot={mark} onClick={a.run} />;
   };
   const at = (s: Side) => windows.filter((w) => w.side === s).map(button);
   const toggles: Side = side === "left" ? "bottom" : "right", sideToggle = command(`side:${toggles}`);
-  const toggle = windows.some((w) => w.side === toggles) && sideToggle && (side === "left"
+  const toggle = windows.some((w) => w.side === toggles || (toggles === "right" && w.side === "split")) && sideToggle && (side === "left"
     ? <IconButton frame icon="panel-bottom" label="Bottom tool windows" keys={sideToggle.keys} onClick={sideToggle.run} />
     : <IconButton frame icon="panel-right" label="Right tool windows" keys={sideToggle.keys} onClick={sideToggle.run} />);
   return (
@@ -42,7 +43,7 @@ export function Stripe({ side, windows, actions }: { side: "left" | "right"; win
       {at(side)}
       {page("runs", "tool.runs", "Runs", dot)}
       {page("history", "tool.history", "Line-close history")}
-      <div className="mt-auto flex flex-col items-center gap-1">{side === "left" && at("bottom")}{toggle}</div>
+      <div className="mt-auto flex flex-col items-center gap-1">{at(side === "left" ? "bottom" : "split")}{toggle}</div>
     </nav>
   );
 }

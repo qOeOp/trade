@@ -1,15 +1,11 @@
 import type { ReactNode } from "react";
 import { copyText } from "../../lib/clipboard";
-import { openSource, showLineage } from "../../state/editors";
-import { requestFocus } from "../../state/linking";
+import { locate, openSource } from "../../state/editors";
 import { select } from "../../state/selection";
 import { useAtom } from "../../state/atom";
 import { activeRun, full, startDialog, starting, stopDialog, usePaperRuns, usePaperService } from "../../state/paper";
 import { showRunsPage, showToolWindow } from "../../state/shell";
 import { Menu, MenuItem, MenuSeparator } from "../../ui/ContextMenu";
-
-/** Selects version `id` and brings it into view on the graph. */
-export const locate = (id: string) => { select(id); showLineage(); requestFocus(id); };
 
 /** The right-click menu of a version, the same wherever the version appears. */
 export function VersionMenu({ id, children }: { id: string; children: ReactNode }) {

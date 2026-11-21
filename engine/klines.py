@@ -34,9 +34,10 @@ def get_json(url: str, proxy_url: str | None, timeout: float = 10):
 
 
 def bars(instrument_id, period: str, first_open_ns: int, last_close_ns: int, precisions: tuple[int, int],
-         proxy_url: str | None, get=get_json) -> list[Bar]:
+         proxy_url: str | None, get=get_json, base: str | None = None) -> list[Bar]:
     """The `period` klines of `instrument_id` that open at or after `first_open_ns` and close at or before
-    `last_close_ns`, ascending, as bars with the contract's price and size precisions."""
+    `last_close_ns`, ascending, as bars with the contract's price and size precisions. `base`: the REST origin
+    (REST_BASE, production, when None; a Live run's environment: engine.live_venue.VENUES)."""
     symbol = str(instrument_id).split("-PERP.")[0]
     kind = warmup.bar_type(instrument_id, period)
     price, size = precisions
@@ -46,7 +47,7 @@ def bars(instrument_id, period: str, first_open_ns: int, last_close_ns: int, pre
     while start <= last_open:
         query = {"symbol": symbol, "interval": INTERVALS[period], "startTime": start // NS_PER_MS,
                  "endTime": last_open // NS_PER_MS, "limit": LIMIT}
-        rows = get(f"{REST_BASE}/fapi/v1/klines?{urllib.parse.urlencode(query)}", proxy_url)
+        rows = get(f"{base or REST_BASE}/fapi/v1/klines?{urllib.parse.urlencode(query)}", proxy_url)
         for row in rows:
             stamp = int(row[6]) * NS_PER_MS
             if int(row[0]) * NS_PER_MS < start or stamp > last_close_ns:
@@ -59,7 +60,8 @@ def bars(instrument_id, period: str, first_open_ns: int, last_close_ns: int, pre
     return found
 
 
-def settlements(instrument_id, at_ns: int, count: int, proxy_url: str | None, get=get_json) -> list:
+def settlements(instrument_id, at_ns: int, count: int, proxy_url: str | None, get=get_json,
+                base: str | None = None) -> list:
     """The last `count` funding settlements of `instrument_id` at or before `at_ns`, ascending, as native updates;
     fewer when Binance holds fewer. With only an end time, the endpoint answers the latest settlements up to it."""
     symbol = str(instrument_id).split("-PERP.")[0]
@@ -68,7 +70,7 @@ def settlements(instrument_id, at_ns: int, count: int, proxy_url: str | None, ge
     while len(found) < count:
         asked = min(FUNDING_LIMIT, count - len(found))
         query = {"symbol": symbol, "endTime": end_ms, "limit": asked}
-        rows = get(f"{REST_BASE}/fapi/v1/fundingRate?{urllib.parse.urlencode(query)}", proxy_url)
+        rows = get(f"{base or REST_BASE}/fapi/v1/fundingRate?{urllib.parse.urlencode(query)}", proxy_url)
         page = sorted((int(row["fundingTime"]), str(row["fundingRate"])) for row in rows
                       if int(row["fundingTime"]) <= end_ms)
         found[:0] = [warmup.funding_update(instrument_id, at * NS_PER_MS, rate) for at, rate in page[-asked:]]
@@ -78,12 +80,12 @@ def settlements(instrument_id, at_ns: int, count: int, proxy_url: str | None, ge
     return found
 
 
-def funding_interval(instrument_id, proxy_url: str | None, get=get_json) -> int:
+def funding_interval(instrument_id, proxy_url: str | None, get=get_json, base: str | None = None) -> int:
     """The funding interval of `instrument_id` now, in nanoseconds (``fapi/v1/fundingInfo``). Binance changes it between
     1, 4 and 8 hours and settles at its multiples from the epoch (2026-11-15 probe: every trading perpetual's next
     funding time, and every settlement in the last 500 of ten contracts, changes included). The endpoint listed every
     trading perpetual in that probe; one it leaves out has Binance's default, 8 hours."""
     symbol = str(instrument_id).split("-PERP.")[0]
-    rows = get(f"{REST_BASE}/fapi/v1/fundingInfo", proxy_url)
+    rows = get(f"{base or REST_BASE}/fapi/v1/fundingInfo", proxy_url)
     hours = next((int(row["fundingIntervalHours"]) for row in rows if row["symbol"] == symbol), 8)
     return hours * 3600 * 1_000_000_000

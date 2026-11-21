@@ -65,6 +65,8 @@ export function PaperPage({ id }: { id: number }) {
     );
   }
   const h = health(run, now, zone), held = paperHeld(run), issues = paperIssues(run), line = run.candidate ? lineOf(lines, run.candidate) : null;
+  // A contract's prices at its instrument's decimals, as the journal's bars and orders print them; as many as a price needs until it is read.
+  const places = (symbol: string) => digits.get(symbol)?.price ?? -1;
   const bar = run.readings?.last_bar_ns != null ? run.readings.last_bar_ns / 1e6 : null, start = run.readings?.started_ns != null ? run.readings.started_ns / 1e6 : null;
   return (
     <>
@@ -83,9 +85,9 @@ export function PaperPage({ id }: { id: number }) {
         <div className="px-3 pt-3 text-dense">
           <Board f={facts(run, line?.targets, now)} />
         </div>
-        <PhoneHeading title={held.length === 1 ? "Position" : "Positions"} aside={heldAside(held, false)} />
+        <PhoneHeading title={held.length === 1 ? "Position" : "Positions"} aside={heldAside(held, false, places(held[0]?.symbol ?? ""))} />
         {held.length > 0 && <PhoneTable head={["Contract", "Side", "Qty", held.length > 1 ? "Entry / Mark" : "Entry", "P&L"]} rows={held.map((p) => [
-          <Contract symbol={p.symbol} />, <Side long={p.long} />, fixed(p.qty), <EntryMark held={p} several={held.length > 1} places={2} />,
+          <Contract symbol={p.symbol} />, <Side long={p.long} />, fixed(p.qty), <EntryMark held={p} several={held.length > 1} places={places(p.symbol)} />,
           <span className={pnlClass(p.pnl)}>{signed(p.pnl)}</span>])} />}
         <PhoneHeading title="Orders" aside={s?.loaded ? (placed.length ? ordersText(placed) : "None yet") : <Skeleton className="w-24" />} />
         {placed.length > 0 && <PhoneTable head={["Contract", "Side", "Price", "State"]} rows={placed.slice(0, SHOWN).map((o) => {

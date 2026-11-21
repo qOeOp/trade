@@ -394,7 +394,7 @@ def hypothesis_compare(args):
 
 # `research runs --by`: report.status.RUN_MEASURES, named here so the parser imports no report code.
 RUN_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "sharpe_lo", "plan_win_rate", "cycles",
-                "daily_turnover")
+                "daily_turnover", "alpha_basket", "beta_basket")
 
 
 
@@ -658,7 +658,8 @@ COMMANDS = [
         "(default: the newest day): its first day and latest complete day; each run's runtime image, probed",
         "one history trial and its run per segment left (each calendar year before the development period as a "
         "veto segment, the period again as the control, the two-year holdout after it as one segment, the forward "
-        "segment after the holdout), candidates by development-period Sharpe; "
+        "segment after the holdout), candidates by development-period Sharpe; segments replay several at once, as "
+        "many as Docker's memory (its total less what its containers hold) has room for at a stage's 16 GiB limit; "
         "a segment with a passed history run is skipped, so a rerun resumes; after the segments without a run, "
         "one more history trial per segment whose latest history run is invalid (it supersedes that run, which "
         "stays; a failure of the strategy's own fails again)",
@@ -668,7 +669,8 @@ COMMANDS = [
         "candidates), without_economic_evidence [{source_sha256, candidate, run, reasons}] (the participants left "
         "out), segments_without_trading",
         "LINE_UNKNOWN, LINE_ENDED; MARKET_DAY_UNRESOLVED; REPRODUCTION_CONFIG_DIFFERS (the image gives a run "
-        "another effective configuration); the replay refusals of a sealed run"), LEDGER, MARKET,
+        "another effective configuration); the replay refusals of a sealed run (the first in segment order; the "
+        "segments already running still seal, and no other starts)"), LEDGER, MARKET,
          option("--line", required=True, help="an open research line"), MARKET_DAY,
          option("--limit", type=_count, help="run at most this many segments"),
          epilog="Every candidate, a source with a passed research run on the line whose latest such run carries "
@@ -738,7 +740,7 @@ COMMANDS = [
          option("--trial-id", required=True, type=int, help="a grid run of that registration"), AT),
     command(research_status, "research", "status", "research fact counts and the line's comparison table", (
         "trials, runs, research trials of registrations, source reviews and validations of the whole ledger at --at "
-        "(reader); no market",
+        "(reader); the market's daily returns over each compared run's window (alpha_basket and beta_basket)",
         "nothing",
         "ledger_commit; trials (counted trials of every purpose, ledger-wide); multiple_testing (what a deflated "
         "Sharpe of the line's runs reads: line, dev_start, dev_end, instruments (those of the line's research "
@@ -759,12 +761,13 @@ COMMANDS = [
         "execution_identity (the line's, from its "
         "latest research trial since line select; null before the first), runs [{candidate, trial_id, "
         "execution_identity {execution, image_digest, keys}, measures (annual_return, "
-        "mark_max_drawdown, sharpe_365, plan_win_rate, breakeven_fee_multiple), deflated_sharpe "
+        "mark_max_drawdown, sharpe_365, plan_win_rate, breakeven_fee_multiple, alpha_basket (with standard_error), "
+        "beta_basket; alpha_basket and beta_basket with pnl_sum, their USDT split of the daily PnL sum), deflated_sharpe "
         "{effective_trials, trials_with_sweeps} (the run's deflated Sharpe at each multiple_testing count with its "
         "daily_sharpe_variance; null without that reading), worst_dev_year_return and return_without_best_year "
         "(replay report dev_years, display only), dominated_by, non_dominated}] (dominance only within one "
-        "identity and only on dominance_measures: annual_return, mark_max_drawdown, sharpe_365; the plan win rate "
-        "and breakeven_fee_multiple are shown only), candidates (those of the line's identity, which a "
+        "identity and only on dominance_measures: annual_return, mark_max_drawdown, sharpe_365; the plan win rate, "
+        "breakeven_fee_multiple, alpha_basket and beta_basket are shown only), candidates (those of the line's identity, which a "
         "recommendation names), without_economic_evidence; null without a line)",
         "LINE_UNKNOWN (--line); "
         "UNKNOWN_REF (--at)"), LEDGER,
@@ -804,14 +807,15 @@ COMMANDS = [
                 help="pull no runtime image: current_image and runs_behind_image are null (the IDE's read)"),
          AT),
     command(research_runs, "research", "runs", "every research run with its measures, by one measure", (
-        "trials, runs, candidates, lines, targets and every listed run's stored facts at --at (reader); no market",
+        "trials, runs, candidates, lines, targets and every listed run's stored facts at --at (reader); the market's "
+        "daily returns over each run's window (alpha_basket and beta_basket)",
         "nothing",
         "ledger_commit, line, by, runs_listed (before --limit), without_economic_evidence (a count), groups [{group, "
         "execution, image_digest, window_start, window_end, universe_rule}], lines [{line, "
         "targets {max_drawdown, annual_return, source} or null}], runs [{candidate, trial_id, group, lines (those "
         "the run belongs to), measures {annual_return, mark_max_drawdown, sharpe_365, sharpe_lo, "
-        "plan_win_rate, cycles, daily_turnover} (values as `replay report` derives them), null_reasons (only "
-        "when a measure is null)}]. Every passed research run with economic evidence: of the open lines, or with --line "
+        "plan_win_rate, cycles, daily_turnover, alpha_basket, beta_basket} (values as `replay report` derives them), "
+        "alpha_basket_standard_error, null_reasons (only when a measure is null)}]. Every passed research run with economic evidence: of the open lines, or with --line "
         "that line's comparison table (`research status`). Ordered by trial ID, or by the one --by measure (drawdown "
         "ascending, the others descending, nulls last). A listing by one measure, not the comparison table, a "
         "recommendation or a score: runs of different groups differ in window, instruments, configuration or image, "

@@ -33,12 +33,17 @@ class KeyLimitsTests(unittest.TestCase):
             return io.BytesIO(json.dumps(answer).encode())
 
         with patch("urllib.request.OpenerDirector.open", respond):
-            return key.require_limits(self.credentials)
+            return key.require_limits(self.credentials, "live")
 
     def refused(self, answer):
         with self.assertRaises(LiveRefusal) as caught:
             self.limits(answer)
         return caught.exception
+
+    def test_a_demo_key_is_not_read(self):
+        """Binance Demo Trading serves no apiRestrictions (404, probed 2026-11-21) and its keys reach no real funds."""
+        with patch("urllib.request.OpenerDirector.open", side_effect=AssertionError("a venue read")):
+            self.assertIsNone(key.require_limits(self.credentials, "demo"))
 
     def test_a_key_without_withdrawals_and_with_an_ip_restriction_passes_silently(self):
         self.assertIsNone(self.limits(ALLOWED))

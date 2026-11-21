@@ -74,7 +74,7 @@ class LiveTests(unittest.TestCase):
                 "source_sha256": hashlib.sha256(SOURCE.encode()).hexdigest()},
             "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
                         "image_digest": "sha256:" + "a" * 64, "runtime_contract": RUNTIME_CONTRACT},
-            "config": {"drawdown_brake": "0.15", "duration_seconds": 30, "leverage": "50"},
+            "config": {"environment": "live", "drawdown_brake": "0.15", "duration_seconds": 30, "leverage": "50"},
             "market": {"market_day": MARKET_DAY, "terms": {"BTCUSDT": {
                 "price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}},
             "strategy_file": str(self.strategy), "universe_file": str(self.universe),

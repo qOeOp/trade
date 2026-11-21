@@ -418,8 +418,8 @@ def replay_evidence(research: db.LedgerProfile, research_at: str, source_sha256:
     return _evidence(research, research_at, source_sha256, symbols, inspection, describe)
 
 
-def _settings(root: Path, run_id: str, drawdown_brake: str, duration_seconds: int | None, memory: str,
-              leverage: str) -> dict:
+def _settings(root: Path, run_id: str, environment: str, drawdown_brake: str, duration_seconds: int | None,
+              memory: str, leverage: str) -> dict:
     """A run's settings as its manifest records them, checked."""
     if duration_seconds is not None and (isinstance(duration_seconds, bool) or not isinstance(duration_seconds, int)
                                          or duration_seconds < 1):
@@ -429,7 +429,8 @@ def _settings(root: Path, run_id: str, drawdown_brake: str, duration_seconds: in
         raise state.fail("LIVE_CONFIG", f"the drawdown brake can only be tighter than {configuration.BRAKE_DEFAULT}")
     if not is_leverage(leverage):
         raise state.fail("LIVE_CONFIG", "leverage must be an integer from 1 to 125")
-    return {"drawdown_brake": brake, "duration_seconds": duration_seconds, "memory": memory, "leverage": leverage,
+    return {"environment": configuration.environment(environment), "drawdown_brake": brake,
+            "duration_seconds": duration_seconds, "memory": memory, "leverage": leverage,
             "proxy_url": f"http://{host_runtime.resource_names(root, run_id)['egress']}:3128"}
 
 
@@ -464,8 +465,8 @@ def _clear_staging(staging: Path) -> None:
 
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: bytes, credentials: Path, runtime: str, *,
-                    drawdown_brake: str, duration_seconds: int | None, memory: str, leverage: str,
-                    market_root: Path, credential_ref: str, request_id: str,
+                    environment: str, drawdown_brake: str, duration_seconds: int | None, memory: str,
+                    leverage: str, market_root: Path, credential_ref: str, request_id: str,
                     reconciled: Callable[[str, list[str]], None]) -> dict:
     """Capture immutable inputs, before any account effect: the candidate's own source at research_at (the run's
     research commit, kept in its manifest), the membership `universe`, the pinned image and the market's terms.
@@ -473,10 +474,10 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     contracts reconciles with its replay. Everything is written under staging/<run_id>, then renamed into runs/ whole:
     a preparation cut short is redone by the same request, and a published one is returned as it is
     (prepared_locked)."""
-    settings = {"drawdown_brake": drawdown_brake, "duration_seconds": duration_seconds, "memory": memory,
-                "leverage": leverage}
+    settings = {"environment": environment, "drawdown_brake": drawdown_brake, "duration_seconds": duration_seconds,
+                "memory": memory, "leverage": leverage}
     configuration.symbols(symbols)
-    config = _settings(root, run_id, drawdown_brake, duration_seconds, memory, leverage)
+    config = _settings(root, run_id, environment, drawdown_brake, duration_seconds, memory, leverage)
     prior = prepared_locked(root, run_id, request_id, candidate, symbols, credential_ref, **settings)
     if prior is not None:
         return prior
@@ -655,7 +656,7 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, requ
         # Checked here too: a released run must not take the slot back only to be refused by its runner.
         raise state.fail("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
     if mode != "reconcile":
-        key.require_limits(credentials)
+        key.require_limits(credentials, manifest["config"]["environment"])
     _recycle_others(root, run_id)
     if mode != "preflight" and active_run(root) is None:
         state.append(root / "account.jsonl", "reserved", run_id)

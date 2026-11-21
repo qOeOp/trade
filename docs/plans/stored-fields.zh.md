@@ -15,6 +15,7 @@ AGENTS.md 要求新增存储字段（账本或记录的列、表或存储值）�
 | `run`：状态、无效原因、原生报告语义指纹 | 复现与重封核对、`ledger review`、读取入口 | 封存时的审计发现与原生报告指纹 | 指纹是账本与 `/tmp` 缓存之间唯一的连接；审计发现是封存时的观察 | 2026-10-18 用户同意「一套度量目录、两种报告、其余动态」 |
 | `run_reading.report`：资格事实、标记价回撤及区间与主导合约、资金使用峰值与在市时间、锁定保证金峰值、按流动性方向的手续费与成交额、订单漏斗、计划统计是否成立、本运行特有的局限 | `replay report`、`research status`、比较报告 | 封存时从原生报告一次算出的读数 | 要逐分钟敞口、账户状态或订单明细，这些原件不进账本，每次读都重放不现实 | 同上 |
 | `run_reading.report` 资金块里的 `participation@1`（每笔市场成交占那一分钟 LAST 成交量的比，及计数） | 研究资金规模（G3）的 Agent 读单运行报告；不进度量目录，不设门槛 | 每笔成交那一分钟的 K 线成交量（引擎写 `fill_volumes.csv`，只记哈希，纳入指纹） | 账本不存成交，只能复现后再算；每读一次都要重放 | 2026-10-31 用户同意加字段，按审阅的 (a) 做（记录里没有原话） |
+| `run_reading.report` 回撤块里的 `years`（每个开发年的标记价最大回撤及其峰、谷时刻；年按交易起点的周年切，末尾不满一年的算一段，峰值跨年延续；一年及以内的窗口为 null） | `replay report` 的 `dev_years` 逐年读数，Agent 按用户的回撤目标逐年看 | 每年内逐 K 线收盘标记价权益离延续峰值的最大跌幅 | 要逐 K 线的标记价权益路径，原件不进账本；`run_return` 只给日收盘权益，算出的是日收盘回撤，是另一种口径，会漏掉日内谷底；否决年是各自独立的回放，不是从一个运行切出来的 | 2026-11-21 用户「全按推荐」（D-107：评审认定回放之外给不回就加） |
 | `run_return`：日收益、当日平均名义敞口 | 配对检验、回撤与资金使用读数 | 引擎的逐日收益 | 日收益是配对检验的单位；逐分钟敞口不进账本后，平均敞口无处可算 | 2026-10-18，同第一行 |
 | `run_cycle`：合约、方向、开平时刻、已实现盈亏、手续费、资金费、期末浮动、计划标签、最后一张平仓单的类型与标签 | 交易结构、交易配对、出场类别（含 `exit_net`）、逐合约与逐月下钻 | 原生持仓的每个周期 | 订单、成交、持仓明细不进账本；价格盈亏由三列推出，不存 | 2026-10-18，同第一行 |
 | `judgment` 正文首行 `Evaluated variants: K`（`search_exposure`） | `research status` 的 `multiple_testing`：`sweep_variants`、`trials_with_sweeps`，折扣夏普上端 | Agent 离线评估过、没登记也没回放的规则或参数变体个数 | 扫描跑在 `/tmp`，跑完就没了，只有写判断的 Agent 知道；不加列，存在已有的正文里 | 2026-11-12 用户“按建议做”；拒绝码 `SEARCH_EXPOSURE_VARIANTS_MISSING` 由用户委托的圆桌决定 |
@@ -43,6 +44,15 @@ Paper 记录只在远端主机的私有 Paper 库，不进研究账本、DoltHub
 | `metrics` 行（字段同 Paper 日志） | `live compare` → `compare_metrics`；差异原因 `metrics`；IDE 比较视图 | Feed 实际交给源的行与时刻，含截止时为 None 的比值、因无持仓量跳过的行 | REST 只留 30 天、给最终值；永不结束的运行没有写摘要的时点 | 2026-11-15 用户选“Live 记录 metrics” |
 | `metrics_unsubscribed` 行（`wall_ns`、`instrument_id`） | `compare_metrics` 切分跟随区间 | 源何时退订 metrics | 回放给的是回放里的退订时刻，两边一分岔就不同；与 `metrics` 行同文件，一起丢或一起在 | 随 #3077 合入（记录里没有原话） |
 
+## Live 运行清单
+
+只在 Live 私有根的 `runs/<run>/inputs/manifest.json`，不进研究账本、DoltHub 或 Git。
+
+| 字段 | 消费者 | 独立事实 | 为何不能派生 | 授权 |
+|---|---|---|---|---|
+| `config.environment`（`live` 或 `demo`，清单格式升为 `live-run-6`）（D-102） | 运行器选 Binance 主机与 Nautilus `BinanceEnvironment`（`engine/live.py`、`engine/live_node.py`、`engine/realtime.py`、`engine/klines.py`、`engine/kline_events.py`）；出口代理按运行放行的主机（`live/host.py`、`engine/egress.py`）；密钥检查（`live/key.py`，demo 没有 `apiRestrictions`）；`live compare`、每日对照、Telegram 与 Live 页标出 Demo | 用户为这次运行选的 Binance 环境 | `account_id`、`credential_binding`（API key 的 SHA-256）、`credential_ref` 都不含它；向交易所试探要有效 key 和一次网络调用，key 被撤销时两边答得一样，而运行器在第一次读之前就要选主机；出口日志要启动后才有 | 2026-11-21 用户「同意」（#3367） |
+| 凭证按环境分目录：`credentials/<environment>/`（各自的版本、`metadata.jsonl` 与选中），环境是路径，不是记录里的值 | Live 页的 Live/Demo 开关（列出、保存、删除、检查哪个环境的 key）；准备运行时只从运行的环境里取选中的 key（`live/credentials.py`） | 这把 key 属于哪个环境 | 独立审阅（#3367）认为一次只跑一个运行时不必存：交易所在准入时拒绝另一环境的 key，运行经 `credential_ref` 绑定 key 版本，代价是换环境要重新保存。用户不接受这个代价，两个环境各有自己的 key；key 字符串、`credential_binding`、`credential_ref` 都推不出环境。选了最省的形状：按目录分，不在行里加值 | 2026-11-21 用户「为什么只存一把 这是两个不同的环境吧 应该有按钮切换 demo 和 live都有各自的key才对吧」（#3367） |
+
 ## 浏览器偏好
 
 | 字段 | 消费者 | 独立事实 | 为何不能派生 | 授权 |
@@ -56,5 +66,6 @@ Paper 记录只在远端主机的私有 Paper 库，不进研究账本、DoltHub
 | Live 准入记下放行它的 Paper 对账（缓存文件或清单字段） | 不存：后台从 Paper 库、市场与镜像推导，每次发布后重算；不过就拒绝 `LIVE_PAPER_UNRECONCILED` | 2026-11-21「我都授权」，「需要我拍板的都按照你的建议来」；哪些 Paper 运行算数见[原决定](https://github.com/qOeOp/trade/blob/fb37817f4c3d6a26ca472ccae298db239ccfcd81/docs/plans/live-paper-reconciliation-gate-review-20261121.zh.md) |
 | Paper 与 Live `warmup` 行的 `fetched_ns`；Live 日志 `warmup` 事件的 `fetched_ns` 与每周期根数 `bars` | 不存：没有读者，根数与证据包 `warmup` 行的 `bars` 重复；日志事件只留 `at_ns`（T） | 0.5.0 E7 独立审阅，2026-11-21，委托同上 |
 | Live 证据包的聚合 K 线与 `bar` 行的 `bar_type` | 不存：只记一分钟线，与 Paper 同形；聚合由一分钟线算出，比较、`window`、`journal` 都只读一分钟行 | 同上 |
-| 离线扫描变体数单开一列 `judgment.variants` | 不开列，写在正文首行（见上） | 2026-11-12 |
+| 离线扫描变体数单开一列 `judgment.variants` | 不开列，写在正文首行（见上） | 2026-11-12；2026-11-21 重审（D-108），用户看过评审后定「108按你建议来」：K 已在正文首行，格式由 `SEARCH_EXPOSURE_VARIANTS_MISSING` 严格检查，已有字段能表达，加列只换格式不添事实，反要改 CLI、拒绝码、op_id 载荷和 research-round 技能，维持不开列 |
 | 参与率读时现算或封存时读市场库 | 不采用：读时每次重放；封存不能多一个对市场库的依赖 | 2026-10-20、10-31 审阅 |
+| 环境写进 `prepared` 行、`events.jsonl`、`compare.json` 或通知状态 | 不存：从清单读 | 2026-11-21 独立审阅（D-102，#3367） |

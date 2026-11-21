@@ -1,9 +1,11 @@
 // The Trades window's tables (Trades, Cycles, Exceptions, Comparison) and its event list: figures right,
-// words left, the detail columns giving way first when the page is narrow; the row picked on the chart
+// words left, the detail columns giving way first when the page is narrow, then the narrow ones; the row picked on the chart
 // scrolled into view.
 import { useEffect, useRef } from "react";
 
 export const DETAIL = "@max-[1120px]/page:hidden";
+/** Gives way next, on a page as narrow as one beside a left tool window. */
+export const NARROW = "@max-[720px]/page:hidden";
 export const CELL = "h-(--form-h) whitespace-nowrap px-3 border-t border-line";
 export const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint";
 

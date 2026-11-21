@@ -47,6 +47,10 @@ MARKET = "market.jsonl"
 ORDER_EVENTS = "order_events.jsonl.gz"
 
 
+# A demo run traded Binance Demo Trading's own book, prices and funding, the replay the archive's: its comparison shows
+# how the run's path behaved, never that Live and the replay agree.
+DEMO_NOTE = "Binance Demo Trading: its prices and funding are not the archive's; this is no evidence of consistency"
+
 def _lines(path: Path) -> list[dict]:
     if not path.is_file():
         return []
@@ -301,7 +305,9 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
         run, market, market_day, archived, pack["source"], manifest["source"]["entry_class"], image_ref, symbols,
         start, end, manifest["config"]["leverage"], balance, output,
         f"trade-live-compare-{run_id}-{secrets.token_hex(4)}", timeout)
-    result = {"format": shared.FORMAT, "kind": "live", "run_id": run_id, "candidate": manifest["candidate"],
+    environment = manifest["config"]["environment"]
+    result = {"format": shared.FORMAT, "kind": "live", "run_id": run_id, "environment": environment,
+              "note": DEMO_NOTE if environment == "demo" else None, "candidate": manifest["candidate"],
               "source_sha256": manifest["source"]["source_sha256"], "image_ref": image_ref,
               "market_day": market_day, "window": {"start": utc_text(start), "end": utc_text(end)},
               "segment": numbered, "starting_balance_usdt": balance, "replay": replayed, **compared,
@@ -312,6 +318,7 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     unexplained = [{"at": group.get("at"), "at_ns": group["at_ns"], "class": group["class"]}
                    for group in compared["groups"] or []
                    if group.get("cause") == "unexplained" and group.get("stage") == "decision"]
-    return {"path": str(output / "comparison.json"), "segment": numbered, "window": result["window"],
+    return {"path": str(output / "comparison.json"), "environment": environment, "note": result["note"],
+            "segment": numbered, "window": result["window"],
             "market_day": market_day, "summary": result["summary"], "measures": result["measures"],
             "replay": result["replay"], "unexplained": unexplained}

@@ -35,10 +35,10 @@ export const COMMANDS = {
     argv: (i: { line?: string; at?: string }) => ["research", "status", ...opt("line", i.line), ...opt("at", i.at)],
   },
   research_runs: {
-    description: "Every research run with economic evidence, ledger-wide or one line's, with seven measures as replay_report derives them, the lines it belongs to and its execution-identity group; ordered by one measure. Use it to find runs by a measure across versions or lines. An order is a listing, not a recommendation: runs of different groups differ in window, instruments or image.",
+    description: "Every research run with economic evidence, ledger-wide or one line's, with nine measures as replay_report derives them (basket alpha with its standard error, and beta), the lines it belongs to and its execution-identity group; ordered by one measure. Use it to find runs by a measure across versions or lines. An order is a listing, not a recommendation: runs of different groups differ in window, instruments or image.",
     input: z.object({
       line,
-      by: z.enum(["annual_return", "mark_max_drawdown", "sharpe_365", "sharpe_lo", "plan_win_rate", "cycles", "daily_turnover"]).optional()
+      by: z.enum(["annual_return", "mark_max_drawdown", "sharpe_365", "sharpe_lo", "plan_win_rate", "cycles", "daily_turnover", "alpha_basket", "beta_basket"]).optional()
         .describe("order by this measure: drawdown ascending, the others descending (default: by trial id)"),
       limit: z.number().int().min(1).max(100).default(30).describe("keep the first N runs; runs_listed says how many there were"),
       at,

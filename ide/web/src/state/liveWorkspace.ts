@@ -1,5 +1,6 @@
 /** Runs' transient Live dialogs and the launch page's choices. This state contains no credentials or command payloads. */
 import { atom, useAtom } from "./atom";
+import type { LiveEnvironment } from "../model/liveTrading";
 import { liveTrading } from "./liveTrading";
 import { phoneTab } from "./phone";
 import { showRunsPage } from "./shell";
@@ -14,6 +15,11 @@ export const openLiveReview = (runId: string) => workspace.set({ review: runId, 
 export const closeLiveReview = () => workspace.set({ ...workspace.get(), review: null });
 export const openLiveCredentials = () => workspace.set({ ...workspace.get(), credentials: true });
 export const closeLiveCredentials = () => workspace.set({ ...workspace.get(), credentials: false });
+
+/** The Binance environment the Live page works in (the Demo/Live switch): whose saved keys Settings shows, saves and
+ *  removes, and where a run the launch page prepares trades. Each environment keeps its own keys. Not stored. */
+export const liveEnvironment = atom<LiveEnvironment>("live");
+export const useLiveEnvironment = () => useAtom(liveEnvironment);
 
 /** The Live launch page's own choices (widgets/live/LiveLaunch.tsx): the version it was begun on, the contracts and
  *  settings changed, and the run it prepared to check the account, kept across stage and page changes until a run

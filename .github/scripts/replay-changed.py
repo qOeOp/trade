@@ -6,18 +6,24 @@ can be read, selects a build. Comparing with the image, not with the previous pu
 leaves the next one to build, so `main` never stays behind the replay inputs on main. Any other event builds.
 A difference only in what the image copies but never reads selects no build, since a new digest would leave every
 passed run behind the image: `pyproject.toml`'s `project.version`, `build-system` and `tool.uv.build-backend`, which
-an install with `--no-install-project` never reads, and `uv.lock`'s version of the project's own (editable) package,
-which `dependency_lock_sha256` (engine/config.py) leaves out, so a release changes no replay identity. Any other
-`uv.lock` difference builds: Live backs a run only with replays whose `dependency_lock_sha256` equals its execution
-image's (live/runs.py REPLAY_CODE).
+an install with `--no-install-project` never reads, nor its `dependency-groups`, which `--no-dev` never installs; and in
+`uv.lock` whatever `dependency_lock_sha256` (engine/config.py runtime_lock) leaves out: the project's own version, so
+a release changes no replay identity, and the dev group and what only it reaches. Any other `uv.lock` difference
+builds: Live backs a run only with replays whose `dependency_lock_sha256` equals its execution image's
+(live/admission.py REPLAY_CODE).
 """
 
 import json
 import os
 import shlex
+from pathlib import Path
 import subprocess
+import sys
 import tomllib
 from urllib.request import Request, urlopen
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from engine.config import runtime_lock  # noqa: E402  (stdlib only; the image's own reading of uv.lock)
 
 
 ACCEPT = ", ".join(f"application/vnd.{kind}+json" for kind in (
@@ -96,21 +102,18 @@ def _show(revision: str, name: str) -> str:
 
 
 def _replayed(text: str) -> dict:
-    """`pyproject.toml` parsed, without its project version or build backend."""
+    """`pyproject.toml` parsed, without its project version, build backend or dependency groups."""
     data = tomllib.loads(text)
     data["project"].pop("version", None)
     data.pop("build-system", None)
+    data.pop("dependency-groups", None)
     data.get("tool", {}).get("uv", {}).pop("build-backend", None)
     return data
 
 
 def _locked(text: str) -> dict:
-    """`uv.lock` parsed, without the project's own version, as engine.config.dependency_lock_sha256 reads it."""
-    data = tomllib.loads(text)
-    for package in data.get("package", []):
-        if package.get("source") == {"editable": "."}:
-            package.pop("version", None)
-    return data
+    """`uv.lock` as engine.config.dependency_lock_sha256 reads it."""
+    return runtime_lock(text.encode())
 
 
 def _same_replay(name: str, base: str) -> bool:
@@ -120,7 +123,8 @@ def _same_replay(name: str, base: str) -> bool:
         return False
     try:
         return read(_show(base, name)) == read(_show("HEAD", name))
-    except (subprocess.CalledProcessError, tomllib.TOMLDecodeError, KeyError, TypeError, AttributeError):
+    except (subprocess.CalledProcessError, tomllib.TOMLDecodeError, KeyError, TypeError, AttributeError, ValueError,
+            StopIteration):
         return False
 
 

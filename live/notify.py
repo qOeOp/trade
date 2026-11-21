@@ -230,9 +230,18 @@ def messages(run: dict) -> list[tuple[str, str]]:
     return [(key, text + link) for key, text in _messages(run)]
 
 
+def demo(run: dict) -> bool:
+    """A run on Binance Demo Trading (its manifest's config.environment): never the real account."""
+    return (run.get("config") or {}).get("environment") == "demo"
+
+
+def title(run: dict) -> str:
+    return "Demo" if demo(run) else "Live"
+
+
 def _messages(run: dict) -> list[tuple[str, str]]:
     run_id, host = run["run_id"], run.get("host") or {}
-    name = f"Live run {run_id} ({run.get('source_name')})"
+    name = f"{title(run)} run {run_id} ({run.get('source_name')})"
     current, mode, terminal = host.get("state"), host.get("mode"), run.get("terminal") or {}
     reason = f" Stop reason: {run['stop_reason']}." if run.get("stop_reason") else ""
     result = []
@@ -386,7 +395,9 @@ def _compare_messages(run: dict, name: str) -> list[tuple[str, str]]:
         result.append((f"{run_id}:compare:{day}",
                        f"{name}: replayed to the end of {day}, {record['unexplained_count']} of its decisions differ "
                        f"from the replay's with no known cause (the first at {first}). The run goes on; "
-                       f"`live compare` shows each one."))
+                       f"`live compare` shows each one."
+                       + (" Demo prices are not the archive's: this is no evidence of consistency." if demo(run)
+                          else "")))
     if current == "done" and date.fromisoformat(day).weekday() == 6:
         measures = record.get("measures") or {}
         holds = measures.get("holds") or {}
@@ -469,9 +480,21 @@ def _wallet(facts: list[dict]) -> tuple[int, str, str] | None:
 
 
 def _summary(facts: list[dict], day: str) -> str:
+    """One section per environment with a run active on `day`: the real account's and Binance Demo Trading's wallets,
+    positions and fills never add up."""
+    sections = []
+    for environment in ("Live", "Demo"):
+        group = [run for run in facts if title(run) == environment]
+        if any(_active(run, day) for run in group):
+            sections.append(_section(group, day, environment))
+    return "\n\n".join(sections)
+
+
+def _section(facts: list[dict], day: str, environment: str) -> str:
     wallet = _wallet(facts)
     when = datetime.fromtimestamp(wallet[0] // 10**9, timezone.utc).strftime("%Y-%m-%d %H:%M UTC") if wallet else ""
-    lines = [f"Live daily summary for {day} (UTC)",
+    lines = [f"{environment} daily summary for {day} (UTC)"
+             + (", Binance Demo Trading, not the real account" if environment == "Demo" else ""),
              f"Wallet: {wallet[1]} USDT, observed {when} by run {wallet[2]}" if wallet else "Wallet: no account observation"]
     open_rows = []
     for run in facts:

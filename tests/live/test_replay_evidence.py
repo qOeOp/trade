@@ -56,7 +56,7 @@ class ReplayEvidenceTests(LiveFixture):
                 patch.object(runs.image, "require_main_build"):
             return prepare(self.root, run_id, self.world.profile, db.head_commit(self.world.conn),
                            self.candidate["candidate"], ["AAAUSDT"], b"{}", self.credentials, IDENTITY["image_ref"],
-                           scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
+                           scope=self.scope, environment="live", drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
                            market_root=Path("unused"), credential_ref="a" * 32, request_id="prepare-" + run_id,
                            **options)
 
@@ -178,7 +178,7 @@ class EvidenceReadAheadTests(unittest.TestCase):
     def test_the_listing_names_no_candidate_or_contracts_and_offers_the_run_defaults(self):
         listing = control.listing(self.config)
         self.assertNotIn("sources", listing)
-        self.assertEqual(listing["defaults"], {"duration_seconds": None, "leverage": "3", "drawdown_brake": "0.15"})
+        self.assertEqual(listing["defaults"], {"environment": "live", "duration_seconds": None, "leverage": "3", "drawdown_brake": "0.15"})
 
     def test_only_asked_keys_are_read_checking_then_the_answer_and_only_an_unknown_one_again(self):
         evidence = control.Evidence()

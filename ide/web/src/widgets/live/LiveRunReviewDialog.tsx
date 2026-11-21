@@ -1,4 +1,4 @@
-import type { LiveRun, LiveTradingActions, LiveTradingView } from "../../model/liveTrading";
+import { allCredentials, type LiveRun, type LiveTradingActions, type LiveTradingView } from "../../model/liveTrading";
 import { FormButton } from "../../ui/chat/Field";
 import { LiveActionFailure, useLiveAction } from "./LiveActionState";
 import { LiveDialogFrame } from "./LiveDialogFrame";
@@ -33,7 +33,7 @@ export function LiveRunReviewDialog({ run, open, close, view, actions }: {
       <LiveFacts title="Native completion" facts={run.execution} />
       <LiveFacts title="Stopping and custody" facts={run.ending} />
       <p className="text-small text-fg-faint">A stop request still waits for exit and account verification. Host state alone does not confirm a fill, completion or a flat account.</p>
-      <Section title="Frozen plan" open={false}><LiveFrozenPlan run={run} credentials={view.credentials} /></Section>
+      <Section title="Frozen plan" open={false}><LiveFrozenPlan run={run} credentials={allCredentials(view)} /></Section>
       <LiveEvidenceList evidence={run.evidence} />
     </div>
   </LiveDialogFrame>;

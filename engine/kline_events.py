@@ -140,25 +140,27 @@ def _exact(stream, size: int) -> bytes:
     return data
 
 
-def connect(symbols: Iterable[str], proxy_url: str | None, timeout: float = SILENCE_SECONDS):
-    """A websocket on the closed-kline streams of `symbols`, through `proxy_url` when given."""
+def connect(symbols: Iterable[str], proxy_url: str | None, timeout: float = SILENCE_SECONDS, host: str | None = None):
+    """A websocket on the closed-kline streams of `symbols` at `host` (HOST, production, when None; a Live run's
+    environment: engine.live_venue.VENUES), through `proxy_url` when given."""
+    host = host or HOST
     if proxy_url:
         proxy = urlsplit(proxy_url)
         raw = socket.create_connection((proxy.hostname, proxy.port or 3128), timeout=timeout)
-        raw.sendall(f"CONNECT {HOST}:{PORT} HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n\r\n".encode())
+        raw.sendall(f"CONNECT {host}:{PORT} HTTP/1.1\r\nHost: {host}:{PORT}\r\n\r\n".encode())
         status = _read_head(raw).split(b"\r\n", 1)[0].split(b" ")
         if len(status) < 2 or status[1] != b"200":
             raw.close()
             raise Refused(f"the proxy refused the tunnel: {b' '.join(status[:3]).decode('latin-1')}")
     else:
-        raw = socket.create_connection((HOST, PORT), timeout=timeout)
+        raw = socket.create_connection((host, PORT), timeout=timeout)
     context = ssl.create_default_context()
     context.minimum_version = ssl.TLSVersion.TLSv1_2
-    stream = context.wrap_socket(raw, server_hostname=HOST)
+    stream = context.wrap_socket(raw, server_hostname=host)
     stream.settimeout(timeout)
     key = base64.b64encode(os.urandom(16)).decode()
     streams = "/".join(f"{symbol.lower()}@kline_1m" for symbol in symbols)
-    stream.sendall((f"GET {PATH}{streams} HTTP/1.1\r\nHost: {HOST}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+    stream.sendall((f"GET {PATH}{streams} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                     f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
     status = _read_head(stream).split(b"\r\n", 1)[0].split(b" ")
     if len(status) < 2 or status[1] != b"101":

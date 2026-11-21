@@ -54,7 +54,7 @@ def fixture():
         }},
     }
     manifest = {"symbols": ["BTCUSDT"], "credential_binding": credentials.binding,
-                "config": {"drawdown_brake": "0.15", "leverage": "50"},
+                "config": {"environment": "live", "drawdown_brake": "0.15", "leverage": "50"},
                 "market": {"market_day": MARKET_DAY, "terms": {"BTCUSDT": {
                     "price_increment": "0.1", "size_increment": "0.0010", "min_notional": "50"}}}}
     return snapshot, manifest
