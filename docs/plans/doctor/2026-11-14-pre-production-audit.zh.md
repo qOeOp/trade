@@ -1,6 +1,6 @@
 # 2026-11-14 上线前全面审计
 
-按 [`docs/plans/pre-production-audit-prompt.zh.md`](../pre-production-audit-prompt.zh.md) 做的一次全量审计，分三条主线：A 研究方法、B 执行链（回放、Paper、Live）、C Nautilus 用法，另加 D 只有真实交易所才能暴露的问题与小资金试运行方案。只诊断，不修：没有改代码、技能、检查、配置和账本，没有开修复 PR，没有启动 Live，没有读取任何交易所凭证。检索日志、论文阅读深度、视频证据包、探针清单和 Nautilus 源码引用在[证据附录](2026-11-14-pre-production-audit-evidence.zh.md)。
+按 [`docs/plans/pre-production-audit-prompt.zh.md`](https://github.com/qOeOp/trade/blob/6f1aa9d27/docs/plans/pre-production-audit-prompt.zh.md) 做的一次全量审计，分三条主线：A 研究方法、B 执行链（回放、Paper、Live）、C Nautilus 用法，另加 D 只有真实交易所才能暴露的问题与小资金试运行方案。只诊断，不修：没有改代码、技能、检查、配置和账本，没有开修复 PR，没有启动 Live，没有读取任何交易所凭证。检索日志、论文阅读深度、视频证据包、探针清单和 Nautilus 源码引用在[证据附录](2026-11-14-pre-production-audit-evidence.zh.md)。
 
 | Item | Value |
 |---|---|
@@ -9,7 +9,7 @@
 | Checkout / ledger | `origin/main` `65a3c12990c4f2089893b4d31e48b0aec26daf01`，审计一律读这个提交的导出快照（主检出被别的会话切到过其他分支）。写入前在 `origin/main` 的新头 `1dbd32a91` 上复核过：相对钉住提交多了 60 个提交，与审计范围相关的合入有发布控制的四个修复（#2990、#2992、#2993、#2994）、#2997（`paper compare` 与 `live compare` 在差异旁列出早到的 K 线）、#2999 至 #3001（Live 的候选、合约、杠杆改在 Live 页选，每台发布主机都装 Live）、#3005 与 #3010（文字修正）、#3007（`AGENTS.md` 改写）、#3016（预热可声明资金费历史，要新运行镜像摘要），以及 v0.3.1、v0.4.0 两个版本提交。这些改动没有修掉任何一条发现，详见“在 main 头上的复核”。活动账本 `en606j7h57iromf419tm9mflddrok746`，审计全程没有前进。Nautilus `2.0.0rc7`（源码标签 `v2.0.0rc7`，提交 `55c0e820`）；回放镜像 `trade-runtime:main` 本机 `sha256:6417babf…`，账本里 41 个有效运行用的回放镜像 `sha256:d3c5b2a3…`；Paper 审计运行用注册表上当时的 `exec-main` `sha256:4597cba3…`（修订 `cbb6204fe`，钉住提交的祖先，产品目录与钉住提交无差异）；三处 Nautilus 均为 2.0.0rc7 |
 | Coverage | A 线 13 个面、B 线 12 类故障（回放、Paper、Live 进程内、Live 对本地假交易所回环，共 160 个情形，其中 6 个是 Redis 探针）、C 线 9 组组件，覆盖矩阵见下。明确的缺口：没有任何真实 Live 运行的证据；抽样的会话里关线、否决年与留出期检验、正式验证、跨线融合都没有发生过；`deploy/` 的发布控制不在范围内；回放与 Paper 的对账在本记录写成时没有做成（市场数据还没有覆盖审计运行的区间，见"故障矩阵和对账结果"），结果出来后另写一份记录 |
 | Cost | 被审的研究会话：19 小时，43 个研究试验，没有一个运行同时达到用户的两个目标；无效试验 2 个（试验 94、95，Agent 的源码缺止损，被产品审计拦下，不是产品造成的）。本次审计：约 60 个子代理，按各自回报相加约 2,100 万 token（主会话未计）；墙钟时间约两天，其中多数在等 Paper 长跑和市场数据。其余未测 |
-| Net change | 本次只提方向，没有改动。钉住提交上拒绝码 250（`shared/refusals.py` `CATALOGUE` 键；上一份带计数的记录[整体瘦身审计](2026-11-13-whole-product-slimming-audit.zh.md) 258），技能词数 27,396（`.agents/skills/**/*.md` 全部 `cat \| wc -w`；上一份 27,572，同口径）。本记录的处置若全部照做：Live 入场被拒的三条结束路径并成一条（少一个特例）；新增检查、拒绝或结束原因的候选有 9 处，都要先问用户，是否新增由用户定——带持仓重启后核实止损、失败退出不当作中断、入场前的读取里比较持仓（20261114-25 的第二类）、GTD 整秒、带 GTD 的止损类订单给出规则拒绝、`set_timer_zoned` 守卫、Paper 的 Redis 子进程存活检查、Paper 日志写失败按运行失败处理、Live 只读客户端的响应形状转换；聚合 K 线迟到先测量，要处理时并入已有的 `bars_missing` 路径，不另加原因。技能文字约增 6 至 8 句（GTD 整秒、同刻次序、一日一决策的重启、Paper 恢复协议一两句），改一句（到期那根 K 线），各带评测用例；文档只改不增。新增不可避免之处：前三项守的是真实资金上的仓位，运行中 Agent 无法介入 |
+| Net change | 本次只提方向，没有改动。钉住提交上拒绝码 250（`shared/refusals.py` `CATALOGUE` 键；上一份带计数的记录[整体瘦身审计](https://github.com/qOeOp/trade/blob/4f02ebc1a/docs/plans/doctor/2026-11-13-whole-product-slimming-audit.zh.md) 258），技能词数 27,396（`.agents/skills/**/*.md` 全部 `cat \| wc -w`；上一份 27,572，同口径）。本记录的处置若全部照做：Live 入场被拒的三条结束路径并成一条（少一个特例）；新增检查、拒绝或结束原因的候选有 9 处，都要先问用户，是否新增由用户定——带持仓重启后核实止损、失败退出不当作中断、入场前的读取里比较持仓（20261114-25 的第二类）、GTD 整秒、带 GTD 的止损类订单给出规则拒绝、`set_timer_zoned` 守卫、Paper 的 Redis 子进程存活检查、Paper 日志写失败按运行失败处理、Live 只读客户端的响应形状转换；聚合 K 线迟到先测量，要处理时并入已有的 `bars_missing` 路径，不另加原因。技能文字约增 6 至 8 句（GTD 整秒、同刻次序、一日一决策的重启、Paper 恢复协议一两句），改一句（到期那根 K 线），各带评测用例；文档只改不增。新增不可避免之处：前三项守的是真实资金上的仓位，运行中 Agent 无法介入 |
 
 ## 怎样读这份记录
 
