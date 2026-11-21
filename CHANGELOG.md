@@ -84,6 +84,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   (doctor 20261121-10): the equity chart glides to its span with as much again either side, the candle chart shows
   it with at least twenty candles either side, and both mark the span with a band in the focus blue. The row stays
   highlighted; a Comparison click picks the whole order group.
+- IDE, Line-close history: the picked replay's header links add Run paper…, which asks with the same Run paper start
+  as ⌘K and the graph's ▶ (shown while the page reaches a paper daemon and the version has no run on paper), and, when
+  the picked row's verdict meets the targets and the page has an Agent, Validate…, which opens a new Agent chat holding
+  a message naming the line and the version and asking to register out-of-sample validation; the user sends it, and
+  the page registers nothing itself.
+
 - IDE, Line-close history: clicking a cell shows that replay (a veto year, the development period, its replay, the
   holdout or the forward part) in Details with its version selected, with Source and Runs links in the page header; a
   row of another line opens that line's page with the replay picked (`trial=`). Trades can open at the bottom of the
