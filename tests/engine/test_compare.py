@@ -1,6 +1,5 @@
 """Native parity comparison of two replays."""
 
-import csv
 import json
 import tempfile
 import unittest
@@ -10,6 +9,7 @@ from pathlib import Path
 
 from engine.compare_reports import compare_reports
 from engine.config import Refusal
+from tests.helpers import refused, write_csv
 
 
 def _replay(root: Path, sharpe) -> Path:
@@ -52,10 +52,7 @@ def _hedged_run(root: Path, positions: tuple[str, str], fill_px: str = "104.00",
                      "adjustments": "[]", "venue_order_ids": f"['BINANCE-1-{2 * index + 1}']",
                      "trade_ids": f"['T-{index}-001']", "quantity": "1.000"})
     for name, rows in (("orders", orders), ("fills", fills), ("positions", held)):
-        with (root / f"{name}.csv").open("w", newline="") as stream:
-            writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
-            writer.writeheader()
-            writer.writerows(reversed(rows) if rows_reversed else rows)
+        write_csv(root / f"{name}.csv", reversed(rows) if rows_reversed else rows)
     return root
 
 
@@ -141,9 +138,7 @@ class CompareReportsTests(unittest.TestCase):
 
     def test_unreadable_directories_and_tolerances_are_refused(self):
         def code(*args):
-            with self.assertRaises(Refusal) as caught:
-                compare_reports(*args)
-            return caught.exception.code
+            return refused(lambda: compare_reports(*args), error=Refusal).code
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             left, right = _replay(root / "a", None), _replay(root / "b", None)

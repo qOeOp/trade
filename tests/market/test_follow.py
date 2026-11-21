@@ -16,6 +16,7 @@ from tests.market.directory import directory, read, seed
 from tests.market.exchange import Exchange, day_ms, serving, two_sided_trades
 from tests.market.test_aggtrades import archive
 from tests.market.test_metrics import JAN, START, day_text, line, put
+from tests.helpers import refused
 
 
 FEB = date(2025, 2, 1)
@@ -37,7 +38,7 @@ def at(day: date, hour=0, minute=40) -> datetime:
 MAR, APR = date(2025, 3, 1), date(2025, 4, 1)
 
 
-def refused(code: str, *missing: str) -> Refusal:
+def refusal(code: str, *missing: str) -> Refusal:
     return Refusal(code, f"refused {code}", missing)
 
 
@@ -55,7 +56,7 @@ class SortTests(unittest.TestCase):
                 ("quotes", "TERMS_UNKNOWN", "contract"),
                 ("trades", "SEQUENCE_GAP", "contract")):
             with self.subTest(kind=kind, code=code):
-                self.assertEqual(follow.sort(kind, refused(code)), expected)
+                self.assertEqual(follow.sort(kind, refusal(code)), expected)
         # An error without a code (a full disk) stops instead of downloading gigabytes again every hour.
         self.assertEqual(follow.sort("trades", OSError(28, "No space left on device")), "contract")
 
@@ -170,14 +171,14 @@ class MonthlyTests(unittest.TestCase):
 
     def test_a_refused_group_reads_which_contracts_were_written_and_retries_the_rest_one_by_one(self):
         self.holding("trades", JAN)
-        self.refusals[("ETHUSDT", FEB)] = [refused("SOURCE_UNREACHABLE")]
+        self.refusals[("ETHUSDT", FEB)] = [refusal("SOURCE_UNREACHABLE")]
         found, memory = self.run_kind("trades", date(2025, 3, 2))
         self.assertEqual(self.calls, [("trades", FEB, ("BTCUSDT", "ETHUSDT")), ("trades", FEB, ("ETHUSDT",))])
         self.assertEqual((found["ETHUSDT"]["rows"], memory.stopped), (10, {}))
 
     def test_a_sequence_gap_downloads_the_month_again_once_then_skips_it(self):
         self.holding("trades", JAN, symbols=("BTCUSDT",))
-        gap = refused("SEQUENCE_GAP", "BTCUSDT 2025-02-09")
+        gap = refusal("SEQUENCE_GAP", "BTCUSDT 2025-02-09")
         self.refusals[("BTCUSDT", FEB)] = [gap, gap]
         found, memory = self.run_kind("trades", date(2025, 4, 2), symbols=("BTCUSDT",))
         self.assertEqual(self.calls, [("trades", FEB, ("BTCUSDT",))] * 2 + [("trades", MAR, ("BTCUSDT",))])
@@ -191,7 +192,7 @@ class MonthlyTests(unittest.TestCase):
 
     def test_a_gap_on_the_eve_stops_the_contract_since_skipping_the_month_cannot_help(self):
         self.holding("trades", JAN, symbols=("BTCUSDT",))
-        self.refusals[("BTCUSDT", FEB)] = [refused("SEQUENCE_GAP", "BTCUSDT 2025-01-31")]
+        self.refusals[("BTCUSDT", FEB)] = [refusal("SEQUENCE_GAP", "BTCUSDT 2025-01-31")]
         _, memory = self.run_kind("trades", date(2025, 4, 2), symbols=("BTCUSDT",))
         self.assertEqual((memory.stopped[("trades", "BTCUSDT")]["code"], memory.skipped), ("SEQUENCE_GAP", {}))
         self.assertEqual(len(self.calls), 1)
@@ -199,12 +200,12 @@ class MonthlyTests(unittest.TestCase):
     def test_retries_stops_of_a_contract_and_stops_of_everything(self):
         self.holding("quotes", JAN)
         self.holding("trades", JAN, FEB)
-        self.refusals[("BTCUSDT", FEB)] = [refused("CONCURRENT_IMPORT")]
-        self.refusals[("ETHUSDT", FEB)] = [refused("TERMS_UNKNOWN")]
+        self.refusals[("BTCUSDT", FEB)] = [refusal("CONCURRENT_IMPORT")]
+        self.refusals[("ETHUSDT", FEB)] = [refusal("TERMS_UNKNOWN")]
         found, memory = self.run_kind("quotes", date(2025, 3, 2))
         self.assertEqual((found["BTCUSDT"]["retry"]["code"], list(memory.stopped)), ("CONCURRENT_IMPORT",
                                                                                      [("quotes", "ETHUSDT")]))
-        self.refusals[("BTCUSDT", FEB)] = [refused("DATA_TESTS_FAILED")]
+        self.refusals[("BTCUSDT", FEB)] = [refusal("DATA_TESTS_FAILED")]
         _, memory = self.run_kind("quotes", date(2025, 3, 2))
         self.assertEqual(list(memory.stopped), ["*"])
         self.assertEqual(self.calls[-1], ("quotes", FEB, ("BTCUSDT",)))  # nothing after a refusal of the whole market
@@ -213,7 +214,7 @@ class MonthlyTests(unittest.TestCase):
         self.holding("trades", JAN, APR, symbols=("BTCUSDT",))
         found = entries("BTCUSDT")
         memory = follow.Memory()
-        self.refusals[("BTCUSDT", MAR)] = [refused("SEQUENCE_GAP", "BTCUSDT 2025-03-05")]
+        self.refusals[("BTCUSDT", MAR)] = [refusal("SEQUENCE_GAP", "BTCUSDT 2025-03-05")]
         follow._holes("trades", {}, JAN, ["BTCUSDT"], Path("."), memory, lambda _: None, found)
         self.assertEqual(self.calls, [("trades", FEB, ("BTCUSDT",)), ("trades", MAR, ("BTCUSDT",))])
         self.assertEqual((found["BTCUSDT"]["filled"], memory.stopped), (["2025-02"], {}))
@@ -318,7 +319,7 @@ class RoundOrderTests(unittest.TestCase):
         memory = follow.Memory()
 
         def bars(*args):
-            raise refused("MONTH_EXISTS", "2025-03")
+            raise refusal("MONTH_EXISTS", "2025-03")
         status, _ = self.run_round(memory, bars=bars)
         kinds = status["kinds"]
         self.assertEqual((kinds["bars"]["scope"]["state"], kinds["bars"]["scope"]["refusal"]["code"],
@@ -341,14 +342,14 @@ class RoundOrderTests(unittest.TestCase):
 
     def test_a_failure_between_imports_is_retried_and_one_about_the_market_stops_everything(self):
         def monthly_(kind, *args):
-            raise refused("MARKET_UNREACHABLE")
+            raise refusal("MARKET_UNREACHABLE")
         memory = follow.Memory()
         status, _ = self.run_round(memory, monthly_=monthly_)
         self.assertEqual((status["kinds"]["trades"]["BTCUSDT"]["retry"]["code"], memory.stopped),
                          ("MARKET_UNREACHABLE", {}))
 
         def failed(kind, *args):
-            raise refused("DATA_TESTS_FAILED")
+            raise refusal("DATA_TESTS_FAILED")
         status, _ = self.run_round(memory, monthly_=failed)
         self.assertEqual(memory.stopped["*"]["code"], "DATA_TESTS_FAILED")
 
@@ -448,9 +449,8 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(seen[0]["at"], start.isoformat())  # the first round has no status before it
 
     def test_an_empty_bar_list_is_refused_at_start(self):
-        with self.assertRaises(Refusal) as caught:
-            follow.follow({}, scope(bar_symbols=[]), Path("."), Path("status.json"), rounds=1)
-        self.assertEqual(caught.exception.code, "EMPTY_SYMBOLS")
+        caught = refused(follow.follow, {}, scope(bar_symbols=[]), Path("."), Path("status.json"), rounds=1)
+        self.assertEqual(caught.code, "EMPTY_SYMBOLS")
 
 class RoundTests(unittest.TestCase):
     def setUp(self):
@@ -577,7 +577,7 @@ class RoundTests(unittest.TestCase):
     def test_an_unreachable_market_while_importing_is_retried_next_round(self):
         profile = self.market(("BTCUSDT",))
         stopped = follow.Memory()
-        lost = refused("MARKET_UNREACHABLE")
+        lost = refusal("MARKET_UNREACHABLE")
         with serving(self.exchange({"BTCUSDT": [FEB]})), patch.object(follow.metrics, "import_month",
                                                                           side_effect=lost):
             status = self.round(profile, stopped, at(date(2025, 2, 2)), ("BTCUSDT",))

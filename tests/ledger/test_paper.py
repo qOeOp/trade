@@ -17,7 +17,6 @@ from unittest import mock
 
 from ledger import db, paper, strategies
 from shared import clock
-from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, DAY, SKIP, Service, sha, source
 from tests.helpers import refused
 
@@ -313,9 +312,9 @@ class RecordTests(unittest.TestCase):
         self.assertFalse({"paper_run", "paper_seal", "paper_file", "paper_source"} & tables)
         self.assertEqual(db.profile(None, holds="paper"), self.profile)
         for name, holds in (("paper", "research"), ("research", "paper")):
-            with self.subTest(name), self.assertRaises(Refusal) as caught:
-                db.profile(name, holds=holds)
-            self.assertEqual(caught.exception.code, "LEDGER_KIND")
+            with self.subTest(name):
+                caught = refused(db.profile, name, holds=holds)
+            self.assertEqual(caught.code, "LEDGER_KIND")
         grants = " ".join(row[0] for row in self.service.sql(self.research, "SHOW GRANTS FOR "
                                                               f"'{db.account_name(self.research.database, 'writer')}'@'%'"))
         self.assertNotIn("DELETE", grants, "the research writer never deletes")
@@ -366,6 +365,6 @@ class RecordTests(unittest.TestCase):
             self.assertEqual(paper.paper_files(reader, second["paper_id"])["summary.json"], shared)
             self.assertEqual(paper.read_source(reader, self.copied["source_sha256"])["source"], source("start"))
         for paper_id, code in ((first["paper_id"], "PAPER_RUN_UNKNOWN"), (open_run["paper_id"], "PAPER_RUN_ACTIVE")):
-            with self.subTest(code), self.assertRaises(Refusal) as caught:
-                paper.delete_paper_run(self.profile, paper_id)
-            self.assertEqual(caught.exception.code, code)
+            with self.subTest(code):
+                caught = refused(paper.delete_paper_run, self.profile, paper_id)
+            self.assertEqual(caught.code, code)

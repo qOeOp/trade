@@ -73,7 +73,7 @@ def coverage(market_day: str = MARKET_DAY, *, effective_config: dict | None = No
     """input-coverage.json as replay.input_coverage writes it: the effective configuration, the export receipts by
     symbol, the input identity (`identity` overrides its keys: symbols, universe_rule, export_content_sha256,
     lifecycle_bundle) and, when given, the membership file's content."""
-    input_identity = {"market_name": "market", "market_day": market_day, "universe_rule": "pool-v1",
+    input_identity = {"market_name": "market", "market_day": market_day, "universe_rule": "usdt-perp-listed30d-v1",
                       "symbols": list(SYMBOLS), "export_content_sha256": "e" * 64, **identity}
     effective = effective_config or {"runtime_contract": IDENTITY["runtime_contract"], **window(),
                                      "execution_bar_minutes": 1440, "symbols": list(input_identity["symbols"]),
@@ -133,7 +133,7 @@ class Service:
             shutil.rmtree(self.root, ignore_errors=True)
 
 
-def market(market_day: str = MARKET_DAY, latest_complete_day=None, universe_rule: str | None = "pool-v1",
+def market(market_day: str = MARKET_DAY, latest_complete_day=None, universe_rule: str | None = "usdt-perp-listed30d-v1",
            first_day=date(2019, 9, 1)):
     """A stand-in for the market facts line select reads, covered from `first_day`."""
 

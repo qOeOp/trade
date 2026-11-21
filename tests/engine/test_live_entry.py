@@ -40,6 +40,7 @@ from engine.live_venue import Credentials
 from engine.membership import month_end_ns
 from tests.engine.test_live import SOURCE
 from tests.engine.test_live_venue import ERROR_ANSWER, answering_200, fixture, venue_clock
+from tests.helpers import refused
 
 
 class DeferredAccount:
@@ -241,9 +242,7 @@ class NativeEntryTests(unittest.TestCase):
 
     def assert_refused_unchanged(self, code, operation):
         ids = [order.client_order_id for order in self.engine.cache.orders()]
-        with self.assertRaises((LiveRefusal, Refusal)) as caught:  # Refusal: engine.order_rules
-            operation()
-        self.assertEqual(caught.exception.code, code)
+        self.assertEqual(refused(operation, error=(LiveRefusal, Refusal)).code, code)  # Refusal: engine.order_rules
         self.advance()
         self.assertEqual([order.client_order_id for order in self.engine.cache.orders()], ids)
 

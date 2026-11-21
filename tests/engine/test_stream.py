@@ -710,12 +710,12 @@ class StreamTests(unittest.TestCase):
                 consumed = []
                 original = run.stream
                 with self.subTest(mode=mode), patch.object(
-                        run, "stream", lambda *a: consumed.append(original(*a)) or consumed[-1]), \
-                        self.assertRaises(Refusal) as caught:
-                    run.replay(rows, window, loaded, read_universe(None, symbols), root,
-                               {**execution_account("quotes", ("0.05", "0.025")), "chunk_size": 1000})
-                self.assertEqual(caught.exception.code, "TRADES_NOT_SERVED")
-                self.assertIn(named, str(caught.exception))
+                        run, "stream", lambda *a: consumed.append(original(*a)) or consumed[-1]):
+                    caught = refused(run.replay, rows, window, loaded, read_universe(None, symbols), root,
+                                     {**execution_account("quotes", ("0.05", "0.025")), "chunk_size": 1000},
+                                     error=Refusal)
+                self.assertEqual(caught.code, "TRADES_NOT_SERVED")
+                self.assertIn(named, str(caught))
                 total = sum(sum(v for k, v in row["counts"].items() if k != "daily") for row in rows)
                 self.assertEqual(len(consumed), 1)
                 self.assertTrue(1000 <= consumed[0] < total)
@@ -743,10 +743,10 @@ class StreamTests(unittest.TestCase):
             finally:
                 finished.engine.dispose()
             seen = {row["coin"]: strategies[row["coin"]].seen for row in rows}
-            with self.assertRaises(Refusal) as caught:
-                run.replay(rows, window, loaded, read_universe(None, symbols), root, metrics=True)
-            self.assertEqual(caught.exception.code, "METRICS_MISSING")
-            self.assertIn("CCCUSDT 2026-01", str(caught.exception))
+            caught = refused(run.replay, rows, window, loaded, read_universe(None, symbols), root, metrics=True,
+                             error=Refusal)
+            self.assertEqual(caught.code, "METRICS_MISSING")
+            self.assertIn("CCCUSDT 2026-01", str(caught))
         self.assertEqual(iterations, sum(sum(value for key, value in row["counts"].items() if key != "daily")
                                          for row in rows))
         for row in rows:
@@ -775,11 +775,10 @@ class StreamTests(unittest.TestCase):
             window = parse_window(utc_text(START * 10**6), utc_text((START + 3 * 3_600_000) * 10**6),
                                   utc_text(END * 10**6))
             rows = read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
-            with self.assertRaises(Refusal) as caught:
-                run.replay(rows, window, loaded, read_universe(None, symbols), root,
-                           {**ACCOUNT_CONTRACT, "chunk_size": 1000})
-        self.assertEqual(caught.exception.code, "METRICS_NOT_SERVED")
-        self.assertIn("subscribe_data Metrics for CCCUSDT-E1-PERP.BINANCE", str(caught.exception))
+            caught = refused(run.replay, rows, window, loaded, read_universe(None, symbols), root,
+                             {**ACCOUNT_CONTRACT, "chunk_size": 1000}, error=Refusal)
+        self.assertEqual(caught.code, "METRICS_NOT_SERVED")
+        self.assertIn("subscribe_data Metrics for CCCUSDT-E1-PERP.BINANCE", str(caught))
 
     def test_exported_trades_are_checked_per_month_and_a_file_never_spans_two(self):
         """Trades are checked per UTC month of [trade start, end) like quotes: January and March held, February

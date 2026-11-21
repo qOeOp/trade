@@ -13,7 +13,6 @@ import shutil
 import signal
 import socket
 import subprocess
-import tempfile
 import threading
 import time
 import unittest
@@ -23,7 +22,7 @@ from ledger import db, first_run, publish, server, service
 from shared import paths, profiles
 from shared.refusals import refuse
 from tests.ledger.dolt import BINARY, SKIP
-from tests.helpers import refused
+from tests.helpers import refused, tempdir
 
 
 class RepositoryTests(unittest.TestCase):
@@ -42,8 +41,7 @@ class RepositoryTests(unittest.TestCase):
 @unittest.skipUnless(BINARY, SKIP)
 class FirstStartTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="fr-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, self.root, True)
+        self.root = tempdir(self.addCleanup, prefix="fr-", dir="/tmp")
         self.service_root, self.data, self.backups = self.root / "s", self.root / "data", self.root / "backups"
         self.credentials = self.root / "user" / ".dolt"
         self.credentials.mkdir(parents=True)

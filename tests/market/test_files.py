@@ -3,9 +3,7 @@
 from datetime import date
 from decimal import Decimal
 import os
-from pathlib import Path
 import shutil
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +13,7 @@ import pyarrow.parquet as pq
 from market import files, universe
 from shared import clock
 from shared.errors import Refusal
+from tests.helpers import tempdir
 
 
 DAY = files.DAY
@@ -61,8 +60,7 @@ def metrics(symbol: str, times: list[int]) -> pa.RecordBatch:
 
 class Directory(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.root, True)
+        self.root = tempdir(self.addCleanup)
         self.profile = {"name": "market", "holds": "market", "root": str(self.root)}
 
     def importer(self) -> files.Market:

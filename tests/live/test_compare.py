@@ -299,9 +299,8 @@ class Compare(unittest.TestCase):
         for given, code in (({"source": b"changed"}, "LIVE_IDENTITY_CHANGED"), ({"warmed": False}, "LIVE_COMPARE_EMPTY")):
             with self.subTest(code), tempfile.TemporaryDirectory() as name:
                 Pack(Path(name), **given)
-                with self.assertRaises((LiveRefusal, Refusal)) as caught:
-                    compare.compare(Path(name), "trial-1", {}, None, Path(name) / "out")
-                self.assertEqual(caught.exception.code, code)
+                self.assertEqual(refused(compare.compare, Path(name), "trial-1", {}, None, Path(name) / "out",
+                                         error=(LiveRefusal, Refusal)).code, code)
 
     def test_a_restarted_run_compares_each_trading_start_on_its_own(self):
         pack = Pack(self.root)

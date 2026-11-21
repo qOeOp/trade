@@ -83,9 +83,9 @@ class PrecheckCacheTests(unittest.TestCase):
             else:
                 target.unlink()
                 target.symlink_to(directory / "reports" / "orders.csv")
-            with self.subTest(mode=mode), self.assertRaises(Refusal) as caught:
-                self.report(original["trial_id"], clone)
-            self.assertEqual(caught.exception.code, "REPRODUCTION_MISMATCH")
+            with self.subTest(mode=mode):
+                caught = refused(self.report, original["trial_id"], clone)
+            self.assertEqual(caught.code, "REPRODUCTION_MISMATCH")
 
     def test_lost_cache_is_rebuilt_reviewed_and_registered_without_new_exposure(self):
         world = self.world
@@ -130,9 +130,9 @@ class PrecheckCacheTests(unittest.TestCase):
         original = self.checked()
         review = self.review(original["trial_id"])
         world.fingerprint = {"fills": {"rows": 99, "sha256": "f" * 64}}
-        with self.assertRaises(Refusal) as caught:
-            reproduce.reproduce(original["trial_id"], world.output("changed"), ledger=world.profile, market=world.market)
-        self.assertEqual((caught.exception.code, caught.exception.write_status), ("REPRODUCTION_MISMATCH", "written"))
+        caught = refused(reproduce.reproduce, original["trial_id"], world.output("changed"), ledger=world.profile,
+                         market=world.market)
+        self.assertEqual((caught.code, caught.write_status), ("REPRODUCTION_MISMATCH", "written"))
         self.assertEqual(refused(world.register, self.body(review)).code, "SOURCE_ALREADY_EXPOSED")
         self.assertEqual(status.research_status(world.profile)["excluded_trials"]["reproductions"], [])
 

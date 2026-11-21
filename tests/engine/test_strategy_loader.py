@@ -201,9 +201,9 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertEqual(effective_configuration(self.configuration(["--starting-balance", "1e5"])).digest,
                          default.digest)
         for text in ("0", "-1", "abc", "NaN", "Infinity"):
-            with self.subTest(text=text), self.assertRaises(Refusal) as caught:
-                self.configuration(["--starting-balance", text])
-            self.assertEqual(caught.exception.code, "STARTING_BALANCE_NOT_POSITIVE")
+            with self.subTest(text=text):
+                caught = refused(self.configuration, ["--starting-balance", text], error=Refusal)
+            self.assertEqual(caught.code, "STARTING_BALANCE_NOT_POSITIVE")
 
     def test_leverage_enters_the_account_and_only_binances_range_is_taken(self):
         default = effective_configuration(self.configuration())
@@ -213,9 +213,9 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertEqual({**ten.values["account"], "default_leverage": "3"}, default.values["account"])
         self.assertNotEqual(ten.digest, default.digest)
         for text in ("0", "126", "03", "2.5", "-1", "x"):
-            with self.subTest(text=text), self.assertRaises(Refusal) as caught:
-                self.configuration(["--leverage", text])
-            self.assertEqual(caught.exception.code, "LEVERAGE_INVALID")
+            with self.subTest(text=text):
+                caught = refused(self.configuration, ["--leverage", text], error=Refusal)
+            self.assertEqual(caught.code, "LEVERAGE_INVALID")
 
     def test_execution_binding_checks_resolved_defaults_and_complete_config(self):
         args = self.configuration()
@@ -436,9 +436,8 @@ class StrategyLoaderTests(unittest.TestCase):
         self.addCleanup(setattr, strategy_runtime, "FAILURE_PATH", None)
 
         def receipts(*extra):
-            with self.assertRaises(Refusal) as caught:
-                run.main(argv + list(extra))
-            return caught.exception, [json.loads(line) for line in
+            caught = refused(run.main, argv + list(extra), error=Refusal)
+            return caught, [json.loads(line) for line in
                                       (output / "runtime_failures.jsonl").read_text().splitlines()]
 
         refusal, written = receipts("--strategy-sha256", "0" * 64)

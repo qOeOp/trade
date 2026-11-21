@@ -7,7 +7,6 @@ from decimal import Decimal
 from itertools import pairwise
 import ast
 import io
-import csv
 import gzip
 import json
 from pathlib import Path
@@ -18,6 +17,7 @@ import pandas as pd
 
 from engine.audit import audit, audit_main, event_report_findings, live_fill_changes, uncovered_intervals
 from engine.protection import ALLOWANCE_NS as BAR_NS
+from tests.helpers import write_csv
 
 
 START = "2026-01-01 00:00:00+00:00"
@@ -139,10 +139,7 @@ class NativeAuditTests(unittest.TestCase):
         else:
             coverage_path.write_text(json.dumps(receipt))
         for name in ("orders", "fills", "positions", "account"):
-            with (self.root / f"{name}.csv").open("w", newline="") as stream:
-                writer = csv.DictWriter(stream, fieldnames=list(values[name][0]))
-                writer.writeheader()
-                writer.writerows(values[name])
+            write_csv(self.root / f"{name}.csv", values[name])
         (self.root / "summary.json").write_text(json.dumps(values["summary"]))
         (self.root / "returns_series.csv").write_text("ts_event_ns,native_return\n")
         events = values["events"] if "events" in values else order_events(values)

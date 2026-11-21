@@ -56,13 +56,13 @@ class CodecTests(unittest.TestCase):
             self.assertEqual(trades.scaled('12345.12345678', 'price'), 1234512345678)
         for text in ('0.000000001', '92233720368.54775808', '100000000000000000000000000000.00000001',
                      '1E+1000000000', '1E-1000000000'):
-            with self.subTest(text=text), self.assertRaises(Refusal) as caught:
-                trades.scaled(text, 'price')
-            self.assertEqual(caught.exception.code, 'SCALE_LOSS')
+            with self.subTest(text=text):
+                caught = refused(trades.scaled, text, 'price')
+            self.assertEqual(caught.code, 'SCALE_LOSS')
         for text in ('NaN', 'Infinity', '-1', '0', 'oops'):
-            with self.subTest(text=text), self.assertRaises(Refusal) as caught:
-                trades.scaled(text, 'quantity')
-            self.assertEqual(caught.exception.code, 'SOURCE_SHAPE')
+            with self.subTest(text=text):
+                caught = refused(trades.scaled, text, 'quantity')
+            self.assertEqual(caught.code, 'SOURCE_SHAPE')
 
     def test_any_spelling_of_a_value_at_the_scale_reads_back_exactly_and_one_digit_finer_refuses(self):
         # Seeded, bounded property check: values across the whole int64 range at scale 8, in the spellings an archive
@@ -100,13 +100,13 @@ class CodecTests(unittest.TestCase):
                                             ((1, 2), (10, -1), 'SOURCE_SHAPE')]:
                 rows = [(i, '100', '0.1', i, i, START + t, True) for i, t in zip(identities, times, strict=True)]
                 path = archive(temp, '2025-01-01', rows)
-                with self.subTest(identities=identities, times=times), self.assertRaises(Refusal) as caught:
-                    list(trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(), {}, size=1))
-                self.assertEqual(caught.exception.code, code)
+                with self.subTest(identities=identities, times=times):
+                    caught = refused(list, trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(), {}, size=1))
+                self.assertEqual(caught.code, code)
             path = archive(temp, '2025-01-01', source_rows(START, 7))
-            with self.assertRaises(Refusal) as caught:
-                list(trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(5, START - 1), {}, size=1))
-            self.assertEqual(caught.exception.code, 'SEQUENCE_GAP')
+            caught = refused(list,
+                             trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(5, START - 1), {}, size=1))
+            self.assertEqual(caught.code, 'SEQUENCE_GAP')
 
     def test_repeated_id_imports_a_later_distinct_trade_and_refuses_any_other_repeat(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -120,9 +120,9 @@ class CodecTests(unittest.TestCase):
             for second in [(1, '100', '0.1', 1, 1, START + 10, True), (1, '101', '0.2', 3, 3, START + 10, False),
                            (1, '101', '0.2', 1, 1, START + 11, False)]:
                 path = archive(temp, '2025-01-01', [rows[0], second])
-                with self.subTest(second=second), self.assertRaises(Refusal) as caught:
-                    list(trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(), {}, size=1))
-                self.assertEqual(caught.exception.code, 'SEQUENCE_GAP')
+                with self.subTest(second=second):
+                    caught = refused(list, trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(), {}, size=1))
+                self.assertEqual(caught.code, 'SEQUENCE_GAP')
 
     def test_bounded_download_verifies_checksum_before_promoting_cache(self):
         body = b'x' * (sources.DOWNLOAD_BYTES * 2 + 7)
@@ -229,9 +229,9 @@ class CompleteImportTests(unittest.TestCase):
                 else:
                     rows[1] = (rows[1][0], rows[1][1], '0.000000001', *rows[1][3:])
                 archive(temp, '2025-01-31', rows)
-                with self.subTest(bad=bad), self.assertRaises(Refusal) as caught:
-                    trades.import_month(profile, JAN, Path(temp), ['BTCUSDT'], log=lambda _: None)
-                self.assertEqual(caught.exception.code, code)
+                with self.subTest(bad=bad):
+                    caught = refused(trades.import_month, profile, JAN, Path(temp), ['BTCUSDT'], log=lambda _: None)
+                self.assertEqual(caught.code, code)
             self.assertEqual(trade_files(profile), [])
         with files.lock(files.open_market(profile, 'import')):
             self.assertEqual(refused(trades.import_month, profile, JAN, self.cache, ['BTCUSDT'],
@@ -249,14 +249,14 @@ class CompleteImportTests(unittest.TestCase):
                         rows[1] = (99, *rows[1][1:])
                     archive(temp, datetime.fromtimestamp(at / 1000, UTC).date().isoformat(), rows, symbol='ETHUSDT')
                 if bad:
-                    with self.assertRaises(Refusal) as caught:
-                        trades.import_month(profile, JAN, Path(temp), ['ETHUSDT', 'BTCUSDT'], log=lambda _: None)
+                    caught = refused(trades.import_month, profile, JAN, Path(temp), ['ETHUSDT', 'BTCUSDT'],
+                                     log=lambda _: None)
                 else:
                     imported = trades.import_month(profile, JAN, Path(temp), ['ETHUSDT', 'BTCUSDT'], log=lambda _: None)
             held = Counter(row[0] for row in stored(profile))
             if bad:
-                self.assertEqual(caught.exception.code, 'SEQUENCE_GAP')
-                self.assertIn('written meanwhile: BTCUSDT', caught.exception.message)
+                self.assertEqual(caught.code, 'SEQUENCE_GAP')
+                self.assertIn('written meanwhile: BTCUSDT', caught.message)
                 self.assertEqual(held, {'BTCUSDT': 62})
                 self.assertEqual(trade_files(profile), ['2025-01/BTCUSDT.parquet'])
                 continue
@@ -272,10 +272,9 @@ class CompleteImportTests(unittest.TestCase):
             for index, at in enumerate(range(START - store.DAY, day_ms(date(2025, 2, 1)), store.DAY)):
                 archive(temp, datetime.fromtimestamp(at / 1000, UTC).date().isoformat(), source_rows(at, 1 + index * 2),
                         symbol='ETHUSDT')
-            with self.assertRaises(Refusal) as caught:
-                trades.import_month(profile, JAN, Path(temp), ['ETHUSDT', 'BTCUSDT'], log=lambda _: None)
-        self.assertEqual(caught.exception.code, 'MONTH_EXISTS')
-        self.assertIn('written meanwhile: ETHUSDT', caught.exception.message)
+            caught = refused(trades.import_month, profile, JAN, Path(temp), ['ETHUSDT', 'BTCUSDT'], log=lambda _: None)
+        self.assertEqual(caught.code, 'MONTH_EXISTS')
+        self.assertIn('written meanwhile: ETHUSDT', caught.message)
         self.assertEqual(Counter(row[0] for row in stored(profile)), {'BTCUSDT': 62, 'ETHUSDT': 62})
 
 

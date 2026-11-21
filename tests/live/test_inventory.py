@@ -16,9 +16,8 @@ from tests.helpers import refused
 class DockerClientTests(unittest.TestCase):
     def test_no_docker_client_is_refused_as_unavailable(self):
         with patch("live.host.subprocess.run", side_effect=FileNotFoundError("docker")):
-            with self.assertRaises(LiveRefusal) as caught:
-                host_runtime.docker("ps")
-        self.assertEqual(caught.exception.code, "LIVE_DOCKER_UNAVAILABLE")
+            caught = refused(host_runtime.docker, "ps", error=LiveRefusal)
+        self.assertEqual(caught.code, "LIVE_DOCKER_UNAVAILABLE")
 
 
 class ForeignInventoryTests(unittest.TestCase):

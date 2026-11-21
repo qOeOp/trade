@@ -11,7 +11,6 @@ from unittest.mock import patch
 from engine import config as engine_config
 from ledger import execution, metrics, strategies, trials
 from registration import reproduction
-from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import comparability, register, runner as registration_runner, seams as registration_seams
 from replay import entry, reproduce
@@ -108,9 +107,9 @@ class ReproduceTests(unittest.TestCase):
                  (self.unprinted, None, "never-recorded")]
         for trial_id, computed, name in cases:
             self.world.fingerprint = computed
-            with self.subTest(name=name), self.assertRaises(Refusal) as caught:
-                self.reproduce(trial_id, name)
-            self.assertEqual((caught.exception.code, caught.exception.write_status),
+            with self.subTest(name=name):
+                caught = refused(self.reproduce, trial_id, name)
+            self.assertEqual((caught.code, caught.write_status),
                              ("REPRODUCTION_MISMATCH", "written"), "the reproduction's own trial was committed")
             self.assertTrue((self.world.output(name) / "reports").is_dir())
         self.assertEqual(refused(self.reproduce, 9999, "unknown").code, "UNKNOWN_RUN")
@@ -154,9 +153,9 @@ class ResealTests(unittest.TestCase):
     def test_a_reproduction_that_differs_leaves_the_reading(self):
         sealed = self.reading()
         self.world.fingerprint = {"fills": {"rows": 3}}
-        with patch.object(metrics, "product_commit", return_value="f" * 40), self.assertRaises(Refusal) as caught:
-            self.reseal("differs")
-        self.assertEqual((caught.exception.code, self.reading()), ("REPRODUCTION_MISMATCH", sealed))
+        with patch.object(metrics, "product_commit", return_value="f" * 40):
+            caught = refused(self.reseal, "differs")
+        self.assertEqual((caught.code, self.reading()), ("REPRODUCTION_MISMATCH", sealed))
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -212,10 +211,10 @@ class AnotherImageTests(unittest.TestCase):
     def test_a_changed_result_table_refuses_and_adds_no_identity(self):
         for table in ("fills", "positions", "exposures", "returns_series"):
             self.world.fingerprint = {**ALL_TABLES, table: {"rows": 2, "sha256": "d" * 64}}
-            with self.subTest(table=table), self.assertRaises(Refusal) as caught:
-                self.replay(self.other, f"changed-{table}")
-            self.assertEqual((caught.exception.code, caught.exception.write_status), ("REPRODUCTION_MISMATCH", "written"))
-            self.assertIn(table, caught.exception.message)
+            with self.subTest(table=table):
+                caught = refused(self.replay, self.other, f"changed-{table}")
+            self.assertEqual((caught.code, caught.write_status), ("REPRODUCTION_MISMATCH", "written"))
+            self.assertIn(table, caught.message)
         self.assertEqual(reproduction.reproductions(self.world.conn, self.other), [])
 
     def test_a_missing_result_table_is_no_match(self):
@@ -235,9 +234,8 @@ class AnotherImageTests(unittest.TestCase):
         checked = entry.precheck(self.world.profile, self.world.market, MARKET_DAY, "rsi@1", RUNTIME["image_ref"],
                                  list(ARGV), self.world.output("precheck-own-image"))["trial_id"]
         before = self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0]
-        with self.assertRaises(Refusal) as caught:
-            self.replay(checked, "precheck-other-image")
-        self.assertEqual((caught.exception.code, caught.exception.write_status),
+        caught = refused(self.replay, checked, "precheck-other-image")
+        self.assertEqual((caught.code, caught.write_status),
                          ("REPRODUCTION_IMAGE_DIFFERS", "not_written"))
         self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0], before)
 
@@ -249,10 +247,10 @@ class AnotherImageTests(unittest.TestCase):
             found = real(identity, runner_argv, inputs)
             return {**found, "effective_config": {**found["effective_config"], "new_setting": "on"}}
         before = self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0]
-        with registration_seams.use(inspect_runtime=extra), self.assertRaises(Refusal) as caught:
-            self.replay(self.unbuilt, "extra-setting")
-        self.assertEqual(caught.exception.code, "REPRODUCTION_CONFIG_DIFFERS")
-        self.assertIn("effective configuration", caught.exception.message)
+        with registration_seams.use(inspect_runtime=extra):
+            caught = refused(self.replay, self.unbuilt, "extra-setting")
+        self.assertEqual(caught.code, "REPRODUCTION_CONFIG_DIFFERS")
+        self.assertIn("effective configuration", caught.message)
         self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0], before)
 
     def test_an_explore_without_table_hashes_never_matches_on_another_image(self):
@@ -334,9 +332,8 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                 return result
             before, commands = self.world.seq(), len(self.world.commands)
             with self.subTest(field=field), registration_seams.use(inspect_runtime=changed_probe):
-                with self.assertRaises(Refusal) as caught:
-                    self.reproduce(trial_id, "changed-" + field)
-                self.assertEqual((caught.exception.code, caught.exception.write_status),
+                caught = refused(self.reproduce, trial_id, "changed-" + field)
+                self.assertEqual((caught.code, caught.write_status),
                                  ("REPRODUCTION_CONFIG_DIFFERS", "not_written"))
                 self.assertEqual(self.world.seq(), before)
                 self.assertEqual(len(self.world.commands), commands)
@@ -386,9 +383,8 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
         self.assertEqual([row["export_sha256"] for row in reproduction.reproductions(conn, trial_id)],
                          [changed["export_content_sha256"]])
         self.world.fingerprint = {"fills": {"rows": 3}}
-        with self.assertRaises(Refusal) as caught:
-            self.reproduce(trial_id, "changed-reports")
-        self.assertEqual((caught.exception.code, caught.exception.write_status),
+        caught = refused(self.reproduce, trial_id, "changed-reports")
+        self.assertEqual((caught.code, caught.write_status),
                          ("REPRODUCTION_MISMATCH", "written"))
         self.assertTrue((self.world.output("changed-reports") / "reports").is_dir())
         self.assertEqual([row["export_sha256"] for row in reproduction.reproductions(conn, trial_id)],

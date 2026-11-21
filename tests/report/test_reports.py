@@ -22,7 +22,7 @@ from report import candidates, comparison, graph, measures, runs, seams, status
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP
 from tests.registration.world import OUTCOMES, RUNNER_ARGV
 from tests.replay.world import ReplayWorld, registered_grid
-from tests.helpers import refused
+from tests.helpers import refused, tempdir
 
 
 FINGERPRINT = {"fills": {"rows": 2, "sha256": "1" * 64}, "orders": {"rows": 2, "sha256": "2" * 64}}
@@ -565,9 +565,7 @@ class ReportTests(unittest.TestCase):
 
 class DirectoryTests(unittest.TestCase):
     def setUp(self):
-        import tempfile
-        self.root = Path(tempfile.mkdtemp(prefix="report-dir-"))
-        self.addCleanup(shutil.rmtree, self.root, True)
+        self.root = tempdir(self.addCleanup, prefix="report-dir-")
 
     def test_a_directory_without_its_reports_is_refused_by_name(self):
         self.assertEqual(refused(runs.load_directory, self.root / "absent").code, "DIRECTORY_NOT_FOUND")

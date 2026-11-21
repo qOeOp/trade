@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger import admin, db, server
-from shared.errors import Refusal
+from tests.helpers import refused
 
 
 TABLE = "0frkgm4f1b08v0qjbgmv06ibf6oe4qgc"
@@ -54,9 +54,9 @@ class BackupHeadTests(unittest.TestCase):
         return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
     def test_a_backup_without_a_manifest_refuses_before_running_dolt(self):
-        with patch.object(admin.subprocess, "run") as run, self.assertRaises(Refusal) as caught:
-            admin.backup_head(self.backup)
-        self.assertEqual(caught.exception.code, "DOLT_BACKUP")
+        with patch.object(admin.subprocess, "run") as run:
+            caught = refused(admin.backup_head, self.backup)
+        self.assertEqual(caught.code, "DOLT_BACKUP")
         run.assert_not_called()
 
     def test_a_listing_timeout_refuses_names_its_phase_and_leaves_no_work_directory(self):
@@ -68,10 +68,10 @@ class BackupHeadTests(unittest.TestCase):
                 raise subprocess.TimeoutExpired(argv, options["timeout"])
             return self.run_dolt(argv, **options)
 
-        with patch.object(admin.subprocess, "run", side_effect=run), self.assertRaises(Refusal) as caught:
-            admin.backup_head(self.backup)
-        self.assertEqual(caught.exception.code, "DOLT_BACKUP")
-        self.assertIn("list branches timed out after 600s", caught.exception.message)
+        with patch.object(admin.subprocess, "run", side_effect=run):
+            caught = refused(admin.backup_head, self.backup)
+        self.assertEqual(caught.code, "DOLT_BACKUP")
+        self.assertIn("list branches timed out after 600s", caught.message)
         self.assertFalse(self.work.exists())
         self.assertTrue((self.backup / "manifest").exists())
 
@@ -93,8 +93,8 @@ class BackupHeadTests(unittest.TestCase):
 
     def test_no_dolt_here_is_dolt_binary_and_leaves_no_work_directory(self):
         (self.backup / "manifest").write_text("5:__DOLT__")
-        refused = db.refuse("DOLT_BINARY", "no Dolt executable")
-        with patch.object(server, "binary", side_effect=refused), self.assertRaises(Refusal) as caught:
-            admin.backup_head(self.backup)
-        self.assertEqual(caught.exception.code, "DOLT_BINARY")
+        refusal = db.refuse("DOLT_BINARY", "no Dolt executable")
+        with patch.object(server, "binary", side_effect=refusal):
+            caught = refused(admin.backup_head, self.backup)
+        self.assertEqual(caught.code, "DOLT_BINARY")
         self.assertFalse(self.work.exists())

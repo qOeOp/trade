@@ -16,6 +16,7 @@ from unittest.mock import patch
 from engine.live_errors import LiveRefusal
 from live import notify, state
 from tests.live.test_views import LiveViewFixture
+from tests.helpers import refused
 
 
 TOKEN = "123456789:" + "A" * 35
@@ -66,10 +67,9 @@ class Base(unittest.TestCase):
         self.config = SimpleNamespace(root=self.root)
 
     def refused(self, code, action, body, call):
-        with self.assertRaises(LiveRefusal) as caught:
-            notify.execute(self.config, action, body, call=call)
-        self.assertEqual(caught.exception.code, code)
-        self.assertNotIn(TOKEN, str(caught.exception))
+        caught = refused(lambda: notify.execute(self.config, action, body, call=call), error=LiveRefusal)
+        self.assertEqual(caught.code, code)
+        self.assertNotIn(TOKEN, str(caught))
 
 
 class Settings(Base):

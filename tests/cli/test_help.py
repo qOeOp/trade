@@ -14,6 +14,7 @@ import unittest
 from unittest import mock
 
 from cli import main
+from tests.helpers import refused
 
 
 def _commands(parser):
@@ -33,9 +34,9 @@ class HelpTests(unittest.TestCase):
 
     def test_version_names_the_pyproject_version(self):
         out = io.StringIO()
-        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as done:
-            main.main(["--version"])
-        self.assertEqual((done.exception.code, out.getvalue()), (0, f"trade-research {main.product_version()}\n"))
+        with contextlib.redirect_stdout(out):
+            done = refused(main.main, ["--version"], error=SystemExit)
+        self.assertEqual((done.code, out.getvalue()), (0, f"trade-research {main.product_version()}\n"))
         self.assertRegex(main.product_version(), r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
 

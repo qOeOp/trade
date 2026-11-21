@@ -101,9 +101,8 @@ class ReplicaTests(unittest.TestCase):
             return original(cursor, statement, arguments)
 
         with patch("ledger.server.cursor_rows", side_effect=offline):
-            with self.assertRaises(Refusal) as caught:
-                replica.sync(self.mirror)
-        self.assertEqual(caught.exception.code, "REPLICA_SYNC_FAILED")
+            caught = refused(replica.sync, self.mirror)
+        self.assertEqual(caught.code, "REPLICA_SYNC_FAILED")
         self.assertEqual(replica.status(self.mirror)["ledger_commit"], before)
         with self.assertRaises(Refusal):
             replica.sync(self.execution)
@@ -183,9 +182,10 @@ class OriginTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root, patch.object(replica.service, "start") as started:
             for origin in ("https://doltremoteapi.dolthub.com/", "https://doltremoteapi.dolthub.com/a/b/c",
                            "https://doltremoteapi.dolthub.com/a/b?x=1", "https://user@doltremoteapi.dolthub.com/a/b"):
-                with self.subTest(origin=origin), self.assertRaises(Refusal) as caught:
-                    replica.start(Path(root), Path(root), Path(root), origin, 0, Path(root), Path(root))
-                self.assertEqual(caught.exception.code, "USAGE_ERROR")
+                with self.subTest(origin=origin):
+                    caught = refused(replica.start, Path(root), Path(root), Path(root), origin, 0, Path(root),
+                                     Path(root))
+                self.assertEqual(caught.code, "USAGE_ERROR")
             started.assert_not_called()
 
 

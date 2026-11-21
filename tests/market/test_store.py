@@ -23,7 +23,7 @@ from registration import inputs
 from shared import clock
 from tests.market.directory import directory, forged, read as rows
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
-from tests.helpers import refused
+from tests.helpers import assert_refused, refused, tempdir
 
 
 JAN, FEB, MAR, APR = (date(2025, month, 1) for month in (1, 2, 3, 4))
@@ -68,8 +68,7 @@ class ImportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.market = cls.profile = directory(cls.addClassCleanup)
-        cls.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
-        cls.addClassCleanup(shutil.rmtree, cls.cache, True)
+        cls.cache = tempdir(cls.addClassCleanup, prefix="market-cache-")
         cls.exchange = exchange()
         cls.scope = ["BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT"]
         with serving(cls.exchange):
@@ -80,12 +79,6 @@ class ImportTests(unittest.TestCase):
     def imported(cls, month: date, scope=None) -> dict:
         return store.import_month(cls.market, month, cls.cache, 1, scope or cls.scope, log=lambda line: None)
 
-    def refused(self, code: str, call, *args, **kwargs) -> Refusal:
-        with self.assertRaises(Refusal) as caught:
-            call(*args, **kwargs)
-        self.assertEqual(caught.exception.code, code, caught.exception.message)
-        return caught.exception
-
     def test_the_first_import_starts_the_market_and_produces_no_universe(self):
         first = self.results[JAN]
         self.assertEqual(first["universe_members"], [])
@@ -93,7 +86,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(first["inferred_terms"], ["CCCUSDT"])
         self.assertEqual(first["rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
         self.assertEqual(first["derived_findings"], {})  # derived daily bars equal the exchange's
-        self.refused("MARKET_EMPTY", read.freshness, self.profile, self.market_days[JAN])
+        assert_refused(self, "MARKET_EMPTY", read.freshness, self.profile, self.market_days[JAN])
         # Each month's last day waits for the next month's members, which these imports leave unwritten.
         self.assertEqual(self.market_days, {month: (clock.next_month(month) - timedelta(days=2)).isoformat()
                                         for month in (JAN, FEB, MAR)})
@@ -114,11 +107,12 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(self.results[MAR]["universe_members"], ["BBBUSDT", "BTCUSDT"])  # CCCUSDT stopped
         market = files.open_market(self.profile, "reader")
         path = universe.membership_path(market, self.market_days[MAR], ns(APR))
-        self.refused("UNIVERSE_NOT_COVERING_WINDOW", universe.membership_path, market, self.market_days[MAR],
-                     ns(date(2025, 4, 2)))
-        self.refused("UNIVERSE_EMPTY_AT_DAY", universe.membership_path, market, self.market_days[JAN], ns(FEB))
-        self.refused("MARKET_DAY_UNRESOLVED", universe.membership_path, market, "main", ns(FEB))
-        self.refused("MARKET_DAY_UNRESOLVED", universe.membership_path, market, self.market_days[MAR][:7], ns(FEB))  # a month, no day
+        assert_refused(self, "UNIVERSE_NOT_COVERING_WINDOW", universe.membership_path, market, self.market_days[MAR],
+                       ns(date(2025, 4, 2)))
+        assert_refused(self, "UNIVERSE_EMPTY_AT_DAY", universe.membership_path, market, self.market_days[JAN], ns(FEB))
+        assert_refused(self, "MARKET_DAY_UNRESOLVED", universe.membership_path, market, "main", ns(FEB))
+        assert_refused(self, "MARKET_DAY_UNRESOLVED", universe.membership_path, market, self.market_days[MAR][:7],
+                       ns(FEB))  # a month, no day
         self.assertEqual(universe.membership_path(market, self.market_days[FEB], ns(MAR))["membership"],
                          {"BTCUSDT": [[ns(FEB), ns(MAR)]], "CCCUSDT": [[ns(FEB), ns(MAR)]]})
         self.assertEqual(path["universe_rule"], universe.RULE)
@@ -139,11 +133,11 @@ class ImportTests(unittest.TestCase):
 
     def test_months_import_once_and_in_order(self):
         with serving(self.exchange):
-            self.refused("MONTH_EXISTS", self.imported, MAR)
-            self.refused("MONTH_INVALID", self.imported, date(2025, 5, 1))
-            self.refused("MONTH_INVALID", self.imported, date(2099, 1, 1))
-            self.refused("MONTH_INVALID", self.imported, date(2025, 4, 2))
-            self.refused("EMPTY_SYMBOLS", self.imported, APR, scope=["BTCUSDT", "BTCUSDT"])
+            assert_refused(self, "MONTH_EXISTS", self.imported, MAR)
+            assert_refused(self, "MONTH_INVALID", self.imported, date(2025, 5, 1))
+            assert_refused(self, "MONTH_INVALID", self.imported, date(2099, 1, 1))
+            assert_refused(self, "MONTH_INVALID", self.imported, date(2025, 4, 2))
+            assert_refused(self, "EMPTY_SYMBOLS", self.imported, APR, scope=["BTCUSDT", "BTCUSDT"])
 
     def test_coverage_facts_and_their_refusals(self):
         found = coverage.diagnose_coverage(self.profile, None, ["BBBUSDT", "CCCUSDT"], "2025-02-09T00:00:00Z",
@@ -168,27 +162,28 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(bbb["terms"]["observed_at"], instrument.terms(market, found["market_day"], "BBBUSDT")["observed_at"])
         self.assertEqual((ccc["terms"]["terms_source"], ccc["terms"]["min_notional"]), ("inferred", None))
         market_day, empty = self.market_days[MAR], {"ts_open": [], "volume": []}
-        self.refused("INTERVAL_INVALID", coverage.coverage_facts, market, market_day, "BTCUSDT", 1, 2, empty, empty, [])
-        self.refused("MARKET_DAY_UNRESOLVED", coverage.coverage_facts, market, "head", "BTCUSDT", 0, MINUTE, empty,
-                     empty, [])
-        self.refused("UNKNOWN_SYMBOL", coverage.diagnose_coverage, self.profile, None, ["ZZZUSDT"], "2025-02-09T00:00:00Z",
-                     "2025-02-11T00:00:00Z", None)
-        self.refused("SOURCE_SHAPE", coverage.coverage_facts, market, market_day, "BTCUSDT", 0, 3 * MINUTE,
-                     {"ts_open": [MINUTE, 0], "volume": [1, 1]}, empty, [])
-        self.refused("EMPTY_SYMBOLS", coverage.diagnose_coverage, self.profile, None, [], "2025-02-09T00:00:00Z",
-                     "2025-02-11T00:00:00Z", None)
-        self.refused("INTERVAL_INVALID", coverage.diagnose_coverage, self.profile, None, ["BTCUSDT"],
-                     "2025-02-09T00:00:00", "2025-02-11T00:00:00Z", None)
+        assert_refused(self, "INTERVAL_INVALID", coverage.coverage_facts, market, market_day, "BTCUSDT", 1, 2, empty,
+                       empty, [])
+        assert_refused(self, "MARKET_DAY_UNRESOLVED", coverage.coverage_facts, market, "head", "BTCUSDT", 0, MINUTE,
+                       empty, empty, [])
+        assert_refused(self, "UNKNOWN_SYMBOL", coverage.diagnose_coverage, self.profile, None, ["ZZZUSDT"],
+                       "2025-02-09T00:00:00Z", "2025-02-11T00:00:00Z", None)
+        assert_refused(self, "SOURCE_SHAPE", coverage.coverage_facts, market, market_day, "BTCUSDT", 0, 3 * MINUTE,
+                       {"ts_open": [MINUTE, 0], "volume": [1, 1]}, empty, [])
+        assert_refused(self, "EMPTY_SYMBOLS", coverage.diagnose_coverage, self.profile, None, [],
+                       "2025-02-09T00:00:00Z", "2025-02-11T00:00:00Z", None)
+        assert_refused(self, "INTERVAL_INVALID", coverage.diagnose_coverage, self.profile, None, ["BTCUSDT"],
+                       "2025-02-09T00:00:00", "2025-02-11T00:00:00Z", None)
 
     def test_daily_returns_of_btc_and_the_equal_weight_universe(self):
         found = read.daily_returns(self.profile, self.market_days[MAR], universe.RULE,
                                    datetime(2025, 3, 2, tzinfo=UTC), datetime(2025, 3, 4, tzinfo=UTC))
         self.assertEqual(found["days"], ["2025-03-02", "2025-03-03"])
         self.assertEqual(found["btc"], found["basket"])  # both members walk the same prices
-        self.refused("MARKET_RETURNS_WINDOW", read.daily_returns, self.profile, self.market_days[MAR], universe.RULE,
-                     datetime(2025, 3, 2, 5, tzinfo=UTC), datetime(2025, 3, 2, 9, tzinfo=UTC))
-        self.refused("RULE_VERSION_MISMATCH", read.daily_returns, self.profile, self.market_days[MAR], "other-v1",
-                     datetime(2025, 3, 2, tzinfo=UTC), datetime(2025, 3, 4, tzinfo=UTC))
+        assert_refused(self, "MARKET_RETURNS_WINDOW", read.daily_returns, self.profile, self.market_days[MAR],
+                       universe.RULE, datetime(2025, 3, 2, 5, tzinfo=UTC), datetime(2025, 3, 2, 9, tzinfo=UTC))
+        assert_refused(self, "RULE_VERSION_MISMATCH", read.daily_returns, self.profile, self.market_days[MAR],
+                       "other-v1", datetime(2025, 3, 2, tzinfo=UTC), datetime(2025, 3, 4, tzinfo=UTC))
 
     def test_stored_bars_are_the_exporters_reads_at_the_pinned_market_day_with_their_catalog_times(self):
         market_day, day = self.market_days[MAR], day_ms(date(2025, 3, 2))
@@ -220,17 +215,18 @@ class ImportTests(unittest.TestCase):
                                    "2025-03-02T00:05:00Z", None)
         self.assertEqual((earlier["bars"]["count"], earlier["funding"]["count"]), (0, 0))
         window = ("2025-03-02T00:00:00Z", "2025-03-03T00:00:00Z")
-        self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, market_day, "BTCUSDT", "LAST", "1d",
-                     "2025-03-02T06:00:00Z", window[1], None)
-        self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, market_day, "BTCUSDT", "MARK", "1d", *window, None)
-        self.refused("UNKNOWN_SYMBOL", read.stored_bars, self.profile, market_day, "ZZZUSDT", "LAST", "1m", *window, None)
-        self.refused("MARKET_DAY_UNRESOLVED", read.stored_bars, self.profile, "no-such-ref", "BTCUSDT", "LAST", "1m", *window,
-                     None)
+        assert_refused(self, "INTERVAL_INVALID", read.stored_bars, self.profile, market_day, "BTCUSDT", "LAST", "1d",
+                       "2025-03-02T06:00:00Z", window[1], None)
+        assert_refused(self, "INTERVAL_INVALID", read.stored_bars, self.profile, market_day, "BTCUSDT", "MARK", "1d",
+                       *window, None)
+        assert_refused(self, "UNKNOWN_SYMBOL", read.stored_bars, self.profile, market_day, "ZZZUSDT", "LAST", "1m",
+                       *window, None)
+        assert_refused(self, "MARKET_DAY_UNRESOLVED", read.stored_bars, self.profile, "no-such-ref", "BTCUSDT", "LAST",
+                       "1m", *window, None)
 
     def test_an_export_is_renamed_into_place_whole_so_a_failure_or_a_second_writer_keeps_what_is_there(self):
         start, end = ns(MAR), ns(date(2025, 3, 2))
-        root = Path(tempfile.mkdtemp(prefix="market-export-test-"))
-        self.addCleanup(shutil.rmtree, root, True)
+        root = tempdir(self.addCleanup, prefix="market-export-test-")
         job = {"profile": self.profile, "market_day": self.market_days[MAR], "symbol": "BTCUSDT", "start_ns": start,
                "end_ns": end, "path": str(root / "market_day" / "key" / "BTCUSDT"), "include_quotes": False}
         target = Path(job["path"])
@@ -256,8 +252,7 @@ class ImportTests(unittest.TestCase):
         from engine import run
         from engine.load import read_market
         start, end = ns(MAR), ns(date(2025, 3, 3))
-        root = Path(tempfile.mkdtemp(prefix="market-export-test-"))
-        self.addCleanup(shutil.rmtree, root, True)
+        root = tempdir(self.addCleanup, prefix="market-export-test-")
         done = export.export_catalogs(self.profile, None, ["BTCUSDT"], start, end, root=root)
         receipt = done["receipts"]["BTCUSDT"]
         piece, = receipt["pieces"]
@@ -296,10 +291,11 @@ class ImportTests(unittest.TestCase):
         for code, args in (("INTERVAL_INVALID", (["BTCUSDT"], end, start)), ("EMPTY_SYMBOLS", (["BTCUSDT", "BTCUSDT"], start,
                                                                                                 end))):
             with self.subTest(code=code):
-                self.refused(code, export.export_catalogs, self.profile, None, *args)
-        self.refused("MARKET_DAY_UNRESOLVED", export.export_catalogs, self.profile, "no-such-ref", ["BTCUSDT"], start, end)
-        self.refused("UNKNOWN_SYMBOL", export.export_catalogs, self.profile, None, ["ZZZUSDT"], start, end, fresh=True,
-                     root=root)
+                assert_refused(self, code, export.export_catalogs, self.profile, None, *args)
+        assert_refused(self, "MARKET_DAY_UNRESOLVED", export.export_catalogs, self.profile, "no-such-ref", ["BTCUSDT"],
+                       start, end)
+        assert_refused(self, "UNKNOWN_SYMBOL", export.export_catalogs, self.profile, None, ["ZZZUSDT"], start, end,
+                       fresh=True, root=root)
 
     def test_a_lifecycle_episode_becomes_a_numbered_native_contract_with_its_events(self):
         from engine import run
@@ -341,13 +337,14 @@ class ImportTests(unittest.TestCase):
                       {**body, "episodes": [{**body["episodes"][0], "events": body["episodes"][0]["events"][2:]}]},
                       {**body, "episodes": [{**body["episodes"][0], "events": [status("CLOSE", 0)]}, relisted]}):
             with self.subTest(wrong=wrong):
-                self.refused("LIFECYCLE_INPUT", lifecycle.validate_lifecycle, wrong, self.market_days[MAR], files)
+                assert_refused(self, "LIFECYCLE_INPUT", lifecycle.validate_lifecycle, wrong, self.market_days[MAR],
+                               files)
         off_grid = {**body, "episodes": [{**body["episodes"][0], "events": [
             *body["episodes"][0]["events"][:2], {**body["episodes"][0]["events"][2], "close_price": "100.015"}]}]}
-        root = Path(tempfile.mkdtemp(prefix="market-export-test-"))
-        self.addCleanup(shutil.rmtree, root, True)
-        self.refused("LIFECYCLE_INPUT", export.export_catalogs, self.profile, self.market_days[MAR], ["CCCUSDT"], start, end,
-                     lifecycle.validate_lifecycle(off_grid, self.market_days[MAR], files), files, True, root)
+        root = tempdir(self.addCleanup, prefix="market-export-test-")
+        assert_refused(self, "LIFECYCLE_INPUT", export.export_catalogs, self.profile, self.market_days[MAR],
+                       ["CCCUSDT"], start, end, lifecycle.validate_lifecycle(off_grid, self.market_days[MAR], files),
+                       files, True, root)
         self.assertEqual(list(root.iterdir()), [])  # the failed fresh export left nothing behind
 
 
@@ -362,8 +359,7 @@ class ImportRefusalTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.market = directory(cls.addClassCleanup)
-        cls.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
-        cls.addClassCleanup(shutil.rmtree, cls.cache, True)
+        cls.cache = tempdir(cls.addClassCleanup, prefix="market-cache-")
         cls.exchange = exchange()
         with serving(cls.exchange):
             for month in (JAN, FEB):
@@ -372,11 +368,12 @@ class ImportRefusalTests(unittest.TestCase):
     def refused(self, code: str, market: dict | None = None) -> Refusal:
         market = market or self.market
         before = stamps(market)
-        with serving(self.exchange), self.assertRaises(Refusal) as caught:
-            store.import_month(market, MAR, self.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
-        self.assertEqual(caught.exception.code, code, caught.exception.message)
+        with serving(self.exchange):
+            caught = refused(store.import_month, market, MAR, self.cache, 1, ["BTCUSDT", "CCCUSDT"],
+                             log=lambda line: None)
+        self.assertEqual(caught.code, code, caught.message)
         self.assertEqual(stamps(market), before)
-        return caught.exception
+        return caught
 
     def copy(self) -> dict:
         market = directory(self.addCleanup)
@@ -422,12 +419,6 @@ class LaterImportTests(unittest.TestCase):
                        for month in months]
         return profile, found, results
 
-    def refused(self, code: str, call, *args, **kwargs) -> Refusal:
-        with self.assertRaises(Refusal) as caught:
-            call(*args, **kwargs)
-        self.assertEqual(caught.exception.code, code, caught.exception.message)
-        return caught.exception
-
     def test_a_rebuilt_directory_trades_old_market_days_on_its_earliest_terms(self):
         profile, _, _ = self.database()
         market = files.open_market(profile, "reader")
@@ -438,7 +429,7 @@ class LaterImportTests(unittest.TestCase):
         self.write_terms(market, [first, later])
         self.assertEqual(instrument.terms(market, market_day, "BTCUSDT")["observed_at"], rebuilt)
         before_listing = date(2024, 12, 31).isoformat()
-        self.refused("UNKNOWN_SYMBOL", instrument.terms, market, before_listing, "BTCUSDT")
+        assert_refused(self, "UNKNOWN_SYMBOL", instrument.terms, market, before_listing, "BTCUSDT")
 
     def write_terms(self, market, rows) -> None:
         table = pa.Table.from_pylist(rows, schema=files.TABLES["instrument"].schema)
@@ -497,8 +488,8 @@ class LaterImportTests(unittest.TestCase):
         stored = rows(profile, "funding", ["BTCUSDT"], day_ms(MAR))["funding_time"].to_pylist()
         self.assertEqual((len(stored), stored[0]), (93, day_ms(MAR) + 5))  # one row per settlement; REST's time stays
         with serving(found):
-            self.refused("MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
-                         log=lambda line: None)
+            assert_refused(self, "MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
+                           log=lambda line: None)
 
     def test_a_crash_between_the_funding_and_the_bars_leaves_no_duplicates(self):
         profile, found, _ = self.database()
@@ -530,8 +521,7 @@ class LaterImportTests(unittest.TestCase):
 
     def fingerprint(self, profile: dict, market_day: str) -> str:
         """export_content_sha256 of a fresh export of February at `market_day`, with its membership file."""
-        root = Path(tempfile.mkdtemp(prefix="market-export-"))
-        self.addCleanup(shutil.rmtree, root, True)
+        root = tempdir(self.addCleanup, prefix="market-export-")
         done = export.export_catalogs(profile, market_day, ["BTCUSDT"], ns(FEB), ns(MAR), fresh=True, root=root)
         market = files.open_market(profile, "reader")
         membership = root / "membership.json"
@@ -546,7 +536,7 @@ class LaterImportTests(unittest.TestCase):
         # Before the members: the newest day is the one before the eve, and paper refuses as it always has.
         self.assertEqual(refused(universe.selection, profile, None, None, noon,
                                  error=Refusal).code, "UNIVERSE_NOT_COVERING_WINDOW")
-        self.refused("MARKET_DAY_UNRESOLVED", files.resolve_day, files.open_market(profile, "reader"), eve)
+        assert_refused(self, "MARKET_DAY_UNRESOLVED", files.resolve_day, files.open_market(profile, "reader"), eve)
         self.follow_round(profile, found, MAR)
         self.assertEqual(rows(profile, "bar", ["BTCUSDT"], day_ms(MAR)).num_rows, 0)
         market_day, membership, chosen = universe.selection(profile, None, None, noon)
@@ -571,7 +561,8 @@ class LaterImportTests(unittest.TestCase):
             self.assertEqual(first["market_day"], date(2025, 2, 28).isoformat())
             self.assertEqual(store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
                              ["market_day"], first["market_day"])
-            self.refused("MONTH_INVALID", store.import_month, profile, APR, self.cache, 1, scope, log=lambda line: None)
+            assert_refused(self, "MONTH_INVALID", store.import_month, profile, APR, self.cache, 1, scope,
+                           log=lambda line: None)
         self.assertEqual((first["through"], first["rows"], first["funding_rows"], first["universe_members"]),
                          ("2025-03-01", 0, 0, ["BBBUSDT", "BTCUSDT"]))
         self.assertEqual(sorted(set(rows(profile, "universe_month")["month"].to_pylist())), [FEB, MAR])
@@ -583,8 +574,8 @@ class LaterImportTests(unittest.TestCase):
     def test_a_first_import_needs_a_closed_day(self):
         profile = directory(self.addCleanup)
         with serving(exchange()), on(MAR):
-            self.refused("MONTH_INVALID", store.import_month, profile, MAR, Path(tempfile.mkdtemp()), 1, ["BTCUSDT"],
-                         log=lambda line: None)
+            assert_refused(self, "MONTH_INVALID", store.import_month, profile, MAR, Path(tempfile.mkdtemp()), 1,
+                           ["BTCUSDT"], log=lambda line: None)
 
     def test_a_stored_minute_the_sources_now_contradict_refuses(self):
         profile, found, _ = self.database()
@@ -593,8 +584,8 @@ class LaterImportTests(unittest.TestCase):
             store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
         found.archives.update(march)
         with serving(found), on(date(2025, 4, 2)):
-            refused = self.refused("MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
-                                   log=lambda line: None)
+            refused = assert_refused(self, "MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
+                                     log=lambda line: None)
         self.assertIn(str(day_ms(MAR) + 5 * DAY + 10 * MINUTE), refused.missing)
 
     def test_a_minute_the_sources_add_inside_the_imported_part_refuses(self):
@@ -608,8 +599,8 @@ class LaterImportTests(unittest.TestCase):
                                                    strict=True)))
         found.archives.update(march)  # the archive holds the minute: it lies in the part the first import declared
         with serving(found), on(date(2025, 4, 2)):
-            refused = self.refused("MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
-                                   log=lambda line: None)
+            refused = assert_refused(self, "MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
+                                     log=lambda line: None)
         self.assertIn(str(absent), refused.missing)
 
     def test_a_stored_settlement_the_archive_now_contradicts_refuses(self):
@@ -619,8 +610,8 @@ class LaterImportTests(unittest.TestCase):
             store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
         found.archives.update(march)
         with serving(found), on(date(2025, 4, 2)):
-            self.refused("MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
-                         log=lambda line: None)
+            assert_refused(self, "MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
+                           log=lambda line: None)
 
     def test_the_current_month_imported_again_keeps_its_members(self):
         profile, found, _ = self.database()
@@ -632,8 +623,8 @@ class LaterImportTests(unittest.TestCase):
             "universe_rule": [universe.RULE] * len(members), "month": [MAR] * len(members), "symbol": members})
         found.archives.update(march)
         with serving(found), on(date(2025, 4, 2)):
-            self.refused("UNIVERSE_CHANGED", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
-                         log=lambda line: None)
+            assert_refused(self, "UNIVERSE_CHANGED", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
+                           log=lambda line: None)
 
     def test_several_workers_give_the_one_worker_result(self):
         scope = ("BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT")
@@ -688,8 +679,7 @@ class BackfillTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
-        cls.addClassCleanup(shutil.rmtree, cls.cache, True)
+        cls.cache = tempdir(cls.addClassCleanup, prefix="market-cache-")
         cls.exchange = exchange()
         cls.forward = directory(cls.addClassCleanup)
         cls.backfilled = directory(cls.addClassCleanup)
@@ -707,11 +697,11 @@ class BackfillTests(unittest.TestCase):
 
     def refused(self, code: str, profile: dict, month: date, scope=None) -> Refusal:
         before = stamps(profile)
-        with serving(self.exchange), self.assertRaises(Refusal) as caught:
-            self.imported(profile, month, scope)
-        self.assertEqual(caught.exception.code, code, caught.exception.message)
+        with serving(self.exchange):
+            caught = refused(self.imported, profile, month, scope)
+        self.assertEqual(caught.code, code, caught.message)
         self.assertEqual(stamps(profile), before)
-        return caught.exception
+        return caught
 
     def market(self, *months: date) -> dict:
         profile = directory(self.addCleanup)
@@ -791,8 +781,7 @@ class RecoveryTests(unittest.TestCase):
     """A lost directory imported again from the sources: given the same terms, every row comes back."""
 
     def test_a_directory_imported_again_with_the_same_terms_equals_the_original(self):
-        cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
-        self.addCleanup(shutil.rmtree, cache, True)
+        cache = tempdir(self.addCleanup, prefix="market-cache-")
         scope = ["BBBUSDT", "BTCUSDT", "CCCUSDT"]
         original, rebuilt = directory(self.addCleanup), directory(self.addCleanup)
         found = exchange()

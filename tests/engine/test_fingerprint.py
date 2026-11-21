@@ -1,7 +1,6 @@
 """The semantic fingerprint is equal for two replays of one run (fresh UUIDs, other row order) and names the
 table that differs."""
 
-import csv
 import gzip
 import json
 import tempfile
@@ -11,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from engine.compare import report_fingerprint
+from tests.helpers import write_csv
 
 
 DAY1, DAY2 = 1736294400000000000, 1736380800000000000
@@ -38,10 +38,7 @@ def write_reports(root: Path, ids: dict, swap: bool = False, last_px: str = "0.9
                "ts_event": DAY2}]
     order = (lambda rows: rows[::-1]) if swap else (lambda rows: rows)
     for name, rows in (("orders", orders), ("fills", fills), ("positions", positions)):
-        with (root / f"{name}.csv").open("w", newline="") as stream:
-            writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
-            writer.writeheader()
-            writer.writerows(order(rows))
+        write_csv(root / f"{name}.csv", order(rows))
     (root / "account.csv").write_text("ts_event,total\n2025-01-08 00:00:00+00:00,100000\n")
     (root / "returns_series.csv").write_text(f"ts_event_ns,native_return\n{DAY1},0.0\n")
     with (root / "exposures.csv.gz").open("wb") as raw:
@@ -55,10 +52,7 @@ def write_reports(root: Path, ids: dict, swap: bool = False, last_px: str = "0.9
                 stream.write(json.dumps(event, sort_keys=True) + "\n")
     volumes = [{"event_id": ids["f1"], "ts_event_ns": DAY1, "bar_volume": "10"},
                {"event_id": ids["f2"], "ts_event_ns": DAY2, "bar_volume": "12"}]
-    with (root / "fill_volumes.csv").open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(volumes[0]))
-        writer.writeheader()
-        writer.writerows(order(volumes))
+    write_csv(root / "fill_volumes.csv", order(volumes))
 
 
 
@@ -80,10 +74,7 @@ def write_liquidation_reports(root: Path, ids: dict) -> None:
     positions = [{"position_id": "P", "ts_opened": str(DAY1), "events": str([{"event_id": ids["f1"]}, {"event_id": ids["f2"]}]),
                   "adjustments": "[]"}]
     for name, table in (("orders", rows["orders"]), ("fills", rows["fills"]), ("positions", positions)):
-        with (root / f"{name}.csv").open("w", newline="") as stream:
-            writer = csv.DictWriter(stream, fieldnames=list(table[0]))
-            writer.writeheader()
-            writer.writerows(table)
+        write_csv(root / f"{name}.csv", table)
     (root / "account.csv").write_text("ts_event,total\n2025-01-08 00:00:00+00:00,100000\n")
     (root / "returns_series.csv").write_text(f"ts_event_ns,native_return\n{DAY1},0.0\n")
     with (root / "exposures.csv.gz").open("wb") as raw:
@@ -185,10 +176,7 @@ class FingerprintTests(unittest.TestCase):
                               "ts_init": str(DAY1)},
                              {"client_order_id": target, "init_id": ids["ti"], "order_type": "LIMIT",
                               "ts_init": str(DAY1)}], key=lambda row: row["client_order_id"])
-            with (root / "orders.csv").open("w", newline="") as stream:
-                writer = csv.DictWriter(stream, fieldnames=list(orders[0]))
-                writer.writeheader()
-                writer.writerows(orders)
+            write_csv(root / "orders.csv", orders)
             (root / "fills.csv").write_text("client_order_id,ts_event\n")
             (root / "positions.csv").write_text("position_id,ts_opened\n")
             (root / "account.csv").write_text("ts_event,total\n2025-01-08 00:00:00+00:00,100000\n")

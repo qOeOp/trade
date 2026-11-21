@@ -12,7 +12,6 @@ import unittest
 from unittest.mock import patch
 
 from ledger import db, execution, judgments, lines, problems, strategies
-from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import precheck
 from replay import entry
@@ -21,6 +20,7 @@ from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, market as line_market, p
 from tests.registration.world import RUNNER_ARGV, capture, config, source
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT, OUTCOMES, market_returns
+from tests.helpers import refused
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -153,9 +153,8 @@ class UnchangedTests(unittest.TestCase):
         with patch.object(status, "counted_trials", side_effect=refusal):
             for read in (lambda: graph.research_graph(self.world.profile, self.line, workers=1),
                          lambda: graph.line_counts(self.world.profile, self.line)):
-                with self.assertRaises(Refusal) as refused:
-                    read()
-                self.assertIs(refused.exception, refusal)
+                caught = refused(read)
+                self.assertIs(caught, refusal)
             self.assertIsNone(graph.research_graph(self.world.profile, self.line, workers=1, counts=False)["line"]["trial_counts"])
 
     def test_a_trial_on_another_instrument_changes_nothing(self):
@@ -233,7 +232,6 @@ class UnchangedTests(unittest.TestCase):
         self.sql("ALTER TABLE candidate ADD COLUMN extra INT", "CALL DOLT_COMMIT('-a', '-m', 'tamper: a table', '--skip-verification')")
         found = graph.unchanged_since(self.world.profile, self.line, since)
         self.assertEqual((found["unchanged"], found["reason"]), (False, "the table candidate itself changed"))
-        with patch.dict(db.SCHEMAS, {"research": (db.SCHEMA, db.SCHEMA_VERSION + 1)}), \
-                self.assertRaises(Refusal) as refused:
-            graph.unchanged_since(self.world.profile, self.line, since)
-        self.assertEqual(refused.exception.code, "SCHEMA_MISMATCH")
+        with patch.dict(db.SCHEMAS, {"research": (db.SCHEMA, db.SCHEMA_VERSION + 1)}):
+            caught = refused(graph.unchanged_since, self.world.profile, self.line, since)
+        self.assertEqual(caught.code, "SCHEMA_MISMATCH")

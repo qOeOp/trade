@@ -11,7 +11,6 @@ from pathlib import Path
 
 from ledger import metrics
 from shared import clock
-from shared.errors import Refusal
 from tests.helpers import refused
 from tests.ledger.dolt import DAY, JAN
 
@@ -92,10 +91,10 @@ def report(reports: metrics.Reports) -> dict:
 
 class SealedReportTests(unittest.TestCase):
     def test_a_directory_outside_a_git_checkout_is_refused_by_name(self):
-        with tempfile.TemporaryDirectory() as directory, self.assertRaises(Refusal) as caught:
-            metrics.product_commit(Path(directory))
-        self.assertEqual(caught.exception.code, "STALE_CHECKOUT")
-        self.assertIn("git clone", str(caught.exception))
+        with tempfile.TemporaryDirectory() as directory:
+            caught = refused(metrics.product_commit, Path(directory))
+        self.assertEqual(caught.code, "STALE_CHECKOUT")
+        self.assertIn("git clone", str(caught))
 
     def test_the_bar_close_mark_path_gives_drawdown_capital_and_the_daily_notional(self):
         sealed = report(native())
@@ -153,9 +152,9 @@ class SealedReportTests(unittest.TestCase):
         self.assertEqual(found, {"execution": "quotes", "fills": 2, "median": 0.1, "p95": 0.3, "p99": 0.3, "max": 0.3,
                                  "minute_max": 0.4, "no_bar": 0, "zero_volume": 1, "above_volume": 0,
                                  "engine_fills": 2})
-        with self.assertRaises(metrics.Unreconciled) as caught:
-            metrics.participation(fills, volumes[:1], {event: Decimal(1) for event in "ABC"}, "bars")
-        self.assertEqual(caught.exception.code, "FILL_VOLUME_MISSING")
+        caught = refused(metrics.participation, fills, volumes[:1], {event: Decimal(1) for event in "ABC"}, "bars",
+                         error=metrics.Unreconciled)
+        self.assertEqual(caught.code, "FILL_VOLUME_MISSING")
 
     def test_the_sealed_report_keeps_the_runners_limitations(self):
         listed = native()
@@ -229,9 +228,9 @@ class SealedReportTests(unittest.TestCase):
                               "UNSUPPORTED_ADJUSTMENT")):
             reports = native()
             reports.positions[0][change[0]] = change[1]
-            with self.subTest(code=code), self.assertRaises(metrics.Unreconciled) as caught:
-                metrics.cycles(reports.positions, reports.fills)
-            self.assertEqual(caught.exception.code, code)
+            with self.subTest(code=code):
+                caught = refused(metrics.cycles, reports.positions, reports.fills, error=metrics.Unreconciled)
+            self.assertEqual(caught.code, code)
 
     def test_daily_returns_must_cover_each_day_and_compound_to_final_equity(self):
         reports = native()

@@ -64,7 +64,7 @@ class RegisterTests(unittest.TestCase):
         self.assertEqual(execution, registered["execution"])
         self.assertEqual((execution["image_digest"], execution["market_day"], execution["universe_rule"],
                           execution["lifecycle_bundle"], execution["comparable_config_sha256"]),
-                         (RUNTIME["image_digest"], MARKET_DAY, "pool-v1", None,
+                         (RUNTIME["image_digest"], MARKET_DAY, "usdt-perp-listed30d-v1", None,
                           trials.comparable_config_sha256(config())))
         self.assertEqual((plan["line_id"], registered["line"]), (self.world.line["line_id"], self.world.line["line"]))
         self.assertEqual(plan["grid"], [{"candidate": "rsi@1", "source_sha256": sha(source("root")),

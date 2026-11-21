@@ -122,9 +122,9 @@ class LiveClockTest(unittest.TestCase):
     def test_a_missing_time_is_refused(self):
         for snapshot in ({}, {"clock": []}, {"clock": [{"sent_ns": 1, "received_ns": 2}]},
                          {"clock": [{"sent_ns": 1, "server_ms": None, "received_ns": 2}]}):
-            with self.subTest(snapshot), self.assertRaises(Refusal) as caught:
-                require_clock(snapshot)
-            self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_RESPONSE")
+            with self.subTest(snapshot):
+                caught = refused(require_clock, snapshot, error=Refusal)
+            self.assertEqual(caught.code, "LIVE_ACCOUNT_RESPONSE")
 
     def test_each_sample_brackets_the_venues_time_with_this_clock(self):
         now = [1_000_000_000]
@@ -189,9 +189,9 @@ class LiveAdmissionTest(unittest.TestCase):
                ("algo_orders", [{"symbol": "BTCUSDT"}])]
         for key, value in own:
             base, manifest = fixture()
-            with self.subTest(key=key), self.assertRaises(Refusal) as caught:
-                require_admission({**base, key: value}, manifest, Decimal("100"))
-            self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_NOT_FLAT")
+            with self.subTest(key=key):
+                caught = refused(require_admission, {**base, key: value}, manifest, Decimal("100"), error=Refusal)
+            self.assertEqual(caught.code, "LIVE_ACCOUNT_NOT_FLAT")
             require_admission({**base, key: value}, manifest, Decimal("100"), flat=False)
 
     def test_tiny_usdt_wallet_is_not_replaced_by_shared_collateral_available(self):
@@ -247,9 +247,9 @@ class LiveAdmissionTest(unittest.TestCase):
     def test_budget_must_be_positive(self):
         for budget in ["0", "-1", "NaN", "Infinity"]:
             observation, manifest = fixture()
-            with self.subTest(budget=budget), self.assertRaises(Refusal) as caught:
-                require_admission(observation, manifest, Decimal(budget))
-            self.assertEqual(caught.exception.code, "LIVE_BUDGET")
+            with self.subTest(budget=budget):
+                caught = refused(require_admission, observation, manifest, Decimal(budget), error=Refusal)
+            self.assertEqual(caught.code, "LIVE_BUDGET")
         observation, manifest = fixture()
         self.assertEqual(require_admission(observation, manifest, Decimal("100")), Decimal("100"))
         observation, manifest = fixture()  # no fixed cap: the floor follows the wallet (the user, 2026-11-21)
@@ -269,9 +269,9 @@ class LiveAdmissionTest(unittest.TestCase):
             details["instrument"]["filters"][0]["notional"] = minimum
             manifest["market"]["terms"]["BTCUSDT"]["min_notional"] = minimum
             details["mark"]["markPrice"] = mark
-            with self.subTest(minimum=minimum, mark=mark), self.assertRaises(Refusal) as caught:
-                require_admission(observation, manifest, Decimal("100"))
-            self.assertEqual(caught.exception.code, "LIVE_MINIMUM_SIZE")
+            with self.subTest(minimum=minimum, mark=mark):
+                caught = refused(require_admission, observation, manifest, Decimal("100"), error=Refusal)
+            self.assertEqual(caught.code, "LIVE_MINIMUM_SIZE")
         observation, manifest = fixture()
         observation["symbols"]["BTCUSDT"]["mark"]["markPrice"] = "300000"
         require_admission(observation, manifest, Decimal("100"))
@@ -284,10 +284,10 @@ class LiveAdmissionTest(unittest.TestCase):
             for row in observation["symbols"]["BTCUSDT"]["instrument"]["filters"]:
                 if row["filterType"] == filter_type:
                     row[field] = value
-            with self.subTest(name=name), self.assertRaises(Refusal) as caught:
-                require_admission(observation, manifest, Decimal("100"))
-            self.assertEqual(caught.exception.code, "TERMS_CHANGED")
-            self.assertIn(f"exchange {value}", caught.exception.message)
+            with self.subTest(name=name):
+                caught = refused(require_admission, observation, manifest, Decimal("100"), error=Refusal)
+            self.assertEqual(caught.code, "TERMS_CHANGED")
+            self.assertIn(f"exchange {value}", caught.message)
 
     def test_wrong_margin_auto_add_or_missing_settings_fail_closed(self):
         base, manifest = fixture()
@@ -318,9 +318,9 @@ class LiveAdmissionTest(unittest.TestCase):
                               "TERMS_CHANGED")):
             observation, manifest = two_contracts()
             change(observation)
-            with self.subTest(code=code), self.assertRaises(Refusal) as caught:
-                require_admission(observation, manifest, Decimal("85"))
-            self.assertEqual(caught.exception.code, code)
+            with self.subTest(code=code):
+                caught = refused(require_admission, observation, manifest, Decimal("85"), error=Refusal)
+            self.assertEqual(caught.code, code)
         # An entry checks its own contract's status and terms; the account's modes cover every contract.
         observation, manifest = two_contracts()
         observation["symbols"]["ETHUSDT"]["instrument"]["status"] = "SETTLING"
@@ -437,12 +437,12 @@ class ReadOnlyVenueTest(unittest.TestCase):
                 return io.BytesIO(b'{"serverTime":123}')
             raise urllib.error.HTTPError(request.full_url, 401, "hidden-key", {}, io.BytesIO(b"hidden-secret"))
 
-        with patch.object(client.opener, "open", side_effect=response), self.assertRaises(Refusal) as caught:
-            client.get("/fapi/v2/account")
+        with patch.object(client.opener, "open", side_effect=response):
+            caught = refused(client.get, "/fapi/v2/account", error=Refusal)
         self.assertEqual([request.method for request in seen], ["GET", "GET"])
         self.assertIn("signature=", seen[-1].full_url)
-        self.assertNotIn("hidden", str(caught.exception))
-        self.assertNotIn("signature", str(caught.exception))
+        self.assertNotIn("hidden", str(caught))
+        self.assertNotIn("signature", str(caught))
 
 
 class ReadRetryTest(unittest.TestCase):

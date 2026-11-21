@@ -6,11 +6,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date
 import math
-from pathlib import Path
-import shutil
 import statistics
 import subprocess
-import tempfile
 import threading
 import unittest
 from unittest.mock import patch
@@ -21,12 +18,12 @@ from registration import precheck
 from replay import entry, history, seams as replay_seams
 from report import graph, history as report_history, measures, runs, status
 from runtime.container import STAGE_MEMORY_BYTES
-from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP
 from tests.registration.test_register import second_line
 from tests.registration.world import RUNNER_ARGV, config, months_rows
 from tests.replay import world as replay_world
 from tests.replay.world import Market, ReplayWorld, registered_grid
+from tests.helpers import refused, tempdir
 
 
 YEARS_MONTHS = [f"{year}-{month:02d}" for year in range(2023, 2027) for month in range(1, 13)][11:43]  # 2023-12 to 2026-07
@@ -181,9 +178,8 @@ class UnfalsifiedTests(unittest.TestCase):
         return {"source_sha256": source, "candidate": "rsi@1", "run": 7, "summary": summary}
 
     def refused(self, *tested):
-        with self.assertRaises(Refusal) as refused:
-            report_history.verdict(self.SOURCE, list(tested))
-        return refused.exception.code, list(refused.exception.missing)
+        caught = refused(report_history.verdict, self.SOURCE, list(tested))
+        return caught.code, list(caught.missing)
 
     def test_a_decided_verdict_admits_and_a_falsified_one_refuses(self):
         passed = self.row(VerdictTests.HOLDOUT)
@@ -314,18 +310,16 @@ class HistoryRunTests(unittest.TestCase):
                            registration=registration)
         self.assertEqual(passed["status"], "passed")
         days = (date(2025, 11, 1), date(2026, 4, 1))  # the fake market: 2025-11 to its latest day 2026-03-31
-        with self.assertRaises(Refusal) as refused:
-            lines.close_line(world.profile, line, b"summary", days)
-        self.assertEqual(refused.exception.code, "HISTORY_INCOMPLETE")
-        self.assertEqual(len(refused.exception.missing), 3, "2025 (from November), the control and the holdout")
+        caught = refused(lines.close_line, world.profile, line, b"summary", days)
+        self.assertEqual(caught.code, "HISTORY_INCOMPLETE")
+        self.assertEqual(len(caught.missing), 3, "2025 (from November), the control and the holdout")
         source = world.conn.one("SELECT source_sha256 FROM trial WHERE trial_id = %s", (passed["trial_id"],))
         unfalsified = report_history.require_unfalsified
 
         def undecided():
-            with self.assertRaises(Refusal) as refused:
-                unfalsified(world.conn, source["source_sha256"])
-            self.assertEqual(refused.exception.code, "HISTORY_UNDECIDED")
-            return list(refused.exception.missing)
+            caught = refused(unfalsified, world.conn, source["source_sha256"])
+            self.assertEqual(caught.code, "HISTORY_UNDECIDED")
+            return list(caught.missing)
         self.assertEqual(undecided(), ["line history"], "20261120-05: no history trial of it yet")
 
         first = history.run_history(world.profile, world.market, MARKET_DAY, line, limit=1)
@@ -333,9 +327,8 @@ class HistoryRunTests(unittest.TestCase):
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": passed["trial_id"]}])
         late = world.publish("late", parent=None)
         reviews = {late["candidate"]: world.prechecked(late["source"])}
-        with self.assertRaises(Refusal) as closing:
-            world.register(world.body([late["candidate"]], reviews))
-        self.assertEqual(closing.exception.code, "LINE_ENDED", "the first history trial began the line's closing")
+        closing = refused(world.register, world.body([late["candidate"]], reviews))
+        self.assertEqual(closing.code, "LINE_ENDED", "the first history trial began the line's closing")
         rest = history.run_history(world.profile, world.market, MARKET_DAY, line)
         self.assertEqual((len(rest["ran"]), rest["left"]), (2, 0))
         self.assertEqual(history.run_history(world.profile, world.market, MARKET_DAY, line)["ran"], [],
@@ -378,17 +371,14 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual([item["trial_id"] for item in status.research_runs(world.profile)["runs"]], [passed["trial_id"]],
                          "no history run among the line's research runs")
 
-        backups = Path(tempfile.mkdtemp(prefix="backups-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, backups, True)
+        backups = tempdir(self.addCleanup, prefix="backups-", dir="/tmp")
         profile = replace(world.profile, backup_root=backups / "export")
         with patch.object(research_commands, "_market_days", return_value=days):
             closed = research_commands.line_close(profile, line, b"summary", {})
         self.assertFalse(closed["replayed"])
         self.assertEqual(closed["backup"]["ledger_commit"], closed["ledger_commit"], "U2: closing syncs the backup")
         self.assertEqual(admin.backup_head(admin.backup_path(profile)), closed["ledger_commit"])
-        with self.assertRaises(Refusal) as ended:
-            history.run_history(world.profile, world.market, MARKET_DAY, line)
-        self.assertEqual(ended.exception.code, "LINE_ENDED")
+        self.assertEqual(refused(history.run_history, world.profile, world.market, MARKET_DAY, line).code, "LINE_ENDED")
         # L11: a closed line is read when named, never by default
         self.assertEqual((lines.list_lines(world.profile)["lines"], status.research_runs(world.profile)["runs"],
                           status.research_status(world.profile)["lines"]), ([], [], []))
@@ -405,10 +395,10 @@ class HistoryRunTests(unittest.TestCase):
         entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
         history.run_history(world.profile, world.market, MARKET_DAY, line, limit=1)
         trials = world.conn.rows("SELECT COUNT(*) FROM trial")
-        with self.assertRaises(Refusal) as refused:
-            entry.run(world.profile, world.market, MARKET_DAY, later, None, RUNNER_ARGV, registration=pending)
-        self.assertEqual(refused.exception.code, "LINE_ENDED")
-        self.assertIn("a research run now would be a result the test leaves out", refused.exception.message)
+        caught = refused(entry.run, world.profile, world.market, MARKET_DAY, later, None, RUNNER_ARGV,
+                         registration=pending)
+        self.assertEqual(caught.code, "LINE_ENDED")
+        self.assertIn("a research run now would be a result the test leaves out", caught.message)
         self.assertEqual(world.conn.rows("SELECT COUNT(*) FROM trial"), trials, "no trial was written")
 
     def test_a_holdout_counts_the_earlier_searches_of_a_line_sharing_it(self):
@@ -552,9 +542,8 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(read(), ([kept], 1, 1, [(early, runs[early], "SOURCE_REVIEW_FAILED"),
                                                  (late, runs[late], "SOURCE_REVIEW_FAILED")]))
         days = (date(2025, 11, 1), date(2026, 4, 1))
-        with self.assertRaises(Refusal) as refused:
-            lines.close_line(world.profile, line, b"summary", days)
-        self.assertEqual(refused.exception.code, "HISTORY_INCOMPLETE", "of every participant, the ledger's own rule")
+        caught = refused(lines.close_line, world.profile, line, b"summary", days)
+        self.assertEqual(caught.code, "HISTORY_INCOMPLETE", "of every participant, the ledger's own rule")
         with patch.object(research_commands, "_market_days", return_value=days):
             closed = research_commands.line_close(world.profile, line, b"summary", {})
         self.assertFalse(closed["replayed"], "`line close` requires the candidates' segments only")

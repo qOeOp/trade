@@ -7,8 +7,6 @@ from __future__ import annotations
 from decimal import Decimal
 import hashlib
 from pathlib import Path
-import shutil
-import tempfile
 import unittest
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
@@ -22,6 +20,7 @@ from engine.config import ACCOUNT_CONTRACT
 from engine.load import load_strategy
 from market.instrument import build_instrument
 from tests.engine.test_fill_model import fees
+from tests.helpers import tempdir
 
 
 TERMS = {"price_increment": "0.01", "size_increment": "0.001", "max_quantity": None, "min_quantity": "0.002",
@@ -30,8 +29,7 @@ TERMS = {"price_increment": "0.01", "size_increment": "0.001", "max_quantity": N
 
 class ScaffoldTests(unittest.TestCase):
     def setUp(self):
-        root = Path(tempfile.mkdtemp(prefix="scaffold-"))
-        self.addCleanup(shutil.rmtree, root, True)
+        root = tempdir(self.addCleanup, prefix="scaffold-")
         made = research_commands.candidate_new(str(root / "work"), "fresh", "Fresh")
         source = Path(made["output"]) / "strategy.py"
         self.loaded = load_strategy(source, "Fresh", hashlib.sha256(source.read_bytes()).hexdigest())

@@ -10,10 +10,10 @@ import unittest
 from unittest.mock import patch
 
 from engine.config import RUNTIME_CONTRACT
-from shared.errors import Refusal
 from replay import entry, seams
 from runtime import container
 from runtime.identity import LAYOUT
+from tests.helpers import refused
 
 
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
@@ -52,9 +52,9 @@ class StageCommandTests(unittest.TestCase):
                  ({}, [(self.root / "reports", "/native/reports", True)], "REPORTS_MOUNT_MISSING"),
                  ({"argv": ["--run", 1]}, [reports], "ARGV_INVALID")]
         for options, mounts, code in cases:
-            with self.subTest(code=code, mounts=mounts), self.assertRaises(Refusal) as caught:
-                self.command(mounts, **options)
-            self.assertEqual(caught.exception.code, code)
+            with self.subTest(code=code, mounts=mounts):
+                caught = refused(lambda: self.command(mounts, **options))
+            self.assertEqual(caught.code, code)
 
 
     def test_a_stage_has_its_memory_limit_without_swap_and_is_kept_for_its_exit_state(self):
@@ -128,8 +128,7 @@ class RealContainerMemoryLimitTests(unittest.TestCase):
             self.assertIn("64m", command)
             # the stage's own options and image; a workload that holds 512 MiB instead of the module
             command = command[:command.index(IMAGE) + 1] + ["-c", "x = bytearray(512 << 20); x[::4096] = b'1' * len(x[::4096])"]
-            with self.assertRaises(seams.MemoryLimit) as caught:
-                entry._stage(command, name, root, "audit", None, None)
-            self.assertEqual(caught.exception.exit_code, 137)
+            caught = refused(entry._stage, command, name, root, "audit", None, None, error=seams.MemoryLimit)
+            self.assertEqual(caught.exit_code, 137)
             gone = subprocess.run(["docker", "inspect", name], capture_output=True, text=True)
             self.assertNotEqual(gone.returncode, 0, "the stage container is removed")

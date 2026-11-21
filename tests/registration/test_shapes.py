@@ -11,14 +11,9 @@ from ledger import trials
 from shared.errors import Refusal
 from registration import comparability, duties, register
 from tests.registration.world import DESIGN, config
+from tests.helpers import refused
 
 
-def code(function, *args, **kwargs) -> str:
-    try:
-        function(*args, **kwargs)
-    except Refusal as exc:
-        return exc.code
-    raise AssertionError(f"{function.__name__} did not refuse")
 
 
 class DesignTests(unittest.TestCase):
@@ -34,7 +29,7 @@ class DesignTests(unittest.TestCase):
                  {**DESIGN, "design_reason": "  "}, {**DESIGN, "design_reason": "x" * (register.TEXT_LIMIT + 1)}]
         for case in cases:
             with self.subTest(case=case):
-                self.assertEqual(code(register.validate_design, case), "REGISTRATION_INVALID")
+                self.assertEqual(refused(register.validate_design, case).code, "REGISTRATION_INVALID")
 
 
 class CatalogueTests(unittest.TestCase):
@@ -67,10 +62,9 @@ class SchemaTests(unittest.TestCase):
                 "conditions": "all"}
 
     def refusal(self, body) -> Refusal:
-        with self.assertRaises(Refusal) as caught:
-            register._check_shape(body)
-        self.assertEqual(caught.exception.code, "REGISTRATION_INVALID")
-        return caught.exception
+        caught = refused(register._check_shape, body)
+        self.assertEqual(caught.code, "REGISTRATION_INVALID")
+        return caught
 
     def test_a_missing_field_is_named_and_its_description_quoted(self):
         register._check_shape(self.body())
@@ -143,7 +137,7 @@ class ComparabilityTests(unittest.TestCase):
     def test_malformed_configurations_are_refused_not_compared(self):
         for value in (None, [], {k: v for k, v in config().items() if k != "account"}):
             with self.subTest(value=value):
-                self.assertEqual(code(trials.comparable_config_sha256, value), "IDENTITY_MALFORMED")
+                self.assertEqual(refused(trials.comparable_config_sha256, value).code, "IDENTITY_MALFORMED")
 
     def test_the_execution_environment_makes_runs_incomparable(self):
         """Same image, inputs and window: a bar-environment run and a quote-environment run differ in the effective
@@ -157,11 +151,11 @@ class ComparabilityTests(unittest.TestCase):
             under("quotes", ("0.05", "0.02"))
         run = {"trial_id": 1, "status": "passed", "purpose": "research", **bars}
         comparability.check_comparable(run, bars)
-        with self.assertRaises(Refusal) as caught:
-            comparability.check_comparable(run, quotes)
-        self.assertEqual((caught.exception.code, caught.exception.missing),
+        caught = refused(comparability.check_comparable, run, quotes)
+        self.assertEqual((caught.code, caught.missing),
                          ("COMPARABILITY_MISMATCH", ("comparable_config_sha256",)))
-        self.assertEqual(code(comparability.check_comparable, {**run, **quotes}, other_rates), "COMPARABILITY_MISMATCH")
+        self.assertEqual(refused(comparability.check_comparable, {**run, **quotes}, other_rates).code,
+                         "COMPARABILITY_MISMATCH")
 
     def test_check_comparable_names_every_conflict(self):
         execution = self.identity()
@@ -170,21 +164,20 @@ class ComparabilityTests(unittest.TestCase):
         comparability.check_comparable({**run, "purpose": "validation"}, execution)
         for changed in ({"status": "invalid"}, {"status": None}, {"purpose": "explore"}, {"purpose": "precheck"}):
             with self.subTest(changed=changed):
-                self.assertEqual(code(comparability.check_comparable, {**run, **changed}, execution), "RUN_NOT_PASSED")
+                self.assertEqual(refused(comparability.check_comparable, {**run, **changed}, execution).code,
+                                 "RUN_NOT_PASSED")
         other = self.identity(image_digest="sha256:" + "c" * 64, comparable_config_sha256="0" * 64,
                               export_sha256="f" * 64, trade_start=datetime(2026, 1, 2))
-        with self.assertRaises(Refusal) as caught:
-            comparability.check_comparable({**run, **other}, execution)
-        self.assertEqual((caught.exception.code, caught.exception.missing),
+        caught = refused(comparability.check_comparable, {**run, **other}, execution)
+        self.assertEqual((caught.code, caught.missing),
                          ("COMPARABILITY_MISMATCH", ("image_digest", "comparable_config_sha256", "export_sha256",
                                                      "trade_start")))
         comparability.check_comparable({**run, **other, "reproductions": [self.identity()]}, execution)
-        with self.assertRaises(Refusal) as caught:
-            comparability.check_comparable({**run, "export_sha256": other["export_sha256"],
-                                             "reproductions": [{**execution, "image_digest": other["image_digest"]}]},
-                                            execution)
-        self.assertEqual(caught.exception.code, "COMPARABILITY_MISMATCH",
+        caught = refused(comparability.check_comparable,
+                         {**run, "export_sha256": other["export_sha256"],
+                          "reproductions": [{**execution, "image_digest": other["image_digest"]}]}, execution)
+        self.assertEqual(caught.code, "COMPARABILITY_MISMATCH",
                          "one identity must hold all: the image of one and the inputs of another never ran")
-        self.assertEqual(code(comparability.check_comparable, {**run, "image_digest": None},
-                              {**execution, "image_digest": None}), "COMPARABILITY_MISMATCH",
+        self.assertEqual(refused(comparability.check_comparable, {**run, "image_digest": None},
+                              {**execution, "image_digest": None}).code, "COMPARABILITY_MISMATCH",
                          "a missing image digest is never equal")

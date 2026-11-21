@@ -12,7 +12,6 @@ from unittest import mock
 
 from engine import paper_checkpoint as checkpoint
 from ledger import db, paper as records
-from shared.errors import Refusal
 from paper import recovery, runs
 from tests.ledger.dolt import BINARY, SKIP, Service
 from tests.helpers import refused
@@ -130,9 +129,8 @@ class ResumePolicyTests(unittest.TestCase):
 
     def test_a_resume_takes_back_its_memory_or_is_refused_before_docker(self):
         with mock.patch.dict("os.environ", {runs.BUDGET_ENV: "512m"}):
-            with self.assertRaises(Refusal) as caught:
-                self.resume()
-        self.assertEqual(caught.exception.code, "PAPER_MEMORY_FULL")
+            caught = refused(self.resume)
+        self.assertEqual(caught.code, "PAPER_MEMORY_FULL")
         self.docker.assert_not_called()
         self.assertFalse((self.root / "out/launches.jsonl").exists())
 

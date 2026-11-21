@@ -5,13 +5,13 @@ from __future__ import annotations
 import unittest
 
 from ledger import db
-from shared.errors import Refusal
 from registration import availability, precheck, register, seams
 from replay import entry
 from report import runs
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, sha
 from tests.registration.world import RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld
+from tests.helpers import refused
 
 
 QUIET = {"status": "unresolved", "note": "no fills to inspect"}
@@ -58,9 +58,8 @@ class ReviewActivityTests(unittest.TestCase):
                 self.assertFalse(register.retryable(conn, run["trial_id"]))
             identity = conn.one(f"SELECT image_ref, {', '.join(precheck.PRECHECK_COLUMNS)} FROM trial WHERE trial_id = %s",
                                 (precheck.read_review(conn, old)["trial_id"],))
-            with self.assertRaises(Refusal) as caught:
-                precheck.require_precheck(conn, old, sha(data), identity)
-        self.assertEqual(caught.exception.code, "SOURCE_PRECHECK_FAILED")
+            caught = refused(precheck.require_precheck, conn, old, sha(data), identity)
+        self.assertEqual(caught.code, "SOURCE_PRECHECK_FAILED")
         self.assertEqual([item["review_id"] for item in value["source_check"]["reviews"]], [passed])
         self.assertEqual(value["source_check"]["ignored"][0]["review_id"], old)
         self.assertEqual(precheck.read_review(world.conn, old), original)

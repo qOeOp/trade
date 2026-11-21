@@ -12,6 +12,7 @@ import unittest
 from shared.errors import Refusal
 from ledger.problems import REASONS
 from shared.refusals import CATALOGUE, refuse
+from tests.helpers import refused
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,10 +64,9 @@ class RefusalTests(unittest.TestCase):
 
     def test_a_refusal_raised_in_a_worker_process_reaches_its_caller_whole(self):
         with ProcessPoolExecutor(1, mp_context=multiprocessing.get_context("spawn")) as pool:
-            with self.assertRaises(Refusal) as caught:
-                pool.submit(_refused_in_a_worker, "MONTH_EXISTS").result()
+            caught = refused(pool.submit(_refused_in_a_worker, "MONTH_EXISTS").result)
         expected = refuse("MONTH_EXISTS", "refused in a worker", missing=("x",), expected="y")
-        self.assertEqual((caught.exception.as_dict(), caught.exception.next_actions),
+        self.assertEqual((caught.as_dict(), caught.next_actions),
                          (expected.as_dict(), expected.next_actions))
 
     def test_malformed_refusals_are_programming_errors(self):

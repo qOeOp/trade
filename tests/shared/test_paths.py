@@ -7,8 +7,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from shared.errors import Refusal
 from shared.paths import temporary_path
+from tests.helpers import refused
 
 
 class TemporaryPathTests(unittest.TestCase):
@@ -17,9 +17,7 @@ class TemporaryPathTests(unittest.TestCase):
         self.addCleanup(__import__("shutil").rmtree, self.root, ignore_errors=True)
 
     def code(self, *args, **kwargs) -> str:
-        with self.assertRaises(Refusal) as caught:
-            temporary_path(*args, **kwargs)
-        return caught.exception.code
+        return refused(lambda: temporary_path(*args, **kwargs)).code
 
     def test_a_new_path_under_a_temporary_root_is_returned_resolved(self):
         self.assertEqual(temporary_path(self.root / "work" / ".." / "out"), self.root / "out")

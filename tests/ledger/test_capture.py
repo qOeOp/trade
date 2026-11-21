@@ -14,6 +14,7 @@ from ledger import coverage, db, evidence, execution, problems, strategies, tria
 from shared.errors import Refusal
 from tests.ledger import dolt
 from tests.ledger.dolt import ACCOUNT, BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, SYMBOLS, Service, sha, source
+from tests.helpers import refused
 
 
 EXITED = {"native": {"state": "exited", "exit_code": 0}, "audit": None}
@@ -85,10 +86,9 @@ class LedgerCase(unittest.TestCase):
 
     def refused(self, call) -> str:
         seq = self.seq()
-        with self.assertRaises(Refusal) as caught:
-            call()
+        caught = refused(call)
         self.assertEqual(self.seq(), seq, "a refused call writes nothing")
-        return caught.exception.code
+        return caught.code
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -273,10 +273,10 @@ class CaptureTests(LedgerCase):
         workdir = self.workdir({"native.stdout.txt": b"y" * 64, **(reports or {})})
         trial_id = self.trial(workdir, "precheck")
         process(workdir, trial_id, stages)
-        with patch.object(execution, "PRECHECK_CAPTURE_LIMIT", 32), self.assertRaises(Refusal) as caught:
-            execution.seal_capture(self.conn, trial_id, workdir, stages, DONE)
+        with patch.object(execution, "PRECHECK_CAPTURE_LIMIT", 32):
+            caught = refused(execution.seal_capture, self.conn, trial_id, workdir, stages, DONE)
         receipt = workdir / execution.HOST_ERROR
-        receipt.write_text(json.dumps(caught.exception.as_dict()))
+        receipt.write_text(json.dumps(caught.as_dict()))
         return trial_id, workdir, receipt
 
     def test_recovered_bytes_are_appended_apart_and_the_capture_stays_missing(self):
@@ -342,9 +342,9 @@ class VerifyCoverageTests(unittest.TestCase):
                      {"instrument": symbol, "counts": {"instrument_status": -1}} for symbol in SYMBOLS]),
                   "LIFECYCLE_NATIVE_COUNT_INVALID")]
         for receipt, summary, code in cases:
-            with self.subTest(code=code), self.assertRaises(Refusal) as caught:
-                coverage.verify_coverage(receipt, summary)
-            self.assertEqual(caught.exception.code, code)
+            with self.subTest(code=code):
+                caught = refused(coverage.verify_coverage, receipt, summary)
+            self.assertEqual(caught.code, code)
 
 
 @unittest.skipUnless(BINARY, SKIP)
