@@ -259,7 +259,7 @@ def _messages(run: dict) -> list[tuple[str, str]]:
     elif current == "unresolved":
         result.append((f"{run_id}:unresolved:{mode}",
                        f"{name} is UNRESOLVED and needs attention now: exposure may remain at Binance and nothing "
-                       f"will close it. Follow 'Unresolved Live runs' in engine/README.md.{reason}"))
+                       f"will close it. Follow 'Unresolved Live runs' in live/README.md.{reason}"))
     return result
 
 

@@ -441,7 +441,7 @@ version, as above, and `GitSource.choose` releases it over `OLD`.
 ## Live on this host
 
 Live runs are prepared, started and reconciled only from the Live page, through the Live control pairing
-above, with a credential saved there ([`engine/README.md`](../../engine/README.md#live-execution)). The base Paper
+above, with a credential saved there ([`live/README.md`](../../live/README.md#live-execution)). The base Paper
 overlay mounts no Binance credential. The ledger's Dolt port stays unpublished. Account-mode changes and order tests
 need the user's explicit scope; a successful preflight is not evidence of a completed real trade.
 
@@ -504,7 +504,7 @@ extract into an absent `LIVE_ROOT` at the **same absolute path** (`tar -C / -xpz
 permissions, the root owner and the saved credential versions and metadata, start the timer, then
 `live status` each run. Docker resource names come from the root's path, so a
 root restored elsewhere cannot find an unresolved run's network or runner. A run that was unresolved stays
-unresolved and keeps the slot; settle it as in [Unresolved Live runs](../../engine/README.md#unresolved-live-runs).
+unresolved and keeps the slot; settle it as in [Unresolved Live runs](../../live/README.md#unresolved-live-runs).
 
 ## Release control code
 

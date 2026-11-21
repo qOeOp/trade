@@ -73,5 +73,5 @@ A `DOLT_BINARY` refusal on the host means the command reads a Dolt backup: run i
 
 Live refusals start with `LIVE_` and say what they need in their message. Two to know: `LIVE_KEY_WITHDRAWAL` (make a
 key without withdrawal permission) and `LIVE_ACCOUNT_OWNED` (another run holds the account; wait for it to end).
-A run whose outcome is unclear is handled as [Unresolved Live runs](../../engine/README.md#unresolved-live-runs) says:
+A run whose outcome is unclear is handled as [Unresolved Live runs](../../live/README.md#unresolved-live-runs) says:
 check the exchange account itself.
