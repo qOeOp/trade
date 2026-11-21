@@ -29,6 +29,17 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.
+- IDE (fix, Breaking: `ide.py serve --reads` is gone): the research graph service starts a product read only while
+  the container's memory has room for its peak, instead of up to 3 at once (doctor 20261116-01, recurred
+  2026-11-19: the kernel killed 9 reads in the 1.5 GiB Web container, where 3 reads of 385-440 MB each, the server
+  and the overview did not fit). The room is the cgroup's `memory.max` less what its processes hold when no read runs
+  and a 64 MiB margin; a read of research data is priced at 450 MiB, a ledger head, status or line list at 96 MiB,
+  so a light read no longer waits behind heavy ones (in that container: two heavy reads and a light one). Reads run
+  the product's `.venv` Python directly (no `uv run`) and ask the kernel to kill them first (`oom_score_adj` 1000),
+  so the server and the overview outlive a memory shortfall. A read the kernel kills answers `OUT_OF_MEMORY`
+  ("open it again to retry") instead of `PRODUCT_FAILED`, which the page showed as data not served; the Runs page's
+  backtest asks again when the trial is shown again. `/api/about` reads `ledger service status` once per head and
+  30 s instead of once per open page per minute.
 - IDE Runs page: clicking a row in the Trades, Cycles or Comparison table now moves the chart to that trade
   (doctor 20261121-10): the equity chart glides to its span with as much again either side, the candle chart shows
   it with at least twenty candles either side, and both mark the span with a band in the focus blue. The row stays
