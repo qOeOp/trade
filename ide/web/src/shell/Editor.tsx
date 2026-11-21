@@ -12,17 +12,18 @@ import { RunsPage } from "../widgets/paper/RunsPage";
 import { SourceBar, SourceBody } from "../widgets/source/SourceView";
 import { Island } from "./Island";
 
-/** The editor island follows the left tool window last chosen, as the views of one IDE window do:
- *  with Versions it shows the lineage, with Sources the open file (a version's source, or its change
- *  from its parent) under a header naming it, and with Market, Runs or History (no left tool window) that page. The
+/** The editor island shows the shell's page: Market, Runs, History, or the research view, which follows
+ *  the left tool window last chosen, as the views of one IDE window do: with Versions it shows the
+ *  lineage, with Sources the open file (a version's source, or its change from its parent) under a
+ *  header naming it. A left tool window opened on another page leaves that page in place. The
  *  lineage stays mounted while another view shows, so its view is kept. Before there is a view, Versions and
  *  Sources have nothing to show, so the editor says why. */
 export function Editor() {
   const lineage = useWidget<LineageWidget>("lineage");
   const sources = useWidget<SourcesWidget>("sources");
   const { id, diff, pinned } = useOpenFile();
-  const left = useShell().last.left;
-  const files = left === "sources", runs = left === "runs", market = left === "market", history = left === "history";
+  const { page, last } = useShell();
+  const files = page === "research" && last.left === "sources", runs = page === "runs", market = page === "market", history = page === "history";
   const Lineage = RENDERERS.lineage.Component;
   const code = files && id ? { id, diff, pinned, widget: sources } : null;
   const none = !useView().line.name, status = useAtom(viewStatus);

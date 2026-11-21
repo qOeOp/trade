@@ -7,14 +7,13 @@ import { ending } from "../../model/ending";
 import { unresumable } from "../../model/recovery";
 import { LAG_MS, waitingText, waitingUntil } from "../../model/observation";
 import { copyText } from "../../lib/clipboard";
-import { openSource } from "../../state/editors";
+import { locate, openSource } from "../../state/editors";
 import { activeRun, deleteDialog, deleting, full, startDialog, starting, startPaper, stopDialog, usePaperRuns, resumePaper, resuming } from "../../state/paper";
 import { usePhone } from "../../state/phone";
 import { useAtom } from "../../state/atom";
 import type { DataRole } from "../../theme/roles";
 import { ActionButton } from "../../ui/ActionGroup";
 import { Menu, MenuItem, MenuSeparator } from "../../ui/ContextMenu";
-import { locate } from "./VersionMenu";
 
 /** A run's health in words and its tone: running, data late, stopping, or how it ended (model/ending.ts),
  *  in the warning tone when its evidence is untrusted; an ended run whose recovery was refused says whether a

@@ -1,12 +1,17 @@
 import { useRef } from "react";
 import type { SourceItem, SourcesWidget } from "../../model/types";
 import { Icon } from "../../icons/Icon";
+<<<<<<< HEAD
 import { toggleDiff, togglePin } from "../../state/editors";
+||||||| parent of 2af549ff0 (fix(ide): keep the page apart from the left tool window and let the Agent dock under Details)
+import { toggleDiff } from "../../state/editors";
+=======
+import { locate, toggleDiff } from "../../state/editors";
+>>>>>>> 2af549ff0 (fix(ide): keep the page apart from the left tool window and let the Agent dock under Details)
 import { CodeView } from "../../ui/CodeView";
 import { useSize } from "../../ui/hooks/useSize";
 import { PanelHeader } from "../../ui/PanelHeader";
 import { TextButton } from "../../ui/TextButton";
-import { locate } from "../runs/VersionMenu";
 
 type Opened = { item: SourceItem | undefined; parent: SourceItem | undefined; comparing: boolean };
 
