@@ -5,7 +5,7 @@ import { liveHomePresentation } from "../model/liveTradingMap";
 import { liveApi, LiveApiError } from "../lib/liveTradingApi";
 import { createLiveCommands } from "../lib/liveTradingCommands";
 import { newLiveRunId } from "../lib/liveTradingPending";
-import { whileVisible } from "../lib/whileVisible";
+import { polled } from "../lib/polled";
 import type { LiveHomeDto, LiveRequest, LiveRunDto } from "../lib/liveTradingDto";
 
 export const liveTrading = atom<{ view: LiveTradingView; actions: LiveTradingActions }>({ view: LIVE_UNAVAILABLE, actions: {} });
@@ -102,6 +102,5 @@ export async function refreshLiveTrading(): Promise<void> { await readLiveHome()
 export async function detectLiveTrading(): Promise<void> {
   if (started) return;
   started = true;
-  await refreshLiveTrading();
-  whileVisible(() => void refreshLiveTrading(), 15_000);
+  await polled(refreshLiveTrading, 15_000).read();
 }

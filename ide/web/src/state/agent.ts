@@ -3,7 +3,7 @@
 // the open thread's controls, registered by the chat runtime.
 import { agentApi, type Agent, type Provider } from "../lib/agentApi";
 import { pageFetch } from "../lib/transport";
-import { whileVisible } from "../lib/whileVisible";
+import { polled } from "../lib/polled";
 import { atom, persistedAtom, useAtom } from "./atom";
 
 type Choice = { agent: string; model: string };
@@ -51,8 +51,7 @@ export async function detectAgentService(): Promise<void> {
     const listed = health?.ok && await refreshAgents().then(() => true, () => false);
     agentService.set(listed ? "present" : "offline");
   };
-  await ask();
-  if (agentService.get() === "offline") whileVisible(() => { if (agentService.get() === "offline") void ask(); }, RETRY_MS);
+  await polled(ask, () => agentService.get() === "offline" ? RETRY_MS : null).read();
 }
 
 export function replaceAgent(agent: Agent): void {

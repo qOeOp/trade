@@ -33,6 +33,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   only a lone fill matching its change, so a burst no longer reads as `FUNDING_BALANCE_MISMATCH`. Anything else stays
   a finding; the replay audit is unchanged. Paper run 3 (`pa-trend-second-entry@52`) failed its seal audit on these
   alone (12 and 14 findings).
+- IDE: every poll of the page (About, market import, line readings, Agent, Market, Paper, Live, a run's comparison and
+  logs, the DoltHub sync, a Live candidate and its evidence) runs on one `lib/polled.ts`: it reads again only after the
+  last read finished, pauses while the page is hidden and reads once on showing again, and stops at the first 401 as
+  before. A run's logs, its comparison and the Live launch page's reads now also pause while the page is hidden.
 
 - market-import health (check change, delegated decision): a round in progress counts as fresh while its
   `running_since` is younger than 26 hours, so a long daily round no longer reports unhealthy; a round running

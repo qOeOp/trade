@@ -7,7 +7,7 @@ import { useView, useWidget } from "../model/view";
 import { lineOf } from "../lib/lines";
 import { liveApi, LiveApiError } from "../lib/liveTradingApi";
 import type { LiveCandidateDto, LiveEvidenceReadDto } from "../lib/liveTradingDto";
-import { signedOut } from "../lib/transport";
+import { polled } from "../lib/polled";
 import { useResearchLines } from "./researchLines";
 import { useAtom } from "./atom";
 import { useLiveTrading } from "./liveTrading";
@@ -57,17 +57,9 @@ export function useLiveSource(version: string | null): LiveSource | null {
   const [read, setRead] = useState<{ candidate: string; found: LiveCandidateDto | "absent" | "unknown" } | null>(null);
   useEffect(() => {
     if (!candidate) return;
-    let live = true, timer: number | undefined;
-    const ask = () => void liveApi<LiveCandidateDto>(candidatePath(candidate)).then(
-      (found) => { if (live) setRead({ candidate, found }); },
-      (error) => {
-        if (!live) return;
-        const absent = error instanceof LiveApiError && error.code === "LIVE_SOURCE_MISSING";
-        setRead({ candidate, found: absent ? "absent" : "unknown" });
-        if (!absent && !signedOut()) timer = window.setTimeout(ask, UNKNOWN_MS);
-      });
-    ask();
-    return () => { live = false; window.clearTimeout(timer); };
+    const ask = () => liveApi<LiveCandidateDto>(candidatePath(candidate)).catch((error): "absent" | "unknown" =>
+      error instanceof LiveApiError && error.code === "LIVE_SOURCE_MISSING" ? "absent" : "unknown");
+    return polled(ask, (found) => found === "unknown" ? UNKNOWN_MS : null, (found) => setRead({ candidate, found })).stop;
   }, [candidate]);
   if (!version) return null;
   // A version Live cannot name is no candidate it can run; one not read yet is still being read.
@@ -81,12 +73,9 @@ export function useLiveEvidence(source: LiveSource | null, symbols: readonly str
   const [found, setFound] = useState<{ key: string; evidence: LiveEvidenceRead } | null>(null);
   useEffect(() => {
     if (!key || !candidate || !symbols) return;
-    let live = true, timer: number | undefined;
-    const ask = () => void liveApi<LiveEvidenceReadDto>(`${candidatePath(candidate)}/evidence/${symbols.join(",")}`).then(
-      (read) => { if (!live) return; setFound({ key, evidence: liveEvidencePresentation(read) }); if ((read.state === "checking" || read.state === "unknown") && !signedOut()) timer = window.setTimeout(ask, read.state === "checking" ? CHECKING_MS : UNKNOWN_MS); },
-      () => { if (!live) return; setFound({ key, evidence: { state: "unknown", replays: [], tolerance: "0" } }); if (!signedOut()) timer = window.setTimeout(ask, UNKNOWN_MS); });
-    ask();
-    return () => { live = false; window.clearTimeout(timer); };
+    const ask = () => liveApi<LiveEvidenceReadDto>(`${candidatePath(candidate)}/evidence/${symbols.join(",")}`).catch(() => null);
+    return polled(ask, (read) => read?.state === "checking" ? CHECKING_MS : !read || read.state === "unknown" ? UNKNOWN_MS : null,
+      (read) => setFound({ key, evidence: read ? liveEvidencePresentation(read) : { state: "unknown", replays: [], tolerance: "0" } })).stop;
   }, [key]);
   return key && found?.key === key ? found.evidence : key ? { state: "checking", replays: [], tolerance: "0" } : null;
 }

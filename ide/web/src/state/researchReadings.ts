@@ -2,8 +2,7 @@
 // (GET /api/readings: `line list --all --readings`, as the graph's summary reads it, with no graph drawn), so every
 // line has its reading as soon as the ledger does.
 import type { ResearchLine } from "../lib/lines";
-import { pageFetch } from "../lib/transport";
-import { whileVisible } from "../lib/whileVisible";
+import { polled, type Answer, type Poll } from "../lib/polled";
 import { atom, useAtom } from "./atom";
 
 /** A line's recommendation: the version the latest recommendation judgment names, since when it has, the line's research
@@ -16,23 +15,16 @@ type Listed = ResearchLine & { recommendation: LineReading | null };
 const readings = atom<{ lines: Record<string, LineReading | null>; read: boolean; error: string | null }>({ lines: {}, read: false, error: null });
 export const useLineReadings = () => useAtom(readings);
 
-async function read(): Promise<void> {
-  try {
-    const response = await pageFetch("/api/readings", { cache: "no-store" });
-    const body = await response.json().catch(() => null) as { lines?: Listed[]; message?: string } | null;
-    if (!response.ok || !body?.lines) throw new Error(body?.message ?? `HTTP ${response.status}`);
-    readings.set({ lines: Object.fromEntries(body.lines.map((l) => [l.name, l.recommendation])), read: true, error: null });
-  } catch (error) {
-    readings.set({ ...readings.get(), error: String(error) });  // the last ones stay
-  }
+function map(answer: Answer): void {
+  const body = answer?.body as { lines?: Listed[]; message?: string } | null | undefined;
+  if (answer?.ok && body?.lines) readings.set({ lines: Object.fromEntries(body.lines.map((l) => [l.name, l.recommendation])), read: true, error: null });
+  else readings.set({ ...readings.get(), error: body?.message ?? (answer ? `HTTP ${answer.status}` : "The page's server did not answer.") });  // the last ones stay
 }
 
-let following = false, started = false;
+let poll: Poll | null = null;
 /** Reads now and every 10 s while the page is visible and `on` was the last said. */
 export function followReadings(on: boolean): void {
-  following = on;
-  if (!on) return;
-  void read();
-  if (!started) whileVisible(() => { if (following) void read(); }, 10_000);
-  started = true;
+  if (!on) poll?.stop();
+  else if (poll) void poll.read();
+  else poll = polled("/api/readings", 10_000, map);
 }

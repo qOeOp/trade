@@ -9,19 +9,19 @@ const result = (request, outcome = "effect_recorded") => ({ ...request, outcome 
 async function harness(saved = new Map(), stateMode = false) {
   const calls = [], observations = [], errors = [], meta = { content: "old-nonce" };
   let count = 0, handler = () => refused("UNEXPECTED");
-  const intervals = [];
+  const timers = [];
   const context = createContext({
     Headers, Response, console,
     crypto: { randomUUID: () => `00000000-0000-4000-8000-${String(++count).padStart(12, "0")}`, getRandomValues: (bytes) => bytes.fill(3) },
-    document: { querySelector: () => meta, hidden: false, addEventListener: () => {} },
-    window: { setInterval: (callback) => intervals.push(callback), sessionStorage: { getItem: (key) => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, value), removeItem: (key) => saved.delete(key) } },
+    document: { querySelector: () => meta, hidden: false, addEventListener: () => {}, removeEventListener: () => {} },
+    window: { setTimeout: (callback) => timers.push(callback), clearTimeout: () => {}, sessionStorage: { getItem: (key) => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, value), removeItem: (key) => saved.delete(key) } },
     fetch: async (url, init) => { const call = { url, method: init.method, token: init.headers?.get?.("x-trade-paper-token"), body: init.body === undefined ? null : JSON.parse(init.body) }; calls.push(call); return handler(call); },
   });
   const graph = loader({ context });
   const commands = await graph.namespace(stateMode ? "state/liveTrading.ts" : "lib/liveTradingCommands.ts");
   const client = stateMode ? null : commands.createLiveCommands({ onRequest: (v) => observations.push(v), onError: (e) => errors.push(e), refresh: async () => {} });
   return {
-    client, state: stateMode ? commands : null, intervals, calls, observations, errors, saved, meta, handle: (next) => { handler = next; },
+    client, state: stateMode ? commands : null, timers, calls, observations, errors, saved, meta, handle: (next) => { handler = next; },
     pending: graph.loaded("lib/liveTradingPending.ts"),
     api: graph.loaded("lib/liveTradingApi.ts"),
   };
@@ -154,8 +154,8 @@ test("Live bootstrap, refresh and visible polling only read; disabled deployment
   await h.state.detectLiveTrading();
   await h.state.detectLiveTrading();
   await h.state.refreshLiveTrading();
-  assert.equal(h.intervals.length, 1);
-  h.intervals[0]();
+  assert.equal(h.timers.length, 1);
+  h.timers[0]();
   await new Promise((resolve) => setImmediate(resolve));
   assert(h.calls.every((call) => call.method === "GET" && call.body === null));
   const { view, actions } = h.state.liveTrading.get();
