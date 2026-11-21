@@ -68,6 +68,8 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - IDE phone, Paper and Live run pages: the Positions heading shows a mark only when one position is held; it showed
   the first position's mark whatever else was held. With several positions each row shows its mark under its entry
   (column Entry / Mark): a sixth column does not fit a phone's width.
+- IDE Research page: clicking a bar in the Progress chart now selects that version in Details, as Enter on the
+  chart and a click on the Scatter already did; before, it only moved the lineage to it.
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.

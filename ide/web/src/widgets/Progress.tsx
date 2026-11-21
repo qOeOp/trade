@@ -99,7 +99,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
               {points.map((p) => (
                 <Tip key={p.trial_id} content={<EventTip kind={`trial ${p.trial_id} · research run`} version={p.id}
                   note={`Return ${pct(p.annual_return)}${p.max_drawdown != null ? ` · drawdown ${pct(p.max_drawdown)}` : ""}${recommended.has(p.id) ? " · once recommended" : ""}`} />}>
-                  <g {...hoverProps(p.id)} data-light={tone(p.annual_return) === "bar" ? "" : undefined} className="enter cursor-pointer" onClick={() => requestFocus(p.id)} transform={`translate(${sx(p.x)} 0)`}>
+                  <g {...hoverProps(p.id)} data-light={tone(p.annual_return) === "bar" ? "" : undefined} className="enter cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }} transform={`translate(${sx(p.x)} 0)`}>
                     <path className={glide} d={bar(-barWidth / 2, barWidth, y(0), y(p.annual_return) + (p.annual_return === 0 ? -1 : 0), R)} fill={v(tone(p.annual_return))} />
                   </g>
                 </Tip>
