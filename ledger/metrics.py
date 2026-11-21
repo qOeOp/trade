@@ -640,18 +640,58 @@ def equity_path(summary: dict, account: list[dict], exposures) -> list[dict]:
     return path
 
 
-def mark_drawdown(summary: dict, path: list[dict]) -> dict:
-    """Largest fall of bar-close mark equity from its running peak (from the starting balance)."""
-    peak = Decimal(summary["starting_balance_usdt"])
-    peak_at, worst, worst_peak_at, worst_at = None, Decimal(0), None, None
+def segment_cuts(start_ns: int, end_ns: int, months: int) -> tuple[list[int], int] | None:
+    """(bounds in UTC ns, whole segments) of a trade window cut every `months` months from its start (development
+    years at 12), the window's end closing a last part segment when it falls on no cut. None for a window of one
+    whole segment or less, or a start whose day some month lacks."""
+    start, end = datetime.fromtimestamp(start_ns // 10**9, UTC), datetime.fromtimestamp(end_ns // 10**9, UTC)
+
+    def shifted(k: int) -> datetime:
+        month = start.month - 1 + k * months
+        return start.replace(year=start.year + month // 12, month=month % 12 + 1)
+
+    cuts = [start]
+    try:
+        while (following := shifted(len(cuts))) <= end:
+            cuts.append(following)
+    except ValueError:  # a start on a day some month lacks (29-31) has no regular cuts
+        return None
+    whole = len(cuts) - 1
+    if end > cuts[-1]:
+        cuts.append(end)
+    if whole == 0 or len(cuts) < 3:
+        return None
+    return [int(moment.timestamp()) * 10**9 for moment in cuts], whole
+
+
+def _falls(starting: Decimal, path: list[dict], bounds: list[int]) -> list[tuple[Decimal, int | None, int | None]]:
+    """(largest fall, its peak's label, its trough's label) of bar-close mark equity from its running peak in each
+    segment [bounds[k], bounds[k + 1]) of the bar labels; the peak runs from the starting balance across segments."""
+    falls: list[tuple[Decimal, int | None, int | None]] = [(Decimal(0), None, None)] * (len(bounds) - 1)
+    peak, peak_at, k = starting, None, 0
     for point in path:
+        while k < len(falls) - 1 and point["label"] >= bounds[k + 1]:
+            k += 1
         if point["equity"] > peak:
             peak, peak_at = point["equity"], point["label"]
         fall = (peak - point["equity"]) / peak
-        if fall > worst:
-            worst, worst_peak_at, worst_at = fall, peak_at, point["label"]
+        if fall > falls[k][0]:
+            falls[k] = (fall, peak_at, point["label"])
+    return falls
+
+
+def mark_drawdown(summary: dict, path: list[dict]) -> dict:
+    """Largest fall of bar-close mark equity from its running peak (from the starting balance), over the trade
+    window and in each of its development years (segment_cuts at 12 months; null for a window of one year or less), the peak
+    carried across years."""
+    starting = Decimal(summary["starting_balance_usdt"])
+    (worst, worst_peak_at, worst_at), = _falls(starting, path, [-1, 2**63])
+    cut = segment_cuts(clock.utc_ns(summary["period_start_utc"]), clock.utc_ns(summary["period_end_utc"]), 12)
+    years = None if cut is None else [
+        {"mark_max_drawdown": float(fall), "peak_utc": iso_minute(peak_at), "trough_utc": iso_minute(trough_at)}
+        for fall, peak_at, trough_at in _falls(starting, path, cut[0])]
     return {"max_drawdown": float(worst), "price_source": "mark", "sampling": "bar_close", "bars": len(path),
-            "peak_ns": worst_peak_at, "trough_ns": worst_at,
+            "peak_ns": worst_peak_at, "trough_ns": worst_at, "years": years,
             "limitations": ["Equity inside a bar is not observed; the drawdown is sampled at bar closes"]}
 
 
@@ -910,7 +950,7 @@ def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, p
     duration = None if peak is None or trough is None else (trough - peak) / DAY_NS
     return {"mark_max_drawdown": _measure(drawn["max_drawdown"], "bars"),
             "peak_utc": _measure(iso_minute(peak), "bars"), "trough_utc": _measure(iso_minute(trough), "bars"),
-            "duration_days": _measure(duration, "bars"),
+            "duration_days": _measure(duration, "bars"), "years": _measure(drawn["years"], "bars"),
             "top_instrument_share_in_drawdown": {**_measure(share, "negative_contributing_instruments"),
                                                      "null_reason": reason},
             "top_instrument": {**_measure(top, "negative_contributing_instruments"), "null_reason": reason}}

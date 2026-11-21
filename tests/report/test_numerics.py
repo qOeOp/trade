@@ -448,6 +448,16 @@ class DevYearTests(unittest.TestCase):
         self.assertAlmostEqual(math.prod(1 + item["return"] for item in found["years"]), whole, places=9,
                                msg="the years compound to the window")
 
+    def test_each_year_carries_its_sealed_mark_drawdown(self):
+        years = [{"mark_max_drawdown": 0.1 * k, "peak_utc": f"202{k}-01-01T00:00", "trough_utc": f"202{k}-02-01T00:00"}
+                 for k in (1, 2, 3)]
+        found = splits.dev_years({**self.run, "sealed": {"drawdown": {"years": {"value": years, "population": "bars"}}}})
+        assert found is not None
+        self.assertEqual([{key: item[key] for key in years[0]} for item in found["years"]], years)
+        found = splits.dev_years(self.run)
+        assert found is not None
+        self.assertIsNone(found["years"][0]["mark_max_drawdown"], "a reading without yearly drawdowns")
+
     def test_without_a_target_the_years_carry_no_mark(self):
         found = splits.dev_years(self.run)
         assert found is not None

@@ -305,6 +305,23 @@ class MarkEquityTests(unittest.TestCase):
         self.assertEqual([point["equity"] for point in path], [Decimal(100100), Decimal(100100), Decimal(100100)])
         self.assertEqual(metrics.mark_drawdown(self.SUMMARY, path)["max_drawdown"], 0.0)
 
+    def test_each_development_year_reads_its_own_mark_drawdown_from_the_carried_peak(self):
+        """2024-03-01 to 2026-06-01: two whole years and a part year. The peak of year 1 carries into year 2, whose
+        fall from it is year 2's drawdown; the largest year is the window's."""
+        def at(text: str) -> int:
+            return clock.utc_ns(text + "T00:00:00Z")
+        summary = {"starting_balance_usdt": "100", "period_start_utc": "2024-03-01T00:00:00Z",
+                   "period_end_utc": "2026-06-01T00:00:00Z"}
+        path = [{"label": at(day), "equity": Decimal(value)} for day, value in
+                (("2024-04-01", 120), ("2024-05-01", 108), ("2025-04-01", 90), ("2025-05-01", 130),
+                 ("2026-04-01", 117))]
+        found = metrics.mark_drawdown(summary, path)
+        self.assertEqual([(year["mark_max_drawdown"], year["peak_utc"], year["trough_utc"]) for year in found["years"]],
+                         [(0.1, "2024-04-01T00:00", "2024-05-01T00:00"), (0.25, "2024-04-01T00:00", "2025-04-01T00:00"),
+                          (0.1, "2025-05-01T00:00", "2026-04-01T00:00")])
+        self.assertEqual(found["max_drawdown"], max(year["mark_max_drawdown"] for year in found["years"]))
+        self.assertIsNone(metrics.mark_drawdown(self.SUMMARY, path)["years"], "a window of one year or less")
+
     def test_account_rows_tied_on_time_keep_report_order(self):
         account = [{"ts_event": iso(JAN), "total": "100000", "locked": "0"},
                    {"ts_event": iso(JAN + 3_600 * 10**9), "total": "100050", "locked": "0"},
