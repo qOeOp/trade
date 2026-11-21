@@ -276,24 +276,6 @@ REFUSALS: dict[str, str] = {
     "INTEGRITY_FINDINGS": "The summary's integrity findings are not empty.",
 }
 
-# Integrity findings (summary.json integrity_findings): every finding starts with one of these codes.
-INTEGRITY_CODES: dict[str, str] = {
-    "SELF_CHECK_FINDING": "The source's replay_integrity_findings reported a violated invariant.",
-    "ORDERS_DENIED_OR_REJECTED": "The orders report holds DENIED or REJECTED orders.",
-    "CAPITAL_VALUATION_GAP": "An open position could not be valued at a timestamp, or a MARK arrived out of order.",
-    "CAPITAL_TIMESTAMP_COUNT_MISMATCH": "The observer valued another number of timestamps than the exported MARK "
-                                        "files hold.",
-    "EXPOSURE_WRITE_FAILED": "Writing the exposure table failed.",
-    "PAPER_EXEC_CLIENT_NOT_SANDBOX": "A paper run traded an account other than the Sandbox's; the run stopped.",
-    "TRADES_NOT_SERVED": "A paper strategy subscribed to trades, which paper trading does not stream; the run stopped.",
-    "METRICS_NOT_SERVED": "A paper strategy subscribed to metrics of a contract outside the run; the run stopped.",
-    "SUBSCRIPTION_OUTSIDE_CONTRACT": "A paper strategy subscribed to data no run serves; the run stopped.",
-    "ORDER_RULE": "A paper strategy's order command broke the order rules; it was not sent and the run stopped.",
-    "TERMS_CHANGED": "A paper contract's tick size, step size or minimum notional differs from the market's at the "
-                     "run's market day, or its loaded margin rates are not the ones its leverage is set from; the run "
-                     "stopped.",
-}
-
 # The contract terms Paper and Live compare with the market's at the run's market day (TERMS_CHANGED).
 TERMS_COMPARED = ("price_increment", "size_increment", "min_notional")
 

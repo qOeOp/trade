@@ -131,7 +131,7 @@ class Source(Strategy):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.output = Path(temp.name)
-        live.strategy_runtime.clear_failures()
+        live.strategy_runtime.begin_run(self.output, {"Metrics": {"AAAUSDT-PERP.BINANCE"}})
         path, universe = self.output / "source.py", self.output / "universe.json"
         path.write_text(self.SOURCE)
         universe.write_text('{"membership":{"AAAUSDT":[[0,9999999999999999999]]}}')
@@ -147,6 +147,7 @@ class Source(Strategy):
     def tearDown(self):
         self.session.node = self.source = None
         self.session.sources = {}
+        live.strategy_runtime.STRATEGIES.clear()
         gc.collect()
         live.strategy_runtime.clear_failures()
 

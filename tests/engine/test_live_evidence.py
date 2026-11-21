@@ -79,7 +79,7 @@ class LiveEvidenceTests(unittest.TestCase):
         return session, live.source_for_run(manifest)
 
     def test_the_bars_the_source_receives_are_recorded_as_paper_journals_them(self):
-        live.strategy_runtime.clear_failures()
+        live.strategy_runtime.begin_run(self.output, {"Metrics": {"AAAUSDT-PERP.BINANCE"}})
         session, loaded = self.session()
         session.sources = live_source_runtime.live_source(loaded, session)
         [source] = session.sources.values()
@@ -129,13 +129,14 @@ class LiveEvidenceTests(unittest.TestCase):
             engine.dispose()
             session.node, session.sources = None, {}
             source = engine = None
+            live.strategy_runtime.STRATEGIES.clear()
             gc.collect()
             live.strategy_runtime.clear_failures()
 
     def warm(self, klines, minutes):
         """Run the Live wrapper of a source declaring three minutes and two quarters of history through its T,
         Binance's klines replaced by `klines`, then feed live minute bars closing `minutes` after T."""
-        live.strategy_runtime.clear_failures()
+        live.strategy_runtime.begin_run(self.output, {"Metrics": {"AAAUSDT-PERP.BINANCE"}})
         session, loaded = self.session('''    WARMUP = {"1-MINUTE": 3, "15-MINUTE": 2}
     def on_historical_bars(self, bars):
         self.observed.append((str(bars[0].bar_type).split("-", 2)[2], [bar.ts_event for bar in bars]))
@@ -174,6 +175,7 @@ class LiveEvidenceTests(unittest.TestCase):
             engine.dispose()
             session.node, session.sources = None, {}
             source = engine = None
+            live.strategy_runtime.STRATEGIES.clear()
             gc.collect()
             live.strategy_runtime.clear_failures()
 

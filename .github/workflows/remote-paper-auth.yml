@@ -32,26 +32,12 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/ci-paths
         id: paths
-        with:
-          paths: |
-            deploy/remote/**
-            deploy/compose.yaml
-            deploy/Dockerfile
-            deploy/*.py
-            tests/deploy/**
-            .github/scripts/check-remote-deploy.py
-            .github/workflows/remote-paper-auth.yml
-            .github/actions/ci-paths/**
-            .github/scripts/ci-paths.py
 
   native-auth:
     needs: changes
     if: needs.changes.outputs.changed == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-24.04-arm, ubuntu-26.04]
-    runs-on: ${{ matrix.runner }}
+    # amd64 only: the release plane admits and runs amd64 images only (deploy/remote/README.md).
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0

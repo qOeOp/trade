@@ -20,6 +20,7 @@ reads, writes and returns and its main refusals.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 import textwrap
@@ -27,7 +28,7 @@ import tomllib
 
 from cli import (ledger_commands, live_commands, market_commands, paper_commands, replay_commands,
                  research_commands)
-from cli.common import RUNNER_EPILOG, Parser, _market_refusal, _print, refusal_json
+from cli.common import RUNNER_EPILOG, Parser, _print, refusal_json
 from engine.live_errors import LiveRefusal
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -96,7 +97,6 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
 
 def main(argv: list[str] | None = None) -> int:
     """Parse `<noun> <verb> [options] [-- runner arguments]`, run it, print one JSON result."""
-    from market import store
     argv = list(sys.argv[1:] if argv is None else argv)
     runner_argv: list[str] = []
     if "--" in argv:
@@ -111,12 +111,30 @@ def main(argv: list[str] | None = None) -> int:
     except LiveRefusal as exc:
         _print(sys.stderr, {"code": exc.code, "message": exc.message})
         return 1
-    except store.MarketError as exc:
-        _print(sys.stderr, refusal_json(_market_refusal(exc)))
-        return 1
-    _print(sys.stdout, result)
+    try:
+        _print(sys.stdout, result)
+    except BrokenPipeError:  # the reader stopped early (`| head`): the command itself ran
+        _quiet_stdout()
     return code
 
 
+def _quiet_stdout() -> None:
+    """Point stdout at devnull, so the interpreter's exit flush does not raise again on a closed pipe."""
+    os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+
+
+def entry() -> int:
+    """main() with stdout flushed inside it: a reader that closes the pipe early (`--help | head`, progress lines
+    of a long import) ends the command with exit 1 and no traceback, as Python's signal docs recommend."""
+    try:
+        try:
+            return main()
+        finally:
+            sys.stdout.flush()
+    except BrokenPipeError:
+        _quiet_stdout()
+        return 1
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(entry())

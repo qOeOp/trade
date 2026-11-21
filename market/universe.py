@@ -10,10 +10,12 @@ non-coin underlyings (equities, commodities and other TRADIFI) and stablecoin ba
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 import json
 
-from market.sources import _refuse
+from shared import clock
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 RULE = "usdt-perp-listed30d-v1"
@@ -38,8 +40,9 @@ def classify_contract(symbol: str, exchange_info_item: dict | None) -> dict:
         return out("stablecoin" if symbol.removesuffix("USDT") in STABLECOINS else None)
     if (not isinstance(item, dict) or item.get("symbol") != symbol
             or not all(isinstance(item.get(key), str) for key in ("contract_type", "underlying_type", "base_asset"))):
-        raise _refuse(f"the exchange metadata of {symbol} lacks its contract type, underlying type or base asset, or "
-                      "names another contract", "EXCHANGE_INFO_MALFORMED", missing=(symbol,))
+        raise refuse("EXCHANGE_INFO_MALFORMED",
+                     f"the exchange metadata of {symbol} lacks its contract type, underlying type or base asset, or "
+                     "names another contract", missing=(symbol,))
     if item["underlying_type"] == "INDEX":
         return out("index")
     if item["contract_type"] != "PERPETUAL":
@@ -55,24 +58,11 @@ def _first_day(value) -> bool:
     return isinstance(value, date) and not isinstance(value, datetime) and value.day == 1
 
 
-def next_month(month: date) -> date:
-    return (month.replace(day=28) + timedelta(days=4)).replace(day=1)
-
-
-def months(first: date, last: date) -> list[date]:
-    """The first days of the months from `first` through `last` (both first days of a month)."""
-    found = []
-    while first <= last:
-        found.append(first)
-        first = next_month(first)
-    return found
-
-
 def monthly_universe(classifications: list[dict], trading_days: dict[str, set[date]], month: date) -> list[str]:
     """market.monthly_universe: the sorted member symbols of the month start `month`. A member traded on
     the day before the month and its unbroken run of trading days up to it is at least LISTED_DAYS long."""
     if not _first_day(month):
-        raise _refuse(f"{month!r} is not a month start", "MONTH_NOT_FIRST_DAY", missing=("month",))
+        raise refuse("MONTH_NOT_FIRST_DAY", f"{month!r} is not a month start", missing=("month",))
     members, eve = [], month - timedelta(days=1)
     for symbol in sorted({item["symbol"] for item in classifications if item["eligible"]}):
         days = trading_days.get(symbol) or set()
@@ -86,15 +76,11 @@ def monthly_universe(classifications: list[dict], trading_days: dict[str, set[da
     return members
 
 
-def _month_ns(month: date) -> int:
-    return int(datetime(month.year, month.month, 1, tzinfo=UTC).timestamp()) * 10**9
-
-
 def merge_months(rows: list[tuple[date, str]]) -> dict[str, list[list[int]]]:
     """Each member month as [month start, next month start) in UTC nanoseconds; touching intervals merge."""
     paths: dict[str, list[list[int]]] = {}
     for month, symbol in sorted(rows, key=lambda row: (row[1], row[0])):
-        start, end = _month_ns(month), _month_ns(next_month(month))
+        start, end = clock.day_ns(month), clock.day_ns(clock.next_month(month))
         intervals = paths.setdefault(symbol, [])
         if intervals and intervals[-1][1] == start:
             intervals[-1][1] = end
@@ -117,22 +103,22 @@ def membership_path(market, market_day: str, window_end: int) -> dict:
     """market.membership_path: {universe_rule, membership: {symbol: [[start_ns, end_ns], ...]}} at an exact
     market day."""
     from market import files
-    from market.sources import MarketError
     try:
         resolved = files.resolve_day(market, market_day)
-    except MarketError as exc:
-        raise _refuse(f"market day {market_day!r} does not resolve ({exc.code})", "MARKET_DAY_UNRESOLVED",
-                      missing=(str(market_day),)) from exc
+    except Refusal as exc:
+        raise refuse("MARKET_DAY_UNRESOLVED", f"market day {market_day!r} does not resolve ({exc.code})",
+                     missing=(str(market_day),)) from exc
     if resolved != market_day:
-        raise _refuse(f"{market_day!r} is not an exact market day", "MARKET_DAY_UNRESOLVED",
-                      missing=(str(market_day),))
+        raise refuse("MARKET_DAY_UNRESOLVED", f"{market_day!r} is not an exact market day",
+                     missing=(str(market_day),))
     rows = months_of(market, market_day)
     if not rows:
-        raise _refuse(f"market day {market_day} has no universe month", "UNIVERSE_EMPTY_AT_DAY", missing=(market_day,))
+        raise refuse("UNIVERSE_EMPTY_AT_DAY", f"market day {market_day} has no universe month", missing=(market_day,))
     last = max(month for month, _ in rows)
-    if _month_ns(next_month(last)) < window_end:
-        raise _refuse(f"the universe at {market_day} ends with {last:%Y-%m}, before the window end", "UNIVERSE_NOT_COVERING_WINDOW",
-                      missing=(next_month(last).strftime("%Y-%m"),))
+    if clock.day_ns(clock.next_month(last)) < window_end:
+        raise refuse("UNIVERSE_NOT_COVERING_WINDOW",
+                     f"the universe at {market_day} ends with {last:%Y-%m}, before the window end",
+                     missing=(clock.next_month(last).strftime("%Y-%m"),))
     return {"universe_rule": rule_of(market, market_day), "membership": merge_months(rows)}
 
 
@@ -141,7 +127,6 @@ def selection(market: dict, at: str | None, symbols: list[str] | None, now_ns: i
     given ones, or (symbols None, Paper's pool) every member of the current month. A Paper or Live run's universe
     file; Live always names its contracts."""
     from market import files
-    from shared.refusals import refuse
     opened = files.open_market(market, "reader")
     market_day = files.resolve_day(opened, at)
     found = membership_path(opened, market_day, now_ns)

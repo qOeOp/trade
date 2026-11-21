@@ -7,7 +7,7 @@ import { observedCloses, stoppedPositions } from "../../model/stoppedPositions";
 import { holdings, trades, type Closed } from "../../model/trades";
 import { useNow } from "../../components/hooks/useNow";
 import { useAtom } from "../../state/atom";
-import { pickedTrade, type Stream } from "../../state/paperStream";
+import { pickedTrade, pickTrade, type Stream } from "../../state/paperStream";
 import { pnlClass } from "../../theme/roles";
 import { CELL, DETAIL, HEAD, usePickedScroll } from "./table";
 
@@ -25,10 +25,13 @@ export function useTradeRows(s: Stream, only: string | null) {
 }
 
 type Cell = ReactNode | [ReactNode, string];
-function Row({ cells, open = false, picked = false }: { cells: (Cell | null)[]; open?: boolean; picked?: boolean }) {
+/** A row; one with a span (`id`, `from`, `to` in ms) picks it on a click: highlighted here, shown and marked on the chart. */
+function Row({ cells, open = false, span }: { cells: (Cell | null)[]; open?: boolean; span?: { id: string; from: number; to: number } }) {
+  const picked = useAtom(pickedTrade) === span?.id && !!span;
   const ref = usePickedScroll<HTMLTableRowElement>(picked);
   return (
-    <tr ref={ref} data-selected={picked ? "" : undefined} className={open ? "bg-island-alt" : "transition-colors hover:bg-row-hover"}>
+    <tr ref={ref} data-selected={picked ? "" : undefined} onClick={span && (() => pickTrade(span.id, span.from, span.to))}
+        className={`${span ? "cursor-pointer" : ""} ${open && !picked ? "bg-island-alt" : "transition-colors hover:bg-row-hover"}`}>
       {cells.filter((c) => c !== null).map((c, i) => { const [body, extra] = Array.isArray(c) ? c : [c, ""]; return <td key={i} className={`${CELL} ${extra.includes("text-left") ? "" : "text-right"} ${extra}`}>{body}</td>; })}
     </tr>
   );
@@ -38,10 +41,10 @@ const Faint = ({ children }: { children: ReactNode }) => <span className="text-f
 /** The trades of the contract the chart shows (or of every contract on Equity), newest first, with what
  *  is open pinned on top on a tinted row: its mark in the exit's place, its stop and target under
  *  "Closed by", and "holding"; entries still working follow it. Sizes in the contract's lot decimals. The
- *  trade picked on the equity chart is highlighted and scrolled into view. */
+ *  trade picked on the equity chart is highlighted and scrolled into view; a click on a trade's row picks it
+ *  and shows its span on the chart, marked. */
 export function Trades({ s, only }: { s: Stream; only: string | null }) {
   const now = useNow(30_000), zone = useTimeZone();
-  const picked = useAtom(pickedTrade);
   const digits = useMemo(() => precisions(s.lines), [s.lines]);
   const book = useMemo(() => holdings(s.lines, s.state?.positions ?? null, s.state?.orders ?? [], !!s.seal), [s.lines, s.state, s.seal]);
   const { done, ended } = useTradeRows(s, only);
@@ -66,7 +69,7 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
       <tbody>
         {open.map((o) => {
           const stop = o.orders.find((w) => w.kind === "stop"), target = o.orders.find((w) => w.kind === "target"), p = of(o.symbol);
-          return <Row key={o.id} open cells={[
+          return <Row key={o.id} open span={{ id: `open:${o.id}`, from: o.since || end, to: end }} cells={[
             contract(o.symbol, true), side(o.long), [fixed(o.quantity, p.size), DETAIL], fixed(o.average, p.price) ?? MISSING,
             [<><Faint>mark </Faint>{fixed(o.mark, p.price) ?? MISSING}</>, ""],
             [<>{stop && <><Faint>stop </Faint>{fixed(stop.price, p.price)}</>}{stop && target && <Faint> · </Faint>}{target && <><Faint>target </Faint>{fixed(target.price, p.price)}</>}
@@ -82,7 +85,7 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
         ))}
         {ended.map((t) => {
           const p = of(t.symbol);
-          return <Row key={`stopped:${t.id}`} cells={[
+          return <Row key={`stopped:${t.id}`} span={{ id: `stopped:${t.id}`, from: t.opened || t.stopped, to: t.stopped }} cells={[
             contract(t.symbol), side(t.long), [fixed(t.quantity, p.size), DETAIL], fixed(t.entry, p.price) ?? MISSING,
             [<span title={t.observed === null ? "No price observed after entry" : dateTime(t.observed, zone)}><Faint>last </Faint>{fixed(t.last, p.price) ?? MISSING}</span>, ""],
             [<Faint>No closing fill</Faint>, `text-left ${DETAIL}`], t.opened ? duration(t.stopped - t.opened) : MISSING,
@@ -91,7 +94,7 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
         })}
         {done.map((t) => {
           const p = of(t.symbol);
-          return <Row key={t.id} picked={t.id === picked} cells={[
+          return <Row key={t.id} span={{ id: t.id, from: t.opened || t.closed, to: t.closed }} cells={[
             contract(t.symbol), side(t.long), [fixed(t.quantity, p.size), DETAIL], fixed(t.entry, p.price) ?? MISSING, fixed(t.exit, p.price) ?? MISSING,
             [HOW[t.how], `text-left text-fg-muted ${DETAIL}`], t.opened ? duration(t.closed - t.opened) : MISSING, [signed(t.pnl), pnlClass(t.pnl)], [dateTime(t.closed, zone), "text-fg-muted"],
           ]} />;

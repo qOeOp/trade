@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import contextmanager
 import fcntl
 import json
@@ -64,6 +65,47 @@ def write_new(path: Path, data: bytes) -> None:
     fsync_parent(path)
 
 
+def replace(path: Path, data: bytes) -> None:
+    """Make `data` the whole private file at `path`, durable on return: a temporary sibling written and fsynced,
+    renamed over `path`, then the directory fsynced. Callers serialize the writers of `path`; a temporary left by a
+    write that died is removed by the next one."""
+    temporary = path.with_name("." + path.name + ".partial")
+    temporary.unlink(missing_ok=True)
+    try:
+        write_new(temporary, data)
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    fsync_parent(path)
+
+
+@contextmanager
+def lock(path: Path, *, blocking: bool = True, wait: float = 0, regular: Callable[[], Exception] | None = None):
+    """Yield whether this process holds an exclusive lock on the private file at `path` (created 0600, never through
+    a link). Blocking waits for it; otherwise it is tried for up to `wait` seconds. With `regular`, a lock that is not
+    a regular file raises regular()."""
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "r+") as stream:
+        if regular is not None and not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise regular()
+        if blocking:
+            fcntl.flock(stream, fcntl.LOCK_EX)
+            yield True
+            return
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    yield False
+                    return
+                time.sleep(.2)
+        yield True
+
+
 def encode(value: dict) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
 
@@ -112,9 +154,7 @@ def events(path: Path) -> list[dict]:
 @contextmanager
 def serialized(root: Path):
     root = private_directory(root)
-    descriptor = os.open(root / "account.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "r+") as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
+    with lock(root / "account.lock"):
         yield root
 
 

@@ -2,6 +2,7 @@
 // public copy's fault and a newer released version. A research replica (the page's trade-research-sync mark)
 // publishes nothing: it has no public copy fault.
 import { paperApi } from "../lib/paperApi";
+import { pageFetch } from "../lib/transport";
 import { whileVisible } from "../lib/whileVisible";
 import { publicCopyFault, releaseBehind, type About, type PaperHealth } from "../model/about";
 import { atom, useAtom } from "./atom";
@@ -23,7 +24,7 @@ export const useReleaseBehind = () => useAtom(behind);
 
 async function readStatus(): Promise<void> {
   try {
-    const response = await fetch("/api/about", { cache: "no-store" });
+    const response = await pageFetch("/api/about", { cache: "no-store" });
     if (!response.ok) return;
     const reading = await response.json() as About;
     publicCopy.set(copyFault(reading));
@@ -41,7 +42,7 @@ export async function readAbout(): Promise<void> {
   about.set({ kind: "reading" });
   paperApi<PaperHealth>("/health").then(paperHealth.set, () => paperHealth.set(null));
   try {
-    const response = await fetch("/api/about", { cache: "no-store" });
+    const response = await pageFetch("/api/about", { cache: "no-store" });
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
     about.set({ kind: "ready", about: await response.json() as About });
   } catch (error) {

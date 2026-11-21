@@ -13,7 +13,7 @@ const CONFIRM_MS = 10_000;
 /** A Confirm stop click this soon after arming is the rest of a double click on Request stop…, not a decision. */
 const SETTLE_MS = 500;
 
-/** What a stop does to a run as its working orders and positions stand now (engine/README.md, the STOP path). The
+/** What a stop does to a run as its working orders and positions stand now (live/README.md, the STOP path). The
  *  phone's sheet also says where a new run starts; the desktop is where it starts, so it does not. */
 export function StopEffects({ held, working, phone = false }: { held: readonly Held[]; working: readonly Working[]; phone?: boolean }) {
   const entries = working.filter((o) => !protects(o, held)), stops = working.filter((o) => protects(o, held));

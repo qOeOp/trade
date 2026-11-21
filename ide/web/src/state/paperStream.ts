@@ -21,11 +21,13 @@ export type Stream = {
 const stream = atom<Stream | null>(null);
 export const useStream = () => useAtom(stream);
 
-/** The chart scrolls to this time (ms); the Events list highlights this line. */
-export const chartTime = atom<{ ms: number; n: number } | null>(null);
+/** What the charts move to (ms): a moment (`from` = `to`, an event picked) or a span picked in a table (a
+ *  trade, a cycle, a compared order group), which they also mark (`mark`). The Events list highlights this line. */
+export const chartFocus = atom<{ from: number; to: number; mark: boolean; n: number } | null>(null);
 export const highlighted = atom<JournalLine | null>(null);
-/** The closed trade (its id) the Trades list highlights: one picked on the equity chart. */
+/** The trade (its id) the Trades and Cycles lists highlight: one picked on the equity chart or in the list. */
 export const pickedTrade = atom<string | null>(null);
+export const usePickedTrade = () => useAtom(pickedTrade);
 /** A UTC day (YYYY-MM-DD) the chart and the events are limited to, or null. */
 export const pickedDay = atom<string | null>(null);
 /** The tab the Trades window shows; a click on a chart marker turns it to the events. */
@@ -39,7 +41,10 @@ export const calendarMonth = atom<string | null>(null);
 export const shownCategories = atom<ReadonlySet<Category>>(new Set(CATEGORIES));
 
 let n = 0;
-export const showTime = (ms: number) => chartTime.set({ ms, n: ++n });
+export const showTime = (ms: number) => chartFocus.set({ from: ms, to: ms, mark: false, n: ++n });
+export const showSpan = (from: number, to: number) => chartFocus.set({ from: Math.min(from, to), to: Math.max(from, to), mark: true, n: ++n });
+/** A closed trade or cycle picked in its table: highlighted there and shown and marked on the chart. */
+export const pickTrade = (id: string, from: number, to: number) => { pickedTrade.set(id); showSpan(from, to); };
 
 let source: EventSource | null = null;
 type Closes = Stream["closes"];

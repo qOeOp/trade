@@ -139,8 +139,7 @@ def write_files(conn: db.LedgerConnection, bundle: str, files: dict[str, bytes],
     if files:
         # Each distinct content once: the ones already stored are only referenced.
         contents = {hashes[name]: data for name, data in files.items()}
-        known = {sha for (sha,) in conn.rows("SELECT sha256 FROM evidence_content WHERE sha256 IN ("
-                                             + ", ".join(["%s"] * len(contents)) + ")", tuple(contents))}
+        known = {sha for (sha,) in conn.rows_in("SELECT sha256 FROM evidence_content WHERE sha256 IN ()", contents)}
         new = [(data,) for sha, data in sorted(contents.items()) if sha not in known]
         if new:
             conn.many("INSERT INTO evidence_content (content) VALUES (%s)", new)

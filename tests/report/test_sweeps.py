@@ -14,7 +14,7 @@ class Conn:
     def __init__(self, owners, judgments):
         self.owners, self.judgments, self.asked = owners, judgments, None
 
-    def rows(self, sql, params):
+    def rows_in(self, sql, values):
         return [(owner,) for owner in self.owners]
 
     def dicts(self, sql, params):

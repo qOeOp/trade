@@ -44,7 +44,7 @@ def check(max_drawdown, annual_return) -> tuple[Decimal, Decimal]:
 
 def _tips(conn: db.LedgerConnection, scopes: tuple[int, ...] | None = None) -> dict[int, dict]:
     """The rows in force (the ones no later row supersedes) by scope, for `scopes` or every scope."""
-    where = f" AND t.scope_key IN ({', '.join(['%s'] * len(scopes))})" if scopes else ""
+    where = f" AND t.scope_key IN ({db.marks(scopes)})" if scopes else ""
     return {row["scope_key"]: row for row in conn.dicts(
         f"SELECT target_id, line_id, scope_key, max_drawdown, annual_return, created_at FROM {TABLE} t "
         f"WHERE NOT EXISTS (SELECT 1 FROM {TABLE} n WHERE n.supersedes = t.target_id){where}", scopes or ())}

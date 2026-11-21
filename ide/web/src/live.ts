@@ -4,6 +4,7 @@ import type { SummaryWidget, View } from "./model/types";
 import { forgetKept, keep, readKept } from "./lib/storage";
 import { update, type Choice } from "./state/update";
 import { lineHref } from "./lib/lines";
+import { pageFetch, SIGN_IN, signedOut } from "./lib/transport";
 import { readResearchLines, researchLines } from "./state/researchLines";
 
 type Failure = { code?: string; message?: string; missing?: string[]; next_actions?: string[] };
@@ -89,7 +90,11 @@ export function follow(show: (view: View | null) => void, status: (text: string,
     loading = true;
     let received = false;
     try {
-      const response = await fetch(`/api/view${query}${have}`, { cache: "no-store" });
+      const response = await pageFetch(`/api/view${query}${have}`, { cache: "no-store" });
+      if (response.status === 401) {  // the sign-in expired: the session notice says so, the last view stays
+        if (shown === null) status(SIGN_IN);
+        return;
+      }
       const body = await response.json();
       if (response.status === 200) {
         shown = (body as View).scope?.ledger_commit ?? null;
@@ -167,7 +172,7 @@ export function follow(show: (view: View | null) => void, status: (text: string,
     if (document.hidden) {
       events?.close();
       events = null;
-    } else if (!events) {
+    } else if (!events && !signedOut()) {
       listen();
       void load();
     }

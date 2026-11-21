@@ -2,6 +2,7 @@
 // most once a round): "absent" when the server has no status file (`--market-import`), so the status bar
 // shows nothing; otherwise the last reply, or the refusal when there is no readable status.
 import type { Refusal, Reply } from "../model/marketImport";
+import { pageFetch } from "../lib/transport";
 import { whileVisible } from "../lib/whileVisible";
 import { atom, useAtom } from "./atom";
 
@@ -13,7 +14,7 @@ export const useMarketImport = () => useAtom(marketImport);
 
 export async function readMarketImport(): Promise<void> {
   try {
-    const response = await fetch("/api/market-import", { cache: "no-store" });
+    const response = await pageFetch("/api/market-import", { cache: "no-store" });
     const body = await response.json().catch(() => ({ code: "MARKET_IMPORT_UNREADABLE", message: `${response.status} ${response.statusText}` }));
     if (response.status === 404) marketImport.set({ kind: "absent" });
     else if (response.ok) marketImport.set({ kind: "ready", reply: body as Reply });

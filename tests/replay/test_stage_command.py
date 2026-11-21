@@ -26,7 +26,7 @@ class StageCommandTests(unittest.TestCase):
         self.root = Path(temp.name)
         for name in ("reports", "audit"):
             (self.root / name).mkdir()
-        self.layout = image.layout(RUNTIME_CONTRACT)
+        self.layout = image.LAYOUT
 
     def command(self, mounts, module=None, argv=("--run", "/native/reports")):
         return seams.current.container_command(IDENTITY, mounts, module or self.layout["audit_module"], list(argv),
@@ -122,7 +122,7 @@ class RealContainerMemoryLimitTests(unittest.TestCase):
             (root / "audit").mkdir()
             name = f"replay-memory-limit-test-{root.name}".lower()
             command = seams.current.container_command(identity, [(root / "audit", "/reports", False)],
-                                                      image.layout(identity["runtime_contract"])["audit_module"],
+                                                      image.LAYOUT["audit_module"],
                                                       [], name)
             self.assertIn("64m", command)
             # the stage's own options and image; a workload that holds 512 MiB instead of the module

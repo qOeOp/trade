@@ -1,6 +1,6 @@
 # BTCUSDT 十二个月首日报价强平工程对照
 
-2026-10-25。补齐 [Binance 推算报价计划](binance-aggtrades-quotes-liquidation-plan.zh.md) 的月首对照；原有四天数值复现，另补八天。**12 组工程运行完成，尚未全部验收通过**：五月参考源有已确认的采集断连，T/E 时间语义不同，旧参考原件哈希仍缺失。本文记录工程发现，不改变产品、数据库、技能或既有资格规则。
+2026-10-25。补齐 [Binance 推算报价计划](https://github.com/qOeOp/trade/blob/efc2e11d9/docs/plans/binance-aggtrades-quotes-liquidation-plan.zh.md) 的月首对照；原有四天数值复现，另补八天。**12 组工程运行完成，尚未全部验收通过**：五月参考源有已确认的采集断连，T/E 时间语义不同，旧参考原件哈希仍缺失。本文记录工程发现，不改变产品、数据库、技能或既有资格规则。
 
 ## 配对结果与可支持的结论
 

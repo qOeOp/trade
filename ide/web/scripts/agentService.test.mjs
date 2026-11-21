@@ -25,7 +25,7 @@ async function page(health, agents = []) {
     "lib/whileVisible": { whileVisible: (tick, ms) => ticks.push({ tick, ms }) },
     "state/atom": { atom, persistedAtom: (_key, fallback) => atom(fallback), useAtom: (a) => a.get() },
   };
-  const module = await namespace("state/agent.ts", { context, stubs, sources: [], packages: [] });
+  const module = await namespace("state/agent.ts", { context, stubs, sources: ["lib/transport"], packages: [] });
   const tick = async () => {
     ticks[0].tick();
     await new Promise((done) => setImmediate(done));

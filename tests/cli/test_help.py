@@ -6,7 +6,11 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import os
+import subprocess
+import sys
 import unittest
+from unittest import mock
 
 from cli import main
 
@@ -36,3 +40,25 @@ class HelpTests(unittest.TestCase):
             main.main(["--version"])
         self.assertEqual((done.exception.code, out.getvalue()), (0, f"trade-research {main.product_version()}\n"))
         self.assertRegex(main.product_version(), r"^[0-9]+\.[0-9]+\.[0-9]+$")
+
+
+class ClosedPipeTests(unittest.TestCase):
+    """A reader that stops early (`| head`) ends the command quietly: no traceback, the command's own exit code."""
+
+    def _closed_pipe(self) -> int:
+        read, write = os.pipe()
+        os.close(read)  # nothing reads: the first write fails with EPIPE
+        self.addCleanup(os.close, write)
+        return write
+
+    def test_result_printed_into_a_closed_pipe_keeps_the_exit_code(self):
+        rows = {"rows": [{"trial": n} for n in range(20_000)]}  # larger than any pipe buffer
+        out = os.fdopen(os.dup(self._closed_pipe()), "w")
+        self.addCleanup(out.close)
+        with mock.patch.object(main, "_dispatch", return_value=(rows, 0)), mock.patch.object(sys, "stdout", out):
+            self.assertEqual(main.main(["research", "state"]), 0)
+
+    def test_help_into_a_closed_pipe_exits_without_traceback(self):
+        done = subprocess.run([sys.executable, "-m", "cli.main", "--help"], stdout=self._closed_pipe(),
+                              stderr=subprocess.PIPE, text=True, check=False)
+        self.assertEqual((done.returncode, done.stderr), (1, ""))

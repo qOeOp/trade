@@ -208,11 +208,9 @@ def _prior_trials(conn: db.LedgerConnection, line_id: int, dev_end: datetime, en
     found = [trial["trial_id"] for trial in status.overlapping_trials(counted, instruments, dev_end, end)
              if trial["trial_id"] not in own]
     groups: dict[tuple, int] = {}
-    if found:
-        for name, purpose in conn.rows(
-                "SELECT l.name, t.purpose FROM trial t LEFT JOIN research_line l ON l.line_id = t.line_id "
-                "WHERE t.trial_id IN (" + ",".join(["%s"] * len(found)) + ")", tuple(found)):
-            groups[(name, purpose)] = groups.get((name, purpose), 0) + 1
+    for name, purpose in conn.rows_in("SELECT l.name, t.purpose FROM trial t LEFT JOIN research_line l "
+                                      "ON l.line_id = t.line_id WHERE t.trial_id IN ()", found):
+        groups[(name, purpose)] = groups.get((name, purpose), 0) + 1
     return {"trials": len(found), "instruments": sorted(instruments),
             "by_line": [{"line": name, "purpose": purpose, "trials": n} for (name, purpose), n in
                         sorted(groups.items(), key=lambda item: (item[0][0] is None, item[0]))]}

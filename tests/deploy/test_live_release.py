@@ -35,7 +35,6 @@ class PairHost(Host):
     def __init__(self, state):
         super().__init__(state)
         self.config = Config(state=state)
-        self.live_web = {WEB + A}
         self.socket_mounts = {}
         self.idle = "idle"
         self.lock = state / "live-root/account.lock"  # as A's pairing created it (LiveHost.ensure_root)
@@ -49,13 +48,9 @@ class PairHost(Host):
         self.inspected = []
         self.inspect_failure = False
 
-    def requires_live(self, name):
-        return name in self.live_web
-
     def create(self, name, image, agent=False, live_socket=None):
         super().create(name, image, agent, live_socket)
         if live_socket:
-            self.live_web.add(name)
             self.socket_mounts[name] = live_socket
 
     def assert_locked(self):
@@ -124,12 +119,13 @@ class PairLive(LiveHost):
 
     warm = health
 
-    def retire(self):
-        if self.web.disk != self.web.live or (self.state / "transaction.json").exists():
-            raise AssertionError("retirement before settled pair")
+    def stop_others(self, kept):
+        self.web.assert_locked()  # Live was seen idle under this lock
+        if kept != self.web.disk or (self.state / "transaction.json").exists():
+            raise AssertionError("a control stopped before its pair was committed or rolled back")
         for name in self.configs:
-            if name != self.web.disk and self.web.containers.get(self.name(name)):
-                self.web.controls.append(("drain", name))
+            if name != kept and self.web.containers.get(self.name(name)):
+                self.web.controls.append(("stop", name))
                 self.web.containers[self.name(name)] = False
 
 
@@ -167,8 +163,8 @@ class PairedReleaseTests(unittest.TestCase):
             WEB + B: self.host.state / "live" / B / "socket",
             WEB + C: self.host.state / "live" / C / "socket"})
         self.assertFalse(any(name.startswith(AGENT) for name in self.host.socket_mounts))
-        self.assertEqual(self.host.controls, [("start", WEB + B), ("drain", WEB + A),
-                                             ("start", WEB + C), ("drain", WEB + B)])
+        self.assertEqual(self.host.controls, [("start", WEB + B), ("stop", WEB + A),
+                                             ("start", WEB + C), ("stop", WEB + B)])
 
     def test_busy_unavailable_or_existing_operation_defers_without_failure_or_container_changes(self):
         for status in ("busy", "unavailable"):
@@ -191,24 +187,17 @@ class PairedReleaseTests(unittest.TestCase):
         self.assertEqual(self.host.disk, WEB + B)
 
     def test_low_memory_refuses_before_the_journal_and_marks_nothing_failed(self):
-        for first_pairing in (False, True):
-            with self.subTest(first_pairing=first_pairing):
-                self.setUp()
-                if first_pairing:
-                    shutil.rmtree(self.live.root)
-                    self.host.live_web.clear()
-                    del self.host.containers[LIVE + A], self.live.configs[WEB + A]
-                self.host.memory_available = lambda: False
-                before = dict(self.host.containers)
-                with self.assertRaisesRegex(RuntimeError, "memory headroom"):
-                    self.release.apply(PAIR)
-                self.assertEqual((self.host.disk, self.host.live, self.host.containers), (WEB + A, WEB + A, before))
-                self.assertFalse(self.release.transaction.exists())
-                self.release.recover()
-                self.assertFalse(self.release.failed.exists())
-                del self.host.memory_available
-                self.release.apply(PAIR)  # the next tick, once there is headroom
-                self.assertEqual(self.host.disk, WEB + B)
+        self.host.memory_available = lambda: False
+        before = dict(self.host.containers)
+        with self.assertRaisesRegex(RuntimeError, "memory headroom"):
+            self.release.apply(PAIR)
+        self.assertEqual((self.host.disk, self.host.live, self.host.containers), (WEB + A, WEB + A, before))
+        self.assertFalse(self.release.transaction.exists())
+        self.release.recover()
+        self.assertFalse(self.release.failed.exists())
+        del self.host.memory_available
+        self.release.apply(PAIR)  # the next tick, once there is headroom
+        self.assertEqual(self.host.disk, WEB + B)
 
     def test_late_independent_cli_or_unknown_state_rolls_back_without_requiring_idle(self):
         self.host.on_observe = lambda: setattr(self.host, "idle", "busy")
@@ -219,7 +208,7 @@ class PairedReleaseTests(unittest.TestCase):
         self.assertFalse(self.host.containers[LIVE + B])
         self.assertFalse(self.release.transaction.exists())
 
-    def test_failure_and_crash_restore_both_sides_and_never_retire_current_control(self):
+    def test_failure_and_crash_restore_both_sides_and_never_stop_current_control(self):
         self.host.fail = "crash"
         with self.assertRaises(Crash):
             self.release.apply(PAIR)
@@ -229,7 +218,7 @@ class PairedReleaseTests(unittest.TestCase):
         self.host.fail = None
         self.release.recover()
         self.assertEqual(self.host.disk, WEB + A)
-        self.assertEqual(self.host.controls, [("start", WEB + B), ("start", WEB + A), ("drain", WEB + B)])
+        self.assertEqual(self.host.controls, [("start", WEB + B), ("start", WEB + A), ("stop", WEB + B)])
 
     def test_disk_commit_before_clear_crash_rolls_back_but_after_clear_never_does(self):
         clear = self.release.clear
@@ -244,7 +233,7 @@ class PairedReleaseTests(unittest.TestCase):
         self.release.failed.joinpath(B).unlink()
         del self.host.containers[WEB + B]
         del self.host.containers[LIVE + B]
-        self.live.retire = Mock(side_effect=Crash())
+        self.live.stop_others = Mock(side_effect=Crash())  # the process dies once the route is committed
         with self.assertRaises(Crash):
             self.release.apply(PAIR)
         self.assertFalse(self.release.transaction.exists())
@@ -263,25 +252,6 @@ class PairedReleaseTests(unittest.TestCase):
             self.release.apply(PAIR)
         self.assertEqual(self.host.disk, WEB + A)
         self.assertTrue(self.host.containers[LIVE + A])
-
-    def test_a_web_without_a_control_gets_one_and_the_custody_root_with_no_operator_step(self):
-        # A host released before Live was installed everywhere: its routed Web has no --live-socket.
-        shutil.rmtree(self.live.root)
-        self.host.live_web.clear()
-        del self.host.containers[LIVE + A], self.live.configs[WEB + A]
-        self.release.apply(PAIR)
-        self.assertEqual((self.host.disk, self.host.live), (WEB + B, WEB + B))
-        # No owner to ask: the candidate's control answers on the new root, at its journal and at its commit.
-        self.assertEqual(self.host.inspected, [B, B])
-        self.assertEqual(self.host.socket_mounts, {WEB + B: self.host.state / "live" / B / "socket"})
-        self.assertEqual(self.host.controls, [("start", WEB + B)])
-        root, lock = self.live.root.lstat(), self.host.lock.lstat()
-        self.assertEqual((root.st_mode & 0o777, lock.st_mode & 0o777), (0o700, 0o600))
-        self.assertEqual({(root.st_uid, root.st_gid), (lock.st_uid, lock.st_gid)}, {(os.getuid(), os.getgid())})
-        self.assertFalse(os.path.lexists(self.host.state / "live-root.new"))
-        self.release.apply({**PAIR, "revision": C})  # the next release pairs as any other, on the same root
-        self.assertEqual((self.host.disk, self.host.inspected), (WEB + C, [B, B, B, C, C]))
-        self.assertEqual(self.host.lock.lstat().st_ino, lock.st_ino)
 
     def test_lock_missing_symlink_or_replaced_inode_is_not_a_new_lock(self):
         self.live.configs[WEB + B] = self.live.facts()
@@ -411,7 +381,6 @@ class LiveHostBoundaryTests(unittest.TestCase):
         self.web = DockerHost(Config(state=self.base / "release", data=self.base / "data"))
         self.web.state.mkdir(mode=0o700)
         self.web.docker = Mock()
-        self.web.requires_live = Mock(return_value=False)
         self.web.pull = Mock(return_value=A)
         self.web.exists = Mock(return_value=False)
         self.source = Mock()
@@ -433,7 +402,6 @@ class LiveHostBoundaryTests(unittest.TestCase):
         with patch.object(self.live, "checked") as checked:
             self.live.prepare(B, {**PAIR, "revision": C})
         checked.assert_called_once_with(WEB + B)
-        self.web.requires_live.assert_not_called()
         self.assertTrue(self.live.current(B))
         moved = self.base / "moved/market"
         moved.mkdir(parents=True)
@@ -617,39 +585,11 @@ class LiveHostBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Agent"):
             self.web.create(AGENT + B, TARGET["image"], agent=True, live_socket=self.live.socket(WEB + B))
 
-    def test_drain_only_signals_the_exact_retired_id_and_keeps_unfinished_process(self):
-        self.web.exists.return_value = True
-        self.web.disk_route = Mock(return_value=WEB + C)
-        self.web.live_route = Mock(return_value=WEB + C)
-        with patch.object(self.live, "checked", return_value={"id": "original-id", "running": True}):
-            self.assertFalse(self.live.drain(WEB + B))
-        self.assertEqual(self.web.docker.call_args_list[-2].args, ("update", "--restart=no", "original-id"))
-        self.assertEqual(self.web.docker.call_args_list[-1].args, ("kill", "--signal", "SIGTERM", "original-id"))
-        self.assertFalse(any(call.args[0] in {"stop", "rm"} for call in self.web.docker.call_args_list))
-        self.web.disk_route.return_value = WEB + B
-        self.web.docker.reset_mock()
-        with patch.object(self.live, "checked", return_value={"id": "original-id", "running": True}):
-            with self.assertRaisesRegex(RuntimeError, "still selected"):
-                self.live.drain(WEB + B)
-        self.web.docker.assert_not_called()
-
-    def test_the_control_of_the_committed_or_loaded_web_is_never_drained(self):
-        self.web.exists.return_value = True
-        running = {"id": "owner-id", "running": True}
-        for disk, loaded in ((WEB + B, WEB + C), (WEB + C, WEB + B)):
-            self.web.disk_route = Mock(return_value=disk)
-            self.web.live_route = Mock(return_value=loaded)
-            with patch.object(self.live, "checked", return_value=running):
-                with self.assertRaisesRegex(RuntimeError, "still selected"):
-                    self.live.drain(WEB + B)
-        self.web.docker.assert_not_called()
-
-    def test_identity_change_between_retirement_checks_cannot_signal_replacement(self):
-        self.web.exists.return_value = True
-        self.web.disk_route = Mock(return_value=WEB + C)
-        self.web.live_route = Mock(return_value=WEB + C)
-        with patch.object(self.live, "checked", side_effect=[{"id": "old", "running": True},
-                                                            {"id": "new", "running": True}]):
-            with self.assertRaisesRegex(RuntimeError, "identity changed"):
-                self.live.drain(WEB + B)
-        self.web.docker.assert_not_called()
+    def test_stopping_the_other_controls_stops_each_verified_id_and_never_the_kept_one(self):
+        self.web.managed = Mock(return_value=[LIVE + A, LIVE + B, LIVE + C])
+        self.web.checked = Mock(side_effect=lambda name, prefix: {"id": "id-" + name.removeprefix(prefix)[:1]})
+        self.live.stop_others(WEB + B)
+        self.web.managed.assert_called_once_with(LIVE, running_only=True)
+        self.assertEqual([call.args for call in self.web.docker.call_args_list[-2:]],
+                         [("stop", "--time", "30", "id-a"), ("stop", "--time", "30", "id-c")])
+        self.assertFalse(any(call.args[0] in {"rm", "kill", "update"} for call in self.web.docker.call_args_list))
