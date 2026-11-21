@@ -7,11 +7,13 @@ two-year holdout after it, or the forward segment after the holdout. Whether a c
 targets is judged on the veto years and on the holdout apart, and it meets them when both pass
 (line-close-history-test-20261110.zh.md 3.7, user 2026-11-11): every whole veto year's mark drawdown at most the
 target and their median annual return at least the target; the holdout's drawdown at most the target and its
-annual return at least the target. A line whose test has no whole veto year is judged on the holdout alone. A segment
-shorter than SHORT_DAYS is shown but counted in no summary.
+annual return at least the target. A line whose test has no whole veto year is judged on the holdout alone. A part
+year (cut by the market's first day plus warm-up, or by the period's start) and a segment shorter than SHORT_DAYS are
+shown but read in no summary.
 
 A verdict needs every reading it is defined on (20261114-12, user 2026-11-15): a whole veto year whose run is
-invalid or missing, or lacks one of the two readings, a control without a run, or a holdout without a countable
+invalid or missing, or lacks one of the two readings, a part veto year without a passed run (20261120-01, user
+2026-11-21: an audit failure in it is not left out), a control without a run, or a holdout without a countable
 reading leaves the combined verdict undecided (None), and the summary's `missing` names each. A control that does
 not reproduce the research run voids the row: it has no summary. A whole year not replayed yet has no trial to read
 here and cannot be told from one the market does not cover; `line history` replays a participant's veto years
@@ -109,17 +111,23 @@ def _read(measures: dict | None) -> bool:
 
 
 def _veto(cells: list[dict], targets: dict | None) -> tuple[dict, list[str]]:
-    """The whole veto years' counts, readings and verdict, and the years the verdict lacks (`veto YEAR`): those
-    without a passed run or without one of the two readings. `whole_years` counts every whole veto year replayed,
-    read or not; a year takes its first run with readings, so a trial left without a run does not hide its rerun."""
+    """The whole veto years' counts, readings and verdict, and the years the verdict lacks (`veto YEAR`): whole
+    years without a passed run or without one of the two readings, and part years without a passed run (an audit
+    failure such as UNPROTECTED_POSITION, 20261120-01). A passed part year stays out of the readings: it is not a
+    year. `whole_years` counts every whole veto year replayed, read or not; a year takes its first run with
+    readings, so a trial left without a run does not hide its rerun."""
     years: dict[str, dict | None] = {}
+    part: dict[str, bool] = {}
     for cell in cells:
         if cell["kind"] == "veto" and cell["whole_year"] and years.get(cell["label"]) is None:
             years[cell["label"]] = cell.get("measures")
+        elif cell["kind"] == "veto" and not cell["whole_year"]:
+            part[cell["label"]] = part.get(cell["label"], False) or cell["status"] == "passed"
     read = [measures for measures in years.values() if measures is not None]
     annual = [measures["annual_return"] for measures in read if measures["annual_return"] is not None]
     drawdown = [measures["mark_max_drawdown"] for measures in read if measures["mark_max_drawdown"] is not None]
-    missing = [f"veto {year}" for year, measures in years.items() if not _read(measures)]
+    missing = sorted([*(f"veto {year}" for year, measures in years.items() if not _read(measures)),
+                      *(f"veto {year}" for year, passed in part.items() if not passed)])
     found = {"whole_years": len(years), "profitable_years": sum(value > 0 for value in annual),
              "median_annual_return": statistics.median(annual) if annual else None,
              "worst_annual_return": min(annual) if annual else None,

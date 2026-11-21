@@ -50,7 +50,7 @@ export const missingYears = (missing: readonly string[] | undefined): string[] =
 /** "a", "a and b", "a, b and c". */
 export const listed = (items: readonly string[]): string => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`);
 
-/** The veto verdict's hover: its rule, or, when a whole veto year has no reading, which years and that nothing is decided. */
+/** The veto verdict's hover: its rule, or, when a veto year is missing (`missing`), which years and that nothing is decided. */
 export function vetoTip(s: HistorySummary): string {
   const years = missingYears(s.missing);
   if (years.length) return `No verdict: no readings for ${listed(years)}, so the veto years are not judged`;

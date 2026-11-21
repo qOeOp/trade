@@ -26,6 +26,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Line close: a part veto year (the first year, cut by the market's first day plus warm-up, or the year cut by the
+  development period's start) without a passed run, such as one sealed invalid by an audit failure
+  (UNPROTECTED_POSITION), is now named in the closing history test's `missing` (`veto YEAR`), as a whole veto year
+  without readings is, so `research history` and the IDE's Line-close history leave the candidate's verdict
+  undecided instead of judging it on the other years or the holdout alone (doctor 20261120-01, user 2026-11-21). A
+  passed part year is still read in no summary. Breaking: a line whose part veto year sealed invalid now reads
+  undecided where it read a verdict before; `line close` is unchanged.
+
 - Breaking (research lines): a line's development period now grows with its start's coverage instead of stepping
   from 12 to 4 quarters below 24 quarters (user 2026-11-21, doctor 20261120-07). With C complete quarters of the
   start's precheck instruments before Q, the period is C - 12 quarters (the 8-quarter holdout and 4 quarters of veto
