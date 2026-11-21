@@ -3,7 +3,7 @@
 // not. Start opens only when every required row has a value and passes; the server still checks everything again.
 import type { LiveCredential, LiveRun, LiveSource, LiveTradingView } from "./liveTrading";
 import { contractsOf, unavailableReason } from "./liveLaunchText";
-export { contractsOf, refusalText, restText, SPAN_UNITS, spanText, unavailableReason } from "./liveLaunchText";
+export { refusalText, restText, SPAN_UNITS, spanText, unavailableReason } from "./liveLaunchText";
 /** pass / fail: a condition and its answer; wait: a condition not answered yet; shown: a value with no condition. */
 export type Mark = "pass" | "fail" | "wait" | "shown";
 export type LaunchRow = {

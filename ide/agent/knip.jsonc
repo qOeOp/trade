@@ -1,0 +1,7 @@
+// Dead files, exports and dependencies (`npm run check`); an export used in its own file is not reported.
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreExportsUsedInFile": true,
+  // The product's read-only commands run through the host's uv (src/tools.ts).
+  "ignoreBinaries": ["uv"]
+}

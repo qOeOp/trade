@@ -113,8 +113,8 @@ class ResearchLineTests(unittest.TestCase):
 
     def test_the_development_period_is_the_twelve_quarters_before_the_two_year_holdout(self):
         """3.1 (user 2026-11-11, "改成三段切分"): Q is the last quarter end before today the market covers; the
-        holdout the 8 quarters ending at Q, the period the 12 before it, or 4 with less than 24 quarters of
-        coverage before Q, and no line with less than 12."""
+        holdout the 8 quarters ending at Q, the period the 12 before it; with C < 24 quarters of coverage before Q,
+        C - 12 but at least 4 (user 2026-11-21), and no line with C < 12."""
         covered = date(2019, 9, 1)
         for today, latest, period in ((date(2026, 11, 10), date(2026, 11, 9), (date(2021, 10, 1), date(2024, 10, 1))),
                                       (date(2026, 8, 15), date(2026, 8, 14), (date(2021, 7, 1), date(2024, 7, 1))),
@@ -126,8 +126,12 @@ class ResearchLineTests(unittest.TestCase):
                 self.assertEqual(lines.development_period(today, latest, covered), period)
         self.assertEqual(lines.holdout_end(date(2024, 10, 1)), date(2026, 10, 1))
         today, latest = date(2026, 11, 11), date(2026, 11, 10)  # Q = 2026-09-30
-        for covered, period in ((date(2020, 10, 1), (date(2021, 10, 1), date(2024, 10, 1))),  # 24 quarters
-                                (date(2020, 10, 2), (date(2023, 10, 1), date(2024, 10, 1))),  # 23: one year
+        for covered, period in ((date(2019, 10, 1), (date(2021, 10, 1), date(2024, 10, 1))),  # 28 quarters
+                                (date(2020, 10, 1), (date(2021, 10, 1), date(2024, 10, 1))),  # 24
+                                (date(2020, 11, 1), (date(2022, 1, 1), date(2024, 10, 1))),  # 23: 11 quarters
+                                (date(2021, 10, 1), (date(2022, 10, 1), date(2024, 10, 1))),  # 20: 8 quarters
+                                (date(2022, 6, 2), (date(2023, 7, 1), date(2024, 10, 1))),  # 17: 5 quarters
+                                (date(2022, 10, 1), (date(2023, 10, 1), date(2024, 10, 1))),  # 16: one year
                                 (date(2023, 10, 1), (date(2023, 10, 1), date(2024, 10, 1)))):  # 12
             with self.subTest(covered=covered):
                 self.assertEqual(lines.development_period(today, latest, covered), period)
