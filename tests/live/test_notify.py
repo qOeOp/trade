@@ -129,6 +129,10 @@ class Sending(Base):
             fact for fact in self.facts if fact["run_id"] not in skip])
         collect.start()
         self.addCleanup(collect.stop)
+        self.logged: list[str] = []
+        logged = patch.object(notify, "_log", self.logged.append)
+        logged.start()
+        self.addCleanup(logged.stop)
 
     def tick(self, now, call=None):
         call = call or Telegram()
@@ -179,6 +183,14 @@ class Sending(Base):
         self.tick(now + 1, Telegram(failures=[notify.Failure("http_4xx", 400)]))
         self.assertEqual(notify.view(self.root)["dropped"], 1)
         self.assertEqual(self.tick(now + 2).calls, [])
+        # Every attempt's text and outcome is in the control's log; the token never is.
+        started = ': "Live run run-a (example) started."'
+        self.assertEqual(self.logged[0], "Notice 2026-11-09T00:00:00+00:00 live "
+                                         f"run-a:running:run not sent (network): retried later{started}")
+        self.assertEqual([line.split(" ", 3)[3] for line in self.logged[-3:]], [
+            f"run-a:running:run sent{started}", 'run-b:running:run sent: "Live run run-b (example) started."',
+            'run-c:running:run refused by Telegram (http_4xx): "Live run run-c (example) started."'])
+        self.assertNotIn(TOKEN, "".join(self.logged))
 
     def test_daily_summary_comes_once_at_the_first_tick_of_the_utc_day_with_the_previous_days_fills(self):
         self.facts = [run(account={"usdt_wallet": "100.5", "observed_ns": str(DAY - HOUR)},

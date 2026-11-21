@@ -1,9 +1,11 @@
 """The release tick's failure notices: what fails outside Live, sent from the host to the chat the Live page bound."""
 
+from datetime import UTC, datetime
 import json
 from pathlib import Path
 import re
 import sys
+import time
 
 from .live_configuration import ROOT
 from .release_host import FOLLOWERS, durable_json
@@ -16,6 +18,10 @@ NOTICE_TEXT = re.compile(r"[A-Za-z0-9_.@:-]{1,80}\Z")
 # that prints only its own reason: words, numbers, kinds and scopes.
 HEALTH_TEXT = re.compile(r"[A-Za-z0-9_.@:+/(),; -]{1,300}\Z")
 QUOTED_HEALTH = frozenset({"market-import"})
+# A sealed Paper run that ended by itself is noticed for a day after its end: older ends were sealed before this
+# notice existed or were already noticed, and the seal keeps each one's reasons.
+ENDED_NS = 86400 * 10**9
+ASKED = frozenset({"STOP_FILE", "DURATION"})  # the user's Stop, and the duration the user set at its start
 LEDGER_LAG_SECONDS = 1800  # the ledger service retries a publish every 5 minutes: six retries have failed
 # What the routed Web serves beside its own pages, each read through the router every tick (doctor 20261116-03).
 WEB_HEALTH = (("/api/overview/health", "The Market overview"), ("/api/agent/health", "The Agent"),
@@ -30,17 +36,18 @@ class Notices:
     failed; a routed Web that does not answer, or whose overview, Agent or Paper controller is not healthy behind
     it; a ledger or market-import container that is unhealthy, was killed out of memory or restarted; a Paper run
     that stopped and could not resume, or that is held with a position no working stop protects (paper.serve
-    unprotected); a research ledger whose publish has failed for LEDGER_LAG_SECONDS or whose origin history changed
-    elsewhere; and a host checkout or docker-api that does not follow the active version
-    (deploy/release.py `drift`).
+    unprotected) or that ended by itself (a refusal, a runner exit, a stop the user did not ask for); a research
+    ledger whose publish has failed for LEDGER_LAG_SECONDS or whose origin history changed elsewhere; and a host
+    checkout or docker-api that does not follow the active version (deploy/release.py `drift`).
 
     Each kind the tick observed replaces that kind's facts; one it could not observe keeps what was sent. A fact
     is sent when it first appears and again only after it has cleared. Without a saved token nothing is sent
-    and nothing is marked sent. Sending never raises into the tick.
+    and nothing is marked sent. Sending never raises into the tick. Each new fact's text is also printed with its
+    outcome to the tick's log (`journalctl -u trade-release.service`), since notices.json keeps only the keys.
     """
 
-    def __init__(self, state: Path, call=telegram):
-        self.state, self.call = state, call
+    def __init__(self, state: Path, call=telegram, log=lambda line: print(line, flush=True), now=time.time_ns):
+        self.state, self.call, self.log, self.now = state, call, log, now
         self.found: dict[str, dict[str, str]] = {}
 
     def observe(self, kind: str, facts: dict[str, str]) -> None:
@@ -107,6 +114,15 @@ class Notices:
                     paper[f"paper:{paper_id}:{code}"] = (
                         f"Paper run {paper_id}{named} stopped and could not resume: {code}. It stays stopped "
                         "with its account and originals; see the Paper page.")
+                stop, stopped, reasons = run.get("stop_reason"), run.get("stopped_ns"), run.get("reasons") or []
+                if (run.get("state") == "sealed" and type(stopped) is int and self.now() - stopped <= ENDED_NS
+                        and stop not in ASKED and "START_FAILED" not in reasons):
+                    stop = stop if isinstance(stop, str) and NOTICE_TEXT.fullmatch(stop) else \
+                        "no_summary" if stop is None else "other"
+                    said = [reason for reason in reasons if isinstance(reason, str) and NOTICE_TEXT.fullmatch(reason)]
+                    paper[f"paper:{paper_id}:ended:{stop}"] = (
+                        f"Paper run {paper_id}{named} ended by itself: {stop}. It is sealed with its journal and "
+                        f"runner log ({', '.join(said[:8]) or 'no reasons'}); see the Paper page.")
                 for position in run.get("unprotected") or ():
                     # Held after an interruption with no working stop: kept held, named at once (user 2026-11-17).
                     position = position if isinstance(position, str) and NOTICE_TEXT.fullmatch(position) else "other"
@@ -157,15 +173,25 @@ class Notices:
         new = [(kind, key, text) for kind, facts in self.found.items()
                for key, text in facts.items() if key not in sent[kind]]
         found = self._token() if new else None
-        if found is not None:
-            token, chat = found
-            for kind, key, text in new:
+        waiting = None  # a failure worth retrying: it and every later fact wait for the next tick, in order
+        for kind, key, text in new:
+            if found is None:
+                outcome = "not sent: no Telegram chat saved"
+            elif waiting is not None:
+                outcome = f"not sent ({waiting}): retried next tick"
+            else:
+                token, chat = found
                 try:
                     self.call(token, "sendMessage", {"chat_id": chat, "text": text[:4000]})
+                    outcome = "sent"
                 except Failure as error:
-                    print(f"Failure notice not sent: {error.code}", file=sys.stderr, flush=True)
                     if error.status is None or not 400 <= error.status < 500 or error.status == 429:
-                        break  # the next tick retries, in order
-                sent[kind].add(key)  # delivered, or refused by Telegram: retrying cannot deliver it
+                        waiting, outcome = error.code, f"not sent ({error.code}): retried next tick"
+                    else:
+                        outcome = f"refused by Telegram ({error.code})"
+                if waiting is None:
+                    sent[kind].add(key)  # delivered, or refused by Telegram: retrying cannot deliver it
+            moment = datetime.now(UTC).isoformat(timespec="seconds")
+            self.log(f"Notice {moment} {kind} {key} {outcome}: {json.dumps(text, ensure_ascii=False)}")
         if {kind: sorted(keys) for kind, keys in sent.items()} != record:
             durable_json(path, {kind: sorted(keys) for kind, keys in sorted(sent.items())}, mode=0o600)

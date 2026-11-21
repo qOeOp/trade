@@ -26,6 +26,16 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Release host evidence: every long-lived container (the release's Web, Agent, Paper controller and Live control; the
+  ledger mirror, market-import and docker-api; the routers, OAuth2 Proxy and Caddy) logs to the host journal through
+  Docker's `journald` driver, tagged with its container name, instead of a 30 MB `json-file` log that went with the
+  container when a release recreated or pruned it (market-import's unhealthy spell on 2026-11-20 left no log after
+  the v0.4.4 release). The release tick and the Live control print each Telegram notice's text, time, kind, key and
+  outcome to their logs. A sealed Paper run that ended by itself (a runner refusal such as PAPER_CACHE_UNAVAILABLE, a
+  runner exit, a stop the user did not ask for) within the last day is now a Telegram notice; the user's Stop and the
+  run's own duration are not. The workstation compose keeps `json-file` (Docker Desktop has no journald);
+  `deploy/remote/README.md`, Logs.
+
 - Breaking (ledger): research ledger schema generation 2 (doctor 20261114-11, approved 2026-11-14 for the next
   schema generation). `run_reading` no longer stores `computed_at` (its time is the Dolt commit's); its update trigger
   still keeps a reading with its run. `trial_instrument.instrument_id` is now `symbol`. `trial_capture.table_hashes`

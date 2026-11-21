@@ -87,11 +87,15 @@ def limits(memory: str, cpus: str) -> list[str]:
     return ["--memory", memory, "--memory-swap", memory, "--cpus", cpus]
 
 
+# A long-lived container's log goes to the host journal under the container's name, so it outlives the container (a
+# release recreates and prunes them) and a reboot; journald's own size cap bounds it (remote/README.md, Logs).
+JOURNALD = ["--log-driver", "journald", "--log-opt", "tag={{.Name}}"]
+
+
 def contained(memory: str, cpus: str) -> list[str]:
-    """What every long-lived release container is created with: restarted with the host, bounded logs and
-    `limits`. The command line itself names everything else."""
-    return ["--restart", "unless-stopped", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
-            *limits(memory, cpus)]
+    """What every long-lived release container is created with: restarted with the host, its log in the host
+    journal (JOURNALD) and `limits`. The command line itself names everything else."""
+    return ["--restart", "unless-stopped", *JOURNALD, *limits(memory, cpus)]
 
 
 UNPRIVILEGED = ["--cap-drop", "ALL", "--security-opt", "no-new-privileges:true"]
@@ -211,7 +215,7 @@ try:
  with urllib.request.urlopen(urllib.request.Request("http://"+host+":8765"+path,headers={"Host":domain}),timeout=15) as r:
   d=json.load(r)
   if path=="/api/lines": out={"status":r.status,"lines":d["lines"]}
-  elif path=="/api/paper/runs": out={"status":r.status,"starting":len(d.get("starting",[])),"runs":[{"id":x["paper_id"],"candidate":x["candidate"],"state":x["state"],"containers":len(x.get("containers",[])),"last":x.get("readings",{}).get("last_bar_ns"),"recovery":(x.get("recovery") or {}).get("code"),"unprotected":[u.get("position_id") for u in x.get("unprotected") or []]} for x in d["runs"]]}
+  elif path=="/api/paper/runs": out={"status":r.status,"starting":len(d.get("starting",[])),"runs":[{"id":x["paper_id"],"candidate":x["candidate"],"state":x["state"],"containers":len(x.get("containers",[])),"last":x.get("readings",{}).get("last_bar_ns"),"recovery":(x.get("recovery") or {}).get("code"),"unprotected":[u.get("position_id") for u in x.get("unprotected") or []],**{k:(x.get("seal") or {}).get(k) for k in ("stop_reason","stopped_ns","reasons")}} for x in d["runs"]]}
   elif path=="/api/about": l=d.get("ledger"); out={"status":r.status,"ledger":l and {k:l.get(k) for k in ("unpublished","behind_seconds","diverged")}}
   elif path.startswith("/api/view"): out={"status":r.status,"ready":r.status==200 and bool(d.get("widgets")),"state":d.get("state")}
   elif path=="/api/agent/agents": out={"status":r.status,"valid":isinstance(d,list)}

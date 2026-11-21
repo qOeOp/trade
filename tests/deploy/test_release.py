@@ -1224,10 +1224,12 @@ class ReaderDiagnosisTests(unittest.TestCase):
                 self.assertEqual(self.run_probe(script, argv, refused), {"status": 502})
                 self.assertEqual(self.run_probe(script, argv, hung), {"status": None, "error": "TimeoutError"})
 
-    def test_the_runs_probe_passes_a_held_runs_unprotected_position_ids_only(self):
-        listing = {"runs": [{"paper_id": 3, "candidate": "c@1", "state": "running", "unprotected": [
+    def test_the_runs_probe_passes_unprotected_position_ids_and_a_seals_end_only(self):
+        seal = {"stop_reason": "PAPER_CACHE_UNAVAILABLE", "stopped_ns": 5, "reasons": ["STOPPED:PAPER_CACHE_UNAVAILABLE"],
+                "daily_returns": [["2026-11-20", 0.01]], "status": "complete"}
+        listing = {"runs": [{"paper_id": 3, "candidate": "c@1", "state": "running", "seal": None, "unprotected": [
             {"position_id": "P-1", "instrument_id": "BTCUSDT-PERP.BINANCE", "since_ns": 1}]},
-                            {"paper_id": 4, "candidate": None, "state": "sealed"}], "starting": []}
+                            {"paper_id": 4, "candidate": None, "state": "sealed", "seal": seal}], "starting": []}
 
         class Reply(io.BytesIO):
             status = 200
@@ -1237,6 +1239,9 @@ class ReaderDiagnosisTests(unittest.TestCase):
 
         found = self.run_probe(PROBE, ["/api/paper/runs", "trade.example.com", "ide-router"], answered)
         self.assertEqual([run["unprotected"] for run in found["runs"]], [["P-1"], []])
+        self.assertEqual([[run[key] for key in ("stop_reason", "stopped_ns", "reasons")] for run in found["runs"]],
+                         [[None, None, None], ["PAPER_CACHE_UNAVAILABLE", 5, ["STOPPED:PAPER_CACHE_UNAVAILABLE"]]])
+        self.assertNotIn("daily_returns", found["runs"][1])
 
     def test_a_routed_web_health_failure_names_the_reader_path_and_status(self):
         host = DockerHost(Config())

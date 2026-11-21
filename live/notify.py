@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import copy
 from datetime import date, datetime, timedelta, timezone
+import json
 import os
 from pathlib import Path
 import re
@@ -496,12 +497,19 @@ def _last_day(run: dict) -> str | None:
     return metrics.utc_day(max(found)) if found else None
 
 
+def _log(line: str) -> None:
+    print(line, flush=True)
+
+
 def step(record: dict, facts: list[dict], now: int, send: Callable[[str], object],
-         save: Callable[[], None], stop: Callable[[], bool] = lambda: False) -> None:
+         save: Callable[[], None], stop: Callable[[], bool] = lambda: False, log: Callable[[str], None] = _log) -> None:
     """Send what is new, strictly in order, saving after each change. A failure ends the tick; it is retried later.
+    Each attempt's text and outcome is also printed to the control's log (`log`), which the host journal keeps:
+    state.json keeps only the keys.
 
     The first pass after enabling (no summary key in `done` yet) records the current facts as history, unsent.
     """
+    moment = datetime.fromtimestamp(now / 1e9, timezone.utc).isoformat(timespec="seconds")
     done = set(record["done"])
     today = DAILY + metrics.utc_day(now)
     candidates = [pair for run in facts for pair in messages(run)]
@@ -518,21 +526,25 @@ def step(record: dict, facts: list[dict], now: int, send: Callable[[str], object
                 break  # strict order: nothing overtakes a message still waiting
             if text is None:  # every earlier message is sent, so the previous day's fills are all counted
                 text = _summary(facts, metrics.utc_day(now - daily.DAY_NS))
+            said = json.dumps(text, ensure_ascii=False)
             try:
                 send(text[:4000])
             except Failure as exc:
                 record["last_error"] = {"code": exc.code, "at_ns": now}
                 if exc.status is not None and 400 <= exc.status < 500 and exc.status != 429:
+                    log(f"Notice {moment} live {key} refused by Telegram ({exc.code}): {said}")
                     done.add(key)  # Telegram refused this message: retrying cannot deliver it
                     record["dropped"] += 1
                     record["attempts"].pop(key, None)
                 else:
+                    log(f"Notice {moment} live {key} not sent ({exc.code}): retried later: {said}")
                     count = (attempt["n"] if attempt else 0) + 1
                     record["attempts"][key] = {"n": count, "next_ns": now + min(BACKOFF_NS * 2 ** (count - 1),
                                                                                     MAX_BACKOFF_NS)}
                 record["done"] = sorted(done)
                 save()
                 break
+            log(f"Notice {moment} live {key} sent: {said}")
             sent += 1
             done.add(key)
             record["attempts"].pop(key, None)
@@ -575,6 +587,6 @@ def tick(config: configuration.Configuration, *, call: Call = telegram, now: int
             step(record, facts, time.time_ns() if now is None else now,
                  lambda text: call(token, "sendMessage", {"chat_id": chat, "text": text,
                                                           "link_preview_options": {"is_disabled": True}}),
-                 lambda: _save(directory, record), stop)
+                 lambda: _save(directory, record), stop, _log)
     except Exception:
         pass  # notification never affects run maintenance; the page shows the last recorded error

@@ -1,11 +1,19 @@
 # Overlay on ../compose.yaml; use --env-file /etc/trade/remote.env and both -f files (README.md).
 # Never expose the unauthenticated IDE, ledger or Paper API on a public interface.
+
+# Every service's log goes to the host journal under its container's name, so it outlives the container (a release
+# recreates ledger, market-import and docker-api) and a reboot; journald's own size cap bounds it (README.md, Logs).
+x-journald: &journald
+  driver: journald
+  options: {tag: "{{.Name}}"}
+
 services:
   # The release plane runs the Web, its Agent and the Paper controller (install-release.sh); a whole-project
   # `up` must not start a second Agent writer or Paper controller beside them.
   ide:
     profiles: [workstation]
   ledger:
+    logging: *journald
     ports: !reset []
     healthcheck:
       test: [CMD, python, -m, cli.main, ledger, service, check, --ledger, research]
@@ -38,6 +46,9 @@ services:
     profiles: [workstation]
   market-import:
     profiles: [local-research-import]
+    logging: *journald
+  docker-api:
+    logging: *journald
   oauth2:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048
     user: "${TRADE_UID:?set TRADE_UID}:${TRADE_GID:?set TRADE_GID}"
@@ -61,9 +72,7 @@ services:
       - source: remote-oauth
         target: /etc/oauth2-proxy.cfg
     secrets: [github_client_secret, oauth_cookie_secret]
-    logging: &remote-logging
-      driver: json-file
-      options: {max-size: 10m, max-file: "3"}
+    logging: *journald
   edge:
     image: caddy:2.11.9-alpine@sha256:71d41fe4b1ae92a058abc87afe614178b996d8a6b96d0f4c71ae30606e5927e3
     restart: unless-stopped
@@ -81,7 +90,7 @@ services:
       - source: remote-caddy
         target: /etc/caddy/Caddyfile
     volumes: [remote-caddy-data:/data, remote-caddy-config:/config]
-    logging: *remote-logging
+    logging: *journald
 networks:
   edge: {}
   frontend:
