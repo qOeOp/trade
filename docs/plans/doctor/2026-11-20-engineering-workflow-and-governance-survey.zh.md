@@ -30,3 +30,4 @@
 
 - 2026-11-20 用户要求把调研出的工程效率、数据处理与项目治理事项记入 Doctor 未结列表。
 - authority 行（`20261120-11`..`13`）尚待用户决定。
+- 2026-11-21 用户对含 `20261120-11`、`-12`、`-13` 的清单回复「我都授权」。`20261120-11` 用标准库做：`tests/test_package_layers.py` 加包内导入循环检查（main 上 9 个强连通分量、45 条成环导入边，记为 `CYCLE_EDGES`，只减不增）；新增 `tests/test_source_hygiene.py`：超过 800 行的产品模块 12 个记为 `OVERSIZED`（只减不增），测试以外没有使用者的顶层函数与类 0 个，第三方导入与 `pyproject.toml` 声明一致（`plotly` 只由 `nautilus_trader.analysis` 加载时导入，单列为间接依赖），`deploy` 只导入标准库。没有加 vulture、deptry：开发依赖组进 `uv.lock`，会改变回放镜像的 `dependency_lock_sha256`。
