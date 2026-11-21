@@ -76,6 +76,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   changes; it set the `background` shorthand beside `backgroundImage`, which React warned about and which could drop
   the hatching on rerender.
 
+- `research-round` strategy authoring: a candidate meant for Paper or Live declares the recovery protocol
+  (`PAPER_RECOVERY = 1`, `on_save` and `on_load` of its own state) when it is created, and its save/load round trip
+  is checked before it is proposed for Paper. Paper runs 2 to 4 of candidates without it could not resume after a
+  host reboot or a VM stall (`PAPER_RECOVERY_UNAVAILABLE`); nothing in `paper start` or the IDE refuses such a source.
+
 - `research-round` strategy authoring: a source keeps its state bounded and updates it per input, never rescanning
   the whole history on each bar (doctor 20261121-02: a price-action root's replay time grew 37 times for a window
   3.3 times longer).
